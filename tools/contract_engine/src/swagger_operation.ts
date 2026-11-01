@@ -16,7 +16,7 @@ export function swaggerMedia(graph:ReferenceGraph,resource:string,pointer:string
     return selected;
 }
 export {swaggerServers} from './swagger_servers';
-export function swaggerFlat(value:any,source:LocatedSource) {
+export function swaggerFlat<Source extends Pick<LocatedSource,'resource'|'pointer'|'range'>>(value:any,source:Source) {
     const collectionFormat=value.collectionFormat??'csv';
     return {family:'2.0',type:value.type,collectionFormat,
         items:value.items?{type:value.items.type,collectionFormat:value.items.collectionFormat??'csv',items:swaggerItems(value.items.items)}:undefined,

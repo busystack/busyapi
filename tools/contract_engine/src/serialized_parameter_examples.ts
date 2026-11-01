@@ -7,6 +7,7 @@ import {capturedExampleHeaders,exampleHeaderName} from './runtime_headers';
 import {FormSemantics} from './form_semantics';
 import {validateMockParameters,type ParameterOmission} from './mock_request_parameters';
 import type {NativeRuntimeInstance,NativeRuntimeCheck} from './mock_projection';
+import {swaggerFlat} from './swagger_operation';
 
 export type SerializationCheck={complete:boolean;evaluations:Record<string,unknown>[];findings:Record<string,unknown>[];instances:number};
 type ExampleMedia={mediaType:string;definition:RuntimeMediaTarget}&Pick<CapturedRuntimeMedia,'schema'|'itemSchema'>;
@@ -31,8 +32,15 @@ export function externalParameterText(graph:ReferenceGraph,owner:GraphScope,byte
 export function parameterSerializationEvaluator(graph:ReferenceGraph,evaluate:Evaluate) {
  const parameters=new ParameterSemantics(graph),header=capturedExampleHeaders(graph),capture=capturedRuntimeMedia(graph);
  const shapes=new FormSemantics(graph);
- return async (owner:GraphScope,text:string,wireBytes?:Buffer):Promise<ParameterSerializationCheck>=>{
+ return async (owner:GraphScope,text:string,wireBytes?:Buffer|'octets'):Promise<ParameterSerializationCheck>=>{
+ const runtime=wireBytes==='octets';
  const wireHeader=owner.kind==='header'||owner.kind==='parameter'&&parameters.occurrence(owner).location==='header';
+ if(wireBytes==='octets'){
+  const encoded=Buffer.from(text,wireHeader?'latin1':'utf8');
+  if(encoded.toString(wireHeader?'latin1':'utf8')!==text)return {complete:true,valid:false,
+   findings:[{code:'example.serialization.encoding',severity:'error',message:'The serialization does not retain a valid URI or HTTP field byte representation.'}],instances:0};
+  wireBytes=encoded;
+ }
  if(wireBytes){
   try{text=externalParameterText(graph,owner,wireBytes);}
   catch(error){
@@ -41,7 +49,7 @@ export function parameterSerializationEvaluator(graph:ReferenceGraph,evaluate:Ev
   }
  }
  const representation=(instance:NativeRuntimeInstance):NativeRuntimeInstance=>!instance.mediaType?instance:
-  wireBytes?(wireHeader?{...instance,text:Buffer.from(instance.text,'latin1').toString('base64'),mediaBase64:true}:instance):
+  wireBytes?(wireHeader&&!instance.mediaBase64?{...instance,text:Buffer.from(instance.text,'latin1').toString('base64'),mediaBase64:true}:instance):
    {...instance,unicodeSerialization:true};
 
  if(owner.kind==='header'){
@@ -74,9 +82,10 @@ export function parameterSerializationEvaluator(graph:ReferenceGraph,evaluate:Ev
  const occurrence=parameters.occurrence(owner),target=occurrence.definition;
  if(occurrence.state!=='resolved'||!target||occurrence.name===undefined||!occurrence.location)
   throw new SourceError('example.parameter.context','The captured Parameter example has no resolved native declaration',[0,0],'unsupported');
- const document=graph.docs.get(target.resource)!,node=document.dataNode(target.pointer)!,family=graph.scope(target.resource,target.pointer).family;
- if(!isNativeFamily(family)||family==='2.0')throw new SourceError('example.parameter.family','This Parameter declaration has no supported Example Object representation',[0,0],'unsupported');
+ const document=graph.docs.get(target.resource)!,node=document.dataNode(target.pointer)!,family=graph.scopeAs(target.resource,target.pointer,'parameter')?.family;
+ if(!isNativeFamily(family)||family==='2.0'&&!runtime)throw new SourceError('example.parameter.family','This Parameter declaration has no supported Example Object representation',[0,0],'unsupported');
  const value=node.value,name=occurrence.name,location=occurrence.location;
+ if(family==='2.0'&&!['query','path','header'].includes(location))throw new SourceError('runtime.parameter.context','Body and formData values require their captured body representation',[0,0],'unsupported');
  const content:ExampleMedia[]=[];
  const media=document.dataNode(target.pointer+'/content');
  if(media?.kind==='object')for(const [type]of media.children){
@@ -85,7 +94,8 @@ export function parameterSerializationEvaluator(graph:ReferenceGraph,evaluate:Ev
   content.push({mediaType:type,schema:selected.schema,itemSchema:selected.itemSchema,definition:source});
  }
  const declaration={name,in:location,family,...parameterStyle(family,location,value),required:value.required===true||location==='path',allowEmptyValue:value.allowEmptyValue===true,
-  definition:{resource:target.resource,pointer:target.pointer,range:node.range},...(node.children.has('schema')?{schema:{resource:target.resource,pointer:target.pointer+'/schema'}}:{}),content};
+  definition:{resource:target.resource,pointer:target.pointer,range:node.range},...(node.children.has('schema')?{schema:{resource:target.resource,pointer:target.pointer+'/schema'}}:{}),content,
+  ...(family==='2.0'?swaggerFlat(value,{resource:target.resource,pointer:target.pointer,range:node.range}):{})};
  let instances=0,proofs=0;
  const omissions:ParameterOmission[]=[];
  const prove=async(values:NativeRuntimeInstance[]):Promise<NativeRuntimeCheck>=>{
@@ -98,7 +108,7 @@ export function parameterSerializationEvaluator(graph:ReferenceGraph,evaluate:Ev
    return {complete:checked.complete,valid:checked.complete&&evaluations.every(item=>item.valid),evaluations,findings:checked.findings} satisfies NativeRuntimeCheck;
   };
  const result=await validateMockParameters(graph,{parameters:[declaration]},'/'+(location==='path'?'{'+name+'}':''),location==='path'?'/'+text:'/',
-  location==='query'||location==='querystring'?text:'',location==='header'?{[name.toLowerCase()]:text}:location==='cookie'?{cookie:text}:{},prove,shapes,omission=>omissions.push(omission));
+  location==='query'||location==='querystring'?text:'',location==='header'?{[name.toLowerCase()]:text}:location==='cookie'?{cookie:text}:{},prove,shapes,omission=>omissions.push(omission),wireBytes?'octets':'unicode');
  if(result.complete&&proofs===0&&result.findings.length===0&&text!=='')return {complete:true,valid:false,instances:0,
   findings:[{code:'runtime.request.parameter.serialization',severity:'error',message:'This serialization does not contain its named parameter value.'}]};
  const omitted=omissions.find(value=>value.collections.length>0);

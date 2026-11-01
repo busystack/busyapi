@@ -15,9 +15,10 @@ import {headerValueParts} from './header_values';
 import {capturedRuntimeHeaders,type RuntimeHeaderTarget} from './runtime_headers';
 import {capturedRuntimeMedia,type RuntimeMediaTarget} from './runtime_media_owner';
 import {swaggerFileSchemas} from './swagger_file';
+import {parameterSerializationEvaluator,type ParameterSerializationCheck} from './serialized_parameter_examples';
 
 type SchemaLocation={resource:string;pointer:string};
-type RuntimeInstance={text:string;subject:string;location:string;schema?:SchemaLocation;itemSchema?:SchemaLocation;media?:RuntimeMediaTarget;mediaType?:string;mediaBase64?:boolean;unicodeSerialization?:boolean;textSerialization?:TextSerialization;form?:RuntimeFormTarget;alternatives?:string[];swaggerHeader?:SwaggerHeaderTarget;header?:RuntimeHeaderTarget};
+type RuntimeInstance={text:string;subject:string;location:string;schema?:SchemaLocation;itemSchema?:SchemaLocation;parameter?:SchemaLocation;media?:RuntimeMediaTarget;mediaType?:string;mediaBase64?:boolean;unicodeSerialization?:boolean;textSerialization?:TextSerialization;form?:RuntimeFormTarget;alternatives?:string[];swaggerHeader?:SwaggerHeaderTarget;header?:RuntimeHeaderTarget};
 type Finding=Record<string,unknown>;
 type Owner={snapshot:string;graph:ReferenceGraph;scopes:ReadonlyMap<string,SchemaEvaluationScope>;
  exact:ReturnType<typeof createExactNumericAdapter>;compile:(scope:SchemaEvaluationScope)=>Promise<CompiledSchema|undefined>;schemaReady:(scope:SchemaEvaluationScope)=>boolean;
@@ -33,6 +34,8 @@ function suppliedInstance(value:unknown):RuntimeInstance {
  const shapes=(value:unknown)=>value!==null&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length<=2048&&Object.values(value).every(shape=>shape==='single'||shape==='array');
  if(typeof item.text!=='string'||item.text.length>64*1024*1024||typeof item.subject!=='string'||item.subject.length>1024||
   typeof item.location!=='string'||item.location.length>4096||item.schema!==undefined&&!schema(item.schema)||
+  item.parameter!==undefined&&(!schema(item.parameter)||Object.keys(item.parameter).some(name=>!['resource','pointer'].includes(name))||item.subject!=='request-parameter'||
+   ['schema','itemSchema','media','mediaType','form','alternatives','swaggerHeader','header','textSerialization','unicodeSerialization','mediaBase64'].some(name=>item[name]!==undefined))||
   item.itemSchema!==undefined&&!schema(item.itemSchema)||item.mediaType!==undefined&&(typeof item.mediaType!=='string'||item.mediaType.length>16384)||
   item.media!==undefined&&(!schema(item.media)||item.mediaType===undefined&&item.subject!=='response-body'||item.form!==undefined||!['request-body','response-body'].includes(item.subject))||
   item.form!==undefined&&(!schema(item.form)||'occurrence' in item.form&&(typeof item.form.occurrence!=='string'||item.form.occurrence.length>4096)||'fileShapes' in item.form&&(!shapes(item.form.fileShapes)||item.subject!=='request-body')||item.mediaType===undefined)||
@@ -188,12 +191,37 @@ async function evaluateRuntimeValues(runtime:unknown,owner:Owner,diagnostics?:{o
  * or a union of independent fields, and discarded candidates cannot leak their
  * findings into a successful proof. Media framing remains a single assertion. */
 export async function evaluateRuntimeInstances(runtime:unknown,owner:Owner) {
- if(!Array.isArray(runtime)||!runtime.some(value=>value!==null&&typeof value==='object'&&(value.alternatives!==undefined||value.swaggerHeader!==undefined||value.header!==undefined)))return evaluateRuntimeValues(runtime,owner);
+ if(!Array.isArray(runtime)||!runtime.some(value=>value!==null&&typeof value==='object'&&(value.parameter!==undefined||value.alternatives!==undefined||value.swaggerHeader!==undefined||value.header!==undefined)))return evaluateRuntimeValues(runtime,owner);
  if(runtime.length>2048)throw new SourceError('limit.runtime.instances','Runtime conformance input exceeds 2048 instances');
- const entries=runtime.map(suppliedInstance),expanded:RuntimeInstance[]=[],groups:({entry:RuntimeInstance;locations:string[];representationsComplete:boolean}|{entry:RuntimeInstance;failure:SourceError}|{entry:RuntimeInstance;unconstrained:true})[]=[];
+ const entries=runtime.map(suppliedInstance),expanded:RuntimeInstance[]=[],groups:({entry:RuntimeInstance;locations:string[];representationsComplete:boolean}|{entry:RuntimeInstance;failure:SourceError}|{entry:RuntimeInstance;unconstrained:true}|{entry:RuntimeInstance;serialized:ParameterSerializationCheck})[]=[];
  const decodeHeader=capturedRuntimeHeaders(owner.graph);
+ let parameterInstances=0,parameterWork=0,parameterCandidates=0;
+ const decodeParameter=parameterSerializationEvaluator(owner.graph,async values=>{
+  parameterCandidates+=values.reduce((count,value)=>count+1+(value.alternatives?.length??0),0);
+  if(parameterCandidates>2048||parameterInstances>=2048)throw new SourceError('limit.runtime.parameters','Serialized parameter inversion exceeds 2048 candidate checks',[0,0],'unsupported');
+  const checked=await evaluateRuntimeInstances(values,owner);
+  parameterInstances+=checked.instances;
+  if(parameterInstances>2048)throw new SourceError('limit.runtime.parameters','Serialized parameter evaluation exceeds 2048 schema checks',[0,0],'unsupported');
+  return checked;
+ });
  for(const [index,supplied]of entries.entries()){
   let entry=supplied,representationsComplete=true;
+  if(entry.parameter){
+   const scope=owner.graph.scopeAs(entry.parameter.resource,entry.parameter.pointer,'parameter');
+   if(!scope)throw new SourceError('runtime.instance','Serialized parameter evaluation requires its captured Parameter occurrence');
+   try{
+    parameterWork+=Buffer.byteLength(entry.text,'utf8');
+    if(parameterWork>64*1024*1024)throw new SourceError('limit.runtime.parameters','Serialized parameter evaluation exceeds its 64 MiB byte-work budget',[0,0],'unsupported');
+    // This wire string comes from native request controls. HTTP fields retain
+    // their octet view; the canonical occurrence supplies every other rule.
+    const serialized=await decodeParameter(scope,entry.text,'octets');
+    groups.push({entry,serialized});
+   }catch(error){
+    if(!(error instanceof SourceError)||error.code==='runtime.instance')throw error;
+    groups.push({entry,failure:error});
+   }
+   continue;
+  }
   if(entry.header){
    try{
     const decoded=decodeHeader(entry.header);
@@ -241,6 +269,15 @@ export async function evaluateRuntimeInstances(runtime:unknown,owner:Owner) {
  let complete=result.complete;
  for(const group of groups){
   const {entry}=group;
+  if('serialized' in group){
+   const checked=group.serialized;
+   complete=complete&&checked.complete;
+   evaluations.push({subject:entry.subject,location:entry.location,pointer:'',parameter:entry.parameter,complete:checked.complete,valid:checked.valid});
+   const source=entry.parameter&&{...entry.parameter,range:owner.graph.docs.get(entry.parameter.resource)?.dataNode(entry.parameter.pointer)?.range};
+   findings.push(...checked.findings.map(finding=>({version:1,category:'runtime',producer:owner.producer.name,producerVersion:owner.producer.version,snapshot:owner.snapshot,
+    ...finding,subject:entry.subject,location:entry.location,...(source?{source}:{})})));
+   continue;
+  }
   if('unconstrained' in group){
    evaluations.push({subject:entry.subject,location:entry.location,pointer:'',complete:true,valid:true,representation:'unconstrained-header'});continue;
   }
@@ -248,10 +285,10 @@ export async function evaluateRuntimeInstances(runtime:unknown,owner:Owner) {
    const failure=group.failure,unsupported=failure.kind==='unsupported'||failure.code.startsWith('limit.')||failure.code==='mock.validation.protocol';
    const header=entry.swaggerHeader!==undefined||entry.header!==undefined;
    if(unsupported)complete=false;
-   const target=entry.header??entry.swaggerHeader??entry.schema;
-   evaluations.push({subject:entry.subject,location:entry.location,pointer:'',complete:!unsupported,valid:false,reason:unsupported?'unsupported-representation':header?'invalid-header':'incompatible-alternatives'});
+   const target=entry.header??entry.swaggerHeader??entry.parameter??entry.schema;
+   evaluations.push({subject:entry.subject,location:entry.location,pointer:'',...(entry.parameter?{parameter:entry.parameter}:{}),complete:!unsupported,valid:false,reason:unsupported?'unsupported-representation':header?'invalid-header':entry.parameter?'invalid-parameter':'incompatible-alternatives'});
    findings.push({version:1,category:'runtime',producer:owner.producer.name,producerVersion:owner.producer.version,snapshot:owner.snapshot,
-    code:header?(unsupported?'runtime.response.header.unchecked':'runtime.response.header.serialization'):'runtime.schema.alternatives.unchecked',severity:unsupported?'warning':'error',...(unsupported?{kind:'unsupported'}:{}),
+    code:header?(unsupported?'runtime.response.header.unchecked':'runtime.response.header.serialization'):entry.parameter?(unsupported?'runtime.request.parameter.unchecked':'runtime.request.parameter.serialization'):'runtime.schema.alternatives.unchecked',severity:unsupported?'warning':'error',...(unsupported?{kind:'unsupported'}:{}),
     subject:entry.subject,location:entry.location,pointer:'',message:failure.message,detailCode:failure.code,
     ...(target?{schema:{resource:target.resource,pointer:target.pointer,range:owner.graph.docs.get(target.resource)?.dataNode(target.pointer)?.range}}:{})});continue;
   }
@@ -276,5 +313,5 @@ export async function evaluateRuntimeInstances(runtime:unknown,owner:Owner) {
  }
  if(!complete&&!findings.some(value=>value.severity==='warning'))findings.push({version:1,category:'runtime',producer:owner.producer.name,producerVersion:owner.producer.version,snapshot:owner.snapshot,
   code:'runtime.schema.alternatives.unchecked',severity:'warning',message:'The bounded runtime alternative evaluation did not complete; no complete result is claimed.'});
- return {complete,evaluations,findings,instances:result.instances};
+ return {complete,evaluations,findings,instances:result.instances+parameterInstances};
 }

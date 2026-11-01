@@ -119,9 +119,10 @@ function decodeRuntimeHeader(shapeFor:ReturnType<typeof headerShapes>,declaratio
     if(content.length){
         if(content.length!==1)unsupported('A header has more than one content representation');
         const text=contentHeaderValue(name,values,family);
+        if(!example&&/[^\x00-\xff]/u.test(text))malformed('The received header has no octet-preserving field representation');
         const media=content[0];
         if(!example&&!media.schema&&!media.itemSchema&&runtimeMediaKind(media.mediaType)==='opaque')return;
-        return {complete:true,instance:{subject:'response-header',location:name,text,mediaType:media.mediaType,schema:media.schema,itemSchema:media.itemSchema,
+        return {complete:true,instance:{subject:'response-header',location:name,text:example?text:Buffer.from(text,'latin1').toString('base64'),...(!example?{mediaBase64:true}:{}),mediaType:media.mediaType,schema:media.schema,itemSchema:media.itemSchema,
             ...(runtimeFormMedia(media.mediaType)&&media.formOwner?{form:media.formOwner}:{})}};
     }
     const schema=schemaLocation(declaration.schema);

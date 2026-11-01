@@ -815,11 +815,54 @@ class OperationRequestPlan {
         result['complete'] is! bool ||
         result['runtimeEvaluations'] is! List ||
         result['runtimeFindings'] is! List ||
-        result['producer'] is! String ||
-        result['producerVersion'] is! String) {
+        result['producer'] != 'hyperjump+busyapi-exact' ||
+        result['producerVersion'] != _schemaProducerVersion) {
       throw CoreFailure(
         'runtime.protocol',
         'The schema worker returned an unrelated or malformed runtime result',
+      );
+    }
+    final expectedParameters = <String, int>{};
+    String parameterKey(
+      String subject,
+      String location,
+      String resource,
+      String pointer,
+    ) => jsonEncode([subject, location, resource, pointer]);
+    for (final instance in instances) {
+      final parameter = instance.parameter;
+      if (parameter == null) continue;
+      final key = parameterKey(
+        instance.subject, instance.location, parameter.resource, parameter.pointer,
+      );
+      expectedParameters.update(key, (count) => count + 1, ifAbsent: () => 1);
+    }
+    final actualParameters = <String, int>{};
+    for (final proof in result['runtimeEvaluations'] as List) {
+      if (proof is! Map || !proof.containsKey('parameter')) continue;
+      final parameter = proof['parameter'];
+      if (parameter is! Map ||
+          parameter.keys.any((key) => key != 'resource' && key != 'pointer') ||
+          parameter['resource'] is! String ||
+          parameter['pointer'] is! String ||
+          proof['subject'] is! String || proof['location'] is! String ||
+          proof['complete'] is! bool || proof['valid'] is! bool) {
+        throw CoreFailure(
+          'runtime.protocol',
+          'The serialized parameter proof has malformed captured ownership.',
+        );
+      }
+      final key = parameterKey(
+        proof['subject'] as String, proof['location'] as String,
+        parameter['resource'] as String, parameter['pointer'] as String,
+      );
+      actualParameters.update(key, (count) => count + 1, ifAbsent: () => 1);
+    }
+    if (actualParameters.length != expectedParameters.length ||
+        expectedParameters.entries.any((entry) => actualParameters[entry.key] != entry.value)) {
+      throw CoreFailure(
+        'runtime.protocol',
+        'The worker omitted, repeated or replaced a serialized parameter proof.',
       );
     }
     return _freezeResult(result);
@@ -936,6 +979,14 @@ class RuntimeMediaTarget {
   Map<String, String> toJson() => {'resource': resource, 'pointer': pointer};
 }
 
+/// A complete parameter serialization interpreted by its captured declaration.
+/// No caller-supplied family, style, schema or reference target is admitted.
+class RuntimeParameterTarget {
+  const RuntimeParameterTarget({required this.resource, required this.pointer});
+  final String resource, pointer;
+  Map<String, String> toJson() => {'resource': resource, 'pointer': pointer};
+}
+
 /// Actual field lines and their captured response-header occurrence. The
 /// contract engine owns reference following, family rules and representation.
 class RuntimeHeaderTarget {
@@ -988,6 +1039,7 @@ class RuntimeSchemaInstance {
     this.alternatives = const [],
     this.swaggerHeader,
     this.header,
+    this.parameter,
   });
   final String subject, location, text;
   final String? schemaResource, schemaPointer;
@@ -998,6 +1050,7 @@ class RuntimeSchemaInstance {
   final List<String> alternatives;
   final RuntimeSwaggerHeaderTarget? swaggerHeader;
   final RuntimeHeaderTarget? header;
+  final RuntimeParameterTarget? parameter;
   Map<String, Object?> toJson() => {
     'subject': subject,
     'location': location,
@@ -1017,6 +1070,7 @@ class RuntimeSchemaInstance {
       'alternatives': List<String>.of(alternatives, growable: false),
     if (swaggerHeader != null) 'swaggerHeader': swaggerHeader!.toJson(),
     if (header != null) 'header': header!.toJson(),
+    if (parameter != null) 'parameter': parameter!.toJson(),
   };
 }
 

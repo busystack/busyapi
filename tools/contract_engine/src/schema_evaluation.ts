@@ -35,8 +35,9 @@ import {externalExampleRevision} from './external_examples';
 import {exampleRepresentation,mediaExampleRepresentations,type ExampleValueField} from './example_representation';
 import {embeddedMimeTextRevision} from './embedded_mime_text';
 
-export const schemaProducer={name:'hyperjump+busyapi-exact',version:'1.18.0+47',configuration:[
+export const schemaProducer={name:'hyperjump+busyapi-exact',version:'1.18.0+48',configuration:[
  `external-example-bytes-v${externalExampleRevision}`,
+ 'parameter-runtime-serialization-v1',
  `discriminator-models-v${discriminatorModelsRevision}`,
  `swagger-schema-rules-v${swaggerSchemaRulesRevision}`,
  'oas20-draft4-restricted','structural20-2017-08-27','oas30-restricted','structural30-2024-10-18',

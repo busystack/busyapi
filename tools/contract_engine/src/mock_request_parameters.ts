@@ -166,7 +166,7 @@ function data(parameter:Parameter,values:readonly string[],raw:boolean,fields:re
 
 /** Decode wire parameters using graph-owned effective definitions, including
  * inheritance and references. These codecs never resolve or evaluate schemas. */
-export async function validateMockParameters(graph:ReferenceGraph,plan:unknown,template:string,path:string,query:string,headers:Readonly<Record<string,string>>,evaluate:Evaluate,parameterShapes?:FormSemantics,onOmission?:(omission:ParameterOmission)=>void):Promise<NativeMockCheck> {
+export async function validateMockParameters(graph:ReferenceGraph,plan:unknown,template:string,path:string,query:string,headers:Readonly<Record<string,string>>,evaluate:Evaluate,parameterShapes?:FormSemantics,onOmission?:(omission:ParameterOmission)=>void,headerInput:'octets'|'unicode'='octets'):Promise<NativeMockCheck> {
     if(!record(plan)||!Array.isArray(plan.parameters)||plan.parameters.length>maximumInstances)throw new SourceError('mock.validation.protocol','The native parameter projection is malformed');
     const shapes=parameterShapes??new FormSemantics(graph);
     const parameters:Parameter[]=plan.parameters.map(value=>{
@@ -195,6 +195,7 @@ export async function validateMockParameters(graph:ReferenceGraph,plan:unknown,t
                 pathFields??=pathValues(template,path);const value=pathFields.get(parameter.name);values=value===undefined?[]:[value];raw=true;
             }else if(parameter.in==='header'){
                 const name=parameter.name.toLowerCase(),value=Object.hasOwn(headers,name)?headers[name]:undefined;values=value===undefined?[]:[value];
+                if(values.some(value=>/[\x00-\x08\x0a-\x1f\x7f]/u.test(value)))malformed('A header field line contains a prohibited HTTP control');
             }else if(parameter.in==='cookie'){
                 const cookie=parameter.style==='cookie';
                 const segments=pairs(headers.cookie??'',';',false).map(([name,value])=>[name.trim(),value] as Pair);
@@ -228,7 +229,9 @@ export async function validateMockParameters(graph:ReferenceGraph,plan:unknown,t
             if(candidates+texts.length>maximumInstances)unsupported('Native parameter validation exceeds 2048 captured instances');
             candidates+=texts.length;
             const media=parameter.content[0],form=mediaType&&runtimeFormMedia(mediaType)?media?.formOwner:undefined;
-            instances.push({subject:'request-parameter',location,text:texts[0],schema:media?.schema??parameter.schema,...(texts.length>1?{alternatives:texts.slice(1)}:{}),...(mediaType?{mediaType,itemSchema:media?.itemSchema}:{}),...(form?{form}:{})});
+            const octets=mediaType!==undefined&&parameter.in==='header'&&headerInput==='octets';
+            if(octets&&/[^\x00-\xff]/u.test(texts[0]))malformed('The received header has no octet-preserving field representation');
+            instances.push({subject:'request-parameter',location,text:octets?Buffer.from(texts[0],'latin1').toString('base64'):texts[0],schema:media?.schema??parameter.schema,...(texts.length>1?{alternatives:texts.slice(1)}:{}),...(mediaType?{mediaType,itemSchema:media?.itemSchema}:{}),...(octets?{mediaBase64:true}:{}),...(form?{form}:{})});
             sources.set(location,parameter.source);
         }catch(error){
             if(!(error instanceof SourceError))throw error;

@@ -13,10 +13,12 @@ void main() {
         final directory = await Directory.systemTemp.createTemp('busyapi-external-parameter-');
         addTearDown(() => directory.delete(recursive: true));
         final seen = <String>[];
+        final seenHeaders = <List<int>>[];
         final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
         addTearDown(() => server.close(force: true));
         server.listen((request) async {
           seen.add(request.uri.toString());
+          seenHeaders.add((request.headers.value('X-Json') ?? '').codeUnits);
           await request.drain<void>();
           request.response.statusCode = 204;
           request.response.headers.set('X-Cafe', 'café');
@@ -25,11 +27,15 @@ void main() {
         final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);
         addTearDown(engine.close);
         final file = File('${directory.path}/api.$format'), query = File('${directory.path}/query.bin'), header = File('${directory.path}/header.bin');
+        final jsonHeader = File('${directory.path}/json-header.bin');
         await query.writeAsString('q=%E9%9B%AA');
         await header.writeAsBytes([99, 97, 102, 233]);
+        await jsonHeader.writeAsBytes(utf8.encode('"雪"'));
         final paths = {'/p': {'get': {
           'parameters': [{'name': 'q', 'in': 'query', 'schema': {'type': 'string', 'enum': ['雪']},
-            'examples': {'Captured': {'externalValue': 'query.bin'}}}],
+            'examples': {'Captured': {'externalValue': 'query.bin'}}},
+            {'name': 'X-Json', 'in': 'header', 'content': {'application/json': {'schema': {'type': 'string', 'enum': ['雪']}}},
+              'examples': {'Captured': {'externalValue': 'json-header.bin'}}}],
           'responses': {'204': {'description': 'No content', 'headers': {'X-Cafe': {
             'content': {'text/plain; charset=iso-8859-1': {'schema': {'type': 'string', 'enum': ['café']}}},
             'examples': {'Captured': {'externalValue': 'header.bin'}},
@@ -48,17 +54,20 @@ void main() {
         final checked = await project.check(root);
         expect(checked['complete'], true, reason: '$checked');
         final examples = checked['categories']['openapi']['schema']['serializedExamples'] as List;
-        expect(examples, hasLength(2));
+        expect(examples, hasLength(3));
         expect(examples.every((value) => value['complete'] == true && value['valid'] == true), true);
         final plan = await project.prepareRequest(root, resource: root, pointer: '/paths/~1p/get');
         addTearDown(plan.close);
-        final parameter = (plan.result['parameters'] as List).single as Map,
+        final parameter = (plan.result['parameters'] as List).first as Map,
             example = (parameter['examples'] as List).single as Map;
+        final headerParameter = (plan.result['parameters'] as List).last as Map,
+            headerExample = (headerParameter['examples'] as List).single as Map;
         expect(example['raw'], 'q=%E9%9B%AA');
         expect(example['conversionError'], isNull);
         final result = await const ContractRequestExecutor().execute(plan,
             OperationRequestDraft(planIdentity: plan.identity, parameters: {
               OperationRequestDraft.parameterKey('query', 'q'): RequestValue.serialized(example['raw'] as String),
+              OperationRequestDraft.parameterKey('header', 'X-Json'): RequestValue.serialized(headerExample['raw'] as String),
             }), resolveSecret: (_) async => null);
         try {
           expect(result.response.status, 204);
@@ -68,6 +77,7 @@ void main() {
           await result.close();
         }
         expect(seen, ['/p?q=%E9%9B%AA']);
+        expect(seenHeaders, [utf8.encode('"雪"')]);
         expect(await query.readAsString(), 'q=%E9%9B%AA');
         expect(await header.readAsBytes(), [99, 97, 102, 233]);
         expect(await file.readAsString(), original);

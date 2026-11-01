@@ -3757,6 +3757,23 @@ class ContractRequestExecutor {
           value = draft
               .parameters[OperationRequestDraft.parameterKey(location, name)];
       if (value == null || !value.present) continue;
+      if (value.representation == RequestValueRepresentation.serializedParameter) {
+        if (utf8.encode(value.text).length > _evaluationLimit) {
+          checksComplete = false;
+          findings.add(_finding('runtime.request.parameter.limit', 'warning',
+              'The parameter exceeds the bounded evaluation input.', location: '$location:$name'));
+        } else {
+          final source = parameter['source'];
+          if (source is! Map || source['resource'] is! String || source['pointer'] is! String) {
+            throw CoreFailure('runtime.parameter.owner', 'The serialized parameter has no captured declaration.');
+          }
+          instances.add(RuntimeSchemaInstance(
+            subject: 'request-parameter', location: '$location:$name', text: value.text,
+            parameter: RuntimeParameterTarget(resource: source['resource'] as String, pointer: source['pointer'] as String),
+          ));
+        }
+        continue;
+      }
       Map? schema = parameter['schema'] as Map?;
       Map? contentMedia;
       var typedContentSupported = true, jsonContent = false;
@@ -3854,9 +3871,7 @@ class ContractRequestExecutor {
         );
         continue;
       }
-      if (value.representation ==
-              RequestValueRepresentation.serializedParameter ||
-          value.representation == RequestValueRepresentation.serializedMedia) {
+      if (value.representation == RequestValueRepresentation.serializedMedia) {
         checksComplete = false;
         findings.add(
           _finding(

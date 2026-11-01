@@ -11,6 +11,11 @@ for(const name of ['Content-Type','Content-Length','Date','Location'])test(`repe
  const result=await evaluateSchemas({...fixture,runtimeInstances:[fixture.wire(name,['first','second'])]});
  assert.equal(result.complete,true);assert.equal(result.runtimeEvaluations[0].valid,false);assert(result.runtimeFindings.some(f=>f.detailCode==='runtime.response.header.serialization'));
 });
+for(const version of ['3.0.4','3.1.2','3.2.1'])test(`${version} content header JSON evaluates UTF-8 field octets before schema assertions`,async()=>{
+ const fixture=input(version,'json',{'X-Json':{content:{'application/json':{schema:{type:'string',enum:['雪']}}}}});
+ const result=await evaluateSchemas({...fixture,runtimeInstances:[fixture.wire('X-Json',[Buffer.from('"雪"').toString('latin1')],'good'),fixture.wire('X-Json',['"雪"'],'not-octets')]});
+ assert.equal(result.complete,true,JSON.stringify(result.runtimeFindings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,false]);
+});
 function input(version,format,headers,shared){
  const root='file:///runtime-headers/api.'+format,fragment='file:///runtime-headers/shared.'+format;
  const document={...(version==='2.0'?{swagger:version}:{openapi:version}),info:{title:'Captured header wire',version:'api-version'},paths:{'/data':{get:{responses:{204:{description:'Header values',headers}}}}}};
