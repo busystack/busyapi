@@ -8,12 +8,13 @@ import type {MigrationIssue} from './migration_schema';
 import {ParameterSemantics} from './parameter_semantics';
 import {swaggerMedia,swaggerServers} from './swagger_operation';
 import {swaggerMediaMigration} from './migration_swagger_media';
+import {modernFamily} from './specification';
 
 const schemaFields=['type','format','items','default','maximum','exclusiveMaximum','minimum','exclusiveMinimum','maxLength','minLength','pattern','maxItems','minItems','uniqueItems','enum','multipleOf'];
 
 /** Structural mappings use native graph occurrences and effective parameters,
  * including inherited body/form parameters. No guessed traversal of payloads. */
-export function upgradeSwagger(graph:ReferenceGraph,sources:Map<string,MigrationSource>,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph]) {
+export function upgradeSwagger(graph:ReferenceGraph,sources:Map<string,MigrationSource>,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph],targetFamily='3.0') {
     // Swagger Info text becomes a URL in 3.0 (§4.7.2). A URI-looking
     // string does not itself establish the author's intent to activate a link.
     for(const scope of graph.scopes.values())if(scope.kind==='info'&&scope.family==='2.0'){
@@ -55,9 +56,26 @@ export function upgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migration
         }
         return {style:format==='ssv'?'spaceDelimited':format==='pipes'?'pipeDelimited':['query','formData'].includes(value.in)?'form':'simple',explode:format==='multi'};
     };
+    const modernFlatSchema=(source:MigrationSource,pointer:string,depth=0):void=>{
+        if(!modernFamily(targetFamily))return;
+        if(depth>=128)throw new SourceError('limit.migration.items','Swagger Items conversion exceeds 128 nested schemas');
+        const value=source.doc.dataNode(pointer)?.value;
+        if(!value||typeof value!=='object')return;
+        for(const [exclusive,bound]of [['exclusiveMinimum','minimum'],['exclusiveMaximum','maximum']]){
+            if(value[exclusive]===true){
+                source.exact(pointer+'/'+exclusive,source.doc.dataJson(pointer+'/'+bound));
+                source.remove(pointer+'/'+bound);
+            }else if(Object.hasOwn(value,exclusive))source.remove(pointer+'/'+exclusive);
+        }
+        if(value.format==='byte'){
+            source.remove(pointer+'/format');source.set(pointer+'/contentEncoding','base64');
+        }
+        if(source.doc.dataNode(pointer+'/items'))modernFlatSchema(source,pointer+'/items',depth+1);
+    };
     const flatSchema=(source:MigrationSource,pointer:string,value:any)=>{
         source.ensure(pointer+'/schema');
         for(const name of schemaFields)if(source.doc.nodes.has(pointer+'/'+name))source.move(pointer+'/'+name,pointer+'/schema/'+name);
+        modernFlatSchema(source,pointer+'/schema');
     };
     for(const scope of graph.scopes.values())if(scope.family==='2.0'&&scope.kind==='parameter'){
         const source=sources.get(scope.resource)!,pointer=path(scope);if(pointer===undefined)continue;
@@ -100,7 +118,12 @@ export function upgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migration
                     source.set(target,{});
                     for(const field of [...schemaFields,'description'])if(owner.doc.nodes.has(from+'/'+field))source.copy(owner,from+'/'+field,target+'/'+field);
                     for(const field of Object.keys(value).filter(name=>name.startsWith('x-')))source.copy(owner,from+'/'+escape(field),target+'/'+escape(field));
-                    if(value.type==='file'){source.set(target+'/type','string');source.set(target+'/format','binary');}
+                    if(value.type==='file'){
+                        if(modernFamily(targetFamily)){
+                            source.remove(target+'/type');
+                            source.set(at+'/encoding/'+escape(parameter.name!)+'/contentType','application/octet-stream');
+                        }else {source.set(target+'/type','string');source.set(target+'/format','binary');}
+                    }else modernFlatSchema(source,target);
                     if(value.required===true)required.push(parameter.name!);
                     if(value.allowEmptyValue===true)issue({...definition,pointer:definition.pointer+'/allowEmptyValue'},'migration.form.empty','This form empty-value rule needs an explicit equivalent encoding policy','implementation');
                     if(value.type==='array'){
@@ -161,7 +184,7 @@ export function upgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migration
         const servers=swaggerServers(graph,resource,'',()=>({resource,pointer:'',generation:0,range:[0,0]}),resource);
         source.set('/servers',servers.map(({url})=>({url})));
         for(const name of ['swagger','host','basePath','schemes','consumes','produces'])source.remove('/'+name);
-        source.set('/openapi','3.0.4');
+        source.set('/openapi',modernFamily(targetFamily)?targetFamily+'.0':'3.0.4');
     }
     return media.responses();
 }

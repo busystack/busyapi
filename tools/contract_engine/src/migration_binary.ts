@@ -7,6 +7,8 @@ import type {GraphScope,ReferenceGraph} from './reference_graph';
 import type {MigrationSource} from './migration_source';
 import type {MigrationIssue} from './migration_schema';
 import {modernFamily} from './specification';
+import {ParameterSemantics} from './parameter_semantics';
+import {swaggerMedia} from './swagger_operation';
 
 type Use=Readonly<{kind:'body'|'part'|'data';mediaType?:string;source:GraphScope;schema:GraphScope;path:readonly Step[]}>;
 type Step=Readonly<{property:string}>|'item'|'nested';
@@ -18,8 +20,9 @@ const identity=(scope:Pick<GraphScope,'resource'|'pointer'>)=>JSON.stringify([sc
  * properties/items change it. No resource acquisition occurs in this proof. */
 class BinaryUses {
     private readonly incoming=new Map<string,GraphScope[]>();
+    private readonly swaggerUses=new Map<string,{mediaType:string;source:GraphScope}[]>();
     private readonly forms:FormSemantics;
-    constructor(private readonly graph:ReferenceGraph){
+    constructor(private readonly graph:ReferenceGraph,contexts:readonly ReferenceGraph[]=[graph]){
         this.forms=new FormSemantics(graph);
         for(const edge of graph.references){
             if(edge.kind!=='schema'||edge.connection||edge.keyword!=='$ref'||edge.resolution!=='resolved')continue;
@@ -28,6 +31,42 @@ class BinaryUses {
             const key=identity({resource:edge.targetResource!,pointer:edge.targetPointer!});
             const scopes=this.incoming.get(key)??[];
             scopes.push(scope);this.incoming.set(key,scopes);
+        }
+        let inspections=0,uses=0;
+        const inspect=()=>{if(++inspections>2000000)throw new SourceError('limit.migration.binary','Swagger media discovery exceeds its bounded work');};
+        const add=(owner:Pick<GraphScope,'resource'|'pointer'>,source:GraphScope,media:readonly string[])=>{
+            const key=identity(owner),values=this.swaggerUses.get(key)??[];
+            for(const mediaType of media){
+                inspect();
+                if(++uses>20000)throw new SourceError('limit.migration.binary','Swagger media discovery exceeds 20000 captured uses');
+                values.push({source,mediaType});
+            }
+            this.swaggerUses.set(key,values);
+        };
+        for(const context of contexts){
+            const parameters=new ParameterSemantics(context);
+            for(const operation of context.operations()){
+                inspect();
+                const source=graph.scope(operation.source.resource,operation.source.pointer);
+                if(source.family!=='2.0')continue;
+                for(const parameter of parameters.operation(source.resource,source.pointer,operation.pathItem).visible)
+                    if(parameter.location==='body'&&parameter.definition)
+                        add(parameter.definition,source,swaggerMedia(context,source.resource,source.pointer,'consumes'));
+                for(const name of graph.docs.get(source.resource)!.dataNode(source.pointer+'/responses')?.children.keys()??[]){
+                    if(name.startsWith('x-'))continue;
+                    let at={resource:source.resource,pointer:source.pointer+'/responses/'+escape(name)};
+                    const seen=new Set<string>();
+                    for(let depth=0;depth<128;depth++){
+                        inspect();
+                        if(seen.has(identity(at)))break;
+                        seen.add(identity(at));
+                        const reference=context.referenceAs(at.resource,at.pointer,'$ref','response');
+                        if(!reference){add(at,source,swaggerMedia(context,source.resource,source.pointer,'produces'));break;}
+                        if(reference.resolution!=='resolved')break;
+                        at={resource:reference.targetResource!,pointer:reference.targetPointer!};
+                    }
+                }
+            }
         }
     }
     rawCompatible(use:Use,family:string):boolean {
@@ -59,7 +98,7 @@ class BinaryUses {
             }else{
                 const allowed=Object.keys(value).every(name=>annotation(name)||['type','format','allOf','anyOf','oneOf','not'].includes(name));
                 if(!allowed)return false;
-                if(Object.hasOwn(value,'type')&&!(scope.family===family&&value.type==='string'&&value.format==='binary'))return false;
+                if(Object.hasOwn(value,'type')&&!(scope.family===family&&(value.type==='string'&&value.format==='binary'||family==='2.0'&&value.type==='file')))return false;
             }
             for(const keyword of ['allOf','anyOf','oneOf'])if(Array.isArray(value[keyword]))
                 for(let index=0;index<value[keyword].length;index++)if(!child(scope.pointer+'/'+keyword+'/'+index))return false;
@@ -86,6 +125,11 @@ class BinaryUses {
             for(const incoming of this.incoming.get(identity(at))??[])pending.push({scope:incoming,path});
             const tokens=segments(pointer),last=tokens.at(-1),parent=pointer.slice(0,pointer.lastIndexOf('/'));
             const owner=this.graph.scopes.get(resource+'#'+parent);
+            if(last==='schema'&&owner?.family==='2.0'&&['response','parameter'].includes(owner.kind)){
+                for(const use of this.swaggerUses.get(identity(owner))??[])
+                    uses.push({...use,kind:path.length?'data':'body',schema:at,path});
+                continue;
+            }
             if(last==='schema'&&owner?.kind==='media'){
                 const mediaType=segments(owner.pointer).at(-1)!;
                 const essence=mediaType.split(';')[0].trim().toLowerCase();
@@ -149,9 +193,9 @@ const annotation=(name:string)=>name.startsWith('x-')||['title','description','e
  * their type and base64 spelling. Raw leaves are outside JSON types in modern
  * OAS; only proved raw occurrences can lose the legacy octet-string type.
  * Assertions with no established raw-instance mapping remain located blockers. */
-export function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<string,MigrationSource>,from:string,to:string,issue:MigrationIssue):void {
-    if(!(from==='3.0'&&modernFamily(to)||modernFamily(from)&&to==='3.0'))return;
-    const uses=new BinaryUses(graph);
+export function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<string,MigrationSource>,from:string,to:string,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph]):void {
+    if(!((from==='2.0'||from==='3.0')&&modernFamily(to)||from==='2.0'&&to==='3.0'||modernFamily(from)&&to==='3.0'))return;
+    const uses=new BinaryUses(graph,contexts);
     for(const scope of graph.scopesFor('schema')){
         if(scope.family!==from)continue;
         const doc=graph.docs.get(scope.resource)!,value=doc.dataNode(scope.pointer)?.value;
@@ -160,7 +204,15 @@ export function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<string,Mig
         if(pointer===undefined)continue;
         const field=(name:string)=>({...scope,pointer:scope.pointer+'/'+escape(name)});
         const fail=(name:string,message:string)=>issue(field(name),'migration.schema.binary-context',message,'implementation');
-        if(from==='3.0'&&['binary','byte'].includes(value.format)){
+        if(from==='2.0'&&to==='3.0'){
+            if(value.type==='file'){
+                const contexts=uses.inspect(scope);
+                if(!contexts.length||contexts.some(use=>!raw(use)||!uses.rawCompatible(use,from)))
+                    fail('type','This file needs a proved raw occurrence and assertion mapping before it can become a legacy binary string');
+            }
+            continue;
+        }
+        if((from==='2.0'||from==='3.0')&&(['binary','byte'].includes(value.format)||from==='2.0'&&value.type==='file')){
             const contexts=uses.inspect(scope);
             if(value.format==='byte'){
                 if(contexts.some(use=>representation(use)==='unknown'||use.kind==='body'&&raw(use))){
@@ -175,6 +227,9 @@ export function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<string,Mig
                 fail('format','The captured binary media choices do not yet have a complete raw or data-model representation mapping');continue;
             }
             const rawContexts=contexts.filter(raw);
+            if(from==='2.0'&&value.type==='file'&&(!contexts.length||rawContexts.length!==contexts.length)){
+                fail('type','A Swagger file needs captured raw-media occurrences; modeled data representations need a separate file-aware target owner');continue;
+            }
             if(!rawContexts.length){
                 if(!contexts.length)fail('format','The raw binary schema has no captured media occurrence from which to establish its representation');
                 // In a known JSON/text occurrence, the schema still constrains
@@ -188,13 +243,13 @@ export function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<string,Mig
                 fail('format','Applicable container or composition assertions need a complete raw-instance mapping before this binary leaf can be changed');continue;
             }
             const assertions=Object.keys(value).filter(name=>!['type','format','allOf','anyOf','oneOf','not'].includes(name)&&!annotation(name));
-            if(value.type!=='string'||assertions.length){
+            if(!(value.type==='string'||from==='2.0'&&value.type==='file')||assertions.length){
                 fail(assertions[0]??'type','The raw binary leaf needs a faithful mapping for each applicable legacy assertion before its octet-string type can be removed');continue;
             }
             source.remove(pointer+'/type');source.remove(pointer+'/format');
             continue;
         }
-        if(from==='3.0')continue;
+        if(from==='2.0'||from==='3.0')continue;
         const encoded=value.contentEncoding==='base64';
         if(Object.hasOwn(value,'contentEncoding')&&!encoded)continue;
         if(!encoded&&!Object.hasOwn(value,'contentMediaType'))continue;

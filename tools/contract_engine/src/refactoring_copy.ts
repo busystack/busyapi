@@ -658,7 +658,7 @@ export function planInline(input:any) {
    for(const edge of g.graph.references){
     if(++inspected>200000)throw new SourceError('limit.refactor.inline','The reference impact graph exceeds its bounded review budget');
     if(edge.resource!==id||!inside(edge.pointer,pointer)||edge.connection||!intrinsic(g.graph,id,edge.pointer,pointer))continue;
-    if(edge.keyword==='$dynamicRef')throw new SourceError('refactor.inline.schema-resource','A reachable dynamic reference needs its resource evaluation scope; it cannot be proved by static navigation');
+    if(edge.keyword==='$dynamicRef'&&edge.dynamic)throw new SourceError('refactor.inline.schema-resource','A reachable dynamic reference needs its resource evaluation scope; it cannot be proved by static navigation');
     visit(edge.targetResource!,edge.targetPointer!);
    }
    active.delete(key);
@@ -670,8 +670,13 @@ export function planInline(input:any) {
  // cannot be proved merely by comparing possible navigation candidates.
  for(const g of owning)for(const at of g.graph.scopes.values())if(at.resource===definition.id&&inside(at.pointer,definitionPointer)&&at.kind==='schema'&&intrinsic(g.graph,at.resource,at.pointer,definitionPointer)){
   const value=definition.node(at.pointer).value;
-  if(value&&typeof value==='object'&&['$id','$schema','$anchor','$dynamicAnchor','$dynamicRef'].some(key=>Object.hasOwn(value,key)))
-   throw new SourceError('refactor.inline.schema-resource','This definition declares a schema resource, dialect, anchor or dynamic scope that cannot be duplicated by inlining');
+  if(value&&typeof value==='object'&&['$id','$anchor','$dynamicAnchor'].some(key=>Object.hasOwn(value,key)))
+   throw new SourceError('refactor.inline.schema-resource','This definition declares a schema resource or anchor that cannot be duplicated by inlining');
+  // An explicit dialect is retained and checked at the copied occurrence
+  // below. A $dynamicRef without a dynamic-anchor starting point is static
+  // (Core 8.2.3.2), so it can use the normal target-preserving URI repair.
+  if(typeof value?.$dynamicRef==='string'&&g.graph.referenceAs(at.resource,at.pointer,'$dynamicRef','schema')?.resolution!=='resolved')
+   throw new SourceError('refactor.inline.schema-resource','The reference has no captured starting point to prove static evaluation');
  }
  const siblings=[...node.children.keys()].filter(key=>key!=='$ref');
  if(!['3.1','3.2'].includes(scope.family)&&scope.kind!=='path-item'&&siblings.length)
@@ -720,7 +725,7 @@ export function planInline(input:any) {
    // static recursion is not expanded; copied and retained addresses are
    // proved again below.
    const at=after.graph.scopes.get(resource.id+'#'+relocated(old.pointer)),to=after.graph.scopes.get(old.targetResource+'#'+old.targetPointer)??g.graph.scopes.get(old.targetResource+'#'+old.targetPointer);
-   const next=old.connection?old.value:at&&to?referenceValue(after.graph,at,to,old.keyword):undefined;
+   const next=old.connection?old.value:at&&to?referenceValue(after.graph,at,to,old.keyword==='$dynamicRef'&&!old.dynamic?'$ref':old.keyword):undefined;
    if(next===undefined)throw new SourceError('refactor.copy.address','An inlined consumer cannot retain its original target');
    const pointer=relocated(old.pointer)+'/'+escape(old.keyword),previous=repairs.get(pointer);
    if(previous!==undefined&&previous!==next)throw new SourceError('refactor.context.ambiguous','The copied occurrence needs different repairs in configured roots');
@@ -738,7 +743,7 @@ export function planInline(input:any) {
    if(old.resource===resource.id&&old.pointer===target.pointer&&old.keyword==='$ref')continue;
    if(owning.includes(g)&&old.resource===definition.id&&inside(old.pointer,definitionPointer)&&intrinsic(g.graph,old.resource,old.pointer,definitionPointer)){
     const copy=after.graph.references.find(r=>r.resource===resource.id&&r.pointer===relocated(old.pointer)&&r.keyword===old.keyword);
-    if(!copy||copy.targetResource!==old.targetResource||copy.targetPointer!==old.targetPointer)
+    if(!copy||copy.targetResource!==old.targetResource||copy.targetPointer!==old.targetPointer||Boolean(copy.dynamic)!==Boolean(old.dynamic))
      throw new SourceError('refactor.proof','An inlined semantic consumer would change target in one configured root');
    }
    const next=after.graph.references.find(r=>same(r,old)&&r.keyword===old.keyword);

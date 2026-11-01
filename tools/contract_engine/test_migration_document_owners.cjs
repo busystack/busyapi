@@ -4,6 +4,7 @@ const {analyse,createGraph}=require('./dist/model.cjs');
 const {requestOperation}=require('./dist/execution.cjs');
 const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
 const {SourceDocument}=require('./dist/document.cjs');
+const {migrationDocumentContexts}=require('./dist/migration_documents.cjs');
 const family=v=>v==='2.0'?'2.0':v.slice(0,3),versions=['2.0','3.0.4','3.1.2','3.2.1'];
 const doc=(version,extra)=>({...version==='2.0'?{swagger:version}:{openapi:version},info:{title:'Keep 雪',version:'api-version'},paths:{},...extra});
 function fixture(version,format,independent=true,bodyMode){
@@ -40,6 +41,19 @@ function fixture(version,format,independent=true,bodyMode){
  const resources=objects.map((value,index)=>({id:ids[index],generation:index+1,text:(format==='yaml'?'# Keep source organization 雪\r\n'+YAML.stringify(value,{aliasDuplicateObjects:false}).replaceAll('\n','\r\n'):JSON.stringify(value)).replaceAll('"EXACT"','9007199254740993.000').replaceAll('EXACT','9007199254740993.000')+'\r\n'}));
  return {root,resources,snapshot:'coordinated-documents',destination:'file:///converted/'};
 }
+for(const format of ['yaml','json'])test(`${format} planning retains entry, direction, resource and literal interpretations independently`,()=>{
+ const input=fixture('2.0',format,true,'inline'),primary=createGraph(input),problems=[];
+ assert.equal(analyse(input).status,'complete');
+ const contexts=migrationDocumentContexts(input,primary,(...problem)=>{problems.push(problem);return false;});
+ assert.deepEqual(problems,[]);assert.equal(contexts.length,3);
+ for(const context of contexts){
+  assert(context.uses.every(use=>use.entryNamespace===context.graph.root));
+  const shared=context.uses.filter(use=>use.resource.endsWith('/models.'+format)&&use.pointer==='/definitions/Node'&&use.role==='schema');
+  assert.deepEqual(shared.map(use=>use.direction).sort(),['neutral','request','response']);
+  assert(shared.every(use=>use.family==='2.0'&&use.dialect==='urn:busyapi:schema-dialect:swagger-2.0'&&use.baseUri.endsWith('/models.'+format)&&use.resourceBoundary===''));
+  assert(context.uses.some(use=>use.literal&&use.pointer==='/x-literal'&&use.direction==='neutral'));
+ }
+});
 for(const version of versions)for(const targetVersion of versions)for(const format of ['yaml','json'])for(const independent of [false,true])
 test(`${version} -> ${targetVersion} ${format} migrates captured ${independent?'API and schema':'schema'} documents together`,async()=>{
  const input={...fixture(version,format,independent),targetVersion},before=input.resources.map(r=>r.text);

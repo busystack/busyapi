@@ -85,6 +85,22 @@ function captureHeaders(graph:ReferenceGraph,example:boolean) {
 const unsupported=(message:string):never=>{throw new SourceError('runtime.response.header.unchecked',message,[0,0],'unsupported');};
 const malformed=(message:string):never=>{throw new SourceError('runtime.response.header.serialization',message);};
 
+/** RFC 9110 §§5.2–5.3 permits ordered comma combination at the recipient.
+ * Known singleton fields remain invalid when repeated. Set-Cookie's separate
+ * field-line representation is selected below, never comma combination. */
+const singletonFields=new Set(['authorization','proxy-authorization','content-type','content-length','content-location',
+    'content-range','host','date','expires','last-modified','location','referer','retry-after','server','user-agent']);
+function contentHeaderValue(name:string,values:readonly string[],family:string):string {
+    if(values.length===1)return values[0];
+    const lower=name.toLowerCase();
+    if(lower==='set-cookie'){
+        if(family!=='3.2')unsupported('This family does not define a content-based Set-Cookie field-line representation');
+        return values.join('\n');
+    }
+    if(singletonFields.has(lower))malformed('This HTTP field does not permit repeated field lines');
+    return values.map(value=>value.replace(/^[ \t]+|[ \t]+$/gu,'')).join(', ');
+}
+
 export function nativeHeaderParts(text:string):string[] {
     try{return headerValueParts(text);}
     catch(error){if(error instanceof SourceError)return malformed(error.message);throw error;}
@@ -97,14 +113,15 @@ export function nativeHeaderParts(text:string):string[] {
 function decodeRuntimeHeader(shapeFor:ReturnType<typeof headerShapes>,declaration:unknown,values:readonly string[],example=false):DecodedHeader|undefined {
     if(!record(declaration)||typeof declaration.name!=='string'||typeof declaration.family!=='string'||!isNativeFamily(declaration.family))
         throw new SourceError('mock.validation.protocol','The native header projection is malformed');
+    if(values.some(value=>/[\x00-\x08\x0a-\x1f\x7f]/u.test(value)))malformed('A header field line contains a prohibited HTTP control');
     const name=declaration.name,family=declaration.family,cookie=name.toLowerCase()==='set-cookie';
     const content=nativeMedia(declaration.content);
     if(content.length){
         if(content.length!==1)unsupported('A header has more than one content representation');
-        if(values.length!==1&&(!cookie||family!=='3.2'))unsupported('A content-based header has multiple wire values');
+        const text=contentHeaderValue(name,values,family);
         const media=content[0];
         if(!example&&!media.schema&&!media.itemSchema&&runtimeMediaKind(media.mediaType)==='opaque')return;
-        return {complete:true,instance:{subject:'response-header',location:name,text:values.join('\n'),mediaType:media.mediaType,schema:media.schema,itemSchema:media.itemSchema,
+        return {complete:true,instance:{subject:'response-header',location:name,text,mediaType:media.mediaType,schema:media.schema,itemSchema:media.itemSchema,
             ...(runtimeFormMedia(media.mediaType)&&media.formOwner?{form:media.formOwner}:{})}};
     }
     const schema=schemaLocation(declaration.schema);

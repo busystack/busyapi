@@ -10,6 +10,9 @@ import {SchemaPropertyRequirements} from './schema_property_requirements';
 import {migrateDependentRequired,migrateDependentSchemas} from './migration_schema_dependencies';
 import {migrateInactiveSchemaAnnotations} from './migration_inactive_annotations';
 import {BooleanSchemaMigration} from './migration_boolean_schema';
+import {MigrationSchemaOwners} from './migration_schema_owners';
+import {migrateSchemaConditions} from './migration_schema_conditions';
+import {migrateSchemaTuple} from './migration_schema_tuples';
 
 export type MigrationChoice=Readonly<{value:string;label:string;target:MigrationLocation&{range:readonly number[]}}>;
 export type MigrationProblem={resource:string;pointer:string;range:number[];code:string;message:string;reason:'target-representation'|'implementation'|'source-incomplete'|'decision';choices?:string[];choiceDetails?:readonly MigrationChoice[];id?:string};
@@ -21,7 +24,8 @@ export type MigrationChoose=(scope:MigrationIssueLocation,code:string,message:st
  * dialect to make a migration pass. These edits affect planning copies only. */
 export function migrateSchemas(graph:ReferenceGraph,sources:Map<string,MigrationSource>,from:string,to:string,issue:MigrationIssue):void {
     const references=new MigrationSchemaReferences(graph),requirements=new SchemaPropertyRequirements(graph);
-    const booleans=new BooleanSchemaMigration(graph,sources,to);
+    const owners=new MigrationSchemaOwners(graph,sources);
+    const booleans=new BooleanSchemaMigration(graph,sources,to,owners);
     const scopes=[...graph.scopes.values()].filter(scope=>scope.kind==='schema'&&scope.family===from).sort((a,b)=>b.pointer.length-a.pointer.length);
     for(const scope of scopes){
         const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);if(pointer===undefined)continue;
@@ -32,6 +36,8 @@ export function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Migration
         }
         if(!value||typeof value!=='object'||Array.isArray(value))continue;
         const field=(name:string)=>({...scope,pointer:scope.pointer+'/'+escape(name)});
+        if(from==='2.0'&&to!=='2.0'&&Array.isArray(value.type)&&value.type.includes('file'))
+            issue(field('type'),'migration.schema.file-union','This Swagger file/data union needs occurrence-specific alternative schemas and media decoding before conversion','implementation');
         const typeComposition=(types:string[])=>{
             const branches=types.map(type=>type==='null'?{type:'string',nullable:true,enum:[null]}:{type});
             source.remove(pointer+'/type');
@@ -64,29 +70,42 @@ export function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Migration
             references.lower(scope,source,pointer,issue);
             migrateDependentRequired(graph,scope,source,pointer,to,requirements,issue);
             migrateDependentSchemas(graph,scope,source,pointer,to,requirements,issue);
+            migrateSchemaConditions(graph,scope,source,pointer,to,owners,issue);
         }
-        if(!modernFamily(to))for(const name of ['$dynamicAnchor','patternProperties','if','then','else','contains','minContains','maxContains','unevaluatedItems','unevaluatedProperties','propertyNames','contentSchema','contentEncoding','contentMediaType'])
-            if(Object.hasOwn(value,name)&&source.doc.dataNode(pointer+'/'+name))issue(field(name),'migration.schema.keyword','This schema keyword or resource identity has no implemented faithful mapping to '+to,'implementation');
-        if(!modernFamily(to)&&Array.isArray(value.prefixItems)){
-            if(to==='2.0'){
-                if(Object.hasOwn(value,'items')&&typeof value.items!=='boolean')issue(field('items'),'migration.schema.tuple-tail','A constrained tuple tail needs a faithful Swagger representation','implementation');
-                else {
-                    source.remove(pointer+'/items');
-                    source.rename(pointer+'/prefixItems','items');
-                    if(value.items===false){
-                        const maximum=String(value.prefixItems.length),existing=source.doc.dataNode(pointer+'/maxItems');
-                        if(!existing||compare(decimal(source.doc.dataJson(existing.pointer)),decimal(maximum))>0)source.exact(pointer+'/maxItems',maximum);
-                    }
-                }
-            }else issue(field('prefixItems'),'migration.schema.tuple','OpenAPI 3.0 has no positional tuple Schema Object keyword','target-representation');
+        if(!modernFamily(to)&&Object.hasOwn(value,'$dynamicAnchor')){
+            const active=graph.references.some(reference=>reference.dynamic&&
+                (reference.targetResource===scope.resource&&reference.targetPointer===scope.pointer||
+                reference.dynamic.candidates.some(candidate=>candidate.resource===scope.resource&&candidate.pointer===scope.pointer)));
+            if(!active)source.remove(pointer+'/$dynamicAnchor');
+            else issue(field('$dynamicAnchor'),'migration.schema.dynamic-anchor','A captured dynamic reference can select this anchor; older-family scope specialization remains required','implementation');
         }
-        migrateInactiveSchemaAnnotations(graph,scope,source,sources,to);
+        const pending:Readonly<Record<string,string>>={
+            patternProperties:'Pattern-selected property assertions need an equivalent target object constraint',
+            contains:'Array containment needs a target-specific witness/count mapping',
+            minContains:'The containment lower count needs an equivalent target assertion',
+            maxContains:'The containment upper count needs an equivalent target assertion',
+            unevaluatedItems:'This assertion depends on annotations from successful array applicators',
+            unevaluatedProperties:'This assertion depends on annotations from successful object applicators',
+            propertyNames:'Property-name validation needs an equivalent target object constraint',
+            contentSchema:'The decoded-content schema annotation needs an independently preserved owner',
+            contentEncoding:'The content encoding annotation has no proved mapping at every captured occurrence',
+            contentMediaType:'The decoded media annotation has no proved binding at every captured occurrence',
+        };
+        if(!modernFamily(to))for(const [name,message]of Object.entries(pending))
+            if(Object.hasOwn(value,name)&&source.doc.dataNode(pointer+'/'+name))issue(field(name),'migration.schema.'+name,message+' for '+to,'implementation');
+        if(!modernFamily(to))migrateSchemaTuple(graph,scope,source,pointer,to,owners,issue);
+        migrateInactiveSchemaAnnotations(graph,scope,source,sources,to,owners);
         if(to==='2.0')for(const name of ['oneOf','anyOf','not','writeOnly','deprecated'])if(Object.hasOwn(value,name)&&source.doc.dataNode(pointer+'/'+name))issue(field(name),'migration.schema.keyword','This Schema Object field requires an explicit faithful Swagger mapping','implementation');
-        if(from==='3.0'&&modernFamily(to)){
-            if(value.nullable===true&&typeof value.type==='string')source.set(pointer+'/type',[value.type,'null']);
-            if(Object.hasOwn(value,'nullable'))source.remove(pointer+'/nullable');
+        if(!modernFamily(from)&&modernFamily(to)){
+            if(from==='3.0'){
+                if(value.nullable===true&&typeof value.type==='string')source.set(pointer+'/type',[value.type,'null']);
+                if(Object.hasOwn(value,'nullable'))source.remove(pointer+'/nullable');
+            }
             for(const [exclusive,bound]of [['exclusiveMinimum','minimum'],['exclusiveMaximum','maximum']]){
-                if(value[exclusive]===true)source.exact(pointer+'/'+exclusive,source.doc.dataJson(pointer+'/'+bound));
+                if(value[exclusive]===true){
+                    source.exact(pointer+'/'+exclusive,source.doc.dataJson(pointer+'/'+bound));
+                    source.remove(pointer+'/'+bound);
+                }
                 else if(Object.hasOwn(value,exclusive))source.remove(pointer+'/'+exclusive);
             }
         }
@@ -132,6 +151,13 @@ export function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Migration
             if(Array.isArray(value.type)||value.type==='null')typeComposition(Array.isArray(value.type)?value.type:['null']);
             if(value.type==='array'&&!Object.hasOwn(value,'items'))source.set(pointer+'/items',{});
             if(value.type==='file'){source.set(pointer+'/type','string');source.set(pointer+'/format','binary');}
+        }
+        if(from==='2.0'&&modernFamily(to)&&Array.isArray(value.items)){
+            // Draft 4 tuple items do not constrain the tail. 2020-12 prefixItems
+            // has the same assertion/annotation scope, including short arrays.
+            // An empty tuple is a no-op; prefixItems itself must be nonempty.
+            if(value.items.length)source.rename(pointer+'/items','prefixItems');
+            else source.remove(pointer+'/items');
         }
         if(from==='3.0'&&to==='2.0'){
             if(value.nullable===true&&typeof value.type==='string')source.set(pointer+'/type',[value.type,'null']);

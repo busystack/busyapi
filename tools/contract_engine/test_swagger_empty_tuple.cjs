@@ -75,16 +75,17 @@ for (const format of ['yaml', 'json']) for (const kind of ['flat-parameter', 'fl
     assert.equal(packet.resources[0].text, text);
 });
 
-for (const format of ['yaml', 'json']) for (const targetVersion of ['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3.1.2','3.2.0','3.2.1']) test(`${format} empty Swagger tuple migrates faithfully through 3.0 to ${targetVersion} and back`, async () => {
+for (const format of ['yaml', 'json']) for (const targetVersion of ['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3.1.2','3.2.0','3.2.1']) test(`${format} empty Swagger tuple migrates faithfully to ${targetVersion} and back`, async () => {
     const input = capture(format), original = input.resources[0].text;
     const result = await planMigration({...input, targetVersion, destination: 'file:///output/review/'});
     assert.equal(result.status, 'faithfully-convertible', JSON.stringify(result.problems));
     assert.equal(result.complete, true);
-    assert.equal(result.producerVersion, '30');
+    assert.equal(result.producerVersion, '40');
     const entry = result.outputs.find(output => output.id === result.outputRoot), doc = new SourceDocument(entry.text, entry.id);
     assert.equal(doc.root.value.openapi, targetVersion);
     assert.equal(doc.root.value.info.version, 'business');
-    assert.equal(doc.dataJson('/components/schemas/List/items'), '{}');
+    if(targetVersion.startsWith('3.0.'))assert.equal(doc.dataJson('/components/schemas/List/items'), '{}');
+    else assert.equal(doc.dataNode('/components/schemas/List/items'), undefined);
     assert(entry.text.includes('9007199254740993.00'));
     const target = {root: result.outputRoot, snapshot: 'target', resources: result.outputs.map(output => ({id: output.id, text: output.text, generation: 0}))};
     assert.equal(analyse(target).status, 'complete');
@@ -99,15 +100,16 @@ for (const format of ['yaml', 'json']) for (const targetVersion of ['3.0.0','3.0
     assert.equal(restored.complete, true, JSON.stringify(restored.findings));
     assert.deepEqual(restored.runtimeEvaluations.map(row => row.valid), expected);
     const nonempty = {...input, resources: [{...input.resources[0], text: new SourceDocument(original, input.root).set('/definitions/List/items', [{type: 'integer'}])}]};
-    const blocked = await planMigration({...nonempty, targetVersion, destination: 'file:///output/blocked/'});
-    assert.equal(blocked.status, 'blocked');
-    assert.equal(blocked.outputs.length, 0);
-    assert(blocked.problems.some(problem => problem.code === 'migration.schema.tuple' && problem.pointer.endsWith('/items')));
+    const converted = await planMigration({...nonempty, targetVersion, destination: 'file:///output/nonempty/'});
+    if(targetVersion.startsWith('3.0.')){
+        assert.equal(converted.status, 'blocked');assert.equal(converted.outputs.length, 0);
+        assert(converted.problems.some(problem => problem.code === 'migration.schema.tuple' && problem.pointer.endsWith('/items')));
+    }else assert.equal(converted.complete,true,JSON.stringify(converted.problems));
     assert.equal(input.resources[0].text, original);
 });
 
 test('tuple schema bindings and migrations have distinct captured proof identities', () => {
-    assert.equal(schemaProducer.version, '1.18.0+46');
+    assert.equal(schemaProducer.version, '1.18.0+47');
     assert(schemaProducer.configuration.includes('swagger-schema-rules-v1'));
     assert(schemaProducer.configuration.includes('compound-unicode-v1'));
 });

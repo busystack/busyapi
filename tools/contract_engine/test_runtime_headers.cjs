@@ -1,6 +1,16 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),YAML=require('yaml');
 const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
 const patches=['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','2.0','3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'];
+for(const version of patches.filter(version=>version!=='2.0'))for(const format of ['yaml','json'])test(`${version} ${format} repeated content field lines combine in received order and retain exact data`,async()=>{
+ const fixture=input(version,format,{'X-Values':{content:{'application/json':{schema:{type:'array',minItems:2,maxItems:2,items:{type:'integer',enum:['EXACT',0]}}}}}});
+ const result=await evaluateSchemas({...fixture,runtimeInstances:[fixture.wire('X-Values',['[9007199254740993','0]'],'good'),fixture.wire('X-Values',['[9007199254740992','0]'],'bad')]});
+ assert.equal(result.complete,true,JSON.stringify(result.runtimeFindings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,false]);
+});
+for(const name of ['Content-Type','Content-Length','Date','Location'])test(`repeated singleton content header ${name} is invalid rather than a comma-combined value`,async()=>{
+ const fixture=input('3.2.1','json',{[name]:{content:{'text/plain':{schema:{type:'string'}}}}});
+ const result=await evaluateSchemas({...fixture,runtimeInstances:[fixture.wire(name,['first','second'])]});
+ assert.equal(result.complete,true);assert.equal(result.runtimeEvaluations[0].valid,false);assert(result.runtimeFindings.some(f=>f.detailCode==='runtime.response.header.serialization'));
+});
 function input(version,format,headers,shared){
  const root='file:///runtime-headers/api.'+format,fragment='file:///runtime-headers/shared.'+format;
  const document={...(version==='2.0'?{swagger:version}:{openapi:version}),info:{title:'Captured header wire',version:'api-version'},paths:{'/data':{get:{responses:{204:{description:'Header values',headers}}}}}};

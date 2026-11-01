@@ -1,9 +1,9 @@
 import {nativeFamilies,type Specification,type SpecificationFamily} from './specification';
 
 export type MigrationStage=Readonly<{from:SpecificationFamily;to:SpecificationFamily}>;
-/** Coordinate family stages without passing an already-newer description
- * through an older dialect. Swagger downgrades remain direct: its Draft 4
- * unions and tuples need not pass through 3.0's narrower Schema Object. */
+/** Coordinate family stages without imposing an intermediate dialect's
+ * restrictions on the selected target. Both directions between Swagger and
+ * modern OAS bypass 3.0's narrower Schema Object (notably positional items). */
 export function migrationStages(specifications:Iterable<Specification>,target:SpecificationFamily):readonly MigrationStage[] {
     const active=new Set([...specifications].map(specification=>specification.family)),stages:MigrationStage[]=[];
     const step=(from:SpecificationFamily,to:SpecificationFamily)=>{
@@ -12,6 +12,7 @@ export function migrationStages(specifications:Iterable<Specification>,target:Sp
     };
     if(target==='2.0')for(const from of nativeFamilies.slice(1))step(from,target);
     else {
+        if(target==='3.1'||target==='3.2')step('2.0','3.1');
         const finish=nativeFamilies.indexOf(target);
         for(let index=0;index<finish;index++)step(nativeFamilies[index],nativeFamilies[index+1]);
         for(let index=nativeFamilies.length-1;index>finish;index--)step(nativeFamilies[index],nativeFamilies[index-1]);

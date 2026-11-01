@@ -158,10 +158,12 @@ export class ReferenceGraph {
         return this.overlappingScopes.has(key(resource,pointer));
     }
     scopesFor(kind:string):GraphScope[] {
-        const result:GraphScope[]=[];
-        for(const scope of this.scopes.values())if(scope.kind===kind)result.push(scope);
-        for(const scope of this.roleScopes.values())if(scope.kind===kind)result.push(scope);
-        return result;
+        return [...this.interpretedScopes()].filter(scope=>scope.kind===kind);
+    }
+    /** Every established interpretation, retaining the physical authoring
+     * owner and additional explicitly referenced roles as separate uses. */
+    *interpretedScopes():IterableIterator<GraphScope> {
+        yield* this.scopes.values();yield* this.roleScopes.values();
     }
     readonly references: GraphReference[] = [];
     private referenceRoles?:Map<string,GraphReference>;

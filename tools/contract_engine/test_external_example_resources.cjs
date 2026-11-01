@@ -19,6 +19,25 @@ function fixture(version,format,mediaType='application/json',schema={type:'objec
  return {root,payload,value,input,source,mediaType,pointer:'/paths/~1example/post/requestBody/content/'+escape(mediaType)};
 }
 function assertValid(result){assert.equal(result.complete,true,JSON.stringify(result.findings));assert(result.serializedEvaluations.length>0);assert(result.serializedEvaluations.every(value=>value.complete&&value.valid),JSON.stringify(result.findings));}
+for(const version of versions)for(const format of ['yaml','json'])test(`${version} ${format} external Parameter/Header examples use occurrence bytes and enter native request selection`,async()=>{
+ const root='file:///approved/api.'+format,query='file:///approved/query.bin',header='file:///approved/header.bin';
+ const value={openapi:version,info:{title:'External fields',version:'business'},paths:{'/p':{get:{
+  parameters:[{name:'q',in:'query',schema:{type:'string',enum:['雪']},examples:{Captured:{externalValue:'query.bin'}}}],
+  responses:{204:{description:'No body',headers:{'X-Cafe':{content:{'text/plain; charset=iso-8859-1':{schema:{type:'string',enum:['café']}}},examples:{Captured:{externalValue:'header.bin'}}}}}}}}};
+ const text=render(value,format),bytes=Buffer.from([99,97,102,233]);
+ const input={root,snapshot:'external-fields',resources:[{id:root,text,generation:4}],exampleResources:[resource(query,Buffer.from('q=%E9%9B%AA')),resource(header,bytes)]};
+ assert.equal(analyse(input).status,'complete');
+ const result=await evaluateSchemas(input);assertValid(result);assert.equal(result.serializedEvaluations.length,2);
+ assert(result.serializedEvaluations.some(value=>value.parameter&&value.external.id===query));
+ assert(result.serializedEvaluations.some(value=>value.header&&value.external.identity===hash(bytes)));
+ const plan=requestOperation({...input,resource:root,pointer:'/paths/~1p/get'}),selected=plan.parameters[0].examples.find(value=>value.name==='Captured');
+ assert.equal(selected.raw,'q=%E9%9B%AA');assert.equal(selected.representation,'serialized');assert.equal(selected.conversionError,undefined);
+ assert.equal(selected.external.identity,hash(Buffer.from('q=%E9%9B%AA')));
+ const changed=await evaluateSchemas({...input,exampleResources:[resource(query,Buffer.from('q=wrong')),resource(header,bytes)]});
+ assert.equal(changed.complete,true,JSON.stringify(changed.findings));assert(changed.serializedEvaluations.some(value=>value.parameter&&!value.valid));assert(changed.serializedEvaluations.some(value=>value.header&&value.valid));
+ const missing=await evaluateSchemas({...input,exampleResources:[resource(header,bytes)]});assert.equal(missing.complete,false);assert(missing.findings.some(f=>f.detailCode==='example.external-value.unavailable'));
+ assert.equal(input.resources[0].text,text);
+});
 for(const version of versions)for(const format of ['yaml','json']){
  for(const representation of ['json','latin1','mime'])test(`${version} ${format} captures and evaluates external ${representation} bytes`,async()=>{
   const type=representation==='json'?'application/json':representation==='latin1'?'text/plain; charset=iso-8859-1':'multipart/form-data; boundary=Example';
@@ -86,7 +105,7 @@ test('available source bytes remove false migration incompleteness without bypas
  const absent=await planMigration({...input,exampleResources:[]});assert.equal(absent.complete,false);assert(absent.problems.some(value=>value.code==='migration.validation.incomplete'));
  assert.equal(f.input.resources[0].text,f.source);
 });
-test('external byte semantics invalidate old evaluator proofs',()=>{assert.equal(schemaProducer.version,'1.18.0+46');assert(schemaProducer.configuration.includes('external-example-bytes-v1'));});
+test('external byte semantics invalidate old evaluator proofs',()=>{assert.equal(schemaProducer.version,'1.18.0+47');assert(schemaProducer.configuration.includes('external-example-bytes-v1'));});
 
 test('Swagger payload keys do not become external Example Object acquisitions',async()=>{
  const root='file:///approved/swagger.json',value={swagger:'2.0',info:{title:'Payload',version:'business'},paths:{'/':{get:{responses:{200:{description:'Reply',schema:{type:'object'},examples:{'application/json':{externalValue:'data-only.bin',$ref:'not-a-reference.json'}}}}}}}};

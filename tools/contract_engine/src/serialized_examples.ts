@@ -25,7 +25,7 @@ export type SerializedExampleFinding={document:SourceDocument;pointer:string;cod
  * codecs and exact schema proofs as HTTP. This owner acquires no resources and
  * keeps each scalar's physical/occurrence provenance for the caller's findings. */
 export async function evaluateSerializedExamples(graph:ReferenceGraph,evaluate:(instances:NativeRuntimeInstance[])=>Promise<Check>,externalResources=new CapturedExampleResources()) {
- const parameterExamples:{document:SourceDocument;pointer:string;owner:GraphScope;text:string}[]=[];
+ const parameterExamples:{document:SourceDocument;pointer:string;owner:GraphScope;text:string;wireBase64?:string;external?:{id:string;identity:string;byteLength:number}}[]=[];
  const examples:Example[]=[],evaluations:SerializedExampleEvaluation[]=[],findings:SerializedExampleFinding[]=[];
  const attemptedExternalSerializations=new Map<string,Set<string>>();
  const capturedSerializations=new Map<string,Set<string>>(),boundMediaDefinitions=new Set<string>(),boundHeaderDefinitions=new Set<string>();
@@ -141,12 +141,21 @@ export async function evaluateSerializedExamples(graph:ReferenceGraph,evaluate:(
     for(const field of ['externalValue','serializedValue']){
      const node=source.dataNode(target.pointer+'/'+field);
      if(node&&associate(associated,JSON.stringify([source.id,node.pointer]),owner))associations++;
-     if(node&&field==='externalValue'&&(unboundMedia||['parameter','header'].includes(owner.kind))){
+     if(node&&field==='externalValue'&&unboundMedia){
       associate(attemptedExternalSerializations,JSON.stringify([source.id,node.pointer]),owner);
-      fail(source,target.pointer+'/'+field,new SourceError(unboundMedia?'example.media.context':'example.external-value.parameter-context',
-       unboundMedia?'This reusable Media Type external example needs a concrete content-type occurrence.':'This external parameter or header example needs an implemented byte interpretation for its occurrence. A media-level external example can use its concrete content type.',node.range,'unsupported'));
+      fail(source,target.pointer+'/'+field,new SourceError('example.media.context',
+       'This reusable Media Type external example needs a concrete content-type occurrence.',node.range,'unsupported'));
      }
-
+     if(node&&field==='externalValue'&&['parameter','header'].includes(owner.kind)){
+      if(parameterExamples.length>=20000)throw new SourceError('limit.examples.serialized','Serialized examples exceed 20000 captured values',[0,0],'unsupported');
+      associate(attemptedExternalSerializations,JSON.stringify([source.id,node.pointer]),owner);
+      try{
+       const captured=externalResources.read(graph,source.id,target.pointer+'/'+field);
+       associate(capturedSerializations,JSON.stringify([source.id,node.pointer]),owner);
+       parameterExamples.push({document:source,pointer:target.pointer+'/'+field,owner,text:'',wireBase64:captured.base64,
+        external:{id:captured.id,identity:captured.identity,byteLength:captured.byteLength}});
+      }catch(error){fail(source,target.pointer+'/'+field,error);}
+     }
      if(node&&field==='serializedValue'&&['parameter','header'].includes(owner.kind)&&graph.scope(target.resource,target.pointer).family==='3.2'){
       if(parameterExamples.length>=20000)throw new SourceError('limit.examples.serialized','Serialized examples exceed 20000 captured values',[0,0],'unsupported');
       if(!source.dataSyntaxSafe(target.pointer+'/'+field)||typeof node.value!=='string')throw new SourceError('example.serialization.source','The serialized example is not a complete Unicode string',[0,0],'unsupported');
@@ -233,13 +242,19 @@ export async function evaluateSerializedExamples(graph:ReferenceGraph,evaluate:(
   }
  }
  const evaluateParameter=parameterSerializationEvaluator(graph,evaluate),parameterFindings=new Map<string,{source:Location;details:Finding[]}[]>();
+ let parameterWork=0;
  for(const example of parameterExamples){
   try{
-   const result=await evaluateParameter(example.owner,example.text);
+   parameterWork+=example.external?.byteLength??Buffer.byteLength(example.text,'utf8');
+   if(parameterWork>64*1024*1024){
+    fail(example.document,example.pointer,new SourceError('limit.examples.serialized.bytes','Parameter/Header example evaluation exceeds its 64 MiB byte-work budget',[0,0],'unsupported'));
+    break;
+   }
+   const result=await evaluateParameter(example.owner,example.text,example.wireBase64===undefined?undefined:Buffer.from(example.wireBase64,'base64'));
    instances+=result.instances;if(!result.complete)complete=false;
    const pointer=example.document.dataNode(example.pointer)!.pointer,source={resource:example.owner.resource,pointer:example.owner.pointer};
    evaluations.push({resource:example.document.id,pointer,...(pointer!==example.pointer?{occurrencePointer:example.pointer}:{}),
-    ...(example.owner.kind==='header'?{header:source}:{parameter:source}),complete:result.complete,valid:result.valid,...(result.omission?{omission:result.omission}:{})});
+    ...(example.owner.kind==='header'?{header:source}:{parameter:source}),...(example.external?{external:example.external}:{}),complete:result.complete,valid:result.valid,...(result.omission?{omission:result.omission}:{})});
    if(!result.valid){
     const code=result.complete?'example.serialization.incompatible':'example.serialization.incomplete',identity=JSON.stringify([example.document.id,pointer,code]);
     const context={source,details:result.findings.map(note=>({code:note.code,detailCode:note.detailCode,pointer:note.pointer,schema:note.schema,source:note.source}))};

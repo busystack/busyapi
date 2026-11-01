@@ -14,6 +14,19 @@ const fixture = (openapi, json) => {
  const text = json ? JSON.stringify(value, null, 2) : '# retained\r\n' + YAML.stringify(value).replaceAll('\n','\r\n');
  return {root: id, snapshot: 'snapshot', resources: [{id, generation: 3, identity: 'root', text}, {id: resource, generation: 4, identity:'models', text: JSON.stringify({Model:{type:'object',properties:Object.fromEntries(Array.from({length:251},(_,i)=>['item'+i,{type:'string'}]))}})}]};
 };
+for(const version of ['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const json of [false,true])test(`${version} modern schema externalDocs is authored through native metadata and preserved by no-op edits`,()=>{
+ const input=fixture(version,json),pointer='/components/schemas/Shared';
+ const page=inspect({...input,resource:input.root,pointer});
+ assert.equal(page.fields.find(field=>field.name==='externalDocs').type,'object');
+ const value={url:'https://docs.example.invalid/guide',description:'Guide 雪'};
+ const plan=propose({...input,target:{resource:input.root,generation:3,pointer},actions:[{kind:'create',pointer:pointer+'/externalDocs',value}]});
+ let text=input.resources[0].text;for(const edit of [...plan.edits].reverse())text=text.slice(0,edit.start)+edit.replacement+text.slice(edit.end);
+ const changed={...input,resources:input.resources.map(r=>r.id===input.root?{...r,text}:r)};
+ const docs=inspect({...changed,resource:input.root,pointer:pointer+'/externalDocs'});assert.equal(docs.kind,'external-documentation');assert.equal(docs.value.description,value.description);
+ assert.equal(analyse(changed).status,'complete');
+ assert.deepEqual(propose({...changed,target:{resource:input.root,generation:3,pointer:pointer+'/externalDocs'},actions:[{kind:'set',pointer:pointer+'/externalDocs/url',value:value.url}]}).edits,[]);
+ if(!json)assert(text.startsWith('# retained\r\n'));
+});
 for (const version of ['3.1.2', '3.2.1']) for (const json of [false, true]) {
  test(`contextual extension creation and empty schema keys ${version} ${json}`, () => {
   const input=fixture(version,json), id=input.root;

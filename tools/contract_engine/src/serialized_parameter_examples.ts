@@ -13,13 +13,36 @@ type ExampleMedia={mediaType:string;definition:RuntimeMediaTarget}&Pick<Captured
 type Evaluate=(instances:NativeRuntimeInstance[])=>Promise<SerializationCheck>;
 export type ParameterSerializationCheck={complete:boolean;valid:boolean;findings:Record<string,unknown>[];instances:number;omission?:'empty-collection'};
 
+/** External values contain the occurrence's wire serialization. HTTP fields
+ * retain an octet view; URI/cookie serializations use UTF-8. This function
+ * reads only approved captured bytes and does not acquire any resource. */
+export function externalParameterText(graph:ReferenceGraph,owner:GraphScope,bytes:Buffer):string {
+ const header=owner.kind==='header'||owner.kind==='parameter'&&new ParameterSemantics(graph).occurrence(owner).location==='header';
+ try{return header?bytes.toString('latin1'):new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(bytes);}
+ catch(error){
+  if(!(error instanceof TypeError))throw error;
+  throw new SourceError('example.serialization.encoding','The external parameter serialization is not UTF-8.');
+ }
+}
+
 /** OAS 3.2 §§4.12.4 and 4.19.2: a parameter-level serialization includes its
  * name and escaping, unlike an example inside its Media Type Object. Reuse
  * native HTTP inversion and exact evaluation over the original graph owner. */
 export function parameterSerializationEvaluator(graph:ReferenceGraph,evaluate:Evaluate) {
  const parameters=new ParameterSemantics(graph),header=capturedExampleHeaders(graph),capture=capturedRuntimeMedia(graph);
  const shapes=new FormSemantics(graph);
- return async (owner:GraphScope,text:string):Promise<ParameterSerializationCheck>=>{
+ return async (owner:GraphScope,text:string,wireBytes?:Buffer):Promise<ParameterSerializationCheck>=>{
+ const wireHeader=owner.kind==='header'||owner.kind==='parameter'&&parameters.occurrence(owner).location==='header';
+ if(wireBytes){
+  try{text=externalParameterText(graph,owner,wireBytes);}
+  catch(error){
+   if(!(error instanceof SourceError)||error.code!=='example.serialization.encoding')throw error;
+   return {complete:true,valid:false,findings:[{code:error.code,severity:'error',message:error.message}],instances:0};
+  }
+ }
+ const representation=(instance:NativeRuntimeInstance):NativeRuntimeInstance=>!instance.mediaType?instance:
+  wireBytes?(wireHeader?{...instance,text:Buffer.from(instance.text,'latin1').toString('base64'),mediaBase64:true}:instance):
+   {...instance,unicodeSerialization:true};
 
  if(owner.kind==='header'){
   const name=exampleHeaderName(graph,owner);
@@ -43,7 +66,7 @@ export function parameterSerializationEvaluator(graph:ReferenceGraph,evaluate:Ev
    if(kind==='response'){subject='response-header';break;}
    if(!pointer)break;pointer=pointer.slice(0,pointer.lastIndexOf('/'));
   }
-  const checked=await evaluate([{...instance,subject,...(instance.mediaType?{unicodeSerialization:true}:{}),location:'example'}]);
+  const checked=await evaluate([representation({...instance,subject,location:'example'})]);
   const valid=checked.complete&&checked.evaluations.length>0&&checked.evaluations.every(value=>value.valid===true);
   const complete=checked.complete&&checked.evaluations.length>0&&(decoded.complete||valid);
   return {complete,valid,findings:checked.findings,instances:checked.instances};
@@ -66,7 +89,7 @@ export function parameterSerializationEvaluator(graph:ReferenceGraph,evaluate:Ev
  let instances=0,proofs=0;
  const omissions:ParameterOmission[]=[];
  const prove=async(values:NativeRuntimeInstance[]):Promise<NativeRuntimeCheck>=>{
-   const checked=await evaluate(values.map(value=>({...value,...(value.mediaType?{unicodeSerialization:true}:{})})));instances+=checked.instances;proofs+=checked.evaluations.length;
+   const checked=await evaluate(values.map(representation));instances+=checked.instances;proofs+=checked.evaluations.length;
    const evaluations=checked.evaluations.map(item=>{
     if(typeof item.subject!=='string'||typeof item.location!=='string'||typeof item.complete!=='boolean'||typeof item.valid!=='boolean')
      throw new SourceError('example.evaluation.protocol','The captured parameter evaluation returned an incomplete result identity');

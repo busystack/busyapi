@@ -242,7 +242,7 @@ function schemaFields() {
         boolean: ['readOnly', 'writeOnly', 'deprecated', 'uniqueItems'],
         number: ['minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf'],
         integer: ['minLength', 'maxLength', 'minProperties', 'maxProperties', 'minItems', 'maxItems', 'minContains', 'maxContains'],
-        object: ['properties', 'patternProperties', ...schemaDefinitionKeywords, 'dependentSchemas', 'dependentRequired', 'discriminator', 'xml'],
+        object: ['properties', 'patternProperties', ...schemaDefinitionKeywords, 'dependentSchemas', 'dependentRequired', 'discriminator', 'xml', 'externalDocs'],
         array: ['required', 'enum', 'examples', 'allOf', 'anyOf', 'oneOf', 'prefixItems'],
         schema: ['items', 'contains', 'additionalProperties', 'unevaluatedProperties', 'unevaluatedItems', 'propertyNames', 'not', 'if', 'then', 'else', 'contentSchema'],
         any: ['type', 'const', 'default', 'example'],

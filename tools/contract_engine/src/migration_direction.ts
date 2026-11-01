@@ -57,7 +57,7 @@ function discriminatorBindings(graph:ReferenceGraph,scope:GraphScope,selection:D
 export function migrateDirectionalSchemas(original:ReferenceGraph,graph:ReferenceGraph,
     sources:Map<string,MigrationSource>,families:readonly string[],target:string,issue:MigrationIssue,
     createSchemaResource:()=>MigrationSource,contexts:readonly ReferenceGraph[]):void {
-    const converting=new Set(families.filter(family=>family==='2.0'&&target==='3.0'||family==='3.0'&&['3.1','3.2'].includes(target)));
+    const converting=new Set(families.filter(family=>family==='2.0'&&target!=='2.0'||family==='3.0'&&['3.1','3.2'].includes(target)));
     if(!converting.size)return;
     const legacy=new Map<string,LegacyOwner>();
     for(const scope of original.scopesFor('schema')){
@@ -184,7 +184,7 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
     const neutralVariants=new Map<string,MigrationLocation>();
     const headerVariants=new Map<string,MigrationLocation>();
     const reserved=new Set<string>();
-    const swagger=target==='3.0'&&converting.has('2.0');
+    const swagger=converting.has('2.0');
     let edits=0,work=0,bytes=0;
     const admit=(source:MigrationSource)=>{
         if(++edits>4096||(work+=source.doc.text.length*2)>128*1024*1024)

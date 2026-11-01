@@ -1,8 +1,7 @@
-import {createHash} from 'node:crypto';
-import {componentLocation} from './authoring';
 import type {GraphScope,ReferenceGraph} from './reference_graph';
 import type {MigrationSource} from './migration_source';
 import {restrictedBooleanSchema} from './migration_schema_values';
+import {MigrationSchemaOwners} from './migration_schema_owners';
 
 /** Restricted Schema Objects allow a boolean additionalProperties field but
  * not a standalone boolean schema. Preserve both roles when a captured modern
@@ -11,9 +10,11 @@ import {restrictedBooleanSchema} from './migration_schema_values';
  * value remain with its original object. No references are searched in data. */
 export class BooleanSchemaMigration {
     private readonly referenced=new Set<string>();
+    private readonly owners:MigrationSchemaOwners;
 
     constructor(private readonly graph:ReferenceGraph,
-        private readonly sources:ReadonlyMap<string,MigrationSource>,private readonly target:string){
+        sources:ReadonlyMap<string,MigrationSource>,private readonly target:string,owners=new MigrationSchemaOwners(graph,sources)){
+        this.owners=owners;
         for(const reference of graph.references){
             if(reference.kind==='schema'&&!reference.connection&&reference.resolution==='resolved')
                 this.referenced.add(JSON.stringify([reference.targetResource,reference.targetPointer]));
@@ -27,12 +28,8 @@ export class BooleanSchemaMigration {
         if(!field){source.set(pointer,restrictedBooleanSchema(value,this.target));return;}
         if(!this.referenced.has(JSON.stringify([scope.resource,scope.pointer])))return;
 
-        const entry=this.sources.get(this.graph.root)!;
-        const container=componentLocation('schemas',this.graph.family)!;
-        const stem='_migrated_additional_'+createHash('sha256')
-            .update(JSON.stringify([scope.resource,scope.pointer])).digest('hex').slice(0,24);
-        let destination=container+'/'+stem,index=0;
-        while(entry.doc.dataNode(destination))destination=container+'/'+stem+'_'+(++index);
+        const owner=this.owners.reserve(scope,'additional'),entry=owner.source,destination=owner.location.pointer;
+        this.owners.admit(source,4);if(entry!==source)this.owners.admit(entry,4);
         entry.copy(source,pointer,destination);
         // The copy now owns incoming schema references. Leaving this physical
         // field in its target set would make reference repair ambiguous. Its

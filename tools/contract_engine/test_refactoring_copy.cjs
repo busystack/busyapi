@@ -104,6 +104,20 @@ function fixture(version,json=false){
  return {snapshot:'copy',root,resources:[{id:root,text,generation:4,identity:'root'},{id:part,text:json?JSON.stringify(external,null,2):YAML.stringify(external),generation:7,identity:'part'}],contexts:[{root,resources:[root,part]}],target:{root,resource:root,generation:4,pointer}};
 }
 function apply(input,plan){return input.resources.map(r=>{let text=r.text;for(const edit of plan.edits.filter(e=>e.buffer===r.id).sort((a,b)=>b.start-a.start)){assert.equal(text.slice(edit.start,edit.end),edit.expected);text=text.slice(0,edit.start)+edit.replacement+text.slice(edit.end);}return {...r,text};});}
+for(const version of ['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const json of [false,true])for(const dialect of [undefined,'https://json-schema.org/draft/2020-12/schema'])test(`${version} ${json?'JSON':'YAML'} inline preserves a static dynamicRef and explicit dialect=${dialect!==undefined}`,async()=>{
+ const root='file:///project/api.'+(json?'json':'yaml'),data={openapi:version,info:{title:'Static reference',version:'api'},paths:{},components:{schemas:{
+  Bound:{type:'integer',minimum:'EXACT'},Model:{...(dialect?{$schema:dialect}:{}),$dynamicRef:'#/components/schemas/Bound'},Use:{$ref:'#/components/schemas/Model'}
+ }},'x-literal':{$dynamicRef:'not-a-contract-reference',n:'EXACT'}};
+ const text=(json?JSON.stringify(data):'# Keep source 雪\r\n'+YAML.stringify(data).replaceAll('\n','\r\n')).replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const input={root,snapshot:'static-inline',resources:[{id:root,text,generation:3}],contexts:[{root,resources:[root]}],target:{root,resource:root,generation:3,pointer:'/components/schemas/Use'}};
+ assert.equal(analyse(input).status,'complete');const plan=planInline(input),after=apply(input,plan),graph=createGraph({...input,resources:after}).graph;
+ const edge=graph.referenceAs(root,'/components/schemas/Use','$dynamicRef','schema');assert.equal(edge.resolution,'resolved');assert.equal(edge.targetPointer,'/components/schemas/Bound');assert.equal(edge.dynamic,undefined);
+ const doc=new SourceDocument(after[0].text,root);assert.equal(doc.dataNode('/components/schemas/Use/$schema')?.value,dialect);assert.equal(doc.dataJson('/x-literal'),new SourceDocument(text,root).dataJson('/x-literal'));
+ const values=['9007199254740993.00','9007199254740992.00','"wrong"'];
+ const evaluate=resources=>evaluateSchemas({...input,resources,runtimeInstances:values.map(text=>({subject:'response-body',location:'application/json',text,schema:{resource:root,pointer:'/components/schemas/Use'}}))});
+ const before=await evaluate(input.resources),converted=await evaluate(after);assert.equal(before.complete,true,JSON.stringify(before.findings));assert.equal(converted.complete,true,JSON.stringify(converted.findings));assert.deepEqual(converted.runtimeEvaluations.map(v=>v.valid),before.runtimeEvaluations.map(v=>v.valid));
+ assert.equal(input.resources[0].text,text);assert.equal(analyse({...input,resources:after}).status,'complete');
+});
 for(const version of ['3.1.2','3.2.1'])for(const json of [false,true])for(const external of [false,true])test(`inline preserves acyclic internal references without expanding their shared targets ${version} ${json} external=${external}`,async()=>{
  const ext=json?'json':'yaml',source='file:///project/source/root.'+ext,destination=external?'file:///project/destination/root.'+ext:source;
  const model={type:'object',$defs:{'a/b~1':{type:'integer',minimum:111}},properties:{value:{$ref:'#/components/schemas/Model/$defs/a~1b~01'}},required:['value'],unevaluatedProperties:false};
@@ -283,7 +297,7 @@ test('Reference Object description override does not merge ignored siblings',()=
  assert.throws(()=>planInline(unsafe),e=>e.code==='refactor.inline.ignored');
 });
 test('identified, dynamic and recursive definitions need explicit ownership, never silent duplication',()=>{
- for(const schema of [{$id:'https://models.test/A',type:'string'},{$anchor:'named',type:'string'},{$dynamicAnchor:'node',type:'object'},{$schema:'https://json-schema.org/draft/2020-12/schema',type:'string'},{type:'object',properties:{self:{$ref:'#/components/schemas/A'}}}]){
+ for(const schema of [{$id:'https://models.test/A',type:'string'},{$anchor:'named',type:'string'},{$dynamicAnchor:'node',type:'object'},{type:'object',properties:{self:{$ref:'#/components/schemas/A'}}}]){
   const root='file:///project/root.json',data={openapi:'3.2.1',info:{title:'Test',version:'1'},paths:{},components:{schemas:{A:schema,B:{$ref:'#/components/schemas/A'}}}};
   const input={snapshot:'current',resources:[{id:root,text:JSON.stringify(data),generation:1}],contexts:[{root,resources:[root]}],target:{root,resource:root,generation:1,pointer:'/components/schemas/B'}};
   assert.throws(()=>planInline(input),e=>['refactor.inline.schema-resource','refactor.inline.recursive'].includes(e.code));

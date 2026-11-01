@@ -21,6 +21,7 @@ import {exampleRepresentation,type ExampleValueField} from './example_representa
 import {schemaExampleCandidates,schemaExamplesRevision} from './schema_examples';
 import {children} from './contexts';
 import {mediaTypeChoice} from './media_types';
+import {externalParameterText} from './serialized_parameter_examples';
 import {MultipartEncoding,supportsMultipartTransfer,type MultipartTransfer,type MultipartHeaderCandidate} from './multipart_encoding';
 import {evaluateSchemas} from './schema_evaluation';
 import {runtimeMediaDescription,runtimeFormMedia,runtimeMediaBytes,decodeRuntimeMedia,runtimeMediaKind} from './runtime_media';
@@ -416,7 +417,11 @@ export function requestOperation(input:any,captured?:ReturnType<typeof createGra
           const external={resource:captured.id,identity:captured.identity,byteLength:captured.byteLength};
           const base={name,level,source,representation:'serialized',dataKind:'string',external,
             wireBase64:captured.base64};
-          if(!mediaType)return {...base,raw:'',conversionError:'This external example needs a concrete media occurrence before request conversion.'};
+          if(!mediaType){
+            const owner=graph.scopeAs(resource,pointer,'parameter')??graph.scopeAs(resource,pointer,'header');
+            if(owner){const text=externalParameterText(graph,owner,bytes);return {...base,raw:text,text};}
+            return {...base,raw:'',conversionError:'This external example needs a concrete media occurrence before request conversion.'};
+          }
           const kind=runtimeMediaKind(mediaType);
           if(kind==='json'){
             const text=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(bytes);

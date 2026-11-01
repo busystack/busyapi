@@ -175,7 +175,7 @@ export async function planMigration(input:MigrationInput) {
                     if(siblings.length&&modernFamily(after)&&!modernFamily(before)&&issue(scope,'migration.reference.ignored-siblings','The target would activate ignored Reference Object siblings; explicitly discard those preserved values or revise the source','decision',['discard-ignored-siblings']))for(const name of siblings)source.remove(scope.pointer+'/'+escape(name));
                     if(siblings.length&&!modernFamily(after)&&modernFamily(before)&&scope.kind!=='schema')issue(scope,'migration.reference.annotations','The target cannot retain these Reference Object annotation overrides','target-representation');
                 }
-                const directionalUpgrade=before==='2.0'&&after==='3.0'||before==='3.0'&&modernFamily(after);
+                const directionalUpgrade=before==='2.0'&&after!=='2.0'||before==='3.0'&&modernFamily(after);
                 if(scope.kind==='schema'&&!directionalUpgrade&&!access.preserves(scope,before,after))issue(scope,'migration.schema.direction','Access annotations need a direction-specific schema mapping to preserve their captured property and required-list semantics in the target family','implementation');
                 if(before==='3.2'&&after!=='3.2'){
                     const newer:Record<string,string[]>={'path-item':['query','additionalOperations'],media:['itemSchema','prefixEncoding','itemEncoding'],encoding:['prefixEncoding','itemEncoding'],tag:['summary','kind','parent'],xml:['nodeType'],discriminator:['defaultMapping']};
@@ -193,11 +193,11 @@ export async function planMigration(input:MigrationInput) {
             }
             if(problems.length)break;
             for(const before of stage.sources)migrateServerVariableDefaults(graph,sources,before,after,issue);
-            for(const before of stage.sources)migrateBinarySchemas(graph,sources,before,after,issue);
+            for(const before of stage.sources)migrateBinarySchemas(graph,sources,before,after,issue,contexts.map(context=>context.graph));
             if(problems.length)break;
             for(const before of stage.sources)migrateSchemas(graph,sources,before,after,issue);
             for(const before of stage.sources)migrateEncodings(graph,sources,before,after,issue);
-            const referenceTargets=stage.sources.includes('2.0')?upgradeSwagger(graph,sources,issue,contexts.map(context=>context.graph)):undefined;
+            const referenceTargets=stage.sources.includes('2.0')?upgradeSwagger(graph,sources,issue,contexts.map(context=>context.graph),after):undefined;
             if(problems.length)break;
             const discriminator=stage.sources.includes('2.0')?migrateSwaggerDiscriminators(graph,sources,issue,contexts.map(context=>context.graph),location=>{
                 const original=sourceLocation(location.resource,location.pointer);
