@@ -94,6 +94,22 @@ class SdkInputs(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'differs from its SDK mode'):
             sdk_check.verify(self.sdk, 'release', self.library('debug'))
 
+    def test_explicit_evidence_survives_sdk_to_installed_layout_handoff(self):
+        with mock.patch.dict(os.environ, {'BUSYAPI_FLUTTER_UPSTREAM_ARTIFACTS': ''}):
+            record = sdk_check.verify(self.sdk, 'release', upstream_artifacts=self.archives)
+            bundle = self.root / 'relocated-bundle'
+            library = bundle / 'lib/libflutter_linux_gtk.so'
+            library.parent.mkdir(parents=True)
+            original = self.library('release').read_bytes()
+            library.write_bytes(original)
+            sdk_check.capture(bundle / sdk_check.RECEIPT, record)
+            self.assertEqual(sdk_check.verify_installed(bundle, self.archives), record)
+            with self.assertRaisesRegex(ValueError, 'Original upstream archives'):
+                sdk_check.verify_installed(bundle)
+            with self.assertRaisesRegex(ValueError, 'Missing upstream archive evidence directory'):
+                sdk_check.verify_installed(bundle, self.root / 'absent-evidence')
+            self.assertEqual(library.read_bytes(), original)
+
     def test_modified_source_wrong_revision_and_runtime_are_refused(self):
         (self.sdk / 'README').write_text('Modified tracked SDK source')
         with self.assertRaisesRegex(ValueError, 'Modified or unavailable'):
@@ -248,10 +264,14 @@ class BuildOwnership(unittest.TestCase):
         self.assertIn('add_dependencies(busyapi_verify_flutter_sdk flutter_assemble)', cmake)
         self.assertIn('--library "${FLUTTER_LIBRARY}"', cmake)
         self.assertIn('--check-receipt', cmake)
+        self.assertIn('--upstream-artifacts', cmake)
+        self.assertIn('BUSYAPI_FLUTTER_UPSTREAM_ARTIFACTS', cmake)
         self.assertNotIn('install(FILES "${BUSYAPI_FLUTTER', cmake)
         self.assertIn('include(flutter_sdk.cmake)', (ROOT / 'linux/CMakeLists.txt').read_text())
         build = (ROOT / 'tools/build_linux.sh').read_text()
         self.assertLess(build.index('tools/verify_flutter_sdk.py'), build.index('busyapi_sdk_metadata'))
+        self.assertIn('--upstream-artifacts "$BUSYAPI_FLUTTER_UPSTREAM_ARTIFACTS"', build)
+        self.assertIn('--flutter-upstream-artifacts "$BUSYAPI_FLUTTER_UPSTREAM_ARTIFACTS"', build)
         workflow = (ROOT / '.github/workflows/flutter-linux.yml').read_text()
         self.assertIn('tools/verify_flutter_sdk.py', workflow)
         self.assertIn('tools.test_flutter_sdk', workflow)

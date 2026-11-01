@@ -192,18 +192,18 @@ def package_evidence(package: str) -> tuple[dict, dict[str, bytes]]:
     }, materials
 
 
-def installed_engine(bundle: Path, installed: Path) -> bool:
+def installed_engine(bundle: Path, installed: Path, upstream_artifacts=None) -> bool:
     if installed.name != 'libflutter_linux_gtk.so' or installed.is_symlink():
         return False
     try:
         from tools.verify_flutter_sdk import verify_installed
     except ModuleNotFoundError:
         from verify_flutter_sdk import verify_installed
-    verify_installed(bundle)
+    verify_installed(bundle, upstream_artifacts)
     return True
 
 
-def collect(bundle: Path) -> tuple[dict, dict[str, bytes], dict[str, Path]]:
+def collect(bundle: Path, *, upstream_artifacts=None) -> tuple[dict, dict[str, bytes], dict[str, Path]]:
     bundle = bundle.resolve(strict=True)
     runtime = verify_documentation_runtime(bundle)
     for name in PLATFORM:
@@ -244,7 +244,7 @@ def collect(bundle: Path) -> tuple[dict, dict[str, bytes], dict[str, Path]]:
                 continue
             installed = bundle / 'lib' / name
             if installed.is_file() and installed.resolve(strict=True) != real:
-                if installed.is_symlink() or digest(installed) != digest(real) and not installed_engine(bundle, installed):
+                if installed.is_symlink() or digest(installed) != digest(real) and not installed_engine(bundle, installed, upstream_artifacts):
                     raise RuntimeError('Installed/native loader identity mismatch: ' + name)
                 # A plugin's direct-loader inspection can name the SDK's
                 # other-mode SDK engine. Use the captured installed mode,
@@ -321,14 +321,14 @@ def _write_material(bundle: Path, relative: str, data: bytes) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def assemble(bundle: Path) -> dict:
+def assemble(bundle: Path, *, upstream_artifacts=None) -> dict:
     """Copy the proved unmodified closure and verify actual assembled notices.
 
     This fulfills identity/inventory/material collection, not the separate
     source/linkage review. It cannot mark an application legally cleared.
     """
     bundle = bundle.resolve(strict=True)
-    before, before_materials, sources = collect(bundle)
+    before, before_materials, sources = collect(bundle, upstream_artifacts=upstream_artifacts)
     for name, source in sorted(sources.items()):
         target = bundle / 'lib' / name
         if target.is_symlink():
@@ -340,7 +340,7 @@ def assemble(bundle: Path) -> dict:
             shutil.copy2(source, target)
     # Re-read the relocated layout after copying. Attribution of a bundled
     # library still requires the unique original installed bytes/package.
-    after, materials, _ = collect(bundle)
+    after, materials, _ = collect(bundle, upstream_artifacts=upstream_artifacts)
     if {item['file']: item['sha256'] for item in before['libraries']} != {
             item['file']: item['sha256'] for item in after['libraries']}:
         raise RuntimeError('The assembled native dependency closure changed during packaging')
@@ -391,11 +391,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('bundle', type=Path)
     parser.add_argument('--assemble', action='store_true', help='Copy/verify build-owned native libraries and original notice materials')
+    parser.add_argument('--flutter-upstream-artifacts', type=Path,
+                        default=os.environ.get('BUSYAPI_FLUTTER_UPSTREAM_ARTIFACTS'),
+                        help='Existing upstream engine/Dart archive evidence; never acquired by this command')
     args = parser.parse_args()
     if args.assemble:
-        inventory = assemble(args.bundle)
+        inventory = assemble(args.bundle, upstream_artifacts=args.flutter_upstream_artifacts)
     else:
-        inventory, _, _ = collect(args.bundle)
+        inventory, _, _ = collect(args.bundle, upstream_artifacts=args.flutter_upstream_artifacts)
     print(json.dumps(inventory, ensure_ascii=False, indent=2))
 
 

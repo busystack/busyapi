@@ -127,7 +127,8 @@ Use the official Flutter 3.47.5 SDK with Dart 3.13.4 from the
 existing SDK, check its origin and verify the selected inputs without executing it:
 
 ```sh
-python3 tools/verify_flutter_sdk.py --sdk /path/to/flutter --mode release
+python3 tools/verify_flutter_sdk.py --sdk /path/to/flutter --mode release \
+  --upstream-artifacts /path/to/existing/upstream-archives
 ```
 
 This checks the pinned source revision, unchanged tracked source and selected
@@ -138,6 +139,15 @@ SHA-256 identities before reading members. Independently established member pins
 also support verification without retaining archives. Missing provenance blocks
 qualification. The verifier does not download, install, repair or replace an SDK.
 Native runtime acceptance remains a separate check.
+
+Builds pass the selected existing archive directory explicitly through SDK and
+CMake verification and export `BUSYAPI_FLUTTER_UPSTREAM_ARTIFACTS` for installed
+checks. Packaging and artifact qualification also accept
+`--flutter-upstream-artifacts /path/to/existing/upstream-archives`; an installed
+layout cannot discover an SDK cache. Set the environment variable when invoking
+other package verification tools directly. CI takes the same existing directory
+from its configured variable or the installed SDK's original download cache.
+Missing evidence stops qualification; it does not establish modified SDK bytes.
 
 Install locked project dependencies and prepare the contract and documentation assets:
 

@@ -1,5 +1,5 @@
 """Bundle non-glibc shared dependencies. Never modifies a system installation."""
-import argparse, pathlib
+import argparse, pathlib, os
 from native_distribution import assemble as assemble_native_distribution
 from verify_font_assets import verify as verify_font_assets
 from verify_application_assets import verify as verify_application_assets
@@ -11,6 +11,9 @@ from verify_flutter_sdk import verify_installed as verify_flutter_sdk
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('bundle',type=pathlib.Path)
 parser.add_argument('--platform-runtime',action='store_true',help='Verify a fresh CMake layout without copying libraries supplied by the Snap base/GNOME platform')
+parser.add_argument('--flutter-upstream-artifacts',type=pathlib.Path,
+                    default=os.environ.get('BUSYAPI_FLUTTER_UPSTREAM_ARTIFACTS'),
+                    help='Existing authenticated engine/Dart ZIP evidence; no acquisition or SDK replacement')
 args=parser.parse_args()
 bundle=args.bundle.resolve()
 if args.platform_runtime and (bundle/'share/licenses/busyapi-native/dependencies.json').exists():
@@ -40,10 +43,10 @@ verify_documentation_runtime(bundle)
 verify_resource_package_assets(bundle)
 verify_m3_assets(bundle)
 verify_generator(bundle/'libexec/busyapi/generator')
-verify_flutter_sdk(bundle)
+verify_flutter_sdk(bundle, args.flutter_upstream_artifacts)
 # A profile/debug build can leave its kernel asset in shared native staging.
 # The shipped AOT application reads libapp.so; do not package an old kernel.
 if (bundle/'lib/libapp.so').is_file():
     (bundle/'data/flutter_assets/kernel_blob.bin').unlink(missing_ok=True)
 if not args.platform_runtime:
-    assemble_native_distribution(bundle)
+    assemble_native_distribution(bundle, upstream_artifacts=args.flutter_upstream_artifacts)

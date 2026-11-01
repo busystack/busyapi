@@ -31,6 +31,192 @@ consume those shared results. Source-preserving transactions remain authoritativ
 Current changes require complete engine, Core, native and packaged verification;
 source inspection or a successful build is not runtime acceptance.
 
+## Finite completion register
+
+This register is the implementation queue. Its rows take precedence over the
+historical summaries below. **No work package is accepted or source-complete.**
+The current checkout began at `d9b6a3d`; the requested baseline object
+`86fd001dfaacfcf9b93e899642da75238f7486dd` is absent from this checkout's object
+database. No reset, replacement checkout, toolchain change or remote publication
+has been performed.
+
+Authority abbreviations in the tables refer to normative text, not the
+informational structural artifacts:
+
+- **O20**, **O30**, **O31**, **O32**: the four specification links above. The
+  [publication index](https://spec.openapis.org/oas/) lists 2.0; 3.0.0–3.0.4;
+  3.1.0–3.1.2; and 3.2.0–3.2.1. Patch declarations remain distinct from
+  `info.version`, schema dialects and URI resource identities.
+- **J4**: [Draft 4 Validation](https://json-schema.org/draft-04/draft-fge-json-schema-validation-00).
+  **JC/JV**: the 2020-12 Core/Validation links above.
+- **HTTP**: [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html).
+  **MIME**: RFC 2045/2046/7578 above. **URI**: RFC 3986/6901 above and
+  [RFC 6570](https://www.rfc-editor.org/rfc/rfc6570.html).
+- **WIRE**: [RFC 6265](https://www.rfc-editor.org/rfc/rfc6265.html),
+  [RFC 7464](https://www.rfc-editor.org/rfc/rfc7464.html),
+  [RFC 9264](https://www.rfc-editor.org/rfc/rfc9264.html),
+  [JSON Lines](https://jsonlines.org/),
+  [WHATWG SSE](https://html.spec.whatwg.org/multipage/server-sent-events.html),
+  [form encoding](https://url.spec.whatwg.org/#application/x-www-form-urlencoded),
+  [XML](https://www.w3.org/TR/xml/) and [Namespaces](https://www.w3.org/TR/xml-names/).
+- **TEXT**: [CommonMark 0.31.2](https://spec.commonmark.org/0.31.2/) and
+  YAML 1.2.2 above. **PINS**: repository locks, official archive identities and
+  exact pinned dependency source enumerated in `docs/tool-support.md`.
+
+Surface abbreviations: **A** creation/Design/Source; **R** native Reference and
+documentation; **E** requests, responses, examples, mocks and cases; **M** migration
+review/publication; **S** history, save, reopen and Undo/Redo; **C** independent CLI;
+**P** preparation/package/CI. Owners below are engine modules under
+`tools/contract_engine/src` unless a Core/native/tool path is stated. Test names
+without a directory are engine `.cjs` suites, registered in `tools/build_engine.sh`.
+
+Status **I/U** means the stated scoped implementation is present but unverified;
+**P/U** means partial implementation with concrete work still required;
+**M** means missing implementation. Coverage marked **existing** is prepared
+coverage, not a claim that the complete requirement is covered. **H** in the last
+column means no current-revision acceptance executed: the execution hold applies
+to compilers, analyzers, tests, generation, builds, native/browser workloads,
+packaging and performance. Source reads and diffs are not acceptance evidence.
+
+### W1: native clause and surface ownership
+
+| ID / requirement and authority | Production owner | Surfaces | Prepared regression coverage | Implementation status / remaining closure | Executed acceptance |
+| --- | --- | --- | --- | --- | --- |
+| W1.01 Declarations, family capabilities and dialect selection; O20 §6.4.1, O30/O31 Versions and OpenAPI Object, O32 §§4.1–4.2, JC §§8.1–8.2 | `specification.ts`, `contexts.ts`, `reference_graph.ts`, Core `project.dart` | A R E M S C | `test_native_families`, `test_dialect_identities`, `test_malformed_dialects`, Core dialect suites | I/U for declaration recognition/separation; every published patch still needs current application acceptance | H |
+| W1.02 Info, contact, license, external documentation and their fields/relationships; each family's named objects | `authoring.ts`, structural/restricted validators, `document_uris.ts`, native object controls | A R S C | `test_authoring`, `test_document_uris`, `test_terms_server_base` | P/U; modern schema `externalDocs` is now exposed through shared authoring metadata; complete normative field-to-surface closure remains | H |
+| W1.03 Servers, variables, URL templates and inheritance; O20 root/operation schemes, O30/O31 Server objects, O32 §§4.5–4.6 | server owners, `swagger_operation.ts`, `reference_projection.ts` | A R E M S C | server URL/context/template/default suites, Core request suites | I/U for existing implementations; qualify inherited occurrence choices and API URL bases independently of `$self`/`$id` | H |
+| W1.04 Paths/Path Items/Operations, fixed methods, exact `additionalOperations` spelling and `query`; O32 §§4.8–4.10, HTTP §9 | `contexts.ts`, graph Path Item view, `operation_semantics.ts`, authoring/execution projections | A R E M S C | `test_path_item_context`, `test_mock_custom_methods`, `test_operation_body_semantics`, request-definition suites | P/U; native authoring/inspection exists; CONNECT execution and older-target operation mappings remain W3/W5 work | H |
+| W1.05 Parameter locations, `querystring`, inheritance, schema/content exclusivity, styles and Header objects; family Parameter/Items/Header clauses, O32 §§4.12/4.21 | `parameter_semantics.ts`, Swagger wire owners, authoring, Core request controls | A R E M S C | native20/native30, parameter/style/serialized/header suites | P/U; keep Swagger non-body Parameter/Items/Header rules narrower than Schema Objects; finish W4 representations | H |
+| W1.06 Request bodies and response/status/media relationships; O20 body/Response, O30/O31 named objects, O32 §§4.13–4.14/4.16–4.18 | operation/response/media owners, `runtime_media_owner.ts`, Core request | A R E M S C | bodyless/operation-body/response-status/media-selection suites | P/U; inherited/shared object migration and newer fields still need W2/W3 closure | H |
+| W1.07 Media examples, reusable 3.2 media, `itemSchema`, named/positional/nested Encoding and example-value fields; O32 §§4.14–4.15/4.19 | media/form/multipart owners, `example_representation.ts`, `serialized_examples.ts` | A R E M S C | generic/positional multipart, data-value, example completeness and external-resource suites | P/U; metadata and finite decoding exist; typed generation, streaming and XML/Linkset remain open | H |
+| W1.08 Reusable component families and reference eligibility; O20 reusable maps, O30/O31 Components, O32 §4.7 | `authoring.ts`, graph/reference choices, native object controls | A R E M S C | native family/reference position/component-name suites | I/U for existing component contexts; qualify each applicable field and consumer, including media occurrences | H |
+| W1.09 Restricted schemas versus modern vocabularies, boolean schemas, exact numbers and annotations; O20 Schema, O30 Schema, O31/O32 Schema, J4/JC/JV | restricted/structural validators, `schema_evaluation.ts`, schema resource/access owners | A R E M S C | restricted-required, schema-role/definition/property-access/evaluation suites | P/U; schema evaluation is implemented; authoring and mapping coverage must be closed independently of structural validity | H |
+| W1.10 Reference Objects, schema applicators, Path Item references and ignored siblings; family reference clauses, JC §8.2.3 | `contexts.ts`, `reference_graph.ts`, reference projections/choices | A R E M S C | reference-family/position/path-item/context suites | I/U for existing contextual boundaries; retain negative payload/reference-lookalike controls | H |
+| W1.11 Links, runtime expressions, callbacks and webhooks; O30/O31/O32 named object clauses | runtime-expression/link/graph owners, authoring and reference projections | A R E M S C | graph/reference/operation-maintenance suites (existing) | P/U; complete field/surface qualification and representable maintenance/migration coverage remain | H |
+| W1.12 Tags, summary/kind/parent, entry namespaces and cycles; O32 Tag Object | `authoring_relationships.ts`, authoring, native Reference | A R M S C | `test_relationships`, reference-family suites | I/U for existing parent/duplicate/cycle rules; downstream migration still incomplete | H |
+| W1.13 Security URI bindings, roles, OAuth metadata/device flow and added fields; O32 Security Scheme/OAuth Flow/Security Requirement objects | security owners, graph connections, Core request/security controls | A R E M S C | security-role/selection/URI-binding suites | P/U; native semantics exist; faithful scheme splitting and newer-field downgrade mappings remain | H |
+| W1.14 XML node types/names/namespaces and discriminator defaults; **O32 §§4.25–4.26**, O20/O30/O31 corresponding objects | `xml_semantics.ts`, discriminator alternatives/models, authoring | A R E M S C | XML names/namespaces, discriminator alternatives/defaults and negative optional-3.0 suites | P/U; existing corrections retained; XML wire mapping is W4.04; optional 3.0 discriminators stay invalid | H |
+
+### W2–W3: ownership, routing and explicit migration
+
+| ID / requirement and authority | Production owner | Surfaces | Prepared regression coverage | Implementation status / remaining closure | Executed acceptance |
+| --- | --- | --- | --- | --- | --- |
+| W2.01 Per-use entry namespace, role, family/dialect, URI base, resource boundary, direction and independent literal uses; JC §§8–9, URI/TEXT | `migration_documents.ts`, `MigrationSource`, canonical graph | M S C | document-owner/direction/boolean-owner suites (existing); use-capture controls in document-owner suite | P/U; planning contexts now retain these use records; cross-entry conflicts still block before specialization | H |
+| W2.02 One deterministic specialization mechanism, selected-consumer repair, collisions and provenance; JC resource/reference rules, family object clauses | `migration_schema_owners.ts`, migration direction/discriminator/identity/shared-text/examples | M S C | alias/boolean/inactive annotation/direction suites, Core publication suites | P/U; shared allocator now serves boolean, inactive annotation, condition, tuple-tail and finite property-name owners; incompatible entry namespaces, dual literal/schema uses, dependency maps and conflicting text/locator uses remain missing specialization algorithms | H |
+| W2.03 Twelve directed routes and same-family patch behavior; family schema clauses, J4/JC applicators | `migration_routes.ts`, Swagger/schema/binary/direction owners | M S C | `test_migration_entry_routes`, `test_migration_direct_swagger`, `test_swagger_empty_tuple`, Core entry routes and `migration_direct_swagger_test.dart` | P/U; Swagger-to-modern now bypasses 3.0, mapping positional items directly; empty tuples retain no-op meaning; full route qualification and shared-role cases remain | H |
+| W3.01 Directional annotations and shared request/response/Header consumers in both directions; O20 Schema, O30 Schema, O31/O32 annotations | `migration_access.ts`, `migration_direction.ts`, required-presence owner | M E S C | direction/access/required-presence/Header suites and Core access review | P/U; direct Swagger modern routes use existing specialization; active downgrade and mixed-entry ownership remain | H |
+| W3.02 Positional tuples/tails, recursion, exact bounds and references; J4 §5.3, JC §10.3.1 | `migration_schema.ts`, routes and schema-reference owners | M E S C | direct-Swagger/empty-tuple/migration suites and `test_migration_tuple_tails` | P/U; unbounded Swagger tails upgrade to modern `prefixItems`; finite constrained modern tails expand to bounded Swagger positions referencing one retained tail owner; independent boolean tails retain owners too; unbounded constrained tails and additional equivalent downgrade algorithms remain | H |
+| W3.03 Conditional assertions and inactive conditional fields; JC §10.2.2 | `migration_schema_conditions.ts`, shared owner allocator, schema migration | M E S C | `test_migration_conditions` through production planning, source/target evaluations and cold graph | I/U for modern-to-3.0 conditional lowering with one retained condition target; Swagger condition-specific mappings and overlapping roles remain open | H |
+| W3.04 Property/schema dependencies with independently referenced maps; JC §10.2.2.4, JV §6.5.4 | `migration_schema_dependencies.ts` | M E S C | dependency/dependent-schema suites, Core dependency review | P/U; existing conditional lowering retained; shared map schema roles remain a concrete ownership gap | H |
+| W3.05 Static/dynamic references, anchors, identities and independent annotations; JC §§8–9 | identity/schema-reference/role owners | M E S C | static-dynamicref/identity/boolean/inactive annotation suites | P/U; inactive dynamic anchors can lower after captured-use inspection; dynamic scope specialization and dual identity/data ownership remain | H |
+| W3.06 Pattern/property-name/contains/count/unevaluated/content constraints; JC §§10–11, JV §§6/8 | `migration_schema.ts`, `migration_schema_property_names.ts`, binary/reference/dependency owners | M E S C | migration/binary/dependency suites (existing), `test_migration_property_names`, Core `migration_property_names_test.dart` | P/U; finite annotation-free property-name enum/const/type restrictions now lower to an isolated closed-properties branch with retained independent owners; general name schemas, patterns/counts/unevaluated/content algorithms remain missing, with individual blockers | H |
+| W3.07 Raw/data/base64/byte/file/union consumers and byte constraints; family binary clauses, JV §8 | `migration_binary.ts`, Swagger flat/media owners | M E S C | migration binary, direct Swagger, native binary suites | P/U; direct Swagger route now inspects actual body/response media and modernizes flat bounds/byte encodings; mixed/constrained/file-union ownership remains | H |
+| W3.08 Inherited media, forms/files, examples without schemas, shared operations/body meaning and reusable objects; family object clauses | Swagger media/form/downgrade/operation owners | M E S C | Swagger media/form/bodyless/ignored-body suites, Core form CLI | P/U; retain existing mappings and safety decisions; examples without schemas and mixed shared operations still have implementation gaps | H |
+| W3.09 Servers/security/newer-version fields and invariant proof; family clauses, HTTP/URI | servers/security/operation/invariant owners | M E S C | default-server/security-role/entry-route suites | P/U; complete representable newer-field and multi-flow mappings without inventing extensions or loss modes | H |
+| W3.10 Unsaved capture, stale review rejection, original preservation, inventories, exact external bytes, atomic publication and relocated verification; URI/TEXT, Core transaction contract | migration source/examples/invariants; Core `migration.dart` and publication owners | M S C | Core migration/derived-resource/publication suites, engine external examples | I/U for existing safeguards; every new restructuring still needs source-to-target mapping arguments and current publication/cold-reopen acceptance | H |
+
+### W4–W5: wire representations and execution
+
+| ID / requirement and authority | Production owner | Surfaces | Prepared regression coverage | Implementation status / remaining closure | Executed acceptance |
+| --- | --- | --- | --- | --- | --- |
+| W4.01 Named/ordered/nested multipart generation and decoding, typed/file/union choice, dynamic encoding, media/headers/transfers and exact bytes; O32 Encoding, MIME | runtime form/multipart/encoding owners; Core `request.dart`; native Request | A R E S C | generic/positional/nested/multipart-header/file-shape suites | P/U; finite decoding exists; typed ordered/nested generation and captured choice controls are still missing in Core/native paths | H |
+| W4.02 Parameter styles, collectionFormat, whole-query content, omission/empty/reserved/Unicode/exact numbers; family Parameter clauses, URI/WIRE | parameter/header codecs, Core request controls | A E S C | parameter/style/optional serialized/Swagger header suites, `test_runtime_parameter_serialization`, Core runtime-proof/external-parameter suites | P/U; complete parameter serializations now evaluate through their captured declaration in Core execution; original Swagger flat/Items rules, exact numbers and header octets are retained; remaining occurrence-specific representations still need closure | H |
+| W4.03 Repeated content-based header field lines and Set-Cookie; HTTP §§5.2–5.5, O32 §4.21 | `runtime_headers.ts`, serialized parameter evaluator, Core header checks | A R E S C | runtime header and external-parameter controls; Core response-header suites | I/U for ordered recipient combination with singleton rejection and separate Set-Cookie semantics; production byte-exchange acceptance pending | H |
+| W4.04 OAS XML data/wire mapping, namespaces/order/escaping and disabled external acquisition; O32 §4.26, XML/Namespaces | XML semantics plus runtime-media/Core codec integration | A R E S C | XML metadata suites only; wire coverage still required | M for modeled wire encoder/decoder across consumers; opaque bytes remain available with truthful evaluation limits | H |
+| W4.05 Linkset-to-JSON-model mapping; O32 §4.21.2, RFC 9264/8288/8187 | runtime-media/header codecs and request/mock integrations | A R E S C | wire regression coverage still required | M; `application/linkset` remains opaque | H |
+| W4.06 Parameter/Header externalValue occurrence serialization through approved captured bytes; O30/O31/O32 Example/Parameter/Header objects | `serialized_examples.ts`, serialized-parameter evaluator, `execution.ts`, Core captured-resource owner | A R E S C | external-example-resource and serialized-parameter suites; Core `external_parameter_examples_test.dart` and existing external-resource controls | P/U; evaluation, request-selection projection and Core outgoing validation now reuse captured resources and actual occurrences, including header octets/charsets; query/header production byte-exchange regressions are prepared; acceptance remains pending | H |
+| W4.07 Concrete occurrence context, approved external/binary example selection and cache/decision ownership; Example clauses, Core capture contract | external/media/example/request owners | A R E M S C | external-resource/media-identity/binary-selection suites | P/U; reusable media without a concrete occurrence remains missing context, not a guessed format; finish binary choices in every applicable native control | H |
+| W5.01 Incremental JSON Lines/NDJSON, JSON text sequences and SSE framing/evaluation; O32 media/itemSchema, WIRE | runtime media plus transport/capture/Core/native/CLI stream owners | E S C | finite runtime-media suites only; incremental production regressions still required | M for transport-integrated incremental evaluation/backpressure/progress; complete-input accumulation is not streaming | H |
+| W5.02 Multipart sequences, chunk boundaries, cancellation/bounds/retention, malformed/truncated terminal status and whole-sequence versus item results; MIME/WIRE | multipart runtime and stream transport/capture owners | E S C | finite multipart suites only; incremental byte-exchange coverage still required | M for incremental execution integration; retain bounded finite decoding | H |
+| W5.03 Authority-form CONNECT, successful tunnel transition, bounded approved peers, bidirectional bytes and closure; HTTP §9.3.6 | mock native validation/server/transport; Core/native mock ownership | E S C | current tunnel refusal controls only; controlled peer byte-exchange suites still required | M; ordinary-response mock transport still refuses CONNECT; no unrestricted proxy is authorized | H |
+| W5.04 Bounded object/array/composition/reference/media-aware generated witnesses and final original-schema/status/header/body proof; JC/JV, family response clauses | schema sample candidates, mock sample/generation/response owners | E S C | numeric/nested/schema-sample/media/final-response suites | P/U; exact numeric and final-proof fixes retained; remaining candidate paths are incomplete; exhausted search is not unsatisfiability | H |
+
+### W6–W8: maintenance, integration and qualification
+
+| ID / requirement and authority | Production owner | Surfaces | Prepared regression coverage | Implementation status / remaining closure | Executed acceptance |
+| --- | --- | --- | --- | --- | --- |
+| W6.01 Rename/extract/copy/inline/relocate at every schema-bearing position; JC §§8–10, family Schema/Components clauses | refactoring/copy/file owners, canonical schema traversal, Core transactions | A R S C | refactoring/copy/extract/file/schema-definition suites | P/U; full nested/conditional/dependency/tuple/media/callback coverage remains; source transaction/cold-reopen qualification pending | H |
+| W6.02 Preserve resource/dialect/anchor and dynamic evaluation scope without weakening recursion/identity/Path Item guards; JC §§8–9 | `refactoring_copy.ts`, reference choices/graph | A R S C | copy suite static-dynamic/dialect controls plus existing genuine dynamic/recursive refusals | P/U; static dynamic-reference starting points and retained explicit dialects now have a guarded inline path; identified/dynamic resources and non-schema chains still need specific algorithms | H |
+| W6.03 Shared/conflicting Markdown and dual literal/contract owners; TEXT/URI, O32 URI-base clauses | refactoring Markdown/file/copy, migration shared-text, URI owners | A R M S C | Markdown identity/location/shared-text/refactoring suites | P/U; YAML alias separation retained; dual physical literal/contract and incompatible rendering-base specialization remain missing | H |
+| W6.04 Complete native Reference/export and exact pinned external renderer/generator/comparator adapters; family clauses, PINS | native Reference, `derived_bundle.ts`, Core renderer/export adapters | R M S C | reference family/display/Markdown, bundle/resource-package/adapter suites | P/U; native family paths exist; complete relocated/offline output and exact adapter limitation qualification remain; never strip/relabel source to satisfy an adapter | H |
+| W7.01 Creation, editing, unsaved Reference, request/example/mock/case, migration review, documentation and CLI integration for every capability; all applicable clauses above | shared engine, Core owners and native workspace controls | A R E M S C | engine/Core/widget/native journey suites | P/U; applicable existing consumers inherit shared field/codec/routing changes; complete family journeys are not accepted | H |
+| W7.02 Stale-action invalidation on declaration/dialect/root/external/approval changes; coherent reviewed transactions, Undo/Redo and no buffer loss; Core transaction contract | Core project/store/capture and native review/request controllers | A R E M S C | stale capture/cancellation/publication/widget review suites | I/U for existing safeguards; new paths require current integration qualification | H |
+| W7.03 CST fidelity, no-op saves, exact values, aliases, extensions and source-only migration restructuring; TEXT | `document.ts`, graph/CST editing, Core store/transaction owners | A R M S C | source ownership/alias/exact-value/no-op suites | I/U for existing boundaries; generated schema owners retain original provenance and reviewed restructuring | H |
+| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | I/U for scoped revision update: schema evaluator `1.18.0+48`, migration producer remains `40`, numeric sample producer remains `3`; no dependency versions/source changed | H |
+| W8.01 Explicit independent evidence input across SDK/build/CMake/CI/installed/package checks; PINS | `flutter_archive.py`, SDK verifier, `build_linux.sh`, CMake, package/native-distribution/artifact-smoke inputs | P | `tools/test_flutter_sdk.py`, source-wiring regressions | I/U for archive-input propagation; same existing evidence reaches installed checks; independent member pins remain an alternative; no SDK acquisition/replacement | H; actual evidence availability/authenticity has not been qualified |
+| W8.02 Ordered gates, registration, source-version-valid fixtures and production-byte regressions; PINS and each row's authority | `tools/build_engine.sh`, Linux workflow, engine/Core/widget/native/package suites | P | new direct-Swagger/conditional/tuple-tail/property-name/runtime-parameter suites registered; existing TypeScript-before-bundle gate retained | P/U; compilation and all suspended gates remain unexecuted; missing regression coverage identified in this register remains implementation work | H |
+| W8.03 Current automated/native/packaged/offline acceptance and normal Quit; all approved families and PINS | native acceptance tools, Core/package/CLI suites | A R E M S C P | existing native acceptance including historical Quit/focus failures; complete new journeys still required | M for accepted evidence; no driver/engine attribution established; Snapcraft remains skipped | H |
+
+Invalid source is recorded as source invalidity; absent approved byte resources
+remain availability failures. A bounded evaluator/search refusal is incomplete
+evaluation, not proof of invalidity or unsatisfiability. A specifically established
+target restriction is separate from a missing mapping algorithm. External adapter
+limits are separate from native product capability. Neither the execution hold
+nor missing Flutter provenance evidence closes any implementation row.
+
+Current source-only work has not executed any acceptance command. The permitted
+commands used to inspect/edit the checkout include `git status`, `git log`,
+`git cat-file`, `rg`, source reads and patch application. `git cat-file` could not
+find the supplied baseline object. These outcomes establish checkout state only.
+Authorized qualification must follow the four-stage order in the assignment;
+all current-revision automated, native and packaged acceptance remains pending.
+
+Local implementation commits are `485da29` (scoped migration/native wire changes),
+`9822c08` (captured parameter runtime admission and HTTP octets), and `7ffa70f`
+(finite property-name mappings and retained owners). Their regressions are prepared
+and registered but unexecuted. No full work package is closed by these commits.
+Build-evidence input wiring and this completion register are a separate local
+change. The primary checkout and its `release/v0.1.0` branch are retained; no remote publication or CI trigger is part of this handoff.
+
+Finite property-name lowering follows [JSON Schema Core §10.3.2.4](https://json-schema.org/draft/2020-12/json-schema-core#section-10.3.2.4):
+only string property names are tested. For the admitted annotation-free
+`type`/`enum`/`const` forms, their string intersection is either unrestricted or
+a finite set. A separate `allOf` branch with exactly that set in `properties`
+and `additionalProperties: false` admits precisely those object names without
+changing existing value constraints. An empty set becomes `maxProperties: 0`;
+non-objects are unaffected. Referenced name schemas keep their converted owner
+through the common allocator. General/annotated forms and dual literal/schema
+roles retain specific implementation blockers. No new annotation semantics or
+compatibility extension is invented. Prepared comparisons include both restricted
+target families, every published modern source patch, aliases, collisions, exact
+values, literal consumers and independent schema evaluation. Core publication
+and cold-reopen regressions use the same shared path; none have been executed.
+
+Complete runtime parameter serializations now carry only the captured Parameter
+occurrence, text, subject and location. The engine resolves that occurrence's
+family, references, styles, media and original schema. Core requires the current
+producer and one matching ownership proof for every supplied packet; missing,
+duplicate, malformed, replaced and obsolete proofs fail admission. Actual HTTP
+content fields use a Latin-1 octet view before media decoding; authored Unicode
+serializations remain distinct. Runtime inversion has byte-work and candidate
+bounds, and bounded refusal remains incomplete evaluation. The prepared Core
+external-parameter regression exchanges the actual query and UTF-8 JSON header
+bytes through the production request transport. This is unexecuted coverage, not
+accepted byte-exchange evidence.
+
+The conditional mapping argument is local to modern-to-3.0 schemas: an appended
+`allOf` branch contains mutually exclusive `anyOf` branches. The positive branch
+applies the retained condition and `then`; the negative branch negates that same
+condition and applies `else`. Missing branches have no added assertion. Only the
+successful positive condition contributes its annotations. Hoisting that condition
+preserves one independent reference target; moving each consequent preserves its
+own provenance. Without `if`, `then`/`else` are inactive; independently referenced
+schemas still receive owners. Overlapping literal/object interpretations retain
+an implementation blocker. Source/target instance comparisons supplement this
+argument; none have been executed.
+
+The finite-tail mapping argument uses an authored, exact, non-negative integer
+`maxItems`. Every reachable position after `prefixItems` applies the same retained
+tail through a generated reference; the original prefix constraints and array
+bound remain. Closed boolean tails clamp the maximum to the prefix length when
+necessary, and independently referenced boolean tails keep their schema owners.
+Names use the common collision-safe allocator. Expansion is bounded by 2048
+positions and the shared CST edit-work budget; a budget refusal does not establish
+that no equivalent target schema exists. Unbounded constrained-tail conversions
+remain in the implementation queue. `migration_schema_tuples.ts` owns this mapping;
+`test_migration_tuple_tails.cjs` prepares behavioral, exact-value, collision,
+independent-target and cold-graph controls.
+
 | Area | Owner | Implementation status | Current verification |
 | --- | --- | --- | --- |
 | Family declarations, dialects and capabilities | Engine specification and graph | Implemented; detailed remaining semantics below | Complete current qualification pending |
@@ -70,8 +256,11 @@ source inspection or a successful build is not runtime acceptance.
 - CONNECT behavior and remaining bounded response-witness generation.
 - Remaining URI-preserving inline, copy and relocation mappings and named-schema
   maintenance positions.
-- Remaining OpenAPI 3.2 identity, operation, parameter, media, tag, security and
-  discriminator rules; independent schema/literal identity ownership is incomplete.
+- The explicit W1.01–W1.14 clause/surface coverage above, including 3.2 document
+  identity and URI bases; exact query/additional method spelling; querystring;
+  reusable media/item schemas and encoding/example fields; tag parent metadata;
+  security URI/OAuth additions; XML node types and discriminator defaults.
+  W2.01–W2.02 track independent schema/literal identity ownership separately.
 
 A missing implementation is not an unrepresentable conversion. Migration must
 retain source-located blockers until a faithful mapping is implemented. It must

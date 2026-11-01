@@ -33,7 +33,10 @@ def member_identity(artifact, archive_root=None):
         return _sha256(pinned)
     if archive_root is None:
         raise ValueError('Original upstream archives or independently established member identities are required')
-    root = Path(archive_root).resolve(strict=True)
+    selected_root = Path(archive_root)
+    if not selected_root.is_dir():
+        raise ValueError('Missing upstream archive evidence directory; supply existing authenticated archives with --upstream-artifacts or independently established member pins')
+    root = selected_root.resolve(strict=True)
     url = urlsplit(artifact['url'])
     if url.scheme != 'https' or url.netloc != 'storage.googleapis.com':
         raise ValueError('Expected the pinned official upstream artifact origin')
