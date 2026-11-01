@@ -13,6 +13,7 @@ import {BooleanSchemaMigration} from './migration_boolean_schema';
 import {MigrationSchemaOwners} from './migration_schema_owners';
 import {migrateSchemaConditions} from './migration_schema_conditions';
 import {migrateSchemaTuple} from './migration_schema_tuples';
+import {migrateSchemaPropertyNames} from './migration_schema_property_names';
 
 export type MigrationChoice=Readonly<{value:string;label:string;target:MigrationLocation&{range:readonly number[]}}>;
 export type MigrationProblem={resource:string;pointer:string;range:number[];code:string;message:string;reason:'target-representation'|'implementation'|'source-incomplete'|'decision';choices?:string[];choiceDetails?:readonly MigrationChoice[];id?:string};
@@ -71,6 +72,7 @@ export function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Migration
             migrateDependentRequired(graph,scope,source,pointer,to,requirements,issue);
             migrateDependentSchemas(graph,scope,source,pointer,to,requirements,issue);
             migrateSchemaConditions(graph,scope,source,pointer,to,owners,issue);
+            migrateSchemaPropertyNames(graph,scope,source,pointer,owners,issue);
         }
         if(!modernFamily(to)&&Object.hasOwn(value,'$dynamicAnchor')){
             const active=graph.references.some(reference=>reference.dynamic&&
