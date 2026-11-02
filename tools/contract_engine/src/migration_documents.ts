@@ -1,7 +1,7 @@
 import {createGraph,type Resource} from './engine';
 import type {MigrationIssue} from './migration_schema';
 import type {MigrationLocation} from './migration_source';
-import type {ReferenceGraph,GraphScope} from './reference_graph';
+import {supportedSchemaDialect,type ReferenceGraph,type GraphScope} from './reference_graph';
 import {escape,SourceError} from './document';
 import {modernFamily} from './specification';
 import {projectSchemaReference} from './schema_reference_projection';
@@ -20,7 +20,7 @@ type DocumentContext=Context&Readonly<{uses:readonly MigrationUse[]}>;
  * payload fields that resemble references create no propagation edges. */
 export function migrationUses(graph:ReferenceGraph):readonly MigrationUse[] {
     const identity=(at:{resource:string;pointer:string;kind:string})=>JSON.stringify([at.resource,at.pointer,at.kind]);
-    const scopes=[...graph.interpretedScopes()];
+    const scopes=[...graph.interpretedScopes()].filter(scope=>scope.kind!=='root'||graph.specifications.has(scope.resource));
     const byLocation=new Map<string,GraphScope[]>();
     for(const scope of scopes){
         const key=JSON.stringify([scope.resource,scope.pointer]),values=byLocation.get(key)??[];
@@ -81,10 +81,26 @@ export function migrationUses(graph:ReferenceGraph):readonly MigrationUse[] {
     return uses;
 }
 
-/** Each complete description is also an entry context. Shared bytes need one
- * transformation, so differing schema contexts cannot be merged by choosing
- * whichever entry happened to be visited first. Named connections are proved
- * separately against each migrated entry's namespace. */
+/** Core 8.2.3.1 gives an assertion-only static forwarder the same meaning in
+ * supported modern dialects when its captured base and target agree. This is
+ * a proof about the actual use, not interchangeability of the dialects: any
+ * sibling assertion/annotation, dynamic binding or unresolved target keeps
+ * the independent context requirement. */
+function equivalentForwarder(a:GraphScope,left:ReferenceGraph,b:GraphScope,right:ReferenceGraph):boolean {
+    if(a.kind!=='schema'||b.kind!=='schema'||!modernFamily(a.family)||!modernFamily(b.family)||
+        !supportedSchemaDialect(a)||!supportedSchemaDialect(b)||a.base!==b.base||a.resourcePointer!==b.resourcePointer)return false;
+    const node=left.docs.get(a.resource)!.dataNode(a.pointer);
+    if(node?.kind!=='object'||node.children.size!==1||typeof node.value.$ref!=='string')return false;
+    const before=left.referenceAs(a.resource,a.pointer,'$ref','schema'),after=right.referenceAs(b.resource,b.pointer,'$ref','schema');
+    return before?.resolution==='resolved'&&after?.resolution==='resolved'&&
+        before.targetResource===after.targetResource&&before.targetPointer===after.targetPointer;
+}
+
+/** Each complete description is also an entry context. Only established typed
+ * uses own conversion semantics. A fragment retrieval's bookkeeping root is
+ * neither an OpenAPI Object nor a schema use. Distinct contexts require
+ * specialization unless their actual use has a shared representation proof.
+ * Named connections are proved separately against each entry's namespace. */
 export function migrationDocumentContexts(input:{root:string;resources:Resource[]},primary:Context,issue:MigrationIssue):readonly DocumentContext[] {
     let useCount=0;
     const capture=(context:Context):DocumentContext=>{
@@ -97,13 +113,16 @@ export function migrationDocumentContexts(input:{root:string;resources:Resource[
         if(root===input.root)continue;
         contexts.push(capture(createGraph({...input,root})));
     }
-    const scopes=new Map<string,string>();
+    const scopes=new Map<string,{identity:string;scope:GraphScope;graph:ReferenceGraph}>();
     for(const {graph}of contexts){
-        for(const [key,scope]of graph.scopes){
+        for(const scope of graph.interpretedScopes()){
+            if(scope.kind==='root'&&!graph.specifications.has(scope.resource))continue;
+            const key=JSON.stringify([scope.resource,scope.pointer,scope.kind]);
             const identity=JSON.stringify([scope.kind,scope.family,scope.dialect,scope.base,scope.resourcePointer]);
-            if(scopes.has(key)&&scopes.get(key)!==identity)
+            const previous=scopes.get(key);
+            if(previous&&previous.identity!==identity&&!equivalentForwarder(previous.scope,previous.graph,scope,graph))
                 issue(scope,'migration.documents.context','This shared source has different schema or object contexts in captured descriptions; one converted owner is not proved equivalent','implementation');
-            scopes.set(key,identity);
+            if(!previous)scopes.set(key,{identity,scope,graph});
         }
     }
     return contexts;

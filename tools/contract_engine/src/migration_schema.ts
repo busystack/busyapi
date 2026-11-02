@@ -13,6 +13,7 @@ import {MigrationSchemaOwners} from './migration_schema_owners';
 import {migrateSchemaConditions} from './migration_schema_conditions';
 import {migrateSchemaTuple} from './migration_schema_tuples';
 import {migrateSchemaPropertyNames} from './migration_schema_property_names';
+import {MigrationArrayBounds,migrateConstantContains,migrateArrayAlternatives} from './migration_schema_arrays';
 
 export type MigrationChoice=Readonly<{value:string;label:string;target:MigrationLocation&{range:readonly number[]}}>;
 export type MigrationProblem={resource:string;pointer:string;range:number[];code:string;message:string;reason:'target-representation'|'implementation'|'source-incomplete'|'decision';choices?:string[];choiceDetails?:readonly MigrationChoice[];id?:string};
@@ -26,6 +27,7 @@ export function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Migration
     const references=new MigrationSchemaReferences(graph),requirements=new SchemaPropertyRequirements(graph);
     const owners=new MigrationSchemaOwners(graph,sources);
     const booleans=new BooleanSchemaMigration(graph,sources,to,owners);
+    const arrayBounds=new MigrationArrayBounds(graph);
     const scopes=[...graph.scopes.values()].filter(scope=>scope.kind==='schema'&&scope.family===from).sort((a,b)=>b.pointer.length-a.pointer.length);
     for(const scope of scopes){
         const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);if(pointer===undefined)continue;
@@ -39,7 +41,7 @@ export function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Migration
         if(from==='2.0'&&to!=='2.0'&&Array.isArray(value.type)&&value.type.includes('file'))
             issue(field('type'),'migration.schema.file-union','This Swagger file/data union needs occurrence-specific alternative schemas and media decoding before conversion','implementation');
         const typeComposition=(types:string[])=>{
-            const branches=types.map(type=>type==='null'?{type:'string',nullable:true,enum:[null]}:{type});
+            const branches=types.map(type=>type==='null'?{type:'string',nullable:true,enum:[null]}:type==='array'?{type,items:{}}:{type});
             source.remove(pointer+'/type');
             if(source.doc.dataNode(pointer+'/anyOf')){
                 if(!source.doc.dataNode(pointer+'/allOf'))source.set(pointer+'/allOf',[]);
@@ -68,6 +70,8 @@ export function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Migration
             migrateDependentSchemas(graph,scope,source,pointer,to,requirements,issue);
             migrateSchemaConditions(graph,scope,source,pointer,to,owners,issue);
             migrateSchemaPropertyNames(graph,scope,source,pointer,owners,issue);
+            migrateConstantContains(graph,scope,source,pointer,owners);
+            if(to==='2.0')migrateArrayAlternatives(graph,scope,source,pointer,owners);
         }
         if(!modernFamily(to)&&Object.hasOwn(value,'$dynamicAnchor')){
             if(!references.requiresDynamicAnchor(scope))source.remove(pointer+'/$dynamicAnchor');
@@ -87,7 +91,7 @@ export function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Migration
         };
         if(!modernFamily(to))for(const [name,message]of Object.entries(pending))
             if(Object.hasOwn(value,name)&&source.doc.dataNode(pointer+'/'+name))issue(field(name),'migration.schema.'+name,message+' for '+to,'implementation');
-        if(!modernFamily(to))migrateSchemaTuple(graph,scope,source,pointer,to,owners,issue);
+        if(!modernFamily(to))migrateSchemaTuple(graph,scope,source,pointer,to,owners,issue,arrayBounds);
         migrateInactiveSchemaAnnotations(graph,scope,source,sources,to,owners);
         if(to==='2.0')for(const name of ['oneOf','anyOf','not','writeOnly','deprecated'])if(Object.hasOwn(value,name)&&source.doc.dataNode(pointer+'/'+name))issue(field(name),'migration.schema.keyword','This Schema Object field requires an explicit faithful Swagger mapping','implementation');
         if(!modernFamily(from)&&modernFamily(to)){
@@ -120,6 +124,8 @@ export function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Migration
                 else typeComposition(value.type);
             }
             if(value.type==='null'&&to==='3.0')typeComposition(['null']);
+            if(to==='3.0'&&source.doc.dataNode(pointer)?.value?.type==='array'&&!source.doc.dataNode(pointer+'/items'))
+                source.set(pointer+'/items',{});
             if(Object.hasOwn(value,'const')){
                 if(Object.hasOwn(value,'enum')){
                     if(!source.doc.dataNode(pointer+'/allOf'))source.set(pointer+'/allOf',[]);

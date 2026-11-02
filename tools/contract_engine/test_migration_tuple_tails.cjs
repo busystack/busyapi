@@ -28,3 +28,33 @@ test('unbounded constrained tuple tails remain an implementation queue item rath
  const result=await planMigration({root,snapshot:'unbounded-tail',resources:[{id:root,text,generation:0}],targetVersion:'2.0',destination:'file:///reviewed/'});
  assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);assert(result.problems.some(p=>p.code==='migration.schema.tuple-tail'&&p.reason==='implementation'));
 });
+
+for(const format of ['yaml','json'])test(`${format} constrained tails use finite same-instance composition and reference proofs`,async()=>{
+ const root='file:///approved/bounded.'+format,external='file:///approved/limit.'+format;
+ const tuple={prefixItems:[{type:'string'}],items:{type:'integer',minimum:'EXACT'}};
+ const models={
+  All:{...tuple,allOf:[{$ref:'limit.'+format+'#/$defs/Limit'}]},
+  Alternatives:{...tuple,anyOf:[{maxItems:2},{maxItems:4}]},
+  Fixed:{...tuple,const:['fixed','EXACT']},
+  Enumerated:{...tuple,enum:[['fixed'],['fixed','EXACT'],null]},
+  NonArray:{...tuple,type:'string'},
+  Unreachable:{prefixItems:[false],items:{type:'integer'}},
+  Counted:{...tuple,contains:true,maxContains:3},
+  ImpossibleCount:{...tuple,contains:false},
+  Choice:{$ref:'#/components/schemas/Alternatives/anyOf/0'},
+ };
+ const value={openapi:'3.2.1',info:{title:'Finite graph bounds',version:'1'},paths:{},components:{schemas:models}};
+ const render=value=>(format==='yaml'?'# Captured bounds 雪\r\n'+YAML.stringify(value).replaceAll('\n','\r\n'):JSON.stringify(value))
+  .replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const input={root,snapshot:'finite-bounds',resources:[{id:root,text:render(value),generation:1},
+  {id:external,text:render({$defs:{Limit:{allOf:[{maxItems:3}],properties:{nested:{$ref:'#/$defs/Limit'}}}}}),generation:2}],targetVersion:'2.0',destination:'file:///converted/'};
+ const instances=['null','"x"','[]','["fixed"]','["fixed",9007199254740993]','["fixed",0]',
+  '["fixed",9007199254740993,9007199254740994]','["fixed",9007199254740993,9007199254740994,9007199254740995]'];
+ const evaluate=(packet,prefix)=>evaluateSchemas({...packet,runtimeInstances:Object.keys(models).flatMap(name=>instances.map(text=>({
+  subject:'response-body',location:name+text,text,schema:{resource:packet.root,pointer:prefix+'/'+name}})))});
+ const before=await evaluate(input,'/components/schemas');assert.equal(before.complete,true,JSON.stringify(before.findings));
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const cold={root:review.outputRoot,resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0})),snapshot:'cold-bounds'};
+ const after=await evaluate(cold,'/definitions');assert.equal(after.complete,true,JSON.stringify(after.findings));
+ assert.deepEqual(after.runtimeEvaluations.map(result=>result.valid),before.runtimeEvaluations.map(result=>result.valid));
+});

@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 import {componentLocation} from './authoring';
 import {SourceError} from './document';
-import type {ReferenceGraph} from './reference_graph';
+import {pointerFragment,type ReferenceGraph} from './reference_graph';
 import type {MigrationLocation,MigrationSource} from './migration_source';
 import {migrationLogicalPointers} from './migration_yaml_ownership';
 
@@ -40,6 +40,14 @@ export class MigrationSchemaOwners {
         if(this.reserved.size>=2048)throw new SourceError('limit.migration.owners','Schema specialization exceeds 2048 generated owners');
         this.reserved.add(key(pointer));
         return {resource:source.doc.id,pointer};
+    }
+    /** Newly generated references use the coordinated target component name.
+     * Captured references retain the existing provenance-based repair path. */
+    reference(location:MigrationLocation,targetFamily:string):string {
+        const prefix='/components/schemas/';
+        const pointer=targetFamily==='2.0'&&this.graph.specifications.has(location.resource)&&location.pointer.startsWith(prefix)?
+            '/definitions/'+location.pointer.slice(prefix.length):location.pointer;
+        return location.resource+pointerFragment(pointer);
     }
 
     move(origin:MigrationLocation,source:MigrationSource,pointer:string,label:string):MigrationLocation {

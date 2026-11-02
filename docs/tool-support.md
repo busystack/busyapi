@@ -782,7 +782,7 @@ use the same allocator and role-specific provenance before conversion or patch
 relocation. Their document links, external examples and Server templates retain
 the captured context; literal values survive separately. Cross-entry namespace
 propagation and multiple non-schema object roles remain implementation gaps.
-The migration producer is **45**; Core rejects previous
+The migration producer is **46**; Core rejects previous
 producer responses before publication. Current qualification remains pending.
 
 Older-family migration also lowers dynamic references when every captured
