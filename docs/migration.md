@@ -42,7 +42,9 @@ Publication rechecks the captured bytes, including unsaved buffers, along with
 the documents. Missing, denied or unsupported interpretation still blocks the
 conversion. See the [support matrix](implementation/native-openapi-support.md) for coverage and verification status.
 
-Upgrades follow **2.0 → 3.0 → 3.1 → 3.2**, including composed upgrades. Downgrades
+Swagger upgrades convert directly to the selected 3.x family, preserving
+representable Draft 4 constraints without a narrower 3.0 intermediate. Modern
+upgrades retain their existing staged routes. Downgrades
 check whether the actual declarations can be represented in the selected target.
 A target choice does not guarantee that every source construct can be converted.
 Missing dependencies, unsupported mappings and unresolved decisions produce
@@ -108,15 +110,18 @@ references retain their resolved destinations; API server URLs keep their
 separate retrieval context. Dynamic reference bindings and delivered resource
 connections receive the same cold-reopen proofs as other migrations. The target
 uses its own supported identity rules; it does not claim an in-band `$self` field.
-Independent schema/literal ownership can still block conversion. Unknown external
+Independent schema and data uses receive separate schema owners before identity
+lowering. Active dynamic scopes and inherited anchored resources can still block
+conversion until their resource-scope preservation is proved. Unknown external
 consumers are outside the captured graph's guarantees.
 
 Modern `dependentRequired` property dependencies can migrate to OpenAPI 3.0
 using equivalent presence conditions. False, zero and null still count as present.
 Swagger 2.0 conversion supports redundant dependencies and dependencies whose
 trigger is proved required through captured references, composition or other
-dependencies; other conditional dependencies produce a located blocker. A dependency map also referenced independently as a schema requires a
-separate representation and blocks conversion. Original arrays and comments are
+dependencies; other conditional dependencies produce a located blocker. An independently referenced dependency map receives a separate schema owner.
+The map and its schema interpretation retain their distinct constraints; unknown
+schema annotations cannot be discarded merely to satisfy a restricted target. Original arrays and comments are
 retained where the mapping permits; restructuring appears in the review.
 
 Modern `dependentSchemas` conditions can also migrate to OpenAPI 3.0. The
@@ -124,8 +129,8 @@ dependent schema still applies to the whole object only when its named property
 is present. Non-object values keep their original behavior. Swagger conversion
 currently requires a declared object-only type and a proved required trigger;
 other conditions receive a located implementation blocker. References to a moved
-dependent schema follow its reviewed destination. Shared YAML ownership and a
-dependency map independently interpreted as a schema remain explicit blockers.
+dependent schema follow its reviewed destination. Shared YAML uses retain the existing planning-copy ownership. An independently
+interpreted map uses the same separate schema owner as other shared contexts.
 
 A modern `$dynamicRef` that resolves to a pointer or ordinary anchor can be
 converted to a static reference in Swagger 2.0 or OpenAPI 3.0. Its assertions

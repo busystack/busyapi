@@ -32,9 +32,10 @@ import {MigrationExamples,proveMigrationExamples,type MigrationExampleCopy} from
 import {migrateTerms} from './migration_terms';
 import {migrateServerVariableDefaults,retainDefaultServers} from './migration_servers';
 import {migrationLogicalPointers,migrationYamlOwnership} from './migration_yaml_ownership';
+import {separateMigrationSchemaUses} from './migration_schema_uses';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='40';
+const migrationProducerVersion='41';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const patch:Record<string,string>={'2.0':'2.0','3.0':'3.0.4','3.1':'3.1.2','3.2':'3.2.1'};
 export type MigrationInput=Readonly<{
@@ -73,12 +74,15 @@ export async function planMigration(input:MigrationInput) {
     const omittedMarkdownOwners=new Set<string>();
     const relocatedResources=new Map<string,string>();
     const createdResources=new Map<string,string>();
+    const planningOrigins=new Map<string,{resource:string;pointer:string;range:number[]}>();
     let origins=new Map<string,MigrationLocation[]>();
     for(const doc of original.values())for(const pointer of migrationLogicalPointers(doc))origins.set(key(doc.id,pointer),[{resource:doc.id,pointer}]);
     const sourceLocation=(resource:string,pointer:string)=>{
         resource=relocatedResources.get(resource)??resource;
         let at=pointer;
         while(true){
+            const specialized=planningOrigins.get(key(resource,at));
+            if(specialized)return specialized;
             for(const [origin,locations]of origins)if(locations.some(location=>location.resource===resource&&location.pointer===at)){
                 const [id,source]=JSON.parse(origin) as [string,string],node=original.get(id)?.dataNode(source);
                 return {resource:id,pointer:source,range:node?.range??original.get(id)!.root.range};
@@ -122,7 +126,6 @@ export async function planMigration(input:MigrationInput) {
     let externalExamples:MigrationExamples|undefined;
     if(!problems.length)try{externalExamples=new MigrationExamples(initialContexts.map(context=>context.graph),input.exampleResources);}
     catch(error){refused(error,{resource:input.root,pointer:''});}
-    if(!problems.length)try{initial.graph.assertReferenceEditsSupported();}catch(error){refused(error,{resource:input.root,pointer:''});}
     const markdownContexts=problems.length?[]:captureMigrationMarkdown(initial.graph,issue);
     for(const {original:location}of markdownContexts)if(!origins.has(key(location.resource,location.pointer)))
         origins.set(key(location.resource,location.pointer),[location]);
@@ -132,7 +135,7 @@ export async function planMigration(input:MigrationInput) {
     for(const stage of route){
         if(problems.length)break;
         const after=stage.to,context=createGraph({...input,resources});
-        const contexts=migrationDocumentContexts({...input,resources},context,issue);
+        let contexts=migrationDocumentContexts({...input,resources},context,issue);
         if(problems.length)break;
         const active=contexts.find(context=>stage.sources.includes(context.graph.specifications.get(context.graph.root)!.family));
         if(!active)throw new SourceError('migration.route.owner','The conversion stage has no captured source entry');
@@ -146,6 +149,37 @@ export async function planMigration(input:MigrationInput) {
                 source.origins.set(location.pointer,new Set([location.pointer]));
         }
         try {
+            let schemaResource:MigrationSource|undefined;
+            const createSchemaResource=():MigrationSource=>{
+                if(schemaResource)return schemaResource;
+                if(sources.size>=256)throw new SourceError('limit.migration.resources','Generated schema resources exceed the 256-resource migration bound');
+                const format=sources.get(graph.root)!.doc.format;
+                const stem='migration-schemas-'+digest(JSON.stringify([graph.root,after,migrationProducerVersion])).slice(0,24);
+                let id=new URL(stem+'.'+format,graph.root).href,index=0;
+                const unavailable=(id:string)=>sources.has(id)||graph.identities.has(id)||
+                    input.exampleResources?.some(resource=>resource.id===id||resource.aliases?.includes(id));
+                while(unavailable(id))id=new URL(stem+'-'+(++index)+'.'+format,graph.root).href;
+                schemaResource=new MigrationSource(new SourceDocument('{}\n',id));
+                sources.set(id,schemaResource);createdResources.set(id,graph.root);
+                return schemaResource;
+            };
+            const specialized=separateMigrationSchemaUses(graph,sources,issue,createSchemaResource);
+            if(problems.length)break;
+            if(specialized.size){
+                for(const [origin,copies]of specialized){
+                    const [resource,pointer]=JSON.parse(origin) as [string,string];
+                    const original=sourceLocation(resource,pointer);
+                    for(const copy of copies)planningOrigins.set(key(copy.resource,copy.pointer),original);
+                }
+                for(const [id]of createdResources)if(!resources.some(resource=>resource.id===id))
+                    resources.push({id,text:sources.get(id)!.doc.text,generation:0,identity:digest(sources.get(id)!.doc.text)});
+                const ownedInput={...input,root:graph.root,resources:resources.map(resource=>({...resource,text:sources.get(resource.id)!.doc.text}))};
+                const owned=createGraph(ownedInput);
+                contexts=migrationDocumentContexts(ownedInput,owned,issue);
+                graph=owned.graph;
+                if(problems.length)break;
+            }
+            for(const context of contexts)context.graph.assertReferenceEditsSupported();
             const terms=new Map<string,string>();
             for(const context of contexts)migrateTerms(context.graph,sources,stage.sources,terms,issue);
             if(problems.length)break;
@@ -242,18 +276,7 @@ export async function planMigration(input:MigrationInput) {
             const converted=createGraph(convertedInput);
             const convertedContexts=migrationDocumentContexts(convertedInput,converted,issue);
             if(problems.length)break;
-            migrateDirectionalSchemas(graph,converted.graph,sources,stage.sources,after,issue,()=>{
-                if(sources.size>=256)throw new SourceError('limit.migration.resources','Generated schema resources exceed the 256-resource migration bound');
-                const format=sources.get(graph.root)!.doc.format;
-                const stem='migration-schemas-'+digest(JSON.stringify([graph.root,after,migrationProducerVersion])).slice(0,24);
-                let id=new URL(stem+'.'+format,graph.root).href,index=0;
-                const unavailable=(id:string)=>sources.has(id)||converted.graph.identities.has(id)||
-                    input.exampleResources?.some(resource=>resource.id===id||resource.aliases?.includes(id));
-                while(unavailable(id))id=new URL(stem+'-'+(++index)+'.'+format,graph.root).href;
-                const source=new MigrationSource(new SourceDocument('{}\n',id));
-                sources.set(id,source);createdResources.set(id,graph.root);
-                return source;
-            },convertedContexts.map(context=>context.graph));
+            migrateDirectionalSchemas(graph,converted.graph,sources,stage.sources,after,issue,createSchemaResource,convertedContexts.map(context=>context.graph));
             if(problems.length)break;
             for(const scope of graph.scopesFor('schema')){
                 const source=sources.get(scope.resource)!,at=source.current(scope.pointer);
@@ -265,6 +288,10 @@ export async function planMigration(input:MigrationInput) {
                 for(const location of locations)for(const [id,source]of sources){
                     const values=id===location.resource?source.origins.get(location.pointer):source.foreignOrigins.get(location.resource+'#'+location.pointer);
                     for(const pointer of values??[])mapped.push({resource:id,pointer});
+                    for(const copy of specialized.get(key(location.resource,location.pointer))??[]){
+                        const values=id===copy.resource?source.origins.get(copy.pointer):source.foreignOrigins.get(copy.resource+'#'+copy.pointer);
+                        for(const pointer of values??[])mapped.push({resource:id,pointer});
+                    }
                 }
                 next.set(origin,mapped);
             }
@@ -302,6 +329,7 @@ export async function planMigration(input:MigrationInput) {
     if(problems.length)return {...common(),changes:[],outputs:[]};
     try{
         const context=createGraph({...input,resources});
+        context.graph.assertReferenceEditsSupported();
         resources=resources.map(resource=>{
             if(!context.graph.specifications.has(resource.id))return resource;
             const source=new MigrationSource(context.docs.get(resource.id)!);
@@ -462,7 +490,14 @@ export async function planMigration(input:MigrationInput) {
         if(scope.family==='2.0'&&scope.kind==='response')for(const name of doc.dataNode(scope.pointer+'/examples')?.children.keys()??[])exactPayloads.add(key(scope.resource,scope.pointer+'/examples/'+escape(name)));
     }
     for(const origin of exactPayloads){
-        const [resource,pointer]=JSON.parse(origin) as [string,string],expected=migrationValueIdentity(original.get(resource)!,pointer),locations=origins.get(origin)??[];
+        const [resource,pointer]=JSON.parse(origin) as [string,string],expected=migrationValueIdentity(original.get(resource)!,pointer);
+        // A schema interpretation of a payload has a separate semantic owner.
+        // Exact-data invariants apply to the surviving literal occurrences,
+        // including literals inside copied schemas, not the converted schema
+        // root that happens to share the original source coordinates.
+        const locations=(origins.get(origin)??[]).filter(location=>
+            !finalContext.graph.scopeAs(identifiers.get(location.resource)!,location.pointer,'schema')||
+            finalContext.graph.literalContainer(identifiers.get(location.resource)!,location.pointer)!==undefined);
         // Only an explicit, graph-bound omission decision can remove values
         // inside an ignored declaration. Originals remain independent inputs.
         if(ignoredBodyOmissions.some(location=>location.resource===resource&&(pointer===location.pointer||pointer.startsWith(location.pointer+'/'))))continue;

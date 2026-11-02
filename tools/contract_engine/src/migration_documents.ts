@@ -115,7 +115,10 @@ export function proveMigrationConnections(source:ReferenceGraph,target:Reference
     for(const reference of source.references){
         if((!reference.connection&&reference.keyword!=='$dynamicRef')||reference.resolution!=='resolved')continue;
         const field={resource:reference.resource,pointer:reference.pointer+'/'+escape(reference.keyword)};
-        const fields=mapped(field),targets=mapped({resource:reference.targetResource!,pointer:reference.targetPointer!});
+        const fields=mapped(field).filter(field=>{
+            const connection=connections.get(JSON.stringify([field.resource,field.pointer]));
+            return connection?.kind===reference.kind&&connection.connection===reference.connection;
+        }),targets=mapped({resource:reference.targetResource!,pointer:reference.targetPointer!});
         if(!fields.length||fields.some(field=>{
             const connection=connections.get(JSON.stringify([field.resource,field.pointer]));
             return !connection||connection.resolution!=='resolved'||!targets.some(target=>target.resource===connection.targetResource&&target.pointer===connection.targetPointer);

@@ -42,13 +42,16 @@ test(`general or annotated property-name schemas retain a specific implementatio
  const result=await planMigration({root,snapshot:'name-blocker',resources:[{id:root,text,generation:0}],targetVersion:'3.0.4',destination:'file:///reviewed/'});
  assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);assert(result.problems.some(problem=>problem.code==='migration.schema.propertyNames'&&problem.reason==='implementation'));
 });
-test('a literal enum member independently used as a boolean schema retains its ownership blocker',async()=>{
+test('a literal enum member independently used as a boolean schema retains data and a separate assertion owner',async()=>{
  const root='file:///approved/api.json',text=JSON.stringify({openapi:'3.2.1',info:{title:'Dual name data',version:'1'},paths:{},components:{schemas:{
   Model:{propertyNames:{enum:['a',false]}},False:{$ref:'#/components/schemas/Model/propertyNames/enum/1'}
  }}});
  const input={root,snapshot:'dual-name-data',resources:[{id:root,text,generation:0}],targetVersion:'3.0.4',destination:'file:///reviewed/'};
  assert.equal(analyse(input).status,'complete');
- const result=await planMigration(input);assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);
- assert(result.problems.some(problem=>problem.code==='migration.schema.property-name-owner'&&problem.reason==='implementation'));
+ const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));
+ const output={root:result.outputRoot,snapshot:'cold',resources:result.outputs.map(resource=>({id:resource.id,text:resource.text,generation:0}))};
+ const proof=await evaluateSchemas({...output,runtimeInstances:['false','null','0','{}','[]'].map(text=>({subject:'response-body',location:'application/json',text,schema:{resource:output.root,pointer:'/components/schemas/False'}}))});
+ assert.equal(proof.complete,true);assert(proof.runtimeEvaluations.every(value=>value.valid===false));
+ assert.equal(analyse(output).status,'complete');
  assert.equal(input.resources[0].text,text);
 });

@@ -59,8 +59,9 @@ to the enclosing OpenAPI Components maps. Explicit dialect selection still
 controls evaluation.
 A modern schema reference can independently interpret a schema dictionary or
 another OpenAPI object. BusyAPI retains the physical authoring context and the
-reached schema's own dialect/base. Shared-field transformations requiring separate
-interpretations remain explicitly incomplete; opening and native editing do not
+reached schema's own dialect/base. Migration separates established schema interpretations from dictionary,
+literal-data and native-object uses before conversion. Cross-entry conflicts,
+active dynamic scope and inherited anchored-resource cases remain incomplete; opening and native editing do not
 require migration.
 For OpenAPI 3.0, BusyAPI rejects a reference requiring different OpenAPI object
 interpretations of one source object, with a located context diagnostic.
@@ -316,7 +317,7 @@ selection still follows the pinned Prism negotiator. Unspecified Swagger respons
 media uses a JSON generator default without changing the document. Candidate/work
 limits and unsupported evaluation stay incomplete; this policy does not establish
 arbitrary constraint generation. CLI readiness exposes `nativeGeneration`
-separately (`busyapi-native-schema-samples` version 2), and Core rejects an
+separately (`busyapi-native-schema-samples` version 3), and Core rejects an
 incompatible policy identity. Construction and proof cancellation cannot return
 a cached success after ownership has ended. The [support record](implementation/native-openapi-support.md)
 lists exact-number, nested-property, installed CLI and production Linux coverage.
@@ -756,7 +757,7 @@ identity map. Affected YAML uses receive separate planning-copy ownership throug
 captured anchor/alias tokens, including patch-only declarations and anchored
 destinations. Other consumers retain their exact values, and review shows the
 restructuring. Independently interpreted literal/contract occurrences still need
-their own mappings. The migration producer is **40**; Core rejects previous
+their own mappings. The migration producer is **41**; Core rejects previous
 producer responses before publication. Current qualification remains pending.
 
 Contract-case JSON reports include `dispatched` and `operationalFailure`. Coverage
@@ -950,7 +951,7 @@ Native property-access evaluation uses the logical schema occurrence even when
 its source is a reusable or aliased definition. Swagger `readOnly` properties
 are excluded from requests through schema references; OpenAPI 3.0 retains its
 request/response `required` rules for readOnly/writeOnly. Modern annotations keep
-ordinary JSON Schema assertions. The shared evaluator revision is **1.18.0+46**;
+ordinary JSON Schema assertions. The shared evaluator revision is **1.18.0+48**;
 matching mock/worker revisions are required before readiness is reported.
 
 The derived bundler uses the canonical graph and exact CST reader. It preserves

@@ -4,7 +4,6 @@ import {MigrationSource,type MigrationLocation} from './migration_source';
 import {modernFamily} from './specification';
 import {escape} from './document';
 import {compare,decimal} from './exact_numbers';
-import {createHash} from 'node:crypto';
 import {MigrationSchemaReferences} from './migration_schema_references';
 import {SchemaPropertyRequirements} from './schema_property_requirements';
 import {migrateDependentRequired,migrateDependentSchemas} from './migration_schema_dependencies';
@@ -56,13 +55,9 @@ export function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Migration
             // owners before the target is evaluated without modern identities.
             for(const name of ['$id','$anchor'])source.remove(pointer+'/'+name);
             for(const keyword of schemaDefinitionKeywords)if(source.doc.dataNode(pointer+'/'+keyword)){
-                const entry=sources.get(graph.root)!;
                 for(const name of [...source.doc.dataNode(pointer+'/'+keyword).children.keys()]){
-                    const at=pointer+'/'+keyword+'/'+escape(name),stem='_migrated_'+createHash('sha256').update(scope.resource+'#'+scope.pointer+'/'+keyword+'/'+escape(name)).digest('hex').slice(0,24);
-                    let destination='/components/schemas/'+stem,index=0;
-                    while(entry.doc.dataNode(destination))destination='/components/schemas/'+stem+'_'+(++index);
-                    if(entry===source)source.move(at,destination);
-                    else {entry.copy(source,at,destination);source.remove(at);}
+                    const at=pointer+'/'+keyword+'/'+escape(name);
+                    owners.move({...scope,pointer:scope.pointer+'/'+keyword+'/'+escape(name)},source,at,'definition');
                 }
                 source.remove(pointer+'/'+keyword);
             }

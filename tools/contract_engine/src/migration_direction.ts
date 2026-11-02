@@ -1,4 +1,3 @@
-import {createHash} from 'node:crypto';
 import {children} from './contexts';
 import {escape,SourceError} from './document';
 import {documentUriOccurrences} from './document_uris';
@@ -7,6 +6,7 @@ import {propertyAccess} from './schema_access';
 import {DiscriminatorModels} from './discriminator_models';
 import {MigrationSource,type MigrationLocation} from './migration_source';
 import type {MigrationIssue} from './migration_schema';
+import {MigrationSchemaOwners} from './migration_schema_owners';
 
 type Direction='request'|'response';
 type LegacyOwner=Readonly<{family:string;property:boolean;origin:GraphScope}>;
@@ -183,7 +183,7 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
     const variants=new Map<string,MigrationLocation>();
     const neutralVariants=new Map<string,MigrationLocation>();
     const headerVariants=new Map<string,MigrationLocation>();
-    const reserved=new Set<string>();
+    const owners=new MigrationSchemaOwners(graph,sources);
     const swagger=converting.has('2.0');
     let edits=0,work=0,bytes=0;
     const admit=(source:MigrationSource)=>{
@@ -201,13 +201,9 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
     };
     function reserve(label:string,identity:string,container='schemas'):MigrationLocation {
         if(variants.size+neutralVariants.size+headerVariants.size>=1024)throw new SourceError('limit.migration.direction','Directional specialization exceeds 1024 states');
-        const stem='_migrated_'+label+'_'+createHash('sha256').update(identity).digest('hex').slice(0,24);
-        let name=stem,index=0;
         const source=container==='schemas'?(registry??=createSchemaResource()):entry;
         const prefix=container==='schemas'?'':'/components/'+container;
-        while(source.doc.nodes.has(prefix+'/'+name)||reserved.has(name))name=stem+'_'+(++index);
-        reserved.add(name);
-        return {resource:source.doc.id,pointer:prefix+'/'+name};
+        return owners.allocate(source,prefix,label,identity);
     }
     function copy(scope:GraphScope,destination:MigrationLocation):void {
         const source=pristine.get(scope.resource)!,node=source.doc.node(scope.pointer);

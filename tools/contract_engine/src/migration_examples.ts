@@ -55,7 +55,12 @@ export class MigrationExamples {
     relocate(graph:ReferenceGraph,mapped:(source:MigrationLocation)=>readonly MigrationLocation[],
         destination:string,documentPaths:Iterable<string>):Relocation {
         const expected=new Map<string,Binding>();
-        for(const binding of this.bindings.values())for(const location of mapped(binding.source)) {
+        const nativeLocators=new Set(externalExampleRequests(graph).map(request=>key(request)));
+        for(const binding of this.bindings.values()){
+          const locations=mapped(binding.source),surviving=locations.filter(location=>nativeLocators.has(key(location)));
+          if(locations.length&&!surviving.length)throw new SourceError('migration.example.context',
+              'A surviving external example lost its native Example Object context',binding.source.range,'unsupported',binding.source);
+          for(const location of surviving) {
             // Source validation already guards required interpretation. An
             // explicit reviewed omission can retire an ignored declaration;
             // only surviving locators need byte copies in the target.
@@ -66,6 +71,7 @@ export class MigrationExamples {
                 throw new SourceError('migration.example.ownership','Different source examples share one target locator',
                     binding.source.range,'unsupported',binding.source);
             expected.set(key(location),binding);
+          }
         }
         const sources=new Map<string,MigrationSource>(),mappings=new Map<string,string>();
         const copies=new Map<string,{output:MigrationExampleCopy;aliases:Set<string>;occurrences:Occurrence[]}>();

@@ -1,10 +1,10 @@
-import {createHash} from 'node:crypto';
 import {SourceError} from './document';
 import {documentUriOccurrences} from './document_uris';
 import {documentUriBase,pointerFragment,resolveUri,type GraphScope,type ReferenceGraph} from './reference_graph';
 import {MigrationSource,type MigrationLocation} from './migration_source';
 import type {MigrationIssue} from './migration_schema';
 import {DiscriminatorModels} from './discriminator_models';
+import {MigrationSchemaOwners} from './migration_schema_owners';
 
 const key=(location:MigrationLocation)=>JSON.stringify([location.resource,location.pointer]);
 const inside=(pointer:string,root:string)=>pointer===root||pointer.startsWith(root+'/');
@@ -62,7 +62,7 @@ export function migrateSwaggerDiscriminators(graph:ReferenceGraph,sources:Map<st
         tables.set(key(base),table);
     }
     const references=graph.references.filter(edge=>edge.kind==='schema'&&!edge.connection&&edge.keyword==='$ref'&&edge.resolution==='resolved');
-    const uris=[...documentUriOccurrences(graph)],reserved=new Set<string>();
+    const uris=[...documentUriOccurrences(graph)],owners=new MigrationSchemaOwners(graph,sources);
     const variants=new Map<string,MigrationLocation>(),choicesByName=new Map<string,MigrationLocation>(),processed=new Set<string>();
     let edits=0,cost=0,cloneBytes=0,generated=0,inspected=0;
     let nonObject:MigrationLocation|undefined;
@@ -73,11 +73,7 @@ export function migrateSwaggerDiscriminators(graph:ReferenceGraph,sources:Map<st
     const inspect=()=>{if(++inspected>2000000)throw new SourceError('limit.migration.discriminator','Specialized reference/URI inspection exceeds its bounded work',undefined,'unsupported');};
     const reserve=(kind:string,identity:string,scope:GraphScope):MigrationLocation=>{
         if(++generated>2048)throw new SourceError('limit.migration.discriminator','Discriminator specialization exceeds 2048 generated schema owners',sourceOf(scope).range,'unsupported',sourceOf(scope));
-        const stem='_migrated_'+kind+'_'+createHash('sha256').update(identity).digest('hex').slice(0,24);
-        let name=stem,index=0;
-        while(entry.doc.nodes.has('/components/schemas/'+name)||reserved.has(name))name=stem+'_'+(++index);
-        reserved.add(name);
-        return {resource:graph.root,pointer:'/components/schemas/'+name};
+        return owners.allocate(entry,'/components/schemas',kind,identity);
     };
     const mappedWithin=(original:MigrationLocation,owner:MigrationLocation,destination:MigrationLocation)=>{
         const at=locations(original).filter(location=>location.resource===owner.resource&&inside(location.pointer,owner.pointer));

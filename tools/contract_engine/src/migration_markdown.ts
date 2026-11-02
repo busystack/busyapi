@@ -12,7 +12,6 @@ type CapturedMarkdown=Readonly<{
     owner:MigrationLocation;
     value:string;
     base:string;
-    literal:boolean;
 }>;
 type Mapped=(original:MigrationLocation)=>readonly MigrationLocation[];
 type Target=Readonly<{source:CapturedMarkdown;location:MigrationLocation;scope:GraphScope;value:string}>;
@@ -34,7 +33,6 @@ export function captureMigrationMarkdown(graph:ReferenceGraph,issue:MigrationIss
             if(relativeMarkdownDestinations(field.value).length)captured.push({
                 original,owner:{resource:scope.resource,pointer:scope.pointer},value:field.value,
                 base:documentUriBase(graph,scope),
-                literal:graph.literalContainer(scope.resource,scope.pointer+'/description')!==undefined,
             });
         }catch(error){
             if(!(error instanceof SourceError))throw error;
@@ -53,16 +51,18 @@ function targets(captured:readonly CapturedMarkdown[],graph:ReferenceGraph,mappe
     }
     for(const source of captured){
         const ownerLocations=mapped(source.owner);
+        let matched=false;
         for(const location of mapped(source.original)){
             const field=graph.docs.get(location.resource)?.dataNode(location.pointer);
             const candidates=field?owners.get(key(location))??[]:[];
-            const selected=ownerLocations.length?candidates.filter(scope=>ownerLocations.some(owner=>owner.resource===scope.resource&&owner.pointer===scope.pointer)):candidates;
+            const selected=candidates.filter(scope=>!ownerLocations.length||ownerLocations.some(owner=>owner.resource===scope.resource&&owner.pointer===scope.pointer));
             if(!selected.length||typeof field?.value!=='string'){
-                issue({...location,original:source.original},'migration.description.context','The original documentation has no proved surviving rendered context','implementation');
                 continue;
             }
+            matched=true;
             for(const scope of selected)result.push({source,location,scope,value:field.value});
         }
+        if(!matched)issue({...source.original,original:source.original},'migration.description.context','The original documentation has no proved surviving rendered context','implementation');
     }
     return result;
 }
@@ -81,7 +81,7 @@ export function rewriteMigrationMarkdown(captured:readonly CapturedMarkdown[],gr
         }
         try{
             const value=relocateMarkdownLinks(source.value,source.base,documentUriBase(graph,scope));
-            if(value!==source.value&&(source.literal||graph.literalContainer(location.resource,location.pointer)!==undefined)){
+            if(value!==source.value&&graph.literalContainer(location.resource,location.pointer)!==undefined){
                 issue(finding,'migration.description.literal-context','This rendered description is also literal data; its occurrences need separate context ownership','implementation');
                 continue;
             }
