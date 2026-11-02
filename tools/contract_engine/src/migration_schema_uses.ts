@@ -3,14 +3,86 @@ import {children,referenceKinds} from './contexts';
 import {escape,SourceError} from './document';
 import {documentUriOccurrences} from './document_uris';
 import {serverTemplate} from './derived_bundle';
-import {documentUriBase,pointerFragment,resolveUri,type GraphScope,type ReferenceGraph} from './reference_graph';
+import {documentUriBase,pointerFragment,resolveUri,type GraphScope,type GraphReference,type ReferenceGraph} from './reference_graph';
 import {MigrationSchemaOwners} from './migration_schema_owners';
+import {migrationContextDifferences,type DocumentContext} from './migration_documents';
+import {defaultSchemaDialect,modernFamily} from './specification';
 import type {MigrationLocation,MigrationSource} from './migration_source';
 import type {MigrationIssue} from './migration_schema';
 
 const key=(at:MigrationLocation)=>JSON.stringify([at.resource,at.pointer]);
 const inside=(pointer:string,parent:string)=>pointer===parent||pointer.startsWith(parent+'/');
-type Placement=Readonly<{scope:GraphScope;location:MigrationLocation;intrinsic:ReadonlyMap<string,string>;sameResource:boolean}>;
+type Placement=Readonly<{scope:GraphScope;location:MigrationLocation;intrinsic:ReadonlyMap<string,string>;inheritedDialect:string|null}>;
+type EntrySelection=Readonly<{entryNamespace:string;scopes:readonly GraphScope[]}>;
+const useKey=(scope:{resource:string;pointer:string;kind:string})=>JSON.stringify([scope.resource,scope.pointer,scope.kind]);
+const referenceOwnerKind=(reference:GraphReference)=>reference.connection==='discriminator'?'discriminator':
+    reference.connection==='security'?'security-requirement':reference.connection?'link':reference.kind;
+
+/** A variant propagates back through shared fragments until a concrete entry
+ * owns its incoming locator. This finite closure follows typed containment and
+ * captured references, never reference-looking payload keys. Cycles retain one
+ * owner per occurrence; the ordinary allocator repairs the resulting graph. */
+export function separateMigrationEntryUses(contexts:readonly DocumentContext[],sources:ReadonlyMap<string,MigrationSource>,
+    issue:MigrationIssue,createSchemaResource:()=>MigrationSource,
+    preserveContext:(scope:GraphScope,destination:MigrationLocation,preserveBase:boolean)=>void):ReadonlyMap<string,readonly MigrationLocation[]> {
+    const differences=migrationContextDifferences(contexts),provenance=new Map<string,MigrationLocation[]>();
+    if(!contexts.length)return provenance;
+    const owners=new MigrationSchemaOwners(contexts[0].graph,sources,createSchemaResource);
+    let work=0;
+    const admit=()=>{if(++work>2000000)throw new SourceError('limit.migration.owners','Entry specialization exceeds its bounded graph work');};
+    for(const {graph}of [...contexts].sort((a,b)=>a.graph.root.localeCompare(b.graph.root))){
+        const pending=[...(differences.get(graph.root)?.values()??[])];
+        if(!pending.length)continue;
+        const parents=new Map<string,GraphScope[]>(),incoming=new Map<string,GraphScope[]>(),forward=new Map<string,GraphScope[]>();
+        const connect=(index:Map<string,GraphScope[]>,child:string,parent:GraphScope)=>{
+            admit();const owners=index.get(child)??[];owners.push(parent);index.set(child,owners);
+        };
+        for(const scope of graph.interpretedScopes()){
+            admit();
+            const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
+            if(graph.referenceObject(value,scope)&&scope.kind!=='path-item')continue;
+            for(const [name,,kind]of children(value,scope.kind,scope.family)){
+                const pointer=scope.pointer+'/'+escape(name),child=graph.scopeAs(scope.resource,pointer,kind);
+                connect(parents,useKey({resource:scope.resource,pointer,kind}),scope);
+                if(child)connect(forward,useKey(scope),child);
+            }
+        }
+        for(const reference of graph.references){
+            admit();if(reference.resolution!=='resolved')continue;
+            const owner=graph.scopeAs(reference.resource,reference.pointer,referenceOwnerKind(reference))??
+                (reference.connection==='discriminator'?graph.scopeAs(reference.resource,reference.pointer,'discriminator-map'):undefined);
+            if(owner){
+                connect(incoming,useKey({resource:reference.targetResource!,pointer:reference.targetPointer!,kind:reference.kind}),owner);
+                const target=graph.scopeAs(reference.targetResource!,reference.targetPointer!,reference.kind);
+                if(target)connect(forward,useKey(owner),target);
+            }
+        }
+        // A different complete document owns its declarations even when this
+        // entry references it. Its own capture prepares its fragments; copying
+        // those again here would create unused owners and confuse namespaces.
+        const reachable=new Set<string>(),visit=[graph.scopeAs(graph.root,'','root')!];
+        for(let index=0;index<visit.length;index++){
+            admit();const scope=visit[index],id=useKey(scope);
+            if(reachable.has(id)||scope.resource!==graph.root&&graph.specifications.has(scope.resource))continue;
+            reachable.add(id);visit.push(...forward.get(id)??[]);
+        }
+        const selected=new Map<string,GraphScope>();
+        for(let index=0;index<pending.length;index++){
+            admit();const scope=pending[index],id=useKey(scope);
+            // A declared document keeps its own family/dialect in every entry.
+            // The entry's static locator is the boundary of this specialization.
+            if(graph.specifications.has(scope.resource)||!reachable.has(id)||selected.has(id))continue;
+            selected.set(id,scope);
+            pending.push(...(parents.get(id)??[]),...(incoming.get(id)??[]));
+        }
+        const copies=separateMigrationUses(graph,sources,issue,createSchemaResource,preserveContext,
+            {entryNamespace:graph.root,scopes:[...selected.values()]},owners);
+        for(const [origin,locations]of copies){
+            const values=provenance.get(origin)??[];values.push(...locations);provenance.set(origin,values);
+        }
+    }
+    return provenance;
+}
 
 /** Split established semantic uses before any family conversion. The physical
  * dictionary or literal value stays with its original owner. Only references
@@ -23,10 +95,12 @@ type Placement=Readonly<{scope:GraphScope;location:MigrationLocation;intrinsic:R
  * and moved by its structural owner without retargeting the schema copy. */
 export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<string,MigrationSource>,
     issue:MigrationIssue,createSchemaResource:()=>MigrationSource,
-    preserveContext:(scope:GraphScope,destination:MigrationLocation,preserveBase:boolean)=>void):ReadonlyMap<string,readonly MigrationLocation[]> {
-    const owners=new MigrationSchemaOwners(graph,sources,createSchemaResource),provenance=new Map<string,MigrationLocation[]>();
+    preserveContext:(scope:GraphScope,destination:MigrationLocation,preserveBase:boolean)=>void,
+    entry?:EntrySelection,owners=new MigrationSchemaOwners(graph,sources,createSchemaResource)):ReadonlyMap<string,readonly MigrationLocation[]> {
+    const provenance=new Map<string,MigrationLocation[]>();
     const schemaScopes=graph.scopesFor('schema');
-    const candidates=[...graph.interpretedScopes()].filter(scope=>(referenceKinds.has(scope.kind)||scope.kind==='operation')&&
+    const candidates=entry?entry.scopes.filter(scope=>referenceKinds.has(scope.kind)||scope.kind==='operation'):
+        [...graph.interpretedScopes()].filter(scope=>(referenceKinds.has(scope.kind)||scope.kind==='operation')&&
         // This inactive boolean annotation already has a faithful owner in
         // migrateInactiveSchemaAnnotations; retain that established mapping.
         !(/\/(?:writeOnly|deprecated)$/.test(scope.pointer)&&graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value===false)&&(
@@ -86,6 +160,18 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
             inspect();return schema.resource===scope.resource&&intrinsic.get(schema.pointer)==='schema';
         });
         const identified=intrinsicSchemas.every(schema=>inside(schema.resourcePointer,scope.pointer));
+        if(entry){
+            const entryFamily=graph.specifications.get(entry.entryNamespace)?.family;
+            const entryGroup=componentFamily(scope.kind,scope.family);
+            const entryContainer=entryFamily===scope.family&&entryGroup?componentLocation(entryGroup,scope.family):undefined;
+            const hasIdentity=intrinsicSchemas.some(schema=>typeof graph.docs.get(schema.resource)!.dataNode(schema.pointer)?.value?.$id==='string');
+            if(!entryContainer||resourceSensitive||hasIdentity){
+                issue({...scope,decisionKey:entry.entryNamespace},'migration.owners.entry-resource',
+                    'This entry-dependent use requires an independently proved native holder or schema resource identity before specialization','implementation');
+                return provenance;
+            }
+            container={resource:entry.entryNamespace,pointer:entryContainer};
+        }
         if(resourceSensitive&&!identified){
             const holders=scope.kind==='schema'?schemaScopes.filter(holder=>{
                 inspect();return holder.resource===scope.resource&&holder.base===scope.base&&holder.dialect===scope.dialect&&
@@ -107,9 +193,10 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
         // as schema annotations and create another overlapping owner.
         if(!container&&scope.kind!=='schema'&&group&&graph.specifications.get(graph.root)?.family===scope.family)
             container={resource:graph.root,pointer:componentLocation(group,scope.family)!};
-        const separated=owners.separate(scope,scope.kind==='schema'?'schema_use':'object_use',container,pristine.get(scope.resource),
-            JSON.stringify([scope.resource,scope.pointer,scope.kind,scope.family,scope.dialect,scope.base,scope.resourcePointer]));
-        placements.push({scope,location:separated.location,intrinsic,sameResource:container!==undefined});
+        const separated=owners.separate(scope,entry?'entry_use':scope.kind==='schema'?'schema_use':'object_use',container,pristine.get(scope.resource),
+            JSON.stringify([entry?.entryNamespace??'',scope.resource,scope.pointer,scope.kind,scope.family,scope.dialect,scope.base,scope.resourcePointer]));
+        placements.push({scope,location:separated.location,intrinsic,inheritedDialect:container?
+            graph.scope(container.resource,container.pointer).dialect:defaultSchemaDialect(graph.family)});
         for(const [pointer,kind]of intrinsic){
             const captured=graph.scopeAs(scope.resource,pointer,kind);
             if(captured)preserveContext(captured,{resource:separated.location.resource,pointer:separated.location.pointer+pointer.slice(scope.pointer.length)},resourceSensitive&&kind==='schema');
@@ -155,7 +242,7 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
     for(const reference of graph.references){
         inspect();
         if(reference.resolution!=='resolved')continue;
-        const sourceKind=reference.connection==='discriminator'?'discriminator':reference.connection==='security'?'security-requirement':reference.connection?'link':reference.kind;
+        const sourceKind=referenceOwnerKind(reference);
         const sourcePlacement=placementFor(reference,sourceKind);
         const destination={resource:reference.targetResource!,pointer:reference.targetPointer!};
         const targetPlacement=placementFor(destination,reference.kind);
@@ -173,7 +260,7 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
         // Intrinsic structural children can coexist with the separate
         // dictionary interpretation. Literal reference-looking data never
         // receives the schema copy's repair.
-        if(targetPlacement&&graph.literalContainer(reference.resource,reference.pointer)===undefined&&
+        if(targetPlacement&&(!entry||reference.resource===entry.entryNamespace)&&graph.literalContainer(reference.resource,reference.pointer)===undefined&&
             (graph.scopes.get(reference.resource+'#'+reference.pointer)?.kind===reference.kind&&!reference.connection||
                 reference.connection==='discriminator'||reference.connection==='operationRef'||reference.connection==='security'&&reference.targetUri!==undefined))
             repair({...reference,pointer:reference.pointer+'/'+escape(reference.keyword)},address,reference.connection==='security');
@@ -195,7 +282,7 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
         }
         // Selecting the captured dialect is necessary when the generated owner
         // belongs to an entry with a different default schema dialect.
-        if(placement.scope.kind==='schema'&&!placement.sameResource&&placement.scope.dialect!==graph.scope(graph.root,'').dialect&&placement.scope.dialect)
+        if(placement.scope.kind==='schema'&&modernFamily(placement.scope.family)&&placement.scope.dialect!==placement.inheritedDialect&&placement.scope.dialect)
             set({...placement.location,pointer:placement.location.pointer+'/$schema'},placement.scope.dialect);
     }
     return provenance;

@@ -114,18 +114,34 @@ for(const format of ['yaml','json'])test(`${format} mixed modern entries retain 
  }
  assert.deepEqual(input.resources.map(resource=>resource.text),before);
 });
-for(const format of ['yaml','json'])test(`${format} different entry dialects do not merge sibling assertions or dynamic bindings`,async()=>{
- for(const sibling of [{type:'integer'},{$dynamicRef:'#missing'}]){
+for(const format of ['yaml','json'])test(`${format} different entry dialects keep sibling assertions in independent owners`,async()=>{
   const input={...fixture('3.1.2',format),targetVersion:'3.2.1'},resource=input.resources[1],alias=input.resources[3];
   resource.text=new SourceDocument(resource.text,resource.id).set('/openapi','3.2.1');
   const source=new SourceDocument(alias.text,alias.id);
-  alias.text=source.set('/Node~1~0',{...source.dataNode('/Node~1~0').value,...sibling});
+  alias.text=source.set('/Node~1~0',{...source.dataNode('/Node~1~0').value,minProperties:1});
+  const before=input.resources.map(resource=>resource.text),result=await planMigration(input);
+  assert.equal(result.complete,true,JSON.stringify(result.problems));
+  const resources=result.outputs.map(output=>({id:output.id,text:output.text,generation:0}));
+  for(const source of input.resources.slice(0,2)){
+   const root=result.changes.find(change=>change.resource===source.id).destination,packet={root,resources,snapshot:'independent-entry-assertions'},graph=createGraph(packet).graph;
+   assert.equal(analyse(packet).status,'complete',JSON.stringify(analyse(packet).findings));
+   const operation=graph.operations().find(operation=>operation.role==='operation');
+   const plan=requestOperation({...packet,resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
+   const checked=await evaluateSchemas({...packet,runtimeInstances:['{"n":0}','{"n":1}','{}'].map(text=>({subject:'response-body',location:text,text,schema:plan.responses[0].content[0].schema}))});
+   assert.equal(checked.complete,true,JSON.stringify(checked.findings));assert.deepEqual(checked.runtimeEvaluations.map(value=>value.valid),[true,false,false]);
+  }
+  assert.deepEqual(input.resources.map(resource=>resource.text),before);
+});
+for(const format of ['yaml','json'])test(`${format} cross-entry specialization cannot hide an unresolved dynamic binding`,async()=>{
+  const input={...fixture('3.1.2',format),targetVersion:'3.2.1'},resource=input.resources[1],alias=input.resources[3];
+  resource.text=new SourceDocument(resource.text,resource.id).set('/openapi','3.2.1');
+  const source=new SourceDocument(alias.text,alias.id);
+  alias.text=source.set('/Node~1~0',{...source.dataNode('/Node~1~0').value,$dynamicRef:'#missing'});
   const before=input.resources.map(resource=>resource.text),result=await planMigration(input);
   assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);
-  const problem=result.problems.find(problem=>problem.code==='migration.documents.context');
-  assert(problem,JSON.stringify(result.problems));assert.equal(problem.resource,alias.id);assert.equal(problem.pointer,'/Node~1~0');
+  const problem=result.problems.find(problem=>problem.resource===alias.id&&problem.pointer==='/Node~1~0/$dynamicRef');
+  assert(problem,JSON.stringify(result.problems));assert(problem.code.startsWith('migration.validation.'));
   assert(problem.range[1]>problem.range[0]);assert.deepEqual(input.resources.map(resource=>resource.text),before);
- }
 });
 
 for(const format of ['yaml','json'])test(`${format} one Swagger operation cannot silently collapse distinct inherited media`,async()=>{

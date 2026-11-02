@@ -32,11 +32,11 @@ import {MigrationExamples,proveMigrationExamples,type MigrationExampleCopy} from
 import {migrateTerms} from './migration_terms';
 import {migrateServerVariableDefaults,retainDefaultServers} from './migration_servers';
 import {migrationLogicalPointers} from './migration_yaml_ownership';
-import {separateMigrationUses} from './migration_schema_uses';
+import {separateMigrationUses,separateMigrationEntryUses} from './migration_schema_uses';
 import {projectSchemaReference} from './schema_reference_projection';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='48';
+const migrationProducerVersion='49';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const patch:Record<string,string>={'2.0':'2.0','3.0':'3.0.4','3.1':'3.1.2','3.2':'3.2.1'};
 export type MigrationInput=Readonly<{
@@ -122,7 +122,7 @@ export async function planMigration(input:MigrationInput) {
                 issue(finding,'migration.validation.'+finding.code,finding.message,finding.incomplete===true?'implementation':phase==='source'?'source-incomplete':'target-representation');
         }
     };
-    const initialContexts=migrationDocumentContexts(input,initial,issue);
+    const initialContexts=migrationDocumentContexts(input,initial,issue,true);
     await validate(resources,input.root,'source');
     let externalExamples:MigrationExamples|undefined;
     if(!problems.length)try{externalExamples=new MigrationExamples(initialContexts.map(context=>context.graph),input.exampleResources);}
@@ -139,7 +139,7 @@ export async function planMigration(input:MigrationInput) {
     for(const stage of batches){
         if(problems.length)break;
         const after=stage.to,context=createGraph({...input,resources});
-        let contexts=migrationDocumentContexts({...input,resources},context,issue);
+        let contexts=migrationDocumentContexts({...input,resources},context,issue,true);
         if(problems.length)break;
         const active=contexts.find(context=>stage.sources.length?stage.sources.includes(context.graph.specifications.get(context.graph.root)!.family):context.graph.root===input.root);
         if(!active)throw new SourceError('migration.route.owner','The conversion stage has no captured source entry');
@@ -168,8 +168,21 @@ export async function planMigration(input:MigrationInput) {
                 return schemaResource;
             };
             const contextProofs:{scope:GraphScope;destination:MigrationLocation;preserveBase:boolean}[]=[];
-            const specialized=separateMigrationUses(graph,sources,issue,createSchemaResource,
+            const sourceContexts=contexts;
+            const specialized=new Map(separateMigrationUses(graph,sources,issue,createSchemaResource,
+                (scope,destination,preserveBase)=>contextProofs.push({scope,destination,preserveBase})));
+            if(problems.length)break;
+            const preparationInput=()=>({...input,root:graph.root,resources:[...sources].map(([id,source])=>({
+                ...resources.find(resource=>resource.id===id),id,text:source.doc.text,generation:0}))});
+            const roleInput=preparationInput(),roleContext=createGraph(roleInput);
+            const roleContexts=migrationDocumentContexts(roleInput,roleContext,issue,true);
+            const entryCopies=separateMigrationEntryUses(roleContexts,sources,issue,createSchemaResource,
                 (scope,destination,preserveBase)=>contextProofs.push({scope,destination,preserveBase}));
+            // Compose ordinary role/literal ownership with entry ownership;
+            // both retain the same original CST provenance and allocator.
+            for(const [origin,locations]of specialized)specialized.set(origin,locations.flatMap(location=>[
+                location,...entryCopies.get(key(location.resource,location.pointer))??[]]));
+            for(const [origin,locations]of entryCopies)specialized.set(origin,[...specialized.get(origin)??[],...locations]);
             if(problems.length)break;
             if(specialized.size){
                 for(const [origin,copies]of specialized){
@@ -179,7 +192,7 @@ export async function planMigration(input:MigrationInput) {
                 }
                 for(const [id]of createdResources)if(!resources.some(resource=>resource.id===id))
                     resources.push({id,text:sources.get(id)!.doc.text,generation:0,identity:digest(sources.get(id)!.doc.text)});
-                const ownedInput={...input,root:graph.root,resources:resources.map(resource=>({...resource,text:sources.get(resource.id)!.doc.text}))};
+                const ownedInput=preparationInput();
                 const owned=createGraph(ownedInput);
                 contexts=migrationDocumentContexts(ownedInput,owned,issue);
                 owned.graph.assertReferenceEditsSupported();
@@ -188,15 +201,19 @@ export async function planMigration(input:MigrationInput) {
                 // No omission or family conversion has happened yet: prove
                 // every typed static edge as well as dynamic/implicit ones.
                 const prepared=migrationLocations(sources);
-                proveMigrationConnections(graph,owned.graph,
-                    location=>[location,...(specialized.get(key(location.resource,location.pointer))??[])]
-                        .flatMap(location=>prepared.get(key(location.resource,location.pointer))??[]),proofIssue,true);
+                for(const sourceContext of sourceContexts){
+                    const targetContext=contexts.find(context=>context.graph.root===sourceContext.graph.root)!;
+                    proveMigrationConnections(sourceContext.graph,targetContext.graph,
+                        location=>[location,...(specialized.get(key(location.resource,location.pointer))??[])]
+                            .flatMap(location=>prepared.get(key(location.resource,location.pointer))??[]),proofIssue,true);
+                }
                 graph=owned.graph;
                 for(const {scope,destination,preserveBase}of contextProofs){
-                    const destinations=prepared.get(key(destination.resource,destination.pointer))??[];
-                    if(!destinations.length||destinations.some(destination=>{
+                    const destinations=[destination,...entryCopies.get(key(destination.resource,destination.pointer))??[]]
+                        .flatMap(location=>prepared.get(key(location.resource,location.pointer))??[]);
+                    if(!destinations.some(destination=>{
                         const retained=graph.scopeAs(destination.resource,destination.pointer,scope.kind);
-                        return !retained||preserveBase&&retained.base!==scope.base||retained?.dialect!==scope.dialect||retained?.family!==scope.family;
+                        return retained&&(!preserveBase||retained.base===scope.base)&&retained.dialect===scope.dialect&&retained.family===scope.family;
                     }))
                         issue(scope,'migration.owners.resource-context','The independent owner did not retain its captured role, dialect, family or required schema resource URI','implementation');
                 }

@@ -12,7 +12,7 @@ export type MigrationUse=Readonly<{
     role:string;sourceKind?:string;family:string;dialect:string|null;
     baseUri:string;resourceBoundary:string;direction:'request'|'response'|'neutral';literal:boolean;
 }>;
-type DocumentContext=Context&Readonly<{uses:readonly MigrationUse[]}>;
+export type DocumentContext=Context&Readonly<{uses:readonly MigrationUse[]}>;
 
 /** Keep entry interpretation separate from physical CST ownership. Direction
  * propagates over typed containment and resolved contract edges, including
@@ -101,7 +101,7 @@ function equivalentForwarder(a:GraphScope,left:ReferenceGraph,b:GraphScope,right
  * neither an OpenAPI Object nor a schema use. Distinct contexts require
  * specialization unless their actual use has a shared representation proof.
  * Named connections are proved separately against each entry's namespace. */
-export function migrationDocumentContexts(input:{root:string;resources:Resource[]},primary:Context,issue:MigrationIssue):readonly DocumentContext[] {
+export function migrationDocumentContexts(input:{root:string;resources:Resource[]},primary:Context,issue:MigrationIssue,deferSpecialization=false):readonly DocumentContext[] {
     let useCount=0;
     const capture=(context:Context):DocumentContext=>{
         const uses=migrationUses(context.graph);
@@ -113,19 +113,28 @@ export function migrationDocumentContexts(input:{root:string;resources:Resource[
         if(root===input.root)continue;
         contexts.push(capture(createGraph({...input,root})));
     }
-    const scopes=new Map<string,{identity:string;scope:GraphScope;graph:ReferenceGraph}>();
+    if(!deferSpecialization)for(const [root,scopes]of migrationContextDifferences(contexts))for(const scope of scopes.values())
+        issue({...scope,decisionKey:root},'migration.documents.context','This shared source has different captured contexts; independent entry owners are required','implementation');
+    return contexts;
+}
+
+/** Conflicting occurrences seed the common specialization closure. Equivalent
+ * forwarders need no variant themselves until their target acquires one. */
+export function migrationContextDifferences(contexts:readonly Pick<DocumentContext,'graph'>[]):ReadonlyMap<string,ReadonlyMap<string,GraphScope>> {
+    const scopes=new Map<string,{identity:string;scope:GraphScope;graph:ReferenceGraph}>(),different=new Set<string>();
     for(const {graph}of contexts){
         for(const scope of graph.interpretedScopes()){
             if(scope.kind==='root'&&!graph.specifications.has(scope.resource))continue;
             const key=JSON.stringify([scope.resource,scope.pointer,scope.kind]);
             const identity=schemaResourceContextIdentity(scope);
             const previous=scopes.get(key);
-            if(previous&&previous.identity!==identity&&!equivalentForwarder(previous.scope,previous.graph,scope,graph))
-                issue(scope,'migration.documents.context','This shared source has different schema or object contexts in captured descriptions; one converted owner is not proved equivalent','implementation');
+            if(previous&&previous.identity!==identity&&!equivalentForwarder(previous.scope,previous.graph,scope,graph))different.add(key);
             if(!previous)scopes.set(key,{identity,scope,graph});
         }
     }
-    return contexts;
+    return new Map(contexts.map(({graph})=>[graph.root,new Map([...graph.interpretedScopes()]
+        .filter(scope=>different.has(JSON.stringify([scope.resource,scope.pointer,scope.kind])))
+        .map(scope=>[JSON.stringify([scope.resource,scope.pointer,scope.kind]),scope]))]));
 }
 
 /** Native target validity alone cannot establish that an implicit name still
