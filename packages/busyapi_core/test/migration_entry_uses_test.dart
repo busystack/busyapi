@@ -7,6 +7,99 @@ import 'package:test/test.dart';
 import 'test_support.dart';
 
 void main() {
+  for (final foreignVersion in ['3.0.4', '3.1.2']) {
+    test('mixed $foreignVersion component owners retain native bindings and wire behavior after relocation', () async {
+      final directory = await Directory.systemTemp.createTemp('busyapi-mixed-owners-');
+      addTearDown(() => directory.delete(recursive: true));
+      final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);
+      addTearDown(engine.close);
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      const wire = '{"value":9007199254740993.00,"entry":"chosen"}';
+      final sent = <List<int>>[];
+      server.listen((request) async {
+        expect(request.method, 'POST');
+        sent.add(await request.fold<List<int>>([], (all, chunk) => all..addAll(chunk)));
+        request.response.headers.set('content-type', 'application/json');
+        request.response.add(utf8.encode(wire));
+        await request.response.close();
+      });
+      Map<String, Object?> api(String version, String title, String prefix) => {
+        'openapi': version, 'info': {'title': title, 'version': 'business'},
+        'servers': [{'url': 'http://127.0.0.1:${server.port}'}],
+        'paths': {'/p': {'post': {
+          'requestBody': {'content': {'application/json': {'schema': {r'$ref': '$prefix#/components/schemas/Base'}}}},
+          'responses': {'200': {'description': 'Value', 'headers': {'X-Value': {r'$ref': '$prefix#/components/headers/Shared'}},
+            'content': {'application/json': {'schema': {r'$ref': '$prefix#/components/schemas/Base'}}}}},
+        }}},
+        'components': {'schemas': {'Choice': {'type': 'object', 'properties': {'entry': {'enum': [title]}}}}},
+      };
+      final first = api('3.2.1', 'First', 'b.yaml'), second = api(foreignVersion, 'Second', '');
+      final model = {
+        if (foreignVersion == '3.1.2') r'$dynamicAnchor': 'node',
+        'type': 'object', 'properties': {'value': {'type': 'integer', 'enum': ['EXACT']}, 'entry': {'type': 'string'},
+          if (foreignVersion == '3.1.2') 'child': {r'$dynamicRef': '#node'}},
+        'required': ['value'], 'discriminator': {'propertyName': 'entry', 'mapping': {'chosen': 'Choice'}},
+      };
+      (second['components'] as Map)['schemas']['Base'] = model;
+      (second['components'] as Map)['headers'] = {'Shared': {'schema': {r'$ref': '#/components/schemas/Base'}}};
+      second['x-history'] = model;
+      String encode(Map value) => '# Keep mixed source 雪\r\n${jsonEncode(value).replaceAll('"EXACT"', '9007199254740993.00')}\r\n';
+      final originals = {'a.yaml': encode(first), 'b.yaml': encode(second)};
+      for (final entry in originals.entries) await File('${directory.path}/${entry.key}').writeAsString(entry.value);
+      await File('${directory.path}/busyapi.yaml').writeAsString('version: 1\nroots:\n  - name: first\n    path: a.yaml\n  - name: second\n    path: b.yaml\n');
+      final source = await BusyProject.open(directory.path, engine);addTearDown(source.close);
+      final roots = [File('${directory.path}/a.yaml').uri.toString(), File('${directory.path}/b.yaml').uri.toString()];
+      Future<void> exercise(BusyProject project, String root) async {
+        expect((await project.check(root))['status'], 'complete');
+        final plan = await project.prepareRequest(root, resource: root, pointer: '/paths/~1p/post');
+        try {
+          final body = ((((plan.result['responses'] as List).single as Map)['content'] as List).single as Map)['schema'] as Map;
+          var at = Map<String, dynamic>.from(body);
+          var resolved = false;
+          for (var count = 0; count < 64; count++) {
+            final page = await project.inspectObject(root, at['resource'], at['pointer'], contextKind: 'schema');
+            final reference = (page['references'] as List).whereType<Map>().where((ref) => ref['keyword'] == r'$ref').firstOrNull;
+            if (reference == null) { resolved = true;break; }
+            expect(reference['resolution'], 'resolved');at = Map<String, dynamic>.from(reference['target']);
+          }
+          expect(resolved, true);
+          final mapping = await project.inspectObject(root, at['resource'], '${at['pointer']}/discriminator/mapping', contextKind: 'discriminator-map');
+          final binding = (mapping['references'] as List).whereType<Map>().single;
+          expect(binding['targetResource'], root);expect(binding['targetPointer'], '/components/schemas/Choice');
+          final result = await plan.evaluateRuntime([
+            for (final text in [wire, '{"value":0}', '{"value":"wrong"}']) RuntimeSchemaInstance(
+              subject: 'response-body', location: 'application/json', text: text,
+              schemaResource: body['resource'], schemaPointer: body['pointer']),
+          ]);
+          expect(result['complete'], true, reason: '$result');
+          expect((result['runtimeEvaluations'] as List).map((value) => value['valid']), [true, false, false]);
+          final response = await const ContractRequestExecutor().execute(plan,
+            OperationRequestDraft(planIdentity: plan.identity, body: RequestBodyDraft.raw(mediaType: 'application/json', text: wire)), resolveSecret: (_) async => null);
+          try { expect(response.conforming, true, reason: '${response.outgoing.findings} ${response.received.findings}');expect(await response.response.bytes(), utf8.encode(wire));expect(sent.last, utf8.encode(wire)); }
+          finally { await response.close(); }
+        } finally { plan.close(); }
+      }
+      await exercise(source, roots[0]);await exercise(source, roots[1]);
+      final buffer = await source.buffer(roots[0]);source.store.replace(buffer.id, buffer.text.replaceFirst('First', 'Captured First'));
+      final stale = await source.prepareMigration(roots[0], '${directory.path}/stale', targetVersion: '3.2.1');addTearDown(stale.close);
+      expect(stale.publishable, true, reason: '${stale.result}');
+      source.store.replace(buffer.id, buffer.text.replaceFirst('Captured First', 'Current First'));
+      await expectLater(stale.publish(), throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'migration.stale')));
+      final review = await source.prepareMigration(roots[0], '${directory.path}/converted', targetVersion: '3.2.1');addTearDown(review.close);
+      expect(review.publishable, true, reason: '${review.result}');expect(review.unsaved, true);
+      await expectLater(review.publish(cancelled: () => true), throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'cancelled')));
+      expect(Directory(review.destination).existsSync(), false);await review.publish();
+      for (final entry in originals.entries) expect(await File('${directory.path}/${entry.key}').readAsString(), entry.value);
+      final destinations = [for (final root in roots) Uri.parse(review.changes.singleWhere((change) => change.resource == root).destination).pathSegments.last];
+      source.close();final relocated = await Directory(review.destination).rename('${directory.path}/cold 雪');
+      for (final name in originals.keys) await File('${directory.path}/$name').delete();
+      final cold = await BusyProject.open(relocated.path, engine);addTearDown(cold.close);
+      for (final name in destinations) await exercise(cold, File('${relocated.path}/$name').uri.toString());
+      final cli = await Process.run('$testBundle/busyapi', ['check', relocated.path, '--json'], environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
+      expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');
+    });
+  }
   test('entry operation owners retain Link navigation and native fields after specialization', () async {
     final directory = await Directory.systemTemp.createTemp('busyapi-operation-owners-');
     addTearDown(() => directory.delete(recursive: true));

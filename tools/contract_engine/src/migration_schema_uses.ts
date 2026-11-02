@@ -20,6 +20,35 @@ const useKey=(scope:{resource:string;pointer:string;kind:string})=>JSON.stringif
 const referenceOwnerKind=(reference:GraphReference)=>reference.connection==='discriminator'?'discriminator':
     reference.connection==='security'?'security-requirement':reference.connection?'link':reference.kind;
 
+/** Entry namespace and containing-document family are independent. Prefer the
+ * selected entry's compatible component map; otherwise retain the captured
+ * foreign document's native map. The common allocator still keys the owner by
+ * entry use, and the reference/context proofs still apply to every consumer. */
+function entryComponentContainer(graph:ReferenceGraph,scope:GraphScope,namespace:string):MigrationLocation|undefined {
+    const group=componentFamily(scope.kind,scope.family);
+    if(!group)return;
+    // Swagger model names participate in implicit discriminator tables. Its
+    // anonymous schema registry cannot borrow a different entry's family.
+    if(scope.kind==='schema'&&scope.family==='2.0'&&graph.specifications.get(namespace)?.family!==scope.family)return;
+    const resource=graph.specifications.get(namespace)?.family===scope.family?namespace:
+        graph.specifications.get(scope.resource)?.family===scope.family?scope.resource:undefined;
+    const pointer=componentLocation(group,scope.family);
+    if(resource!==undefined&&resource!==namespace&&pointer!==undefined){
+        // A newly admitted foreign holder must not change an independent
+        // schema annotation or literal collection. That container needs its
+        // own semantic split before a native member can be inserted there.
+        let at=pointer;
+        while(true){
+            if(graph.literalContainer(resource,at)!==undefined||graph.hasOverlappingScope(resource,at)){
+                const range=graph.docs.get(resource)!.dataNode(at)?.range??graph.docs.get(resource)!.root.range;
+                throw new SourceError('migration.owners.entry-container','This foreign component container has another interpretation requiring independent ownership before insertion',range,'unsupported',{resource,pointer:at,range});
+            }
+            if(!at)break;at=at.slice(0,at.lastIndexOf('/'));
+        }
+    }
+    return resource!==undefined&&pointer!==undefined?{resource,pointer}:undefined;
+}
+
 /** Backward closure over typed containment and static schema references.
  * Moving a static forwarder can change a downstream dynamic call's resource
  * stack. Cycles are finite states, not recursively expanded schema copies. */
@@ -187,10 +216,10 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
             const boundary=graph.scopeAs(scope.resource,scope.resourcePointer,'schema');
             const whole=boundary&&graph.isEntryUse(boundary)&&schemaResourceContextIdentity(boundary)===identity;
             if(!whole){
-                const source=sources.get(entry.entryNamespace)!,group=componentFamily('schema',scope.family);
-                const container=group&&componentLocation(group,scope.family);
+                const container=entryComponentContainer(graph,scope,entry.entryNamespace);
                 if(!container||!scope.dialect)continue;
-                const holder=owners.allocate(source,container,'resource_use',JSON.stringify([entry.entryNamespace,identity]));
+                const source=sources.get(container.resource)!;
+                const holder=owners.allocate(source,container.pointer,'resource_use',JSON.stringify([entry.entryNamespace,identity]));
                 const base=owners.resourceIdentity(entry.entryNamespace,identity);
                 owners.admit(source,8);source.set(holder.pointer,{$id:base,$schema:scope.dialect,$defs:{}});
                 source.presentationChanges.push(holder.pointer);
@@ -270,8 +299,7 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
         let inheritsResource=false;
         if(entry){
             const entryFamily=graph.specifications.get(entry.entryNamespace)?.family;
-            const entryGroup=componentFamily(scope.kind,scope.family);
-            const entryContainer=entryFamily===scope.family&&entryGroup?componentLocation(entryGroup,scope.family):undefined;
+            const entryContainer=entryComponentContainer(graph,scope,entry.entryNamespace);
             // Older Path Items and independently referenced Operations have no
             // component map. A plain captured fragment is their native holder;
             // it must still be interpreted in the original specification family.
@@ -285,7 +313,7 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
             // An anonymous captured use must not gain a new friendly model name.
             container=(anonymous&&!entryContainer||scope.kind==='schema'&&scope.family==='2.0')?undefined:
                 copiedHolder&&scope.kind==='schema'?{resource:copiedHolder.location.resource,pointer:copiedHolder.location.pointer+'/$defs'}:
-                    {resource:entry.entryNamespace,pointer:entryContainer!};
+                    entryContainer!;
             for(const schema of intrinsicSchemas){
                 inspect();
                 const value=graph.docs.get(schema.resource)!.dataNode(schema.pointer)?.value;

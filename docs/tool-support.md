@@ -782,9 +782,13 @@ destinations. Other consumers retain their exact values, and review shows the
 restructuring. Schema and native object occurrences reached inside literal data
 use the same allocator and role-specific provenance before conversion or patch
 relocation. Their document links, external examples and Server templates retain
-the captured context; literal values survive separately. Cross-entry namespace
-propagation and multiple non-schema object roles remain implementation gaps.
-The migration producer is **47**; Core rejects previous
+the captured context; literal values survive separately. The common allocator
+retains per-entry namespaces and typed role owners.
+Compatible foreign component maps also hold mixed-family schema/native variants;
+partial modern resources retain one dialect-bearing material owner. Mixed-family
+uses without a proved holder, independently interpreted destination containers
+and general refactoring ownership remain gaps.
+The migration producer is **57**; Core rejects previous
 producer responses before publication. Current qualification remains pending.
 
 Older-family migration also lowers dynamic references when every captured

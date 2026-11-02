@@ -196,6 +196,64 @@ test('an inactive primary interpretation cannot choose a foreign entry native/sc
  assert.equal(review.outputs.find(value=>value.id===review.changes.find(change=>change.resource===shared).destination).text,input.resources[2].text);
 });
 
+for(const [foreignVersion,entryVersion,targetVersion,anchored]of [
+ ['3.0.4','3.2.1','3.2.1',false],['3.1.2','3.2.1','3.2.1',true],['3.2.1','3.1.2','3.1.2',true],
+])for(const format of ['yaml','json'])test(`${format} foreign ${foreignVersion} components retain their family and ${entryVersion} entry bindings`,async()=>{
+ const root='file:///mixed/a.'+format,other='file:///mixed/b.'+format;
+ const model={...(anchored?{$dynamicAnchor:'node'}:{}),type:'object',properties:{value:{type:'integer',enum:['EXACT']},entry:{type:'string'},
+  ...(anchored?{child:{$dynamicRef:'#node'}}:{})},required:['value'],discriminator:{propertyName:'entry',mapping:{chosen:'Choice'}},description:'[Guide](guide.md)'};
+ const operation=prefix=>({responses:{200:{description:'Value',headers:{'X-Value':{$ref:prefix+'#/components/headers/Shared'}},
+  content:{'application/json':{schema:{$ref:prefix+'#/components/schemas/Base'}}}}}});
+ const api=(version,name,prefix)=>({openapi:version,info:{title:name,version:'business'},paths:{'/p':{get:operation(prefix)}},
+  components:{schemas:{Choice:{type:'object',properties:{entry:{enum:[name]}}}}}});
+ const first=api(entryVersion,'First','b.'+format),second=api(foreignVersion,'Second','');
+ second.components.schemas.Base=model;second.components.headers={Shared:{description:'[Header](headers.md)',schema:{$ref:'#/components/schemas/Base'}}};
+ second['x-history']=model;
+ const encode=value=>(format==='yaml'?'# Keep source 雪\r\n'+YAML.stringify(value).replaceAll('\n','\r\n'):JSON.stringify(value))
+  .replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const input={root,snapshot:'mixed-native-holder',targetVersion,destination:'file:///mixed-output/',resources:[{id:root,text:encode(first),generation:1},{id:other,text:encode(second),generation:2}]};
+ const original=input.resources.map(resource=>resource.text),history=new (require('./dist/document.cjs').SourceDocument)(input.resources[1].text,other).dataJson('/x-history');
+ const follow=(graph,resource,pointer,kind)=>{
+  for(let count=0;count<64;count++){
+   const reference=graph.referenceAs(resource,pointer,'$ref',kind);
+   if(!reference)return {resource,pointer};
+   assert.equal(reference.resolution,'resolved');resource=reference.targetResource;pointer=reference.targetPointer;
+  }
+  assert.fail('The material owner forwarding chain must remain bounded');
+ };
+ const inspect=async(packet,name)=>{
+  const analysis=analyse(packet);assert.equal(analysis.status,'complete',JSON.stringify(analysis.findings));
+  const graph=createGraph(packet).graph,plan=requestOperation({...packet,resource:packet.root,pointer:'/paths/~1p/get'});
+  const body=plan.responses[0].content[0].schema,owner=follow(graph,body.resource,body.pointer,'schema');
+  const binding=graph.entryReferences().find(reference=>reference.connection==='discriminator'&&reference.resource===owner.resource&&reference.pointer===owner.pointer+'/discriminator/mapping');
+  assert.equal(binding.resolution,'resolved');assert.equal(binding.targetResource,packet.root);assert.equal(binding.targetPointer,'/components/schemas/Choice');
+  const header=plan.responses[0].headers[0].schema;
+  assert.deepEqual(follow(graph,header.resource,header.pointer,'schema'),owner);
+  const choice=graph.docs.get(binding.targetResource).dataNode(binding.targetPointer).value;
+  assert.deepEqual(choice.properties.entry.enum,[name]);
+  const samples=['{"value":9007199254740993.00,"entry":"chosen"}','{"value":0}','{"value":"wrong"}',...(anchored?['{"value":9007199254740993.00,"child":{"value":9007199254740993.00}}','{"value":9007199254740993.00,"child":{"value":0}}']:[])];
+  const evaluated=await evaluateSchemas({...packet,runtimeInstances:samples.map(text=>({subject:'response-body',location:'application/json',text,schema:body}))});
+  assert.equal(evaluated.complete,true,JSON.stringify(evaluated.findings));assert.deepEqual(evaluated.runtimeEvaluations.map(value=>value.valid),[true,false,false,...(anchored?[true,false]:[])]);
+ };
+ await inspect(input,'First');await inspect({...input,root:other},'Second');
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const cold={snapshot:'cold-mixed-components',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
+ for(const [entry,name]of [[root,'First'],[other,'Second']])await inspect({...cold,root:review.changes.find(change=>change.resource===entry).destination},name);
+ const output=review.outputs.find(output=>output.id===review.changes.find(change=>change.resource===other).destination),doc=new (require('./dist/document.cjs').SourceDocument)(output.text,output.id);
+ assert.equal(doc.dataJson('/x-history'),history);assert.deepEqual(input.resources.map(resource=>resource.text),original);
+ const repeated=await planMigration(input);assert.equal(repeated.complete,true,JSON.stringify(repeated.problems));assert.deepEqual(repeated.outputs,review.outputs);
+ if(anchored){
+  // Inserting into a foreign map must not silently change another Schema
+  // Object's unknown-keyword annotation. This remaining container case needs
+  // a proved independent owner, rather than an assertion of unrepresentability.
+  first.components.schemas.Dictionary={$ref:'b.'+format+'#/components'};
+  const guarded={...input,resources:[{...input.resources[0],text:encode(first)},input.resources[1]]};
+  assert.equal(analyse(guarded).status,'complete');
+  const blocked=await planMigration(guarded);assert.equal(blocked.complete,false);assert.deepEqual(blocked.outputs,[]);
+  assert(blocked.problems.some(problem=>problem.code==='migration.owners.entry-container'&&problem.reason==='implementation'&&problem.resource===other&&problem.pointer==='/components'));
+ }
+});
+
 test('ordinary patch migration retains authored operationId links when no operation owner was cloned',async()=>{
  const root='file:///unchanged/api.json',document={openapi:'3.2.0',info:{title:'Unchanged names',version:'business'},paths:{'/p':{get:{operationId:'one',responses:{200:{description:'Reply',links:{Self:{operationId:'one'}}}}}}}};
  const input={root,snapshot:'unchanged-operation-names',targetVersion:'3.2.1',destination:'file:///unchanged-output/',resources:[{id:root,text:JSON.stringify(document),generation:1}]};
