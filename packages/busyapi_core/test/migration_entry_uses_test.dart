@@ -7,8 +7,9 @@ import 'package:test/test.dart';
 import 'test_support.dart';
 
 void main() {
-  for (final identified in [false, true]) {
-    test('cross-entry owners, identified=$identified, preserve behavior through captured review, HTTP, publication and CLI', () async {
+  for (final owner in ['ordinary', 'identified', 'partial']) {
+    final identified = owner == 'identified', modernSource = owner != 'ordinary';
+    test('cross-entry $owner owners preserve behavior through captured review, HTTP, publication and CLI', () async {
       final directory = await Directory.systemTemp.createTemp('busyapi-entry-uses-');
       addTearDown(() => directory.delete(recursive: true));
       final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);
@@ -41,10 +42,10 @@ void main() {
         }},
       };
       final originals = {
-        'legacy.yaml': '# Keep legacy 雪\r\n${jsonEncode(entry(identified ? '3.1.2' : '3.0.4', 'Legacy'))}\r\n',
+        'legacy.yaml': '# Keep legacy 雪\r\n${jsonEncode(entry(modernSource ? '3.1.2' : '3.0.4', 'Legacy'))}\r\n',
         'modern.yaml': '# Keep modern 雪\r\n${jsonEncode(entry('3.2.1', 'Modern'))}\r\n',
-        'models.yaml': 'Forward: {\$ref: "#/Node"}\r\nNode: {${identified ? r'$id: "https://schemas.invalid/shared", $dynamicAnchor: node, ' : ''}type: string, minLength: 1, nullable: true, description: "[Guide](guide.md)"}\r\n',
-        'headers.yaml': 'Header: {description: "[Header](header.md)", schema: {type: string, minLength: 1}}\r\n',
+        'models.yaml': 'Forward: {\$ref: "#/Node"}\r\nNode: {${identified ? r'$id: "https://schemas.invalid/shared", ' : ''}${modernSource ? r'$dynamicAnchor: node, ' : ''}type: string, minLength: 1, nullable: true, description: "[Guide](guide.md)"}\r\n',
+        'headers.yaml': 'Header: {description: "[Header](header.md)", schema: {${owner == 'partial' ? r'$dynamicAnchor: header, ' : ''}type: string, minLength: 1}}\r\n',
       };
       for (final entry in originals.entries) {
         await File('${directory.path}/${entry.key}').writeAsString(entry.value);
@@ -79,7 +80,7 @@ void main() {
           } finally { await response.close(); }
         } finally { plan.close(); }
       }
-      await exercise(source, legacy, !identified); await exercise(source, modern, false);
+      await exercise(source, legacy, !modernSource); await exercise(source, modern, false);
       final stale = await source.prepareMigration(legacy, '${directory.path}/stale', targetVersion: '3.2.1');
       addTearDown(stale.close);
       expect(stale.publishable, true, reason: '${stale.result}');
@@ -103,7 +104,7 @@ void main() {
       for (final name in originals.keys) { await File('${directory.path}/$name').delete(); }
       final cold = await BusyProject.open(relocated.path, engine); addTearDown(cold.close);
       expect(cold.roots, hasLength(2));
-      for (final (id, nullable) in [(legacy, !identified), (modern, false)]) {
+      for (final (id, nullable) in [(legacy, !modernSource), (modern, false)]) {
         final path = Uri.parse(migrated[id]!).pathSegments.last;
         final root = File('${relocated.path}/$path').uri.toString();
         expect((await cold.check(root))['status'], 'complete');

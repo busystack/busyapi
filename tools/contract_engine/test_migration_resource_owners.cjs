@@ -85,6 +85,55 @@ test('an implicit whole resource retains its boundary when each entry receives a
  assert.equal(review.outputs.find(value=>value.id===review.changes.find(value=>value.resource===model).destination).text,input.resources[2].text);
 });
 
+for(const format of ['yaml','json'])test(`${format} partial resource owners preserve recursive dynamic overrides and exact values`,async()=>{
+ const schema={Forward:{$ref:'#/Node'},Node:{$dynamicAnchor:'node',type:'object',required:['n'],
+  properties:{n:{type:'integer',enum:['EXACT']},next:{$dynamicRef:'#node'}},description:'[Guide](guide.md)'},
+  Strict:{$id:'https://schemas.invalid/strict',$dynamicAnchor:'node',$ref:model+'#/Node',required:['strict'],properties:{strict:{const:true}}},
+  Literal:{$ref:'literal-only',zero:0,flag:false,empty:''}};
+ const input={...packet(schema),targetVersion:'3.2.1'};
+ for(const resource of input.resources.slice(0,2)){
+  const value=JSON.parse(resource.text);value.components.schemas.Model.$ref='model.json#/Forward';
+  value.components.schemas.Strict={$ref:'model.json#/Strict'};resource.text=JSON.stringify(value);
+ }
+ input.resources[2].text=(format==='yaml'?'# Keep partial resource 雪\r\n'+YAML.stringify(schema).replaceAll('\n','\r\n'):JSON.stringify(schema)).replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const texts=['{"n":9007199254740993}','{"n":9007199254740993,"strict":true}',
+  '{"n":9007199254740993,"strict":true,"next":{"n":9007199254740993}}',
+  '{"n":9007199254740993,"strict":true,"next":{"n":9007199254740993,"strict":true}}',
+  '{"n":9007199254740992,"strict":true}'];
+ const samples=texts.map((text,index)=>({text,description:String(index)}));
+ for(const root of [first,second])assert.deepEqual(await outcomes(input,root,samples),[true,true,true,true,false]);
+ const strict=async(packet,root)=>{
+  const result=await evaluateSchemas({...packet,root,runtimeInstances:texts.map(text=>({subject:'response-body',location:text,text,schema:{resource:root,pointer:'/components/schemas/Strict'}}))});
+  assert.equal(result.complete,true,JSON.stringify(result.findings));return result.runtimeEvaluations.map(value=>value.valid);
+ };
+ for(const root of [first,second])assert.deepEqual(await strict(input,root),[false,true,false,true,false]);
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const cold={snapshot:'cold-partial-dynamic',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
+ for(const entry of [first,second]){
+  const root=review.changes.find(change=>change.resource===entry).destination;
+  assert.deepEqual(await outcomes(cold,root,samples),[true,true,true,true,false]);
+  assert.deepEqual(await strict(cold,root),[false,true,false,true,false]);
+ }
+ assert.equal(review.outputs.find(output=>output.id===review.changes.find(change=>change.resource===model).destination).text,input.resources[2].text);
+});
+
+for(const targetVersion of ['2.0','3.0.4'])test(`partial resource owners lower fixed recursive dynamic binding to ${targetVersion}`,async()=>{
+ const schema={Forward:{$ref:'#/Node'},Node:{$dynamicAnchor:'items',type:'array',items:{$dynamicRef:'#items'}},Literal:{$ref:'literal-only',flag:false}};
+ const input={...packet(schema),targetVersion};
+ for(const resource of input.resources.slice(0,2)){
+  const entry=JSON.parse(resource.text);entry.components.schemas.Model.$ref='model.json#/Forward';resource.text=JSON.stringify(entry);
+ }
+ const samples=['[]','[[]]','[false]','null'].map((text,index)=>({text,description:String(index)}));
+ for(const root of [first,second])assert.deepEqual(await outcomes(input,root,samples),[true,true,false,false]);
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const cold={snapshot:'partial-fixed-cold',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
+ for(const entry of [first,second]){
+  const root=review.changes.find(change=>change.resource===entry).destination;
+  assert.deepEqual(await outcomes(cold,root,samples),[true,true,false,false]);
+ }
+ assert.equal(review.outputs.find(output=>output.id===review.changes.find(change=>change.resource===model).destination).text,input.resources[2].text);
+});
+
 for(const owner of ['document-alias','example-alias'])test(`generated schema identities avoid captured ${owner} collisions`,async()=>{
  const input={...packet({$id:'https://schemas.invalid/model',type:'string'}),targetVersion:'3.2.1'};
  const initial=await planMigration(input);assert.equal(initial.complete,true,JSON.stringify(initial.problems));

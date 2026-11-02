@@ -79,13 +79,41 @@ test('identified entry resources acquire distinct owned identities while retaini
  assert.deepEqual(input.resources.map(resource=>resource.text),before);
 });
 
-test('entry variants retain the partial-resource guard until a common resource holder is proved',async()=>{
+test('partial entry schema resources share one neutral holder instead of acquiring duplicate anchor identities',async()=>{
  const input=fixture('json',false),value=JSON.parse(input.resources[2].text);
  value.Node.$dynamicAnchor='node';input.resources[0].text=input.resources[0].text.replace('3.0.4','3.1.2');input.resources[2].text=JSON.stringify(value);
  const before=input.resources.map(resource=>resource.text),result=await planMigration(input);
- assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);
- const problem=result.problems.find(problem=>problem.code==='migration.owners.entry-resource');
- assert(problem,JSON.stringify(result.problems));assert.equal(problem.reason,'implementation');assert(problem.range[1]>problem.range[0]);
+ assert.equal(result.complete,true,JSON.stringify(result.problems));
+ const cold={snapshot:'cold-partial-resource',resources:result.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
+ for(const entry of [input.root,other]){
+  const root=result.changes.find(change=>change.resource===entry).destination;
+  await check(cold,root,false,false);
+  const graph=createGraph({...cold,root}).graph;
+  const holders=graph.entryScopes().filter(scope=>scope.kind==='schema'&&scope.resource===root&&scope.pointer.startsWith('/components/schemas/_migrated_resource_use_')&&scope.pointer===scope.resourcePointer);
+  assert.equal(holders.length,1);
+ }
+ assert.equal(result.outputs.find(output=>output.id===result.changes.find(change=>change.resource===models).destination).text,input.resources[2].text);
+ assert.deepEqual(input.resources.map(resource=>resource.text),before);
+});
+
+for(const format of ['yaml','json'])test(`${format} intrinsic native schema slots reference their shared material owner without duplicating anchors or changing literal aliases`,async()=>{
+ const input=fixture(format,false),value=YAML.parse(input.resources[3].text);
+ value.Header.schema.$dynamicAnchor='header';value.Literal=value.Header.schema;
+ input.resources[0].text=input.resources[0].text.replace('3.0.4','3.1.2');input.resources[3].text=format==='yaml'?YAML.stringify(value):JSON.stringify(value);
+ const before=input.resources.map(resource=>resource.text),result=await planMigration(input);
+ assert.equal(result.complete,true,JSON.stringify(result.problems));
+ const cold={snapshot:'cold-native-resource',resources:result.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
+ for(const entry of [input.root,input.resources[1].id]){
+  const root=result.changes.find(change=>change.resource===entry).destination,packet={...cold,root};
+  await check(cold,root,false,false);
+  const graph=createGraph(packet).graph,header=graph.entryReferences().find(reference=>reference.kind==='header'&&reference.pointer.endsWith('/headers/X-Name'));
+  const schema=graph.docs.get(header.targetResource).dataNode(header.targetPointer+'/schema').value;
+  assert.deepEqual(Object.keys(schema),['$ref']);
+  const evaluations=await evaluateSchemas({...packet,runtimeInstances:['Name',''].map(text=>({subject:'response-header',location:text,text:'',
+   header:{resource:header.resource,pointer:header.pointer,name:'X-Name',values:[text]}}))});
+  assert.equal(evaluations.complete,true,JSON.stringify(evaluations.findings));assert.deepEqual(evaluations.runtimeEvaluations.map(value=>value.valid),[true,false]);
+ }
+ assert.equal(result.outputs.find(output=>output.id===result.changes.find(change=>change.resource===input.resources[3].id).destination).text,input.resources[3].text);
  assert.deepEqual(input.resources.map(resource=>resource.text),before);
 });
 
