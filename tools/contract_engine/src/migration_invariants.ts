@@ -3,6 +3,7 @@ import {requestOperation} from './execution';
 import type {ReferenceGraph} from './reference_graph';
 import type {Resource} from './engine';
 import {serverTemplate} from './derived_bundle';
+import {SourceError} from './document';
 
 function formSignatures(media:any):unknown {
     const type=media.mediaType.split(';')[0].trim().toLowerCase(),multipart=type==='multipart/form-data';
@@ -36,12 +37,27 @@ function formSignatures(media:any):unknown {
 /** Representation-sensitive checks supplement native target validation. The
  * signature contains API declarations, never environments or credentials. */
 export function migrationRequestSignatures(graph:ReferenceGraph,resources:Resource[]):string[] {
+    const securityBindings=new Map(graph.references.filter(reference=>reference.connection==='security').map(reference=>[
+        JSON.stringify([reference.resource,reference.pointer,reference.keyword]),reference]));
     return graph.operations().filter(operation=>operation.role==='operation').map(operation=>{
         const plan=requestOperation({root:graph.root,resources,snapshot:'migration-invariant',resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
         const normalize=(value:any):any=>Array.isArray(value)?value.map(normalize):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).filter(name=>!['source','definition','base','origin','sources'].includes(name)).sort().map(name=>[name,normalize(value[name])])):value;
         const parameters=plan.parameters.map((parameter:any)=>({name:parameter.name,in:parameter.in,required:parameter.required,
             style:parameter.style,explode:['array','object'].includes(parameter.type)?parameter.explode:false,allowReserved:parameter.allowReserved})).sort((a:any,b:any)=>JSON.stringify(a).localeCompare(JSON.stringify(b)));
         const media=(values:any[])=>values.map(value=>value.mediaType).sort();
+        // A 3.2 URI security key is a contract locator, rather than an HTTP
+        // authentication name. Its relocation may change spelling. Keep
+        // entry-component names, every declaration field and each required
+        // scope/role attached to its own captured binding in the proof.
+        const security={anonymous:plan.security.anonymous,requirements:plan.security.requirements.map((requirement:any)=>({
+            schemes:requirement.schemes.map((name:string)=>{
+                const binding=securityBindings.get(JSON.stringify([requirement.source.resource,requirement.source.pointer,name]));
+                if(!binding||binding.resolution!=='resolved')throw new SourceError('migration.invariant.security','A request signature has no captured security binding');
+                return {...(binding.targetUri===undefined?{name}:{uri:true}),
+                    declaration:Object.fromEntries(Object.entries(plan.security.schemes[name]).filter(([field])=>field!=='name'&&field!=='description')),
+                    scopes:requirement.scopes[name]};
+            }),
+        }))};
         return JSON.stringify(normalize({method:plan.operation.method,path:plan.operation.path,
             servers:plan.servers.map((server:any)=>{
                 const source=server.urlSource??server.source;
@@ -52,7 +68,7 @@ export function migrationRequestSignatures(graph:ReferenceGraph,resources:Resour
                 }));
                 return {url:serverTemplate(server.url,server.base,server.variables,source),variables};
             }),
-            parameters,security:plan.security,body:plan.requestBody?{required:plan.requestBody.required,media:media(plan.requestBody.content),forms:plan.requestBody.content.map((value:any)=>({mediaType:value.mediaType,fields:formSignatures(value)})).sort((a:any,b:any)=>a.mediaType.localeCompare(b.mediaType))}:undefined,
+            parameters,security,body:plan.requestBody?{required:plan.requestBody.required,media:media(plan.requestBody.content),forms:plan.requestBody.content.map((value:any)=>({mediaType:value.mediaType,fields:formSignatures(value)})).sort((a:any,b:any)=>a.mediaType.localeCompare(b.mediaType))}:undefined,
             responses:plan.responses.map((response:any)=>({status:response.status,headers:response.headers.map((header:any)=>({name:header.name,required:header.required})),bodyAllowed:response.bodyAllowed??response.content.length>0,media:response.bodyAllowed===false?[]:media(response.content)}))}));
     }).sort();
 }

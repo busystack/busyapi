@@ -117,6 +117,16 @@ that scope before conversion. A missing holder/boundary or an unimplemented
 older-family dynamic-scope lowering remains a located blocker. Unknown external
 consumers are outside the captured graph's guarantees.
 
+Native objects reached inside literal data use the same ownership and provenance
+as independently interpreted schemas. Referenceable objects receive separate
+component or external owners; captured field references, Server templates,
+documentation links and external-example locators follow only those consumers.
+Literal data and unrelated aliases remain exact. This preparation also applies
+to patch-only migration and relocation. Multiple URI Security Requirement keys
+retain separate role/scope arrays when their locators are repaired. Cross-entry
+namespace conflicts and overlapping non-schema object roles remain located
+implementation blockers. Current acceptance has not run.
+
 Modern `dependentRequired` property dependencies can migrate to OpenAPI 3.0
 using equivalent presence conditions. False, zero and null still count as present.
 Swagger 2.0 conversion supports redundant dependencies and dependencies whose

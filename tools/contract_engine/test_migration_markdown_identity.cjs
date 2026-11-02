@@ -97,7 +97,7 @@ test(`${version} ${format} migration repairs rendered Markdown only, retaining c
  document.info.description=rich;
  input.resources[0].text=(format==='json'?JSON.stringify(document):'# Keep source\r\n'+YAML.stringify(document).replaceAll('\n','\r\n'))+'\r\n';
  const before=input.resources[0].text,result=await planMigration(input);
- assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(result.producerVersion,'42');
+ assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(result.producerVersion,'43');
  const output=result.outputs.find(value=>value.id===result.outputRoot),target=createGraph({root:result.outputRoot,resources:result.outputs.map(value=>({...value,generation:0}))}).graph;
  const actual=target.docs.get(result.outputRoot).dataNode('/info/description').value;
  assert.deepEqual(rendered(actual,result.outputRoot),rendered(rich,input.root));
@@ -125,7 +125,7 @@ test(`${version} -> ${targetVersion} ${format} lowered schema identity retains M
  assert.equal(input.resources[0].text,before);
 });
 
-for(const format of ['yaml','json'])test(`${format} a rendered description also used as literal data is not silently changed`,async()=>{
+for(const format of ['yaml','json'])test(`${format} a rendered Response description gets an independent owner while literal data remains exact`,async()=>{
  const input=fixture('3.1.2',format),doc={openapi:'3.1.2',info:{title:'Shared data',version:'1'},paths:{},components:{schemas:{Value:{$ref:'models.yaml#/schema'}}}};
  // The captured Response Object is also a schema's literal default payload.
  doc.paths={'/x':{get:{responses:{200:{$ref:'models.yaml#/schema/default'}}}}};
@@ -133,8 +133,14 @@ for(const format of ['yaml','json'])test(`${format} a rendered description also 
  const shared={schema:{type:'object',default:{description:'[Guide](../guide)'}}};
  input.resources.push({id:'file:///approved/contracts/models.yaml',text:YAML.stringify(shared),generation:1});
  const before=input.resources.map(value=>value.text),result=await planMigration(input);
- assert.equal(result.status,'blocked');assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);
- assert(result.problems.some(value=>value.code==='migration.description.literal-context'),JSON.stringify(result.problems));
+ assert.equal(result.complete,true,JSON.stringify(result.problems));
+ const target=createGraph({root:result.outputRoot,resources:result.outputs.map(output=>({...output,generation:0}))}).graph;
+ const response=target.referenceAs(result.outputRoot,'/paths/~1x/get/responses/200','$ref','response');
+ assert.equal(response.resolution,'resolved');assert(response.targetPointer.startsWith('/_migrated_object_use_'));
+ const actual=target.docs.get(response.targetResource).dataNode(response.targetPointer+'/description').value;
+ assert.deepEqual(rendered(actual,response.targetResource),rendered('[Guide](../guide)',input.resources[1].id));
+ const schema=target.referenceAs(result.outputRoot,'/components/schemas/Value','$ref','schema');
+ assert.equal(target.docs.get(schema.targetResource).dataJson(schema.targetPointer+'/default'),'{"description":"[Guide](../guide)"}');
  assert.deepEqual(input.resources.map(value=>value.text),before);
 });
 

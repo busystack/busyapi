@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 import {analyse,createGraph,Resource} from './engine';
 import {SourceDocument,SourceError,escape,segments} from './document';
 import {specificationDeclaration,modernFamily} from './specification';
-import {MigrationSource,MigrationLocation,migrationValueIdentity} from './migration_source';
+import {MigrationSource,MigrationLocation,migrationValueIdentity,migrationLocations} from './migration_source';
 import {migrateSchemas,MigrationProblem,MigrationIssue,type MigrationChoose,type MigrationIssueLocation} from './migration_schema';
 import {upgradeSwagger} from './migration_swagger';
 import {downgradeSwagger} from './migration_downgrade';
@@ -21,7 +21,7 @@ import {migrateBinarySchemas} from './migration_binary';
 import {checkOperationTarget,checkRequestBodyTarget,migrateOperationBodies} from './migration_operation';
 import {checkSecurityRequirementTarget} from './migration_security';
 import {migrationDocumentContexts,proveMigrationConnections} from './migration_documents';
-import {migrationBatches,entryMigrationRoutes} from './migration_routes';
+import {migrationBatches,entryMigrationRoutes,type MigrationBatch} from './migration_routes';
 import {MigrationAccess} from './migration_access';
 import {migrateDirectionalSchemas} from './migration_direction';
 import {migrateDiscriminatorDefaults} from './migration_discriminator_defaults';
@@ -31,11 +31,11 @@ import {migrateSwaggerDiscriminators} from './migration_discriminator';
 import {MigrationExamples,proveMigrationExamples,type MigrationExampleCopy} from './migration_examples';
 import {migrateTerms} from './migration_terms';
 import {migrateServerVariableDefaults,retainDefaultServers} from './migration_servers';
-import {migrationLogicalPointers,migrationYamlOwnership} from './migration_yaml_ownership';
-import {separateMigrationSchemaUses} from './migration_schema_uses';
+import {migrationLogicalPointers} from './migration_yaml_ownership';
+import {separateMigrationUses} from './migration_schema_uses';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='42';
+const migrationProducerVersion='43';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const patch:Record<string,string>={'2.0':'2.0','3.0':'3.0.4','3.1':'3.1.2','3.2':'3.2.1'};
 export type MigrationInput=Readonly<{
@@ -132,12 +132,15 @@ export async function planMigration(input:MigrationInput) {
     if(!problems.length)for(const context of initialContexts){checkOperationTarget(context.graph,target.family,issue);checkRequestBodyTarget(context,resources,target.family,issue);}
     if(!problems.length)for(const context of initialContexts)checkSecurityRequirementTarget(context.graph,target.family,issue);
     const route=migrationBatches(initial.graph.specifications,target.family);
-    for(const stage of route){
+    // Publication also relocates same-family patch updates. Their independent
+    // semantic uses need ownership preparation without a conversion stage.
+    const batches:readonly MigrationBatch[]=route.length?route:[{sources:[],to:target.family}];
+    for(const stage of batches){
         if(problems.length)break;
         const after=stage.to,context=createGraph({...input,resources});
         let contexts=migrationDocumentContexts({...input,resources},context,issue);
         if(problems.length)break;
-        const active=contexts.find(context=>stage.sources.includes(context.graph.specifications.get(context.graph.root)!.family));
+        const active=contexts.find(context=>stage.sources.length?stage.sources.includes(context.graph.specifications.get(context.graph.root)!.family):context.graph.root===input.root);
         if(!active)throw new SourceError('migration.route.owner','The conversion stage has no captured source entry');
         let graph=active.graph;
         const sources=new Map([...context.docs].map(([id,doc])=>[id,new MigrationSource(doc)]));
@@ -163,9 +166,9 @@ export async function planMigration(input:MigrationInput) {
                 sources.set(id,schemaResource);createdResources.set(id,graph.root);
                 return schemaResource;
             };
-            const resourceProofs:{scope:GraphScope;destination:MigrationLocation}[]=[];
-            const specialized=separateMigrationSchemaUses(graph,sources,issue,createSchemaResource,
-                (scope,destination)=>resourceProofs.push({scope,destination}));
+            const contextProofs:{scope:GraphScope;destination:MigrationLocation;preserveBase:boolean}[]=[];
+            const specialized=separateMigrationUses(graph,sources,issue,createSchemaResource,
+                (scope,destination,preserveBase)=>contextProofs.push({scope,destination,preserveBase}));
             if(problems.length)break;
             if(specialized.size){
                 for(const [origin,copies]of specialized){
@@ -183,13 +186,18 @@ export async function planMigration(input:MigrationInput) {
                     issue({resource:location.resource,pointer:location.pointer},code,message,reason);
                 // No omission or family conversion has happened yet: prove
                 // every typed static edge as well as dynamic/implicit ones.
+                const prepared=migrationLocations(sources);
                 proveMigrationConnections(graph,owned.graph,
-                    location=>[location,...(specialized.get(key(location.resource,location.pointer))??[])],proofIssue,true);
+                    location=>[location,...(specialized.get(key(location.resource,location.pointer))??[])]
+                        .flatMap(location=>prepared.get(key(location.resource,location.pointer))??[]),proofIssue,true);
                 graph=owned.graph;
-                for(const {scope,destination}of resourceProofs){
-                    const retained=graph.scopeAs(destination.resource,destination.pointer,'schema');
-                    if(!retained||retained.base!==scope.base||retained.dialect!==scope.dialect||retained.family!==scope.family)
-                        issue(scope,'migration.owners.resource-context','The independently owned schema did not retain its captured resource URI, dialect and family','implementation');
+                for(const {scope,destination,preserveBase}of contextProofs){
+                    const destinations=prepared.get(key(destination.resource,destination.pointer))??[];
+                    if(!destinations.length||destinations.some(destination=>{
+                        const retained=graph.scopeAs(destination.resource,destination.pointer,scope.kind);
+                        return !retained||preserveBase&&retained.base!==scope.base||retained?.dialect!==scope.dialect||retained?.family!==scope.family;
+                    }))
+                        issue(scope,'migration.owners.resource-context','The independent owner did not retain its captured role, dialect, family or required schema resource URI','implementation');
                 }
                 if(problems.length)break;
             }
@@ -297,15 +305,13 @@ export async function planMigration(input:MigrationInput) {
                 if(at!==undefined||graph.hasOverlappingScope(scope.resource,scope.pointer))assertRoleAnnotations(graph,scope,source.doc,at??scope.pointer);
             }
             const next=new Map<string,MigrationLocation[]>();
+            const current=migrationLocations(sources);
             for(const [origin,locations]of origins){
                 const mapped:MigrationLocation[]=[];
-                for(const location of locations)for(const [id,source]of sources){
-                    const values=id===location.resource?source.origins.get(location.pointer):source.foreignOrigins.get(location.resource+'#'+location.pointer);
-                    for(const pointer of values??[])mapped.push({resource:id,pointer});
-                    for(const copy of specialized.get(key(location.resource,location.pointer))??[]){
-                        const values=id===copy.resource?source.origins.get(copy.pointer):source.foreignOrigins.get(copy.resource+'#'+copy.pointer);
-                        for(const pointer of values??[])mapped.push({resource:id,pointer});
-                    }
+                for(const location of locations){
+                    mapped.push(...(current.get(key(location.resource,location.pointer))??[]));
+                    for(const copy of specialized.get(key(location.resource,location.pointer))??[])
+                        mapped.push(...(current.get(key(copy.resource,copy.pointer))??[]));
                 }
                 next.set(origin,mapped);
             }
@@ -314,7 +320,7 @@ export async function planMigration(input:MigrationInput) {
             resources=resources.map(resource=>({...resource,text:sources.get(resource.id)!.doc.text}));
             for(const [id]of createdResources)if(!resources.some(resource=>resource.id===id))
                 resources.push({id,text:sources.get(id)!.doc.text,generation:0,identity:digest(sources.get(id)!.doc.text)});
-            if(after==='3.2'){
+            if(after==='3.2'&&stage.sources.length){
                 const migrated=createGraph({...input,resources});
                 await migrateDiscriminatorDefaults({...input,resources},migrated.graph,sources,issue,choose,location=>{
                     const source=sourceLocation(location.resource,location.pointer);
@@ -430,19 +436,30 @@ export async function planMigration(input:MigrationInput) {
     const portable=coldGraph(outputRoot,coldResources());
     const portableReferences=new Set(portable.references.filter(reference=>reference.resolution==='resolved'&&reference.keyword!=='$dynamicRef').map(reference=>
         JSON.stringify([reference.resource,reference.pointer,reference.keyword,reference.value,reference.targetResource,reference.targetPointer])));
+    const securityNames=new Map<string,Set<string>>();
+    const portableOwners=new Map<string,MigrationSource>();
     for(const reference of relocated.graph.references){
-        const relocatable=['$ref','$dynamicRef','operationRef'].includes(reference.keyword)||reference.connection==='discriminator';
+        const security=reference.connection==='security'&&reference.targetUri!==undefined;
+        const relocatable=['$ref','$dynamicRef','operationRef'].includes(reference.keyword)||reference.connection==='discriminator'||security;
         if(!relocatable||reference.resolution!=='resolved')continue;
         if(portableReferences.has(JSON.stringify([reference.resource,reference.pointer,reference.keyword,reference.value,reference.targetResource,reference.targetPointer])))continue;
         const scope=relocated.graph.scope(reference.resource,reference.pointer),destination=relocated.graph.scopes.get(reference.targetResource!+'#'+reference.targetPointer!);
-        const addressKeyword=reference.keyword==='$dynamicRef'&&!reference.dynamic?'$ref':reference.keyword;
-        const value=destination&&referenceValue(relocated.graph,scope,destination,addressKeyword);
+        const addressKeyword=security?'security':reference.keyword==='$dynamicRef'&&!reference.dynamic?'$ref':reference.keyword;
+        let names:Set<string>|undefined,excluded:Set<string>|undefined;
+        if(security){
+            const identity=key(reference.resource,reference.pointer);
+            names=securityNames.get(identity)??new Set(relocated.docs.get(reference.resource)!.dataNode(reference.pointer)!.children.keys());
+            securityNames.set(identity,names);
+            excluded=new Set([...names,...(relocated.docs.get(relocated.graph.root)!.dataNode('/components/securitySchemes')?.children.keys()??[])]);
+            excluded.delete(reference.value);
+        }
+        const value=destination&&referenceValue(relocated.graph,security?{...scope,kind:'security'}:scope,destination,addressKeyword,excluded);
         const location={resource:reference.resource,pointer:reference.pointer+'/'+escape(reference.keyword)};
         if(value===undefined){issue(location,'migration.reference.relocation','A captured reference has no proved portable target spelling','implementation');continue;}
-        if(reference.connection==='discriminator'){
-            const rebound=relocated.graph.resolveConnection({...reference,...scope,kind:reference.kind,value});
+        if(reference.connection==='discriminator'||security){
+            const rebound=relocated.graph.resolveConnection({...reference,...scope,kind:reference.kind,keyword:security?value:reference.keyword,value});
             if(rebound.resolution!=='resolved'||rebound.targetResource!==reference.targetResource||rebound.targetPointer!==reference.targetPointer){
-                issue(location,'migration.reference.binding','The proposed discriminator mapping does not preserve its captured model target','implementation');continue;
+                issue(location,'migration.reference.binding','The proposed native connection does not preserve its captured target','implementation');continue;
             }
         }
         if(reference.keyword==='$dynamicRef'){
@@ -454,15 +471,30 @@ export async function planMigration(input:MigrationInput) {
         if(value===reference.value)continue;
         const source=outputResources.find(resource=>resource.id===reference.resource)!;
         try{
-            const owned=migrationYamlOwnership(new SourceDocument(source.text,source.id),location.pointer);
-            source.text=owned.document.set(location.pointer,value);
-            for(const pointer of owned.changed){
+            let owner=portableOwners.get(source.id);
+            if(!owner){owner=new MigrationSource(new SourceDocument(source.text,source.id));portableOwners.set(source.id,owner);}
+            const prior=owner.presentationChanges.length;
+            if(security){
+                owner.rename(location.pointer,value);
+                names!.delete(reference.value);names!.add(value);
+            }else owner.set(location.pointer,value);
+            source.text=owner.doc.text;
+            for(const pointer of owner.presentationChanges.slice(prior)){
                 const original=sourceLocation(source.id,pointer);
                 presentationChanges.push({resource:original.resource,pointer:original.pointer});
             }
         }
         catch(error){refused(error,location);}
     }
+    try{
+        const portable=migrationLocations(portableOwners);
+        for(const [origin,locations]of origins)origins.set(origin,locations.flatMap(location=>{
+            const resource=identifiers.get(location.resource)!;
+            if(!portableOwners.has(resource))return [location];
+            return (portable.get(key(resource,location.pointer))??[]).map(location=>({
+                resource:relocatedResources.get(location.resource)!,pointer:location.pointer}));
+        }));
+    }catch(error){refused(error,{resource:input.root,pointer:''});}
     if(problems.length)return {...common(),changes:[],outputs:[]};
     let exampleOutputs:readonly MigrationExampleCopy[]=[],outputExampleResources:readonly ExternalExampleResourcePacket[]=[];
     try{

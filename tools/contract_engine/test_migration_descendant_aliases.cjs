@@ -84,7 +84,7 @@ test(`${version} ${format} descendant aliases with outside definitions survive n
     if(format==='yaml')assert.throws(()=>before.assertUnshared('/components/schemas',true),error=>error.code==='edit.shared');
     const sourceAnalysis=analyse(input);assert.equal(sourceAnalysis.status,'complete',JSON.stringify(sourceAnalysis.findings));
     const expected=await outcomes(input),review=await planMigration(input);
-    assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'42');
+    assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'43');
     assert.equal(review.status,'faithfully-convertible');assert.deepEqual(review.acceptedDecisions,[]);
     const output=delivered(review),checked=analyse(output);assert.equal(checked.status,'complete',JSON.stringify(checked.findings));
     assert.deepEqual(await outcomes(output),expected);

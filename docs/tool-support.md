@@ -766,8 +766,12 @@ retention is proved against the mapped graph and the delivered cold-reopen
 identity map. Affected YAML uses receive separate planning-copy ownership through
 captured anchor/alias tokens, including patch-only declarations and anchored
 destinations. Other consumers retain their exact values, and review shows the
-restructuring. Independently interpreted literal/contract occurrences still need
-their own mappings. The migration producer is **42**; Core rejects previous
+restructuring. Schema and native object occurrences reached inside literal data
+use the same allocator and role-specific provenance before conversion or patch
+relocation. Their document links, external examples and Server templates retain
+the captured context; literal values survive separately. Cross-entry namespace
+propagation and multiple non-schema object roles remain implementation gaps.
+The migration producer is **43**; Core rejects previous
 producer responses before publication. Current qualification remains pending.
 
 Contract-case JSON reports include `dispatched` and `operationalFailure`. Coverage

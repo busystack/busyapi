@@ -2,6 +2,28 @@ import {SourceDocument,SourceError,escape,segments,RawJsonValue} from './documen
 import {migrationYamlOwnership,migrationLogicalPointers} from './migration_yaml_ownership';
 
 export type MigrationLocation={resource:string;pointer:string};
+/** Index current CST locations without discarding synthetic conversion
+ * coordinates. Owner-copy relations are composed by the caller; renaming a
+ * native connection key must use the same provenance as moving any field. */
+export function migrationLocations(sources:ReadonlyMap<string,MigrationSource>):ReadonlyMap<string,readonly MigrationLocation[]> {
+    const result=new Map<string,MigrationLocation[]>();let work=0;
+    const append=(origin:MigrationLocation,resource:string,pointers:ReadonlySet<string>)=>{
+        const identity=JSON.stringify([origin.resource,origin.pointer]),values=result.get(identity)??[];
+        for(const pointer of pointers){
+            if(++work>2000000)throw new SourceError('limit.migration.owners','Migration provenance exceeds 2000000 current locations');
+            values.push({resource,pointer});
+        }
+        result.set(identity,values);
+    };
+    for(const [resource,source]of sources){
+        for(const [pointer,locations]of source.origins)append({resource:source.original.id,pointer},resource,locations);
+        for(const [identity,locations]of source.foreignOrigins){
+            const split=identity.indexOf('#');
+            append({resource:identity.slice(0,split),pointer:identity.slice(split+1)},resource,locations);
+        }
+    }
+    return result;
+}
 const inside=(pointer:string,parent:string)=>pointer===parent||pointer.startsWith(parent+'/');
 function outerCommentRanges(doc:SourceDocument,pointer:string,entryComments:boolean):[number,number][] {
     if(doc.format!=='yaml')return [];

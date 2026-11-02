@@ -5,7 +5,7 @@ import type {ReferenceGraph} from './reference_graph';
 import type {MigrationLocation,MigrationSource} from './migration_source';
 import {migrationLogicalPointers} from './migration_yaml_ownership';
 
-/** Generated schema owners share one reservation/provenance boundary. A label
+/** Generated schema and OpenAPI object owners share one reservation/provenance boundary. A label
  * describes the reviewed restructuring; identity comes from the captured use,
  * never from payload keys or whichever entry happened to be visited first. */
 export class MigrationSchemaOwners {
