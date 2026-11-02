@@ -49,8 +49,7 @@ export function separateMigrationEntryUses(contexts:readonly DocumentContext[],s
         }
         for(const reference of graph.references){
             admit();if(reference.resolution!=='resolved')continue;
-            const owner=graph.scopeAs(reference.resource,reference.pointer,referenceOwnerKind(reference))??
-                (reference.connection==='discriminator'?graph.scopeAs(reference.resource,reference.pointer,'discriminator-map'):undefined);
+            const owner=graph.referenceOwner(reference);
             if(owner){
                 connect(incoming,useKey({resource:reference.targetResource!,pointer:reference.targetPointer!,kind:reference.kind}),owner);
                 const target=graph.scopeAs(reference.targetResource!,reference.targetPointer!,reference.kind);

@@ -44,7 +44,7 @@ function schemaDefinitionMapNamePolicy(graph:ReferenceGraph,scope:GraphScope):Me
  * Named reusable responses and extension/example payloads are different maps. */
 export function responseStatusIssues(graph:ReferenceGraph):GraphIssue[] {
     const issues:GraphIssue[]=[];
-    for(const scope of graph.interpretedScopes()){
+    for(const scope of graph.entryScopes()){
         if(scope.family!=='2.0'||scope.kind!=='response-map')continue;
         for(const name of graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.children.keys()??[])
             if(/^[0-9]{3}$/.test(name)&&!permitsMemberName(responseStatusNamePolicy(scope.family),name))

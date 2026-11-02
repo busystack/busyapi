@@ -18,7 +18,7 @@ export function mediaTypeIssues(graph:ReferenceGraph):GraphIssue[] {
    issues.push({...scope,pointer,code:error.code,message:error.message,...(incomplete?{incomplete:true,severity:'warning' as const}:{})});
   }
  };
- for(const scope of graph.interpretedScopes()){
+ for(const scope of graph.entryScopes()){
   if(!isNativeFamily(scope.family))continue;
   const node=graph.docs.get(scope.resource)!.dataNode(scope.pointer)!;
   if(scope.kind==='content-map'&&segments(scope.pointer).at(-1)==='content'){

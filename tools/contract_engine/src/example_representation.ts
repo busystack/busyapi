@@ -21,7 +21,7 @@ export function exampleRepresentation(field:ExampleValueField,value:unknown,medi
 export function mediaExampleRepresentations(graph:ReferenceGraph) {
  const bindings=new Map<string,Set<string>>(),capture=capturedRuntimeMedia(graph);
  const identity=(resource:string,pointer:string)=>JSON.stringify([resource,graph.docs.get(resource)?.dataNode(pointer)?.pointer??pointer]);
- for(const owner of graph.interpretedScopes()){
+ for(const owner of graph.entryScopes()){
   if(owner.kind!=='media')continue;
   const parts=segments(owner.pointer);if(parts.at(-2)!=='content')continue;
   try{

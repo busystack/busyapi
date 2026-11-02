@@ -160,7 +160,7 @@ export function analyse(input: any, context?: ReturnType<typeof createGraph>) {
     for (const [group, objects] of Object.entries(componentValues) as any)
         for (const [name, v] of Object.entries(objects ?? {}) as any)
             components.push(index(root, (componentLocations[group]??'/components/'+escape(group)) + '/' + escape(name), v, { group, name }));
-    const schemaScopes=graph.scopesFor('schema'),physicalRoots=schemaRoots(schemaScopes.filter(scope=>!scope.sourceKind)),metaRoots=[...physicalRoots,...schemaScopes.filter(scope=>scope.sourceKind)],nestedBoundaries=nestedSchemaBoundaries(physicalRoots);
+    const schemaScopes=graph.scopesFor('schema').filter(scope=>graph.isEntryUse(scope)),physicalRoots=schemaRoots(schemaScopes.filter(scope=>!scope.sourceKind)),metaRoots=[...physicalRoots,...schemaScopes.filter(scope=>scope.sourceKind)],nestedBoundaries=nestedSchemaBoundaries(physicalRoots);
     const exactNumericKeywords=new Set(['minimum','maximum','exclusiveMinimum','exclusiveMaximum','multipleOf','minLength','maxLength','minItems','maxItems','minProperties','maxProperties','minContains','maxContains']);
     const exactNumericDeferred=(doc:SourceDocument,pointer:string)=>{
         const value=doc.nodes.get(pointer)?.value;
@@ -199,7 +199,7 @@ export function analyse(input: any, context?: ReturnType<typeof createGraph>) {
             }
     }
     const targetKinds: Record<string, string> = { operation: 'operation', parameter: 'parameter', response: 'response', header: 'header', example: 'example', link: 'link', 'request-body': 'request-body', security: 'security-scheme', 'path-item': 'path-item', media: 'media-type', callback: 'callback' };
-    for (const ref of graph.references) {
+    for (const ref of graph.entryReferences()) {
         const doc = docs.get(ref.resource)!;
         references.push(index(doc, ref.pointer + '/' + escape(ref.keyword), ref.value, {
             kind: ref.kind === 'schema' ? 'schema' : 'reference', contextKind: ref.kind,

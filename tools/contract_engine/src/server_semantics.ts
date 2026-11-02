@@ -103,7 +103,7 @@ export function serverUrlValidity(value:string,base:string):'valid'|'invalid'|'u
 /** Server policies belong to their declared family, independently of schema
  * dialect. OAS 3.0 §4.7.5 permits query/fragment; 3.1 §4.8.5 prohibits them.
  * 3.2 §§4.5–4.6 additionally defines nonempty ABNF and unique expressions. */
-export function serverRelationships(graph:ReferenceGraph,scopes:Iterable<GraphScope>=graph.scopes.values()):GraphIssue[] {
+export function serverRelationships(graph:ReferenceGraph,scopes:Iterable<GraphScope>=graph.entryScopes()):GraphIssue[] {
  const issues=new Map<string,GraphIssue>();
  const key=(at:GraphTarget)=>JSON.stringify([at.resource,at.pointer]);
  const add=(at:GraphTarget,pointer:string,code:string,message:string,incomplete=false)=>{

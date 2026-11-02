@@ -198,7 +198,7 @@ void main() {
             expect(_samples(original).single['valid'], true);
             expect(
               original['categories']['openapi']['schema']['producerVersion'],
-              '1.18.0+52',
+              '1.18.0+53',
             );
             final bodyBuffer = await project.buffer(body.uri.toString()),
                 exampleBuffer = await project.buffer(examples.uri.toString());

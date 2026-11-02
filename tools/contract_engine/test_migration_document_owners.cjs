@@ -49,7 +49,7 @@ for(const format of ['yaml','json'])test(`${format} planning retains entry, dire
  for(const context of contexts){
   assert(context.uses.every(use=>use.entryNamespace===context.graph.root));
   const shared=context.uses.filter(use=>use.resource.endsWith('/models.'+format)&&use.pointer==='/definitions/Node'&&use.role==='schema');
-  assert.deepEqual(shared.map(use=>use.direction).sort(),['neutral','request','response']);
+  assert.deepEqual(shared.map(use=>use.direction).sort(),context.graph.root.endsWith('/models.'+format)?['neutral']:['neutral','request','response']);
   assert(shared.every(use=>use.family==='2.0'&&use.dialect==='urn:busyapi:schema-dialect:swagger-2.0'&&use.baseUri.endsWith('/models.'+format)&&use.resourceBoundary===''));
   assert(context.uses.some(use=>use.literal&&use.pointer==='/x-literal'&&use.direction==='neutral'));
  }

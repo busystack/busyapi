@@ -78,12 +78,12 @@ export async function evaluateSerializedExamples(graph:ReferenceGraph,evaluate:(
     external:{id:captured.id,identity:captured.identity,byteLength:captured.byteLength}});
   }catch(error){fail(source,pointer,error);}
  };
- for(const owner of graph.interpretedScopes())if(owner.family==='2.0'&&owner.kind==='response'){
+ for(const owner of graph.entryScopes())if(owner.family==='2.0'&&owner.kind==='response'){
   const source=graph.docs.get(owner.resource)!,named=source.dataNode(owner.pointer+'/examples');
   if(named?.kind!=='object')continue;
   for(const [mediaType]of named.children)try{captureString(source,owner.pointer+'/examples/'+escape(mediaType),owner,mediaType,'swagger-response');}catch(error){fail(source,owner.pointer+'/examples/'+escape(mediaType),error);}
  }
- for(const owner of graph.interpretedScopes()){
+ for(const owner of graph.entryScopes()){
   if(!isNativeFamily(owner.family)||owner.family==='2.0'||owner.kind!=='media')continue;
   const parts=segments(owner.pointer);
   // Reusable Media Type Object names are not media types. Each actual content
@@ -109,7 +109,7 @@ export async function evaluateSerializedExamples(graph:ReferenceGraph,evaluate:(
    }
   }catch(error){fail(document,owner.pointer,error);}
  }
- for(const owner of graph.interpretedScopes()){
+ for(const owner of graph.entryScopes()){
   if(owner.kind!=='header')continue;
   if(exampleHeaderName(graph,owner)===undefined)continue;
   try{boundHeaderDefinitions.add(physical(follow(owner)));}catch(error){fail(graph.docs.get(owner.resource)!,owner.pointer,error);}
@@ -119,7 +119,7 @@ export async function evaluateSerializedExamples(graph:ReferenceGraph,evaluate:(
  // assertion; keep it distinct from a reusable Media Type with an unchecked
  // serialization. Reference chains retain the physical scalar owner.
  const associated=new Map<string,Set<string>>();let associations=0;
- for(const owner of graph.interpretedScopes()){
+ for(const owner of graph.entryScopes()){
   if(!['media','parameter','header'].includes(owner.kind))continue;
   const document=graph.docs.get(owner.resource)!;
   let definition:GraphTarget;
@@ -174,7 +174,7 @@ export async function evaluateSerializedExamples(graph:ReferenceGraph,evaluate:(
  // similarly named payload members remain ordinary data in every family.
  const inspected=new Set<string>();
  let firstUnbound:{document:SourceDocument;pointer:string}|undefined;
- for(const scope of graph.interpretedScopes()){
+ for(const scope of graph.entryScopes()){
   if(scope.kind!=='example'||scope.family==='2.0')continue;
   const document=graph.docs.get(scope.resource)!;
   if(graph.referenceObject(document.dataNode(scope.pointer)?.value,scope))continue;

@@ -89,7 +89,7 @@ export class ParameterSemantics {
             const issue={...target,code,message,...(incomplete?{incomplete}:{}),...(severity!=='error'?{severity}:{})};
             issues.set(JSON.stringify([target.resource,target.pointer,code]),issue);
         };
-        for(const scope of this.graph.interpretedScopes()) {
+        for(const scope of this.graph.entryScopes()) {
             const doc=this.graph.docs.get(scope.resource)!,node=doc.dataNode(scope.pointer);
             if(!node||!doc.dataSyntaxSafe(scope.pointer))continue;
             if(['path-item','operation'].includes(scope.kind)) {
@@ -153,7 +153,7 @@ export class ParameterSemantics {
         for(const issue of issues.values())if(issue.code==='path.template.equivalent')
             issue.range=root.dataNode(issue.pointer)?.keyRange;
         const ids=new Map<string,GraphTarget>();
-        for(const scope of this.graph.interpretedScopes()) if(scope.kind==='operation') {
+        for(const scope of this.graph.entryScopes()) if(scope.kind==='operation') {
             const doc=this.graph.docs.get(scope.resource)!,node=doc.dataNode(scope.pointer),id=node?.value?.operationId;
             if(!node || !doc.dataSyntaxSafe(scope.pointer) || typeof id!=='string')continue;
             const previous=ids.get(id);

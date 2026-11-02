@@ -4,7 +4,7 @@ import {swaggerFileChoiceTargets} from './swagger_file';
 import {resolveIri} from '@hyperjump/uri';
 import {specificationDeclaration, defaultSchemaDialect, modernFamily, restrictedSchemaDialect, swaggerSchemaDialect, isNativeFamily, capabilitiesFor, Specification,declaredSchemaDialect} from './specification';
 
-export const schemaRoleContextRevision='4';
+export const schemaRoleContextRevision='5';
 
 export const knownDialects = new Set([
     restrictedSchemaDialect,
@@ -34,7 +34,7 @@ export const schemaResourceContextIdentity=(scope:GraphScope):string=>JSON.strin
  * general-purpose additional JSON Schema dialect promised in modern roots. */
 export const supportedSchemaDialect = (scope: Pick<GraphScope, 'family' | 'dialect'>): boolean =>
     scope.family === '2.0' ? scope.dialect === swaggerSchemaDialect : scope.family === '3.0' ? scope.dialect === restrictedSchemaDialect : modernFamily(scope.family) && typeof scope.dialect==='string' && knownDialects.has(schemaDialectIdentity(scope.dialect)) && ![restrictedSchemaDialect,swaggerSchemaDialect].includes(schemaDialectIdentity(scope.dialect));
-export type GraphIssue = GraphTarget & { code: string; message: string; incomplete?: boolean; severity?: 'warning'|'error' };
+export type GraphIssue = GraphTarget & { code: string; message: string; incomplete?: boolean; severity?: 'warning'|'error';connection?:GraphReference['connection'] };
 export type PathItemView = {source:GraphTarget;chain:readonly GraphTarget[];fields:ReadonlyMap<string,GraphTarget>;complete:boolean;chainComplete:boolean;conflicts:readonly string[];cyclic:boolean};
 export type OperationOccurrence = {source:GraphTarget;pathItem:GraphTarget;path:string;method:string;role:string;occurrence:string;shared:boolean;customMethod?:boolean};
 export type GraphReference = GraphScope & {
@@ -134,6 +134,76 @@ export class ReferenceGraph {
     private readonly roleScopes = new Map<string, GraphScope>();
     private readonly roleKinds = new Map<string, Set<string>>();
     private readonly overlappingScopes = new Set<string>();
+    private entryUses?:ReadonlySet<string>;
+    private useIdentity(scope:GraphTarget):string{return JSON.stringify([scope.resource,scope.pointer,scope.kind]);}
+    /** All parsed declarations remain available for identities and source
+     * inspection. Semantic validation belongs to the selected entry's typed
+     * uses, plus explicitly captured maintenance occurrences. A foreign OpenAPI
+     * document's unused branches have their own entry/dialect/namespace. */
+    isEntryUse(scope:GraphTarget):boolean{return this.entryUses===undefined||this.entryUses.has(this.useIdentity(scope));}
+    *entryScopes():IterableIterator<GraphScope>{for(const scope of this.interpretedScopes())if(this.isEntryUse(scope))yield scope;}
+    referenceOwner(reference:Pick<GraphReference,'resource'|'pointer'|'kind'|'connection'>):GraphScope|undefined {
+        const kind=reference.connection==='discriminator'?'discriminator':reference.connection==='security'?'security-requirement':reference.connection?'link':reference.kind;
+        return this.scopeAs(reference.resource,reference.pointer,kind)??
+            (reference.connection==='discriminator'?this.scopeAs(reference.resource,reference.pointer,'discriminator-map'):undefined);
+    }
+    entryReferences():readonly GraphReference[] {
+        return this.references.filter(reference=>{
+            const owner=this.referenceOwner(reference);
+            return owner!==undefined&&this.isEntryUse(owner);
+        });
+    }
+    private captureEntryUses(occurrences:readonly GraphTarget[]):void {
+        const edges=new Map<string,GraphScope[]>();
+        let work=0;
+        const admit=()=>{if(++work>2000000)throw new SourceError('limit.graph.uses','Entry ownership exceeds 2000000 graph steps');};
+        const connect=(source:GraphTarget,target:GraphScope)=>{
+            admit();const id=this.useIdentity(source),values=edges.get(id)??[];values.push(target);edges.set(id,values);
+        };
+        for(const reference of this.references){
+            admit();if(reference.resolution!=='resolved')continue;
+            const owner=this.referenceOwner(reference);
+            const target=this.scopeAs(reference.targetResource!,reference.targetPointer!,reference.kind);
+            if(owner&&target)connect(owner,target);
+        }
+        const selected=new Set<string>(),pending:GraphScope[]=[this.scopeAs(this.root,'','root')!];
+        for(const occurrence of occurrences){const scope=this.scopeAs(occurrence.resource,occurrence.pointer,occurrence.kind);if(scope)pending.push(scope);}
+        for(let index=0;index<pending.length;index++){
+            admit();const scope=pending[index],id=this.useIdentity(scope);
+            if(selected.has(id))continue;
+            selected.add(id);pending.push(...edges.get(id)??[]);
+            const value=this.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
+            if(scope.kind==='schema'&&scope.pointer!==scope.resourcePointer){
+                const resource=this.scopeAs(scope.resource,scope.resourcePointer,'schema');
+                if(resource&&schemaResourceContextIdentity(resource)===schemaResourceContextIdentity(scope))pending.push(resource);
+            }
+            if(this.referenceObject(value,scope)&&scope.kind!=='path-item')continue;
+            for(const [name,,kind]of children(value,scope.kind,scope.family)){
+                admit();const child=this.scopeAs(scope.resource,scope.pointer+'/'+escape(name),kind);
+                if(child)pending.push(child);
+            }
+        }
+        this.entryUses=selected;
+        // Located semantic findings use their nearest captured role, not an
+        // arbitrary physical document. Ambiguous identities still diagnose
+        // every active reference that encounters the ambiguity.
+        const retained=this.issues.filter(issue=>{
+            if(issue.connection){
+                const owner=this.referenceOwner({...issue,pointer:issue.pointer.slice(0,issue.pointer.lastIndexOf('/'))});
+                if(owner)return this.isEntryUse(owner);
+            }
+            let pointer=issue.pointer;
+            for(;;){
+                const exact=this.scopeAs(issue.resource,pointer,issue.kind);
+                if(exact)return this.isEntryUse(exact);
+                const scopes=this.scopesAt(issue.resource,pointer);
+                if(scopes.length)return scopes.some(scope=>this.isEntryUse(scope));
+                if(!pointer)return issue.resource===this.root;
+                pointer=pointer.slice(0,pointer.lastIndexOf('/'));
+            }
+        });
+        this.issues.length=0;for(const issue of retained)this.issues.push(issue);
+    }
     private fileTypeChoices:ReadonlySet<string>|undefined;
     /** Reference discovery finishes in the constructor. Reuse one transitive
      * consumer proof across this capture's authoring and Reference fields.
@@ -357,6 +427,7 @@ export class ReferenceGraph {
         this.checkReferenceChains();
         for(const scope of this.scopes.values())if(scope.kind==='path-item')this.pathItem(scope);
         this.operations();
+        this.captureEntryUses(occurrences);
     }
 
     /** Located Path Item fields, not a merged API object. Non-overlapping
@@ -613,8 +684,8 @@ export class ReferenceGraph {
                 this.issue(value, 'reference.identity.duplicate', 'Multiple source locations declare the same resource or anchor identity', true);
     }
 
-    private issue(target: GraphTarget, code: string, message: string, incomplete = false,severity?:'warning'|'error') {
-        const id = key(target.resource, target.pointer) + ':' + code;
+    private issue(target: GraphTarget&{connection?:GraphReference['connection']}, code: string, message: string, incomplete = false,severity?:'warning'|'error') {
+        const id = JSON.stringify([target.resource,target.pointer,target.kind,target.connection??'',code]);
         if (this.issueKeys.has(id)) return;
         this.issueKeys.add(id); this.issues.push({ ...target, code, message, incomplete,...(severity?{severity}:{}) });
     }

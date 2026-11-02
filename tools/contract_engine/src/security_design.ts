@@ -120,7 +120,7 @@ export function securityDesign(input: any, docs: Map<string,SourceDocument>, gra
         if(operation.value && typeof operation.value==='object' && !Object.hasOwn(operation.value,'security')) add(docs.get(operation.resource)!,operation.pointer,'security.declaration.implicit-public',
             'Other operations declare security, while this operation has no root or local requirement. It may be intentionally public; confirm that the absence is deliberate.','information');
     }
-    for(const reference of graph.references) {
+    for(const reference of graph.entryReferences()) {
         // An invalid pointer in an available document is a located validity
         // finding, not omitted dependency content. Unavailable/unsupported or
         // ambiguous acquisition contexts remain explicitly incomplete.

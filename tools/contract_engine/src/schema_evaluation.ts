@@ -36,7 +36,7 @@ import {externalExampleRevision} from './external_examples';
 import {exampleRepresentation,mediaExampleRepresentations,type ExampleValueField} from './example_representation';
 import {embeddedMimeTextRevision} from './embedded_mime_text';
 
-export const schemaProducer={name:'hyperjump+busyapi-exact',version:'1.18.0+52',configuration:[
+export const schemaProducer={name:'hyperjump+busyapi-exact',version:'1.18.0+53',configuration:[
  `external-example-bytes-v${externalExampleRevision}`,
  'parameter-runtime-serialization-v1',
  'http-field-lines-v1',
@@ -157,6 +157,7 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
   const views=new SchemaResourceViews(graph,all,input.snapshot);
   if(views.active)exact.setSourceResolver(uri=>views.source(uri));
   for(const reference of swaggerFileContexts(graph).invalidReferences){
+   if(!graph.isEntryUse(reference))continue;
    invalid.push(graph.scope(reference.resource,reference.pointer));
    add(docs.get(reference.resource)!,reference.pointer+'/$ref','schema.file.context','Swagger file schemas are only permitted at a response schema root; this reference uses the fragment in another schema position.');
   }
@@ -280,7 +281,7 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
    }
    if(!supportedSchemaDialect(scope)||!docs.get(scope.resource)!.dataSyntaxSafe(scope.pointer))mark(id,2);
   }
-  for(const ref of graph.references)if(ref.kind==='schema'&&!ref.connection) {
+  for(const ref of graph.references)if(ref.kind==='schema'&&!ref.connection&&graph.isEntryUse(ref)) {
    const id=scopeId(ref);
    if(ref.resolution==='resolved') {
     const target=graph.scopeAs(ref.targetResource!,ref.targetPointer!,'schema');
@@ -322,7 +323,7 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
    const form=mediaForms(scope,field,node.value);
    return form.data;
   };
-  for(const scope of graph.interpretedScopes()) {
+  for(const scope of graph.entryScopes()) {
    if(scope.family==='2.0'&&scope.kind==='response') {
     const schema=graph.scopeAs(scope.resource,scope.pointer+'/schema','schema'),doc=docs.get(scope.resource)!;
     if(schema?.kind==='schema')for(const name of doc.dataNode(scope.pointer+'/examples')?.children.keys()??[]){

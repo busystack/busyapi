@@ -103,7 +103,7 @@ export class FormSemantics {
 
 export function formMediaIssues(graph:ReferenceGraph){
     const issues:{resource:string;pointer:string;code:string;message:string;incomplete?:boolean;severity?:string}[]=[];
-    for(const scope of graph.interpretedScopes()){
+    for(const scope of graph.entryScopes()){
         if(scope.family==='3.0'&&scope.kind==='media'){
             let parent=scope.pointer,owner:string|undefined;
             while(parent){parent=parent.slice(0,parent.lastIndexOf('/'));const kind=graph.scopes.get(scope.resource+'#'+parent)?.kind;if(kind&&['request-body','response','parameter','header'].includes(kind)){owner=kind;break;}}

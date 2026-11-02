@@ -33,6 +33,7 @@ export type SchemaEvaluationScope=GraphScope&{objectKind:string;file?:boolean};
 export function schemaEvaluationScopes(graph:ReferenceGraph):SchemaEvaluationScope[] {
     const scopes:SchemaEvaluationScope[]=[],{contexts}=swaggerFileContexts(graph);
     for(const scope of graph.interpretedScopes()) {
+        if(!graph.isEntryUse(scope))continue;
         const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
         const flat=flatSchemaContext(graph,scope);
         if(scope.kind!=='schema'&&!flat)continue;

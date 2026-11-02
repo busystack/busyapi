@@ -45,7 +45,7 @@ export function xmlRequiresExplicitName(graph:ReferenceGraph,scope:GraphScope):b
  * source-located in the canonical graph. */
 export function xmlRelationships(graph:ReferenceGraph):GraphIssue[] {
     const issues:GraphIssue[]=[];
-    for(const scope of graph.interpretedScopes()){
+    for(const scope of graph.entryScopes()){
         if(scope.kind!=='xml')continue;
         const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)!.value;
         if(xmlRequiresExplicitName(graph,scope)&&!Object.hasOwn(value,'name'))

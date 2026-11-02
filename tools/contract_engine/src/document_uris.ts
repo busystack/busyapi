@@ -54,7 +54,7 @@ export function* documentUriOccurrences(graph:ReferenceGraph):ReturnType<typeof 
 export function documentUriRelationships(graph:ReferenceGraph):GraphIssue[] {
     const issues:GraphIssue[]=[];
     for(const occurrence of metadataUriOccurrences(graph)){
-        if(occurrence.scope.kind==='server')continue;
+        if(!graph.isEntryUse(occurrence.scope)||occurrence.scope.kind==='server')continue;
         const validity=documentUriValidity(occurrence.value);
         if(validity==='invalid')issues.push({...occurrence.scope,pointer:occurrence.pointer,code:'metadata.uri',message:'This field must be a URI reference; escape spaces and non-ASCII characters'});
         if(validity==='unsupported')issues.push({...occurrence.scope,pointer:occurrence.pointer,code:'metadata.uri.unsupported',message:'The URI validator cannot evaluate this metadata host notation',incomplete:true,severity:'warning'});

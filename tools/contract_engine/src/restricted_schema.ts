@@ -75,7 +75,7 @@ export function restrictedSchemaIssues(graph: ReferenceGraph): GraphIssue[] {
         }
         return finish(proofs.includes('incomplete')?'incomplete':'not-established');
     };
-    for (const scope of graph.interpretedScopes()) {
+    for (const scope of graph.entryScopes()) {
         const doc = graph.docs.get(scope.resource)!, node = doc.dataNode(scope.pointer), value = node?.value;
         const flat=flatSchemaContext(graph,scope);
         if ((!flat&&scope.kind !== 'schema') || !['2.0','3.0'].includes(scope.family)) continue;

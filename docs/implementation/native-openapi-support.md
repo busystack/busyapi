@@ -143,7 +143,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W7.01 Creation, editing, unsaved Reference, request/example/mock/case, migration review, documentation and CLI integration for every capability; all applicable clauses above | shared engine, Core owners and native workspace controls | A R E M S C | engine/Core/widget/native journey suites | Partially implemented; applicable existing consumers inherit shared field/codec/routing changes; complete family journeys are not accepted | H |
 | W7.02 Stale-action invalidation on declaration/dialect/root/external/approval changes; coherent reviewed transactions, Undo/Redo and no buffer loss; Core transaction contract | Core project/store/capture and native review/request controllers | A R E M S C | stale capture/cancellation/publication/widget review suites | Partially implemented; existing source for existing safeguards; new paths require current integration qualification | H |
 | W7.03 CST fidelity, no-op saves, exact values, aliases, extensions and source-only migration restructuring; TEXT | `document.ts`, graph/CST editing, Core store/transaction owners | A R M S C | source ownership/alias/exact-value/no-op suites | Partially implemented; existing source for existing boundaries; generated schema owners retain original provenance and reviewed restructuring | H |
-| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+52`, migration producer `49`, response/parameter mock producers `4`, numeric sample producer remains `3`; no dependency versions/source changed | H |
+| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+53`, migration producer `50`, response/parameter mock producers `4`, numeric sample producer remains `3`; no dependency versions/source changed | H |
 | W8.01 Explicit independent evidence input across SDK/build/CMake/CI/installed/package checks; PINS | `flutter_archive.py`, SDK verifier, `build_linux.sh`, CMake, package/native-distribution/artifact-smoke inputs | P | `tools/test_flutter_sdk.py`, source-wiring regressions | Partially implemented; existing source for archive-input propagation; same existing evidence reaches installed checks; independent member pins remain an alternative; no SDK acquisition/replacement | H; actual evidence availability/authenticity has not been qualified |
 | W8.02 Ordered gates, registration, source-version-valid fixtures and production-byte regressions; PINS and each row's authority | `tools/build_engine.sh`, Linux workflow, engine/Core/widget/native/package suites | P | new direct-Swagger/conditional/tuple-tail/constant-containment/property-name/runtime-parameter suites registered; existing TypeScript-before-bundle gate retained | Partially implemented; compilation and all suspended gates remain unexecuted; missing regression coverage identified in this register remains implementation work | H |
 | W8.03 Current automated/native/packaged/offline acceptance and normal Quit; all approved families and PINS | native acceptance tools, Core/package/CLI suites | A R E M S C P | existing native acceptance including historical Quit/focus failures; complete new journeys still required | Missing for accepted evidence; no driver/engine attribution established; Snapcraft remains skipped | H |
@@ -183,7 +183,7 @@ fallback. The exact mock proxy transport now serves all methods, retaining raw
 request/response lines and separate encoded/decoded body views. Source-only
 regressions cover actual HTTP and CLI outcomes, informational blocks, HEAD,
 unknown/singleton/list fields, exact values, Set-Cookie and obsolete readiness
-proofs. Evaluator 1.18.0+52 and response/parameter mock producers 4 agree across
+proofs. Evaluator 1.18.0+53 and response/parameter mock producers 4 agree across
 engine/Core readiness. These regressions, analysis, builds and acceptance have
 not run. W4.03 source completion does not close the other W4 requirements.
 
@@ -528,6 +528,34 @@ component holder retain the precise `migration.owners.entry-resource`
 implementation refusal. This is unfinished ownership work, not a claim of
 unrepresentability. Differing implicit namespace specializations and refactoring
 also remain in W2/W6.
+
+### Selected-entry semantic reachability
+
+O31 §4.3 and O32 §4.1.2 retain separate entry namespaces and containing-document
+semantics. The canonical graph keeps every parsed declaration, resource identity
+and source role, and now captures bounded typed reachability for the selected
+entry plus explicit maintenance seeds. Unrelated foreign branches do not acquire
+the selected entry's validation/evaluation context. Active reference failures,
+resource boundaries, duplicate identities and malformed schemas remain located.
+Issue deduplication retains separate object/connection owners.
+
+Native schema/meta/example/serialized-example, parameter, media, XML metadata,
+security, server and relationship checks consume the canonical entry-use view.
+Whole-source metadata remains available to authoring, migration and refactoring.
+Migration captures actual entry uses and still validates every complete root
+before conversion/publication; this does not exempt another root from validity.
+Registered `test_entry_contexts` prepares mixed legacy/modern fragment behavior,
+independent security names, known foreign resource identities, duplicate-ID
+negative controls, explicit maintenance seeds and whole-project source refusal.
+The entry-owner engine/Core HTTP/publication/CLI suites exercise the integration.
+All coverage remains unexecuted. Evaluator `1.18.0+53`, graph role rules `5` and
+migration producer `50` are synchronized with Core/preflight.
+
+A single entry that actively substitutes legacy and modern schemas through the
+same unversioned location still needs a per-occurrence dialect/resource proof;
+its existing located incompatible-family restriction is retained. Identified and
+dynamic entry variants, differing implicit namespaces and holder-less native
+variants also remain concrete W2 implementation work.
 
 ## Required functionality still open
 

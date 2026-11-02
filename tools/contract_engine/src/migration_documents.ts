@@ -20,7 +20,7 @@ export type DocumentContext=Context&Readonly<{uses:readonly MigrationUse[]}>;
  * payload fields that resemble references create no propagation edges. */
 export function migrationUses(graph:ReferenceGraph):readonly MigrationUse[] {
     const identity=(at:{resource:string;pointer:string;kind:string})=>JSON.stringify([at.resource,at.pointer,at.kind]);
-    const scopes=[...graph.interpretedScopes()].filter(scope=>scope.kind!=='root'||graph.specifications.has(scope.resource));
+    const scopes=[...graph.entryScopes()].filter(scope=>scope.kind!=='root'||graph.specifications.has(scope.resource));
     const byLocation=new Map<string,GraphScope[]>();
     for(const scope of scopes){
         const key=JSON.stringify([scope.resource,scope.pointer]),values=byLocation.get(key)??[];
@@ -123,7 +123,7 @@ export function migrationDocumentContexts(input:{root:string;resources:Resource[
 export function migrationContextDifferences(contexts:readonly Pick<DocumentContext,'graph'>[]):ReadonlyMap<string,ReadonlyMap<string,GraphScope>> {
     const scopes=new Map<string,{identity:string;scope:GraphScope;graph:ReferenceGraph}>(),different=new Set<string>();
     for(const {graph}of contexts){
-        for(const scope of graph.interpretedScopes()){
+        for(const scope of graph.entryScopes()){
             if(scope.kind==='root'&&!graph.specifications.has(scope.resource))continue;
             const key=JSON.stringify([scope.resource,scope.pointer,scope.kind]);
             const identity=schemaResourceContextIdentity(scope);
@@ -132,7 +132,7 @@ export function migrationContextDifferences(contexts:readonly Pick<DocumentConte
             if(!previous)scopes.set(key,{identity,scope,graph});
         }
     }
-    return new Map(contexts.map(({graph})=>[graph.root,new Map([...graph.interpretedScopes()]
+    return new Map(contexts.map(({graph})=>[graph.root,new Map([...graph.entryScopes()]
         .filter(scope=>different.has(JSON.stringify([scope.resource,scope.pointer,scope.kind])))
         .map(scope=>[JSON.stringify([scope.resource,scope.pointer,scope.kind]),scope]))]));
 }

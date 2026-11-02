@@ -48,7 +48,7 @@ function swaggerRootServerRelationships(graph:ReferenceGraph,resource:string):Gr
 }
 
 export function swaggerServerRelationships(graph:ReferenceGraph):GraphIssue[] {
-    return [...graph.specifications].flatMap(([resource,specification])=>specification.family==='2.0'?swaggerRootServerRelationships(graph,resource):[]);
+    return [...graph.specifications].flatMap(([resource,specification])=>specification.family==='2.0'&&graph.isEntryUse({resource,pointer:'',kind:'root'})?swaggerRootServerRelationships(graph,resource):[]);
 }
 
 /** A read-only projection may show an invalid description for correction.
