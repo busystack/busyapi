@@ -426,12 +426,12 @@ class MockRun {
         nativeGeneration == null ||
         nativeOperationRouting == null ||
         nativeValidation.version != _schemaProducerVersion ||
-        nativeResponseValidation.version != '3' ||
+        nativeResponseValidation.version != '4' ||
         nativeResponseValidation.configuration !=
-            'response-wire-v3:${nativeValidation.configuration}' ||
-        nativeParameterValidation.version != '3' ||
+            'response-wire-v4:${nativeValidation.configuration}' ||
+        nativeParameterValidation.version != '4' ||
         nativeParameterValidation.configuration !=
-            'parameter-wire-v3:${nativeValidation.configuration}' ||
+            'parameter-wire-v4:${nativeValidation.configuration}' ||
         nativeSecurityValidation.version != '1' ||
         nativeGeneration.version != '3' ||
         nativeGeneration.configuration !=

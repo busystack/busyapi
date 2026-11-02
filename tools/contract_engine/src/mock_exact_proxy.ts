@@ -5,7 +5,7 @@ import {pipeline} from 'node:stream/promises';
 import {createGunzip,createInflate,createBrotliDecompress} from 'node:zlib';
 import {SourceError} from './document';
 
-export type ExactProxyResponse={status:number;headers:Headers;wire:Buffer;decoded:Buffer};
+export type ExactProxyResponse={status:number;headers:Headers;rawHeaders:readonly string[];wire:Buffer;decoded:Buffer};
 
 async function decode(wire:Buffer,encoding:string|undefined,maximum:number,signal?:AbortSignal):Promise<Buffer> {
     signal?.throwIfAborted();
@@ -40,11 +40,17 @@ async function decode(wire:Buffer,encoding:string|undefined,maximum:number,signa
 /** The Fetch method normalization/forbidden-method rules cannot represent all
  * OAS additional methods. Node's public ClientRequest.method is set before
  * headers are generated. Header/body framing and TLS still use its HTTP client.
+ * All proxy methods use this owner to retain separate original field lines.
  * Wire bytes remain separate from the bounded HTTP content-decoding view. */
-export async function exactProxyResponse(target:URL,method:string,headers:Headers,body:Buffer|undefined,maximum:number,signal?:AbortSignal):Promise<ExactProxyResponse> {
+export async function exactProxyResponse(target:URL,method:string,headers:Headers,body:Buffer|undefined,maximum:number,signal?:AbortSignal,rawHeaders?:readonly string[]):Promise<ExactProxyResponse> {
     if(!['http:','https:'].includes(target.protocol))throw new SourceError('mock.proxy.protocol','The proxy target is not HTTP(S)');
-    const received=await new Promise<{status:number;headers:Headers;wire:Buffer}>((resolve,reject)=>{
-        const fields=Object.fromEntries(headers.entries());
+    const received=await new Promise<Omit<ExactProxyResponse,'decoded'>>((resolve,reject)=>{
+        const fields:Record<string,string|string[]>=Object.create(null);
+        if(rawHeaders)for(let index=0;index<rawHeaders.length;index+=2){
+            const name=rawHeaders[index].toLowerCase(),previous=fields[name];
+            fields[name]=previous===undefined?[rawHeaders[index+1]]:[...(typeof previous==='string'?[previous]:previous),rawHeaders[index+1]];
+        }
+        else for(const [name,value]of headers.entries())fields[name]=value;
         if(body!==undefined)fields['content-length']=String(body.length);
         const request=(target.protocol==='https:'?httpsRequest:httpRequest)(target,{method,headers:fields,signal},response=>{
             void(async()=>{
@@ -64,7 +70,7 @@ export async function exactProxyResponse(target:URL,method:string,headers:Header
                     }
                     chunks.push(bytes);
                 }
-                return {status,headers:outputHeaders,wire:Buffer.concat(chunks,length)};
+                return {status,headers:outputHeaders,rawHeaders:[...response.rawHeaders],wire:Buffer.concat(chunks,length)};
             })().then(resolve,reject);
         });
         request.once('error',reject);

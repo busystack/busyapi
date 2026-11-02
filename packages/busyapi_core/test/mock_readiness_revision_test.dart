@@ -19,6 +19,9 @@ void main() {
     'schema-previous-model-table',
     'schema-previous-header-bytes',
     'schema-previous-serialized-runtime',
+    'schema-previous-field-lines',
+    'response-previous-field-lines',
+    'parameter-previous-field-lines',
     'response-version',
     'response-configuration',
     'parameter-version',
@@ -55,18 +58,18 @@ void main() {
       addTearDown(plan.close);
       final schema = <String, String>{
         'name': 'hyperjump+busyapi-exact',
-        'version': '1.18.0+48',
+        'version': '1.18.0+49',
         'configuration': 'fixture-runtime',
       };
       final response = <String, String>{
         'name': 'busyapi-native-response',
-        'version': '3',
-        'configuration': 'response-wire-v3:fixture-runtime',
+        'version': '4',
+        'configuration': 'response-wire-v4:fixture-runtime',
       };
       final parameter = <String, String>{
         'name': 'busyapi-native-parameters',
-        'version': '3',
-        'configuration': 'parameter-wire-v3:fixture-runtime',
+        'version': '4',
+        'configuration': 'parameter-wire-v4:fixture-runtime',
       };
       final security = <String, String>{
         'name': 'busyapi-native-security',
@@ -106,6 +109,12 @@ void main() {
           schema['version'] = '1.18.0+46';
         case 'schema-previous-serialized-runtime':
           schema['version'] = '1.18.0+47';
+        case 'schema-previous-field-lines':
+          schema['version'] = '1.18.0+48';
+        case 'response-previous-field-lines':
+          response['version'] = '3';
+        case 'parameter-previous-field-lines':
+          parameter['version'] = '3';
         case 'response-version':
           response['version'] = '2';
         case 'response-configuration':

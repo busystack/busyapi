@@ -35,15 +35,16 @@ import {externalExampleRevision} from './external_examples';
 import {exampleRepresentation,mediaExampleRepresentations,type ExampleValueField} from './example_representation';
 import {embeddedMimeTextRevision} from './embedded_mime_text';
 
-export const schemaProducer={name:'hyperjump+busyapi-exact',version:'1.18.0+48',configuration:[
+export const schemaProducer={name:'hyperjump+busyapi-exact',version:'1.18.0+49',configuration:[
  `external-example-bytes-v${externalExampleRevision}`,
  'parameter-runtime-serialization-v1',
+ 'http-field-lines-v1',
  `discriminator-models-v${discriminatorModelsRevision}`,
  `swagger-schema-rules-v${swaggerSchemaRulesRevision}`,
  'oas20-draft4-restricted','structural20-2017-08-27','oas30-restricted','structural30-2024-10-18',
  'draft2020-12','structural31-2026-08-03','structural32-2026-08-30',
  'oas31-2024-11-10','oas32-2026-02-26','oas32-2025-09-17','format-annotation',
- 'exact-cst-v5','canonical-graph-addresses','runtime-media-v3','runtime-alternatives-v1','swagger-header-wire-v1','response-header-wire-v3','form-context-v2','compound-unicode-v1','example-serialization-coverage-v2','evaluation-stage-coverage-v1','schema-assertion-coverage-v1','parameter-example-serialization-v2','external-parameter-serialization-v1','literal-media-examples-v1','dialect-resource-identity-v1','dialect-declaration-v1','schema-access-occurrence-v1',
+ 'exact-cst-v5','canonical-graph-addresses','runtime-media-v3','runtime-alternatives-v1','swagger-header-wire-v1','response-header-wire-v4','form-context-v2','compound-unicode-v1','example-serialization-coverage-v2','evaluation-stage-coverage-v1','schema-assertion-coverage-v1','parameter-example-serialization-v2','external-parameter-serialization-v1','literal-media-examples-v1','dialect-resource-identity-v1','dialect-declaration-v1','schema-access-occurrence-v1',
  `embedded-mime-text-v${embeddedMimeTextRevision}`,`schema-role-context-v${schemaRoleContextRevision}`,`multipart-reference-projection-v${multipartProjectionRevision}`,`discriminator-reference-projection-v${discriminatorContextRevision}`,
  'reference-family-v1','reference-position-v1','schema-context-v1','schema-definition-containers-v1','multipart-position-v1','generic-named-multipart-v1','binary-instance-v1','body-media-owner-v1','legacy-binary-media-v1','swagger-file-body-v1','mime-framing-v1','swagger-file-media-v1','mime-header-content-v1','serialized-media-examples-v1','multipart-header-values-v1','multipart-file-shapes-v1','media-description-v1','component-names-v1','security-bindings-v2','response-status-v1','response-content-presence-v1',
 ].join(':')};

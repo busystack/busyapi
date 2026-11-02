@@ -30,7 +30,7 @@ const _cookieLines = [
     },
   };
   final headers = {
-    'X-Values': swagger
+    'Vary': swagger
         ? {...exact, 'collectionFormat': 'csv'}
         : {
             'schema': compositions
@@ -219,8 +219,8 @@ void main() {
             );
             requests.add((request.method, request.uri.toString(), bytes));
             request.response.statusCode = 204;
-            request.response.headers.noFolding('X-Values');
-            request.response.headers.set('X-Values', [
+            request.response.headers.noFolding('Vary');
+            request.response.headers.set('Vary', [
               '0',
               (valid ? '9007199254740993.000' : '9007199254740992') +
                   (compositions ? ',false,x' : ''),
@@ -326,7 +326,7 @@ void main() {
           expect(good.conforming, true, reason: '${good.received.findings}');
           expect(
             good.response.headers
-                .where((header) => header.$1 == 'x-values')
+                .where((header) => header.$1 == 'vary')
                 .map((header) => header.$2),
             ['0', '9007199254740993.000${compositions ? ',false,x' : ''}'],
           );
@@ -347,7 +347,7 @@ void main() {
           expect(bad.received.valid, false);
           expect(bad.conforming, false);
           for (final name in [
-            'X-Values',
+            'Vary',
             if (compositions) 'X-Object',
             if (modern) 'X-Reject',
             if (sequential) ...['Set-Cookie', 'X-Items'],

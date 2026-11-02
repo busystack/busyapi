@@ -23,6 +23,14 @@ function wire(port,path,headers={}){
   });req.once('error',reject);req.end();
  });
 }
+for(const name of ['X-Unknown','If-Range','Cache-Control'])test(`native mock receives separate ${name} request lines before Node's cooked map`,{timeout:20000},async t=>{
+ const lines=name==='Cache-Control'?['private="a,b"','max-age=0']:['a','b'];
+ const document=contract('3.2.1','/fields',[{name,in:'header',required:true,content:{'text/plain':{schema:{type:'string',enum:[lines.join(', ')]}}}}]);
+ const {port}=await startMock(t,mockStart(document));
+ const response=await wire(port,'/fields',{[name]:lines});
+ assert.equal(response.status,name==='Cache-Control'?204:name==='If-Range'?422:501,response.text);
+ if(name==='X-Unknown')assert.equal(JSON.parse(response.text).complete,false);
+});
 
 for(const version of versions)for(const format of ['yaml','json'])test(`${version} ${format} native mock parameters retain exact decimal tokens`,{timeout:20000},async t=>{
  const schema={type:'integer',enum:['EXACT_VALUE']};

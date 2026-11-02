@@ -24,6 +24,7 @@ import 'atomic_file_writer.dart';
 import 'storage.dart';
 import 'gzip_framing.dart';
 import 'exact_http_method.dart';
+import 'response_field_capture.dart';
 import 'trace_request_policy.dart';
 
 typedef SecretResolver = Future<String?> Function(String reference);
@@ -2422,11 +2423,14 @@ class ContractHttpResponse {
   final bool decodingComplete;
   bool? _exampleSupported;
   String? get textCharset {
-    final header = headers
+    final values = headers
         .where((header) => header.$1.toLowerCase() == 'content-type')
-        .firstOrNull;
-    if (header == null) return null;
-    final type = ContentType.parse(header.$2);
+        .toList();
+    if (values.isEmpty) return null;
+    if (values.length != 1) {
+      throw const FormatException('Repeated Content-Type field lines');
+    }
+    final type = ContentType.parse(values.single.$2);
     return type.charset?.toLowerCase() ??
         (type.mimeType == 'text/plain' ? 'us-ascii' : null);
   }
@@ -2751,9 +2755,7 @@ class ContractHttpTransport {
           )) {
         trace.credentials();
       }
-      final exact = input.method == input.method.toUpperCase()
-          ? null
-          : ExactHttpMethod(input.method);
+      final exact = ExactHttpMethod(input.method);
       SecurityContext? context;
       try {
         context = input.tls.custom
@@ -2780,10 +2782,8 @@ class ContractHttpTransport {
       final client = HttpClient(context: context)
         ..connectionTimeout = input.connectTimeout
         ..autoUncompress = false;
-      if (exact != null) {
-        client.connectionFactory = (uri, proxyHost, proxyPort) =>
-            exact.connect(uri, proxyHost, proxyPort, context: context);
-      }
+      client.connectionFactory = (uri, proxyHost, proxyPort) =>
+          exact.connect(uri, proxyHost, proxyPort, context: context);
       final clock = Stopwatch()..start();
       final deadline = _HttpDeadline(
         client,
@@ -2797,7 +2797,7 @@ class ContractHttpTransport {
           cancellation?.throwIfCancelled();
           final request = await deadline.wait(
             client.openUrl(
-              exact == null ? method : ExactHttpMethod.wireMethod,
+              exact.clientMethod,
               uri,
             ),
             limit: input.connectTimeout,
@@ -2813,7 +2813,8 @@ class ContractHttpTransport {
           deadline.request = request;
           request.followRedirects = false;
           request.maxRedirects = 0;
-          if (exact != null) request.persistentConnection = false;
+          // One exchange owns one passive field capture and method prefix.
+          request.persistentConnection = false;
           for (final header in input.headers) {
             request.headers.add(header.$1, header.$2, preserveHeaderCase: true);
           }
@@ -2841,7 +2842,12 @@ class ContractHttpTransport {
             request.close(),
             limit: input.inactivityTimeout,
           );
-          final location = response.headers.value(HttpHeaders.locationHeader);
+          final fields = exact.responseFields;
+          final locations = fields?.fields
+              .where((field) => field.$1 == HttpHeaders.locationHeader)
+              .map((field) => field.$2)
+              .toList();
+          final location = locations?.length == 1 ? locations!.single : null;
           final redirectStatus = const {
             301,
             302,
@@ -2863,6 +2869,7 @@ class ContractHttpTransport {
                 redirects,
                 cancellation,
                 deadline,
+                capturedFields: fields,
                 incompleteReason: target.userInfo.isNotEmpty
                     ? 'credential-bearing-redirect-not-followed'
                     : 'cross-origin-redirect-not-followed',
@@ -2882,6 +2889,7 @@ class ContractHttpTransport {
             redirects,
             cancellation,
             deadline,
+            capturedFields: fields,
           );
         }
       } on TimeoutException {
@@ -2952,22 +2960,22 @@ class ContractHttpTransport {
     List<String> redirects,
     RunCancellation? cancellation,
     _HttpDeadline deadline, {
+    required ResponseFieldCapture? capturedFields,
     String? incompleteReason,
   }) async {
     final firstByte = clock.elapsed;
     Directory? temp;
-    final headers = <(String, String)>[];
-    response.headers.forEach((name, values) {
-      for (final value in values) {
-        headers.add((name, value));
-      }
-    });
+    final headers = capturedFields?.fields ?? const <(String, String)>[];
     final digest = _DigestSink();
     // Each write is awaited before asking the socket for another chunk. There
     // is no unobserved IOSink completion or unbounded pending write queue.
     ResponseStorage? storage;
-    var count = 0, receivedCount = 0, complete = true, streamEnded = false;
-    String? reason = incompleteReason;
+    var count = 0, receivedCount = 0;
+    var complete = capturedFields?.completeFor(response.statusCode) == true;
+    var streamEnded = false;
+    String? reason = incompleteReason ??
+        capturedFields?.failureFor(response.statusCode) ??
+        (capturedFields == null ? 'response-field-evidence-unavailable' : null);
     final hash = sha256.startChunkedConversion(digest);
     StreamSubscription<List<int>>? subscription;
     Future<void>? pendingWrite;

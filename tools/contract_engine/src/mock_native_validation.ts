@@ -77,8 +77,8 @@ export class MockNativeValidation {
     }
 
     get identity(){return this.producer;}
-    get responseIdentity(){return this.producer&&{...mockResponseProducer,configuration:'response-wire-v3:'+this.producer.configuration};}
-    get parameterIdentity(){return this.producer&&{...mockParameterProducer,configuration:'parameter-wire-v3:'+this.producer.configuration};}
+    get responseIdentity(){return this.producer&&{...mockResponseProducer,configuration:'response-wire-v4:'+this.producer.configuration};}
+    get parameterIdentity(){return this.producer&&{...mockParameterProducer,configuration:'parameter-wire-v4:'+this.producer.configuration};}
     get securityIdentity(){return this.producer&&{...mockSecurityProducer,configuration:'security-wire-v1:'+this.producer.configuration};}
     get generationIdentity(){return this.producer&&{...mockSampleProducer,configuration:'captured-schema-candidates-v3:'+this.producer.configuration};}
     get methodIdentity(){return this.producer&&{...mockMethodProducer,configuration:'method-wire-v1:'+this.producer.configuration};}
@@ -176,9 +176,14 @@ export class MockNativeValidation {
         return {resource:source.resource,pointer:source.pointer,range};
     }
 
-    async parameters(template:string,method:string,path:string,query:string,headers:Readonly<Record<string,string>>,signal:AbortSignal):Promise<NativeMockCheck> {
+    async parameters(template:string,method:string,path:string,query:string,headers:Readonly<Record<string,string>>,signal:AbortSignal,rawHeaders?:readonly string[]):Promise<NativeMockCheck> {
         const {description}=this.plan(template,method);
-        return validateMockParameters(this.context.graph,description,template,path,query,headers,instances=>this.evaluateInstances(instances,signal));
+        const lines=rawHeaders===undefined?undefined:new Map<string,string[]>();
+        if(rawHeaders)for(let index=0;index<rawHeaders.length;index+=2){
+            const name=rawHeaders[index].toLowerCase(),values=lines!.get(name)??[];
+            values.push(rawHeaders[index+1]);lines!.set(name,values);
+        }
+        return validateMockParameters(this.context.graph,description,template,path,query,headers,instances=>this.evaluateInstances(instances,signal),undefined,undefined,'octets',lines);
     }
 
     security(template:string,method:string,query:string,rawHeaders:readonly string[],signal:AbortSignal):NativeMockCheck {

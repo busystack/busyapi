@@ -5,10 +5,12 @@ import 'dart:typed_data';
 
 import 'model.dart';
 import 'cancellable_tls_socket.dart';
+import 'response_field_capture.dart';
 
 /// Preserve OAS 3.2 additionalOperations tokens (RFC 9110 §9.1) through the
 /// pinned HttpClient, which uppercases its method argument. HTTP framing,
-/// uploads, response parsing and cancellation remain owned by HttpClient.
+/// uploads, response parsing and cancellation remain owned by HttpClient. The
+/// read side retains bounded original field evidence for all contract methods.
 final class ExactHttpMethod {
   factory ExactHttpMethod(String method) {
     if (!RegExp(r"^[-!#$%&'*+.^_`|~0-9A-Za-z]+$").hasMatch(method)) {
@@ -17,12 +19,20 @@ final class ExactHttpMethod {
         'The request method must be an HTTP token',
       );
     }
-    return ExactHttpMethod._(ascii.encode('$method '));
+    return ExactHttpMethod._(
+      ascii.encode('$method '),
+      method == method.toUpperCase() ? method : wireMethod,
+    );
   }
-  ExactHttpMethod._(this._replacement);
+  ExactHttpMethod._(this._replacement, this.clientMethod);
 
   static const wireMethod = 'BUSYAPI';
   final Uint8List _replacement;
+  /// Keep standard SDK method semantics (especially HEAD) when no case repair
+  /// is needed. Only a case-sensitive custom token uses the neutral prefix.
+  final String clientMethod;
+  ResponseFieldCapture? _responseFields;
+  ResponseFieldCapture? get responseFields => _responseFields;
 
   Future<ConnectionTask<Socket>> connect(
     Uri uri,
@@ -50,10 +60,14 @@ final class ExactHttpMethod {
         socket.destroy();
         throw const SocketException('Connection attempt cancelled');
       }
-      final prefix = _MethodPrefix(_replacement);
+      final prefix = _MethodPrefix(
+        _replacement,
+        passthrough: clientMethod != wireMethod,
+      );
+      final fields = _responseFields = ResponseFieldCapture();
       return connected = socket is SecureSocket
-          ? _ExactSecureSocket(socket, prefix)
-          : _ExactSocket(socket, prefix);
+          ? _ExactSecureSocket(socket, prefix, fields)
+          : _ExactSocket(socket, prefix, fields);
     });
     return ConnectionTask.fromSocket(future, () {
       cancelled = true;
@@ -64,12 +78,13 @@ final class ExactHttpMethod {
 }
 
 final class _MethodPrefix {
-  _MethodPrefix(this.replacement);
+  _MethodPrefix(this.replacement, {bool passthrough = false})
+      : matched = passthrough ? expected.length : 0;
   static final List<int> expected = List.unmodifiable(
     ascii.encode('${ExactHttpMethod.wireMethod} '),
   );
   final Uint8List replacement;
-  int matched = 0;
+  int matched;
   bool get incomplete => matched > 0 && matched < expected.length;
 
   List<int> rewrite(List<int> bytes) {
@@ -98,7 +113,8 @@ final class _MethodPrefix {
 }
 
 class _ExactSocket extends StreamView<Uint8List> implements Socket {
-  _ExactSocket(this.socket, this.prefix) : super(socket);
+  _ExactSocket(this.socket, this.prefix, ResponseFieldCapture fields)
+      : super(socket.map(fields.observe));
   final Socket socket;
   final _MethodPrefix prefix;
 
@@ -177,7 +193,8 @@ class _ExactSocket extends StreamView<Uint8List> implements Socket {
 }
 
 final class _ExactSecureSocket extends _ExactSocket implements SecureSocket {
-  _ExactSecureSocket(this.secure, _MethodPrefix prefix) : super(secure, prefix);
+  _ExactSecureSocket(this.secure, _MethodPrefix prefix, ResponseFieldCapture fields)
+      : super(secure, prefix, fields);
   final SecureSocket secure;
   @override
   X509Certificate? get peerCertificate => secure.peerCertificate;

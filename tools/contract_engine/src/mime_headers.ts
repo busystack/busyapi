@@ -1,8 +1,9 @@
-import {SourceDocument,escape} from './document';
+import {SourceDocument,SourceError,escape} from './document';
 import type {GraphTarget,ReferenceGraph} from './reference_graph';
 import {MultipartEncoding} from './multipart_encoding';
 import {headerShapes} from './header_serialization';
 import {headerWireValues} from './header_wire_values';
+import {httpFieldLines} from './http_field_lines';
 import {mimeHeaderContent,type MimeHeaderFormDecoder} from './mime_header_content';
 import type {FormCheck,FormIssue} from './runtime_form';
 
@@ -33,14 +34,20 @@ export function mimeHeaders(graph:ReferenceGraph,id:string,transfers:MultipartEn
             }
             const definition=transfers.follow(source,'header'),value=graph.docs.get(definition.resource)!.dataNode(definition.pointer)!.value,actual=actualHeaders.get(lower);
             if(!actual){if(value.required===true)issue('runtime.form.header.required','A required part header is absent',definition);continue;}
+            let lines:readonly string[];
+            try{lines=httpFieldLines(name,actual);}
+            catch(error){
+                if(!(error instanceof SourceError))throw error;
+                fail(error.code,error.message,definition,error.kind==='unsupported');
+            }
             if(value.content!==undefined){
-                const decoded=content(definition,actual,prefix+'/headers/'+escape(name));
+                const decoded=content(definition,lines,prefix+'/headers/'+escape(name));
                 checks.push(...decoded.checks);issues.push(...decoded.issues);continue;
             }
             if(!Object.hasOwn(value,'schema'))continue;
             const schema={...definition,pointer:definition.pointer+'/schema',kind:'schema'},shape=shapeFor(schema);
             if(!shape||value.style!==undefined&&value.style!=='simple')fail('runtime.form.header.unsupported','This part header has no supported simple-style representation',definition);
-            const decoded=headerWireValues(shape,actual,{cookie:false,multiline:false,explode:value.explode===true});
+            const decoded=headerWireValues(shape,lines,{cookie:false,multiline:false,explode:value.explode===true});
             if(!decoded.complete||decoded.texts.length!==1)fail('runtime.form.header.unsupported','This part header requires several possible data interpretations',definition);
             const document=new SourceDocument(decoded.texts[0],id+'/'+serial++,true,'json');
             if(document.issues.length)throw document.issues[0];

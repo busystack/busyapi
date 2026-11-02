@@ -4,6 +4,7 @@ import {FormSemantics,type FormShape} from './form_semantics';
 import type {ReferenceGraph} from './reference_graph';
 import {runtimeMediaKind,runtimeFormMedia} from './runtime_media';
 import {nativeHeaderParts} from './runtime_headers';
+import {httpFieldLines} from './http_field_lines';
 import {swaggerWireShape,swaggerWireValues,type SwaggerWireShape} from './swagger_wire';
 import {nativeMedia,schemaLocation,sourceLocation,type NativeMockCheck,type NativeRuntimeCheck,type NativeRuntimeInstance,type SourceLocation} from './mock_projection';
 
@@ -16,7 +17,7 @@ const maximumCandidates=256,maximumInstances=2048;
 const decimal=/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$/;
 const unsupported=(message:string):never=>{throw new SourceError('runtime.request.parameter.unchecked',message,[0,0],'unsupported');};
 const malformed=(message:string):never=>{throw new SourceError('runtime.request.parameter.serialization',message);};
-export const mockParameterProducer=Object.freeze({name:'busyapi-native-parameters',version:'3'});
+export const mockParameterProducer=Object.freeze({name:'busyapi-native-parameters',version:'4'});
 
 function decode(value:string,form=false):string {
     try{return decodeURIComponent(form?value.replace(/\+/g,' '):value);}
@@ -166,7 +167,7 @@ function data(parameter:Parameter,values:readonly string[],raw:boolean,fields:re
 
 /** Decode wire parameters using graph-owned effective definitions, including
  * inheritance and references. These codecs never resolve or evaluate schemas. */
-export async function validateMockParameters(graph:ReferenceGraph,plan:unknown,template:string,path:string,query:string,headers:Readonly<Record<string,string>>,evaluate:Evaluate,parameterShapes?:FormSemantics,onOmission?:(omission:ParameterOmission)=>void,headerInput:'octets'|'unicode'='octets'):Promise<NativeMockCheck> {
+export async function validateMockParameters(graph:ReferenceGraph,plan:unknown,template:string,path:string,query:string,headers:Readonly<Record<string,string>>,evaluate:Evaluate,parameterShapes?:FormSemantics,onOmission?:(omission:ParameterOmission)=>void,headerInput:'octets'|'unicode'='octets',headerLines?:ReadonlyMap<string,readonly string[]>):Promise<NativeMockCheck> {
     if(!record(plan)||!Array.isArray(plan.parameters)||plan.parameters.length>maximumInstances)throw new SourceError('mock.validation.protocol','The native parameter projection is malformed');
     const shapes=parameterShapes??new FormSemantics(graph);
     const parameters:Parameter[]=plan.parameters.map(value=>{
@@ -194,8 +195,11 @@ export async function validateMockParameters(graph:ReferenceGraph,plan:unknown,t
             }else if(parameter.in==='path'){
                 pathFields??=pathValues(template,path);const value=pathFields.get(parameter.name);values=value===undefined?[]:[value];raw=true;
             }else if(parameter.in==='header'){
-                const name=parameter.name.toLowerCase(),value=Object.hasOwn(headers,name)?headers[name]:undefined;values=value===undefined?[]:[value];
+                const name=parameter.name.toLowerCase(),value=Object.hasOwn(headers,name)?headers[name]:undefined;
+                values=[...(headerLines?.get(name)??(value===undefined?[]:[value]))];
                 if(values.some(value=>/[\x00-\x08\x0a-\x1f\x7f]/u.test(value)))malformed('A header field line contains a prohibited HTTP control');
+                values=[...httpFieldLines(name,values)];
+                if(values.length>1)unsupported('This request Header parameter has no separate Set-Cookie field-line representation');
             }else if(parameter.in==='cookie'){
                 const cookie=parameter.style==='cookie';
                 const segments=pairs(headers.cookie??'',';',false).map(([name,value])=>[name.trim(),value] as Pair);

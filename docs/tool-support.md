@@ -238,7 +238,15 @@ incomplete response checks while retaining forwarded bytes. Malformed applicable
 JSON retains the existing HTTP 500 proxy policy.
 
 Direct requests, saved contract cases and mocks share the engine's response-header
-codec. Core submits the actual separate field lines with their captured source
+codec. Ordered comma combination requires a known list-valued field definition;
+ETag and other known singleton fields reject repetitions. Unknown repeated
+extensions retain their original lines and report incomplete interpretation.
+Core captures fields before the SDK can replace singleton values, with a 64-KiB
+evidence bound. Standard HTTP methods retain the SDK's semantics, including HEAD;
+custom method casing uses the existing adapter. Native proxying uses the existing
+bounded exact transport for all methods, preserving original fields and response
+body bytes separately from decoded validation data. Source qualification remains
+pending under the execution hold. Core submits the actual separate field lines with their captured source
 occurrence; header references and schema dialects retain their original owners.
 OpenAPI 3.2 content-based `Set-Cookie` values use LF between complete field lines,
 preserving commas within each cookie. Supported boolean schemas retain their
@@ -352,8 +360,10 @@ Swagger Parameter, Header and recursive Items Objects retain each layer's
 `collectionFormat`. Nested collections use the original schema to prove a bounded
 wire interpretation, including identical delimiters at adjacent layers. Response
 headers use this same engine decoder in direct execution, saved cases and mocks;
-repeated CSV fields may combine, while repeated scalar or non-CSV fields remain
-explicitly incomplete. Exact decimal leaves never pass through JavaScript numbers.
+repeated CSV fields combine only for field definitions that permit lists.
+Repeated known singleton fields are invalid, and repeated unknown extensions
+retain incomplete interpretation. Non-CSV repetitions retain their separate
+representation restrictions. Exact decimal leaves never pass through JavaScript numbers.
 
 Outgoing exploded form cookies support arrays and objects. Fields within one
 parameter join with `&`; separate cookie declarations join with `; `. Form names
@@ -453,9 +463,9 @@ The pinned consumer's ordering among real named examples is preserved. Its
 synthetic schema default cannot shadow a media example or round the authored
 numeric lexeme. These are derived generator inputs; the original schema and
 received response validation remain authoritative. Shared working buffers and
-source-file preservation are covered in the verification record. Current complete
-engine, all-Core-file coverage, compiled Linux and installed CLI checks pass there;
-actual native desktop acceptance remains blocked by the user graphics constraint.
+source-file preservation are covered in the verification record. Historical engine, Core, compiled Linux and installed CLI results do not qualify
+the current source revision. Current automated, native and packaged acceptance
+remain pending under the execution hold.
 
 Raw `text/plain` request bodies honor explicit `ISO-8859-1` and `latin1`
 charsets with the SDK's strict one-byte encoder. Unrepresentable characters are
@@ -525,8 +535,8 @@ marker before any part is invalid; an explicitly empty field or file remains a
 part. Native generation refuses an empty multipart draft before dispatch, with
 an actionable error. Caller-supplied raw entities retain their exact bytes and
 receive framing findings. Text containing a boundary away from line starts, or
-a different boundary, remains payload data. These semantics use evaluator
-revision **1.18.0+22**; older readiness captures cannot be reused.
+a different boundary, remains payload data. The current evaluator identity is listed below; older readiness captures cannot
+be reused.
 
 OpenAPI 3.0/3.1 use the same named mapping for generic multipart types when
 parts carry `Content-Disposition: form-data` and a name. This is the policy
@@ -951,7 +961,7 @@ Native property-access evaluation uses the logical schema occurrence even when
 its source is a reusable or aliased definition. Swagger `readOnly` properties
 are excluded from requests through schema references; OpenAPI 3.0 retains its
 request/response `required` rules for readOnly/writeOnly. Modern annotations keep
-ordinary JSON Schema assertions. The shared evaluator revision is **1.18.0+48**;
+ordinary JSON Schema assertions. The shared evaluator revision is **1.18.0+49**;
 matching mock/worker revisions are required before readiness is reported.
 
 The derived bundler uses the canonical graph and exact CST reader. It preserves

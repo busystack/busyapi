@@ -14,7 +14,7 @@ async function fixture(t,handle,allowReset=false){
    if(done)return;bytes=Buffer.concat([bytes,chunk]);const at=bytes.indexOf('\r\n\r\n');if(at<0)return;
    const head=bytes.subarray(0,at).toString('latin1'),length=Number(/\r\ncontent-length:\s*(\d+)/i.exec('\r\n'+head)?.[1]??0);
    if(bytes.length<at+4+length)return;done=true;
-   requests.push({line:head.split('\r\n')[0],body:bytes.subarray(at+4,at+4+length)});
+   requests.push({line:head.split('\r\n')[0],head,body:bytes.subarray(at+4,at+4+length)});
    handle(socket,requests.at(-1));
   });
  });
@@ -29,6 +29,13 @@ function reply(socket,body,encoding){
 }
 
 const plain=Buffer.from('{"number":9007199254740993.00,"text":"雪","empty":"","false":false}');
+test('exact proxy preserves unknown request and response field lines independently of its Headers view',async t=>{
+ const {target,requests}=await fixture(t,socket=>socket.end('HTTP/1.1 200 OK\r\nContent-Length: 1\r\nX-Unknown: a\r\nX-Unknown: b\r\nETag: "one"\r\nETag: "two"\r\nConnection: close\r\n\r\n0'));
+ const response=await exactProxyResponse(target,'POST',new Headers(),undefined,4096,undefined,['X-Unknown','first','X-Unknown','second']);
+ assert(requests[0].head.includes('x-unknown: first\r\nx-unknown: second'));
+ const lines=[];for(let index=0;index<response.rawHeaders.length;index+=2)if(response.rawHeaders[index].toLowerCase()==='x-unknown')lines.push(response.rawHeaders[index+1]);
+ assert.deepEqual(lines,['a','b']);assert.equal(response.wire.toString(),'0');
+});
 for(const method of ['head','connect','query','PURGE','MiXeD!'])
 test(`exact proxy treats ${method} as the original case-sensitive method`,{timeout:2000},async t=>{
  const {target,requests}=await fixture(t,socket=>reply(socket,plain));

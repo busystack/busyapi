@@ -154,7 +154,7 @@ async function body(request: IncomingMessage): Promise<CapturedBody> {
 
 function forwardPreservingBytes(rawRequests: WeakMap<object, Buffer | undefined>,
   rawResponses: WeakMap<object, Buffer>,signals:WeakMap<object,AbortSignal>,
-  additionalRequests:WeakSet<object>,rawSearches:WeakMap<object,string>,
+  rawRequestHeaders:WeakMap<object,readonly string[]>,rawSearches:WeakMap<object,string>,
   decodedResponses:WeakMap<object,Buffer>,proxyFailures:WeakMap<object,SourceError>) {
   return ({ data: request, validations }: any, baseUrl: string) => (logger: any) => async () => {
     try {
@@ -180,37 +180,25 @@ function forwardPreservingBytes(rawRequests: WeakMap<object, Buffer | undefined>
       for (const [name, value] of Object.entries(request.headers ?? {}))
         if (!hop.has(name.toLowerCase()) && name.toLowerCase() !== 'accept-encoding') headers.append(name, String(value));
       headers.set('accept-encoding', 'identity');
-      let response:{status:number;headers:Headers},bytes:Buffer,wire:Buffer|undefined;
-      const additional=additionalRequests.has(request);
-      if(additional){
-        const received=await exactProxyResponse(target,method,headers,raw?.length?raw:undefined,maximumUpstreamBody,signals.get(request));
-        response=received;bytes=received.decoded;wire=received.wire;
-      }else{
-        const fetched = await fetch(target, {
-          method,headers,body:raw?.length?raw:undefined,redirect:'manual',signal:signals.get(request),
-        });
-        response=fetched;
-        const chunks: Buffer[] = []; let length = 0;
-        if (fetched.body) {
-          const reader = fetched.body.getReader();
-          while (true) {
-            const next = await reader.read();
-            if (next.done) break;
-            length += next.value.length;
-            if (length > maximumUpstreamBody) {
-              await reader.cancel();
-              throw new Error('validation proxy upstream body exceeds 64 MiB');
-            }
-            chunks.push(Buffer.from(next.value));
-          }
-        }
-        bytes=Buffer.concat(chunks);
+      const capturedHeaders=rawRequestHeaders.get(request);
+      if(!capturedHeaders)throw new SourceError('mock.proxy.headers','The proxy omitted its captured request field lines');
+      const forwarded:string[]=[];
+      for(let index=0;index<capturedHeaders.length;index+=2){
+        const name=capturedHeaders[index];
+        if(!hop.has(name.toLowerCase())&&name.toLowerCase()!=='accept-encoding')forwarded.push(name,capturedHeaders[index+1]);
       }
-      const responseHeaders: Record<string, string | string[]> = {};
-      for (const [name, value] of response.headers.entries())
-        if (!hop.has(name.toLowerCase()) && name.toLowerCase()!=='set-cookie' && (additional||name.toLowerCase()!=='content-encoding')) responseHeaders[name] = value;
-      const cookies=response.headers.getSetCookie();
-      if(cookies.length)responseHeaders['set-cookie']=cookies;
+      forwarded.push('accept-encoding','identity');
+      // Fetch normalizes field lines before the contract owner can inspect
+      // them. Use the existing bounded exact transport for every proxy method.
+      const response=await exactProxyResponse(target,method,headers,raw?.length?raw:undefined,maximumUpstreamBody,signals.get(request),forwarded);
+      const bytes=response.decoded;
+      const responseHeaders: Record<string, string | string[]> = Object.create(null);
+      for(let index=0;index<response.rawHeaders.length;index+=2){
+        const name=response.rawHeaders[index].toLowerCase();
+        if(hop.has(name))continue;
+        const previous=responseHeaders[name];
+        responseHeaders[name]=[...(typeof previous==='string'?[previous]:previous??[]),response.rawHeaders[index+1]];
+      }
       const media = String(response.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
       const applicable=method!=='HEAD'&&response.status>=200&&![204,205,304].includes(response.status);
       let value: unknown = applicable?bytes:undefined;
@@ -220,8 +208,8 @@ function forwardPreservingBytes(rawRequests: WeakMap<object, Buffer | undefined>
       }
       else if (applicable&&media.startsWith('text/')) value = bytes.toString('utf8');
       const output = { statusCode: response.status, headers: responseHeaders, body: value };
-      rawResponses.set(output, wire??bytes);
-      if(additional)decodedResponses.set(output,bytes);
+      rawResponses.set(output,response.wire);
+      decodedResponses.set(output,bytes);
       logger.info(`Validated one explicit upstream response with ${bytes.length} retained bytes`);
       return { _tag: 'Right', right: output };
     } catch (error) {
@@ -268,13 +256,14 @@ function exactBody(examples: ExactExample[], method: string, path: string, statu
   return selected.serialized ? JSON.parse(selected.raw) as string : selected.raw;
 }
 
-function violation(value: { path?: string[]; severity: number; code?: string | number; nativeCode?:string; message: string; source?:unknown; nativeSource?:unknown }, prefix: string) {
+function violation(value: { path?: string[]; severity: number; code?: string | number; nativeCode?:string; detailCode?:string; message: string; source?:unknown; nativeSource?:unknown }, prefix: string) {
   return { location: [prefix, ...(value.path ?? [])], severity: DiagnosticSeverity[value.severity],
-    code: value.code === undefined ? undefined : String(value.code),...(value.nativeCode?{nativeCode:value.nativeCode}:{}), message: value.message,...(value.nativeSource!==undefined?{source:value.nativeSource}:value.source!==undefined?{source:value.source}:{}) };
+    code: value.code === undefined ? undefined : String(value.code),...(value.nativeCode?{nativeCode:value.nativeCode}:{}),...(value.detailCode?{detailCode:value.detailCode}:{}), message: value.message,...(value.nativeSource!==undefined?{source:value.nativeSource}:value.source!==undefined?{source:value.source}:{}) };
 }
 
 function nativeDiagnostics(checked:NativeMockCheck,severity:'error'|'warning'='error',response=false) {
   return checked.findings.filter(finding=>finding.severity===severity).map(finding=>({severity:severity==='error'?DiagnosticSeverity.Error:DiagnosticSeverity.Warning,code:severity==='error'&&!response?(finding.subject==='request-security'?401:422):String(finding.code),nativeCode:String(finding.code),message:finding.code+': '+finding.message,
+    ...(typeof finding.detailCode==='string'?{detailCode:finding.detailCode}:{}),
     path:[(response||finding.subject==='request-parameter'||finding.subject==='request-security')&&typeof finding.subject==='string'?finding.subject:'body',...((response&&finding.subject==='response-header'||finding.subject==='request-parameter'||finding.subject==='request-security')&&typeof finding.location==='string'?[finding.location]:[]),...segments(typeof finding.pointer==='string'?finding.pointer:'')],
     ...(Array.isArray(finding.tags)&&finding.tags.every(tag=>typeof tag==='string')?{tags:finding.tags}:{}),
     ...(record(finding.source)?{nativeSource:finding.source}:record(finding.schema)?{nativeSource:finding.schema}:{})}));
@@ -327,7 +316,7 @@ async function main(): Promise<void> {
     const rawResponses = new WeakMap<object, Buffer>();
     const decodedResponses = new WeakMap<object,Buffer>();
     const rawSearches=new WeakMap<object,string>();
-    const additionalRequests=new WeakSet<object>();
+    const rawRequestHeaders=new WeakMap<object,readonly string[]>();
     const proxyFailures=new WeakMap<object,SourceError>();
     const generation=new MockGenerationAdapter(native);
     const signals=new WeakMap<object,AbortSignal>();
@@ -391,7 +380,7 @@ async function main(): Promise<void> {
         }
         return result;
       },
-      ...(input.upstream ? { forward: forwardPreservingBytes(rawRequests, rawResponses,signals,additionalRequests,rawSearches,decodedResponses,proxyFailures) as never } : {}) });
+      ...(input.upstream ? { forward: forwardPreservingBytes(rawRequests, rawResponses,signals,rawRequestHeaders,rawSearches,decodedResponses,proxyFailures) as never } : {}) });
     const server = createServer(async (request, reply) => {
       reply.setHeader('busyapi-request-security-complete','false');
       reply.setHeader('busyapi-response-validation-complete','false');
@@ -423,6 +412,7 @@ async function main(): Promise<void> {
         const prismRequest = { method: request.method as never,
           url: { path: url.pathname, query }, headers, body: captured.value };
         rawRequests.set(prismRequest, captured.raw);
+        rawRequestHeaders.set(prismRequest,[...request.rawHeaders]);
         rawSearches.set(prismRequest,url.search);
         signals.set(prismRequest,cancellation.signal);
         // The pinned router folds methods. Empty vendor-only methods exclude
@@ -430,12 +420,11 @@ async function main(): Promise<void> {
         const routedOperations=operations.map(operation=>operation.method===request.method?operation:{...operation,method:''});
         const selected=route({resources:routedOperations,input:prismRequest});
         if(selected._tag==='Right'){
-          if(native.isAdditional(selected.right.path,selected.right.method))additionalRequests.add(prismRequest);
           const securityCheck=native.security(selected.right.path,selected.right.method,url.search.slice(1),request.rawHeaders,cancellation.signal);
           nativeSecurityChecks.set(prismRequest,securityCheck);
           reply.setHeader('busyapi-request-security-complete',String(securityCheck.complete));
           const bodyCheck=await native.body(selected.right.path,selected.right.method,captured.raw??Buffer.alloc(0),headers['content-type'],(captured.raw?.length??0)>0||headers['content-type']!==undefined,cancellation.signal);
-          const parameterCheck=await native.parameters(selected.right.path,selected.right.method,url.pathname,url.search.slice(1),headers,cancellation.signal);
+          const parameterCheck=await native.parameters(selected.right.path,selected.right.method,url.pathname,url.search.slice(1),headers,cancellation.signal,request.rawHeaders);
           const check={complete:bodyCheck.complete&&parameterCheck.complete,valid:bodyCheck.valid&&parameterCheck.valid,findings:[...bodyCheck.findings,...parameterCheck.findings]};
           if(!check.complete||!securityCheck.complete){
             if(reply.destroyed)return;

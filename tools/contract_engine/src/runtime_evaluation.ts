@@ -12,6 +12,7 @@ import {decodeRuntimeMedia,runtimeMediaBytes} from './runtime_media';
 import {decodeRuntimeForm,type RuntimeFormTarget,type RuntimeFormData,type FormCheck} from './runtime_form';
 import {swaggerWireShape,swaggerWireValues,type SwaggerHeaderTarget} from './swagger_wire';
 import {headerValueParts} from './header_values';
+import {httpFieldLines} from './http_field_lines';
 import {capturedRuntimeHeaders,type RuntimeHeaderTarget} from './runtime_headers';
 import {capturedRuntimeMedia,type RuntimeMediaTarget} from './runtime_media_owner';
 import {swaggerFileSchemas} from './swagger_file';
@@ -238,10 +239,11 @@ export async function evaluateRuntimeInstances(runtime:unknown,owner:Owner) {
    if(scope?.family!=='2.0'||scope.objectKind!=='header'||entry.schema&&(entry.schema.resource!==header.resource||entry.schema.pointer!==header.pointer))
     throw new SourceError('runtime.instance','Swagger header evaluation requires its original captured Header Object');
    try{
+    const lines=httpFieldLines(header.name,header.values);
     const shape=swaggerWireShape(owner.graph.docs.get(header.resource)?.dataNode(header.pointer)?.value);
     if(header.name.toLowerCase()==='set-cookie'&&(header.values.length>1||shape.type==='array'))throw new SourceError('runtime.swagger.header.unchecked','This Set-Cookie representation requires OpenAPI 3.2 multiline rules',[0,0],'unsupported');
     if(header.values.length>1&&(shape.type!=='array'||shape.collectionFormat!=='csv'))throw new SourceError('runtime.swagger.header.unchecked','Repeated scalar or non-CSV header fields require an explicit interpretation',[0,0],'unsupported');
-    const values=shape.type==='array'&&shape.collectionFormat==='csv'?[header.values.join(',')]:header.values;
+    const values=shape.type==='array'&&shape.collectionFormat==='csv'?lines:header.values;
     const texts=swaggerWireValues(values,shape,{commas:headerValueParts});
     entry={...entry,schema:{resource:header.resource,pointer:header.pointer},text:texts[0],...(texts.length>1?{alternatives:texts.slice(1)}:{}),swaggerHeader:undefined};
    }catch(error){

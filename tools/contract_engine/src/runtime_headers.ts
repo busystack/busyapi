@@ -8,6 +8,7 @@ import {headerValueParts} from './header_values';
 import {supportedSchemaDialect,type ReferenceGraph,type GraphTarget} from './reference_graph';
 import {annotationOnlySchema} from './schema_boundaries';
 import {headerWireValues} from './header_wire_values';
+import {httpFieldLines} from './http_field_lines';
 
 export type RuntimeHeaderTarget={resource:string;pointer:string;name:string;values:string[]};
 type DecodedHeader={instance:NativeRuntimeInstance;complete:boolean};
@@ -85,11 +86,6 @@ function captureHeaders(graph:ReferenceGraph,example:boolean) {
 const unsupported=(message:string):never=>{throw new SourceError('runtime.response.header.unchecked',message,[0,0],'unsupported');};
 const malformed=(message:string):never=>{throw new SourceError('runtime.response.header.serialization',message);};
 
-/** RFC 9110 §§5.2–5.3 permits ordered comma combination at the recipient.
- * Known singleton fields remain invalid when repeated. Set-Cookie's separate
- * field-line representation is selected below, never comma combination. */
-const singletonFields=new Set(['authorization','proxy-authorization','content-type','content-length','content-location',
-    'content-range','host','date','expires','last-modified','location','referer','retry-after','server','user-agent']);
 function contentHeaderValue(name:string,values:readonly string[],family:string):string {
     if(values.length===1)return values[0];
     const lower=name.toLowerCase();
@@ -97,8 +93,7 @@ function contentHeaderValue(name:string,values:readonly string[],family:string):
         if(family!=='3.2')unsupported('This family does not define a content-based Set-Cookie field-line representation');
         return values.join('\n');
     }
-    if(singletonFields.has(lower))malformed('This HTTP field does not permit repeated field lines');
-    return values.map(value=>value.replace(/^[ \t]+|[ \t]+$/gu,'')).join(', ');
+    return httpFieldLines(name,values)[0];
 }
 
 export function nativeHeaderParts(text:string):string[] {
@@ -115,10 +110,11 @@ function decodeRuntimeHeader(shapeFor:ReturnType<typeof headerShapes>,declaratio
         throw new SourceError('mock.validation.protocol','The native header projection is malformed');
     if(values.some(value=>/[\x00-\x08\x0a-\x1f\x7f]/u.test(value)))malformed('A header field line contains a prohibited HTTP control');
     const name=declaration.name,family=declaration.family,cookie=name.toLowerCase()==='set-cookie';
+    const lines=httpFieldLines(name,values);
     const content=nativeMedia(declaration.content);
     if(content.length){
         if(content.length!==1)unsupported('A header has more than one content representation');
-        const text=contentHeaderValue(name,values,family);
+        const text=contentHeaderValue(name,lines,family);
         if(!example&&/[^\x00-\xff]/u.test(text))malformed('The received header has no octet-preserving field representation');
         const media=content[0];
         if(!example&&!media.schema&&!media.itemSchema&&runtimeMediaKind(media.mediaType)==='opaque')return;
@@ -132,7 +128,7 @@ function decodeRuntimeHeader(shapeFor:ReturnType<typeof headerShapes>,declaratio
     }
     const shape=shapeFor({...schema,kind:'schema'});
     if(!shape||declaration.style!=='simple')unsupported('The declared header has no unambiguous simple representation');
-    const decoded=headerWireValues(shape,values,{cookie,multiline:family==='3.2',explode:declaration.explode===true});
+    const decoded=headerWireValues(shape,lines,{cookie,multiline:family==='3.2',explode:declaration.explode===true});
     return {complete:decoded.complete,instance:{subject:'response-header',location:name,text:decoded.texts[0],schema,
         ...(decoded.texts.length>1?{alternatives:decoded.texts.slice(1)}:{})}};
 }

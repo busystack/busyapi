@@ -2,14 +2,29 @@ const {test}=require('node:test'),assert=require('node:assert/strict'),YAML=requ
 const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
 const patches=['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','2.0','3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'];
 for(const version of patches.filter(version=>version!=='2.0'))for(const format of ['yaml','json'])test(`${version} ${format} repeated content field lines combine in received order and retain exact data`,async()=>{
- const fixture=input(version,format,{'X-Values':{content:{'application/json':{schema:{type:'array',minItems:2,maxItems:2,items:{type:'integer',enum:['EXACT',0]}}}}}});
- const result=await evaluateSchemas({...fixture,runtimeInstances:[fixture.wire('X-Values',['[9007199254740993','0]'],'good'),fixture.wire('X-Values',['[9007199254740992','0]'],'bad')]});
+ const fixture=input(version,format,{'Cache-Control':{content:{'text/plain':{schema:{type:'string',enum:['private="a,b", max-age=9007199254740993']}}}}});
+ const result=await evaluateSchemas({...fixture,runtimeInstances:[fixture.wire('Cache-Control',[' private="a,b"\t',' max-age=9007199254740993 '],'good'),fixture.wire('Cache-Control',['private="a,b"','max-age=9007199254740992'],'bad')]});
  assert.equal(result.complete,true,JSON.stringify(result.runtimeFindings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,false]);
 });
-for(const name of ['Content-Type','Content-Length','Date','Location'])test(`repeated singleton content header ${name} is invalid rather than a comma-combined value`,async()=>{
+for(const name of ['Content-Type','Content-Length','Date','Location','ETag','Last-Modified','Retry-After','Content-Range'])test(`repeated singleton content header ${name} is invalid rather than a comma-combined value`,async()=>{
  const fixture=input('3.2.1','json',{[name]:{content:{'text/plain':{schema:{type:'string'}}}}});
  const result=await evaluateSchemas({...fixture,runtimeInstances:[fixture.wire(name,['first','second'])]});
- assert.equal(result.complete,true);assert.equal(result.runtimeEvaluations[0].valid,false);assert(result.runtimeFindings.some(f=>f.detailCode==='runtime.response.header.serialization'));
+ assert.equal(result.complete,true);assert.equal(result.runtimeEvaluations[0].valid,false);assert(result.runtimeFindings.some(f=>f.detailCode==='runtime.header.repeated'));
+});
+for(const version of ['2.0','3.0.4','3.1.2','3.2.1'])for(const representation of version==='2.0'?['schema']:['schema','content'])test(`${version} ${representation} unknown repeated extensions retain lines and incomplete interpretation`,async()=>{
+ const rule=representation==='content'?{content:{'text/plain':{schema:{type:'string',enum:['a, b']}}}}:
+  version==='2.0'?{type:'array',items:{type:'string'},collectionFormat:'csv'}:{schema:{type:'array',items:{type:'string'}}};
+ const fixture=input(version,'json',{'X-Unknown':rule}),lines=['a','b'],before=JSON.stringify(fixture.resources);
+ const result=await evaluateSchemas({...fixture,runtimeInstances:[fixture.wire('X-Unknown',lines)]});
+ assert.equal(result.complete,false);assert.equal(result.runtimeEvaluations[0].complete,false);assert.equal(result.runtimeEvaluations[0].valid,false);
+ assert(result.runtimeFindings.some(finding=>finding.detailCode==='runtime.header.unchecked'));
+ assert.deepEqual(lines,['a','b']);assert.equal(JSON.stringify(fixture.resources),before);
+});
+for(const version of patches)test(`${version} known list simple/header collection values preserve received order`,async()=>{
+ const schema={type:'array',minItems:2,maxItems:2,items:{type:'integer',enum:[0,'EXACT']}};
+ const fixture=input(version,'json',{Vary:version==='2.0'?{...schema,collectionFormat:'csv'}:{schema}});
+ const result=await evaluateSchemas({...fixture,runtimeInstances:[fixture.wire('Vary',['0','9007199254740993'])]});
+ assert.equal(result.complete,true,JSON.stringify(result.runtimeFindings));assert.equal(result.runtimeEvaluations[0].valid,true);
 });
 for(const version of ['3.0.4','3.1.2','3.2.1'])test(`${version} content header JSON evaluates UTF-8 field octets before schema assertions`,async()=>{
  const fixture=input(version,'json',{'X-Json':{content:{'application/json':{schema:{type:'string',enum:['雪']}}}}});
