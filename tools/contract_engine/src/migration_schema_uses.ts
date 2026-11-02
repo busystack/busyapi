@@ -86,13 +86,16 @@ export function separateMigrationEntryUses(contexts:readonly DocumentContext[],s
             const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
             if(dynamic.has(key(scope))||typeof value?.$anchor==='string'||typeof value?.$dynamicAnchor==='string')sensitiveGroups.add(identity);
         }
-        const selected=new Map<string,GraphScope>();
+        const selected=new Map<string,GraphScope>(),visited=new Set<string>();
         for(let index=0;index<pending.length;index++){
             admit();const scope=pending[index],id=useKey(scope);
+            if(visited.has(id)||!graph.isEntryUse(scope))continue;
+            visited.add(id);
             // The owning entry keeps its intrinsic fields. Foreign document
             // subtrees can have independent entry names/media, even though
             // their containing document still owns their family and dialect.
-            if(scope.resource===graph.root||scope.kind==='root'||!graph.isEntryUse(scope)||selected.has(id))continue;
+            if(scope.resource===graph.root){pending.push(...parents.get(id)??[],...incoming.get(id)??[]);continue;}
+            if(scope.kind==='root')continue;
             selected.set(id,scope);
             pending.push(...(parents.get(id)??[]),...(incoming.get(id)??[]));
             if(scope.kind==='schema'&&sensitiveGroups.has(schemaResourceContextIdentity(scope)))
@@ -338,8 +341,11 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
     for(const placement of placements)for(const [pointer,kind]of placement.intrinsic){
         const captured=graph.scopeAs(placement.scope.resource,pointer,kind);if(!captured)continue;
         const owner=placementFor(captured,kind)!;
+        const destination=mapped(captured,owner);
+        owners.rememberEntry(entry?.entryNamespace??graph.root,captured,destination,owner.scope);
+        if(!entry)owners.rememberRole(captured,destination,owner.scope);
         const expectedBase=kind==='schema'?resourceVariants.get(schemaResourceContextIdentity(captured)):undefined;
-        preserveContext(captured,mapped(captured,owner),kind==='schema'&&(owner.resourceSensitive||expectedBase!==undefined),expectedBase);
+        preserveContext(captured,destination,kind==='schema'&&(owner.resourceSensitive||expectedBase!==undefined),expectedBase);
         if(placement.scope.kind==='schema'||kind!=='schema'||!nativeSlots.has(key(captured))||owner===placement)continue;
         const slot=mapped(captured,placement),source=sources.get(slot.resource)!;
         // The native field is a use of the material schema, not a second
@@ -456,9 +462,49 @@ export function separateMigrationRoles(contexts:readonly DocumentContext[],sourc
             seen.add(identity);return true;
         });
         const copies=separateMigrationUses(graph,sources,issue,createSchemaResource,preserveContext,{mode:'role',scopes,references},owners);
+        for(const scope of graph.entryScopes()){
+            for(const material of owners.roleOwners(scope))owners.rememberEntry(graph.root,scope,material.location,material.owner);
+        }
         for(const [origin,locations]of copies){
             const values=provenance.get(origin)??[];values.push(...locations);provenance.set(origin,values);
         }
     }
     return provenance;
+}
+
+/** A cloned operation retains its public operationId. Link Objects can use
+ * their normative URI alternative to bind the exact captured operation owner,
+ * avoiding an ambiguous name among the independent documents in the project.
+ * This runs after common ownership, so literal/data uses are never renamed. */
+export function materializeMigrationOperationConnections(contexts:readonly DocumentContext[],sources:ReadonlyMap<string,MigrationSource>,
+    owners:MigrationSchemaOwners,issue:MigrationIssue):boolean {
+    const desired=new Map<string,{source:MigrationSource;pointer:string;value:string;origin:GraphReference}>();let work=0;
+    for(const {graph}of contexts)for(const reference of graph.entryReferences()){
+        if(++work>2000000)throw new SourceError('limit.migration.owners','Operation connection ownership exceeds 2000000 captured uses');
+        if(reference.connection!=='operationId'||reference.resolution!=='resolved'||!owners.operationNameHasVariants(reference.value))continue;
+        const owner=graph.referenceOwner(reference);if(!owner)continue;
+        const link=owners.entryOwner(graph.root,owner,'link'),target=owners.entryOwner(graph.root,
+            {resource:reference.targetResource!,pointer:reference.targetPointer!},'operation');
+        const source=sources.get(link.resource)!,pointer=source.current(link.pointer+'/operationId');
+        if(pointer===undefined||source.doc.dataNode(pointer)?.value!==reference.value){
+            issue({...reference,pointer:reference.pointer+'/operationId'},'migration.owners.connection-source','This captured operation connection has no retained material field','implementation');continue;
+        }
+        const original=link.resource===owner.resource&&link.pointer===owner.pointer;
+        if(original&&graph.literalContainer(owner.resource,owner.pointer)!==undefined){
+            issue({...reference,pointer:reference.pointer+'/operationId'},'migration.owners.connection-literal','This operation connection still requires an independently owned Link Object before URI materialization','implementation');continue;
+        }
+        const value=target.resource+pointerFragment(target.pointer),id=key({resource:link.resource,pointer}),previous=desired.get(id);
+        if(previous&&previous.value!==value){
+            issue({...reference,pointer:reference.pointer+'/operationId'},'migration.owners.connection-target','This operation connection still has different captured entry targets and requires an independent owner','implementation');continue;
+        }
+        desired.set(id,{source,pointer,value,origin:reference});
+    }
+    for(const {source,pointer,value,origin}of desired.values()){
+        const parent=pointer.slice(0,pointer.lastIndexOf('/'));
+        if(source.doc.dataNode(parent+'/operationRef')){
+            issue({...origin,pointer:origin.pointer+'/operationId'},'migration.owners.connection-collision','The material Link Object already has an operationRef field','implementation');continue;
+        }
+        owners.admit(source,2);source.rename(pointer,'operationRef');source.set(parent+'/operationRef',value);
+    }
+    return desired.size>0;
 }

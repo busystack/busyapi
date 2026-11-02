@@ -136,19 +136,29 @@ for(const format of ['yaml','json'])test(`${format} shared operation, security a
  const root='file:///names/a.'+format,other='file:///names/b.'+format,shared='file:///names/uses.'+format;
  const api=name=>({openapi:'3.2.1',info:{title:name,version:'business'},paths:{'/p':{$ref:'uses.'+format+'#/Path'}},
   components:{securitySchemes:{Access:{type:'apiKey',in:'header',name:'X-'+name}},schemas:{Choice:{type:'object',properties:{entry:{const:name}}}}}});
- const values=[api('First'),api('Second'),{Path:{get:{security:[{Access:[]}],responses:{200:{description:'Value',content:{'application/json':{schema:{$ref:'#/Base'}}}}}}},
+ const values=[api('First'),api('Second'),{Path:{get:{operationId:'shared',security:[{Access:[]}],responses:{200:{description:'Value',
+  links:{Next:{$ref:'a.'+format+'#/components/links/Next'}},content:{'application/json':{schema:{$ref:'#/Base'}}}}}}},
   Base:{type:'object',discriminator:{propertyName:'kind',mapping:{chosen:'Choice'}},description:'[Guide](guide.md)'},
   Literal:{security:[{Access:[]}],mapping:{chosen:'Choice'},zero:0,flag:false,empty:''}}];
+ values[0].components.links={Next:{operationId:'shared',description:'[Next](../next.md)'}};
+ values[0]['x-next']=values[0].components.links.Next;
  const input={root,snapshot:'entry-names',targetVersion:'3.1.2',destination:'file:///names-output/',resources:values.map((value,index)=>({
   id:[root,other,shared][index],generation:index,text:format==='yaml'?'# Keep namespaces 雪\r\n'+YAML.stringify(value).replaceAll('\n','\r\n'):JSON.stringify(value)}))};
  const original=input.resources.map(resource=>resource.text);
- const inspect=packet=>{
+ const inspect=(packet,converted=false)=>{
   assert.equal(analyse(packet).status,'complete',JSON.stringify(analyse(packet).findings));
   const graph=createGraph(packet).graph,operation=graph.operations().find(value=>value.path==='/p');
   const plan=requestOperation({...packet,resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
   const bindings=graph.entryReferences().filter(reference=>reference.connection==='discriminator');
   assert.equal(bindings.length,1);assert.equal(bindings[0].resolution,'resolved');
   assert.equal(bindings[0].targetResource,packet.root);assert.equal(bindings[0].targetPointer,'/components/schemas/Choice');
+  const links=graph.entryReferences().filter(reference=>reference.connection==='operationId'||reference.connection==='operationRef');
+  assert.equal(links.length,1);assert.equal(links[0].resolution,'resolved');
+  assert.equal(links[0].targetResource,operation.source.resource);assert.equal(links[0].targetPointer,operation.source.pointer);
+  assert.equal(links[0].connection,converted?'operationRef':'operationId');
+  assert.equal(graph.docs.get(operation.source.resource).dataNode(operation.source.pointer+'/operationId').value,'shared');
+  const literal=graph.docs.get(packet.root).dataNode('/x-next');
+  if(literal)assert.deepEqual(literal.value,values[0]['x-next'],'A literal YAML alias retains operationId data while the native Link gains its URI owner');
   return plan.security.schemes.Access.parameterName;
  };
  assert.equal(inspect(input),'X-First');assert.equal(inspect({...input,root:other}),'X-Second');
@@ -156,7 +166,7 @@ for(const format of ['yaml','json'])test(`${format} shared operation, security a
  const cold={snapshot:'cold-entry-names',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
  for(const [entry,name]of [[root,'First'],[other,'Second']]){
   const outputRoot=review.changes.find(change=>change.resource===entry).destination;
-  assert.equal(inspect({...cold,root:outputRoot}),'X-'+name);
+  assert.equal(inspect({...cold,root:outputRoot},true),'X-'+name);
  }
  const detached=review.outputs.find(output=>output.id===review.changes.find(change=>change.resource===shared).destination);
  assert.equal(detached.text,input.resources[2].text);assert.deepEqual(input.resources.map(resource=>resource.text),original);
@@ -184,4 +194,12 @@ test('an inactive primary interpretation cannot choose a foreign entry native/sc
  assert.equal(result.complete,true,JSON.stringify(result.findings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,false,true]);
  assert.equal(plan.responses[0].headers[0].name,'X-N');
  assert.equal(review.outputs.find(value=>value.id===review.changes.find(change=>change.resource===shared).destination).text,input.resources[2].text);
+});
+
+test('ordinary patch migration retains authored operationId links when no operation owner was cloned',async()=>{
+ const root='file:///unchanged/api.json',document={openapi:'3.2.0',info:{title:'Unchanged names',version:'business'},paths:{'/p':{get:{operationId:'one',responses:{200:{description:'Reply',links:{Self:{operationId:'one'}}}}}}}};
+ const input={root,snapshot:'unchanged-operation-names',targetVersion:'3.2.1',destination:'file:///unchanged-output/',resources:[{id:root,text:JSON.stringify(document),generation:1}]};
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const result=JSON.parse(review.outputs.find(output=>output.id===review.outputRoot).text);
+ assert.deepEqual(result.paths['/p'].get.responses['200'].links.Self,{operationId:'one'});assert.equal(result.paths['/p'].get.operationId,'one');
 });

@@ -7,6 +7,65 @@ import 'package:test/test.dart';
 import 'test_support.dart';
 
 void main() {
+  test('entry operation owners retain Link navigation and native fields after specialization', () async {
+    final directory = await Directory.systemTemp.createTemp('busyapi-operation-owners-');
+    addTearDown(() => directory.delete(recursive: true));
+    Map<String, Object?> api(String name) => {
+      'openapi': '3.2.1', 'info': {'title': name, 'version': 'business'},
+      'servers': [{'url': 'https://api.invalid'}],
+      'paths': {'/p': {r'$ref': 'shared.json#/Path'}},
+      'components': {
+        'securitySchemes': {'Access': {'type': 'apiKey', 'in': 'header', 'name': 'X-$name'}},
+        'examples': {'Entry': name == 'First' ? {r'$ref': 'b.json#/components/examples/Entry'} : {'value': 'Captured root'}},
+        if (name == 'First') 'links': {'Next': {'operationId': 'shared', 'description': '[Next](../next.md)'}},
+      },
+    };
+    final originals = {
+      'a.json': jsonEncode(api('First')), 'b.json': jsonEncode(api('Second')),
+      'shared.json': jsonEncode({'Path': {'get': {'operationId': 'shared', 'security': [{'Access': <String>[]}],
+        'responses': {'204': {'description': 'Empty', 'links': {'Next': {r'$ref': 'a.json#/components/links/Next'}}}}}},
+        'Literal': {'operationId': 'shared', 'flag': false, 'empty': ''}}),
+    };
+    for (final entry in originals.entries) await File('${directory.path}/${entry.key}').writeAsString(entry.value);
+    final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);addTearDown(engine.close);
+    final source = await BusyProject.open('${directory.path}/a.json', engine);addTearDown(source.close);
+    final roots = [File('${directory.path}/a.json').uri.toString(), File('${directory.path}/b.json').uri.toString()];
+    Future<void> inspect(BusyProject owner, String root, String name, bool converted) async {
+      final checked = await owner.check(root);expect(checked['complete'], true, reason: '$checked');
+      final projection = checked['projection'] as Map, operation = (projection['operations'] as List).whereType<Map>().single;
+      final link = (projection['references'] as List).whereType<Map>().singleWhere((value) =>
+          value['connection'] == 'operationId' || value['connection'] == 'operationRef');
+      expect(link['resolution'], 'resolved');expect(link['targetResource'], operation['resource']);expect(link['targetPointer'], operation['pointer']);
+      final field = converted ? 'operationRef' : 'operationId';expect(link['connection'], field);
+      final pointer = link['pointer'] as String;
+      final page = await owner.inspectObject(root, link['resource'] as String,
+          pointer.substring(0, pointer.lastIndexOf('/')), contextKind: 'link');
+      final selected = (page['fields'] as List).whereType<Map>().singleWhere((value) => value['name'] == field);
+      expect(selected['present'], true);
+      final plan = await owner.prepareRequest(root, resource: operation['resource'] as String,
+          pointer: operation['pointer'] as String, occurrence: operation['occurrence'] as String);
+      try {
+        expect((plan.result['operation'] as Map)['operationId'], 'shared');
+        expect((((plan.result['security'] as Map)['schemes'] as Map)['Access'] as Map)['parameterName'], 'X-$name');
+      } finally { plan.close(); }
+    }
+    await inspect(source, roots[0], 'First', false);await inspect(source, roots[1], 'Second', false);
+    final review = await source.prepareMigration(roots[0], '${directory.path}/converted', targetVersion: '3.1.2');addTearDown(review.close);
+    expect(review.publishable, true, reason: '${review.result}');await review.publish();
+    final migrated = {for (final root in roots) root: review.changes.singleWhere((change) => change.resource == root).destination};
+    for (final entry in originals.entries) expect(await File('${directory.path}/${entry.key}').readAsString(), entry.value);
+    source.close();
+    final relocated = await Directory(review.destination).rename('${directory.path}/cold 雪');
+    for (final name in originals.keys) await File('${directory.path}/$name').delete();
+    final cold = await BusyProject.open(relocated.path, engine);addTearDown(cold.close);
+    for (final (index, name) in [(0, 'First'), (1, 'Second')]) {
+      final root = File('${relocated.path}/${Uri.parse(migrated[roots[index]]!).pathSegments.last}').uri.toString();
+      await inspect(cold, root, name, true);
+    }
+    final cli = await Process.run('$testBundle/busyapi', ['check', relocated.path, '--json'],
+      environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
+    expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');
+  });
   for (final owner in ['ordinary', 'identified', 'partial']) {
     final identified = owner == 'identified', modernSource = owner != 'ordinary';
     test('cross-entry $owner owners preserve behavior through captured review, HTTP, publication and CLI', () async {

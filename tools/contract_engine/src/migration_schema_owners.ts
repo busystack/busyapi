@@ -1,9 +1,11 @@
 import {createHash} from 'node:crypto';
 import {componentLocation} from './authoring';
-import {SourceError} from './document';
-import {pointerFragment,type ReferenceGraph} from './reference_graph';
+import {SourceError,type Range} from './document';
+import {pointerFragment,schemaResourceContextIdentity,type ReferenceGraph,type GraphScope} from './reference_graph';
 import type {MigrationLocation,MigrationSource} from './migration_source';
 import {migrationLogicalPointers} from './migration_yaml_ownership';
+
+type SemanticOwner=Readonly<{source:GraphScope;owner:GraphScope;location:MigrationLocation}>;
 
 /** Generated schema and OpenAPI object owners share one reservation/provenance boundary. A label
  * describes the reviewed restructuring; identity comes from the captured use,
@@ -14,10 +16,64 @@ export class MigrationSchemaOwners {
     private readonly externalIdentities:ReadonlySet<string>;
     private edits=0;
     private work=0;
+    private readonly entryUses=new Map<string,SemanticOwner[]>();
+    private readonly roleUses=new Map<string,SemanticOwner[]>();
+    private readonly copiedOperationIds=new Set<string>();
+    private useWork=0;
     constructor(private readonly graph:ReferenceGraph,
         private readonly sources:ReadonlyMap<string,MigrationSource>,
         private readonly generatedResource?:()=>MigrationSource,reservedIdentities:Iterable<string>=[]){
         this.externalIdentities=new Set([...reservedIdentities].map(uri=>new URL(uri).href));
+    }
+
+    private inspectUse():void {
+        if(++this.useWork>2000000)throw new SourceError('limit.migration.owners','Semantic owner lookup exceeds 2000000 captured use states');
+    }
+    private useKey(namespace:string,origin:MigrationLocation,kind:string):string {
+        return JSON.stringify([namespace,origin.resource,origin.pointer,kind]);
+    }
+    private remember(index:Map<string,SemanticOwner[]>,id:string,origin:GraphScope,destination:MigrationLocation,owner:GraphScope):void {
+        this.inspectUse();const uses=index.get(id)??[];
+        if(!uses.some(use=>{
+            this.inspectUse();return use.location.resource===destination.resource&&use.location.pointer===destination.pointer&&
+                use.owner.resource===owner.resource&&use.owner.pointer===owner.pointer&&use.owner.kind===owner.kind&&
+                schemaResourceContextIdentity(use.owner)===schemaResourceContextIdentity(owner);
+        }))uses.push({source:origin,owner,location:destination});
+        index.set(id,uses);
+    }
+    rememberEntry(namespace:string,origin:GraphScope,destination:MigrationLocation,owner:GraphScope=origin):void {
+        this.remember(this.entryUses,this.useKey(namespace,origin,origin.kind),origin,destination,owner);
+        if(origin.kind==='operation'&&(origin.resource!==destination.resource||origin.pointer!==destination.pointer)){
+            const name=this.sources.get(origin.resource)?.doc.dataNode(origin.pointer)?.value?.operationId;
+            if(typeof name==='string')this.copiedOperationIds.add(name);
+        }
+    }
+    operationNameHasVariants(name:string):boolean{return this.copiedOperationIds.has(name);}
+    entryOwner(namespace:string,origin:MigrationLocation,kind:string):MigrationLocation {
+        const pending=[{location:origin,leave:false}],seen=new Set<string>(),active=new Set<string>(),terminal=new Map<string,MigrationLocation>();
+        while(pending.length){
+            this.inspectUse();const {location,leave}=pending.pop()!,id=this.useKey(namespace,location,kind);
+            if(leave){active.delete(id);seen.add(id);continue;}
+            if(active.has(id))throw new SourceError('migration.owners.cycle','The material ownership relation is cyclic');
+            if(seen.has(id))continue;
+            active.add(id);pending.push({location,leave:true});
+            const next=this.entryUses.get(id);
+            if(!next?.length)terminal.set(id,location);
+            else pending.push(...next.map(use=>({location:use.location,leave:false})));
+        }
+        if(terminal.size===1)return terminal.values().next().value!;
+        const range:Range=this.sources.get(origin.resource)?.doc.dataNode(origin.pointer)?.range??[0,0];
+        throw new SourceError(terminal.size?'migration.owners.ambiguous-use':'migration.owners.cycle',
+            terminal.size?'This connection needs a specific material occurrence among independent typed owners':'The material ownership relation has no terminal owner',range,'unsupported',{...origin,range});
+    }
+    private roleKey(scope:GraphScope):string {
+        return JSON.stringify([scope.resource,scope.pointer,scope.kind,schemaResourceContextIdentity(scope),scope.schemaParent]);
+    }
+    rememberRole(scope:GraphScope,destination:MigrationLocation,owner:GraphScope):void {
+        this.remember(this.roleUses,this.roleKey(scope),scope,destination,owner);
+    }
+    roleOwners(scope:GraphScope):readonly SemanticOwner[] {
+        this.inspectUse();return this.roleUses.get(this.roleKey(scope))??[];
     }
 
     /** A specialized resource has its own identity; copying the old $id would

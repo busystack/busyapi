@@ -201,7 +201,9 @@ export function migrationContextDifferences(contexts:readonly Pick<DocumentConte
  * every source entry, including names that intentionally vary by entry. Before
  * a family conversion/omission, ownership separation also proves static edges. */
 export function proveMigrationConnections(source:ReferenceGraph,target:ReferenceGraph,mapped:(location:MigrationLocation)=>readonly MigrationLocation[],issue:MigrationIssue,includeStatic=false):void {
-    const identity=(field:MigrationLocation,kind:string,connection:string|undefined)=>JSON.stringify([field.resource,field.pointer,kind,connection??'']);
+    const identity=(field:MigrationLocation,kind:string,connection:string|undefined)=>JSON.stringify([
+        field.resource,field.pointer,kind,connection==='operationId'||connection==='operationRef'?'operation':connection??'',
+    ]);
     const connections=new Map(target.entryReferences().filter(reference=>reference.connection||(includeStatic||reference.kind==='schema')&&['$ref','$dynamicRef'].includes(reference.keyword)).map(reference=>[
         identity({...reference,pointer:reference.pointer+'/'+escape(reference.keyword)},reference.kind,reference.connection),reference]));
     const mappedSchemas=(location:MigrationLocation)=>mapped(location).filter(location=>{

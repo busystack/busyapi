@@ -32,12 +32,12 @@ import {MigrationExamples,proveMigrationExamples,type MigrationExampleCopy} from
 import {migrateTerms} from './migration_terms';
 import {migrateServerVariableDefaults,retainDefaultServers} from './migration_servers';
 import {migrationLogicalPointers} from './migration_yaml_ownership';
-import {separateMigrationRoles,separateMigrationEntryUses} from './migration_schema_uses';
+import {separateMigrationRoles,separateMigrationEntryUses,materializeMigrationOperationConnections} from './migration_schema_uses';
 import {MigrationSchemaOwners} from './migration_schema_owners';
 import {projectSchemaReference} from './schema_reference_projection';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='54';
+const migrationProducerVersion='55';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const patch:Record<string,string>={'2.0':'2.0','3.0':'3.0.4','3.1':'3.1.2','3.2':'3.2.1'};
 export type MigrationInput=Readonly<{
@@ -206,8 +206,9 @@ export async function planMigration(input:MigrationInput) {
             const entryInput=preparationInput(),entryContext=createGraph(entryInput);
             const entryContexts=migrationDocumentContexts(entryInput,entryContext,issue,true);
             retainCopies(separateMigrationEntryUses(entryContexts,sources,issue,createSchemaResource,captureContext,owners));
+            const materializedConnections=materializeMigrationOperationConnections(sourceContexts,sources,owners,issue);
             if(problems.length)break;
-            if(specialized.size){
+            if(specialized.size||materializedConnections){
                 for(const [origin,copies]of specialized){
                     const [resource,pointer]=JSON.parse(origin) as [string,string];
                     const original=sourceLocation(resource,pointer);
