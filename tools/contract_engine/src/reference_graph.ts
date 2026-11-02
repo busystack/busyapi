@@ -4,7 +4,7 @@ import {swaggerFileChoiceTargets} from './swagger_file';
 import {resolveIri} from '@hyperjump/uri';
 import {specificationDeclaration, defaultSchemaDialect, modernFamily, restrictedSchemaDialect, swaggerSchemaDialect, isNativeFamily, capabilitiesFor, Specification,declaredSchemaDialect} from './specification';
 
-export const schemaRoleContextRevision='2';
+export const schemaRoleContextRevision='3';
 
 export const knownDialects = new Set([
     restrictedSchemaDialect,
@@ -625,8 +625,7 @@ export class ReferenceGraph {
         if(kind==='schema')this.schemaAdmissions.set(id,{target,inherited,root:depth===0});
         const established=this.scopes.get(key(resource,pointer));
         const differentRole=established&&established.kind!==kind&&this.indexed.has(key(resource,pointer)+':'+established.kind);
-        const schemaRole=differentRole&&(established.kind==='schema'||kind==='schema');
-        const separateRole=differentRole&&(!schemaRole||modernFamily(inherited.family)&&modernFamily(established.family))&&
+        const separateRole=differentRole&&
             (established.kind!=='root'||this.specifications.has(resource));
         // A whole OpenAPI document can also be a JSON Schema: its OpenAPI
         // members are extension keywords in that use. Other typed positions

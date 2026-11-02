@@ -60,7 +60,7 @@ export function restrictedSchemaIssues(graph: ReferenceGraph): GraphIssue[] {
         const nested = new Set(seen); nested.add(identity);
         if (typeof value.$ref === 'string') {
             const ref = graph.resolveReference(value.$ref, scope);
-            const target = ref.resolution === 'resolved' && graph.scopes.get(ref.targetResource + '#' + ref.targetPointer);
+            const target = ref.resolution === 'resolved' && graph.scopeAs(ref.targetResource!,ref.targetPointer!,'schema');
             return finish(target ? requires(target, name, nested) : 'incomplete');
         }
         if (Array.isArray(value.required) && value.required.includes(name)) return finish('required');
@@ -75,7 +75,7 @@ export function restrictedSchemaIssues(graph: ReferenceGraph): GraphIssue[] {
         }
         return finish(proofs.includes('incomplete')?'incomplete':'not-established');
     };
-    for (const scope of graph.scopes.values()) {
+    for (const scope of graph.interpretedScopes()) {
         const doc = graph.docs.get(scope.resource)!, node = doc.dataNode(scope.pointer), value = node?.value;
         const flat=flatSchemaContext(graph,scope);
         if ((!flat&&scope.kind !== 'schema') || !['2.0','3.0'].includes(scope.family)) continue;

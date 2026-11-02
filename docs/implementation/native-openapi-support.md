@@ -143,7 +143,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W7.01 Creation, editing, unsaved Reference, request/example/mock/case, migration review, documentation and CLI integration for every capability; all applicable clauses above | shared engine, Core owners and native workspace controls | A R E M S C | engine/Core/widget/native journey suites | Partially implemented; applicable existing consumers inherit shared field/codec/routing changes; complete family journeys are not accepted | H |
 | W7.02 Stale-action invalidation on declaration/dialect/root/external/approval changes; coherent reviewed transactions, Undo/Redo and no buffer loss; Core transaction contract | Core project/store/capture and native review/request controllers | A R E M S C | stale capture/cancellation/publication/widget review suites | Partially implemented; existing source for existing safeguards; new paths require current integration qualification | H |
 | W7.03 CST fidelity, no-op saves, exact values, aliases, extensions and source-only migration restructuring; TEXT | `document.ts`, graph/CST editing, Core store/transaction owners | A R M S C | source ownership/alias/exact-value/no-op suites | Partially implemented; existing source for existing boundaries; generated schema owners retain original provenance and reviewed restructuring | H |
-| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+50`, migration producer `46`, response/parameter mock producers `4`, numeric sample producer remains `3`; no dependency versions/source changed | H |
+| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+51`, migration producer `47`, response/parameter mock producers `4`, numeric sample producer remains `3`; no dependency versions/source changed | H |
 | W8.01 Explicit independent evidence input across SDK/build/CMake/CI/installed/package checks; PINS | `flutter_archive.py`, SDK verifier, `build_linux.sh`, CMake, package/native-distribution/artifact-smoke inputs | P | `tools/test_flutter_sdk.py`, source-wiring regressions | Partially implemented; existing source for archive-input propagation; same existing evidence reaches installed checks; independent member pins remain an alternative; no SDK acquisition/replacement | H; actual evidence availability/authenticity has not been qualified |
 | W8.02 Ordered gates, registration, source-version-valid fixtures and production-byte regressions; PINS and each row's authority | `tools/build_engine.sh`, Linux workflow, engine/Core/widget/native/package suites | P | new direct-Swagger/conditional/tuple-tail/constant-containment/property-name/runtime-parameter suites registered; existing TypeScript-before-bundle gate retained | Partially implemented; compilation and all suspended gates remain unexecuted; missing regression coverage identified in this register remains implementation work | H |
 | W8.03 Current automated/native/packaged/offline acceptance and normal Quit; all approved families and PINS | native acceptance tools, Core/package/CLI suites | A R E M S C P | existing native acceptance including historical Quit/focus failures; complete new journeys still required | Missing for accepted evidence; no driver/engine attribution established; Snapcraft remains skipped | H |
@@ -183,7 +183,7 @@ fallback. The exact mock proxy transport now serves all methods, retaining raw
 request/response lines and separate encoded/decoded body views. Source-only
 regressions cover actual HTTP and CLI outcomes, informational blocks, HEAD,
 unknown/singleton/list fields, exact values, Set-Cookie and obsolete readiness
-proofs. Evaluator 1.18.0+50 and response/parameter mock producers 4 agree across
+proofs. Evaluator 1.18.0+51 and response/parameter mock producers 4 agree across
 engine/Core readiness. These regressions, analysis, builds and acceptance have
 not run. W4.03 source completion does not close the other W4 requirements.
 
@@ -388,7 +388,7 @@ valid Response/Request Body sharing and invalid Parameter interpretation;
 Core object-use publication/actual HTTP/CLI coverage includes the same overlap.
 The existing native object-page suite adds Design/Reference role controls and
 no-op source preservation. These regressions are prepared, not executed.
-Evaluator `1.18.0+50`, graph role rules `2` and migration producer `46` invalidate
+Evaluator `1.18.0+51`, graph role rules `3` and migration producer `47` invalidate
 prior proofs; engine, Core and preflight declarations agree. W2 remains
 partially implemented for entry namespace propagation and resource-sensitive
 uses without an established faithful owner; W6 shared-role refactoring still
@@ -434,6 +434,30 @@ active dynamic bindings retain the independent-ownership requirement. This
 proof removes false mixed-entry refusals without copying resources or treating
 dialects as interchangeable. General entry-dependent specialization remains W2
 implementation work.
+
+### Restricted Schema Object interpretation owners
+
+O20 Schema Object and O30 §4.3.1/§4.7.24 retain their own restricted vocabularies
+when a native Header/Response is also referenced as a Schema Object. The same
+canonical role owner now captures these uses, retaining native Design/Reference
+choices and independent migration owners. Fast analysis validates additional
+restricted roles against the existing family artifact binding; exact validation
+and normative restricted rules still run through the original CST. Swagger meta
+checks use each captured scope's object kind, so a flat Header and an independent
+Schema role cannot select each other's meta-schema through a last-value map.
+Schema root discovery retains typed scope metadata through this process.
+
+The registered schema-role suite prepares Swagger Header/Schema and 3.0
+Response/Schema positive cases, exact values, native inspection, source/target
+evaluation and migration cold graphs. Negative native-field/schema-vocabulary
+cases retain located findings. Core `migration_restricted_roles_test.dart`
+prepares unsaved inputs, actual HTTP/header bytes, safe publication, source
+preservation, relocated reopening and CLI checks. The existing native object
+suite includes restricted Schema role selection with no-op source preservation.
+These tests remain unexecuted. Evaluator `1.18.0+51`, graph role rules `3` and
+migration producer `47` are synchronized with Core/preflight. General entry
+namespace propagation and resource-sensitive specialization remain W2 work;
+this extension does not remove shared-reference rewrite or identity guards.
 
 ## Required functionality still open
 

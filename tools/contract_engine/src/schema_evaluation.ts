@@ -35,7 +35,7 @@ import {externalExampleRevision} from './external_examples';
 import {exampleRepresentation,mediaExampleRepresentations,type ExampleValueField} from './example_representation';
 import {embeddedMimeTextRevision} from './embedded_mime_text';
 
-export const schemaProducer={name:'hyperjump+busyapi-exact',version:'1.18.0+50',configuration:[
+export const schemaProducer={name:'hyperjump+busyapi-exact',version:'1.18.0+51',configuration:[
  `external-example-bytes-v${externalExampleRevision}`,
  'parameter-runtime-serialization-v1',
  'http-field-lines-v1',
@@ -210,7 +210,7 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
    if(!supportedSchemaDialect(scope)){complete=false;invalid.push(scope);add(doc,scope.pointer,'schema.dialect.incomplete','This schema dialect is not configured; its content is preserved and no instance result is claimed.','warning');continue;}
    if(!doc.dataSyntaxSafe(scope.pointer)){complete=false;invalid.push(scope);continue;}
    try {
-    const metaId=scope.family==='2.0'?swaggerMetaAddress(evaluationScopes.get(scope.resource+'#'+scope.pointer)!):scope.dialect;
+    const metaId=scope.family==='2.0'?swaggerMetaAddress(scope):scope.dialect;
     let meta=metas.get(metaId)??standardMetas.get(metaId);
     if(!meta){meta=await compile(await getSchema(metaId));standardMetas.set(metaId,meta);}
     metas.set(metaId,meta);

@@ -67,10 +67,12 @@ Native OpenAPI objects can retain multiple explicitly reached roles. Each role
 is validated independently; a value used as both a Response and Request Body
 must satisfy both definitions. Design and Reference offer a captured role
 selector, and migration separates native roles through the same owner allocator
-used for schema/data occurrences. Restricted Schema Objects that overlap another
-object kind still receive a located context diagnostic; the implementation policy
-permitted by [3.0.4 §4.3.1](https://spec.openapis.org/oas/v3.0.4.html#structural-interoperability)
-does not widen their schema vocabulary. Current acceptance remains suspended.
+used for schema/data occurrences. Restricted Schema Object roles use each family's own schema meta-validation
+and authoring choices. A shared Header or Response must independently satisfy
+that narrower schema vocabulary; native fields do not become schema keywords.
+[3.0.4 §4.3.1](https://spec.openapis.org/oas/v3.0.4.html#structural-interoperability)
+allows independent interpretations without requiring migration. Current acceptance
+remains suspended.
 
 Typed reference choices and Source completions use this same context check.
 An `operationRef` link identifies its target operation and keeps its separate
@@ -782,7 +784,7 @@ use the same allocator and role-specific provenance before conversion or patch
 relocation. Their document links, external examples and Server templates retain
 the captured context; literal values survive separately. Cross-entry namespace
 propagation and multiple non-schema object roles remain implementation gaps.
-The migration producer is **46**; Core rejects previous
+The migration producer is **47**; Core rejects previous
 producer responses before publication. Current qualification remains pending.
 
 Older-family migration also lowers dynamic references when every captured
@@ -984,7 +986,7 @@ Native property-access evaluation uses the logical schema occurrence even when
 its source is a reusable or aliased definition. Swagger `readOnly` properties
 are excluded from requests through schema references; OpenAPI 3.0 retains its
 request/response `required` rules for readOnly/writeOnly. Modern annotations keep
-ordinary JSON Schema assertions. The shared evaluator revision is **1.18.0+50**;
+ordinary JSON Schema assertions. The shared evaluator revision is **1.18.0+51**;
 matching mock/worker revisions are required before readiness is reported.
 
 The derived bundler uses the canonical graph and exact CST reader. It preserves

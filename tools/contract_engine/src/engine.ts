@@ -161,10 +161,26 @@ export function analyse(input: any, context?: ReturnType<typeof createGraph>) {
             components.push(index(root, (componentLocations[group]??'/components/'+escape(group)) + '/' + escape(name), v, { group, name }));
     const schemaScopes=graph.scopesFor('schema'),physicalRoots=schemaRoots(schemaScopes.filter(scope=>!scope.sourceKind)),metaRoots=[...physicalRoots,...schemaScopes.filter(scope=>scope.sourceKind)],nestedBoundaries=nestedSchemaBoundaries(physicalRoots);
     const exactNumericKeywords=new Set(['minimum','maximum','exclusiveMinimum','exclusiveMaximum','multipleOf','minLength','maxLength','minItems','maxItems','minProperties','maxProperties','minContains','maxContains']);
+    const exactNumericDeferred=(doc:SourceDocument,pointer:string)=>{
+        const value=doc.nodes.get(pointer)?.value;
+        return typeof value==='number'&&exactNumericKeywords.has(segments(pointer).at(-1)!)&&
+            (!Number.isFinite(value)||value===0&&!/^-?0(?:\.0+)?(?:[eE][+-]?\d+)?$/.test(doc.dataJson(pointer)));
+    };
     for (const scope of metaRoots) {
-        if (!supportedSchemaDialect(scope) || !modernFamily(scope.family)) continue;
+        if (!supportedSchemaDialect(scope)) continue;
         const doc = docs.get(scope.resource)!;
         const value = schemaMetaView(doc.dataNode(scope.pointer)!.value,scope.pointer,nestedBoundaries(scope));
+        if(!modernFamily(scope.family)){
+            if(!scope.sourceKind)continue;
+            const role=graph.referenceObject(value,scope)?'reference':'schema';
+            const validator=ajv.getSchema(structuralSchema(scope.family).$id+'#/$defs/'+role);
+            if(validator&&!validator(value))for(const error of (validator.errors??[]).slice(0,32)){
+                if(exactNumericDeferred(doc,scope.pointer+error.instancePath))continue;
+                diagnostic(input.resources.find((resource:Resource)=>resource.id===doc.id),'openapi','schema.'+error.keyword,
+                    error.message??'Invalid restricted Schema Object',scope.pointer+error.instancePath);
+            }
+            continue;
+        }
         if (typeof value !== 'boolean' && (value === null || typeof value !== 'object' || Array.isArray(value))) {
             diagnostic(input.resources.find((r: Resource) => r.id === doc.id), 'openapi', 'schema.type', 'A Schema Object must be an object or a boolean', scope.pointer);
             continue;
@@ -177,9 +193,7 @@ export function analyse(input: any, context?: ReturnType<typeof createGraph>) {
                 // This fast stage is a JS structural projection. Numeric
                 // keyword values are decided by the awaited exact-CST stage,
                 // not rounded zero/infinity/integers in this projection.
-                const numeric=doc.nodes.get(pointer)?.value;
-                if(typeof numeric==='number'&&exactNumericKeywords.has(segments(pointer).at(-1)!)&&
-                    (!Number.isFinite(numeric)||numeric===0&&!/^-?0(?:\.0+)?(?:[eE][+-]?\d+)?$/.test(doc.dataJson(pointer))))continue;
+                if(exactNumericDeferred(doc,pointer))continue;
                 diagnostic(input.resources.find((r: Resource) => r.id === doc.id), 'openapi', 'schema.' + e.keyword, e.message ?? 'Invalid JSON Schema keyword', scope.pointer + e.instancePath);
             }
     }

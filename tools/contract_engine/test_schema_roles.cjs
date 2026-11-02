@@ -52,3 +52,46 @@ for(const version of versions)for(const format of ['yaml','json'])test(`${versio
  const root='file:///approved/api.'+format,data={openapi:version,info:{title:'Whole document schema',version:'1'},paths:{},components:{schemas:{Use:{$ref:'#'}}}},text=format==='json'?JSON.stringify(data):YAML.stringify(data),input={root,snapshot:version+format,resources:[{id:root,text,generation:1}]},graph=createGraph(input).graph;
  assert.deepEqual(graph.issues,[]);assert.equal(graph.scope(root,'').kind,'root');assert.equal(graph.scopeAs(root,'','schema').kind,'schema');const result=await outcomes(input,'/components/schemas/Use');assert(result.complete,JSON.stringify(result.findings));assert(result.runtimeEvaluations.every(e=>e.complete&&e.valid));assert.equal(analyse(input).status,'complete');const bundle=deriveBundle({...input,outputId:'file:///derived/api.json'});assert.equal(JSON.parse(bundle.output.text).openapi,version);assert.equal(input.resources[0].text,text);
 });
+
+for(const version of ['2.0','3.0.4'])for(const format of ['yaml','json'])for(const chain of version==='2.0'?[false]:[false,true])
+test(`${version} ${format} chain=${chain} restricted schema overlaps retain native validation, exact instances and migration ownership`,async()=>{
+ const root='file:///approved/restricted.'+format,swagger=version==='2.0';
+ const pointer=swagger?'/responses/Shared/headers/X-Count':'/components/responses/Shared';
+ const response={description:'[Shared](../guide.md)',...(swagger?{headers:{'X-Count':{type:'integer',enum:['EXACT']}}}:{})};
+ const use={$ref:'#'+pointer},value={...(swagger?{swagger:version}:{openapi:version}),info:{title:'Restricted roles',version:'business'},
+  paths:{'/p':{get:{responses:{200:{$ref:'#'+(swagger?'/responses/Shared':'/components/responses/Shared')}}}}},
+  ...(swagger?{definitions:{Use:use},responses:{Shared:response}}:{components:{schemas:{Use:use},responses:chain?{Shared:{$ref:'#/components/responses/Real'},Real:response}:{Shared:response}}})};
+ const text=(format==='yaml'?'# Keep restricted roles 雪\r\n'+YAML.stringify(value).replaceAll('\n','\r\n'):JSON.stringify(value))
+  .replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const input={root,resources:[{id:root,text,generation:3}],snapshot:'restricted-roles'};
+ const graph=createGraph(input).graph,primary=swagger?'header':'response';
+ assert.equal(graph.scope(root,pointer).kind,primary);assert.equal(graph.scopeAs(root,pointer,'schema').kind,'schema');
+ assert.equal(analyse(input).status,'complete',JSON.stringify(analyse(input).findings));
+ const page=inspect({...input,resource:root,pointer,contextKind:'schema'});
+ assert.equal(page.kind,'schema');assert.equal(page.customSchemaKeywords,false);
+ assert(page.fields.some(field=>field.name==='type'&&field.schemaTypeChoices.scalarTypes.includes('integer')));
+ const samples=['9007199254740993','9007199254740992','null','false','"雪"'];
+ const evaluate=(packet,pointer)=>evaluateSchemas({...packet,runtimeInstances:samples.map(text=>({subject:'response-body',location:text,text,schema:{resource:packet.root,pointer}}))});
+ const before=await evaluate(input,(swagger?'/definitions':'/components/schemas')+'/Use');
+ assert.equal(before.complete,true,JSON.stringify(before.findings));assert.deepEqual(before.runtimeEvaluations.map(result=>result.valid),swagger?[true,false,false,false,false]:samples.map(()=>true));
+ const review=await planMigration({...input,targetVersion:'3.2.1',destination:'file:///delivered/restricted/'});
+ assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const cold={root:review.outputRoot,resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0})),snapshot:'cold-restricted'};
+ const after=await evaluate(cold,'/components/schemas/Use');assert.equal(after.complete,true,JSON.stringify(after.findings));
+ assert.deepEqual(after.runtimeEvaluations.map(result=>result.valid),before.runtimeEvaluations.map(result=>result.valid));
+ assert.equal(analyse(cold).status,'complete',JSON.stringify(analyse(cold).findings));
+ assert.equal(input.resources[0].text,text);
+ const {referencePage}=require('./dist/reference_projection.cjs');
+ assert.equal(referencePage({...input,resource:root,pointer,contextKind:'schema'}).kind,'schema');
+});
+for(const version of ['2.0','3.0.4'])test(`${version} retaining a Schema role does not widen its restricted vocabulary`,async()=>{
+ const root='file:///approved/invalid-role.json',swagger=version==='2.0';
+ const value={...(swagger?{swagger:version}:{openapi:version}),info:{title:'Restricted metadata',version:'1'},paths:{},
+  ...(swagger?{responses:{Shared:{description:'Native',headers:{'X-Count':{type:'integer',collectionFormat:'csv'}}}},
+   definitions:{Use:{$ref:'#/responses/Shared/headers/X-Count'}}}:
+   {components:{responses:{Shared:{description:'Native',headers:{'X-Count':{schema:{type:'integer'}}}}},schemas:{Use:{$ref:'#/components/responses/Shared'}}}})};
+ const input={root,resources:[{id:root,text:JSON.stringify(value),generation:0}],snapshot:'invalid-restricted-role'};
+ const findings=analyse(input).findings;
+ assert(findings.some(finding=>finding.code==='schema.additionalProperties'&&finding.severity==='error'&&finding.range[1]>finding.range[0]),JSON.stringify(findings));
+ const checked=await evaluateSchemas(input);assert(checked.findings.some(finding=>finding.code==='schema.keyword.invalid'),JSON.stringify(checked.findings));
+});

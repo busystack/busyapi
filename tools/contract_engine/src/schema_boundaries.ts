@@ -10,7 +10,7 @@ export function annotationOnlySchema(value:unknown):boolean {
 }
 
 /** Physical containment does not erase an embedded resource's own dialect. */
-export function schemaRoots(scopes:Iterable<GraphScope>) {
+export function schemaRoots<T extends GraphScope>(scopes:Iterable<T>):T[] {
  const all=[...scopes].filter(scope=>scope.kind==='schema');
  const key=(scope:GraphScope,pointer:string)=>JSON.stringify([scope.resource,scope.base,scope.dialect,pointer]);
  const keys=new Set(all.map(scope=>key(scope,scope.pointer)));
