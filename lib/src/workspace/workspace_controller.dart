@@ -132,11 +132,15 @@ class WorkspaceController extends ChangeNotifier {
     dynamic item, {
     String? referenceField,
     String? authoredField,
+    bool reviewedCopy = false,
   }) {
     // A string field can remain editable beside an invalid child collection.
     // This narrows the diagnostic scope, not the transaction: bind/flush still
     // verify the whole original owner, generation and expected source text.
-    if (referenceField != null && authoredField != null) return false;
+    if ((referenceField != null && authoredField != null) ||
+        (reviewedCopy && (referenceField != null || authoredField != null))) {
+      return false;
+    }
     if (_disposed ||
         checking ||
         analysis == null ||
@@ -148,10 +152,16 @@ class WorkspaceController extends ChangeNotifier {
     if (resource is! String || Uri.parse(resource).scheme != 'file') {
       return false;
     }
+    // Only reviewed copy operations can ask the engine to separate YAML
+    // tokens. This does not grant ordinary controls permission to edit aliases.
+    final ownedCopy = reviewedCopy && item['reviewedCopySource'] is Map;
+    final nodeKind = ownedCopy
+        ? item['reviewedCopySource']['nodeKind']
+        : item['nodeKind'];
     if (item['outdated'] == true ||
         item['syntaxSafe'] != true ||
-        item['shared'] == true ||
-        !const ['object', 'array', 'boolean'].contains(item['nodeKind'])) {
+        (item['shared'] == true && !ownedCopy) ||
+        !const ['object', 'array', 'boolean'].contains(nodeKind)) {
       return false;
     }
     final current = (analysis?['resources'] as List? ?? [])
@@ -1644,8 +1654,12 @@ class WorkspaceController extends ChangeNotifier {
     cached.clear();
   }
 
-  PropertySession bind(Map<String, dynamic> item) {
-    if (item['shared'] == true) {
+  PropertySession bind(
+    Map<String, dynamic> item, {
+    bool reviewedCopy = false,
+  }) {
+    if (item['shared'] == true &&
+        !(reviewedCopy && scopeSafe(item, reviewedCopy: true))) {
       throw CoreFailure(
         'draft.shared',
         'This operation belongs to a referenced Path Item. Edit its shared definition explicitly in Source.',
@@ -1916,7 +1930,15 @@ class WorkspaceController extends ChangeNotifier {
         'Another captured form needs resolution',
       );
     }
-    final target = bind(item), b = store!.get(target.buffer);
+    final target = bind(
+      item,
+      reviewedCopy: const [
+        'object.extract',
+        'object.extractFile',
+        'object.moveDefinition',
+      ].contains(kind),
+    );
+    final b = store!.get(target.buffer);
     draft = null;
     final session = FormSession(
       kind: kind,

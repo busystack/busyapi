@@ -13,6 +13,7 @@ import {standardOperationMethods} from './contexts';
 import {serverTemplate} from './derived_bundle';
 import {relocateRefactoringMarkdown} from './refactoring_markdown';
 import {componentNamePolicy,permitsMemberName,reusableDefinitionPointer} from './member_names';
+import {MigrationSource} from './migration_source';
 
 const inside=(pointer:string,owner:string)=>pointer===owner||pointer.startsWith(owner+'/');
 
@@ -130,7 +131,7 @@ function retainOccurrenceComments(before:SourceDocument,after:SourceDocument,poi
  return next;
 }
 
-function capture(input:any) {
+function capture(input:any,ownedYaml=false) {
  const resources=input.resources as Resource[],target=input.target;
  if(!Array.isArray(resources)||!Array.isArray(input.contexts)||!input.contexts.length||input.contexts.length>128)
   throw new SourceError('refactor.context','Choose the configured roots whose consumers are being reviewed');
@@ -149,7 +150,7 @@ function capture(input:any) {
  const doc=selected.docs.get(resource.id)!,node=doc.node(target.pointer),scope=selected.graph.scopes.get(resource.id+'#'+target.pointer)!;
  if(target.pointer===''&&selected.graph.specifications.has(doc.id))
   throw new SourceError('refactor.copy.context','An OpenAPI document root cannot become its own extracted or inlined object occurrence');
- if(node.shared||!doc.syntaxSafe(target.pointer)||target.range&&JSON.stringify(target.range)!==JSON.stringify(node.range)||target.expected!==undefined&&target.expected!==resource.text.slice(...node.range))
+ if((node.shared&&!ownedYaml)||!doc.syntaxSafe(target.pointer)||target.range&&JSON.stringify(target.range)!==JSON.stringify(node.range)||target.expected!==undefined&&target.expected!==resource.text.slice(...node.range))
   throw new SourceError('edit.stale','The captured physical occurrence changed or is shared');
  if(owning.some(g=>g.graph.scopes.get(resource.id+'#'+target.pointer)?.kind!==scope.kind))
   throw new SourceError('refactor.context.ambiguous','This physical occurrence has different object kinds in configured roots');
@@ -158,6 +159,55 @@ function capture(input:any) {
   if(at&&at.kind!==ref.kind)throw new SourceError('refactor.context.ambiguous','This source value has distinct typed occurrences; choose explicit ownership before relocating it');
  }
  return {resources,target,resource,graphs,owning,selected,doc,node,scope};
+}
+
+/** Explicit copy reviews share migration's captured YAML token ownership.
+ * Validate original coordinates first, then plan against exact-value-equivalent
+ * private CSTs. Published edits still address the original immutable buffers.
+ * Ordinary proposal writers never receive this permission. */
+function withYamlOwnership(input:any,copyDestination:boolean,plan:(input:any)=>any):any {
+ const before=capture(input,true),sources=new Map<string,MigrationSource>();
+ const own=(doc:SourceDocument,pointer:string,descendants:boolean)=>{
+  if(doc.format!=='yaml')return;
+  let source=sources.get(doc.id);
+  if(!source){source=new MigrationSource(doc);sources.set(doc.id,source);}
+  source.own(pointer,descendants,true);
+ };
+ own(before.doc,before.target.pointer,true);
+ if(copyDestination){
+  const destination=input.destinationResource??before.selected.context.root;
+  const doc=sources.get(destination)?.doc??before.graphs.map(owner=>owner.docs.get(destination)).find(Boolean);
+  const family=componentFamily(before.scope.kind,before.scope.family);
+  if(doc&&family){
+   let pointer=componentLocation(family,before.scope.family)!+'/'+escape(String(input.name));
+   while(!doc.nodes.has(pointer)&&pointer)pointer=pointer.slice(0,pointer.lastIndexOf('/'));
+   // Inserting one member owns its ancestor aliases, not unrelated children.
+   own(doc,pointer,false);
+  }
+ }
+ const changed=[...sources].filter(([,source])=>source.doc.text!==source.original.text);
+ if(!changed.length)return plan(input);
+ const prepared=before.resources.map(resource=>{
+  const source=sources.get(resource.id);
+  return source&&source.doc.text!==resource.text?{...resource,text:source.doc.text}:resource;
+ });
+ const source=sources.get(before.resource.id)?.doc??before.doc,node=source.node(before.target.pointer);
+ const result=plan({...input,resources:prepared,target:{...input.target,range:node.range,expected:source.text.slice(...node.range)}});
+ // A same-location move remains a true no-op, including its YAML tokens.
+ if(!result.edits.length)return {...result,from:input.target,to:{...input.target,resource:result.to.resource,pointer:result.to.pointer}};
+ const outputs=new Map<string,string>();
+ for(const resource of prepared){
+  let text=resource.text;
+  for(const edit of result.edits.filter((edit:any)=>edit.buffer===resource.id).sort((a:any,b:any)=>b.start-a.start)){
+   if(text.slice(edit.start,edit.end)!==edit.expected)throw new SourceError('edit.stale','The owned refactoring projection no longer matches its private CST');
+   text=text.slice(0,edit.start)+edit.replacement+text.slice(edit.end);
+  }
+  if(text!==before.resources.find(original=>original.id===resource.id)!.text)outputs.set(resource.id,text);
+ }
+ const edits=editsFor(before.resources,outputs);
+ return {...result,edits,changes:[...outputs].map(([resource,after])=>({resource,before:before.resources.find(original=>original.id===resource)!.text,after})),
+  from:input.target,to:{...input.target,resource:result.to.resource,pointer:result.to.pointer},
+  identity:createHash('sha256').update(JSON.stringify({proof:result.identity,snapshot:input.snapshot,target:input.target,edits})).digest('hex')};
 }
 
 export function editsFor(resources:Resource[],outputs:Map<string,string>) {
@@ -224,7 +274,10 @@ function relocateCopiedUris(before:ReferenceGraph,after:ReferenceGraph,from:{res
  }
 }
 
-function planCopy(input:any,moving=false) {
+function planCopy(input:any,moving=false):any {
+ return withYamlOwnership(input,true,prepared=>planOwnedCopy(prepared,moving));
+}
+function planOwnedCopy(input:any,moving=false) {
  const {resources,target,resource,graphs,owning,selected,doc,node,scope}=capture(input),family=componentFamily(scope.kind,scope.family);
  if(!family||scope.kind==='media'&&scope.family!=='3.2'||!permitsMemberName(componentNamePolicy(scope.family),input.name))
   throw new SourceError('refactor.copy.context','Choose an inline reusable object and a legal component name');
@@ -403,7 +456,7 @@ export const planExtract=(input:any)=>planCopy(input);
 /** Compose extraction/relocation proofs in one immutable proposal. Temporary
  * CST insertion slots are never published buffers or a second document model. */
 export function planExtractToFile(input:any) {
- const original=capture(input),id=input.destinationResource;
+ const original=capture(input,true),id=input.destinationResource;
  if(typeof id!=='string'||original.resources.some(resource=>resource.id===id))throw new SourceError('edit.collision','Choose an unused approved source destination');
  let uri:URL;try{uri=new URL(id);}catch{throw new SourceError('refactor.extract.destination','Choose an absolute local source destination');}
  if(uri.protocol!=='file:'||uri.host||uri.hash||uri.search||!/\.(?:json|ya?ml)$/i.test(uri.pathname)||uri.pathname.endsWith('/busyapi.yaml'))
@@ -633,14 +686,21 @@ export const planMoveDefinition=(input:any)=>planCopy(input,true);
 /** Explicit, one-occurrence inlining. Definitions remain shared and unchanged.
  * Reference Object overrides, Path Item ambiguity, and Schema applicator
  * siblings are separate cases, never one universal object merge rule. */
-export function planInline(input:any) {
+export function planInline(input:any):any {
+ return withYamlOwnership(input,false,planOwnedInline);
+}
+function planOwnedInline(input:any) {
  const {resources,target,resource,graphs,owning,selected,doc,node,scope}=capture(input);
  semanticOwner(owning,resource.id,target.pointer,node.range);
  const refs=owning.map(g=>g.graph.references.find(r=>same(r,scope)&&r.keyword==='$ref'));
  const ref=refs[0];
  if(!ref||ref.resolution!=='resolved'||refs.some(r=>!r||r.targetResource!==ref.targetResource||r.targetPointer!==ref.targetPointer))
   throw new SourceError('refactor.inline.target','Choose one unambiguous reference occurrence with the same target in every owning root');
- const definition=selected.docs.get(ref.targetResource!)!,definitionPointer=ref.targetPointer!,definitionNode=definition.node(definitionPointer);
+ const definitionPointer=ref.targetPointer!,definitionSource=new MigrationSource(selected.docs.get(ref.targetResource!)!);
+ // The retained definition is read through a private owned CST. Its anchors
+ // and other alias consumers are not publication edits of an inline review.
+ definitionSource.own(definitionPointer,true,true);
+ const definition=definitionSource.doc,definitionNode=definition.node(definitionPointer);
  if(ref.targetResource===resource.id&&inside(target.pointer,definitionPointer))
   throw new SourceError('refactor.inline.recursive','The definition contains this occurrence; recursive graphs cannot be silently inlined');
  for(const g of owning){

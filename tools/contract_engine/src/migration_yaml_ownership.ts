@@ -3,7 +3,7 @@ import {SourceDocument,SourceError,type Node,type Range} from './document';
 type Ownership=Readonly<{document:SourceDocument;changed:readonly string[]}>;
 const inside=(pointer:string,parent:string)=>pointer===parent||pointer.startsWith(parent+'/');
 
-/** Give an explicit migration edit independent YAML ownership. Only captured
+/** Give an explicit source transformation independent YAML ownership. Only captured
  * anchor-property and alias-value tokens change. Alias bindings use node
  * identity, including reused names and key anchors; no text search resolves
  * them. All other logical values must remain exactly equal before editing. */

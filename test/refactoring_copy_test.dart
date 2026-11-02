@@ -134,8 +134,18 @@ void main() {
                   },
                 },
               };
-              final original =
-                  '${json ? '' : '# retained\r\n'}${const JsonEncoder.withIndent('  ').convert(value).replaceAll('"EXACT"', '900719925474099312345')}';
+              var original = const JsonEncoder.withIndent('  ')
+                  .convert(value)
+                  .replaceAll('"EXACT"', '900719925474099312345');
+              if (!json) {
+                original = original.replaceFirst(
+                  '"child": {',
+                  '"child": &owned {',
+                );
+                original = '# retained\r\n'
+                    '${original.substring(0, original.length - 1)},\n'
+                    '  "x-history": *owned\n}';
+              }
               const pointer = '/components/schemas/Owner/properties/child';
               await tester.runAsync(() async {
                 await file.writeAsString('\ufeff$original');
@@ -183,6 +193,14 @@ void main() {
                 ),
               );
               final buffer = c.buffer!, originalBytes = buffer.bytes();
+              if (!json) {
+                final item = (await tester.runAsync(
+                  () => c.project!.inspectObject(c.root!, buffer.id, pointer),
+                ))!;
+                expect(item['shared'], true);
+                expect(c.scopeSafe(item), false);
+                expect(c.scopeSafe(item, reviewedCopy: true), true);
+              }
               if (version == '3.1.2' && !json && !cross) {
                 final item = await tester.runAsync(
                   () => c.project!.inspectObject(c.root!, buffer.id, pointer),
@@ -349,6 +367,14 @@ void main() {
                 containsAll(['/info', '/components/schemas/Extracted']),
               );
               final extracted = buffer.bytes();
+              if (!json) {
+                final history = jsonDecode(
+                  buffer.text.substring(buffer.text.indexOf('{')),
+                )['x-history'];
+                expect(history['type'], 'object');
+                expect(history[r'$ref'], isNull);
+                expect(history['x-kept'][r'$ref'], 'payload data');
+              }
               expect(c.selectedPointer, '/components/schemas/Extracted');
               expect(
                 c.selectedResource,

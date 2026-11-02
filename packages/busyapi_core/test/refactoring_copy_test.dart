@@ -102,7 +102,14 @@ void main() {
           var text = const JsonEncoder.withIndent('  ')
               .convert(data)
               .replaceAll('"EXACT_NUMBER"', '900719925474099312345');
-          if (!json) text = '# retained\r\n${text.replaceAll('\n', '\r\n')}';
+          if (!json) {
+            // A real YAML anchor with a literal-data consumer. The reviewed
+            // transaction must disjoin it without changing that consumer.
+            text = text.replaceFirst('"inline": {', '"inline": &owned {');
+            text = '${text.substring(0, text.length - 1)},\n'
+                '  "x-history": *owned\n}';
+            text = '# retained\r\n${text.replaceAll('\n', '\r\n')}';
+          }
           await root.writeAsString('\ufeff$text');
           const pointer = '/components/schemas/Owner/properties/inline';
           await consumer.writeAsString(
@@ -158,6 +165,12 @@ void main() {
           final accepted = buffer.bytes(),
               fragment = project.store.get(consumer.uri.toString());
           expect(buffer.text, contains('900719925474099312345'));
+          if (!json) {
+            final retained = decode(buffer.text)['x-history'];
+            expect(retained['type'], 'object');
+            expect(retained['description'], 'First\n😀 second\n');
+            expect(retained[r'$ref'], isNull);
+          }
           expect(buffer.text, isNot(endsWith('\n')));
           expect(buffer.hasBom, true);
           expect(

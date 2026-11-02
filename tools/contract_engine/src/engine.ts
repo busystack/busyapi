@@ -450,7 +450,12 @@ export function inspect(input: any) {
         }
     }
     const sharedTarget=!!componentFamily(scope.kind,family)&&graph.references.some(ref=>ref.resolution==='resolved'&&ref.targetResource===doc.id&&ref.targetPointer===node.pointer);
+    // Read-only eligibility for an explicit copy/inline ownership review. An
+    // alias token is physical source; its descendants remain non-editable.
+    const reviewedCopySource=doc.format==='yaml'&&!!componentFamily(scope.kind,family)&&doc.dataSyntaxSafe(node.pointer)
+      ?{nodeKind:scope.kind==='schema'&&typeof node.value==='boolean'?'boolean':doc.dataNode(node.pointer)!.kind}:undefined;
     return {version: 1, snapshot: input.snapshot, family, ...(isNativeFamily(family)?{capabilities:capabilitiesFor(family)}:{}), customSchemaKeywords: modernFamily(family), ...located(node, scope.kind), interpretations:graph.scopesAt(doc.id,node.pointer).map(({kind,family,dialect})=>({kind,family,dialect})), sharedTarget, componentDestination: graph.specifications.get(doc.id)?.family===family, componentDestinations, ...(componentFamily(scope.kind,family)?{componentFamily:componentFamily(scope.kind,family)}:{}), ...(schemaTreeRoot!==undefined?{schemaTreeRoot}:{}), removable, allowsExtensions: allowsExtensions(scope.kind, family, node.value, segments(node.pointer).at(-1),graph.allowsReference(scope)), fields, entries, offset, count: node.children.size, references,
+        ...(reviewedCopySource?{reviewedCopySource}:{}),
         ...(ownerSchema ? {ownerSchema: located(ownerSchema, 'schema')} : {}),
         schemaSuggestion:schemaInferenceSources(graph,scope),
         ...(binding?{securityBinding:binding}:{}),

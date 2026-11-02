@@ -682,7 +682,7 @@ class _NativeObjectPageState extends State<_NativeObjectPage> {
                     ))
                   BusyApiActionRow(
                     title: l.moveComponentDefinition,
-                    onTap: c.scopeSafe(item)
+                    onTap: c.scopeSafe(item, reviewedCopy: true)
                         ? () => run(
                             () => _extractObjectComponent(
                               context,
@@ -702,7 +702,7 @@ class _NativeObjectPageState extends State<_NativeObjectPage> {
                     ))
                   BusyApiActionRow(
                     title: l.extractComponent,
-                    onTap: c.scopeSafe(item)
+                    onTap: c.scopeSafe(item, reviewedCopy: true)
                         ? () => run(
                             () => _extractObjectComponent(context, c, item),
                           )
@@ -826,7 +826,7 @@ class _NativeObjectPageState extends State<_NativeObjectPage> {
                         BusyApiActionRow(
                           title: l.inlineReference,
                           onTap:
-                              c.scopeSafe(item) &&
+                              c.scopeSafe(item, reviewedCopy: true) &&
                                   ref['resolution'] == 'resolved'
                               ? () => run(
                                   () =>
