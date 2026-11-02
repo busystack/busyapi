@@ -3,19 +3,20 @@ import {children,referenceKinds} from './contexts';
 import {escape,SourceError} from './document';
 import {documentUriOccurrences} from './document_uris';
 import {serverTemplate} from './derived_bundle';
-import {documentUriBase,pointerFragment,resolveUri,schemaResourceContextIdentity,type GraphScope,type GraphReference,type ReferenceGraph} from './reference_graph';
+import {documentUriBase,pointerFragment,resolveUri,schemaResourceContextIdentity,supportedSchemaDialect,type GraphScope,type GraphReference,type ReferenceGraph} from './reference_graph';
 import {MigrationSchemaOwners} from './migration_schema_owners';
 import {migrationContextDifferences,migrationReferences,type DocumentContext} from './migration_documents';
 import {defaultSchemaDialect,modernFamily} from './specification';
 import {MigrationSource,type MigrationLocation} from './migration_source';
 import type {MigrationIssue} from './migration_schema';
+import {schemaKeywordKnown} from './schema_evaluation';
 
 const key=(at:MigrationLocation)=>JSON.stringify([at.resource,at.pointer]);
 const inside=(pointer:string,parent:string)=>pointer===parent||pointer.startsWith(parent+'/');
 type ResourceHolder=Readonly<{location:MigrationLocation;dialect:string|null}>;
 type Placement=Readonly<{scope:GraphScope;location:MigrationLocation;intrinsic:ReadonlyMap<string,string>;inheritedDialect:string|null;inheritsResource:boolean;resourceSensitive:boolean}>;
 type UseSelection=Readonly<{mode:'entry';entryNamespace:string;scopes:readonly GraphScope[]}>|
-    Readonly<{mode:'role';scopes:readonly GraphScope[];references:readonly GraphReference[]}>;
+    Readonly<{mode:'role';scopes:readonly GraphScope[];references:readonly GraphReference[];containers?:ReadonlyMap<string,MigrationLocation>}>;
 const useKey=(scope:{resource:string;pointer:string;kind:string})=>JSON.stringify([scope.resource,scope.pointer,scope.kind]);
 const referenceOwnerKind=(reference:GraphReference)=>reference.connection==='discriminator'?'discriminator':
     reference.connection==='security'?'security-requirement':reference.connection?'link':reference.kind;
@@ -24,7 +25,7 @@ const referenceOwnerKind=(reference:GraphReference)=>reference.connection==='dis
  * selected entry's compatible component map; otherwise retain the captured
  * foreign document's native map. The common allocator still keys the owner by
  * entry use, and the reference/context proofs still apply to every consumer. */
-function entryComponentContainer(graph:ReferenceGraph,scope:GraphScope,namespace:string):MigrationLocation|undefined {
+function entryComponentLocation(graph:ReferenceGraph,scope:GraphScope,namespace:string):MigrationLocation|undefined {
     const group=componentFamily(scope.kind,scope.family);
     if(!group)return;
     // Swagger model names participate in implicit discriminator tables. Its
@@ -33,20 +34,33 @@ function entryComponentContainer(graph:ReferenceGraph,scope:GraphScope,namespace
     const resource=graph.specifications.get(namespace)?.family===scope.family?namespace:
         graph.specifications.get(scope.resource)?.family===scope.family?scope.resource:undefined;
     const pointer=componentLocation(group,scope.family);
-    if(resource!==undefined&&resource!==namespace&&pointer!==undefined){
-        // A newly admitted foreign holder must not change an independent
+    return resource!==undefined&&pointer!==undefined?{resource,pointer}:undefined;
+}
+function entryComponentContainer(graph:ReferenceGraph,scope:GraphScope,namespace:string,owners:MigrationSchemaOwners):MigrationLocation|undefined {
+    const container=entryComponentLocation(graph,scope,namespace);
+    if(container){
+        // A newly admitted holder must not change an independent
         // schema annotation or literal collection. That container needs its
         // own semantic split before a native member can be inserted there.
-        let at=pointer;
+        const resource=container.resource;
+        let at=container.pointer;
         while(true){
-            if(graph.literalContainer(resource,at)!==undefined||graph.hasOverlappingScope(resource,at)){
+            const primary=graph.scopes.get(resource+'#'+at);
+            const protectedRoles=graph.scopesAt(resource,at).every(role=>role.kind===primary?.kind||role.kind==='schema'&&owners.roleOwners(role).length>0);
+            if(graph.literalContainer(resource,at)!==undefined||graph.hasOverlappingScope(resource,at)&&!protectedRoles){
                 const range=graph.docs.get(resource)!.dataNode(at)?.range??graph.docs.get(resource)!.root.range;
-                throw new SourceError('migration.owners.entry-container','This foreign component container has another interpretation requiring independent ownership before insertion',range,'unsupported',{resource,pointer:at,range});
+                throw new SourceError('migration.owners.entry-container','This component container has another interpretation requiring independent ownership before insertion',range,'unsupported',{resource,pointer:at,range});
             }
             if(!at)break;at=at.slice(0,at.lastIndexOf('/'));
         }
     }
-    return resource!==undefined&&pointer!==undefined?{resource,pointer}:undefined;
+    return container;
+}
+
+function unknownAnnotationScope(graph:ReferenceGraph,scope:GraphScope,inspect:()=>void):boolean {
+    if(scope.kind!=='schema'||!modernFamily(scope.family)||!supportedSchemaDialect(scope)||!scope.dialect)return false;
+    const node=graph.docs.get(scope.resource)!.dataNode(scope.pointer)!;
+    return node.kind==='object'&&[...node.children.keys()].every(name=>{inspect();return !schemaKeywordKnown(scope.dialect!,name);});
 }
 
 /** Backward closure over typed containment and static schema references.
@@ -129,6 +143,35 @@ export function separateMigrationEntryUses(contexts:readonly DocumentContext[],s
             pending.push(...(parents.get(id)??[]),...(incoming.get(id)??[]));
             if(scope.kind==='schema'&&sensitiveGroups.has(schemaResourceContextIdentity(scope)))
                 pending.push(...schemaGroups.get(schemaResourceContextIdentity(scope))??[]);
+        }
+        // Native allocation can change a map's independently interpreted
+        // annotations before the ordinary role pass reaches it. Capture only
+        // the affected annotation-only schemas first, using this same owner
+        // relation, immutable source and typed reference repair. They retain
+        // the containing document's family even for a different entry.
+        const protectedScopes=new Map<string,GraphScope>(),containers=new Map<string,MigrationLocation>();
+        for(const scope of selected.values()){
+            const container=entryComponentLocation(graph,scope,graph.root);
+            if(!container)continue;
+            let pointer=container.pointer;
+            while(true){
+                admit();const schema=graph.scopeAs(container.resource,pointer,'schema');
+                if(schema&&!protectedScopes.has(useKey(schema))&&graph.hasOverlappingScope(schema.resource,schema.pointer)&&!owners.roleOwners(schema).length&&
+                    unknownAnnotationScope(graph,schema,admit)){
+                    const holder=entryComponentLocation(graph,schema,schema.resource);
+                    if(holder){
+                        protectedScopes.set(useKey(schema),schema);containers.set(useKey(schema),holder);
+                    }
+                }
+                if(!pointer)break;pointer=pointer.slice(0,pointer.lastIndexOf('/'));
+            }
+        }
+        if(protectedScopes.size){
+            const copies=separateMigrationUses(graph,sources,issue,createSchemaResource,preserveContext,
+                {mode:'role',scopes:[...protectedScopes.values()],references:[...migrationReferences(contexts.map(context=>context.graph))],containers},owners);
+            for(const [origin,locations]of copies){
+                const values=provenance.get(origin)??[];values.push(...locations);provenance.set(origin,values);
+            }
         }
         const copies=separateMigrationUses(graph,sources,issue,createSchemaResource,preserveContext,
             {mode:'entry',entryNamespace:graph.root,scopes:[...selected.values()]},owners);
@@ -216,7 +259,7 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
             const boundary=graph.scopeAs(scope.resource,scope.resourcePointer,'schema');
             const whole=boundary&&graph.isEntryUse(boundary)&&schemaResourceContextIdentity(boundary)===identity;
             if(!whole){
-                const container=entryComponentContainer(graph,scope,entry.entryNamespace);
+                const container=entryComponentContainer(graph,scope,entry.entryNamespace,owners);
                 if(!container||!scope.dialect)continue;
                 const source=sources.get(container.resource)!;
                 const holder=owners.allocate(source,container.pointer,'resource_use',JSON.stringify([entry.entryNamespace,identity]));
@@ -280,9 +323,17 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
         const nativeContainer=scope.kind!=='schema'&&group&&graph.specifications.get(scope.resource)?.family===scope.family?
             componentLocation(group,scope.family):undefined;
         // Native component owners keep document/API URI context. Schema uses
-        // keep the separate registry unless resource-sensitive: introducing a
-        // new component model name could alter implicit discriminator choices.
-        let container:MigrationLocation|undefined=nativeContainer?{resource:scope.resource,pointer:nativeContainer}:undefined;
+        // usually keep the separate registry: introducing a new component model
+        // name could alter implicit discriminator choices. Pure unknown
+        // annotation views below have no such model/connection behavior.
+        let container:MigrationLocation|undefined=selection?.mode==='role'?selection.containers?.get(useKey(scope)):undefined;
+        container??=nativeContainer?{resource:scope.resource,pointer:nativeContainer}:undefined;
+        // A pure annotation view has no implicit model/connection behavior.
+        // Its containing document's map preserves the captured family in all
+        // entries, independently of their processing order. An anonymous
+        // registry would instead inherit each selected entry's feature set.
+        if(!container&&!entry&&graph.hasOverlappingScope(scope.resource,scope.pointer)&&unknownAnnotationScope(graph,scope,inspect))
+            container=entryComponentLocation(graph,scope,scope.resource);
         const intrinsicSchemas=schemaScopes.filter(schema=>{
             inspect();return schema.resource===scope.resource&&intrinsic.get(schema.pointer)==='schema';
         });
@@ -299,7 +350,7 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
         let inheritsResource=false;
         if(entry){
             const entryFamily=graph.specifications.get(entry.entryNamespace)?.family;
-            const entryContainer=entryComponentContainer(graph,scope,entry.entryNamespace);
+            const entryContainer=entryComponentContainer(graph,scope,entry.entryNamespace,owners);
             // Older Path Items and independently referenced Operations have no
             // component map. A plain captured fragment is their native holder;
             // it must still be interpreted in the original specification family.

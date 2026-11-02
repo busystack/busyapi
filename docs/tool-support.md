@@ -786,9 +786,11 @@ the captured context; literal values survive separately. The common allocator
 retains per-entry namespaces and typed role owners.
 Compatible foreign component maps also hold mixed-family schema/native variants;
 partial modern resources retain one dialect-bearing material owner. Mixed-family
-uses without a proved holder, independently interpreted destination containers
-and general refactoring ownership remain gaps.
-The migration producer is **57**; Core rejects previous
+Annotation-only schema views of affected destination maps/documents are captured
+through the same role allocator before insertion. Other container/resource
+interpretations, uses without a proved holder and general refactoring ownership
+remain gaps.
+The migration producer is **58**; Core rejects previous
 producer responses before publication. Current qualification remains pending.
 
 Older-family migration also lowers dynamic references when every captured

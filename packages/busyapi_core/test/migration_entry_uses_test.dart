@@ -44,26 +44,44 @@ void main() {
       (second['components'] as Map)['schemas']['Base'] = model;
       (second['components'] as Map)['headers'] = {'Shared': {'schema': {r'$ref': '#/components/schemas/Base'}}};
       second['x-history'] = model;
+      if (foreignVersion == '3.1.2') {
+        (first['components'] as Map)['schemas']['Dictionary'] = {r'$ref': 'b.yaml#/components'};
+        (first['components'] as Map)['schemas']['Document'] = {r'$ref': 'b.yaml#'};
+      }
       String encode(Map value) => '# Keep mixed source 雪\r\n${jsonEncode(value).replaceAll('"EXACT"', '9007199254740993.00')}\r\n';
       final originals = {'a.yaml': encode(first), 'b.yaml': encode(second)};
       for (final entry in originals.entries) await File('${directory.path}/${entry.key}').writeAsString(entry.value);
       await File('${directory.path}/busyapi.yaml').writeAsString('version: 1\nroots:\n  - name: first\n    path: a.yaml\n  - name: second\n    path: b.yaml\n');
       final source = await BusyProject.open(directory.path, engine);addTearDown(source.close);
       final roots = [File('${directory.path}/a.yaml').uri.toString(), File('${directory.path}/b.yaml').uri.toString()];
-      Future<void> exercise(BusyProject project, String root) async {
+      Future<void> exercise(BusyProject project, String root, {bool dictionary = false}) async {
         expect((await project.check(root))['status'], 'complete');
         final plan = await project.prepareRequest(root, resource: root, pointer: '/paths/~1p/post');
         try {
           final body = ((((plan.result['responses'] as List).single as Map)['content'] as List).single as Map)['schema'] as Map;
-          var at = Map<String, dynamic>.from(body);
-          var resolved = false;
-          for (var count = 0; count < 64; count++) {
-            final page = await project.inspectObject(root, at['resource'], at['pointer'], contextKind: 'schema');
-            final reference = (page['references'] as List).whereType<Map>().where((ref) => ref['keyword'] == r'$ref').firstOrNull;
-            if (reference == null) { resolved = true;break; }
-            expect(reference['resolution'], 'resolved');at = Map<String, dynamic>.from(reference['target']);
+          Future<Map<String, dynamic>> material(Map start) async {
+            var at = Map<String, dynamic>.from(start);
+            for (var count = 0; count < 64; count++) {
+              final page = await project.inspectObject(root, at['resource'], at['pointer'], contextKind: 'schema');
+              final reference = (page['references'] as List).whereType<Map>().where((ref) => ref['keyword'] == r'$ref').firstOrNull;
+              if (reference == null) return page;
+              expect(reference['resolution'], 'resolved');at = Map<String, dynamic>.from(reference['target']);
+            }
+            fail('The reviewed material owner forwarding must remain bounded');
           }
-          expect(resolved, true);
+          final at = await material(body);
+          if (dictionary) {
+            final annotation = await material({'resource': root, 'pointer': '/components/schemas/Dictionary'});
+            final raw = (annotation['entries'] as List).whereType<Map>().singleWhere((entry) => entry['name'] == 'schemas')['raw'] as String;
+            expect(raw, contains('9007199254740993.00'));
+            final schemas = jsonDecode(raw) as Map;
+            expect(schemas.keys.toSet(), {'Choice', 'Base'});
+            expect(schemas['Base']['discriminator']['mapping'], {'chosen': 'Choice'});
+            expect(schemas['Choice']['properties']['entry']['enum'], ['Second']);
+            final document = await material({'resource': root, 'pointer': '/components/schemas/Document'});
+            final version = (document['entries'] as List).whereType<Map>().singleWhere((entry) => entry['name'] == 'openapi');
+            expect(version['value'], foreignVersion);
+          }
           final mapping = await project.inspectObject(root, at['resource'], '${at['pointer']}/discriminator/mapping', contextKind: 'discriminator-map');
           final binding = (mapping['references'] as List).whereType<Map>().single;
           expect(binding['targetResource'], root);expect(binding['targetPointer'], '/components/schemas/Choice');
@@ -80,7 +98,7 @@ void main() {
           finally { await response.close(); }
         } finally { plan.close(); }
       }
-      await exercise(source, roots[0]);await exercise(source, roots[1]);
+      await exercise(source, roots[0], dictionary: foreignVersion == '3.1.2');await exercise(source, roots[1]);
       final buffer = await source.buffer(roots[0]);source.store.replace(buffer.id, buffer.text.replaceFirst('First', 'Captured First'));
       final stale = await source.prepareMigration(roots[0], '${directory.path}/stale', targetVersion: '3.2.1');addTearDown(stale.close);
       expect(stale.publishable, true, reason: '${stale.result}');
@@ -95,7 +113,9 @@ void main() {
       source.close();final relocated = await Directory(review.destination).rename('${directory.path}/cold 雪');
       for (final name in originals.keys) await File('${directory.path}/$name').delete();
       final cold = await BusyProject.open(relocated.path, engine);addTearDown(cold.close);
-      for (final name in destinations) await exercise(cold, File('${relocated.path}/$name').uri.toString());
+      for (final (index, name) in destinations.indexed) {
+        await exercise(cold, File('${relocated.path}/$name').uri.toString(), dictionary: index == 0 && foreignVersion == '3.1.2');
+      }
       final cli = await Process.run('$testBundle/busyapi', ['check', relocated.path, '--json'], environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
       expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');
     });

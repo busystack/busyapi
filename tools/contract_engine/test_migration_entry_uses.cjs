@@ -142,6 +142,8 @@ for(const format of ['yaml','json'])test(`${format} shared operation, security a
   Literal:{security:[{Access:[]}],mapping:{chosen:'Choice'},zero:0,flag:false,empty:''}}];
  values[0].components.links={Next:{operationId:'shared',description:'[Next](../next.md)'}};
  values[0]['x-next']=values[0].components.links.Next;
+ values[0].components.schemas.Dictionary={$ref:'#/components'};
+ values[0].components.schemas.Document={$ref:'#'};
  const input={root,snapshot:'entry-names',targetVersion:'3.1.2',destination:'file:///names-output/',resources:values.map((value,index)=>({
   id:[root,other,shared][index],generation:index,text:format==='yaml'?'# Keep namespaces 雪\r\n'+YAML.stringify(value).replaceAll('\n','\r\n'):JSON.stringify(value)}))};
  const original=input.resources.map(resource=>resource.text);
@@ -167,6 +169,15 @@ for(const format of ['yaml','json'])test(`${format} shared operation, security a
  for(const [entry,name]of [[root,'First'],[other,'Second']]){
   const outputRoot=review.changes.find(change=>change.resource===entry).destination;
   assert.equal(inspect({...cold,root:outputRoot},true),'X-'+name);
+  if(entry===root){
+   const {SourceDocument}=require('./dist/document.cjs'),before=new SourceDocument(original[0],root),graph=createGraph({...cold,root:outputRoot}).graph;
+   for(const [name,pointer,fields]of [['Dictionary','/components',['schemas','links','securitySchemes']],['Document','',['openapi','paths','components','x-next']]]){
+    const reference=graph.referenceAs(outputRoot,'/components/schemas/'+name,'$ref','schema');
+    assert.equal(reference.resolution,'resolved');assert.notEqual(reference.targetPointer,pointer);
+    const owner=graph.docs.get(reference.targetResource);
+    for(const field of fields)assert.equal(owner.dataJson(reference.targetPointer+'/'+field),before.dataJson(pointer+'/'+field),name+' preserves its original '+field+' annotation');
+   }
+  }
  }
  const detached=review.outputs.find(output=>output.id===review.changes.find(change=>change.resource===shared).destination);
  assert.equal(detached.text,input.resources[2].text);assert.deepEqual(input.resources.map(resource=>resource.text),original);
@@ -243,14 +254,22 @@ for(const [foreignVersion,entryVersion,targetVersion,anchored]of [
  assert.equal(doc.dataJson('/x-history'),history);assert.deepEqual(input.resources.map(resource=>resource.text),original);
  const repeated=await planMigration(input);assert.equal(repeated.complete,true,JSON.stringify(repeated.problems));assert.deepEqual(repeated.outputs,review.outputs);
  if(anchored){
-  // Inserting into a foreign map must not silently change another Schema
-  // Object's unknown-keyword annotation. This remaining container case needs
-  // a proved independent owner, rather than an assertion of unrepresentability.
+  // The container's independent annotation view must be captured before new
+  // native variants are inserted, through the same typed role-owner relation.
   first.components.schemas.Dictionary={$ref:'b.'+format+'#/components'};
   const guarded={...input,resources:[{...input.resources[0],text:encode(first)},input.resources[1]]};
   assert.equal(analyse(guarded).status,'complete');
-  const blocked=await planMigration(guarded);assert.equal(blocked.complete,false);assert.deepEqual(blocked.outputs,[]);
-  assert(blocked.problems.some(problem=>problem.code==='migration.owners.entry-container'&&problem.reason==='implementation'&&problem.resource===other&&problem.pointer==='/components'));
+  const protectedReview=await planMigration(guarded);assert.equal(protectedReview.complete,true,JSON.stringify(protectedReview.problems));
+  const protectedCold={snapshot:'cold-owned-container',resources:protectedReview.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
+  const outputRoot=protectedReview.changes.find(change=>change.resource===root).destination;
+  await inspect({...protectedCold,root:outputRoot},'First');
+  const graph=createGraph({...protectedCold,root:outputRoot}).graph,annotation=follow(graph,outputRoot,'/components/schemas/Dictionary','schema');
+  const doc=graph.docs.get(annotation.resource),before=new (require('./dist/document.cjs').SourceDocument)(input.resources[1].text,other);
+  assert.notEqual(annotation.pointer,'/components');
+  assert.equal(doc.dataJson(annotation.pointer+'/schemas'),before.dataJson('/components/schemas'));
+  assert.equal(doc.dataJson(annotation.pointer+'/headers'),before.dataJson('/components/headers'));
+  assert.equal(new (require('./dist/document.cjs').SourceDocument)(protectedCold.resources.find(resource=>resource.id===annotation.resource).text,annotation.resource).dataJson('/x-history'),history);
+  assert.deepEqual(guarded.resources.map(resource=>resource.text),[encode(first),original[1]]);
  }
 });
 
@@ -260,4 +279,26 @@ test('ordinary patch migration retains authored operationId links when no operat
  const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
  const result=JSON.parse(review.outputs.find(output=>output.id===review.outputRoot).text);
  assert.deepEqual(result.paths['/p'].get.responses['200'].links.Self,{operationId:'one'});assert.equal(result.paths['/p'].get.operationId,'one');
+});
+
+for(const format of ['yaml','json'])test(`${format} a foreign whole-document Schema view retains annotations without entry binding differences`,async()=>{
+ const root='file:///foreign-schema/a.'+format,other='file:///foreign-schema/b.'+format;
+ const first={openapi:'3.2.1',info:{title:'First',version:'business'},paths:{},components:{schemas:{Foreign:{$ref:'b.'+format+'#'}}}};
+ const second={openapi:'3.1.2',info:{title:'Second',version:'business'},paths:{'/native':{get:{responses:{200:{description:'Value',content:{'application/json':{schema:{$ref:'#/components/schemas/Number'}}}}}}}},components:{schemas:{Number:{type:'integer',enum:['EXACT']}}}};
+ const encode=value=>(format==='yaml'?YAML.stringify(value):JSON.stringify(value)).replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const input={root,snapshot:'foreign-annotation-role',targetVersion:'3.2.1',destination:'file:///foreign-schema-output/',resources:[{id:root,text:encode(first),generation:1},{id:other,text:encode(second),generation:2}]};
+ const values=['null','false','0','{}','{"value":"any"}'];
+ const evaluate=packet=>evaluateSchemas({...packet,runtimeInstances:values.map(text=>({subject:'response-body',location:'application/json',text,schema:{resource:packet.root,pointer:'/components/schemas/Foreign'}}))});
+ const before=await evaluate(input);assert.equal(before.complete,true,JSON.stringify(before.findings));assert.deepEqual(before.runtimeEvaluations.map(value=>value.valid),values.map(()=>true));
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.outputs.length,2);
+ const cold={root:review.outputRoot,snapshot:'cold-foreign-annotation',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
+ const graph=createGraph(cold).graph,reference=graph.referenceAs(cold.root,'/components/schemas/Foreign','$ref','schema');assert.equal(reference.resolution,'resolved');assert.notEqual(reference.targetPointer,'');
+ const {SourceDocument}=require('./dist/document.cjs'),source=new SourceDocument(input.resources[1].text,other),doc=graph.docs.get(reference.targetResource);
+ for(const name of ['openapi','info','paths','components'])assert.equal(doc.dataJson(reference.targetPointer+'/'+name),source.dataJson('/'+name));
+ assert.equal(doc.node('/openapi').value,'3.2.1');assert.equal(doc.node(reference.targetPointer+'/openapi').value,'3.1.2');
+ const after=await evaluate(cold);assert.equal(after.complete,true,JSON.stringify(after.findings));assert.deepEqual(after.runtimeEvaluations.map(value=>value.valid),values.map(()=>true));
+ const plan=requestOperation({...cold,root:reference.targetResource,resource:reference.targetResource,pointer:'/paths/~1native/get'});
+ const native=await evaluateSchemas({...cold,root:reference.targetResource,runtimeInstances:['9007199254740993.00','0'].map(text=>({subject:'response-body',location:'application/json',text,schema:plan.responses[0].content[0].schema}))});
+ assert.equal(native.complete,true,JSON.stringify(native.findings));assert.deepEqual(native.runtimeEvaluations.map(value=>value.valid),[true,false]);
+ assert.deepEqual(input.resources.map(resource=>resource.text),[encode(first),encode(second)]);
 });
