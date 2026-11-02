@@ -32,12 +32,12 @@ import {MigrationExamples,proveMigrationExamples,type MigrationExampleCopy} from
 import {migrateTerms} from './migration_terms';
 import {migrateServerVariableDefaults,retainDefaultServers} from './migration_servers';
 import {migrationLogicalPointers} from './migration_yaml_ownership';
-import {separateMigrationUses,separateMigrationEntryUses} from './migration_schema_uses';
+import {separateMigrationRoles,separateMigrationEntryUses} from './migration_schema_uses';
 import {MigrationSchemaOwners} from './migration_schema_owners';
 import {projectSchemaReference} from './schema_reference_projection';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='51';
+const migrationProducerVersion='52';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const patch:Record<string,string>={'2.0':'2.0','3.0':'3.0.4','3.1':'3.1.2','3.2':'3.2.1'};
 export type MigrationInput=Readonly<{
@@ -172,20 +172,40 @@ export async function planMigration(input:MigrationInput) {
             const owners=new MigrationSchemaOwners(graph,sources,createSchemaResource,
                 (input.exampleResources??[]).flatMap(resource=>[resource.id,...resource.aliases]));
             const sourceContexts=contexts;
-            const specialized=new Map(separateMigrationUses(graph,sources,issue,createSchemaResource,
-                (scope,destination,preserveBase,expectedBase)=>contextProofs.push({scope,destination,preserveBase,expectedBase}),undefined,owners));
-            if(problems.length)break;
+            const specialized=new Map<string,readonly MigrationLocation[]>();
+            let ownershipWork=0;
+            const admitOwnership=()=>{
+                if(++ownershipWork>2000000)throw new SourceError('limit.migration.owners','Composed ownership exceeds 2000000 source/proof states');
+            };
+            const captureContext=(scope:GraphScope,destination:MigrationLocation,preserveBase:boolean,expectedBase?:string)=>
+                contextProofs.push({scope,destination,preserveBase,expectedBase});
+            const retainCopies=(copies:ReadonlyMap<string,readonly MigrationLocation[]>)=>{
+                const unique=(locations:Iterable<MigrationLocation>)=>{
+                    const selected=new Map<string,MigrationLocation>();
+                    for(const location of locations){admitOwnership();selected.set(key(location.resource,location.pointer),location);}
+                    return [...selected.values()];
+                };
+                for(const [origin,locations]of specialized)specialized.set(origin,unique(locations.flatMap(location=>[
+                    location,...copies.get(key(location.resource,location.pointer))??[]])));
+                for(const [origin,locations]of copies)specialized.set(origin,unique([...specialized.get(origin)??[],...locations]));
+            };
             const preparationInput=()=>({...input,root:graph.root,resources:[...sources].map(([id,source])=>({
                 ...resources.find(resource=>resource.id===id),id,text:source.doc.text,generation:0}))});
+            // Different entry contexts acquire owners before role/literal
+            // copying. Otherwise the first parsed entry could choose another
+            // use's family or overwrite a shared incoming locator.
+            retainCopies(separateMigrationEntryUses(contexts,sources,issue,createSchemaResource,captureContext,owners));
+            if(problems.length)break;
             const roleInput=preparationInput(),roleContext=createGraph(roleInput);
             const roleContexts=migrationDocumentContexts(roleInput,roleContext,issue,true);
-            const entryCopies=separateMigrationEntryUses(roleContexts,sources,issue,createSchemaResource,
-                (scope,destination,preserveBase,expectedBase)=>contextProofs.push({scope,destination,preserveBase,expectedBase}),owners);
-            // Compose ordinary role/literal ownership with entry ownership;
-            // both retain the same original CST provenance and allocator.
-            for(const [origin,locations]of specialized)specialized.set(origin,locations.flatMap(location=>[
-                location,...entryCopies.get(key(location.resource,location.pointer))??[]]));
-            for(const [origin,locations]of entryCopies)specialized.set(origin,[...specialized.get(origin)??[],...locations]);
+            retainCopies(separateMigrationRoles(roleContexts,sources,issue,createSchemaResource,captureContext,owners));
+            if(problems.length)break;
+            // A new anonymous owner can itself need entry specialization.
+            // Reuse the same reservations and compose its source relation;
+            // this is one bounded preparation pass, never an expansion loop.
+            const entryInput=preparationInput(),entryContext=createGraph(entryInput);
+            const entryContexts=migrationDocumentContexts(entryInput,entryContext,issue,true);
+            retainCopies(separateMigrationEntryUses(entryContexts,sources,issue,createSchemaResource,captureContext,owners));
             if(problems.length)break;
             if(specialized.size){
                 for(const [origin,copies]of specialized){
@@ -211,13 +231,31 @@ export async function planMigration(input:MigrationInput) {
                             .flatMap(location=>prepared.get(key(location.resource,location.pointer))??[]),proofIssue,true);
                 }
                 graph=owned.graph;
+                const contextKey=(location:MigrationLocation,scope:GraphScope,base:string)=>JSON.stringify([
+                    location.resource,location.pointer,scope.kind,scope.family,scope.dialect,base,
+                ]);
+                const transitions=new Map<string,{destination:MigrationLocation;base:string}[]>();
+                for(const proof of contextProofs){
+                    admitOwnership();const id=contextKey(proof.scope,proof.scope,proof.scope.base),next=transitions.get(id)??[];
+                    next.push({destination:proof.destination,base:proof.expectedBase??proof.scope.base});transitions.set(id,next);
+                }
                 for(const {scope,destination,preserveBase,expectedBase}of contextProofs){
-                    const destinations=[destination,...entryCopies.get(key(destination.resource,destination.pointer))??[]]
-                        .flatMap(location=>prepared.get(key(location.resource,location.pointer))??[]);
-                    if(!destinations.some(destination=>contexts.some(context=>{
-                        const retained=context.graph.scopeAs(destination.resource,destination.pointer,scope.kind);
-                        return retained&&context.graph.isEntryUse(retained)&&(!preserveBase||retained.base===(expectedBase??scope.base))&&retained.dialect===scope.dialect&&retained.family===scope.family;
-                    })))
+                    // Base changes are admitted only by a captured ownership
+                    // transition, including a later entry-owned resource copy.
+                    // Provenance alone cannot authorize substituting a URI.
+                    const pending=[{destination,base:expectedBase??scope.base}],seen=new Set<string>();let retained=false;
+                    for(let index=0;index<pending.length&&!retained;index++){
+                        admitOwnership();const state=pending[index],id=contextKey(state.destination,scope,state.base);
+                        if(seen.has(id))continue;seen.add(id);
+                        const destinations=[state.destination,...specialized.get(key(state.destination.resource,state.destination.pointer))??[]]
+                            .flatMap(location=>prepared.get(key(location.resource,location.pointer))??[]);
+                        retained=destinations.some(destination=>contexts.some(context=>{
+                            admitOwnership();const retained=context.graph.scopeAs(destination.resource,destination.pointer,scope.kind);
+                            return retained&&context.graph.isEntryUse(retained)&&(!preserveBase||retained.base===state.base)&&retained.dialect===scope.dialect&&retained.family===scope.family;
+                        }));
+                        pending.push(...transitions.get(id)??[]);
+                    }
+                    if(!retained)
                         issue(scope,'migration.owners.resource-context','The independent owner did not retain its captured role, dialect, family or required schema resource URI','implementation');
                 }
                 if(problems.length)break;

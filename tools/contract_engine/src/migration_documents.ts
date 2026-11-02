@@ -5,6 +5,7 @@ import {supportedSchemaDialect,schemaResourceContextIdentity,type ReferenceGraph
 import {escape,SourceError} from './document';
 import {modernFamily} from './specification';
 import {projectSchemaReference} from './schema_reference_projection';
+import {DiscriminatorModels} from './discriminator_models';
 
 type Context=ReturnType<typeof createGraph>;
 export type MigrationUse=Readonly<{
@@ -145,14 +146,42 @@ export function migrationDocumentContexts(input:{root:string;resources:Resource[
  * forwarders need no variant themselves until their target acquires one. */
 export function migrationContextDifferences(contexts:readonly Pick<DocumentContext,'graph'>[]):ReadonlyMap<string,ReadonlyMap<string,GraphScope>> {
     const scopes=new Map<string,{identity:string;scope:GraphScope;graph:ReferenceGraph}>(),different=new Set<string>();
+    const bindings=new Map<string,string>();let work=0;
+    const inspect=(steps=1)=>{
+        if((work+=steps)>2000000)throw new SourceError('limit.migration.uses','Entry binding ownership exceeds 2000000 captured states');
+    };
+    const binding=(owner:GraphScope,field:string,value:string)=>{
+        inspect();const id=JSON.stringify([owner.resource,owner.pointer,owner.kind]),key=JSON.stringify([id,field]);
+        const previous=bindings.get(key);
+        if(previous!==undefined&&previous!==value)different.add(id);
+        if(previous===undefined)bindings.set(key,value);
+    };
     for(const {graph}of contexts){
+        const models=new DiscriminatorModels(graph);
         for(const scope of graph.entryScopes()){
+            inspect();
             if(scope.kind==='root'&&!graph.specifications.has(scope.resource))continue;
             const key=JSON.stringify([scope.resource,scope.pointer,scope.kind]);
             const identity=schemaResourceContextIdentity(scope);
             const previous=scopes.get(key);
             if(previous&&previous.identity!==identity&&!equivalentForwarder(previous.scope,previous.graph,scope,graph))different.add(key);
             if(!previous)scopes.set(key,{identity,scope,graph});
+            if(scope.kind==='schema'&&scope.family==='2.0'){
+                const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
+                if(typeof value?.discriminator==='string'&&typeof value.$ref!=='string'){
+                    const table=[...models.models(scope)].map(([name,model])=>[name,model.resource,model.pointer]).sort();
+                    inspect(table.length);binding(scope,'discriminator-models',JSON.stringify(table));
+                }
+            }
+        }
+        for(const reference of graph.entryReferences()){
+            inspect(1+(reference.dynamic?.candidates.length??0));
+            if(!reference.connection&&!reference.dynamic)continue;
+            const owner=graph.referenceOwner(reference);if(!owner)continue;
+            binding(owner,JSON.stringify([reference.keyword,reference.connection]),JSON.stringify([
+                reference.resolution,reference.targetResource,reference.targetPointer,reference.targetUri,
+                reference.dynamic?.anchor,reference.dynamic?.candidates.map(candidate=>[candidate.resource,candidate.pointer]).sort(),
+            ]));
         }
     }
     return new Map(contexts.map(({graph})=>[graph.root,new Map([...graph.entryScopes()]

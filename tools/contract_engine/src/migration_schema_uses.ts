@@ -5,7 +5,7 @@ import {documentUriOccurrences} from './document_uris';
 import {serverTemplate} from './derived_bundle';
 import {documentUriBase,pointerFragment,resolveUri,schemaResourceContextIdentity,type GraphScope,type GraphReference,type ReferenceGraph} from './reference_graph';
 import {MigrationSchemaOwners} from './migration_schema_owners';
-import {migrationContextDifferences,type DocumentContext} from './migration_documents';
+import {migrationContextDifferences,migrationReferences,type DocumentContext} from './migration_documents';
 import {defaultSchemaDialect,modernFamily} from './specification';
 import {MigrationSource,type MigrationLocation} from './migration_source';
 import type {MigrationIssue} from './migration_schema';
@@ -14,7 +14,8 @@ const key=(at:MigrationLocation)=>JSON.stringify([at.resource,at.pointer]);
 const inside=(pointer:string,parent:string)=>pointer===parent||pointer.startsWith(parent+'/');
 type ResourceHolder=Readonly<{location:MigrationLocation;dialect:string|null}>;
 type Placement=Readonly<{scope:GraphScope;location:MigrationLocation;intrinsic:ReadonlyMap<string,string>;inheritedDialect:string|null;inheritsResource:boolean}>;
-type EntrySelection=Readonly<{entryNamespace:string;scopes:readonly GraphScope[]}>;
+type UseSelection=Readonly<{mode:'entry';entryNamespace:string;scopes:readonly GraphScope[]}>|
+    Readonly<{mode:'role';scopes:readonly GraphScope[];references:readonly GraphReference[]}>;
 const useKey=(scope:{resource:string;pointer:string;kind:string})=>JSON.stringify([scope.resource,scope.pointer,scope.kind]);
 const referenceOwnerKind=(reference:GraphReference)=>reference.connection==='discriminator'?'discriminator':
     reference.connection==='security'?'security-requirement':reference.connection?'link':reference.kind;
@@ -77,7 +78,7 @@ export function separateMigrationEntryUses(contexts:readonly DocumentContext[],s
             pending.push(...(parents.get(id)??[]),...(incoming.get(id)??[]));
         }
         const copies=separateMigrationUses(graph,sources,issue,createSchemaResource,preserveContext,
-            {entryNamespace:graph.root,scopes:[...selected.values()]},owners);
+            {mode:'entry',entryNamespace:graph.root,scopes:[...selected.values()]},owners);
         for(const [origin,locations]of copies){
             const values=provenance.get(origin)??[];values.push(...locations);provenance.set(origin,values);
         }
@@ -97,11 +98,13 @@ export function separateMigrationEntryUses(contexts:readonly DocumentContext[],s
 export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<string,MigrationSource>,
     issue:MigrationIssue,createSchemaResource:()=>MigrationSource,
     preserveContext:(scope:GraphScope,destination:MigrationLocation,preserveBase:boolean,expectedBase?:string)=>void,
-    entry?:EntrySelection,owners=new MigrationSchemaOwners(graph,sources,createSchemaResource)):ReadonlyMap<string,readonly MigrationLocation[]> {
+    selection?:UseSelection,owners=new MigrationSchemaOwners(graph,sources,createSchemaResource)):ReadonlyMap<string,readonly MigrationLocation[]> {
     const provenance=new Map<string,MigrationLocation[]>();
+    const entry=selection?.mode==='entry'?selection:undefined;
+    const references=selection?.mode==='role'?selection.references:graph.entryReferences();
     const schemaScopes=graph.scopesFor('schema');
     const candidates=entry?entry.scopes.filter(scope=>referenceKinds.has(scope.kind)||scope.kind==='operation'):
-        [...graph.interpretedScopes()].filter(scope=>(referenceKinds.has(scope.kind)||scope.kind==='operation')&&
+        [...(selection?.scopes??graph.entryScopes())].filter(scope=>(referenceKinds.has(scope.kind)||scope.kind==='operation')&&
         // This inactive boolean annotation already has a faithful owner in
         // migrateInactiveSchemaAnnotations; retain that established mapping.
         !(/\/(?:writeOnly|deprecated)$/.test(scope.pointer)&&graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value===false)&&(
@@ -123,7 +126,7 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
         inspect();const id=key({resource:schema.resource,pointer:schema.schemaParent}),children=schemaChildren.get(id)??[];
         children.push(schema);schemaChildren.set(id,children);
     }
-    for(const reference of graph.references)if(reference.kind==='schema'&&!reference.connection){
+    for(const reference of references)if(reference.kind==='schema'&&!reference.connection){
         inspect();const id=key(reference),references=schemaReferences.get(id)??[];references.push(reference);schemaReferences.set(id,references);
     }
     const dynamicDependency=(schemas:readonly GraphScope[]):boolean=>{
@@ -169,7 +172,7 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
                 anchored=true;
             }
         }
-        const dynamic=graph.references.find(reference=>{
+        const dynamic=references.find(reference=>{
             inspect();return reference.dynamic&&(
                 reference.resource===scope.resource&&intrinsic.get(reference.pointer)==='schema'||
                 reference.dynamic.candidates.some(candidate=>candidate.resource===scope.resource&&intrinsic.get(candidate.pointer)==='schema'));
@@ -200,8 +203,11 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
                     'This entry-dependent use requires an independently proved native holder or schema resource identity before specialization','implementation');
                 return provenance;
             }
-            container=copiedHolder&&scope.kind==='schema'?{resource:copiedHolder.location.resource,pointer:copiedHolder.location.pointer+'/$defs'}:
-                {resource:entry.entryNamespace,pointer:entryContainer};
+            // Swagger definition names participate in discriminator validation.
+            // An anonymous captured use must not gain a new friendly model name.
+            container=scope.kind==='schema'&&scope.family==='2.0'?undefined:
+                copiedHolder&&scope.kind==='schema'?{resource:copiedHolder.location.resource,pointer:copiedHolder.location.pointer+'/$defs'}:
+                    {resource:entry.entryNamespace,pointer:entryContainer};
             for(const schema of intrinsicSchemas){
                 inspect();
                 const value=graph.docs.get(schema.resource)!.dataNode(schema.pointer)?.value;
@@ -294,7 +300,7 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
         }
         owners.admit(source);source.rename(at.pointer,selected);
     };
-    for(const reference of graph.references){
+    for(const reference of references){
         inspect();
         if(reference.resolution!=='resolved')continue;
         const sourceKind=referenceOwnerKind(reference);
@@ -347,6 +353,31 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
         else if(placement.scope.kind==='schema'&&placement.inheritsResource&&
             Object.hasOwn(graph.docs.get(placement.scope.resource)!.dataNode(placement.scope.pointer)?.value??{},'$schema'))
             sources.get(placement.location.resource)!.remove(placement.location.pointer+'/$schema');
+    }
+    return provenance;
+}
+
+/** Ordinary role/literal preparation uses actual entry captures. A dormant
+ * interpretation from another root cannot choose a fragment's source family.
+ * Equal contexts share one owner; differing bindings were separated first by
+ * the same allocator and are proved again after this restructuring. */
+export function separateMigrationRoles(contexts:readonly DocumentContext[],sources:ReadonlyMap<string,MigrationSource>,
+    issue:MigrationIssue,createSchemaResource:()=>MigrationSource,
+    preserveContext:(scope:GraphScope,destination:MigrationLocation,preserveBase:boolean,expectedBase?:string)=>void,
+    owners:MigrationSchemaOwners):ReadonlyMap<string,readonly MigrationLocation[]> {
+    const provenance=new Map<string,MigrationLocation[]>(),seen=new Set<string>();
+    const references=[...migrationReferences(contexts.map(context=>context.graph))];
+    for(const {graph}of [...contexts].sort((a,b)=>a.graph.root.localeCompare(b.graph.root))){
+        const scopes=[...graph.entryScopes()].filter(scope=>{
+            const identity=JSON.stringify([useKey(scope),schemaResourceContextIdentity(scope)]);
+            if(seen.has(identity))return false;
+            if(seen.size>=200000)throw new SourceError('limit.migration.owners','Role ownership exceeds 200000 captured contexts');
+            seen.add(identity);return true;
+        });
+        const copies=separateMigrationUses(graph,sources,issue,createSchemaResource,preserveContext,{mode:'role',scopes,references},owners);
+        for(const [origin,locations]of copies){
+            const values=provenance.get(origin)??[];values.push(...locations);provenance.set(origin,values);
+        }
     }
     return provenance;
 }

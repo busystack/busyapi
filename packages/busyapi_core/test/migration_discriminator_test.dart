@@ -76,7 +76,7 @@ void main() {
         final review = await project.prepareMigration(root, destination, targetVersion: target);
         addTearDown(review.close);
         expect(review.status, MigrationStatus.faithfullyConvertible, reason: '${review.result}');
-        expect(review.result['producerVersion'], '51');expect(review.unsaved, true);
+        expect(review.result['producerVersion'], '52');expect(review.unsaved, true);
         await review.publish();expect(buffer.bytes(), working);expect(file.readAsBytesSync(), original);
         if (external) expect(model.readAsBytesSync(), originalModel);
         final output = File('$destination/openapi.$format');
@@ -123,12 +123,76 @@ void main() {
           environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
         expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');
         final report = jsonDecode(cli.stdout as String) as Map;
-        expect(report['producerVersion'], '51');expect(report['complete'], true);expect(report['published'], false);
+        expect(report['producerVersion'], '52');expect(report['complete'], true);expect(report['published'], false);
         expect(Directory('${directory.path}/cli-review').existsSync(), false);
         expect(file.readAsBytesSync(), original);if (external) expect(model.readAsBytesSync(), originalModel);
       });
     }
   }
+  test('shared Swagger dispatch preserves each captured entry namespace in HTTP and cold publication', () async {
+    final directory = await Directory.systemTemp.createTemp('busyapi-discriminator-entries-');
+    addTearDown(() => directory.delete(recursive: true));
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    final received = <List<int>>[];
+    server.listen((request) async {
+      final bytes = await request.fold<List<int>>([], (all, chunk) => all..addAll(chunk));
+      received.add(bytes);request.response.headers.contentType = ContentType.json;
+      request.response.add(bytes);await request.response.close();
+    });
+    final documents = <String, Map<String, Object?>>{};
+    for (final (name, excluded) in [('a.json', 'Dog'), ('b.json', 'Cat')]) {
+      final value = _document(server.port, external: true, multi: false);
+      final definitions = value['definitions'] as Map<String, Object?>;
+      definitions.remove(excluded);definitions['Carrier'] = {'type': 'string'};
+      if (name == 'a.json') definitions['Capture'] = {r'$ref': 'b.json#/definitions/Carrier'};
+      documents[name] = value;
+    }
+    final originals = {for (final entry in documents.entries) entry.key: _render(entry.value, 'json'),
+      'models/base.json': _render({'Base': _base(external: true)}, 'json')};
+    for (final entry in originals.entries) {
+      final file = File('${directory.path}/${entry.key}');await file.parent.create(recursive: true);await file.writeAsString(entry.value);
+    }
+    final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);addTearDown(engine.close);
+    final source = await BusyProject.open('${directory.path}/a.json', engine);addTearDown(source.close);
+    final first = File('${directory.path}/a.json').uri.toString(), second = File('${directory.path}/b.json').uri.toString();
+    final payloads = ['{"kind":"Base"}', '{"kind":"Cat","value":9007199254740993.00}',
+      '{"kind":"Dog","flag":true}', '{"kind":"Unknown"}'];
+    Future<void> exercise(BusyProject project, String root, bool cat) async {
+      final plan = await project.prepareRequest(root, resource: root, pointer: '/paths/~1model/post');
+      try {
+        final outcomes = <bool>[];
+        for (final payload in payloads) {
+          final result = await const ContractRequestExecutor().execute(plan,
+            OperationRequestDraft(planIdentity: plan.identity, body: RequestBodyDraft.raw(mediaType: 'application/json', text: payload)),
+            resolveSecret: (_) async => null);
+          try {
+            expect(result.outgoing.complete, true);expect(result.received.complete, true);
+            expect(result.outgoing.valid, result.received.valid);
+            expect(received.last, utf8.encode(payload));expect(await result.response.decodedBytes(), utf8.encode(payload));
+            outcomes.add(result.outgoing.valid);
+          } finally { await result.close(); }
+        }
+        expect(outcomes, [true, cat, !cat, false]);
+      } finally { plan.close(); }
+    }
+    await exercise(source, first, true);await exercise(source, second, false);
+    final review = await source.prepareMigration(first, '${directory.path}/converted', targetVersion: '3.2.1');addTearDown(review.close);
+    expect(review.publishable, true, reason: '${review.result}');await review.publish();
+    final migrated = {for (final root in [first, second]) root: review.changes.singleWhere((change) => change.resource == root).destination};
+    for (final entry in originals.entries) expect(await File('${directory.path}/${entry.key}').readAsString(), entry.value);
+    source.close();
+    final coldDirectory = await Directory(review.destination).rename('${directory.path}/cold 雪');
+    for (final name in originals.keys) await File('${directory.path}/$name').delete();
+    final cold = await BusyProject.open(coldDirectory.path, engine);addTearDown(cold.close);
+    for (final (original, cat) in [(first, true), (second, false)]) {
+      final root = File('${coldDirectory.path}/${Uri.parse(migrated[original]!).pathSegments.last}').uri.toString();
+      expect((await cold.check(root))['complete'], true);await exercise(cold, root, cat);
+    }
+    final cli = await Process.run('$testBundle/busyapi', ['check', coldDirectory.path, '--json'],
+      environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
+    expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');
+  });
   for (final format in ['yaml', 'json']) {
     test('$format discriminator review cancellation and stale source preserve originals and destination', () async {
       final directory = await Directory.systemTemp.createTemp('busyapi-discriminator-stale-');

@@ -5,7 +5,7 @@ import {MigrationSource,type MigrationLocation} from './migration_source';
 import type {MigrationIssue} from './migration_schema';
 import {DiscriminatorModels} from './discriminator_models';
 import {MigrationSchemaOwners} from './migration_schema_owners';
-import {migrationScopes} from './migration_documents';
+import {migrationScopes,migrationReferences} from './migration_documents';
 
 const key=(location:MigrationLocation)=>JSON.stringify([location.resource,location.pointer]);
 const inside=(pointer:string,root:string)=>pointer===root||pointer.startsWith(root+'/');
@@ -52,10 +52,13 @@ export function migrateSwaggerDiscriminators(graph:ReferenceGraph,sources:Map<st
         return selection.models(base);
     };
     for(const base of bases){
-        const table=models(graph,base),signature=(models:ReadonlyMap<string,GraphScope>)=>
+        const users=contexts.filter(context=>{
+            const scope=context.scopeAs(base.resource,base.pointer,'schema');
+            return scope!==undefined&&context.isEntryUse(scope);
+        });
+        const table=models(users[0],base),signature=(models:ReadonlyMap<string,GraphScope>)=>
             JSON.stringify([...models].map(([name,scope])=>[name,scope.resource,scope.pointer]).sort());
-        for(const context of contexts){
-            if(context.root===graph.root||context.specifications.get(context.root)?.family!=='2.0'||!context.scopeAs(base.resource,base.pointer,'schema'))continue;
+        for(const context of users.slice(1)){
             if(signature(models(context,base))!==signature(table)){
                 issue({...base,pointer:base.pointer+'/discriminator'},'migration.discriminator.shared-context','Captured entry namespaces select different models for this dispatcher; separate entry-owned model variants are required','implementation');
                 return {primaryTargets,referenceTargets};
@@ -63,7 +66,7 @@ export function migrateSwaggerDiscriminators(graph:ReferenceGraph,sources:Map<st
         }
         tables.set(key(base),table);
     }
-    const references=graph.references.filter(edge=>edge.kind==='schema'&&!edge.connection&&edge.keyword==='$ref'&&edge.resolution==='resolved');
+    const references=[...migrationReferences(contexts)].filter(edge=>edge.kind==='schema'&&!edge.connection&&edge.keyword==='$ref'&&edge.resolution==='resolved');
     const uris=[...documentUriOccurrences(graph)],owners=new MigrationSchemaOwners(graph,sources);
     const variants=new Map<string,MigrationLocation>(),choicesByName=new Map<string,MigrationLocation>(),processed=new Set<string>();
     let edits=0,cost=0,cloneBytes=0,generated=0,inspected=0;

@@ -103,3 +103,57 @@ test('a specialized fragment selects its captured dialect instead of inheriting 
  assert.equal(scope.dialect,'https://spec.openapis.org/oas/3.1/dialect/base');
  assert.equal(graph.docs.get(scope.resource).dataNode(scope.pointer+'/$schema').value,scope.dialect);
 });
+
+for(const format of ['yaml','json'])test(`${format} shared operation, security and discriminator names retain each entry namespace`,async()=>{
+ const root='file:///names/a.'+format,other='file:///names/b.'+format,shared='file:///names/uses.'+format;
+ const api=name=>({openapi:'3.2.1',info:{title:name,version:'business'},paths:{'/p':{$ref:'uses.'+format+'#/Path'}},
+  components:{securitySchemes:{Access:{type:'apiKey',in:'header',name:'X-'+name}},schemas:{Choice:{type:'object',properties:{entry:{const:name}}}}}});
+ const values=[api('First'),api('Second'),{Path:{get:{security:[{Access:[]}],responses:{200:{description:'Value',content:{'application/json':{schema:{$ref:'#/Base'}}}}}}},
+  Base:{type:'object',discriminator:{propertyName:'kind',mapping:{chosen:'Choice'}},description:'[Guide](guide.md)'},
+  Literal:{security:[{Access:[]}],mapping:{chosen:'Choice'},zero:0,flag:false,empty:''}}];
+ const input={root,snapshot:'entry-names',targetVersion:'3.1.2',destination:'file:///names-output/',resources:values.map((value,index)=>({
+  id:[root,other,shared][index],generation:index,text:format==='yaml'?'# Keep namespaces 雪\r\n'+YAML.stringify(value).replaceAll('\n','\r\n'):JSON.stringify(value)}))};
+ const original=input.resources.map(resource=>resource.text);
+ const inspect=packet=>{
+  assert.equal(analyse(packet).status,'complete',JSON.stringify(analyse(packet).findings));
+  const graph=createGraph(packet).graph,operation=graph.operations().find(value=>value.path==='/p');
+  const plan=requestOperation({...packet,resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
+  const bindings=graph.entryReferences().filter(reference=>reference.connection==='discriminator');
+  assert.equal(bindings.length,1);assert.equal(bindings[0].resolution,'resolved');
+  assert.equal(bindings[0].targetResource,packet.root);assert.equal(bindings[0].targetPointer,'/components/schemas/Choice');
+  return plan.security.schemes.Access.parameterName;
+ };
+ assert.equal(inspect(input),'X-First');assert.equal(inspect({...input,root:other}),'X-Second');
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const cold={snapshot:'cold-entry-names',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
+ for(const [entry,name]of [[root,'First'],[other,'Second']]){
+  const outputRoot=review.changes.find(change=>change.resource===entry).destination;
+  assert.equal(inspect({...cold,root:outputRoot}),'X-'+name);
+ }
+ const detached=review.outputs.find(output=>output.id===review.changes.find(change=>change.resource===shared).destination);
+ assert.equal(detached.text,input.resources[2].text);assert.deepEqual(input.resources.map(resource=>resource.text),original);
+});
+
+test('an inactive primary interpretation cannot choose a foreign entry native/schema owner family',async()=>{
+ const root='file:///admission/a.json',other='file:///admission/b.json',shared='file:///admission/header.json';
+ const first={openapi:'3.1.2',info:{title:'First',version:'business'},paths:{},components:{examples:{Other:{$ref:'b.json#/components/examples/Here'}}}};
+ const second={openapi:'3.2.1',info:{title:'Second',version:'business'},paths:{'/p':{get:{responses:{204:{description:'Empty',headers:{'X-N':{$ref:'header.json#/Header'}}}}}}},
+  components:{examples:{Here:{value:'Captured root'}},schemas:{HeaderAsSchema:{$ref:'header.json#/Header'}}}};
+ const input={root,snapshot:'actual-role-capture',targetVersion:'3.2.1',destination:'file:///admitted/',resources:[
+  {id:root,text:JSON.stringify(first),generation:1},{id:other,text:JSON.stringify(second),generation:2},
+  {id:shared,text:'{"Header":{"description":"[Header](guide.md)","schema":{"type":"integer","enum":[9007199254740993.00]},"x-data":{"flag":false}}}',generation:3}]};
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const output=review.changes.find(change=>change.resource===other).destination;
+ const packet={root:output,snapshot:'cold-role-capture',resources:review.outputs.map(value=>({id:value.id,text:value.text,generation:0}))};
+ assert.equal(analyse(packet).status,'complete',JSON.stringify(analyse(packet).findings));
+ const graph=createGraph(packet).graph,header=graph.entryReferences().find(reference=>reference.kind==='header');
+ assert(header);assert.equal(graph.scopeAs(header.targetResource,header.targetPointer,'header').family,'3.2');
+ const plan=requestOperation({...packet,resource:output,pointer:'/paths/~1p/get'});
+ const result=await evaluateSchemas({...packet,runtimeInstances:[
+  ...['9007199254740993','9007199254740992'].map(text=>({subject:'response-header',location:text,text:'',header:{resource:header.resource,pointer:header.pointer,name:'X-N',values:[text]}})),
+  {subject:'response-body',location:'independent schema',text:'null',schema:{resource:output,pointer:'/components/schemas/HeaderAsSchema'}},
+ ]});
+ assert.equal(result.complete,true,JSON.stringify(result.findings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,false,true]);
+ assert.equal(plan.responses[0].headers[0].name,'X-N');
+ assert.equal(review.outputs.find(value=>value.id===review.changes.find(change=>change.resource===shared).destination).text,input.resources[2].text);
+});

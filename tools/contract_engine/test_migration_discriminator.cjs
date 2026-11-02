@@ -46,7 +46,7 @@ for(const targetVersion of targets)for(const format of ['yaml','json'])for(const
 test(`Swagger ${format} ${mode} -> ${targetVersion} specializes dispatch without flattening accepted values`,async()=>{
  const {input,cat,catPointer}=fixture(format,mode,targetVersion),original=input.resources.map(value=>value.text),texts=samples(cat,mode==='multi');
  const before=await evaluate(input,'/definitions/Base',texts),plan=await planMigration(input);
- assert.equal(plan.complete,true,JSON.stringify(plan.problems));assert.equal(plan.status,'faithfully-convertible');assert.equal(plan.producerVersion,'51');
+ assert.equal(plan.complete,true,JSON.stringify(plan.problems));assert.equal(plan.status,'faithfully-convertible');assert.equal(plan.producerVersion,'52');
  const output={root:plan.outputRoot,snapshot:'cold-dispatch',resources:plan.outputs.map(value=>({id:value.id,text:value.text,generation:0,aliases:Object.entries(plan.manifest.resourceMappings).filter(([,path])=>path===value.path).map(([uri])=>uri)}))};
  assert.equal(analyse(output).status,'complete',JSON.stringify(analyse(output).findings));
  assert.deepEqual(await evaluate(output,'/components/schemas/Base',texts),before);
@@ -73,12 +73,30 @@ test(`Swagger ${format} ${mode} -> ${targetVersion} specializes dispatch without
  const repeated=await planMigration(input);assert.equal(repeated.identity,plan.identity);assert.deepEqual(repeated.outputs,plan.outputs);
 });
 
-for(const format of ['yaml','json'])test(`${format} shared entry namespaces need their own specialization instead of choosing one table`,async()=>{
+for(const targetVersion of ['3.0.4','3.1.2','3.2.1'])for(const format of ['yaml','json'])test(`${format} shared Swagger model namespaces retain independent selection through ${targetVersion}`,async()=>{
  const root='file:///approved/a.'+format,other='file:///approved/b.'+format,shared='file:///approved/model.'+format;
  const doc=name=>({swagger:'2.0',info:{title:name,version:'1'},paths:{},definitions:{Base:{$ref:'./model.'+format+'#/Base'},[name]:{allOf:[{$ref:'./model.'+format+'#/Base'}]}}});
- const resources=[{id:root,text:render(doc('Cat'),format),generation:1},{id:other,text:render(doc('Dog'),format),generation:1},{id:shared,text:render({Base:{type:'object',discriminator:'kind',required:['kind'],properties:{kind:{type:'string'}}}},format),generation:1}],before=resources.map(value=>value.text);
- const result=await planMigration({root,snapshot:'shared-dispatch',resources,targetVersion:'3.0.4',destination:'file:///reviewed/'});
- assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);assert(result.problems.some(value=>value.code==='migration.discriminator.shared-context'&&value.reason==='implementation'),JSON.stringify(result.problems));
+ const resources=[{id:root,text:render(doc('Cat'),format),generation:1},{id:other,text:render(doc('Dog'),format),generation:1},{id:shared,text:render({Base:{type:'object',discriminator:'kind',required:['kind'],properties:{kind:{type:'string'},next:{$ref:'#/Base'}}}},format),generation:1}],before=resources.map(value=>value.text);
+ const input={root,snapshot:'shared-dispatch',resources,targetVersion,destination:'file:///reviewed/'};
+ const values=['{"kind":"Base"}','{"kind":"Cat"}','{"kind":"Dog"}','{"kind":"Cat","next":{"kind":"Dog"}}','{}','null'];
+ const expected=new Map();
+ for(const entry of [root,other])expected.set(entry,await evaluate({...input,root:entry},'/definitions/Base',values));
+ assert.deepEqual(expected.get(root).slice(0,6),[true,true,false,false,false,false]);
+ assert.deepEqual(expected.get(other).slice(0,6),[true,false,true,false,false,false]);
+ const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));
+ const cold={snapshot:'cold-shared-dispatch',resources:result.outputs.map(output=>({id:output.id,text:output.text,generation:0,
+  aliases:Object.entries(result.manifest.resourceMappings).filter(([,path])=>path===output.path).map(([uri])=>uri)}))};
+ for(const entry of [root,other]){
+  const outputRoot=result.changes.find(change=>change.resource===entry).destination,packet={...cold,root:outputRoot};
+  assert.equal(analyse(packet).status,'complete',JSON.stringify(analyse(packet).findings));
+  assert.deepEqual(await evaluate(packet,'/components/schemas/Base',values),expected.get(entry));
+  const graph=createGraph(packet).graph;
+  for(const scope of graph.entryScopes())if(scope.kind==='discriminator'){
+   const mapping=graph.docs.get(scope.resource).dataNode(scope.pointer+'/mapping');
+   assert(mapping);assert.deepEqual([...mapping.children.keys()].sort(),['Base',entry===root?'Cat':'Dog'].sort());
+  }
+ }
+ assert.equal(result.outputs.find(output=>output.id===result.changes.find(change=>change.resource===shared).destination).text,resources[2].text);
  assert.deepEqual(resources.map(value=>value.text),before);
 });
 
