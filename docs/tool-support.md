@@ -248,6 +248,14 @@ bounded exact transport for all methods, preserving original fields and response
 body bytes separately from decoded validation data. Source qualification remains
 pending under the execution hold. Core submits the actual separate field lines with their captured source
 occurrence; header references and schema dialects retain their original owners.
+HTTP requests connect to the selected SDK proxy address. HTTPS uses SDK-parsed
+proxy routes and CONNECT over the owned raw connection, followed by the selected
+SDK TLS trust/hostname/client-certificate checks. Capture observes origin fields
+above TLS, independently of proxy control fields. Environment proxy/no_proxy
+selection, authenticated proxy entries and explicit fallback order are preserved;
+no unconfigured DIRECT fallback is added. Route capture has a 64-KiB/256-entry
+work bound. The shared deadline closes pending CONNECT and TLS owners. Prepared
+Core/CLI byte-exchange regressions remain unexecuted under the hold.
 OpenAPI 3.2 content-based `Set-Cookie` values use LF between complete field lines,
 preserving commas within each cookie. Supported boolean schemas retain their
 assertions. Simple-style scalar and collection compositions are checked against

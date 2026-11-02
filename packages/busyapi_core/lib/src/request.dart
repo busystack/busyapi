@@ -2782,13 +2782,13 @@ class ContractHttpTransport {
       final client = HttpClient(context: context)
         ..connectionTimeout = input.connectTimeout
         ..autoUncompress = false;
-      client.connectionFactory = (uri, proxyHost, proxyPort) =>
-          exact.connect(uri, proxyHost, proxyPort, context: context);
+      exact.configure(client, context: context);
       final clock = Stopwatch()..start();
       final deadline = _HttpDeadline(
         client,
         input.overallTimeout,
         cancellation,
+        onStop: exact.close,
       );
       var uri = input.uri, method = input.method;
       final redirects = <String>[];
@@ -2946,6 +2946,7 @@ class ContractHttpTransport {
         rethrow;
       } finally {
         deadline.dispose();
+        exact.close();
         client.close(force: true);
       }
     } finally {
@@ -3409,7 +3410,7 @@ class ContractHttpTransport {
 /// One monotonic transport lifetime. A timeout/cancel closes the actual socket
 /// owner and upload subscription, not just the future presented to callers.
 class _HttpDeadline {
-  _HttpDeadline(this.client, Duration duration, this.cancellation) {
+  _HttpDeadline(this.client, Duration duration, this.cancellation, {this.onStop}) {
     timer = Timer(duration, () => stop('overall-timeout'));
     cancellation?.whenCancelled.then((_) {
       if (!disposed) stop('cancelled');
@@ -3417,6 +3418,7 @@ class _HttpDeadline {
   }
   final HttpClient client;
   final RunCancellation? cancellation;
+  final void Function()? onStop;
   final stopped = Completer<void>();
   late final Timer timer;
   HttpClientRequest? request;
@@ -3428,6 +3430,7 @@ class _HttpDeadline {
   void stop(String value) {
     if (reason != null || disposed) return;
     reason = value;
+    onStop?.call();
     request?.abort();
     decodingWorker?.kill(priority: Isolate.immediate);
     client.close(force: true);

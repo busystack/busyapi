@@ -11,8 +11,14 @@ Future<ConnectionTask<Socket>> connectCancellableTls(
   String host,
   int port, {
   SecurityContext? context,
+  String? connectionHost,
+  int? connectionPort,
+  Future<void> Function(Socket socket)? establishTunnel,
 }) async {
-  final task = await RawSocket.startConnect(host, port);
+  final task = await RawSocket.startConnect(
+    connectionHost ?? host,
+    connectionPort ?? port,
+  );
   RawSocket? tcp;
   Socket? connected;
   var cancelled = false;
@@ -23,8 +29,19 @@ Future<ConnectionTask<Socket>> connectCancellableTls(
       throw const SocketException('Connection attempt cancelled');
     }
     try {
+      _OwnedRawSocket? bridge;
+      if (establishTunnel != null) {
+        // The SDK parses CONNECT over this socket. One-byte reads prevent its
+        // HTTP parser from taking bytes belonging to the subsequent TLS stream.
+        bridge = _OwnedRawSocket(raw, raw, readOneByte: true);
+        await establishTunnel(bridge);
+        await bridge.flush();
+        bridge.transfer();
+      }
+      if (cancelled) throw const SocketException('Connection attempt cancelled');
       final secure = await RawSecureSocket.secure(
         raw,
+        subscription: bridge?.events,
         host: host,
         context: context,
       );
@@ -48,46 +65,53 @@ Future<ConnectionTask<Socket>> connectCancellableTls(
   });
 }
 
-final class _CancellableTlsSocket extends Stream<Uint8List>
-    implements SecureSocket {
-  _CancellableTlsSocket(this.tcp, this.secure) {
-    secure.readEventsEnabled = false;
-    secure.writeEventsEnabled = false;
+class _OwnedRawSocket extends Stream<Uint8List> implements Socket {
+  _OwnedRawSocket(this.tcp, this.raw, {this.readOneByte = false}) {
+    raw.readEventsEnabled = false;
+    raw.writeEventsEnabled = false;
     incoming = StreamController<Uint8List>(
       sync: true,
       onListen: () {
-        if (!destroyed) secure.readEventsEnabled = true;
+        if (!destroyed) raw.readEventsEnabled = true;
       },
       onPause: () {
-        if (!destroyed) secure.readEventsEnabled = false;
+        if (!destroyed) raw.readEventsEnabled = false;
       },
       onResume: () {
-        if (!destroyed) secure.readEventsEnabled = true;
+        if (!destroyed) raw.readEventsEnabled = true;
       },
       onCancel: () {
-        if (!destroyed) secure.shutdown(SocketDirection.receive);
+        if (!destroyed) raw.shutdown(SocketDirection.receive);
       },
     );
-    output = IOSink(_TlsOutput(this));
-    events = secure.listen(event, onError: failed, onDone: ended);
+    output = IOSink(_RawOutput(this));
+    events = raw.listen(event, onError: failed, onDone: ended);
   }
 
   final RawSocket tcp;
-  final RawSecureSocket secure;
+  final RawSocket raw;
+  final bool readOneByte;
   late final StreamController<Uint8List> incoming;
   late final IOSink output;
   late final StreamSubscription<RawSocketEvent> events;
   Completer<void>? writable;
   bool destroyed = false;
 
+  void transfer() {
+    destroyed = true;
+    raw.readEventsEnabled = false;
+    raw.writeEventsEnabled = false;
+    unawaited(incoming.close());
+  }
+
   void event(RawSocketEvent value) {
     if (value == RawSocketEvent.read) {
       if (!incoming.isClosed && incoming.hasListener && !incoming.isPaused) {
-        final bytes = secure.read();
+        final bytes = raw.read(readOneByte ? 1 : null);
         if (bytes != null) incoming.add(bytes);
       }
     } else if (value == RawSocketEvent.write) {
-      secure.writeEventsEnabled = false;
+      raw.writeEventsEnabled = false;
       final ready = writable;
       writable = null;
       ready?.complete();
@@ -118,11 +142,11 @@ final class _CancellableTlsSocket extends Stream<Uint8List>
     var offset = 0;
     while (offset < bytes.length) {
       if (destroyed) throw const SocketException('TLS connection closed');
-      final count = secure.write(bytes, offset, bytes.length - offset);
+      final count = raw.write(bytes, offset, bytes.length - offset);
       offset += count;
       if (offset == bytes.length) return;
       final ready = writable = Completer<void>();
-      secure.writeEventsEnabled = true;
+      raw.writeEventsEnabled = true;
       await ready.future;
     }
   }
@@ -178,19 +202,25 @@ final class _CancellableTlsSocket extends Stream<Uint8List>
   Future<dynamic> get done => output.done;
   @override
   bool setOption(SocketOption option, bool enabled) =>
-      secure.setOption(option, enabled);
+      raw.setOption(option, enabled);
   @override
-  Uint8List getRawOption(RawSocketOption option) => secure.getRawOption(option);
+  Uint8List getRawOption(RawSocketOption option) => raw.getRawOption(option);
   @override
-  void setRawOption(RawSocketOption option) => secure.setRawOption(option);
+  void setRawOption(RawSocketOption option) => raw.setRawOption(option);
   @override
-  InternetAddress get address => secure.address;
+  InternetAddress get address => raw.address;
   @override
-  InternetAddress get remoteAddress => secure.remoteAddress;
+  InternetAddress get remoteAddress => raw.remoteAddress;
   @override
-  int get port => secure.port;
+  int get port => raw.port;
   @override
-  int get remotePort => secure.remotePort;
+  int get remotePort => raw.remotePort;
+}
+
+final class _CancellableTlsSocket extends _OwnedRawSocket
+    implements SecureSocket {
+  _CancellableTlsSocket(RawSocket tcp, this.secure) : super(tcp, secure);
+  final RawSecureSocket secure;
   @override
   X509Certificate? get peerCertificate => secure.peerCertificate;
   @override
@@ -208,9 +238,9 @@ final class _CancellableTlsSocket extends Stream<Uint8List>
   );
 }
 
-final class _TlsOutput implements StreamConsumer<List<int>> {
-  _TlsOutput(this.owner);
-  final _CancellableTlsSocket owner;
+final class _RawOutput implements StreamConsumer<List<int>> {
+  _RawOutput(this.owner);
+  final _OwnedRawSocket owner;
   @override
   Future<void> addStream(Stream<List<int>> stream) async {
     await for (final bytes in stream) {
@@ -220,7 +250,7 @@ final class _TlsOutput implements StreamConsumer<List<int>> {
 
   @override
   Future<Socket> close() async {
-    if (!owner.destroyed) owner.secure.shutdown(SocketDirection.send);
+    if (!owner.destroyed) owner.raw.shutdown(SocketDirection.send);
     return owner;
   }
 }

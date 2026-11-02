@@ -4,7 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'model.dart';
-import 'cancellable_tls_socket.dart';
+import 'proxy_tls_socket.dart';
 import 'response_field_capture.dart';
 
 /// Preserve OAS 3.2 additionalOperations tokens (RFC 9110 §9.1) through the
@@ -33,26 +33,53 @@ final class ExactHttpMethod {
   final String clientMethod;
   ResponseFieldCapture? _responseFields;
   ResponseFieldCapture? get responseFields => _responseFields;
+  final _connections = <ConnectionTask<Socket>>{};
+  var _closed = false;
 
-  Future<ConnectionTask<Socket>> connect(
+  void configure(HttpClient client, {SecurityContext? context}) {
+    // The SDK resolver still selects HTTP and HTTPS routes, including no_proxy
+    // and authenticated PAC entries. HTTPS is connected by the owned TLS path;
+    // the outer parser must not perform a second CONNECT/TLS upgrade.
+    final findProxy = HttpClient.findProxyFromEnvironment;
+    client.findProxy = (uri) => uri.isScheme('https') ? 'DIRECT' : findProxy(uri);
+    client.connectionFactory = (uri, proxyHost, proxyPort) =>
+        _connect(uri, proxyHost, proxyPort, context: context, findProxy: findProxy);
+  }
+
+  void close() {
+    _closed = true;
+    for (final connection in _connections) {
+      connection.cancel();
+    }
+    _connections.clear();
+  }
+
+  Future<ConnectionTask<Socket>> _connect(
     Uri uri,
     String? proxyHost,
     int? proxyPort, {
     SecurityContext? context,
+    required String Function(Uri) findProxy,
   }) async {
+    if (_closed) throw const SocketException('Connection attempt cancelled');
     if (!uri.isScheme('http') && !uri.isScheme('https')) {
       throw CoreFailure('request.scheme', 'Use an HTTP or HTTPS API server');
     }
-    if (proxyHost != null || proxyPort != null) {
+    if ((proxyHost == null) != (proxyPort == null)) {
       throw CoreFailure(
-        'request.method.proxy',
-        'The selected proxy cannot preserve this method through the native connection adapter',
+        'request.proxy.route',
+        'The selected proxy has an incomplete connection address',
       );
     }
     final port = uri.port == 0 ? (uri.isScheme('https') ? 443 : 80) : uri.port;
     final task = uri.isScheme('https')
-        ? await connectCancellableTls(uri.host, port, context: context)
-        : await Socket.startConnect(uri.host, port);
+        ? await connectCancellableHttps(
+            uri,
+            context: context,
+            findProxy: findProxy,
+            isCancelled: () => _closed,
+          )
+        : await Socket.startConnect(proxyHost ?? uri.host, proxyPort ?? port);
     var cancelled = false;
     Socket? connected;
     final future = task.socket.then<Socket>((socket) {
@@ -69,11 +96,17 @@ final class ExactHttpMethod {
           ? _ExactSecureSocket(socket, prefix, fields)
           : _ExactSocket(socket, prefix, fields);
     });
-    return ConnectionTask.fromSocket(future, () {
+    final connection = ConnectionTask.fromSocket(future, () {
       cancelled = true;
       task.cancel();
       connected?.destroy();
     });
+    if (_closed) {
+      connection.cancel();
+    } else {
+      _connections.add(connection);
+    }
+    return connection;
   }
 }
 

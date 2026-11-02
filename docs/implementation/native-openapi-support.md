@@ -122,7 +122,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | --- | --- | --- | --- | --- | --- |
 | W4.01 Named/ordered/nested multipart generation and decoding, typed/file/union choice, dynamic encoding, media/headers/transfers and exact bytes; O32 Encoding, MIME | runtime form/multipart/encoding owners; Core `request.dart`; native Request | A R E S C | generic/positional/nested/multipart-header/file-shape suites | Partially implemented; finite decoding exists; typed ordered/nested generation and captured choice controls are still missing in Core/native paths | H |
 | W4.02 Parameter styles, collectionFormat, whole-query content, omission/empty/reserved/Unicode/exact numbers; family Parameter clauses, URI/WIRE | parameter/header codecs, Core request controls | A E S C | parameter/style/optional serialized/Swagger header suites, `test_runtime_parameter_serialization`, Core runtime-proof/external-parameter suites | Partially implemented; complete parameter serializations now evaluate through their captured declaration in Core execution; original Swagger flat/Items rules, exact numbers and header octets are retained; remaining occurrence-specific representations still need closure | H |
-| W4.03 Repeated content/style field lines and Set-Cookie; HTTP §§5.2–5.5, O32 §4.21, RFC 6265 | `http_field_lines.ts`, runtime/MIME/parameter owners; Core `response_field_capture.dart`, connection adapter; exact mock proxy | A R E S C | runtime header, mock header/parameter/exact-proxy suites; Core `repeated_header_fields_test`, `response_field_capture_test`, response-header/CLI suites | Source-complete, unverified; known field definitions authorize ordered list combination; known singleton repeats are invalid; unknown repeated extensions remain separate and incomplete. Core captures original fields before SDK replacement; proxies retain raw lines and body bytes. SDK framing/TLS and standard HEAD semantics remain authoritative. Capture above 64 KiB or unsupported folding is explicitly incomplete | H |
+| W4.03 Repeated content/style field lines and Set-Cookie; HTTP §§5.2–5.5, O32 §4.21, RFC 6265 | `http_field_lines.ts`, runtime/MIME/parameter owners; Core `response_field_capture.dart`, connection adapter, `proxy_tls_socket.dart`; exact mock proxy | A R E S C | runtime header, mock header/parameter/exact-proxy suites; Core `repeated_header_fields_test`, `response_field_capture_test`, `http_proxy_transport_test`, response-header/CLI suites | Source-complete, unverified; known field definitions authorize ordered list combination; known singleton repeats are invalid; unknown repeated extensions remain separate and incomplete. Core captures original fields before SDK replacement, including HTTP proxy forwarding and verified HTTPS proxy tunnels. SDK proxy resolution/authentication and HTTP parsing remain authoritative; selected trust, hostname/client certificates, cancellation and standard HEAD semantics remain owned. Capture above 64 KiB or unsupported folding is explicitly incomplete | H |
 | W4.04 OAS XML data/wire mapping, namespaces/order/escaping and disabled external acquisition; O32 §4.26, XML/Namespaces | XML semantics plus runtime-media/Core codec integration | A R E S C | XML metadata suites only; wire coverage still required | Missing for modeled wire encoder/decoder across consumers; opaque bytes remain available with truthful evaluation limits | H |
 | W4.05 Linkset-to-JSON-model mapping; O32 §4.21.2, RFC 9264/8288/8187 | runtime-media/header codecs and request/mock integrations | A R E S C | wire regression coverage still required | Missing; `application/linkset` remains opaque | H |
 | W4.06 Parameter/Header externalValue occurrence serialization through approved captured bytes; O30/O31/O32 Example/Parameter/Header objects | `serialized_examples.ts`, serialized-parameter evaluator, `execution.ts`, Core captured-resource owner | A R E S C | external-example-resource and serialized-parameter suites; Core `external_parameter_examples_test.dart` and existing external-resource controls | Partially implemented; evaluation, request-selection projection and Core outgoing validation now reuse captured resources and actual occurrences, including header octets/charsets; query/header production byte-exchange regressions are prepared; acceptance remains pending | H |
@@ -186,6 +186,25 @@ unknown/singleton/list fields, exact values, Set-Cookie and obsolete readiness
 proofs. Evaluator 1.18.0+49 and response/parameter mock producers 4 agree across
 engine/Core readiness. These regressions, analysis, builds and acceptance have
 not run. W4.03 source completion does not close the other W4 requirements.
+
+The connection adapter now honors the SDK's selected HTTP proxy host/port.
+HTTPS retains SDK environment/no_proxy resolution and SDK validation of the
+complete PAC route list before any connection. SDK CONNECT parsing and proxy
+authentication run over the existing raw TCP owner; its subscription transfers
+to the same cancellable TLS owner used for direct requests. The pinned SDK's
+private Socket upgrade cannot operate on an application decorator, so the outer
+HttpClient receives the verified TLS socket and frames the original application
+request. Origin field capture starts above TLS and excludes proxy control fields.
+No DIRECT route is invented. Only a configured DIRECT entry may bypass a proxy.
+RFC 9110 §9.3.6 governs successful 2xx CONNECT transitions and ignored control
+length fields. Trust roots, target hostname and client certificate selection stay
+with the SDK TLS implementation; deadline/cancel closes the actual TCP owner.
+Route capture is bounded to 64 KiB and 256 entries. Core/CLI source regressions
+cover GET/POST/custom methods, absolute-form forwarding, authenticated 200/201
+tunnels, ordered origin fields, repeated ETag rejection, explicit fallback/no_proxy,
+malformed routes, credential isolation, failed trust/name checks and termination
+during CONNECT/TLS. They have not run. This internal client-proxy tunnel does not
+implement the still-missing application/mock CONNECT work in W5.03.
 
 Anchored and dynamic independent schema uses now reserve an ordinary `$defs`
 owner in a captured schema with the same resource boundary, URI, family and
