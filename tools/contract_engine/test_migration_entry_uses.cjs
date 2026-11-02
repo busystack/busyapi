@@ -135,10 +135,10 @@ test('a specialized fragment selects its captured dialect instead of inheriting 
 for(const format of ['yaml','json'])test(`${format} shared operation, security and discriminator names retain each entry namespace`,async()=>{
  const root='file:///names/a.'+format,other='file:///names/b.'+format,shared='file:///names/uses.'+format;
  const api=name=>({openapi:'3.2.1',info:{title:name,version:'business'},paths:{'/p':{$ref:'uses.'+format+'#/Path'}},
-  components:{securitySchemes:{Access:{type:'apiKey',in:'header',name:'X-'+name}},schemas:{Choice:{type:'object',properties:{entry:{const:name}}}}}});
+  components:{securitySchemes:{Access:{type:'apiKey',in:'header',name:'X-'+name}},schemas:{Choice:{allOf:[{$ref:'uses.'+format+'#/Base'}],'x-entry':name}}}});
  const values=[api('First'),api('Second'),{Path:{get:{operationId:'shared',security:[{Access:[]}],responses:{200:{description:'Value',
   links:{Next:{$ref:'a.'+format+'#/components/links/Next'}},content:{'application/json':{schema:{$ref:'#/Base'}}}}}}},
-  Base:{type:'object',discriminator:{propertyName:'kind',mapping:{chosen:'Choice'}},description:'[Guide](guide.md)'},
+  Base:{type:'object',properties:{kind:{type:'string'}},required:['kind'],discriminator:{propertyName:'kind',mapping:{chosen:'Choice'}},description:'[Guide](guide.md)'},
   Literal:{security:[{Access:[]}],mapping:{chosen:'Choice'},zero:0,flag:false,empty:''}}];
  values[0].components.links={Next:{operationId:'shared',description:'[Next](../next.md)'}};
  values[0]['x-next']=values[0].components.links.Next;
@@ -212,11 +212,11 @@ for(const [foreignVersion,entryVersion,targetVersion,anchored]of [
 ])for(const format of ['yaml','json'])test(`${format} foreign ${foreignVersion} components retain their family and ${entryVersion} entry bindings`,async()=>{
  const root='file:///mixed/a.'+format,other='file:///mixed/b.'+format;
  const model={...(anchored?{$dynamicAnchor:'node'}:{}),type:'object',properties:{value:{type:'integer',enum:['EXACT']},entry:{type:'string'},
-  ...(anchored?{child:{$dynamicRef:'#node'}}:{})},required:['value'],discriminator:{propertyName:'entry',mapping:{chosen:'Choice'}},description:'[Guide](guide.md)'};
+  ...(anchored?{child:{$dynamicRef:'#node'}}:{})},required:['value','entry'],discriminator:{propertyName:'entry',mapping:{chosen:'Choice'}},description:'[Guide](guide.md)'};
  const operation=prefix=>({responses:{200:{description:'Value',headers:{'X-Value':{$ref:prefix+'#/components/headers/Shared'}},
   content:{'application/json':{schema:{$ref:prefix+'#/components/schemas/Base'}}}}}});
  const api=(version,name,prefix)=>({openapi:version,info:{title:name,version:'business'},paths:{'/p':{get:operation(prefix)}},
-  components:{schemas:{Choice:{type:'object',properties:{entry:{enum:[name]}}}}}});
+  components:{schemas:{Choice:{allOf:[{$ref:'b.'+format+'#/components/schemas/Base'}],'x-entry':name}}}});
  const first=api(entryVersion,'First','b.'+format),second=api(foreignVersion,'Second','');
  second.components.schemas.Base=model;second.components.headers={Shared:{description:'[Header](headers.md)',schema:{$ref:'#/components/schemas/Base'}}};
  second['x-history']=model;
@@ -241,8 +241,8 @@ for(const [foreignVersion,entryVersion,targetVersion,anchored]of [
   const header=plan.responses[0].headers[0].schema;
   assert.deepEqual(follow(graph,header.resource,header.pointer,'schema'),owner);
   const choice=graph.docs.get(binding.targetResource).dataNode(binding.targetPointer).value;
-  assert.deepEqual(choice.properties.entry.enum,[name]);
-  const samples=['{"value":9007199254740993.00,"entry":"chosen"}','{"value":0}','{"value":"wrong"}',...(anchored?['{"value":9007199254740993.00,"child":{"value":9007199254740993.00}}','{"value":9007199254740993.00,"child":{"value":0}}']:[])];
+  assert.equal(choice['x-entry'],name);
+  const samples=['{"value":9007199254740993.00,"entry":"chosen"}','{"value":0}','{"value":"wrong"}',...(anchored?['{"value":9007199254740993.00,"entry":"chosen","child":{"value":9007199254740993.00,"entry":"chosen"}}','{"value":9007199254740993.00,"entry":"chosen","child":{"value":0,"entry":"chosen"}}']:[])];
   const evaluated=await evaluateSchemas({...packet,runtimeInstances:samples.map(text=>({subject:'response-body',location:'application/json',text,schema:body}))});
   assert.equal(evaluated.complete,true,JSON.stringify(evaluated.findings));assert.deepEqual(evaluated.runtimeEvaluations.map(value=>value.valid),[true,false,false,...(anchored?[true,false]:[])]);
  };

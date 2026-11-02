@@ -739,6 +739,10 @@ same-family and mixed-family map/document views, exact unknown annotation
 values, references, native discriminator/security/Link bindings, whole-document
 views without entry binding differences, HTTP behavior,
 stale/cancelled reviews, original preservation, publication and cold reopening.
+Ownership regressions use required discriminator properties and actual allOf
+model inheritance (O30/O31 Discriminator clauses; O32 §4.25), including recursive
+samples. This keeps source validity separate from namespace and annotation
+preservation, without relaxing production composition/default diagnostics.
 Migration producer `58` agrees with Core/preflight and obsolete-response controls;
 evaluator `1.18.0+56` is unchanged. This ownership boundary is source-complete,
 unverified; W2/W3 retain their other concrete source gaps.

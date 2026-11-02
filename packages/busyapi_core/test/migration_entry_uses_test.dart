@@ -32,14 +32,14 @@ void main() {
           'responses': {'200': {'description': 'Value', 'headers': {'X-Value': {r'$ref': '$prefix#/components/headers/Shared'}},
             'content': {'application/json': {'schema': {r'$ref': '$prefix#/components/schemas/Base'}}}}},
         }}},
-        'components': {'schemas': {'Choice': {'type': 'object', 'properties': {'entry': {'enum': [title]}}}}},
+        'components': {'schemas': {'Choice': {'allOf': [{r'$ref': 'b.yaml#/components/schemas/Base'}], 'x-entry': title}}},
       };
       final first = api('3.2.1', 'First', 'b.yaml'), second = api(foreignVersion, 'Second', '');
       final model = {
         if (foreignVersion == '3.1.2') r'$dynamicAnchor': 'node',
         'type': 'object', 'properties': {'value': {'type': 'integer', 'enum': ['EXACT']}, 'entry': {'type': 'string'},
           if (foreignVersion == '3.1.2') 'child': {r'$dynamicRef': '#node'}},
-        'required': ['value'], 'discriminator': {'propertyName': 'entry', 'mapping': {'chosen': 'Choice'}},
+        'required': ['value', 'entry'], 'discriminator': {'propertyName': 'entry', 'mapping': {'chosen': 'Choice'}},
       };
       (second['components'] as Map)['schemas']['Base'] = model;
       (second['components'] as Map)['headers'] = {'Shared': {'schema': {r'$ref': '#/components/schemas/Base'}}};
@@ -77,7 +77,7 @@ void main() {
             final schemas = jsonDecode(raw) as Map;
             expect(schemas.keys.toSet(), {'Choice', 'Base'});
             expect(schemas['Base']['discriminator']['mapping'], {'chosen': 'Choice'});
-            expect(schemas['Choice']['properties']['entry']['enum'], ['Second']);
+            expect(schemas['Choice']['x-entry'], 'Second');
             final document = await material({'resource': root, 'pointer': '/components/schemas/Document'});
             final version = (document['entries'] as List).whereType<Map>().singleWhere((entry) => entry['name'] == 'openapi');
             expect(version['value'], foreignVersion);
