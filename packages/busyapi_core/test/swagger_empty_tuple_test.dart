@@ -183,7 +183,7 @@ tests:
             helper: '$testBundle/libexec/busyapi/mock-server.cjs',
           );
           addTearDown(mock.stop);
-          expect(mock.nativeValidation.version, '1.18.0+54');
+          expect(mock.nativeValidation.version, '1.18.0+55');
           final client = HttpClient();
           addTearDown(() => client.close(force: true));
           final mockRequest = await client.postUrl(

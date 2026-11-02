@@ -6,6 +6,7 @@ import {escape,SourceError} from './document';
 import {modernFamily} from './specification';
 import {projectSchemaReference} from './schema_reference_projection';
 import {DiscriminatorModels} from './discriminator_models';
+import {swaggerMedia} from './swagger_operation';
 
 type Context=ReturnType<typeof createGraph>;
 export type MigrationUse=Readonly<{
@@ -181,6 +182,12 @@ export function migrationContextDifferences(contexts:readonly Pick<DocumentConte
             binding(owner,JSON.stringify([reference.keyword,reference.connection]),JSON.stringify([
                 reference.resolution,reference.targetResource,reference.targetPointer,reference.targetUri,
                 reference.dynamic?.anchor,reference.dynamic?.candidates.map(candidate=>[candidate.resource,candidate.pointer]).sort(),
+            ]));
+        }
+        for(const operation of graph.operations()){
+            inspect();const scope=graph.scopeAs(operation.source.resource,operation.source.pointer,'operation');
+            if(scope?.family==='2.0')binding(scope,'operation-media',JSON.stringify([
+                swaggerMedia(graph,scope.resource,scope.pointer,'consumes'),swaggerMedia(graph,scope.resource,scope.pointer,'produces'),
             ]));
         }
     }

@@ -144,11 +144,27 @@ for(const format of ['yaml','json'])test(`${format} cross-entry specialization c
   assert(problem.range[1]>problem.range[0]);assert.deepEqual(input.resources.map(resource=>resource.text),before);
 });
 
-for(const format of ['yaml','json'])test(`${format} one Swagger operation cannot silently collapse distinct inherited media`,async()=>{
- const input={...fixture('2.0',format),targetVersion:'3.0.4'};
+for(const targetVersion of ['3.0.4','3.1.2','3.2.1'])for(const format of ['yaml','json'])test(`${format} shared Swagger operation owners retain distinct inherited media through ${targetVersion}`,async()=>{
+ const input={...fixture('2.0',format),targetVersion};
  input.resources[0].text=new SourceDocument(input.resources[0].text,input.resources[0].id).set('/paths/~1items',{$ref:'other.'+format+'#/paths/~1other'});
  input.resources[1].text=new SourceDocument(input.resources[1].text,input.resources[1].id).set('/produces',['application/xml']);
- const before=input.resources.map(r=>r.text),result=await planMigration(input);assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);assert(result.problems.some(p=>p.code==='migration.operation.multiple-contexts'&&p.resource===input.resources[1].id&&p.range[1]>p.range[0]),JSON.stringify(result.problems));assert.deepEqual(input.resources.map(r=>r.text),before);
+ input.resources[1].text=new SourceDocument(input.resources[1].text,input.resources[1].id).set('/paths/~1other/get/operationId','shared');
+ const before=input.resources.map(r=>r.text),result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));
+ const resources=result.outputs.map(output=>({id:output.id,text:output.text,generation:0}));
+ for(const resource of input.resources.slice(0,2)){
+  const originalPacket={...input,root:resource.id},oldGraph=createGraph(originalPacket).graph,operation=oldGraph.operations().find(value=>value.role==='operation');
+  const original=requestOperation({...originalPacket,resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
+  const root=result.changes.find(change=>change.resource===resource.id).destination,packet={root,resources,snapshot:'cold-inherited-media'};
+  const graph=createGraph(packet).graph,migrated=graph.operations().find(value=>value.path===operation.path);
+  assert.equal(analyse(packet).status,'complete',JSON.stringify(analyse(packet).findings));
+  const plan=requestOperation({...packet,resource:migrated.source.resource,pointer:migrated.source.pointer,occurrence:migrated.occurrence});
+  assert.deepEqual(plan.responses[0].content.map(value=>value.mediaType),original.responses[0].content.map(value=>value.mediaType));
+  assert.equal(plan.servers[0].url,original.servers[0].url);assert.equal(plan.security.schemes.Access.parameterName,original.security.schemes.Access.parameterName);
+  assert.equal(graph.docs.get(migrated.source.resource).dataNode(migrated.source.pointer+'/operationId').value,'shared');
+  const evaluated=await evaluateSchemas({...packet,runtimeInstances:['{"n":9007199254740993}','{"n":1}'].map(text=>({subject:'response-body',location:text,text,schema:plan.responses[0].content[0].schema}))});
+  assert.equal(evaluated.complete,true,JSON.stringify(evaluated.findings));assert.deepEqual(evaluated.runtimeEvaluations.map(value=>value.valid),[true,false]);
+ }
+ assert.deepEqual(input.resources.map(r=>r.text),before);
 });
 
 for(const format of ['yaml','json'])test(`${format} incomplete secondary resources cannot produce a migrated copy`,async()=>{

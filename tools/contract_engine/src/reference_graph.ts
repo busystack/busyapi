@@ -4,7 +4,7 @@ import {swaggerFileChoiceTargets} from './swagger_file';
 import {resolveIri} from '@hyperjump/uri';
 import {specificationDeclaration, defaultSchemaDialect, modernFamily, restrictedSchemaDialect, swaggerSchemaDialect, isNativeFamily, capabilitiesFor, Specification,declaredSchemaDialect} from './specification';
 
-export const schemaRoleContextRevision='6';
+export const schemaRoleContextRevision='7';
 
 export const knownDialects = new Set([
     restrictedSchemaDialect,
@@ -156,6 +156,7 @@ export class ReferenceGraph {
     }
     private captureEntryUses(occurrences:readonly GraphTarget[]):void {
         const edges=new Map<string,GraphScope[]>();
+        const dynamicReferences=new Map<string,GraphReference[]>();
         let work=0;
         const admit=()=>{if(++work>2000000)throw new SourceError('limit.graph.uses','Entry ownership exceeds 2000000 graph steps');};
         const connect=(source:GraphTarget,target:GraphScope)=>{
@@ -166,13 +167,30 @@ export class ReferenceGraph {
             const owner=this.referenceOwner(reference);
             const target=this.scopeAs(reference.targetResource!,reference.targetPointer!,reference.kind);
             if(owner&&target)connect(owner,target);
+            if(owner&&reference.dynamic){
+                const id=this.useIdentity(owner),values=dynamicReferences.get(id)??[];
+                values.push(reference);dynamicReferences.set(id,values);
+            }
         }
         const selected=new Set<string>(),pending:GraphScope[]=[this.scopeAs(this.root,'','root')!];
+        const enteredResources=new Set<string>(),waiting=new Map<string,GraphScope[]>();
         for(const occurrence of occurrences){const scope=this.scopeAs(occurrence.resource,occurrence.pointer,occurrence.kind);if(scope)pending.push(scope);}
         for(let index=0;index<pending.length;index++){
             admit();const scope=pending[index],id=this.useIdentity(scope);
             if(selected.has(id))continue;
             selected.add(id);pending.push(...edges.get(id)??[]);
+            if(scope.kind==='schema'){
+                const resource=schemaResourceContextIdentity(scope);
+                if(!enteredResources.has(resource)){
+                    enteredResources.add(resource);pending.push(...waiting.get(resource)??[]);waiting.delete(resource);
+                }
+            }
+            for(const reference of dynamicReferences.get(id)??[])for(const candidate of reference.dynamic!.candidates){
+                admit();const schema=this.scopeAs(candidate.resource,candidate.pointer,'schema');if(!schema)continue;
+                const resource=schemaResourceContextIdentity(schema);
+                if(enteredResources.has(resource))pending.push(schema);
+                else {const values=waiting.get(resource)??[];values.push(schema);waiting.set(resource,values);}
+            }
             const value=this.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
             if(scope.kind==='schema'&&scope.pointer!==scope.resourcePointer){
                 const resource=this.scopeAs(scope.resource,scope.resourcePointer,'schema');
@@ -185,9 +203,9 @@ export class ReferenceGraph {
             }
         }
         this.entryUses=selected;
-        // A dynamic override must belong to a resource reachable in this
-        // entry. A parsed anchor in another independent API cannot enter the
-        // evaluation path merely because both files were captured together.
+        // Dynamic anchors are resource-wide, including declarations outside
+        // the immediate static path. Only entered resource contexts can
+        // contribute overrides; another captured API is not an entered scope.
         for(const reference of this.entryReferences())if(reference.dynamic){
             reference.dynamic={...reference.dynamic,candidates:reference.dynamic.candidates.filter(candidate=>{
                 admit();const scope=this.scopeAs(candidate.resource,candidate.pointer,'schema');

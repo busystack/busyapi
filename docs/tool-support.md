@@ -986,7 +986,7 @@ Native property-access evaluation uses the logical schema occurrence even when
 its source is a reusable or aliased definition. Swagger `readOnly` properties
 are excluded from requests through schema references; OpenAPI 3.0 retains its
 request/response `required` rules for readOnly/writeOnly. Modern annotations keep
-ordinary JSON Schema assertions. The shared evaluator revision is **1.18.0+54**;
+ordinary JSON Schema assertions. The shared evaluator revision is **1.18.0+55**;
 matching mock/worker revisions are required before readiness is reported.
 
 Selected-entry validation and evaluation follow canonical typed reachability.

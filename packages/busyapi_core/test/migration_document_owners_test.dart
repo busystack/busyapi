@@ -129,6 +129,67 @@ Map<String, String> _documents(String version, String format, int port) {
 }
 
 void main() {
+  test('shared Swagger operations retain each entry media and operation ID through HTTP and relocated publication', () async {
+    final temp = await Directory.systemTemp.createTemp('busyapi-shared-operation-');
+    addTearDown(() => temp.delete(recursive: true));
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    final received = <(String, List<int>)>[];
+    server.listen((request) async {
+      final bytes = await request.fold<List<int>>([], (all, chunk) => all..addAll(chunk));
+      received.add((request.uri.path, bytes));
+      request.response.headers.set(HttpHeaders.contentTypeHeader,
+          request.uri.path.startsWith('/a/') ? 'application/json' : 'application/vnd.busyapi+json');
+      request.response.add(bytes);await request.response.close();
+    });
+    final originals = _documents('2.0', 'json', server.port);
+    final first = jsonDecode(originals['api.json']!) as Map<String, dynamic>;
+    (first['paths'] as Map)['/items'] = {r'$ref': 'other.json#/paths/~1items'};
+    originals['api.json'] = jsonEncode(first);
+    final second = jsonDecode(originals['other.json']!) as Map<String, dynamic>;
+    second['produces'] = ['application/vnd.busyapi+json'];
+    ((second['paths'] as Map)['/items'] as Map)['post']['operationId'] = 'shared';
+    originals['other.json'] = jsonEncode(second);
+    for (final entry in originals.entries) await File('${temp.path}/${entry.key}').writeAsString(entry.value);
+    final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);addTearDown(engine.close);
+    final source = await BusyProject.open('${temp.path}/api.json', engine);addTearDown(source.close);
+    final roots = [File('${temp.path}/api.json').uri.toString(), File('${temp.path}/other.json').uri.toString()];
+    Future<void> send(BusyProject owner, String root, String path, String media) async {
+      final checked = await owner.check(root);expect(checked['complete'], true, reason: '$checked');
+      final operation = (checked['projection']['operations'] as List).whereType<Map>().single;
+      final plan = await owner.prepareRequest(root, resource: operation['resource'] as String,
+          pointer: operation['pointer'] as String, occurrence: operation['occurrence'] as String);
+      try {
+        final response = (plan.result['responses'] as List).single as Map;
+        expect(((response['content'] as List).single as Map)['mediaType'], media);
+        final result = await const ContractRequestExecutor().execute(plan,
+          OperationRequestDraft(planIdentity: plan.identity,
+            body: const RequestBodyDraft.raw(mediaType: 'application/json', text: _body)),
+          resolveSecret: (_) async => null);
+        try {
+          expect(result.conforming, true, reason: '${result.outgoing.findings} ${result.received.findings}');
+          expect(received.last, (path, utf8.encode(_body)));expect(await result.response.bytes(), utf8.encode(_body));
+        } finally { await result.close(); }
+      } finally { plan.close(); }
+    }
+    await send(source, roots[0], '/a/items', 'application/json');
+    await send(source, roots[1], '/b/items', 'application/vnd.busyapi+json');
+    final review = await source.prepareMigration(roots[0], '${temp.path}/converted', targetVersion: '3.2.1');addTearDown(review.close);
+    expect(review.publishable, true, reason: '${review.result}');await review.publish();
+    final migrated = {for (final root in roots) root: review.changes.singleWhere((change) => change.resource == root).destination};
+    for (final entry in originals.entries) expect(await File('${temp.path}/${entry.key}').readAsString(), entry.value);
+    source.close();
+    final relocated = await Directory(review.destination).rename('${temp.path}/cold 雪');
+    for (final name in originals.keys) await File('${temp.path}/$name').delete();
+    final cold = await BusyProject.open(relocated.path, engine);addTearDown(cold.close);
+    for (final (index, path, media) in [(0, '/a/items', 'application/json'), (1, '/b/items', 'application/vnd.busyapi+json')]) {
+      final root = File('${relocated.path}/${Uri.parse(migrated[roots[index]]!).pathSegments.last}').uri.toString();
+      await send(cold, root, path, media);
+    }
+    final cli = await Process.run('$testBundle/busyapi', ['check', relocated.path, '--json'],
+      environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
+    expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');
+  });
   for (final (version, target) in [
     ('2.0', '3.2.1'),
     ('3.0.4', '3.2.1'),
@@ -251,7 +312,7 @@ void main() {
           );
           addTearDown(review.close);
           expect(review.publishable, true, reason: '${review.result}');
-          expect(review.result['producerVersion'], '53');
+          expect(review.result['producerVersion'], '54');
           expect(review.unsaved, true);
           expect(review.changes, hasLength(4));
           expect((review.result['manifest'] as Map)['roots'], hasLength(3));

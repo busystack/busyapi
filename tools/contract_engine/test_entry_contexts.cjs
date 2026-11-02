@@ -54,6 +54,25 @@ test('complete identity discovery retains a referenced resource in a foreign doc
  assert(ambiguous.findings.some(finding=>finding.resource===a&&finding.pointer==='/components/schemas/Model/$ref'&&finding.code==='reference.ambiguous'));
 });
 
+test('matching dynamic anchors in entered foreign resources remain available outside the immediate static path',async()=>{
+ const primary={openapi:'3.1.2',info:{title:'Primary',version:'business'},paths:{},components:{schemas:{Use:{$ref:'b.json#/components/schemas/Start'}}}};
+ const foreign={openapi:'3.1.2',info:{title:'Foreign',version:'business'},paths:{},components:{schemas:{
+  Start:{$ref:'https://schemas.invalid/list'},ResourceAnchor:{$dynamicAnchor:'items',type:'string'},
+  List:{$id:'https://schemas.invalid/list',type:'array',items:{$dynamicRef:'#items'},$defs:{items:{$dynamicAnchor:'items'}}},
+  Unrelated:{$id:'https://schemas.invalid/unentered',$dynamicAnchor:'items',type:7},
+  UnrelatedFailure:{$ref:'missing.json'},
+ }}};
+ const input={root:a,snapshot:'entered-dynamic-resource',resources:[{id:a,text:JSON.stringify(primary),generation:0},{id:b,text:JSON.stringify(foreign),generation:0}]};
+ const graph=createGraph(input).graph;
+ assert.equal(graph.isEntryUse(graph.scopeAs(b,'/components/schemas/ResourceAnchor','schema')),true);
+ assert.equal(graph.isEntryUse(graph.scopeAs(b,'/components/schemas/Unrelated','schema')),false);
+ assert.equal(analyse(input).status,'complete',JSON.stringify(analyse(input).findings));
+ const result=await evaluateSchemas({...input,runtimeInstances:['["雪"]','[0]','[]','null'].map(text=>({subject:'response-body',location:text,text,schema:{resource:a,pointer:'/components/schemas/Use'}}))});
+ assert.equal(result.complete,true,JSON.stringify(result.findings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,false,true,false]);
+ foreign.components.schemas.ResourceAnchor.type=7;input.resources[1].text=JSON.stringify(foreign);
+ assert.notEqual(analyse(input).status,'complete','A dynamically callable matching anchor must retain its own invalid-schema diagnostic');
+});
+
 test('an independent native schema does not activate a physical containing schema resource with another base or dialect',async()=>{
  const root='file:///entries/native.json',raw='file:///entries/response.json',pointer='/$defs/Response/content/application~1json/schema';
  const input={root,snapshot:'native-resource-entry',resources:[{id:root,text:JSON.stringify({openapi:'3.2.1',info:{title:'Native use',version:'1'},
