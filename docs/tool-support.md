@@ -61,7 +61,7 @@ A modern schema reference can independently interpret a schema dictionary or
 another OpenAPI object. BusyAPI retains the physical authoring context and the
 reached schema's own dialect/base. Migration separates established schema interpretations from dictionary,
 literal-data and native-object uses before conversion. Cross-entry conflicts,
-active dynamic scope and inherited anchored-resource cases remain incomplete; opening and native editing do not
+shared resources without a proved resource/dialect holder remain incomplete; opening and native editing do not
 require migration.
 For OpenAPI 3.0, BusyAPI rejects a reference requiring different OpenAPI object
 interpretations of one source object, with a located context diagnostic.
@@ -767,7 +767,7 @@ identity map. Affected YAML uses receive separate planning-copy ownership throug
 captured anchor/alias tokens, including patch-only declarations and anchored
 destinations. Other consumers retain their exact values, and review shows the
 restructuring. Independently interpreted literal/contract occurrences still need
-their own mappings. The migration producer is **41**; Core rejects previous
+their own mappings. The migration producer is **42**; Core rejects previous
 producer responses before publication. Current qualification remains pending.
 
 Contract-case JSON reports include `dispatched` and `operationalFailure`. Coverage

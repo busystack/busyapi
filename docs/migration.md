@@ -111,8 +111,10 @@ separate retrieval context. Dynamic reference bindings and delivered resource
 connections receive the same cold-reopen proofs as other migrations. The target
 uses its own supported identity rules; it does not claim an in-band `$self` field.
 Independent schema and data uses receive separate schema owners before identity
-lowering. Active dynamic scopes and inherited anchored resources can still block
-conversion until their resource-scope preservation is proved. Unknown external
+lowering. Anchored and dynamic schemas retain an existing `$defs` holder in the
+same resource and dialect, or their own existing `$id`. Native recapture proves
+that scope before conversion. A missing holder/boundary or an unimplemented
+older-family dynamic-scope lowering remains a located blocker. Unknown external
 consumers are outside the captured graph's guarantees.
 
 Modern `dependentRequired` property dependencies can migrate to OpenAPI 3.0

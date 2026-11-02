@@ -103,13 +103,13 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | ID / requirement and authority | Production owner | Surfaces | Prepared regression coverage | Implementation status / remaining closure | Executed acceptance |
 | --- | --- | --- | --- | --- | --- |
 | W2.01 Per-use entry namespace, role, family/dialect, URI base, resource boundary, direction and independent literal uses; JC §§8–9, URI/TEXT | `migration_documents.ts`, `MigrationSource`, canonical graph | M S C | document-owner/direction/boolean-owner suites (existing); use-capture controls in document-owner suite | Partially implemented; planning contexts now retain these use records; cross-entry conflicts still block before specialization | H |
-| W2.02 One deterministic specialization mechanism, selected-consumer repair, collisions and provenance; JC resource/reference rules, family object clauses | `migration_schema_owners.ts`, migration direction/discriminator/identity/shared-text/examples, `migration_schema_uses.ts` | M S C | alias/boolean/inactive annotation/direction suites, `test_migration_schema_uses`, Core `migration_schema_uses_test` and existing publication suites | Partially implemented; common allocator serves schema containers, boolean/annotation/condition/tuple/name owners and direction/discriminator states. A pre-conversion ownership pass separates established schema uses from data, dictionaries and OpenAPI objects; repairs select intrinsic roles. Cross-entry conflicts, active dynamic scope, inherited anchored resources and non-schema literal/text/locator conflicts still need algorithms | H |
+| W2.02 One deterministic specialization mechanism, selected-consumer repair, collisions and provenance; JC resource/reference rules, family object clauses | `migration_schema_owners.ts`, migration direction/discriminator/identity/shared-text/examples, `migration_schema_uses.ts` | M S C | alias/boolean/inactive annotation/direction suites, `test_migration_schema_uses`, Core `migration_schema_uses_test` and existing publication suites | Partially implemented; common allocator serves schema containers, boolean/annotation/condition/tuple/name owners and direction/discriminator states. A pre-conversion ownership pass separates established schema uses from data, dictionaries and OpenAPI objects; repairs select intrinsic roles. Anchored/dynamic uses retain a proved existing resource via ordinary $defs holders or their own retained $id. Cross-entry conflicts, uses without such a holder/boundary and non-schema literal/text/locator conflicts still need algorithms | H |
 | W2.03 Twelve directed routes and same-family patch behavior; family schema clauses, J4/JC applicators | `migration_routes.ts`, Swagger/schema/binary/direction owners | M S C | `test_migration_entry_routes`, `test_migration_direct_swagger`, `test_swagger_empty_tuple`, Core entry routes and `migration_direct_swagger_test.dart` | Partially implemented; Swagger-to-modern now bypasses 3.0, mapping positional items directly; empty tuples retain no-op meaning; full route qualification and shared-role cases remain | H |
 | W3.01 Directional annotations and shared request/response/Header consumers in both directions; O20 Schema, O30 Schema, O31/O32 annotations | `migration_access.ts`, `migration_direction.ts`, required-presence owner | M E S C | direction/access/required-presence/Header suites and Core access review | Partially implemented; direct Swagger modern routes use existing specialization; active downgrade and mixed-entry ownership remain | H |
 | W3.02 Positional tuples/tails, recursion, exact bounds and references; J4 §5.3, JC §10.3.1 | `migration_schema.ts`, routes and schema-reference owners | M E S C | direct-Swagger/empty-tuple/migration suites and `test_migration_tuple_tails` | Partially implemented; unbounded Swagger tails upgrade to modern `prefixItems`; finite constrained modern tails expand to bounded Swagger positions referencing one retained tail owner; independent boolean tails retain owners too; unbounded constrained tails and additional equivalent downgrade algorithms remain | H |
 | W3.03 Conditional assertions and inactive conditional fields; JC §10.2.2 | `migration_schema_conditions.ts`, shared owner allocator, schema migration | M E S C | `test_migration_conditions` through production planning, source/target evaluations and cold graph | Partially implemented; existing source for modern-to-3.0 conditional lowering with one retained condition target; Swagger condition-specific mappings and overlapping roles remain open | H |
 | W3.04 Property/schema dependencies with independently referenced maps; JC §10.2.2.4, JV §6.5.4 | `migration_schema_dependencies.ts` | M E S C | dependency/dependent-schema suites, Core dependency review | Partially implemented; existing conditional lowering retained; representable independent map schemas use W2.02 ownership; unknown annotations still cannot be silently dropped for restricted targets; remaining Swagger conditional mappings remain open | H |
-| W3.05 Static/dynamic references, anchors, identities and independent annotations; JC §§8–9 | identity/schema-reference/role owners | M E S C | static-dynamicref/identity/boolean/inactive annotation suites | Partially implemented; inactive dynamic anchors can lower after captured-use inspection; document/schema identity uses now separate before lowering; active dynamic scope and inherited anchored-resource specialization remain | H |
+| W3.05 Static/dynamic references, anchors, identities and independent annotations; JC §§8–9 | identity/schema-reference/role owners | M E S C | static-dynamicref/identity/boolean/inactive annotation suites | Partially implemented; inactive dynamic anchors can lower after captured-use inspection; document/schema identity uses now separate before lowering; older-family active dynamic-reference lowering and shared uses without a proved resource holder remain | H |
 | W3.06 Pattern/property-name/contains/count/unevaluated/content constraints; JC §§10–11, JV §§6/8 | `migration_schema.ts`, `migration_schema_property_names.ts`, binary/reference/dependency owners | M E S C | migration/binary/dependency suites (existing), `test_migration_property_names`, Core `migration_property_names_test.dart` | Partially implemented; finite annotation-free property-name enum/const/type restrictions now lower to an isolated closed-properties branch with retained independent owners; general name schemas, patterns/counts/unevaluated/content algorithms remain missing, with individual blockers | H |
 | W3.07 Raw/data/base64/byte/file/union consumers and byte constraints; family binary clauses, JV §8 | `migration_binary.ts`, Swagger flat/media owners | M E S C | migration binary, direct Swagger, native binary suites | Partially implemented; direct Swagger route now inspects actual body/response media and modernizes flat bounds/byte encodings; mixed/constrained/file-union ownership remains | H |
 | W3.08 Inherited media, forms/files, examples without schemas, shared operations/body meaning and reusable objects; family object clauses | Swagger media/form/downgrade/operation owners | M E S C | Swagger media/form/bodyless/ignored-body suites, Core form CLI | Partially implemented; retain existing mappings and safety decisions; examples without schemas and mixed shared operations still have implementation gaps | H |
@@ -143,7 +143,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W7.01 Creation, editing, unsaved Reference, request/example/mock/case, migration review, documentation and CLI integration for every capability; all applicable clauses above | shared engine, Core owners and native workspace controls | A R E M S C | engine/Core/widget/native journey suites | Partially implemented; applicable existing consumers inherit shared field/codec/routing changes; complete family journeys are not accepted | H |
 | W7.02 Stale-action invalidation on declaration/dialect/root/external/approval changes; coherent reviewed transactions, Undo/Redo and no buffer loss; Core transaction contract | Core project/store/capture and native review/request controllers | A R E M S C | stale capture/cancellation/publication/widget review suites | Partially implemented; existing source for existing safeguards; new paths require current integration qualification | H |
 | W7.03 CST fidelity, no-op saves, exact values, aliases, extensions and source-only migration restructuring; TEXT | `document.ts`, graph/CST editing, Core store/transaction owners | A R M S C | source ownership/alias/exact-value/no-op suites | Partially implemented; existing source for existing boundaries; generated schema owners retain original provenance and reviewed restructuring | H |
-| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+49`, migration producer `41`, response/parameter mock producers `4`, numeric sample producer remains `3`; no dependency versions/source changed | H |
+| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+49`, migration producer `42`, response/parameter mock producers `4`, numeric sample producer remains `3`; no dependency versions/source changed | H |
 | W8.01 Explicit independent evidence input across SDK/build/CMake/CI/installed/package checks; PINS | `flutter_archive.py`, SDK verifier, `build_linux.sh`, CMake, package/native-distribution/artifact-smoke inputs | P | `tools/test_flutter_sdk.py`, source-wiring regressions | Partially implemented; existing source for archive-input propagation; same existing evidence reaches installed checks; independent member pins remain an alternative; no SDK acquisition/replacement | H; actual evidence availability/authenticity has not been qualified |
 | W8.02 Ordered gates, registration, source-version-valid fixtures and production-byte regressions; PINS and each row's authority | `tools/build_engine.sh`, Linux workflow, engine/Core/widget/native/package suites | P | new direct-Swagger/conditional/tuple-tail/property-name/runtime-parameter suites registered; existing TypeScript-before-bundle gate retained | Partially implemented; compilation and all suspended gates remain unexecuted; missing regression coverage identified in this register remains implementation work | H |
 | W8.03 Current automated/native/packaged/offline acceptance and normal Quit; all approved families and PINS | native acceptance tools, Core/package/CLI suites | A R E M S C P | existing native acceptance including historical Quit/focus failures; complete new journeys still required | Missing for accepted evidence; no driver/engine attribution established; Snapcraft remains skipped | H |
@@ -187,6 +187,26 @@ proofs. Evaluator 1.18.0+49 and response/parameter mock producers 4 agree across
 engine/Core readiness. These regressions, analysis, builds and acceptance have
 not run. W4.03 source completion does not close the other W4 requirements.
 
+Anchored and dynamic independent schema uses now reserve an ordinary `$defs`
+owner in a captured schema with the same resource boundary, URI, family and
+dialect, or retain their own existing `$id` in the separate resource. No resource
+identifier is invented. `$defs` adds no evaluated assertion or annotation (JC
+§8.2.4). Every intrinsic schema's URI/dialect/family is compared after graph
+recapture, and every captured static, dynamic and implicit connection receives a
+role-specific target proof before conversion. Dynamic starting anchors remain
+named (JC §8.2.3.2); published dynamic candidate proofs exclude surviving data
+occurrences. Recursive references remain references. Copies use the pristine
+captured values, so generated definitions cannot leak into another use's unknown
+schema annotations. Ignored legacy Reference Object siblings remain outside the
+intrinsic use; independent schemas reached inside that data receive their own
+owners. Source/target instance regressions include actual stricter dynamic callers,
+static-anchor downgrades, every published modern source patch, YAML/JSON, exact
+values, literal preservation, explicit decisions and Core publication/cold reopen.
+Unchanged self-contained dynamic-scope cases from the pinned official JSON Schema
+Test Suite supply independent source/target validity expectations.
+These regressions have not run. Missing resource holders and older-family dynamic
+lowering remain explicit implementation blockers, not unrepresentability claims.
+
 Independent schema-use ownership now precedes conversion through
 `migration_schema_uses.ts` and the existing `MigrationSchemaOwners`/CST owners.
 Copies use standard separate schema resources so they do not add implicit
@@ -198,12 +218,13 @@ Headers and discriminator states. Markdown, example locators and connection
 proofs select surviving semantic occurrences; exact-data invariants still require
 surviving unchanged literal values. Source validation, ambiguity guards,
 resource bounds and target/cold-reopen checks remain mandatory. The migration
-producer is 41 at the engine, Core and native preflight boundaries. Prepared
+producer is 42 at the engine, Core and native preflight boundaries. Prepared
 engine and Core regressions cover dependency-map schema uses, literal schemas,
 recursion, document identity, Header references, exact data, cancellation, stale
 reviews and publication. They have not run. W2 remains partially implemented:
-cross-entry conflicts, active dynamic scope, inherited anchored resources and
-non-schema dual literal uses still have specific implementation blockers.
+cross-entry conflicts, independently interpreted resources without a proved
+holder/boundary, older-family dynamic-scope lowering and non-schema dual literal
+uses still have specific implementation blockers.
 
 Finite property-name lowering follows [JSON Schema Core §10.3.2.4](https://json-schema.org/draft/2020-12/json-schema-core#section-10.3.2.4):
 only string property names are tested. For the admitted annotation-free
@@ -211,8 +232,8 @@ only string property names are tested. For the admitted annotation-free
 a finite set. A separate `allOf` branch with exactly that set in `properties`
 and `additionalProperties: false` admits precisely those object names without
 changing existing value constraints. An empty set becomes `maxProperties: 0`;
-non-objects are unaffected. Referenced name schemas keep their converted owner
-through the common allocator. General/annotated forms and dual literal/schema
+non-objects are unaffected. Referenced name schemas and exact enum/const operands
+keep their converted owner through the common allocator. General/annotated forms and dual literal/schema
 roles retain specific implementation blockers. No new annotation semantics or
 compatibility extension is invented. Prepared comparisons include both restricted
 target families, every published modern source patch, aliases, collisions, exact

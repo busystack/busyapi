@@ -1,5 +1,7 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
 const YAML=require('yaml');
 const {planMigration}=require('./dist/migration.cjs');
 const {analyse,createGraph}=require('./dist/model.cjs');
@@ -23,7 +25,7 @@ async function migrate(input){
  const before=input.resources.map(resource=>resource.text);
  const review=await planMigration(input);
  assert.equal(review.complete,true,JSON.stringify(review.problems));
- assert.equal(review.producerVersion,'41');
+ assert.equal(review.producerVersion,'42');
  const output=delivered(review);
  assert.equal(analyse(output).status,'complete');
  assert.deepEqual(input.resources.map(resource=>resource.text),before);
@@ -75,17 +77,112 @@ for(const format of ['yaml','json'])test(`${format} recursive literal schema cop
  const values=['{}','{"n":9007199254740993,"next":{}}','{"next":{"n":9007199254740992}}','null'];
  assert.deepEqual(await outcomes(output,'/components/schemas/Value',values),await outcomes(input,'/components/schemas/Value',values));
 });
-test('an independently copied active dynamic scope remains a located implementation blocker',async()=>{
+test('an older-family dynamic downgrade retains its vocabulary blocker after ownership separation',async()=>{
  const input=capture('json',{
   Model:{default:{$dynamicAnchor:'node',type:'object',properties:{next:{$dynamicRef:'#node'}}}},
   Value:{$ref:'#/components/schemas/Model/default'},
  });
  const before=input.resources[0].text,result=await planMigration(input);
  assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);
- const problem=result.problems.find(problem=>['migration.owners.dynamic-scope','migration.owners.anchor-base'].includes(problem.code));
- assert(problem,JSON.stringify(result.problems));assert.equal(problem.pointer,'/components/schemas/Model/default');
+ const problem=result.problems.find(problem=>problem.code==='migration.schema.dynamic-reference');
+ assert(problem,JSON.stringify(result.problems));assert(problem.pointer.startsWith('/components/schemas/Model/default'));
  assert.equal(problem.resource,input.root);assert(problem.range[1]>problem.range[0]);
  assert.equal(input.resources[0].text,before);
+});
+for(const format of ['yaml','json'])for(const version of ['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const identified of [false,true])
+test(`${version} ${format} ${identified?'identified':'inherited'} dynamic resources keep actual recursive call scope`,async()=>{
+ const input=capture(format,{},version);
+ const schema={...(identified?{$id:'node'}:{}),$dynamicAnchor:'node',type:'object',required:['n'],
+  properties:{n:{type:'integer',enum:['EXACT']},next:{$dynamicRef:'#node'}}};
+ const value={openapi:version,info:{title:'Scoped resources',version:'business'},paths:{},components:{schemas:{
+  Model:{$id:'https://schemas.invalid/model',type:'object',default:schema},
+  Value:{$ref:'#/components/schemas/Model/default'},
+  Strict:{$id:'https://schemas.invalid/strict',$dynamicAnchor:'node',$ref:input.root+'#/components/schemas/Value',required:['strict'],properties:{strict:{const:true}}},
+ }}};
+ input.resources[0].text=(format==='yaml'?YAML.stringify(value,{aliasDuplicateObjects:false}):JSON.stringify(value))
+  .replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ input.targetVersion=version.startsWith('3.1.')?'3.2.1':'3.1.2';
+ const original=new SourceDocument(input.resources[0].text,input.root).dataJson('/components/schemas/Model/default');
+ const samples=['{}','null','{"n":9007199254740993}',
+  '{"n":9007199254740993,"strict":true}',
+  '{"n":9007199254740993,"strict":true,"next":{"n":9007199254740993}}',
+  '{"n":9007199254740993,"strict":true,"next":{"n":9007199254740993,"strict":true}}',
+  '{"n":9007199254740992,"strict":true}'];
+ const strict=await outcomes(input,'/components/schemas/Strict',samples);
+ assert.deepEqual(strict,[false,false,false,true,false,true,false]);
+ const {output}=await migrate(input);
+ for(const name of ['Value','Strict'])assert.deepEqual(await outcomes(output,'/components/schemas/'+name,samples),await outcomes(input,'/components/schemas/'+name,samples),name);
+ const doc=new SourceDocument(output.resources.find(resource=>resource.id===output.root).text,output.root);
+ assert.equal(doc.dataJson('/components/schemas/Model/default'),original);
+ const {graph}=createGraph(output),reference=graph.referenceAs(output.root,'/components/schemas/Value','$ref','schema');
+ const target=graph.scopeAs(reference.targetResource,reference.targetPointer,'schema');
+ assert.equal(target.base,'https://schemas.invalid/'+(identified?'node':'model'));
+ const nested=graph.referenceAs(target.resource,target.pointer+'/properties/next','$dynamicRef','schema');
+ assert(nested.dynamic);assert.equal(nested.value,target.base+'#node');
+ assert.equal(graph.docs.get(output.root).dataNode('/components/schemas/Model/$id').value,'https://schemas.invalid/model');
+ if(!identified)assert(reference.targetPointer.startsWith('/components/schemas/Model/$defs/'));
+});
+for(const format of ['yaml','json'])for(const targetVersion of ['3.1.2','3.0.4','2.0'])test(`${format} static anchors use the resource-preserving owner before conversion to ${targetVersion}`,async()=>{
+ const input=capture(format,{
+  Model:{$id:'https://schemas.invalid/model',default:{$anchor:'node',type:'integer',enum:['EXACT']}},
+  Value:{$ref:'#/components/schemas/Model/default'},Anchor:{$ref:'https://schemas.invalid/model#node'},
+ });
+ input.targetVersion=targetVersion;
+ const {output}=await migrate(input);
+ const container=targetVersion==='2.0'?'/definitions':'/components/schemas';
+ for(const name of ['Value','Anchor'])assert.deepEqual(await outcomes(output,container+'/'+name,['9007199254740993','9007199254740992','null']),[true,false,false]);
+ const reference=createGraph(output).graph.referenceAs(output.root,container+'/Value','$ref','schema');
+ if(targetVersion==='3.1.2')assert(reference.targetPointer.startsWith('/components/schemas/Model/$defs/'));
+});
+// Use the unmodified, pinned official suite and its expected validity values;
+// these self-contained resources require no network or synthetic remote data.
+const officialDynamic=JSON.parse(fs.readFileSync(path.join(__dirname,'../../fixtures/json_schema_2020_12/dynamicRef.json'),'utf8'));
+for(const description of [
+ 'A $dynamicRef resolves to the first $dynamicAnchor still in scope that is encountered when the schema is evaluated',
+ "A $dynamicRef with intermediate scopes that don't include a matching $dynamicAnchor does not affect dynamic scope resolution",
+])test(`independent schema use preserves official dynamic scope: ${description}`,async()=>{
+ const fixture=officialDynamic.find(candidate=>candidate.description===description);
+ assert(fixture,'Pinned official dynamicRef case must remain present');
+ const input=capture('json',{Model:{default:fixture.schema},Value:{$ref:'#/components/schemas/Model/default'}},'3.1.2');
+ input.targetVersion='3.2.1';
+ const samples=fixture.tests.map(test=>JSON.stringify(test.data)),expected=fixture.tests.map(test=>test.valid);
+ assert.deepEqual(await outcomes(input,'/components/schemas/Value',samples),expected);
+ const {output}=await migrate(input);
+ assert.deepEqual(await outcomes(output,'/components/schemas/Value',samples),expected);
+ const root=new SourceDocument(output.resources.find(resource=>resource.id===output.root).text,output.root);
+ assert.deepEqual(JSON.parse(root.dataJson('/components/schemas/Model/default')),fixture.schema);
+});
+test('resource holders do not leak earlier generated definitions into another schema annotation',async()=>{
+ const input=capture('json',{
+  Data:{$ref:'#/x-data'},Metadata:{$ref:'#/components/headers/LongHeaderMetadata'},
+ });
+ const document=JSON.parse(input.resources[0].text);
+ document['x-data']={$anchor:'data',type:'integer',enum:['EXACT']};
+ document.components.headers={LongHeaderMetadata:{description:'Header',schema:{type:'string'}}};
+ input.resources[0].text=JSON.stringify(document).replaceAll('"EXACT"','9007199254740993.00');
+ input.targetVersion='3.1.2';
+ const {output}=await migrate(input),{graph}=createGraph(output);
+ const reference=graph.referenceAs(output.root,'/components/schemas/Metadata','$ref','schema');
+ const copy=graph.docs.get(reference.targetResource);
+ assert.equal(copy.dataJson(reference.targetPointer+'/schema'),'{"type":"string"}');
+ const root=graph.docs.get(output.root);
+ assert.equal(root.dataJson('/x-data'),new SourceDocument(input.resources[0].text,input.root).dataJson('/x-data'));
+ assert.deepEqual(await outcomes(output,'/components/schemas/Data',['9007199254740993','9007199254740992']),[true,false]);
+});
+test('ignored legacy reference siblings keep independent schema owners before an explicit discard decision',async()=>{
+ const input=capture('json',{
+  Base:{type:'string'},Model:{default:{$ref:'#/components/schemas/Base',properties:{n:{type:'integer',enum:[0]}}}},
+  Value:{$ref:'#/components/schemas/Model/default'},Independent:{$ref:'#/components/schemas/Model/default/properties/n'},
+ },'3.0.4');
+ input.targetVersion='3.1.2';
+ const original=new SourceDocument(input.resources[0].text,input.root).dataJson('/components/schemas/Model/default');
+ const pending=await planMigration(input);
+ assert.equal(pending.status,'requires-decision',JSON.stringify(pending.problems));
+ assert(pending.problems.every(problem=>problem.reason==='decision'&&problem.choices.includes('discard-ignored-siblings')));
+ input.decisions=Object.fromEntries(pending.problems.map(problem=>[problem.id,'discard-ignored-siblings']));
+ const {output}=await migrate(input);
+ for(const name of ['Value','Independent'])assert.deepEqual(await outcomes(output,'/components/schemas/'+name,['"text"','0','1','null','{}']),await outcomes(input,'/components/schemas/'+name,['"text"','0','1','null','{}']));
+ assert.equal(new SourceDocument(output.resources.find(resource=>resource.id===output.root).text,output.root).dataJson('/components/schemas/Model/default'),original);
 });
 test('document and schema interpretations retain separate identity and declaration meanings',async()=>{
  const input=capture('json',{Document:{$ref:'other.json'}});

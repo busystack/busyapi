@@ -109,26 +109,29 @@ export function migrationDocumentContexts(input:{root:string;resources:Resource[
 
 /** Native target validity alone cannot establish that an implicit name still
  * selects the original definition. Prove its relocated physical owner for
- * every source entry, including names that intentionally vary by entry. */
-export function proveMigrationConnections(source:ReferenceGraph,target:ReferenceGraph,mapped:(location:MigrationLocation)=>readonly MigrationLocation[],issue:MigrationIssue):void {
-    const connections=new Map(target.references.filter(reference=>reference.connection||reference.kind==='schema'&&['$ref','$dynamicRef'].includes(reference.keyword)).map(reference=>[JSON.stringify([reference.resource,reference.pointer+'/'+escape(reference.keyword)]),reference]));
+ * every source entry, including names that intentionally vary by entry. Before
+ * a family conversion/omission, ownership separation also proves static edges. */
+export function proveMigrationConnections(source:ReferenceGraph,target:ReferenceGraph,mapped:(location:MigrationLocation)=>readonly MigrationLocation[],issue:MigrationIssue,includeStatic=false):void {
+    const identity=(field:MigrationLocation,kind:string,connection:string|undefined)=>JSON.stringify([field.resource,field.pointer,kind,connection??'']);
+    const connections=new Map(target.references.filter(reference=>reference.connection||(includeStatic||reference.kind==='schema')&&['$ref','$dynamicRef'].includes(reference.keyword)).map(reference=>[
+        identity({...reference,pointer:reference.pointer+'/'+escape(reference.keyword)},reference.kind,reference.connection),reference]));
+    const mappedSchemas=(location:MigrationLocation)=>mapped(location).filter(location=>target.scopeAs(location.resource,location.pointer,'schema')!==undefined);
     for(const reference of source.references){
-        if((!reference.connection&&reference.keyword!=='$dynamicRef')||reference.resolution!=='resolved')continue;
+        if((!reference.connection&&reference.keyword!=='$dynamicRef'&&!(includeStatic&&reference.keyword==='$ref'))||reference.resolution!=='resolved')continue;
         const field={resource:reference.resource,pointer:reference.pointer+'/'+escape(reference.keyword)};
-        const fields=mapped(field).filter(field=>{
-            const connection=connections.get(JSON.stringify([field.resource,field.pointer]));
-            return connection?.kind===reference.kind&&connection.connection===reference.connection;
-        }),targets=mapped({resource:reference.targetResource!,pointer:reference.targetPointer!});
+        const connectionAt=(field:MigrationLocation)=>connections.get(identity(field,reference.kind,reference.connection));
+        const fields=mapped(field).filter(field=>connectionAt(field)!==undefined),targets=mapped({resource:reference.targetResource!,pointer:reference.targetPointer!})
+            .filter(location=>!includeStatic||target.scopeAs(location.resource,location.pointer,reference.kind)!==undefined);
         if(!fields.length||fields.some(field=>{
-            const connection=connections.get(JSON.stringify([field.resource,field.pointer]));
+            const connection=connectionAt(field);
             return !connection||connection.resolution!=='resolved'||!targets.some(target=>target.resource===connection.targetResource&&target.pointer===connection.targetPointer);
         }))issue({...field,original:field},'migration.invariant.connection','The migrated entry does not retain this reference or implicit name\'s captured target','implementation');
         if(reference.keyword==='$dynamicRef')for(const field of fields){
-            const connection=connections.get(JSON.stringify([field.resource,field.pointer]));
-            const expected=reference.dynamic?.candidates.flatMap(candidate=>mapped(candidate));
+            const connection=connectionAt(field);
+            const expected=reference.dynamic?.candidates.flatMap(candidate=>mappedSchemas(candidate));
             const actual=connection?.dynamic?.candidates;
             const identities=(values:readonly MigrationLocation[]|undefined)=>values===undefined?undefined:[...new Set(values.map(value=>JSON.stringify([value.resource,value.pointer])))].sort();
-            if(reference.dynamic?.candidates.some(candidate=>!mapped(candidate).length)||Boolean(reference.dynamic)!==Boolean(connection?.dynamic)||JSON.stringify(identities(expected))!==JSON.stringify(identities(actual)))
+            if(reference.dynamic?.candidates.some(candidate=>!mappedSchemas(candidate).length)||Boolean(reference.dynamic)!==Boolean(connection?.dynamic)||JSON.stringify(identities(expected))!==JSON.stringify(identities(actual)))
                 issue({...field,original:{resource:reference.resource,pointer:reference.pointer+'/'+escape(reference.keyword)}},'migration.invariant.dynamic','The migrated entry changes a captured dynamic reference scope or candidate owner','implementation');
         }
 

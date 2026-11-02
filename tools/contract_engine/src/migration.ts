@@ -11,7 +11,7 @@ import {downgradeSwagger} from './migration_downgrade';
 import {evaluateSchemas} from './schema_evaluation';
 import {referenceValue} from './reference_choices';
 import {coldGraph} from './reference_selection';
-import {documentUriBase,resolveUri,pointerFragment as fragment} from './reference_graph';
+import {documentUriBase,resolveUri,pointerFragment as fragment,type GraphScope} from './reference_graph';
 import {documentUriOccurrences} from './document_uris';
 import {serverTemplate} from './derived_bundle';
 import {captureMigrationMarkdown,rewriteMigrationMarkdown,proveMigrationMarkdown} from './migration_markdown';
@@ -35,7 +35,7 @@ import {migrationLogicalPointers,migrationYamlOwnership} from './migration_yaml_
 import {separateMigrationSchemaUses} from './migration_schema_uses';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='41';
+const migrationProducerVersion='42';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const patch:Record<string,string>={'2.0':'2.0','3.0':'3.0.4','3.1':'3.1.2','3.2':'3.2.1'};
 export type MigrationInput=Readonly<{
@@ -163,7 +163,9 @@ export async function planMigration(input:MigrationInput) {
                 sources.set(id,schemaResource);createdResources.set(id,graph.root);
                 return schemaResource;
             };
-            const specialized=separateMigrationSchemaUses(graph,sources,issue,createSchemaResource);
+            const resourceProofs:{scope:GraphScope;destination:MigrationLocation}[]=[];
+            const specialized=separateMigrationSchemaUses(graph,sources,issue,createSchemaResource,
+                (scope,destination)=>resourceProofs.push({scope,destination}));
             if(problems.length)break;
             if(specialized.size){
                 for(const [origin,copies]of specialized){
@@ -176,7 +178,19 @@ export async function planMigration(input:MigrationInput) {
                 const ownedInput={...input,root:graph.root,resources:resources.map(resource=>({...resource,text:sources.get(resource.id)!.doc.text}))};
                 const owned=createGraph(ownedInput);
                 contexts=migrationDocumentContexts(ownedInput,owned,issue);
+                owned.graph.assertReferenceEditsSupported();
+                const proofIssue:MigrationIssue=(location,code,message,reason)=>
+                    issue({resource:location.resource,pointer:location.pointer},code,message,reason);
+                // No omission or family conversion has happened yet: prove
+                // every typed static edge as well as dynamic/implicit ones.
+                proveMigrationConnections(graph,owned.graph,
+                    location=>[location,...(specialized.get(key(location.resource,location.pointer))??[])],proofIssue,true);
                 graph=owned.graph;
+                for(const {scope,destination}of resourceProofs){
+                    const retained=graph.scopeAs(destination.resource,destination.pointer,'schema');
+                    if(!retained||retained.base!==scope.base||retained.dialect!==scope.dialect||retained.family!==scope.family)
+                        issue(scope,'migration.owners.resource-context','The independently owned schema did not retain its captured resource URI, dialect and family','implementation');
+                }
                 if(problems.length)break;
             }
             for(const context of contexts)context.graph.assertReferenceEditsSupported();

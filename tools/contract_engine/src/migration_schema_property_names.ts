@@ -44,7 +44,12 @@ export function migrateSchemaPropertyNames(graph:ReferenceGraph,scope:GraphScope
     }
     const referenced=graph.references.some(reference=>reference.kind==='schema'&&reference.resolution==='resolved'&&
         reference.targetResource===scope.resource&&(reference.targetPointer===original||reference.targetPointer?.startsWith(original+'/')));
-    if(referenced)owners.move({resource:scope.resource,pointer:original},source,at,'property_names');
+    // The closed-properties branch represents the assertion, but does not own
+    // its exact enum/const data operands. Retain that schema through the common
+    // owner even without an independent reference, rather than dropping data
+    // provenance or altering a separately interpreted operand's consumers.
+    const literalOperands=node.kind==='object'&&(node.children.has('enum')||node.children.has('const'));
+    if(referenced||literalOperands)owners.move({resource:scope.resource,pointer:original},source,at,'property_names');
     else {owners.admit(source);source.remove(at,true,true,true);}
     if(names===undefined)return;
     owners.admit(source,4);

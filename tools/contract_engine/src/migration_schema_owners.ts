@@ -56,10 +56,12 @@ export class MigrationSchemaOwners {
      * its original provenance for review, without making later reference repair
      * choose between the structural/data owner and the schema copy. The caller
      * composes this relation with the final coordinates after conversion. */
-    separate(origin:MigrationLocation,label:string):Readonly<{
+    separate(origin:MigrationLocation,label:string,container?:MigrationLocation,captured?:MigrationSource):Readonly<{
         location:MigrationLocation;provenance:ReadonlyMap<string,MigrationLocation>;
     }> {
-        const input=this.sources.get(origin.resource)!,owner=this.reserve(origin,label);
+        const input=captured??this.sources.get(origin.resource)!;
+        const owner=container?{source:this.sources.get(container.resource)!,location:this.allocate(
+            this.sources.get(container.resource)!,container.pointer,label,JSON.stringify([origin.resource,origin.pointer]))}:this.reserve(origin,label);
         this.admit(input,8);if(owner.source!==input)this.admit(owner.source,8);
         owner.source.copy(input,origin.pointer,owner.location.pointer,true);
         const inside=(at:string)=>at===owner.location.pointer||at.startsWith(owner.location.pointer+'/');
