@@ -59,9 +59,9 @@ String staticDynamicRefApi(String version, String format, {int? port}) {
       .replaceAll('"EXACT"', '9007199254740993.00');
 }
 
-String staticDynamicRefModel({String definitionKeyword = r'$defs'}) {
+String staticDynamicRefModel({String definitionKeyword = r'$defs', bool dynamicAnchor = false}) {
   final schema = {
-    r'$anchor': 'model',
+    (dynamicAnchor ? r'$dynamicAnchor' : r'$anchor'): 'model',
     'type': 'object',
     'required': ['n', 'name'],
     'properties': {
@@ -73,6 +73,7 @@ String staticDynamicRefModel({String definitionKeyword = r'$defs'}) {
         'type': 'string',
         'enum': ['雪'],
       },
+      if (dynamicAnchor) 'next': {r'$dynamicRef': '#model'},
     },
   };
   return '# Preserve shared model comments and aliases\r\n'

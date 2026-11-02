@@ -3,6 +3,8 @@ import type {MigrationIssue} from './migration_schema';
 import type {MigrationLocation} from './migration_source';
 import type {ReferenceGraph,GraphScope} from './reference_graph';
 import {escape,SourceError} from './document';
+import {modernFamily} from './specification';
+import {projectSchemaReference} from './schema_reference_projection';
 
 type Context=ReturnType<typeof createGraph>;
 export type MigrationUse=Readonly<{
@@ -128,6 +130,9 @@ export function proveMigrationConnections(source:ReferenceGraph,target:Reference
         }))issue({...field,original:field},'migration.invariant.connection','The migrated entry does not retain this reference or implicit name\'s captured target','implementation');
         if(reference.keyword==='$dynamicRef')for(const field of fields){
             const connection=connectionAt(field);
+            // Static target preservation above is also the complete scope
+            // proof when every captured dynamic candidate is that same target.
+            if(connection?.keyword==='$ref'&&!modernFamily(connection.family)&&projectSchemaReference(reference).state==='fixed')continue;
             const expected=reference.dynamic?.candidates.flatMap(candidate=>mappedSchemas(candidate));
             const actual=connection?.dynamic?.candidates;
             const identities=(values:readonly MigrationLocation[]|undefined)=>values===undefined?undefined:[...new Set(values.map(value=>JSON.stringify([value.resource,value.pointer])))].sort();

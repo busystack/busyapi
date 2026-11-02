@@ -33,9 +33,10 @@ import {migrateTerms} from './migration_terms';
 import {migrateServerVariableDefaults,retainDefaultServers} from './migration_servers';
 import {migrationLogicalPointers} from './migration_yaml_ownership';
 import {separateMigrationUses} from './migration_schema_uses';
+import {projectSchemaReference} from './schema_reference_projection';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='43';
+const migrationProducerVersion='44';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const patch:Record<string,string>={'2.0':'2.0','3.0':'3.0.4','3.1':'3.1.2','3.2':'3.2.1'};
 export type MigrationInput=Readonly<{
@@ -275,7 +276,7 @@ export async function planMigration(input:MigrationInput) {
                 JSON.stringify([reference.resource,reference.pointer,reference.keyword,reference.value,reference.targetResource,reference.targetPointer])));
             for(const reference of graph.references){
                 if(!['$ref','$dynamicRef','operationRef'].includes(reference.keyword)||reference.resolution!=='resolved')continue;
-                if(reference.keyword==='$dynamicRef'&&(modernFamily(after)||reference.dynamic))continue;
+                if(reference.keyword==='$dynamicRef'&&(modernFamily(after)||projectSchemaReference(reference).state!=='fixed'))continue;
                 const destinations=[...sources].flatMap(([id,source])=>[...(id===reference.targetResource?source.origins.get(reference.targetPointer!):source.foreignOrigins.get(reference.targetResource+'#'+reference.targetPointer!))??[]].map(pointer=>({resource:id,pointer})));
                 const primary=referenceTargets?.get(reference.resource+'#'+reference.pointer)??
                     (reference.kind==='schema'?discriminator?.primaryTargets.get(key(reference.targetResource!,reference.targetPointer!)):undefined)??

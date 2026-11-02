@@ -114,7 +114,7 @@ Independent schema and data uses receive separate schema owners before identity
 lowering. Anchored and dynamic schemas retain an existing `$defs` holder in the
 same resource and dialect, or their own existing `$id`. Native recapture proves
 that scope before conversion. A missing holder/boundary or an unimplemented
-older-family dynamic-scope lowering remains a located blocker. Unknown external
+competing-target dynamic-scope lowering remains a located blocker. Unknown external
 consumers are outside the captured graph's guarantees.
 
 Native objects reached inside literal data use the same ownership and provenance
@@ -147,8 +147,12 @@ interpreted map uses the same separate schema owner as other shared contexts.
 A modern `$dynamicRef` that resolves to a pointer or ordinary anchor can be
 converted to a static reference in Swagger 2.0 or OpenAPI 3.0. Its assertions
 and sibling constraints remain in separate `allOf` branches, and the review
-proves the relocated target. References that start at a dynamic anchor still
-require a faithful dynamic-scope mapping and block older-family conversion.
+proves the relocated target. References that start at a dynamic anchor also lower
+when every captured matching anchor identifies that same target. Recursive
+references remain references; sibling assertions stay separate. Competing
+dynamic targets still require scope specialization and retain a located
+implementation blocker. This proof covers captured consumers and resources,
+not unknown future external callers.
 Literal reference-looking keys inside example and extension data are preserved.
 
 Swagger server conversion preserves bracketed IPv6 hosts and effective operation

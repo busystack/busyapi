@@ -25,7 +25,7 @@ async function migrate(input){
  const before=input.resources.map(resource=>resource.text);
  const review=await planMigration(input);
  assert.equal(review.complete,true,JSON.stringify(review.problems));
- assert.equal(review.producerVersion,'43');
+ assert.equal(review.producerVersion,'44');
  const output=delivered(review);
  assert.equal(analyse(output).status,'complete');
  assert.deepEqual(input.resources.map(resource=>resource.text),before);
@@ -77,10 +77,22 @@ for(const format of ['yaml','json'])test(`${format} recursive literal schema cop
  const values=['{}','{"n":9007199254740993,"next":{}}','{"next":{"n":9007199254740992}}','null'];
  assert.deepEqual(await outcomes(output,'/components/schemas/Value',values),await outcomes(input,'/components/schemas/Value',values));
 });
-test('an older-family dynamic downgrade retains its vocabulary blocker after ownership separation',async()=>{
+for(const format of ['yaml','json'])test(`${format} uniquely bound recursive dynamic data uses lower through shared ownership`,async()=>{
+ const input=capture(format,{
+  Model:{default:{$dynamicAnchor:'node',type:'object',properties:{next:{$dynamicRef:'#node'}}}},
+  Value:{$ref:'#/components/schemas/Model/default'},
+ });
+ const literal=new SourceDocument(input.resources[0].text,input.root).dataJson('/components/schemas/Model/default');
+ const {output}=await migrate(input),doc=new SourceDocument(output.resources.find(resource=>resource.id===output.root).text,output.root);
+ assert.equal(doc.dataJson('/components/schemas/Model/default'),literal);
+ const samples=['{}','{"next":{}}','{"next":false}','null'];
+ assert.deepEqual(await outcomes(output,'/components/schemas/Value',samples),await outcomes(input,'/components/schemas/Value',samples));
+});
+test('competing dynamic targets retain their located specialization blocker after ownership separation',async()=>{
  const input=capture('json',{
   Model:{default:{$dynamicAnchor:'node',type:'object',properties:{next:{$dynamicRef:'#node'}}}},
   Value:{$ref:'#/components/schemas/Model/default'},
+  Peer:{$id:'peer',$dynamicAnchor:'node',type:'string'},
  });
  const before=input.resources[0].text,result=await planMigration(input);
  assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);

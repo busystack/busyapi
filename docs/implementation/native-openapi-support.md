@@ -109,7 +109,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W3.02 Positional tuples/tails, recursion, exact bounds and references; J4 §5.3, JC §10.3.1 | `migration_schema.ts`, routes and schema-reference owners | M E S C | direct-Swagger/empty-tuple/migration suites and `test_migration_tuple_tails` | Partially implemented; unbounded Swagger tails upgrade to modern `prefixItems`; finite constrained modern tails expand to bounded Swagger positions referencing one retained tail owner; independent boolean tails retain owners too; unbounded constrained tails and additional equivalent downgrade algorithms remain | H |
 | W3.03 Conditional assertions and inactive conditional fields; JC §10.2.2 | `migration_schema_conditions.ts`, shared owner allocator, schema migration | M E S C | `test_migration_conditions` through production planning, source/target evaluations and cold graph | Partially implemented; existing source for modern-to-3.0 conditional lowering with one retained condition target; Swagger condition-specific mappings and overlapping roles remain open | H |
 | W3.04 Property/schema dependencies with independently referenced maps; JC §10.2.2.4, JV §6.5.4 | `migration_schema_dependencies.ts` | M E S C | dependency/dependent-schema suites, Core dependency review | Partially implemented; existing conditional lowering retained; representable independent map schemas use W2.02 ownership; unknown annotations still cannot be silently dropped for restricted targets; remaining Swagger conditional mappings remain open | H |
-| W3.05 Static/dynamic references, anchors, identities and independent annotations; JC §§8–9 | identity/schema-reference/role owners | M E S C | static-dynamicref/identity/boolean/inactive annotation suites | Partially implemented; inactive dynamic anchors can lower after captured-use inspection; document/schema identity uses now separate before lowering; older-family active dynamic-reference lowering and shared uses without a proved resource holder remain | H |
+| W3.05 Static/dynamic references, anchors, identities and independent annotations; JC §§8–9 | identity/schema-reference/role owners | M E S C | static-dynamicref/identity/boolean/inactive annotation suites, pinned official dynamicRef cases, Core static/dynamic reference publication/HTTP/CLI journeys | Partially implemented; inactive anchors and dynamic applicators whose captured candidates all identify the initial target lower through one shared binding proof. Sibling constraints and recursive references remain separate allOf/static edges; resource/role provenance and cold reopening are proved. Competing-target scope specialization and shared uses without a proved holder remain implementation work | H |
 | W3.06 Pattern/property-name/contains/count/unevaluated/content constraints; JC §§10–11, JV §§6/8 | `migration_schema.ts`, `migration_schema_property_names.ts`, binary/reference/dependency owners | M E S C | migration/binary/dependency suites (existing), `test_migration_property_names`, Core `migration_property_names_test.dart` | Partially implemented; finite annotation-free property-name enum/const/type restrictions now lower to an isolated closed-properties branch with retained independent owners; general name schemas, patterns/counts/unevaluated/content algorithms remain missing, with individual blockers | H |
 | W3.07 Raw/data/base64/byte/file/union consumers and byte constraints; family binary clauses, JV §8 | `migration_binary.ts`, Swagger flat/media owners | M E S C | migration binary, direct Swagger, native binary suites | Partially implemented; direct Swagger route now inspects actual body/response media and modernizes flat bounds/byte encodings; mixed/constrained/file-union ownership remains | H |
 | W3.08 Inherited media, forms/files, examples without schemas, shared operations/body meaning and reusable objects; family object clauses | Swagger media/form/downgrade/operation owners | M E S C | Swagger media/form/bodyless/ignored-body suites, Core form CLI | Partially implemented; retain existing mappings and safety decisions; examples without schemas and mixed shared operations still have implementation gaps | H |
@@ -143,7 +143,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W7.01 Creation, editing, unsaved Reference, request/example/mock/case, migration review, documentation and CLI integration for every capability; all applicable clauses above | shared engine, Core owners and native workspace controls | A R E M S C | engine/Core/widget/native journey suites | Partially implemented; applicable existing consumers inherit shared field/codec/routing changes; complete family journeys are not accepted | H |
 | W7.02 Stale-action invalidation on declaration/dialect/root/external/approval changes; coherent reviewed transactions, Undo/Redo and no buffer loss; Core transaction contract | Core project/store/capture and native review/request controllers | A R E M S C | stale capture/cancellation/publication/widget review suites | Partially implemented; existing source for existing safeguards; new paths require current integration qualification | H |
 | W7.03 CST fidelity, no-op saves, exact values, aliases, extensions and source-only migration restructuring; TEXT | `document.ts`, graph/CST editing, Core store/transaction owners | A R M S C | source ownership/alias/exact-value/no-op suites | Partially implemented; existing source for existing boundaries; generated schema owners retain original provenance and reviewed restructuring | H |
-| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+49`, migration producer `43`, response/parameter mock producers `4`, numeric sample producer remains `3`; no dependency versions/source changed | H |
+| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+49`, migration producer `44`, response/parameter mock producers `4`, numeric sample producer remains `3`; no dependency versions/source changed | H |
 | W8.01 Explicit independent evidence input across SDK/build/CMake/CI/installed/package checks; PINS | `flutter_archive.py`, SDK verifier, `build_linux.sh`, CMake, package/native-distribution/artifact-smoke inputs | P | `tools/test_flutter_sdk.py`, source-wiring regressions | Partially implemented; existing source for archive-input propagation; same existing evidence reaches installed checks; independent member pins remain an alternative; no SDK acquisition/replacement | H; actual evidence availability/authenticity has not been qualified |
 | W8.02 Ordered gates, registration, source-version-valid fixtures and production-byte regressions; PINS and each row's authority | `tools/build_engine.sh`, Linux workflow, engine/Core/widget/native/package suites | P | new direct-Swagger/conditional/tuple-tail/property-name/runtime-parameter suites registered; existing TypeScript-before-bundle gate retained | Partially implemented; compilation and all suspended gates remain unexecuted; missing regression coverage identified in this register remains implementation work | H |
 | W8.03 Current automated/native/packaged/offline acceptance and normal Quit; all approved families and PINS | native acceptance tools, Core/package/CLI suites | A R E M S C P | existing native acceptance including historical Quit/focus failures; complete new journeys still required | Missing for accepted evidence; no driver/engine attribution established; Snapcraft remains skipped | H |
@@ -223,7 +223,7 @@ static-anchor downgrades, every published modern source patch, YAML/JSON, exact
 values, literal preservation, explicit decisions and Core publication/cold reopen.
 Unchanged self-contained dynamic-scope cases from the pinned official JSON Schema
 Test Suite supply independent source/target validity expectations.
-These regressions have not run. Missing resource holders and older-family dynamic
+These regressions have not run. Missing resource holders and competing-target dynamic
 lowering remain explicit implementation blockers, not unrepresentability claims.
 
 The same pass now separates captured native Headers, Parameters, Responses,
@@ -267,13 +267,29 @@ Headers and discriminator states. Markdown, example locators and connection
 proofs select surviving semantic occurrences; exact-data invariants still require
 surviving unchanged literal values. Source validation, ambiguity guards,
 resource bounds and target/cold-reopen checks remain mandatory. The migration
-producer is 43 at the engine, Core and native preflight boundaries. Prepared
+producer is 44 at the engine, Core and native preflight boundaries. Prepared
 engine and Core regressions cover dependency-map schema uses, literal schemas,
 recursion, document identity, Header references, exact data, cancellation, stale
 reviews and publication. They have not run. W2 remains partially implemented:
 cross-entry conflicts, independently interpreted resources without a proved
-holder/boundary, older-family dynamic-scope lowering and overlapping non-schema
+holder/boundary, competing-target dynamic-scope lowering and overlapping non-schema
 object roles still have specific implementation blockers.
+
+Fixed dynamic bindings now lower to Swagger 2.0/OpenAPI 3.0 through
+`MigrationSchemaReferences`, reusing the canonical `schema_reference_projection.ts`
+also consumed by media and discriminator owners. A resolved dynamic applicator is fixed only when
+every captured matching anchor is its initial target (JC §8.2.3.2). No alternative
+schema is selected by ordering or sample outcomes. The same predicate controls
+anchor removal, typed reference repair and final connection/scope invariants.
+Sibling assertions keep separate allOf branches, and recursive edges remain
+references. Matching-anchor inspection is bounded to two million captured
+candidates. Competing targets retain located implementation blockers; unknown
+future external callers are outside the existing captured-project guarantee.
+Prepared engine regressions compare source/target instances, exact values,
+recursive and independently owned literal uses, plus unchanged official suite
+validity oracles. Core workflows cover shared external resources, actual request
+and response bytes, original files, stale reviews after adding an anchor, safe
+publication/cold reopening and independent CLI review/apply. None have run.
 
 Finite property-name lowering follows [JSON Schema Core §10.3.2.4](https://json-schema.org/draft/2020-12/json-schema-core#section-10.3.2.4):
 only string property names are tested. For the admitted annotation-free

@@ -779,8 +779,16 @@ use the same allocator and role-specific provenance before conversion or patch
 relocation. Their document links, external examples and Server templates retain
 the captured context; literal values survive separately. Cross-entry namespace
 propagation and multiple non-schema object roles remain implementation gaps.
-The migration producer is **43**; Core rejects previous
+The migration producer is **44**; Core rejects previous
 producer responses before publication. Current qualification remains pending.
+
+Older-family migration also lowers dynamic references when every captured
+matching anchor identifies their initial target. The same binding proof governs
+anchor removal, reference repair and delivered connection invariants. Recursive
+edges stay references; sibling constraints keep their allOf branches. Competing
+targets remain an explicit implementation gap. Prepared production regressions
+include pinned official JSON Schema cases and Core/CLI publication/HTTP journeys;
+they have not run under the execution hold.
 
 Contract-case JSON reports include `dispatched` and `operationalFailure`. Coverage
 counts operation occurrences handed to the HTTP transport; refused preparation

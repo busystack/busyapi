@@ -70,10 +70,7 @@ export function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Migration
             migrateSchemaPropertyNames(graph,scope,source,pointer,owners,issue);
         }
         if(!modernFamily(to)&&Object.hasOwn(value,'$dynamicAnchor')){
-            const active=graph.references.some(reference=>reference.dynamic&&
-                (reference.targetResource===scope.resource&&reference.targetPointer===scope.pointer||
-                reference.dynamic.candidates.some(candidate=>candidate.resource===scope.resource&&candidate.pointer===scope.pointer)));
-            if(!active)source.remove(pointer+'/$dynamicAnchor');
+            if(!references.requiresDynamicAnchor(scope))source.remove(pointer+'/$dynamicAnchor');
             else issue(field('$dynamicAnchor'),'migration.schema.dynamic-anchor','A captured dynamic reference can select this anchor; older-family scope specialization remains required','implementation');
         }
         const pending:Readonly<Record<string,string>>={

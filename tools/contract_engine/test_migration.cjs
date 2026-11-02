@@ -35,7 +35,7 @@ test('modern nullable annotation is never activated by a downgrade without a dec
 test('genuine target incompatibilities and incomplete converter mappings remain located blockers with no output',async()=>{
  for(const [text,targetVersion,code]of [
   ['openapi: 3.2.1\ninfo: {title: Query, version: "1"}\npaths: {/x: {query: {responses: {204: {description: Empty}}}}}\n','3.1.2','migration.feature.newer'],
-  ['openapi: 3.1.2\ninfo: {title: Resource, version: "1"}\npaths: {}\ncomponents: {schemas: {Value: {$id: value, $dynamicAnchor: tree, type: object, properties: {child: {$dynamicRef: "#tree"}}}}}\n','3.0.4','migration.schema.dynamic-anchor'],
+  ['openapi: 3.1.2\ninfo: {title: Resource, version: "1"}\npaths: {}\ncomponents: {schemas: {Value: {$id: value, $dynamicAnchor: tree, type: object, properties: {child: {$dynamicRef: "#tree"}}}, Peer: {$id: peer, $dynamicAnchor: tree, type: string}}}\n','3.0.4','migration.schema.dynamic-anchor'],
  ]){const input={...capture(text),targetVersion},result=await planMigration(input);assert.equal(result.status,'blocked');assert.equal(result.outputs.length,0);assert(result.problems.some(p=>p.code===code&&p.resource===input.root&&p.pointer&&p.range[1]>p.range[0]),JSON.stringify(result.problems));assert.equal(input.resources[0].text,text);}
 });
 test('Swagger body inheritance, media, primitive parameters, security and response examples migrate structurally',async()=>{

@@ -13,14 +13,15 @@ void main() {
   for (final keyword in [r'$defs', 'definitions']) {
     _registerMigrationTests(keyword);
   }
+  _registerMigrationTests(r'$defs', dynamicAnchor: true);
 }
 
-void _registerMigrationTests(String definitionKeyword) {
+void _registerMigrationTests(String definitionKeyword, {bool dynamicAnchor = false}) {
   for (final version in ['3.1.2', '3.2.1']) {
     for (final format in ['yaml', 'json']) {
       for (final targetVersion in ['3.0.4', '2.0']) {
         test(
-          '$version $format static $definitionKeyword schema references migrate to $targetVersion with exact HTTP semantics and reviewed publication',
+          '$version $format ${dynamicAnchor ? 'single-target dynamic' : 'static'} $definitionKeyword schema references migrate to $targetVersion with exact HTTP semantics and reviewed publication',
           () async {
             final temp = await Directory.systemTemp.createTemp(
               'busyapi-static-dynamicref-',
@@ -63,6 +64,7 @@ void _registerMigrationTests(String definitionKeyword) {
                 ),
                 modelText = staticDynamicRefModel(
                   definitionKeyword: definitionKeyword,
+                  dynamicAnchor: dynamicAnchor,
                 );
             final original = [0xef, 0xbb, 0xbf, ...utf8.encode(text)],
                 originalModel = [0xef, 0xbb, 0xbf, ...utf8.encode(modelText)];
@@ -82,6 +84,9 @@ void _registerMigrationTests(String definitionKeyword) {
               shared.text.replaceFirst('Original model', 'Unsaved model'),
             );
             final capturedRoot = buffer.text, capturedModel = shared.text;
+            final body = dynamicAnchor
+                ? _body.replaceFirst('}', ',"next":{"n":9007199254740993.00,"name":"雪"}}')
+                : _body;
             final checked = await project.check(root);
             expect(checked['status'], 'complete', reason: jsonEncode(checked));
             expect(checked['complete'], isTrue);
@@ -119,6 +124,7 @@ void _registerMigrationTests(String definitionKeyword) {
                       '9007199254740993.00',
                       '9007199254740992',
                     ),
+                    if (dynamicAnchor) body.replaceFirst('"next":{"n":9007199254740993.00', '"next":{"n":0'),
                   ]) {
                     final draft = OperationRequestDraft(
                       planIdentity: plan.identity,
@@ -157,7 +163,7 @@ void _registerMigrationTests(String definitionKeyword) {
                   OperationRequestDraft(
                     planIdentity: plan.identity,
                     body: RequestBodyDraft.raw(
-                      text: _body,
+                      text: body,
                       mediaType: 'application/json',
                     ),
                   ),
@@ -170,7 +176,7 @@ void _registerMigrationTests(String definitionKeyword) {
                     reason:
                         '${result.outgoing.toJson()} ${result.received.toJson()}',
                   );
-                  expect(await result.response.bytes(), utf8.encode(_body));
+                  expect(await result.response.bytes(), utf8.encode(body));
                 } finally {
                   await result.close();
                 }
@@ -192,7 +198,7 @@ void _registerMigrationTests(String definitionKeyword) {
               reason: '${review.result}',
             );
             expect(review.unsaved, isTrue);
-            expect(review.result['producerVersion'], '43');
+            expect(review.result['producerVersion'], '44');
             final outputs = (review.result['outputs'] as List).cast<Map>();
             expect(
               outputs.any(
@@ -235,7 +241,9 @@ void _registerMigrationTests(String definitionKeyword) {
             addTearDown(stale.close);
             project.store.replace(
               root,
-              capturedRoot.replaceFirst('Unsaved API', 'Changed after review'),
+              dynamicAnchor
+                  ? capturedRoot.replaceFirst('"schemas":{', '"schemas":{"Competing":{"\$id":"peer","\$dynamicAnchor":"model","type":"string"},')
+                  : capturedRoot.replaceFirst('Unsaved API', 'Changed after review'),
             );
             await expectLater(
               stale.publish(),
@@ -248,6 +256,13 @@ void _registerMigrationTests(String definitionKeyword) {
               ),
             );
             expect(await Directory(stale.destination).exists(), isFalse);
+            if (dynamicAnchor) {
+              final blocked = await project.prepareMigration(root, '${temp.path}/competing', targetVersion: targetVersion);
+              addTearDown(blocked.close);
+              expect(blocked.publishable, false, reason: '${blocked.result}');
+              expect((blocked.result['problems'] as List).any((problem) => problem['code'] == 'migration.schema.dynamic-reference'), true);
+              expect(await Directory(blocked.destination).exists(), false);
+            }
             project.store.undo();
             expect(buffer.text, capturedRoot);
             expect(shared.text, capturedModel);
@@ -304,8 +319,8 @@ void _registerMigrationTests(String definitionKeyword) {
               expect(request.$1, 'POST');
               expect(request.$2, '/v1/echo');
               expect(request.$3, 'application/json');
-              expect(request.$4, utf8.encode(_body).length);
-              expect(request.$5, utf8.encode(_body));
+              expect(request.$4, utf8.encode(body).length);
+              expect(request.$5, utf8.encode(body));
               expect(request.$6, '127.0.0.1:${server.port}');
             }
             expect(await file.readAsBytes(), original);
