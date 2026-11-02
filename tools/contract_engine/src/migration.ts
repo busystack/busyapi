@@ -1,4 +1,5 @@
 import type {ExternalExampleResourcePacket} from './external_examples';
+import {externalExampleRequests} from './external_examples';
 import {assertRoleAnnotations} from './schema_role_annotations';
 import {createHash} from 'node:crypto';
 import {analyse,createGraph,Resource} from './engine';
@@ -37,7 +38,7 @@ import {MigrationSchemaOwners} from './migration_schema_owners';
 import {projectSchemaReference} from './schema_reference_projection';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='55';
+const migrationProducerVersion='56';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const patch:Record<string,string>={'2.0':'2.0','3.0':'3.0.4','3.1':'3.1.2','3.2':'3.2.1'};
 export type MigrationInput=Readonly<{
@@ -74,6 +75,7 @@ export async function planMigration(input:MigrationInput) {
     const problems:MigrationProblem[]=[],accepted=new Set<string>(),stages:{from:string;to:string}[]=[],presentationChanges:{resource:string;pointer:string}[]=[];
     const ignoredBodyOmissions:MigrationLocation[]=[];
     const omittedMarkdownOwners=new Set<string>();
+    const retiredExampleLocators=new Set<string>();
     const relocatedResources=new Map<string,string>();
     const createdResources=new Map<string,string>();
     const planningOrigins=new Map<string,{resource:string;pointer:string;range:number[]}>();
@@ -274,13 +276,22 @@ export async function planMigration(input:MigrationInput) {
             // occurrences retain a dialect and participate in conversion;
             // the captured fragment bytes still belong to the output copy.
             if(ignoredBodyOmissions.length!==priorOmissions){
-                const retained=createGraph({...input,root:active.graph.root,resources:resources.map(resource=>({...resource,text:sources.get(resource.id)!.doc.text}))}).graph;
-                const detached=new Set([...graph.scopes.values()].filter(scope=>retained.scopes.get(scope.resource+'#'+scope.pointer)?.kind!==scope.kind).map(scope=>key(scope.resource,scope.pointer)));
+                const beforeContexts=contexts,retainedInput=preparationInput(),retained=createGraph(retainedInput);
+                contexts=migrationDocumentContexts(retainedInput,retained,issue);
+                const useKey=(scope:GraphScope)=>JSON.stringify([scope.resource,scope.pointer,scope.kind]);
+                const activeUses=new Set([...migrationScopes(contexts.map(context=>context.graph))].map(useKey));
+                const detached=new Set([...migrationScopes(beforeContexts.map(context=>context.graph))]
+                    .filter(scope=>!activeUses.has(useKey(scope))).map(scope=>key(scope.resource,scope.pointer)));
+                const examples=new Set(contexts.flatMap(context=>externalExampleRequests(context.graph)).map(location=>key(location.resource,location.pointer)));
+                for(const context of beforeContexts)for(const location of externalExampleRequests(context.graph))if(!examples.has(key(location.resource,location.pointer))){
+                    const original=sourceLocation(location.resource,location.pointer);
+                    retiredExampleLocators.add(key(original.resource,original.pointer));
+                }
                 // The explicit omission also removes these rendered uses.
                 // Detached resource bytes remain intact, while shared uses
                 // still present in the canonical graph retain their proofs.
                 for(const [origin,locations]of origins)if(locations.length&&locations.every(location=>detached.has(key(location.resource,location.pointer))))omittedMarkdownOwners.add(origin);
-                graph=retained;
+                graph=retained.graph;
             }
             const presence=new Set<string>();
             for(const before of stage.sources)for(const id of migrateRequiredPresence(graph,sources,before,after,contexts.map(context=>context.graph)))presence.add(id);
@@ -567,8 +578,9 @@ export async function planMigration(input:MigrationInput) {
     if(problems.length)return {...common(),changes:[],outputs:[]};
     let exampleOutputs:readonly MigrationExampleCopy[]=[],outputExampleResources:readonly ExternalExampleResourcePacket[]=[];
     try{
-        const graph=createGraph({...input,root:outputRoot,resources:outputResources}).graph;
-        const copied=externalExamples!.relocate(graph,mappedOutputLocations,input.destination,paths.values());
+        const capture={...input,root:outputRoot,resources:outputResources},primary=createGraph(capture),graph=primary.graph;
+        const ownerContexts=migrationDocumentContexts(capture,primary,issue).map(context=>context.graph);
+        const copied=externalExamples!.relocate(graph,mappedOutputLocations,input.destination,paths.values(),ownerContexts,retiredExampleLocators);
         for(const scope of graph.scopesFor('schema')){
             const changed=copied.sources.get(scope.resource);
             if(changed)assertRoleAnnotations(graph,scope,changed.doc,scope.pointer);

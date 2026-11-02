@@ -39,7 +39,7 @@ part 'external_examples.dart';
 
 // Semantic revisions are part of captured evaluator ownership, alongside the
 // wire protocol and snapshot identity.
-const _schemaProducerVersion = '1.18.0+55';
+const _schemaProducerVersion = '1.18.0+56';
 
 // Keep native-isolate IO wakeups bounded without serializing every resource.
 // Each batch finishes (including failures) before access can be released.
@@ -1301,6 +1301,7 @@ class BusyProject {
   Future<Map<String, dynamic>> check(
     String root, {
     bool saved = false,
+    bool captureEntries = false,
     String? requestId,
     bool measure = false,
     bool schemaEvaluation = true,
@@ -1449,6 +1450,7 @@ class BusyProject {
         final ipcStart = clock.elapsedMicroseconds;
         result = await engine.request('analyse', {
           ...snapshot.toJson(),
+          if (captureEntries) 'captureEntries': true,
           if (measure) 'measure': true,
         }, requestId: requestId == null ? null : '$requestId-$depth-$attempt');
         ensureActive();
@@ -1459,9 +1461,31 @@ class BusyProject {
             'Analysis returned an unrelated snapshot identity',
           );
         }
+        final entryDiscovery = result['entryDiscovery'];
+        if (captureEntries && result['info'] != null) {
+          if (result['versions'] case {'entryDiscoveryRules': '1'}) {
+            if (entryDiscovery is! Map || entryDiscovery['version'] != 1 ||
+                entryDiscovery['roots'] is! List || (entryDiscovery['roots'] as List).length > 256 ||
+                !(entryDiscovery['roots'] as List).contains(root) ||
+                (entryDiscovery['roots'] as List).any((value) => value is! String) ||
+                entryDiscovery['references'] is! List || entryDiscovery['externalExamples'] is! List ||
+                (entryDiscovery['references'] as List).any((value) => value is! Map ||
+                    value['resource'] is! String || value['pointer'] is! String ||
+                    value['keyword'] is! String || value['kind'] is! String || value['resolution'] is! String ||
+                    value['targetResource'] != null && value['targetResource'] is! String ||
+                    value['candidateResources'] != null && (value['candidateResources'] is! List ||
+                        (value['candidateResources'] as List).any((candidate) => candidate is! String)))) {
+              throw CoreFailure('engine.entry-discovery', 'The engine returned invalid connected-entry discovery');
+            }
+          } else {
+            throw CoreFailure('engine.entry-discovery', 'The engine omitted the connected-entry discovery revision');
+          }
+        }
+        final discoveryReferences = captureEntries && entryDiscovery is Map
+            ? entryDiscovery['references'] as List : result['references'] as List? ?? const [];
         if (result['info'] != null) {
           final reached = <String>{root};
-          for (final ref in result['references'] as List? ?? []) {
+          for (final ref in discoveryReferences) {
             if (ref['resource'] is String) {
               reached.add(ref['resource'] as String);
             }
@@ -1484,11 +1508,12 @@ class BusyProject {
           }
         }
         final requestedExamples = <String>{};
-        final discovery = result['externalExamples'];
+        final discovery = captureEntries && entryDiscovery is Map
+            ? entryDiscovery['externalExamples'] : result['externalExamples'];
         final versions = result['versions'];
         if (discovery != null && discovery is! List ||
             result['info'] != null && (discovery is! List || versions is! Map ||
-                versions['externalExampleRules'] != '1')) {
+                versions['externalExampleRules'] != '2')) {
           throw CoreFailure('engine.external-examples',
               'The engine omitted the captured external example discovery revision');
         }
@@ -1535,7 +1560,7 @@ class BusyProject {
           continue;
         }
         final missing = <String>{};
-        for (final ref in result['references'] as List? ?? []) {
+        for (final ref in discoveryReferences) {
           final target = ref['targetResource'];
           if (target is! String) continue;
           final id = target;

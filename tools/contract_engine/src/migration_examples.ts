@@ -3,7 +3,7 @@ import {posix} from 'node:path';
 import {SourceError} from './document';
 import {CapturedExampleResources,ExternalExampleError,externalExampleRequests,
     type ExternalExampleResourcePacket} from './external_examples';
-import {documentUriBase,resolveUri,type ReferenceGraph} from './reference_graph';
+import {documentUriBase,resolveUri,type ReferenceGraph,type GraphScope} from './reference_graph';
 import {MigrationSource,type MigrationLocation} from './migration_source';
 
 type CapturedBytes=ReturnType<CapturedExampleResources['read']>;
@@ -27,6 +27,22 @@ const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
 const parent=(pointer:string)=>pointer.slice(0,pointer.lastIndexOf('/'));
 const captureIdentity=(capture:Capture)=>capture.state==='available'?
     JSON.stringify([capture.bytes.id,capture.bytes.identity,capture.bytes.generation]):JSON.stringify([capture.code,capture.message]);
+
+function nativeExampleLocators(graphs:readonly ReferenceGraph[]) {
+    type Locator=Readonly<{request:ReturnType<typeof externalExampleRequests>[number];graph:ReferenceGraph;scope:GraphScope}>;
+    const values=new Map<string,Locator>();let work=0;
+    for(const graph of graphs)for(const request of externalExampleRequests(graph)){
+        if(++work>200000)throw new SourceError('limit.migration.examples','Example ownership exceeds 200000 entry locators');
+        const scope=graph.scopeAs(request.resource,parent(request.pointer),'example');
+        const range=graph.docs.get(request.resource)!.dataNode(request.pointer)!.range;
+        if(!scope)throw new SourceError('migration.example.context','The captured example has no native material owner',range,'unsupported',{...request,range});
+        const id=key(request),previous=values.get(id);
+        if(previous&&documentUriBase(previous.graph,previous.scope)!==documentUriBase(graph,scope))
+            throw new SourceError('migration.example.shared-context','This locator still needs independently owned document bases',range,'unsupported',{...request,range});
+        values.set(id,{request,graph,scope});
+    }
+    return values;
+}
 
 /** OAS Example Objects retain media/schema ownership at their occurrences.
  * Payload bytes stay opaque: acquisition and identity checks belong to the
@@ -53,11 +69,12 @@ export class MigrationExamples {
     }
 
     relocate(graph:ReferenceGraph,mapped:(source:MigrationLocation)=>readonly MigrationLocation[],
-        destination:string,documentPaths:Iterable<string>):Relocation {
+        destination:string,documentPaths:Iterable<string>,contexts:readonly ReferenceGraph[]=[graph],retired:ReadonlySet<string>=new Set()):Relocation {
         const expected=new Map<string,Binding>();
-        const nativeLocators=new Set(externalExampleRequests(graph).map(request=>key(request)));
+        const locators=nativeExampleLocators(contexts),nativeLocators=new Set(locators.keys());
         for(const binding of this.bindings.values()){
           const locations=mapped(binding.source),surviving=locations.filter(location=>nativeLocators.has(key(location)));
+          if(!surviving.length&&retired.has(key(binding.source)))continue;
           if(locations.length&&!surviving.length)throw new SourceError('migration.example.context',
               'A surviving external example lost its native Example Object context',binding.source.range,'unsupported',binding.source);
           for(const location of surviving) {
@@ -78,7 +95,7 @@ export class MigrationExamples {
         const paths=new Set([...documentPaths,'busyapi.yaml','migration.json']);
         const visited=new Set<string>();
         let edits=0,work=0;
-        for(const request of externalExampleRequests(graph)) {
+        for(const {request,scope,graph}of locators.values()) {
             const location={resource:request.resource,pointer:request.pointer},binding=expected.get(key(location));
             if(!binding)throw new SourceError('migration.example.provenance',
                 'The target external example has no captured source occurrence',undefined,'unsupported',
@@ -96,7 +113,6 @@ export class MigrationExamples {
                         generation:binding.bytes.generation},occurrences};
                 copy={output,occurrences,aliases:new Set()};copies.set(binding.bytes.id,copy);
             }
-            const scope=graph.scopes.get(location.resource+'#'+parent(location.pointer))!;
             if(graph.literalContainer(scope.resource,scope.pointer)!==undefined)
                 throw new SourceError('migration.example.literal-context',
                     'This example locator also belongs to literal data; separate source ownership is required',binding.source.range,'unsupported',binding.source);

@@ -6,7 +6,7 @@ import {discriminatorContextRevision} from './discriminator_semantics';
 import {multipartProjectionRevision} from './schema_reference_projection';
 import { createHash } from 'node:crypto';
 import { children, referenceKinds, standardOperationMethods } from './contexts';
-import { ReferenceGraph, supportedSchemaDialect, referenceMarkdownContext, schemaRoleContextRevision } from './reference_graph';
+import { ReferenceGraph, supportedSchemaDialect, referenceMarkdownContext, schemaRoleContextRevision,type GraphReference } from './reference_graph';
 import { fieldsFor, fieldsForScope, removableField, allowsExtensions, componentFamily, componentLocation, authoringFieldRevision } from './authoring';
 import {sameSchemaValueForms, allowsSchemaValue} from './schema_value_forms';
 import type {SchemaValueForms} from './schema_value_forms';
@@ -29,7 +29,7 @@ import {xmlContextRevision,xmlRelationships} from './xml_semantics';
 import {collectionMemberNamePolicy,componentNamePolicy,reusableDefinitionPointer,responseStatusIssues,responseStatusNamePolicy,schemaDefinitionNamePolicy} from './member_names';
 export const engineVersion = '0.1.0';
 export const protocol = 1;
-const versions = { engine: engineVersion, yaml: '2.9.0', ajv: '8.20.0', node: process.versions.node, openapiSchemas: structuralRevisions, externalExampleRules:externalExampleRevision, authoringFieldRules:authoringFieldRevision, swaggerSchemaRules:swaggerSchemaRulesRevision, markdownContextRules: '2', xmlContextRules:xmlContextRevision, documentUriRules:documentUriRevision, dialectUriRules:dialectUriRevision, restrictedSchemaRules:restrictedSchemaRevision, serverRules:serverContextRevision, swaggerServerRules:swaggerServerContextRevision, multipartRules:multipartProjectionRevision, discriminatorRules:discriminatorContextRevision, schemaRoleRules:schemaRoleContextRevision };
+const versions = { engine: engineVersion, yaml: '2.9.0', ajv: '8.20.0', node: process.versions.node, openapiSchemas: structuralRevisions, entryDiscoveryRules:'1',externalExampleRules:externalExampleRevision, authoringFieldRules:authoringFieldRevision, swaggerSchemaRules:swaggerSchemaRulesRevision, markdownContextRules: '2', xmlContextRules:xmlContextRevision, documentUriRules:documentUriRevision, dialectUriRules:dialectUriRevision, restrictedSchemaRules:restrictedSchemaRevision, serverRules:serverContextRevision, swaggerServerRules:swaggerServerContextRevision, multipartRules:multipartProjectionRevision, discriminatorRules:discriminatorContextRevision, schemaRoleRules:schemaRoleContextRevision };
 export type Resource = {
     id: string;
     text: string;
@@ -74,7 +74,43 @@ export function createGraph(input: any) {
     const family = declaration.specification.family;
     return {docs, family, exampleResources:new CapturedExampleResources(input.exampleResources), graph: ReferenceGraph.capture(docs, input.root, family, new Map(input.resources.map((r: Resource) => [r.id, r.aliases ?? []])), input.occurrences)};
 }
+
+/** Migration captures connected complete descriptions in their own entry
+ * contexts. Discovery is separate from the selected root's native projection
+ * and validity; Core retains its existing acquisition/approval boundary. */
+function discoverEntries(input:{resources:Resource[]},primary:ReferenceGraph) {
+    type Reference=Pick<GraphReference,'resource'|'pointer'|'keyword'|'kind'|'connection'|'resolution'|'targetResource'|'candidateResources'>;
+    const roots=[primary.root],queued=new Set(roots),references=new Map<string,Reference>(),examples=new Map<string,ReturnType<typeof externalExampleRequests>[number]>();
+    const aliases=new Map<string,string[]>(input.resources.map(resource=>[resource.id,resource.aliases??[]]));
+    let work=0,uses=0;
+    for(let index=0;index<roots.length;index++){
+        const root=roots[index],specification=primary.specifications.get(root);
+        const graph=root===primary.root?primary:ReferenceGraph.capture(primary.docs,root,specification!.family,aliases);
+        for(const scope of graph.entryScopes())if(++uses>200000){
+            const range=primary.docs.get(scope.resource)!.dataNode(scope.pointer)!.range;
+            throw new SourceError('limit.discovery.entries','Connected entry discovery exceeds 200000 semantic uses',range,'unsupported',{...scope,range});
+        }
+        const consider=(resource:string|undefined)=>{
+            if(resource!==undefined&&primary.specifications.has(resource)&&!queued.has(resource)){
+                if(roots.length>=256)throw new SourceError('limit.discovery.entries','Connected entry discovery exceeds 256 descriptions');
+                queued.add(resource);roots.push(resource);
+            }
+        };
+        for(const reference of graph.entryReferences()){
+            if(++work>2000000)throw new SourceError('limit.discovery.entries','Connected entry discovery exceeds 2000000 references');
+            const value={resource:reference.resource,pointer:reference.pointer,keyword:reference.keyword,kind:reference.kind,connection:reference.connection,
+                resolution:reference.resolution,targetResource:reference.targetResource,candidateResources:reference.candidateResources};
+            references.set(JSON.stringify(value),value);consider(reference.resource);consider(reference.targetResource);
+        }
+        for(const request of externalExampleRequests(graph)){
+            if(++work>2000000)throw new SourceError('limit.discovery.entries','Connected entry discovery exceeds 2000000 locators');
+            examples.set(JSON.stringify(request),request);
+        }
+    }
+    return {version:1,roots,references:[...references.values()],externalExamples:[...examples.values()]};
+}
 export function analyse(input: any, context?: ReturnType<typeof createGraph>) {
+    if(input.captureEntries!==undefined&&typeof input.captureEntries!=='boolean')throw new SourceError('analysis.discovery','Entry discovery must be an explicit boolean');
     const started = performance.now();
     const docs = new Map<string, SourceDocument>(), findings: any[] = [], references: any[] = [], operations: any[] = [], components: any[] = [];
     let complete = true, supported = true;
@@ -302,7 +338,7 @@ export function analyse(input: any, context?: ReturnType<typeof createGraph>) {
     findings.push(...security.findings);
     if(!security.complete)complete=false;
     const categories={...categoryStates(),security:Object.fromEntries(Object.entries(security).filter(([name])=>name!=='findings'))};
-    return { ...(input.measure ? { timings: { parseMs: parsedAt - started, structuralMs: validatedAt - parsedAt, projectionMs: performance.now() - validatedAt } } : {}), version: 1, snapshot: input.snapshot, status: findings.some(d => d.category === 'syntax') ? 'invalid' : !supported ? 'unsupported' : !complete ? 'incomplete' : findings.some(d => d.severity === 'error') ? 'invalid' : 'complete', complete: complete && supported, findings, categories, info: index(root, '/info', data?.info ?? {}, {fields: fieldsFor('info', family, data?.info ?? {}).map(field => ({...field, present: Object.hasOwn(data?.info ?? {}, field.name)}))}), specification, openapi: specification?.declaredVersion, pathItems: ['paths','webhooks'].flatMap(role => data?.[role] && typeof data[role]==='object' && !Array.isArray(data[role]) ? Object.keys(data[role]).filter(name=>role==='webhooks'||name.startsWith('/')).map(name=>index(root,'/'+role+'/'+escape(name),undefined,{name,role})) : []), operations, components, componentLocations, references, externalExamples:externalExampleRequests(graph), coverage: { syntax: 'strict-json-and-yaml12-core', openapi: 'official-structural-shapes-and-initial-authoring-semantics', schemas: '2020-12-keyword-shapes', references: 'uri-resource-identities-pointers-anchors-and-contextual-dynamic-navigation', formats: 'not-validated', security:security.coverage }, versions, resources: input.resources.map((r: Resource) => ({ id: r.id, generation: r.generation, identity: r.identity })), otherRootFields: Object.keys(data ?? {}).filter(k => !['openapi', 'info', 'paths', 'components'].includes(k)), otherRootObjects: Object.keys(data ?? {}).filter(k => !['openapi', 'info', 'paths', 'components'].includes(k)).map(name => index(root, '/' + escape(name), data[name], { name })) };
+    return { ...(input.captureEntries ? {entryDiscovery:discoverEntries(input,graph)} : {}), ...(input.measure ? { timings: { parseMs: parsedAt - started, structuralMs: validatedAt - parsedAt, projectionMs: performance.now() - validatedAt } } : {}), version: 1, snapshot: input.snapshot, status: findings.some(d => d.category === 'syntax') ? 'invalid' : !supported ? 'unsupported' : !complete ? 'incomplete' : findings.some(d => d.severity === 'error') ? 'invalid' : 'complete', complete: complete && supported, findings, categories, info: index(root, '/info', data?.info ?? {}, {fields: fieldsFor('info', family, data?.info ?? {}).map(field => ({...field, present: Object.hasOwn(data?.info ?? {}, field.name)}))}), specification, openapi: specification?.declaredVersion, pathItems: ['paths','webhooks'].flatMap(role => data?.[role] && typeof data[role]==='object' && !Array.isArray(data[role]) ? Object.keys(data[role]).filter(name=>role==='webhooks'||name.startsWith('/')).map(name=>index(root,'/'+role+'/'+escape(name),undefined,{name,role})) : []), operations, components, componentLocations, references, externalExamples:externalExampleRequests(graph), coverage: { syntax: 'strict-json-and-yaml12-core', openapi: 'official-structural-shapes-and-initial-authoring-semantics', schemas: '2020-12-keyword-shapes', references: 'uri-resource-identities-pointers-anchors-and-contextual-dynamic-navigation', formats: 'not-validated', security:security.coverage }, versions, resources: input.resources.map((r: Resource) => ({ id: r.id, generation: r.generation, identity: r.identity })), otherRootFields: Object.keys(data ?? {}).filter(k => !['openapi', 'info', 'paths', 'components'].includes(k)), otherRootObjects: Object.keys(data ?? {}).filter(k => !['openapi', 'info', 'paths', 'components'].includes(k)).map(name => index(root, '/' + escape(name), data[name], { name })) };
 }
 export function inspect(input: any) {
     const {docs, graph} = createGraph(input);

@@ -114,7 +114,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W3.07 Raw/data/base64/byte/file/union consumers and byte constraints; family binary clauses, JV §8 | `migration_binary.ts`, Swagger flat/media owners | M E S C | migration binary, direct Swagger, native binary suites | Partially implemented; direct Swagger route now inspects actual body/response media and modernizes flat bounds/byte encodings; mixed/constrained/file-union ownership remains | H |
 | W3.08 Inherited media, forms/files, examples without schemas, shared operations/body meaning and reusable objects; family object clauses | Swagger media/form/downgrade/operation owners | M E S C | Swagger media/form/bodyless/ignored-body suites, Core form CLI | Partially implemented; retain existing mappings and safety decisions; same-family Swagger operations with differing inherited media use common entry owners; examples without schemas and remaining mixed-family shared operations still have implementation gaps | H |
 | W3.09 Servers/security/newer-version fields and invariant proof; family clauses, HTTP/URI | servers/security/operation/invariant owners | M E S C | default-server/security-role/entry-route suites, native-object-use publication and URI-key controls | Partially implemented; 3.2 URI security bindings now retain separate role arrays through owner specialization and portable relocation, with target/name-precedence proofs and declaration/scopes invariants. Complete remaining newer-field and multi-flow mappings without inventing extensions or loss modes | H |
-| W3.10 Unsaved capture, stale review rejection, original preservation, inventories, exact external bytes, atomic publication and relocated verification; URI/TEXT, Core transaction contract | migration source/examples/invariants; Core `migration.dart` and publication owners | M S C | Core migration/derived-resource/publication suites, engine external examples | Partially implemented; existing source for existing safeguards; every new restructuring still needs source-to-target mapping arguments and current publication/cold-reopen acceptance | H |
+| W3.10 Unsaved capture, stale review rejection, original preservation, inventories, exact external bytes, atomic publication and relocated verification; URI/TEXT, Core transaction contract | migration source/examples/invariants; Core `migration.dart` and publication owners | M S C | Core migration/derived-resource/publication suites, engine external examples | Partially implemented; existing safeguards now capture dependencies/opaque bytes for connected complete entries in their own contexts, publish all surviving native locators and retire only reviewed ignored uses; remaining restructuring proofs and current publication/cold-reopen acceptance are still required | H |
 
 ### W4–W5: wire representations and execution
 
@@ -143,7 +143,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W7.01 Creation, editing, unsaved Reference, request/example/mock/case, migration review, documentation and CLI integration for every capability; all applicable clauses above | shared engine, Core owners and native workspace controls | A R E M S C | engine/Core/widget/native journey suites | Partially implemented; applicable existing consumers inherit shared field/codec/routing changes; complete family journeys are not accepted | H |
 | W7.02 Stale-action invalidation on declaration/dialect/root/external/approval changes; coherent reviewed transactions, Undo/Redo and no buffer loss; Core transaction contract | Core project/store/capture and native review/request controllers | A R E M S C | stale capture/cancellation/publication/widget review suites | Partially implemented; existing source for existing safeguards; new paths require current integration qualification | H |
 | W7.03 CST fidelity, no-op saves, exact values, aliases, extensions and source-only migration restructuring; TEXT | `document.ts`, graph/CST editing, Core store/transaction owners | A R M S C | source ownership/alias/exact-value/no-op suites | Partially implemented; existing source for existing boundaries; generated schema owners retain original provenance and reviewed restructuring | H |
-| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+55`, migration producer `55`, response/parameter mock producers `4`, numeric sample producer remains `3`; no dependency versions/source changed | H |
+| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+56`, migration producer `56`, response/parameter mock producers `4`, numeric sample producer remains `3`; no dependency versions/source changed | H |
 | W8.01 Explicit independent evidence input across SDK/build/CMake/CI/installed/package checks; PINS | `flutter_archive.py`, SDK verifier, `build_linux.sh`, CMake, package/native-distribution/artifact-smoke inputs | P | `tools/test_flutter_sdk.py`, source-wiring regressions | Partially implemented; existing source for archive-input propagation; same existing evidence reaches installed checks; independent member pins remain an alternative; no SDK acquisition/replacement | H; actual evidence availability/authenticity has not been qualified |
 | W8.02 Ordered gates, registration, source-version-valid fixtures and production-byte regressions; PINS and each row's authority | `tools/build_engine.sh`, Linux workflow, engine/Core/widget/native/package suites | P | new direct-Swagger/conditional/tuple-tail/constant-containment/property-name/runtime-parameter suites registered; existing TypeScript-before-bundle gate retained | Partially implemented; compilation and all suspended gates remain unexecuted; missing regression coverage identified in this register remains implementation work | H |
 | W8.03 Current automated/native/packaged/offline acceptance and normal Quit; all approved families and PINS | native acceptance tools, Core/package/CLI suites | A R E M S C P | existing native acceptance including historical Quit/focus failures; complete new journeys still required | Missing for accepted evidence; no driver/engine attribution established; Snapcraft remains skipped | H |
@@ -183,7 +183,7 @@ fallback. The exact mock proxy transport now serves all methods, retaining raw
 request/response lines and separate encoded/decoded body views. Source-only
 regressions cover actual HTTP and CLI outcomes, informational blocks, HEAD,
 unknown/singleton/list fields, exact values, Set-Cookie and obsolete readiness
-proofs. Evaluator 1.18.0+55 and response/parameter mock producers 4 agree across
+proofs. Evaluator 1.18.0+56 and response/parameter mock producers 4 agree across
 engine/Core readiness. These regressions, analysis, builds and acceptance have
 not run. W4.03 source completion does not close the other W4 requirements.
 
@@ -667,6 +667,29 @@ controls. Core coverage inspects actual navigation targets, native Link field
 pages, request definitions, publication, original deletion and relocated CLI
 reopening. All coverage is prepared, unexecuted. Migration producer `55` agrees
 with Core/preflight; evaluator `1.18.0+55` and graph rules `7` are unchanged.
+
+### Connected-entry capture and external-example ownership
+
+O31 §4.3.1/§4.8.19 and O32 §4.1.2.1/§4.18 require complete document context
+and actual Example Object ownership. Ordinary discovery now follows the selected
+entry’s canonical uses. Explicit migration capture follows connected complete
+entries and their own references/examples, excluding stale disconnected roots
+and reference-looking payload data. Core uses the existing approved acquisition,
+budget, cancellation, byte identity and coherent snapshot mechanisms, and admits
+only the versioned engine discovery protocol. The native projection remains the
+selected entry’s projection; CLI migration uses the same Core capture.
+
+Migration relocates locators across all entry owners, with concrete Example
+roles and document bases. Accepted ignored-body omissions recapture every entry
+before conversion; detached schema data is not converted, and only proven
+retired example locators can disappear without a copy. Existing engine/Core
+suites prepare selected-versus-migration acquisition, secondary-only schemas and
+exact external bytes, malformed discovery rejection, unsaved inputs, original
+preservation, relocated HTTP requests and CLI reopening. Ignored-body coverage
+prepares exact detached schema/locator preservation. Nothing has executed.
+Evaluator `1.18.0+56`, external-example rules `2`, entry discovery rules `1` and
+migration producer `56` agree across production admissions/prepared controls;
+graph role rules remain `7`. W2/W3/W4 still retain their recorded source gaps.
 
 ## Required functionality still open
 

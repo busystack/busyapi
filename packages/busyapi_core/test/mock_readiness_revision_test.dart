@@ -25,6 +25,7 @@ void main() {
     'schema-previous-resource-views',
     'schema-previous-entry-uses',
     'schema-previous-entry-resources',
+    'schema-previous-entered-anchors',
     'response-previous-field-lines',
     'parameter-previous-field-lines',
     'response-version',
@@ -63,7 +64,7 @@ void main() {
       addTearDown(plan.close);
       final schema = <String, String>{
         'name': 'hyperjump+busyapi-exact',
-        'version': '1.18.0+55',
+        'version': '1.18.0+56',
         'configuration': 'fixture-runtime',
       };
       final response = <String, String>{
@@ -126,6 +127,8 @@ void main() {
           schema['version'] = '1.18.0+53';
         case 'schema-previous-entry-resources':
           schema['version'] = '1.18.0+54';
+        case 'schema-previous-entered-anchors':
+          schema['version'] = '1.18.0+55';
         case 'response-previous-field-lines':
           response['version'] = '3';
         case 'parameter-previous-field-lines':

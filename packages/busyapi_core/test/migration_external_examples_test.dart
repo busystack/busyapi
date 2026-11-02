@@ -49,7 +49,98 @@ class _ChangedReview extends EngineProcess {
   }
 }
 
+class _ChangedEntryDiscovery extends EngineProcess {
+  _ChangedEntryDiscovery(this.defect) : super(executable: runtimeNode, helper: runtimeHelper);
+  final String defect;
+  @override
+  Future<Map<String, dynamic>> request(String method, Map<String, Object?> params, {String? requestId}) async {
+    final result = await super.request(method, params, requestId: requestId);
+    if (method != 'analyse' || params['captureEntries'] != true) return result;
+    final changed = jsonDecode(jsonEncode(result)) as Map<String, dynamic>;
+    if (defect == 'missing') changed.remove('entryDiscovery');
+    if (defect == 'revision') (changed['versions'] as Map)['entryDiscoveryRules'] = 'obsolete';
+    if (defect == 'references') (changed['entryDiscovery'] as Map)['references'] = 'invalid';
+    return changed;
+  }
+}
+
 void main() {
+  for (final defect in ['missing', 'revision', 'references']) {
+    test('migration rejects $defect entry discovery before publication', () async {
+      final directory = await Directory.systemTemp.createTemp('busyapi-entry-discovery-');addTearDown(() => directory.delete(recursive: true));
+      const original = '{"openapi":"3.1.2","info":{"title":"Discovery","version":"business"},"paths":{}}';
+      final file = File('${directory.path}/api.json');await file.writeAsString(original);
+      final engine = _ChangedEntryDiscovery(defect);addTearDown(engine.close);
+      final project = await BusyProject.open(file.path, engine);addTearDown(project.close);
+      await expectLater(project.prepareMigration(file.uri.toString(), '${directory.path}/output', targetVersion: '3.2.1'),
+          throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'engine.entry-discovery')));
+      expect(await file.readAsString(), original);expect(await Directory('${directory.path}/output').exists(), false);
+    });
+  }
+  test('migration captures secondary-entry dependencies and example bytes without ordinary-entry acquisition', () async {
+    final directory = await Directory.systemTemp.createTemp('busyapi-entry-examples-');
+    addTearDown(() => directory.delete(recursive: true));
+    final payload = _payload('json'), observed = <List<int>>[];
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    server.listen((request) async {
+      final bytes = await request.fold<List<int>>([], (all, chunk) => all..addAll(chunk));
+      observed.add(bytes);request.response.headers.contentType = ContentType.json;
+      request.response.add(bytes);await request.response.close();
+    });
+    final secondary = jsonDecode(_source('3.1.2', 'json', 'json', port: server.port)) as Map<String, dynamic>;
+    secondary['components'] = {'examples': {'Entry': {'value': 'Captured entry'}}};
+    final operation = ((secondary['paths'] as Map)['/echo'] as Map)['post'] as Map;
+    for (final content in [(operation['requestBody'] as Map)['content'],
+      (((operation['responses'] as Map)['200'] as Map)['content'])]) {
+      ((content as Map)['application/json'] as Map)['schema'] = {r'$ref': 'model.json#/Node'};
+    }
+    final originals = {
+      'a.json': jsonEncode({'openapi': '3.1.2', 'info': {'title': 'Primary', 'version': 'business'}, 'paths': {},
+        'components': {'examples': {'Entry': {r'$ref': 'b.json#/components/examples/Entry'}}}}),
+      'b.json': jsonEncode(secondary), 'model.json': jsonEncode({'Node': payload.schema}),
+    };
+    for (final entry in originals.entries) await File('${directory.path}/${entry.key}').writeAsString(entry.value);
+    final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);addTearDown(engine.close);
+    final project = await BusyProject.open('${directory.path}/a.json', engine);addTearDown(project.close);
+    final first = File('${directory.path}/a.json').uri.toString(), second = File('${directory.path}/b.json').uri.toString();
+    AnalysisSnapshot? ordinary;
+    final checked = await project.check(first, onSnapshot: (snapshot) => ordinary = snapshot);
+    expect(checked['complete'], true, reason: '$checked');expect(ordinary!.exampleResources, isEmpty);
+    expect(ordinary!.resources.any((value) => value['id'] == File('${directory.path}/model.json').uri.toString()), false);
+    final example = File('${directory.path}/payload.bin');await example.writeAsBytes(payload.bytes);
+    final buffer = await project.buffer(second);project.store.replace(second, buffer.text.replaceFirst('Original', 'Captured'));
+    final review = await project.prepareMigration(first, '${directory.path}/converted', targetVersion: '3.2.1');addTearDown(review.close);
+    expect(review.publishable, true, reason: '${review.result}');expect(review.unsaved, true);
+    expect(review.exampleCopies.single.bytes, payload.bytes);expect(review.exampleCopies.single.resource, example.uri.toString());
+    expect(review.snapshot.resources.any((value) => value['id'] == File('${directory.path}/model.json').uri.toString()), true);
+    await review.publish();
+    for (final entry in originals.entries) expect(await File('${directory.path}/${entry.key}').readAsString(), entry.value);
+    expect(await example.readAsBytes(), payload.bytes);
+    final migrated = review.changes.singleWhere((change) => change.resource == second).destination;
+    project.close();
+    final relocated = await Directory(review.destination).rename('${directory.path}/cold 雪');
+    for (final name in [...originals.keys, 'payload.bin']) await File('${directory.path}/$name').delete();
+    final cold = await BusyProject.open(relocated.path, engine);addTearDown(cold.close);
+    final root = File('${relocated.path}/${Uri.parse(migrated).pathSegments.last}').uri.toString();
+    final plan = await cold.prepareRequest(root, resource: root, pointer: '/paths/~1echo/post');
+    try {
+      final media = (((plan.result['requestBody'] as Map)['content'] as List).single as Map);
+      final selected = (media['examples'] as List).single as Map;
+      expect(selected['wireBase64'], base64Encode(payload.bytes));
+      final result = await const ContractRequestExecutor().execute(plan,
+        OperationRequestDraft(planIdentity: plan.identity, body: RequestBodyDraft.binaryFile(
+            mediaType: 'application/json', file: '${relocated.path}/${review.exampleCopies.single.path}')),
+        resolveSecret: (_) async => null);
+      try {
+        expect(result.conforming, true, reason: '${result.outgoing.findings} ${result.received.findings}');
+        expect(observed.single, payload.bytes);expect(await result.response.decodedBytes(), payload.bytes);
+      } finally { await result.close(); }
+    } finally { plan.close(); }
+    final cli = await Process.run('$testBundle/busyapi', ['check', relocated.path, '--json'],
+      environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
+    expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');
+  });
   for (final version in ['3.0.4', '3.1.2', '3.2.1']) for (final format in ['yaml', 'json']) {
     for (final kind in ['json', 'latin1', 'mime', 'empty']) {
       test('$version $format $kind publishes exact captured examples, reopens after relocation and retains HTTP bytes', () async {
@@ -152,7 +243,7 @@ void main() {
         environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
       final review = await run(['--json']);expect(review.exitCode, 0, reason: '${review.stdout} ${review.stderr}');
       final report = jsonDecode(review.stdout as String) as Map;
-      expect(report['published'], false);expect(report['producerVersion'], '55');
+      expect(report['published'], false);expect(report['producerVersion'], '56');
       final copy = (report['exampleOutputs'] as List).single as Map;
       expect(base64Decode(copy['base64'] as String), bytes);expect(await Directory(destination).exists(), false);
       final textReview = await run([]);expect(textReview.exitCode, 0, reason: textReview.stderr as String);

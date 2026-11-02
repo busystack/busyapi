@@ -14,6 +14,28 @@ const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const render = (value, format) => (format === 'yaml' ? '# Keep Unicode 雪\r\n' + YAML.stringify(value).replaceAll('\n', '\r\n') : JSON.stringify(value)) + '\r\n';
 const packet = (id, bytes, aliases = []) => ({version: 1, id, generation: 3, aliases, state: 'available', identity: hash(bytes), base64: bytes.toString('base64'), byteLength: bytes.length});
 
+for(const format of formats)test(`${format} migration publishes examples and schemas used only by a connected secondary entry`,async()=>{
+ const root='file:///approved/a.'+format,other='file:///approved/b.'+format,model='file:///approved/model.'+format,id='file:///approved/b.bin';
+ const media={schema:{$ref:'model.'+format+'#/Node'},examples:{Wire:{externalValue:'b.bin'}}};
+ const first={openapi:'3.1.2',info:{title:'Primary',version:'business'},paths:{},components:{examples:{Entry:{$ref:'b.'+format+'#/components/examples/Entry'}}}};
+ const second={openapi:'3.1.2',info:{title:'Secondary',version:'business'},paths:{'/echo':{post:{requestBody:{required:true,content:{'application/json':media}},responses:{200:{description:'Reply',content:{'application/json':media}}}}}},
+  components:{examples:{Entry:{value:{$ref:'literal-only.json',flag:false}}}}};
+ const bytes=Buffer.from('9007199254740993.00'),input={root,snapshot:'secondary-entry-bytes',targetVersion:'3.2.1',destination:'file:///published/entries/',
+  resources:[{id:root,text:render(first,format),generation:1},{id:other,text:render(second,format),generation:2},
+   {id:model,text:format==='yaml'?'Node: {type: integer, enum: [9007199254740993.00]}\r\n':'{"Node":{"type":"integer","enum":[9007199254740993.00]}}',generation:3}],exampleResources:[packet(id,bytes)]};
+ const originals=input.resources.map(resource=>resource.text),review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ assert.equal(review.exampleOutputs.length,1);assert.deepEqual(Buffer.from(review.exampleOutputs[0].base64,'base64'),bytes);
+ assert.equal(review.exampleOutputs[0].occurrences.length,2);assert(review.exampleOutputs[0].occurrences.every(value=>value.source.resource===other));
+ const destination='file:///moved/secondary/',cold=delivered(review,destination),secondary=review.outputs.find(output=>output.id===review.changes.find(change=>change.resource===other).destination);
+ const rootB=new URL(secondary.path,destination).href,packetB={...cold,root:rootB};
+ for(const root of [cold.root,rootB])assert.equal(analyse({...cold,root}).status,'complete',JSON.stringify(analyse({...cold,root}).findings));
+ const evaluated=await evaluateSchemas(packetB);assert.equal(evaluated.complete,true,JSON.stringify(evaluated.findings));
+ assert.equal(evaluated.serializedEvaluations.length,2);assert(evaluated.serializedEvaluations.every(value=>value.complete&&value.valid&&value.external.identity===hash(bytes)));
+ const request=requestOperation({...packetB,resource:rootB,pointer:'/paths/~1echo/post'});
+ assert.equal(request.requestBody.content[0].examples[0].wireBase64,bytes.toString('base64'));
+ assert.deepEqual(input.resources.map(resource=>resource.text),originals);
+});
+
 function fixture(version, format, kind = 'json') {
   const root = 'file:///approved/api.' + format, id = 'file:///approved/data/example.bin';
   const mediaType = {json: 'application/json', latin1: 'text/plain; charset=iso-8859-1', empty: 'text/plain', mime: 'multipart/form-data; boundary=Test'}[kind];
@@ -43,7 +65,7 @@ async function assertPortable(f, input = f.input) {
   const original = JSON.stringify(input);
   const plan = await planMigration(input);
   assert.equal(plan.complete, true, JSON.stringify(plan.problems));
-  assert.equal(plan.producerVersion, '55');
+  assert.equal(plan.producerVersion, '56');
   assert.equal(plan.exampleOutputs.length, 1);
   const copy = plan.exampleOutputs[0];
   if(input.resources[0].id.endsWith('.yaml'))assert(plan.outputs.find(value => value.id === plan.outputRoot).text.includes('# Keep Unicode 雪'));

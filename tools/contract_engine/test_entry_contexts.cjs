@@ -73,6 +73,23 @@ test('matching dynamic anchors in entered foreign resources remain available out
  assert.notEqual(analyse(input).status,'complete','A dynamically callable matching anchor must retain its own invalid-schema diagnostic');
 });
 
+test('ordinary discovery stays in its entry while explicit migration capture discovers connected entry dependencies and examples',()=>{
+ const primary={openapi:'3.1.2',info:{title:'Primary',version:'business'},paths:{},components:{examples:{Entry:{$ref:'b.json#/components/examples/Entry'}}}};
+ const secondary={openapi:'3.1.2',info:{title:'Secondary',version:'business'},paths:{'/p':{post:{requestBody:{content:{'application/json':{
+  schema:{$ref:'numbers.json#/Node'},examples:{Wire:{externalValue:'b.bin'}}}}},responses:{204:{description:'Empty'}}}}},components:{examples:{Entry:{value:{$ref:'literal-only.json'}}}}};
+ const unrelated={openapi:'3.1.2',info:{title:'Stale dependency',version:'business'},paths:{},components:{examples:{Denied:{externalValue:'https://unapproved.invalid/secret'}}}};
+ const input={root:a,snapshot:'entry-discovery',resources:[{id:a,text:JSON.stringify(primary),generation:0},
+  {id:b,text:JSON.stringify(secondary),generation:0},{id:'file:///entries/stale.json',text:JSON.stringify(unrelated),generation:0}]};
+ const ordinary=analyse(input);assert.equal(ordinary.status,'complete',JSON.stringify(ordinary.findings));assert.deepEqual(ordinary.externalExamples,[]);
+ const captured=analyse({...input,captureEntries:true});assert.equal(captured.status,'complete',JSON.stringify(captured.findings));
+ assert.deepEqual(captured.references,ordinary.references,'Collection purpose does not replace the native selected-entry projection');
+ assert.deepEqual(captured.entryDiscovery.roots,[a,b]);
+ assert(captured.entryDiscovery.references.some(reference=>reference.targetResource==='file:///entries/numbers.json'));
+ assert(captured.entryDiscovery.externalExamples.some(request=>request.targetResource==='file:///entries/b.bin'));
+ assert(!captured.entryDiscovery.externalExamples.some(request=>request.targetResource?.includes('unapproved.invalid')));
+ assert(!captured.entryDiscovery.references.some(reference=>reference.targetResource?.includes('literal-only')));
+});
+
 test('an independent native schema does not activate a physical containing schema resource with another base or dialect',async()=>{
  const root='file:///entries/native.json',raw='file:///entries/response.json',pointer='/$defs/Response/content/application~1json/schema';
  const input={root,snapshot:'native-resource-entry',resources:[{id:root,text:JSON.stringify({openapi:'3.2.1',info:{title:'Native use',version:'1'},

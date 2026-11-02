@@ -5,6 +5,7 @@ const {analyse}=require('./dist/model.cjs');
 const {requestOperation}=require('./dist/execution.cjs');
 const {planMigration}=require('./dist/migration.cjs');
 const {SourceDocument}=require('./dist/document.cjs');
+const {createHash}=require('node:crypto');
 
 function capture(version,method,format,referenced=false) {
  const root='file:///ignored-body/api.'+format,bodyId='file:///ignored-body/body.'+format;
@@ -15,6 +16,26 @@ function capture(version,method,format,referenced=false) {
 }
 function outputs(result){return result.outputs.map(output=>({id:output.id,text:output.text,generation:0,aliases:Object.entries(result.manifest.resourceMappings).filter(([,path])=>path===output.path).map(([uri])=>uri)}));}
 function operation(input){const found=analyse(input).operations[0];return requestOperation({...input,resource:found.resource,pointer:found.pointer,occurrence:found.occurrence});}
+
+for(const format of ['yaml','json'])test(`${format} reviewed ignored-body omission retires examples and leaves detached schema data unchanged`,async()=>{
+ const input=capture('3.0.4','get',format,true);input.targetVersion='3.1.2';
+ const source=new SourceDocument(input.resources[1].text,input.resources[1].id);
+ input.resources[1].text=source.set('/content/application~1json/schema/nullable',true);
+ const body=new SourceDocument(input.resources[1].text,input.resources[1].id);
+ input.resources[1].text=body.remove('/content/application~1json/example');
+ const example=new SourceDocument(input.resources[1].text,input.resources[1].id);
+ input.resources[1].text=example.set('/content/application~1json/examples',{Wire:{externalValue:'payload.bin'}});
+ const bytes=Buffer.from('"snow 雪"'),id='file:///ignored-body/payload.bin';
+ input.exampleResources=[{version:1,id,aliases:[],generation:0,state:'available',identity:createHash('sha256').update(bytes).digest('hex'),byteLength:bytes.length,base64:bytes.toString('base64')}];
+ const before=input.resources.map(resource=>resource.text),review=await planMigration(input);
+ const problem=review.problems.find(problem=>problem.code==='migration.body.ignored-activation');assert(problem,JSON.stringify(review.problems));
+ const result=await planMigration({...input,decisions:{[problem.id]:'omit-ignored-body'}});
+ assert.equal(result.complete,true,JSON.stringify(result.problems));assert.deepEqual(result.exampleOutputs,[]);
+ assert.equal(result.outputs.find(output=>output.id===result.changes.find(change=>change.resource===input.resources[1].id).destination).text,before[1]);
+ const cold={root:result.outputRoot,snapshot:'cold-retired-examples',resources:outputs(result)};
+ assert.equal(analyse(cold).status,'complete',JSON.stringify(analyse(cold).findings));assert.equal(operation(cold).requestBody,undefined);
+ assert.deepEqual(input.resources.map(resource=>resource.text),before);
+});
 
 for(const version of ['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4'])for(const format of ['yaml','json'])for(const referenced of [false,true])for(const method of ['get','head','delete','options'])test(`${version} ${format} ${method} ${referenced?'referenced':'inline'} ignored body needs explicit omission before Swagger publication`,async()=>{
  const input=capture(version,method,format,referenced),before=input.resources.map(r=>r.text),pointer='/paths/~1payload/'+method+'/requestBody';

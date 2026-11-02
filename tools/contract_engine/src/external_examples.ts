@@ -4,7 +4,7 @@ import {isNativeFamily} from './specification';
 import {documentUriOccurrences,documentUriValidity} from './document_uris';
 import {documentUriBase,resolveUri,type ReferenceGraph} from './reference_graph';
 
-export const externalExampleRevision='1';
+export const externalExampleRevision='2';
 export type ExternalExampleCondition='invalid'|'unsupported'|'unavailable';
 type Problem=Readonly<{code:string;message:string;condition:ExternalExampleCondition}>;
 export class ExternalExampleError extends SourceError {
@@ -51,7 +51,7 @@ export function externalExampleRequest(graph:ReferenceGraph,resource:string,poin
 export function externalExampleRequests(graph:ReferenceGraph):ExternalExampleRequest[] {
     const requests:ExternalExampleRequest[]=[];
     for(const occurrence of documentUriOccurrences(graph)){
-        if(occurrence.scope.kind!=='example'||!isNativeFamily(occurrence.scope.family)||occurrence.scope.family==='2.0'||occurrence.field!=='externalValue')continue;
+        if(!graph.isEntryUse(occurrence.scope)||occurrence.scope.kind!=='example'||!isNativeFamily(occurrence.scope.family)||occurrence.scope.family==='2.0'||occurrence.field!=='externalValue')continue;
         if(requests.length>=20000)throw new SourceError('limit.examples.external','External example discovery exceeds 20000 occurrences');
         requests.push(externalExampleRequest(graph,occurrence.scope.resource,occurrence.pointer));
     }

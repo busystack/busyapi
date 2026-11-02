@@ -100,6 +100,7 @@ extension _OutputCapture on BusyProject {
     final checked = await check(
       root,
       saved: saved,
+      captureEntries: operation == 'migration',
       requestId: requestId,
       cancelled: cancelled,
       onResourceRefreshed: onResourceRefreshed,
