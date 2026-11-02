@@ -68,8 +68,8 @@ export function referencePage(input: any, context?:ReturnType<typeof createGraph
     };
     const doc = docs.get(input.resource), node = read(input.resource,input.pointer);
     if (!doc || !node) throw new SourceError('reference.target', 'The documentation occurrence is absent');
-    const scope = graph.scopes.get(doc.id + '#' + node.pointer);
-    const family = graph.scope(doc.id, node.pointer).family;
+    const scope = graph.selectedScope(doc.id,node.pointer,input.data===true?undefined:input.contextKind);
+    const family = scope?.family??graph.scope(doc.id,node.pointer).family;
     const kind = input.data === true || !isNativeFamily(family) ? 'data' : scope?.kind ?? 'data';
     const generations = new Map(input.resources.map((r: Resource) => [r.id, r.generation]));
     const located = (resource: string, pointer: string) => {
@@ -81,7 +81,7 @@ export function referencePage(input: any, context?:ReturnType<typeof createGraph
             ...(target.pointer!==pointer?{physicalPointer:target.pointer,occurrenceRange:source!.nodes.get(occurrence)!.range}:{}),
             kind: graph.scopes.get(resource + '#' + pointer)?.kind ?? 'data', syntaxSafe: source!.dataSyntaxSafe(pointer)};
     };
-    const fieldDefinitions = fieldsForScope(graph,{...graph.scope(doc.id,node.pointer),kind},node.value);
+    const fieldDefinitions = fieldsForScope(graph,{...(scope??graph.scope(doc.id,node.pointer)),kind},node.value);
     const definitions = new Map(fieldDefinitions.map(field => [field.name, field]));
     // Do not use String(number), JSON.stringify(parsed values), or ?? to select
     // examples: source numeric lexemes, null, false and zero must survive.
@@ -97,7 +97,7 @@ export function referencePage(input: any, context?:ReturnType<typeof createGraph
             representation: alias ? 'yaml-source' : typeof value === 'string' ? 'text' : 'json'};
     };
     const offset = Math.min(Math.max(0, Number.isSafeInteger(input.offset) ? input.offset : 0), Math.max(0, (Math.ceil(node.children.size / 50) - 1) * 50));
-    const referenceData = kind === 'data' || graph.referenceObject(node.value,{...graph.scope(doc.id,node.pointer),kind});
+    const referenceData = kind === 'data' || graph.referenceObject(node.value,{...(scope??graph.scope(doc.id,node.pointer)),kind});
     const entries = [...node.children].slice(offset, offset + 50).map(([name, child]) => {
         const definition = definitions.get(name);
         // The whole containing occurrence, not an isolated key/value, decides
@@ -111,21 +111,21 @@ export function referencePage(input: any, context?:ReturnType<typeof createGraph
         const pointer=node.pointer+'/'+escape(name),value=read(doc.id,pointer)!;
         return {name, ...located(doc.id, pointer), kind:context??'data', data:!context, nodeKind: value.kind, count: value.children.size,
             defined: !!definition, contextual: !!context, extension: name.startsWith('x-'),
-            richText:richTextField(kind,family,node.value,name,segments(node.pointer).at(-1),graph.allowsReference({...graph.scope(doc.id,node.pointer),kind}))&&doc.nodes.get(pointer)?.alias===undefined,
+            richText:richTextField(kind,family,node.value,name,segments(node.pointer).at(-1),graph.allowsReference({...(scope??graph.scope(doc.id,node.pointer)),kind}))&&doc.nodes.get(pointer)?.alias===undefined,
             ...(schema ? {required: Array.isArray(schema.value?.required) && schema.value.required.includes(name)} : {}),
             ...(definition && Object.hasOwn(definition, 'effectiveDefault') ? {effectiveDefault: definition.effectiveDefault} : {}),
             ...(!['object','array'].includes(value.kind) ? excerpt(pointer, 0, 240) : {}),
         };
     });
     const visibleNames = new Set(entries.map(entry => entry.name));
-    const references = graph.references.filter(ref => kind !== 'data' && ref.resource === doc.id && ref.pointer === node.pointer && (visibleNames.has(ref.keyword) || ['$ref','$dynamicRef'].includes(ref.keyword))).map(ref => ({...ref,
+    const references = graph.referencesAt(doc.id,node.pointer,kind).filter(ref=>visibleNames.has(ref.keyword)||['$ref','$dynamicRef'].includes(ref.keyword)).map(ref => ({...ref,
         source: located(ref.resource, ref.pointer + '/' + escape(ref.keyword)),
-        ...(ref.resolution === 'resolved' ? {target: located(ref.targetResource!, ref.targetPointer!)} : {}),
+        ...(ref.resolution === 'resolved' ? {target: {...located(ref.targetResource!,ref.targetPointer!),kind:ref.kind}} : {}),
         ...(ref.dynamic ? {dynamic: {...ref.dynamic, candidates: ref.dynamic.candidates.map(target => located(target.resource, target.pointer))}} : {}),
     }));
     const defaults = fieldDefinitions.filter(field => !node.children.has(field.name) && Object.hasOwn(field, 'effectiveDefault')).map(field => ({name: field.name, value: field.effectiveDefault}));
     const interpretation = kind === 'schema' ? 'schema-applicators' : kind === 'path-item' ? 'path-item' :
-        graph.allowsReference({...graph.scope(doc.id,node.pointer),kind}) && typeof node.value?.$ref === 'string' ? 'reference-object' : kind === 'data' ? 'data' : 'inline';
+        graph.allowsReference({...(scope??graph.scope(doc.id,node.pointer)),kind}) && typeof node.value?.$ref === 'string' ? 'reference-object' : kind === 'data' ? 'data' : 'inline';
     const issues = kind === 'data' ? [] : graph.issues.filter(issue => issue.resource === doc.id && (issue.pointer === node.pointer || issue.pointer.startsWith(node.pointer + '/')));
     const previews: any[] = [];
     let previewsLimited = false;
@@ -223,7 +223,7 @@ export function referencePage(input: any, context?:ReturnType<typeof createGraph
     }
     const parentPointer=node.pointer.slice(0,node.pointer.lastIndexOf('/')),parent=graph.scopes.get(doc.id+'#'+parentPointer);
     const richText=input.data!==true&&doc.nodes.get(node.pointer)?.alias===undefined&&!!parent&&richTextField(parent.kind,family,doc.dataNode(parentPointer)?.value,segments(node.pointer).at(-1)!,segments(parentPointer).at(-1),graph.allowsReference(parent));
-    return {version: 1, snapshot: input.snapshot, family, ...located(doc.id, node.pointer), kind, data:kind==='data', nodeKind: node.kind,richText,
+    return {version: 1, snapshot: input.snapshot, family, ...located(doc.id,node.pointer),kind,interpretations:graph.scopesAt(doc.id,node.pointer).map(({kind,family,dialect})=>({kind,family,dialect})),data:kind==='data', nodeKind: node.kind,richText,
         interpretation, references, defaults, entries, offset, count: node.children.size, issues:issues.slice(0,50).map(issue => ({...issue, source:located(issue.resource,issue.pointer)})), issueCount:issues.length, effective, previews, previewsLimited,
         ...(kind==='operation'?{occurrence:selected?.occurrence??null,contextSelectionRequired:contexts.length>0&&!selected,
             selectedContext:selected?{occurrence:selected.occurrence,navigationId:operationNavigationId(input.root,selected.occurrence),path:selected.path,method:selected.method,customMethod:selected.customMethod===true,role:selected.role,pathItem:located(selected.pathItem.resource,selected.pathItem.pointer)}:null,
@@ -311,7 +311,8 @@ export function referenceDocument(input:any) {
             source:location(reference.resource,reference.pointer),keyword:reference.keyword,
             ...(reference.connection?{connection:reference.connection}:{}),dynamic:!!reference.dynamic,
         }));
-        return {source:location(scope.resource,scope.pointer),kind:scope.kind,base:scope.base,dialect:scope.dialect,usages,...(scope.kind==='operation'?{contexts:operationContexts}:{}),
+        return {source:location(scope.resource,scope.pointer),kind:scope.kind,base:scope.base,dialect:scope.dialect,
+            interpretations:graph.scopesAt(scope.resource,scope.pointer).map(({kind,family,base,dialect})=>({kind,family,base,dialect})),usages,...(scope.kind==='operation'?{contexts:operationContexts}:{}),
             retrieval:graph.retrievals.get(scope.resource),entries,references,effective,
             defaults:definitions.filter(field=>!node.children.has(field.name)&&Object.hasOwn(field,'effectiveDefault')).map(field=>({name:field.name,value:field.effectiveDefault})),
             ...(!['object','array'].includes(node.kind)?{text:retain(doc.dataJson(scope.pointer)),representation:'json'}:{}),

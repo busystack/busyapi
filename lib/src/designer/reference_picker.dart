@@ -132,6 +132,7 @@ class _ReferencePickerState extends State<_ReferencePicker> {
         widget.occurrence['resource'],
         widget.occurrence['pointer'],
         keyword: widget.keyword,
+        contextKind: widget.occurrence['kind'] as String?,
         bindingForm: widget.bindingForm,
         query: text,
         offset: offset,

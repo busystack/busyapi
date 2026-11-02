@@ -22,6 +22,7 @@ class _NativeObjectPageState extends State<_NativeObjectPage> {
   Future<Map<String, dynamic>>? request;
   Object? identity;
   int offset = 0;
+  String? contextKind;
   bool typeUnionExpanded = false;
   late final ScrollController pageScroll;
   double lastScroll = 0;
@@ -115,7 +116,23 @@ class _NativeObjectPageState extends State<_NativeObjectPage> {
           widget.resource,
           widget.pointer,
           offset: offset,
+          contextKind: contextKind,
         )
+        .catchError((Object error) async {
+          if (error is! CoreFailure ||
+              error.code != 'inspect.context.stale' ||
+              !mounted ||
+              epoch != loadEpoch ||
+              !identical(c.project, project)) {
+            throw error;
+          }
+          contextKind = null;
+          return project.inspectObject(
+            widget.root,
+            widget.resource,
+            widget.pointer,
+          );
+        })
         .then((result) {
           if (mounted && epoch == loadEpoch && identical(c.project, project)) {
             offset = result['offset'] as int? ?? offset;
@@ -514,6 +531,22 @@ class _NativeObjectPageState extends State<_NativeObjectPage> {
                   kindLabel(kind),
                   style: Theme.of(context).textTheme.headlineSmall,
                 ),
+                if ((item['interpretations'] as List? ?? const []).length > 1)
+                  BusyApiComboRow<String>(
+                    title: l.type,
+                    values: [
+                      for (final role in item['interpretations'] as List)
+                        (role as Map)['kind'] as String,
+                    ],
+                    selected: kind,
+                    labelFor: kindLabel,
+                    enabled: sourceCurrent && !c.checking,
+                    onSelected: (value) => setState(() {
+                      contextKind = value;
+                      offset = 0;
+                      reload();
+                    }),
+                  ),
                 Text(
                   l.objectOwner(
                     c.project!.roots
@@ -2196,6 +2229,7 @@ Future<Map<String, dynamic>?> _prepareObjectAction(
     item['resource'] as String,
     item['pointer'] as String,
     offset: item['offset'] as int? ?? 0,
+    contextKind: item['kind'] as String?,
   );
   if (!current()) return null;
   if (buffer.generation != generation || fresh['generation'] != generation) {

@@ -26,7 +26,7 @@ function description(graph:ReferenceGraph,scope:GraphScope) {
  * object. Physical scalar provenance does not replace a logical URI base. */
 export function captureMigrationMarkdown(graph:ReferenceGraph,issue:MigrationIssue):readonly CapturedMarkdown[] {
     const captured:CapturedMarkdown[]=[];
-    for(const scope of graph.scopes.values()){
+    for(const scope of graph.interpretedScopes()){
         const field=description(graph,scope);if(!field)continue;
         const original={resource:scope.resource,pointer:scope.pointer+'/description'};
         try{
@@ -44,7 +44,7 @@ export function captureMigrationMarkdown(graph:ReferenceGraph,issue:MigrationIss
 
 function targets(captured:readonly CapturedMarkdown[],graph:ReferenceGraph,mapped:Mapped,issue:MigrationIssue):Target[] {
     const owners=new Map<string,GraphScope[]>(),result:Target[]=[];
-    for(const scope of graph.scopes.values()){
+    for(const scope of graph.interpretedScopes()){
         const field=description(graph,scope);if(!field)continue;
         const identity=key({resource:scope.resource,pointer:scope.pointer+'/description'}),values=owners.get(identity)??[];
         values.push(scope);owners.set(identity,values);

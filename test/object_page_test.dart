@@ -5,6 +5,7 @@ import 'package:busyapi/l10n/generated/app_localizations.dart';
 import 'package:busyapi/src/app/app_theme.dart';
 import 'package:busyapi/src/app/busyapi_design.dart';
 import 'package:busyapi/src/designer/designer.dart';
+import 'package:busyapi/src/reference/reference_object.dart';
 import 'package:busyapi/src/comparison/review_comparison.dart';
 import 'package:busyapi/src/workspace/workspace_controller.dart';
 import 'package:busyapi_core/busyapi_core.dart';
@@ -41,6 +42,77 @@ void main() {
       const MethodChannel('yaru_window/events'),
       null,
     );
+  });
+  testWidgets('shared native roles use captured Design and Reference controls', (tester) async {
+    tester.view.physicalSize = const Size(1280, 1100);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final temp = Directory.systemTemp.createTempSync('busyapi-native-roles-');
+    final file = File('${temp.path}/api.yaml');
+    const original = '# Preserve shared native roles 雪\r\n'
+        '{"openapi":"3.2.1","info":{"title":"Roles","version":"1"},"paths":{},'
+        '"components":{"responses":{"Shared":{"description":"Shared body","content":'
+        '{"application/json":{"schema":{"type":"integer","enum":[9007199254740993.00]}}}}},'
+        '"requestBodies":{"Body":{"\$ref":"#/components/responses/Shared"}}}}';
+    file.writeAsStringSync(original);
+    final c = WorkspaceController(
+      EngineProcess(executable: runtimeNode, helper: runtimeHelper),
+      StateLocations(config: '${temp.path}/config', state: '${temp.path}/state', cache: '${temp.path}/cache'),
+    );
+    final failures = <Object>[];
+    Future<void> ready(bool Function() condition) async {
+      final watch = Stopwatch()..start();
+      await tester.pump();
+      while (!condition() && failures.isEmpty && watch.elapsed < const Duration(seconds: 10)) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      expect(failures, isEmpty);
+      expect(condition(), true, reason: '${c.error}');
+    }
+    final roles = find.byWidgetPredicate((widget) => widget is BusyApiComboRow<String> &&
+        widget.values.contains('response') && widget.values.contains('request-body'));
+    Widget screen(Widget child) => MaterialApp(
+      theme: buildBusyApiTheme(brightness: Brightness.light, accentColor: Colors.blue),
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      home: Scaffold(body: child),
+    );
+    try {
+      await tester.runAsync(() async {
+        await c.initialize(); await c.open(file.path);
+        await c.selectObject({'root': c.root, 'resource': c.root, 'pointer': '/components/responses/Shared'});
+        await c.analyse();
+      });
+      await tester.pumpWidget(screen(ListenableBuilder(
+        listenable: c,
+        builder: (_, _) => Designer(controller: c, reveal: (_) {},
+          run: (action) => action().catchError((Object error) { failures.add(error); })),
+      )));
+      await ready(() => roles.evaluate().length == 1);
+      expect(tester.widget<BusyApiComboRow<String>>(roles).selected, 'response');
+      tester.widget<BusyApiComboRow<String>>(roles).onSelected('request-body');
+      await ready(() => roles.evaluate().length == 1 &&
+          tester.widget<BusyApiComboRow<String>>(roles).selected == 'request-body');
+      expect(find.byWidgetPredicate((widget) => widget is BusyApiComboRow<String> && widget.title == 'Required'), findsOneWidget);
+      expect(c.buffer!.text, original);
+      await tester.pumpWidget(screen(ReferenceObjectView(
+        controller: c,
+        target: {'root': c.root, 'resource': c.root, 'pointer': '/components/responses/Shared', 'kind': 'request-body'},
+        reveal: (_) {}, open: (_) {},
+      )));
+      await ready(() => roles.evaluate().length == 1);
+      expect(tester.widget<BusyApiComboRow<String>>(roles).selected, 'request-body');
+      tester.widget<BusyApiComboRow<String>>(roles).onSelected('response');
+      await ready(() => roles.evaluate().length == 1 &&
+          tester.widget<BusyApiComboRow<String>>(roles).selected == 'response');
+      expect(file.readAsStringSync(), original);
+      expect(c.buffer!.text, original);
+      expect(tester.takeException(), isNull);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.runAsync(c.shutdown); c.dispose(); temp.deleteSync(recursive: true);
+    }
   });
   for (final version in ['3.0.4', '3.1.2', '3.2.1']) {
     for (final json in [false, true]) {

@@ -26,7 +26,7 @@ function protocol():never {
  * defining occurrence supplies the base. This is discovery, never acquisition.
  * RFC 3986 §3.5 does not assign JSON Pointer semantics to payload fragments. */
 export function externalExampleRequest(graph:ReferenceGraph,resource:string,pointer:string):ExternalExampleRequest {
-    const parent=pointer.slice(0,pointer.lastIndexOf('/')),scope=graph.scopes.get(resource+'#'+parent);
+    const parent=pointer.slice(0,pointer.lastIndexOf('/')),scope=graph.scopeAs(resource,parent,'example');
     const node=graph.docs.get(resource)?.dataNode(pointer);
     const problem=(code:string,message:string,condition:ExternalExampleCondition='unsupported'):ExternalExampleRequest=>({version:1,resource,pointer,problem:{code,message,condition}});
     if(!scope||scope.kind!=='example'||!isNativeFamily(scope.family)||scope.family==='2.0'||typeof node?.value!=='string')

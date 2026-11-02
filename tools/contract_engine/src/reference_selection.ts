@@ -48,7 +48,7 @@ export function planReference(input:any) {
    throw new SourceError('refactor.context','A root context contains an unavailable resource');
   return {context,...createGraph({root:context.root,resources:resources.filter(r=>context.resources.includes(r.id))})};
  });
- const selected=graphs.find(g=>g.context.root===target.root),scope=selected?.graph.scopes.get(source.id+'#'+target.pointer),to=selected?.graph.scopes.get(destination.id+'#'+choice.pointer);
+ const selected=graphs.find(g=>g.context.root===target.root),scope=selected?.graph.selectedScope(source.id,target.pointer,target.kind),to=selected?.graph.selectedScope(destination.id,choice.pointer,choice.kind);
  const doc=selected?.docs.get(source.id),node=doc?.nodes.get(target.pointer),toDoc=selected?.docs.get(destination.id),toNode=toDoc?.nodes.get(choice.pointer);
  const security=keyword==='security'&&scope?securitySelectionScope(selected.graph,scope):undefined;
  const discriminator=keyword==='defaultMapping'&&scope?discriminatorSelectionParent(selected.graph,scope):undefined;
@@ -83,7 +83,7 @@ export function planReference(input:any) {
  const known=new Map<string,Set<string>>();
  for(const g of graphs)for(const [identity,targets]of g.graph.identities)for(const item of targets){const ids=known.get(identity)??new Set<string>();ids.add(item.resource);known.set(identity,ids);}
  for(const {context,graph}of graphs) {
-  const occurrence=graph.scopes.get(source.id+'#'+target.pointer);
+  const occurrence=graph.scopeAs(source.id,target.pointer,scope.kind);
   if(!occurrence)continue;
   if(occurrence.kind!==scope.kind)throw new SourceError('refactor.context.ambiguous','One physical occurrence has different object kinds in configured roots');
   const contextSecurity=security?securitySelectionScope(graph,occurrence):undefined;
@@ -103,8 +103,8 @@ export function planReference(input:any) {
    if(!added)break;
    if(pass===128)throw new SourceError('limit.reference.closure','The selected reference exceeds the bounded graph closure');
   }
-  const next=after!.graph.references.find(r=>r.resource===scope.resource&&r.pointer===nextPointer&&r.keyword===nextKeyword);
-  if(!resolvedTo(next,to)||after!.graph.scopes.get(to.resource+'#'+to.pointer)?.kind!==to.kind)
+  const next=after!.graph.referencesAt(scope.resource,nextPointer,scope.kind).find(r=>r.keyword===nextKeyword);
+  if(!resolvedTo(next,to)||!after!.graph.scopeAs(to.resource,to.pointer,to.kind))
    throw new SourceError('refactor.context.ambiguous','The selected reference does not resolve to the same typed definition in every owning root');
   if(discriminator){
    const afterSource=after!.graph.scopes.get(source.id+'#'+scope.pointer);

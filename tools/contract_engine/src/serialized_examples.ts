@@ -29,13 +29,13 @@ export async function evaluateSerializedExamples(graph:ReferenceGraph,evaluate:(
  const examples:Example[]=[],evaluations:SerializedExampleEvaluation[]=[],findings:SerializedExampleFinding[]=[];
  const attemptedExternalSerializations=new Map<string,Set<string>>();
  const capturedSerializations=new Map<string,Set<string>>(),boundMediaDefinitions=new Set<string>(),boundHeaderDefinitions=new Set<string>();
- const context=(owner:GraphTarget)=>JSON.stringify([owner.resource,owner.pointer]);
+ const context=(owner:GraphTarget)=>JSON.stringify([owner.resource,owner.pointer,owner.kind]);
  const physical=(owner:GraphTarget)=>JSON.stringify([owner.resource,graph.docs.get(owner.resource)?.dataNode(owner.pointer)?.pointer??owner.pointer]);
  const associate=(values:Map<string,Set<string>>,identity:string,owner:GraphTarget)=>{
   let contexts=values.get(identity);if(!contexts){contexts=new Set();values.set(identity,contexts);}
   const before=contexts.size;contexts.add(context(owner));return contexts.size!==before;
  };
- const capture=capturedRuntimeMedia(graph),edges=new Map(graph.references.filter(edge=>edge.keyword==='$ref').map(edge=>[edge.resource+'#'+edge.pointer,edge]));
+ const capture=capturedRuntimeMedia(graph);
  let complete=true,instances=0,unbound=0;
  const fail=(document:SourceDocument,pointer:string,error:unknown)=>{
   if(!(error instanceof SourceError))throw error;
@@ -49,7 +49,7 @@ export async function evaluateSerializedExamples(graph:ReferenceGraph,evaluate:(
    const node=graph.docs.get(target.resource)?.dataNode(target.pointer);
    if(!node)throw new SourceError('example.reference.missing','The captured example declaration is unavailable',[0,0],'unsupported');
    if(node.kind!=='object'||typeof node.value.$ref!=='string')return target;
-   const edge=edges.get(key);
+   const edge=graph.referenceAs(target.resource,target.pointer,'$ref',target.kind);
    if(edge?.kind!==target.kind||edge.resolution!=='resolved')throw new SourceError('example.reference.unresolved','The captured example reference is unresolved',[0,0],'unsupported');
    target={resource:edge.targetResource!,pointer:edge.targetPointer!,kind:target.kind};
   }
@@ -78,12 +78,12 @@ export async function evaluateSerializedExamples(graph:ReferenceGraph,evaluate:(
     external:{id:captured.id,identity:captured.identity,byteLength:captured.byteLength}});
   }catch(error){fail(source,pointer,error);}
  };
- for(const owner of graph.scopes.values())if(owner.family==='2.0'&&owner.kind==='response'){
+ for(const owner of graph.interpretedScopes())if(owner.family==='2.0'&&owner.kind==='response'){
   const source=graph.docs.get(owner.resource)!,named=source.dataNode(owner.pointer+'/examples');
   if(named?.kind!=='object')continue;
   for(const [mediaType]of named.children)try{captureString(source,owner.pointer+'/examples/'+escape(mediaType),owner,mediaType,'swagger-response');}catch(error){fail(source,owner.pointer+'/examples/'+escape(mediaType),error);}
  }
- for(const owner of graph.scopes.values()){
+ for(const owner of graph.interpretedScopes()){
   if(!isNativeFamily(owner.family)||owner.family==='2.0'||owner.kind!=='media')continue;
   const parts=segments(owner.pointer);
   // Reusable Media Type Object names are not media types. Each actual content
@@ -109,7 +109,7 @@ export async function evaluateSerializedExamples(graph:ReferenceGraph,evaluate:(
    }
   }catch(error){fail(document,owner.pointer,error);}
  }
- for(const owner of graph.scopes.values()){
+ for(const owner of graph.interpretedScopes()){
   if(owner.kind!=='header')continue;
   if(exampleHeaderName(graph,owner)===undefined)continue;
   try{boundHeaderDefinitions.add(physical(follow(owner)));}catch(error){fail(graph.docs.get(owner.resource)!,owner.pointer,error);}
@@ -119,7 +119,7 @@ export async function evaluateSerializedExamples(graph:ReferenceGraph,evaluate:(
  // assertion; keep it distinct from a reusable Media Type with an unchecked
  // serialization. Reference chains retain the physical scalar owner.
  const associated=new Map<string,Set<string>>();let associations=0;
- for(const owner of graph.scopes.values()){
+ for(const owner of graph.interpretedScopes()){
   if(!['media','parameter','header'].includes(owner.kind))continue;
   const document=graph.docs.get(owner.resource)!;
   let definition:GraphTarget;
@@ -174,7 +174,7 @@ export async function evaluateSerializedExamples(graph:ReferenceGraph,evaluate:(
  // similarly named payload members remain ordinary data in every family.
  const inspected=new Set<string>();
  let firstUnbound:{document:SourceDocument;pointer:string}|undefined;
- for(const scope of graph.scopes.values()){
+ for(const scope of graph.interpretedScopes()){
   if(scope.kind!=='example'||scope.family==='2.0')continue;
   const document=graph.docs.get(scope.resource)!;
   if(graph.referenceObject(document.dataNode(scope.pointer)?.value,scope))continue;

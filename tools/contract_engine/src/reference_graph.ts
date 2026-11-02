@@ -1,10 +1,10 @@
 import { children, isReferenceObject, referenceKinds, supportsReference } from './contexts';
-import { SourceDocument, SourceError, escape, limits } from './document';
+import { SourceDocument, SourceError, escape, limits, type Range } from './document';
 import {swaggerFileChoiceTargets} from './swagger_file';
 import {resolveIri} from '@hyperjump/uri';
 import {specificationDeclaration, defaultSchemaDialect, modernFamily, restrictedSchemaDialect, swaggerSchemaDialect, isNativeFamily, capabilitiesFor, Specification,declaredSchemaDialect} from './specification';
 
-export const schemaRoleContextRevision='1';
+export const schemaRoleContextRevision='2';
 
 export const knownDialects = new Set([
     restrictedSchemaDialect,
@@ -125,6 +125,7 @@ export class ReferenceGraph {
     readonly specifications = new Map<string, Specification>();
     readonly scopes = new Map<string, GraphScope>();
     private readonly roleScopes = new Map<string, GraphScope>();
+    private readonly roleKinds = new Map<string, Set<string>>();
     private readonly overlappingScopes = new Set<string>();
     private fileTypeChoices:ReadonlySet<string>|undefined;
     /** Reference discovery finishes in the constructor. Reuse one transitive
@@ -133,11 +134,33 @@ export class ReferenceGraph {
     swaggerFileTypeChoices():ReadonlySet<string> {
         return this.fileTypeChoices??=swaggerFileChoiceTargets(this);
     }
-    /** Keep the physical authoring context while retaining explicitly reached
-     * schema interpretations of the same JSON value (Core 8.2.3.1). */
+    /** Keep the physical authoring context and every explicitly reached role.
+     * Each role is validated independently; shared bytes do not imply shared
+     * object semantics (OAS 3.0/3.1 Structural Interoperability). */
     scopeAs(resource:string,pointer:string,kind:string):GraphScope|undefined {
         const scope=this.scopes.get(key(resource,pointer));
         return scope?.kind===kind?scope:this.roleScopes.get(key(resource,pointer)+':'+kind);
+    }
+    scopesAt(resource:string,pointer:string):readonly GraphScope[] {
+        const primary=this.scopes.get(key(resource,pointer));
+        return [...(primary?[primary]:[]),...[...(this.roleKinds.get(key(resource,pointer))??[])].map(kind=>this.roleScopes.get(key(resource,pointer)+':'+kind)!)];
+    }
+    /** An optional authoring/documentation choice must name a captured role.
+     * It cannot turn data or an unavailable interpretation into a contract. */
+    selectedScope(resource:string,pointer:string,kind?:unknown):GraphScope|undefined {
+        if(kind===undefined)return this.scopes.get(key(resource,pointer));
+        const scope=typeof kind==='string'?this.scopeAs(resource,pointer,kind):undefined;
+        if(!scope){
+            const range:Range=this.docs.get(resource)?.dataNode(pointer)?.range??[0,0];
+            throw new SourceError('inspect.context.stale','The selected object interpretation is no longer established',range,'unsupported',{resource,pointer,range});
+        }
+        return scope;
+    }
+    referencesAt(resource:string,pointer:string,kind:string):readonly GraphReference[] {
+        return this.references.filter(reference=>reference.resource===resource&&reference.pointer===pointer&&
+            (reference.connection==='security'?kind==='security-requirement':
+                reference.connection==='discriminator'?['discriminator','discriminator-map'].includes(kind):
+                reference.connection?kind==='link':reference.kind===kind));
     }
     /** A single authored reference can have different object-context meanings.
      * Source inspection/evaluation retain both; rewriting needs an explicit
@@ -601,12 +624,14 @@ export class ReferenceGraph {
         const target = { resource, pointer, kind };
         if(kind==='schema')this.schemaAdmissions.set(id,{target,inherited,root:depth===0});
         const established=this.scopes.get(key(resource,pointer));
-        const schemaRole=established&&established.kind!==kind&&modernFamily(inherited.family)&&modernFamily(established.family)&&
-            (established.kind!=='root'||this.specifications.has(resource))&&(established.kind==='schema'||kind==='schema');
+        const differentRole=established&&established.kind!==kind&&this.indexed.has(key(resource,pointer)+':'+established.kind);
+        const schemaRole=differentRole&&(established.kind==='schema'||kind==='schema');
+        const separateRole=differentRole&&(!schemaRole||modernFamily(inherited.family)&&modernFamily(established.family))&&
+            (established.kind!=='root'||this.specifications.has(resource));
         // A whole OpenAPI document can also be a JSON Schema: its OpenAPI
         // members are extension keywords in that use. Other typed positions
         // retain the context declared by their containing specification object.
-        if(established&&established.kind!==kind&&!schemaRole&&!(established.kind==='root'&&kind==='schema')&&this.indexed.has(key(resource,pointer)+':'+established.kind)) {
+        if(differentRole&&!separateRole&&!(established.kind==='root'&&kind==='schema')) {
             this.issue(established,'reference.target.context','This location is used as incompatible OpenAPI object kinds; its original context is retained');
             return;
         }
@@ -665,13 +690,16 @@ export class ReferenceGraph {
             if (!supportedSchemaDialect(scope))
                 this.issue(target, 'dialect.unsupported', 'The declared JSON Schema dialect is not supported', true);
         }
-        if(schemaRole){
+        if(separateRole){
             this.overlappingScopes.add(key(resource,pointer));
+            const roles=this.roleKinds.get(key(resource,pointer))??new Set<string>();
             const primarySchema=established.kind==='schema'&&kind!=='schema'&&depth>0&&this.schemaAdmissions.get(key(resource,pointer)+':schema')?.root;
             if(primarySchema){
                 this.roleScopes.set(key(resource,pointer)+':schema',{...established,sourceKind:kind});
+                roles.add('schema');
                 this.scopes.set(key(resource,pointer),scope);
-            }else this.roleScopes.set(id,{...scope,sourceKind:established.kind});
+            }else {this.roleScopes.set(id,{...scope,sourceKind:established.kind});roles.add(kind);}
+            this.roleKinds.set(key(resource,pointer),roles);
         }else this.scopes.set(key(resource, pointer), scope);
         if (!value || typeof value !== 'object') return;
         const refKind = this.allowsReference(scope);

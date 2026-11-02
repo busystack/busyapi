@@ -146,7 +146,7 @@ export function securityBindings(graph:ReferenceGraph,selection:SecuritySelectio
   if(result.length>=20000)throw new SourceError('limit.reference.choices','Refine the security binding query');
   result.push({target,value,bindingForm});
  };
- for(const target of graph.scopes.values()){
+ for(const target of graph.interpretedScopes()){
   if(target.kind!=='security')continue;
   const targetDoc=graph.docs.get(target.resource)!,node=targetDoc.dataNode(target.pointer);
   if(node?.kind!=='object'||!targetDoc.syntaxSafe(target.pointer))continue;
@@ -166,7 +166,7 @@ export function securityBindings(graph:ReferenceGraph,selection:SecuritySelectio
  * remain visibly distinct physical occurrences. */
 export function referenceChoices(input:any) {
  if(typeof input.query!=='string'||input.query.length>4096)throw new SourceError('limit.reference.query','Choose a bounded reference query');
- const {docs,graph}=createGraph(input),doc=docs.get(input.resource),scope=graph.scopes.get(input.resource+'#'+input.pointer);
+ const {docs,graph}=createGraph(input),doc=docs.get(input.resource),scope=graph.selectedScope(input.resource,input.pointer,input.contextKind);
  const keyword=input.keyword??'$ref';
  const security=keyword==='security'&&scope?securitySelectionScope(graph,scope):undefined;
  const discriminator=keyword==='defaultMapping'&&scope?discriminatorSelectionParent(graph,scope):undefined;
@@ -175,13 +175,13 @@ export function referenceChoices(input:any) {
    input.bindingForm!==undefined&&(!security||!['name','uri'].includes(input.bindingForm)))
   throw new SourceError('reference.choice.context','This field is not a reference selector in the selected object context');
  const expectedKind=security?'security':discriminator?'schema':keyword==='operationRef'?'operation':scope.kind;
- const current=security?security.current:graph.references.find(ref=>ref.resource===doc.id&&ref.pointer===input.pointer&&ref.keyword===keyword);
+ const current=security?security.current:graph.referencesAt(doc.id,input.pointer,scope.kind).find(ref=>ref.keyword===keyword);
  const query=input.query.toLocaleLowerCase('en-US'),all:any[]=[],resources=new Map((input.resources as Resource[]).map(resource=>[resource.id,resource]));
  const defaults=discriminator?discriminatorBindings(graph,scope):undefined;
  function* candidates():Generator<{target:GraphScope;value?:string;bindingForm?:SecurityBindingForm}>{
   if(security)yield*securityBindings(graph,security,{bindingForm:input.bindingForm,query:input.query});
   else if(defaults)yield*defaults.entries;
-  else for(const target of graph.scopes.values())yield {target};
+  else for(const target of graph.interpretedScopes())yield {target};
  }
  for(const candidate of candidates()) {
   const target=candidate.target;

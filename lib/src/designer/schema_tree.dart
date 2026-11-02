@@ -201,6 +201,7 @@ class _AuthoredSchemaTreeState extends State<AuthoredSchemaTree> {
         widget.resource,
         pointer,
         offset: previous == null ? 0 : (previous['entries'] as List).length,
+        contextKind: pointer == widget.pointer ? 'schema' : null,
         requestId: '$requestPrefix${++serial}',
         reveal: widget.selectedPointer,
         cancelled: () => !current || captured != epoch,

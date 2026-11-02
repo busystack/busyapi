@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:busyapi_core/busyapi_core.dart'
-    show httpOperationMethod, referenceMarkdownBase;
+    show CoreFailure, httpOperationMethod, referenceMarkdownBase;
 
 import '../app/busyapi_design.dart';
 import '../app/contract_labels.dart';
@@ -43,6 +43,7 @@ class _ReferenceObjectViewState extends State<ReferenceObjectView> {
   int offset = 0, textOffset = 0, parameterOffset = 0;
   int contextOffset = 0;
   String? occurrence;
+  String? contextKind;
   bool definitionOnly = true;
   double lastScroll = 0;
   bool restoring = false;
@@ -64,6 +65,11 @@ class _ReferenceObjectViewState extends State<ReferenceObjectView> {
   @override
   void initState() {
     super.initState();
+    final targetKind = widget.target['kind'];
+    if (targetKind is String &&
+        !const ['data', 'reference'].contains(targetKind)) {
+      contextKind = targetKind;
+    }
     final states = widget.controller.layoutState['referenceObjects'];
     final candidate = states is Map
         ? states[stateKey] ??
@@ -169,9 +175,27 @@ class _ReferenceObjectViewState extends State<ReferenceObjectView> {
           occurrence: occurrence,
           definitionOnly: definitionOnly,
           data: widget.target['data'] == true,
+          contextKind: contextKind,
           onResourceRefreshed: (resource) =>
               c.resourceRefreshed(project, resource),
         )
+        .catchError((Object error) async {
+          if (!current || captured != epoch) throw error;
+          // A removed interpretation retires its page. A fresh read may show
+          // the surviving physical owner; it never reuses an old edit target.
+          if (error is! CoreFailure || error.code != 'inspect.context.stale') {
+            throw error;
+          }
+          contextKind = null;
+          return project.referencePage(
+            root,
+            resource,
+            pointer,
+            data: widget.target['data'] == true,
+            onResourceRefreshed: (resource) =>
+                c.resourceRefreshed(project, resource),
+          );
+        })
         .then((page) {
           if (current && captured == epoch) {
             offset = page['offset'] as int;
@@ -434,6 +458,23 @@ class _ReferenceObjectViewState extends State<ReferenceObjectView> {
         final page = result.data!;
         final kind = page['kind'];
         final rows = <Widget>[
+          if (page['data'] != true &&
+              (page['interpretations'] as List? ?? const []).length > 1)
+            BusyApiComboRow<String>(
+              title: l.type,
+              values: [
+                for (final role in page['interpretations'] as List)
+                  (role as Map)['kind'] as String,
+              ],
+              selected: kind as String,
+              labelFor: (value) => contractFieldLabel(context, value),
+              enabled: current && !widget.controller.checking,
+              onSelected: (value) => setState(() {
+                contextKind = value;
+                offset = textOffset = parameterOffset = contextOffset = 0;
+                load();
+              }),
+            ),
           Text(
             l.objectOwner(
               project.roots

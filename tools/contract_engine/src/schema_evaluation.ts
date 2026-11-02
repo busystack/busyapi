@@ -35,7 +35,7 @@ import {externalExampleRevision} from './external_examples';
 import {exampleRepresentation,mediaExampleRepresentations,type ExampleValueField} from './example_representation';
 import {embeddedMimeTextRevision} from './embedded_mime_text';
 
-export const schemaProducer={name:'hyperjump+busyapi-exact',version:'1.18.0+49',configuration:[
+export const schemaProducer={name:'hyperjump+busyapi-exact',version:'1.18.0+50',configuration:[
  `external-example-bytes-v${externalExampleRevision}`,
  'parameter-runtime-serialization-v1',
  'http-field-lines-v1',
@@ -293,9 +293,9 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
    const form=mediaForms(scope,field,node.value);
    return form.data;
   };
-  for(const scope of graph.scopes.values()) {
+  for(const scope of graph.interpretedScopes()) {
    if(scope.family==='2.0'&&scope.kind==='response') {
-    const schema=graph.scopes.get(scope.resource+'#'+scope.pointer+'/schema'),doc=docs.get(scope.resource)!;
+    const schema=graph.scopeAs(scope.resource,scope.pointer+'/schema','schema'),doc=docs.get(scope.resource)!;
     if(schema?.kind==='schema')for(const name of doc.dataNode(scope.pointer+'/examples')?.children.keys()??[]){
      const pointer=scope.pointer+'/examples/'+escape(name),node=doc.dataNode(pointer)!;
      if(exampleRepresentation('swagger-response',node.value,name)==='json')append(schema,doc,pointer,'authored-data');
@@ -303,7 +303,7 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
     continue;
    }
    if(!['media','parameter','header'].includes(scope.kind))continue;
-   const schema=graph.scopes.get(scope.resource+'#'+scope.pointer+'/schema');if(schema?.kind!=='schema')continue;
+   const schema=graph.scopeAs(scope.resource,scope.pointer+'/schema','schema');if(schema?.kind!=='schema')continue;
    const doc=docs.get(scope.resource)!,node=doc.dataNode(scope.pointer)!;
    if(node.children.has('example')&&(scope.kind!=='media'||mediaData(scope,doc,scope.pointer+'/example','example')))append(schema,doc,scope.pointer+'/example','authored-data');
    const named=doc.dataNode(scope.pointer+'/examples');
@@ -312,7 +312,8 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
     let owner=doc,pointer=scope.pointer+'/examples/'+escape(name),value=child.value;
     const seen=new Set<string>();
     while(value&&typeof value.$ref==='string') {
-     const resolved=graph.resolveReference(value.$ref,graph.scope(owner.id,pointer));
+     const resolved=graph.referenceAs(owner.id,pointer,'$ref','example');
+     if(!resolved){complete=false;break;}
      if(resolved.resolution!=='resolved'){complete=false;break;}
      const key=resolved.targetResource+'#'+resolved.targetPointer;
      if(seen.has(key)||seen.size>=128){complete=false;break;}seen.add(key);

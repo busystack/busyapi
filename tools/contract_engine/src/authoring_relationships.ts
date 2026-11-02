@@ -60,7 +60,7 @@ export function authoringRelationships(graph:ReferenceGraph):AuthoringIssue[] {
   const value={...at,pointer,code,message,...(incomplete?{incomplete:true,severity:'warning'}:{})};
   issues.set(JSON.stringify([at.resource,pointer,code]),value);
  };
- for(const at of graph.scopes.values()) {
+ for(const at of graph.interpretedScopes()) {
   const doc=graph.docs.get(at.resource)!,node=doc.dataNode(at.pointer);
   const family=at.family;
   if(!node||!doc.dataSyntaxSafe(at.pointer))continue;

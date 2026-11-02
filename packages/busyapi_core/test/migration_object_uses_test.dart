@@ -37,7 +37,7 @@ void main() {
           'content': {'application/json': {'schema': schema()}}, 'examples': {'Captured': ref('example')}},
         'parameter': {'name': 'n', 'in': 'query', 'required': true, 'schema': schema(),
           'examples': {'Captured': ref('queryExample')}},
-        'body': {'required': true, 'content': {'application/json': media()}},
+        'body': {r'$ref': '#/components/responses/Shared'},
         'response': {'description': '[Reply](../reply.md)', 'content': {'application/json': media()},
           'headers': {'X-Count': ref('header')}},
       };
@@ -46,7 +46,13 @@ void main() {
         'servers': [{'url': 'http://127.0.0.1:${server.port}'}],
         'paths': {'/echo': {'post': {'parameters': [ref('parameter')], 'requestBody': ref('body'),
           'responses': {'200': ref('response')}}}},
-        'components': {'schemas': {'Count': {'type': 'integer', 'enum': ['EXACT']}}},
+        'components': {
+          'schemas': {'Count': {'type': 'integer', 'enum': ['EXACT']}},
+          'responses': {'Shared': {
+            'description': '[Shared body](../shared.md)',
+            'content': {'application/json': media()},
+          }},
+        },
         'x-data': data,
       };
       final original = (format == 'yaml'
@@ -93,11 +99,30 @@ void main() {
         } finally { plan.close(); }
       }
 
+      for (final kind in ['response', 'request-body']) {
+        final page = await project.inspectObject(
+          root, root, '/components/responses/Shared', contextKind: kind,
+        );
+        expect(page['kind'], kind);
+        expect((page['interpretations'] as List).map((role) => role['kind']),
+            containsAll(['response', 'request-body']));
+        expect((page['fields'] as List).any((field) =>
+            field['name'] == (kind == 'response' ? 'headers' : 'required')), true);
+        final reference = await project.referencePage(
+          root, root, '/components/responses/Shared', contextKind: kind,
+        );
+        expect(reference['kind'], kind);
+      }
+      await expectLater(
+        project.inspectObject(root, root, '/components/responses/Shared',
+            contextKind: 'parameter'),
+        throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'inspect.context.stale')),
+      );
       await send(project, root);
       final review = await project.prepareMigration(root, '${directory.path}/converted', targetVersion: '3.2.1');
       addTearDown(review.close);
       expect(review.publishable, true, reason: '${review.result}');
-      expect(review.result['producerVersion'], '44');
+      expect(review.result['producerVersion'], '45');
       expect(review.unsaved, true);
       expect(review.exampleCopies.map((copy) => copy.bytes), containsAll([utf8.encode(count), utf8.encode(query)]));
       await review.publish();

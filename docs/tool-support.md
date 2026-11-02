@@ -63,11 +63,14 @@ reached schema's own dialect/base. Migration separates established schema interp
 literal-data and native-object uses before conversion. Cross-entry conflicts,
 shared resources without a proved resource/dialect holder remain incomplete; opening and native editing do not
 require migration.
-For OpenAPI 3.0, BusyAPI rejects a reference requiring different OpenAPI object
-interpretations of one source object, with a located context diagnostic.
-[3.0.4 §4.3.1](https://spec.openapis.org/oas/v3.0.4.html#structural-interoperability)
-explicitly permits this implementation policy. It is distinct from the supported
-Schema Object keyword rules and from modern schema interpretations.
+Native OpenAPI objects can retain multiple explicitly reached roles. Each role
+is validated independently; a value used as both a Response and Request Body
+must satisfy both definitions. Design and Reference offer a captured role
+selector, and migration separates native roles through the same owner allocator
+used for schema/data occurrences. Restricted Schema Objects that overlap another
+object kind still receive a located context diagnostic; the implementation policy
+permitted by [3.0.4 §4.3.1](https://spec.openapis.org/oas/v3.0.4.html#structural-interoperability)
+does not widen their schema vocabulary. Current acceptance remains suspended.
 
 Typed reference choices and Source completions use this same context check.
 An `operationRef` link identifies its target operation and keeps its separate
@@ -779,7 +782,7 @@ use the same allocator and role-specific provenance before conversion or patch
 relocation. Their document links, external examples and Server templates retain
 the captured context; literal values survive separately. Cross-entry namespace
 propagation and multiple non-schema object roles remain implementation gaps.
-The migration producer is **44**; Core rejects previous
+The migration producer is **45**; Core rejects previous
 producer responses before publication. Current qualification remains pending.
 
 Older-family migration also lowers dynamic references when every captured
@@ -981,7 +984,7 @@ Native property-access evaluation uses the logical schema occurrence even when
 its source is a reusable or aliased definition. Swagger `readOnly` properties
 are excluded from requests through schema references; OpenAPI 3.0 retains its
 request/response `required` rules for readOnly/writeOnly. Modern annotations keep
-ordinary JSON Schema assertions. The shared evaluator revision is **1.18.0+49**;
+ordinary JSON Schema assertions. The shared evaluator revision is **1.18.0+50**;
 matching mock/worker revisions are required before readiness is reported.
 
 The derived bundler uses the canonical graph and exact CST reader. It preserves

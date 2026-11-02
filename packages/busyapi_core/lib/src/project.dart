@@ -39,7 +39,7 @@ part 'external_examples.dart';
 
 // Semantic revisions are part of captured evaluator ownership, alongside the
 // wire protocol and snapshot identity.
-const _schemaProducerVersion = '1.18.0+49';
+const _schemaProducerVersion = '1.18.0+50';
 
 // Keep native-isolate IO wakeups bounded without serializing every resource.
 // Each batch finishes (including failures) before access can be released.
@@ -452,6 +452,7 @@ class ReferenceChoicePage {
       'root': _snapshot.root,
       'resource': location['resource'],
       'pointer': location['pointer'],
+      if (location['kind'] is String) 'kind': location['kind'],
       'generation': resource['generation'],
       'range': range,
       'expected': (resource['text'] as String).substring(range[0], range[1]),
@@ -1987,6 +1988,7 @@ class BusyProject {
     String resource,
     String pointer, {
     int offset = 0,
+    String? contextKind,
   }) async {
     final (snapshot, revision) = await _objectSnapshot(root, resource);
     final result = await engine.request('inspect', {
@@ -1994,6 +1996,7 @@ class BusyProject {
       'resource': resource,
       'pointer': pointer,
       'offset': offset,
+      if (contextKind != null) 'contextKind': contextKind,
     });
     if (_closed ||
         !snapshot.current(store) ||
@@ -2078,6 +2081,7 @@ class BusyProject {
     String resource,
     String pointer, {
     String keyword = r'$ref',
+    String? contextKind,
     SecurityBindingForm? bindingForm,
     String query = '',
     int offset = 0,
@@ -2102,6 +2106,7 @@ class BusyProject {
       'resource': resource,
       'pointer': pointer,
       'keyword': keyword,
+      if (contextKind != null) 'contextKind': contextKind,
       if (bindingForm != null) 'bindingForm': bindingForm.name,
       'query': query,
       'offset': offset,
@@ -2245,6 +2250,7 @@ class BusyProject {
     String resource,
     String pointer, {
     int offset = 0,
+    String? contextKind,
     String? requestId,
     bool Function()? cancelled,
     String? reveal,
@@ -2265,6 +2271,7 @@ class BusyProject {
       ...snapshot.toJson(),
       'resource': resource,
       'pointer': pointer,
+      if (contextKind != null) 'contextKind': contextKind,
       'offset': offset,
       if (reveal != null) 'reveal': reveal,
     }, requestId: requestId);
@@ -2361,6 +2368,7 @@ class BusyProject {
     String? occurrence,
     bool definitionOnly = false,
     bool data = false,
+    String? contextKind,
     void Function(String resource)? onResourceRefreshed,
   }) async {
     final (snapshot, revision) = await _objectSnapshot(
@@ -2379,6 +2387,7 @@ class BusyProject {
       if (occurrence != null) 'occurrence': occurrence,
       'definitionOnly': definitionOnly,
       'data': data,
+      if (contextKind != null) 'contextKind': contextKind,
     });
     if (_closed ||
         !snapshot.current(store) ||

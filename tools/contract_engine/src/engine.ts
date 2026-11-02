@@ -198,7 +198,7 @@ export function analyse(input: any, context?: ReturnType<typeof createGraph>) {
             dynamic: ref.dynamic,
         }));
         if (ref.resolution !== 'resolved' || ref.kind === 'schema') continue;
-        const targetFamily = graph.scope(ref.targetResource!, ref.targetPointer!).family;
+        const targetFamily = graph.scopeAs(ref.targetResource!, ref.targetPointer!,ref.kind)?.family;
         const context = targetKinds[ref.kind];
         const validator = context && validators[targetFamily] && ajv.getSchema(structuralSchema(targetFamily).$id + '#/$defs/' + context);
         const target = docs.get(ref.targetResource!)!;
@@ -210,12 +210,13 @@ export function analyse(input: any, context?: ReturnType<typeof createGraph>) {
     const resolved = (doc: SourceDocument, value: any, pointer: string, ancestors = new Set<string>(), depth = 0, kind = 'operation'): any => {
         if (depth > 32 || !value || typeof value !== 'object')
             return value;
-        const owner = graph.scope(doc.id, pointer);
+        const owner = graph.scopeAs(doc.id,pointer,kind)??graph.scope(doc.id,pointer);
         if (!supportedSchemaDialect(owner) || value.$dynamicRef)
             return value;
         if (typeof value.$ref === 'string' && referenceKinds.has(kind) && (kind !== 'media' || owner.family === '3.2')) {
             try {
-                const ref = graph.resolveReference(value.$ref, graph.scope(doc.id, pointer));
+                const ref = graph.referenceAs(doc.id,pointer,'$ref',kind);
+                if(!ref)return value;
                 if (ref.resolution !== 'resolved') return value;
                 const part = ref.targetPointer!, target = docs.get(ref.targetResource!);
                 const key = ref.targetResource + '#' + part;
@@ -291,8 +292,8 @@ export function analyse(input: any, context?: ReturnType<typeof createGraph>) {
 export function inspect(input: any) {
     const {docs, graph} = createGraph(input);
     const doc = docs.get(input.resource), node = doc?.nodes.get(input.pointer);
-    const scope = graph.scopes.get(input.resource + '#' + input.pointer);
-    const family = doc ? graph.scope(doc.id, input.pointer).family : graph.family;
+    const scope = graph.selectedScope(input.resource,input.pointer,input.contextKind);
+    const family = scope?.family??(doc ? graph.scope(doc.id,input.pointer).family : graph.family);
     if (!isNativeFamily(family))
         throw new SourceError('version.unsupported', 'Native authoring requires a supported containing OpenAPI feature family');
     if (doc && !node) {
@@ -342,10 +343,13 @@ export function inspect(input: any) {
     const located = (n: any, kind: string) => ({root: input.root, resource: doc.id, generation: resource.generation, pointer: n.pointer, range: n.range,
         syntaxSafe: doc.syntaxSafe(n.pointer), nodeKind: kind==='schema'&&typeof n.value==='boolean'?'boolean':n.kind, shared: n.shared, kind});
     const definitions = fieldsForScope(graph,scope,node.value);
+    const childKindAt=(name:string,value:any)=>graph.referenceObject(node.value,scope)?undefined:
+        children({[name]:value},scope.kind,family,node.value)[0]?.[2]??
+        (scope.kind==='root'&&!graph.specifications.has(doc.id)?graph.scopes.get(doc.id+'#'+node.pointer+'/'+escape(name))?.kind:undefined);
     const fields = definitions.map(field => {
         const child = node.children.get(field.name);
-        const childKind = children({[field.name]: {}}, scope.kind, family, node.value)[0]?.[2];
-        return {...field, childKind, present: !!child, ...(child ? {dataType: child.value===null?'null':Array.isArray(child.value)?'array':typeof child.value, target: located(child, graph.scopes.get(doc.id + '#' + child.pointer)?.kind ?? 'data'),
+        const childKind = childKindAt(field.name,child?.value??{});
+        return {...field, childKind, present: !!child, ...(child ? {dataType: child.value===null?'null':Array.isArray(child.value)?'array':typeof child.value, target: located(child, childKind??'data'),
             ...(typeof child.value !== 'object' && String(child.value).length <= 16384 ? {value: child.value} : {}),
             ...(child.range[1] - child.range[0] <= 16384 ? {raw: doc.dataJson(child.pointer)} : {}), count: child.children.size} : {})};
     });
@@ -358,19 +362,20 @@ export function inspect(input: any) {
     };
     const binding=parentScope?.kind==='security-requirement'&&scope.kind==='string-array'?securityBinding(parentPointer,last!):undefined;
     const entries = [...node.children].slice(offset, offset + 50).map(([name, child]) => ({name,
-        ...located(child, graph.scopes.get(doc.id + '#' + child.pointer)?.kind ?? 'data'),
+        ...located(child, childKindAt(name,child.value)??'data'),
         ...(typeof child.value !== 'object' && String(child.value).length <= 240 ? {value: child.value} : {}),
         ...(child.range[1] - child.range[0] <= 16384 ? {raw: doc.dataJson(child.pointer)} : {}),
         ...(ownerSchema ? {required: Array.isArray(ownerSchema.value.required) && ownerSchema.value.required.includes(name)} : {}),
         ...(scope.kind==='security-requirement'?{securityBinding:securityBinding(node.pointer,name)}:{}), count: child.children.size}));
-    const references = graph.references.filter(ref => ref.resource === doc.id && ref.pointer === node.pointer).map(ref => ({...ref,
-        ...(ref.resolution === 'resolved' ? {target: {root: input.root, resource: ref.targetResource, pointer: ref.targetPointer,
+    const references = graph.referencesAt(doc.id,node.pointer,scope.kind).map(ref => ({...ref,
+        ...(ref.resolution === 'resolved' ? {target: {root: input.root, resource: ref.targetResource, pointer: ref.targetPointer, kind:ref.kind,
             generation: input.resources.find((r: Resource) => r.id === ref.targetResource)?.generation, ...docs.get(ref.targetResource!)!.dataLocation(ref.targetPointer!)}} : {})}));
     let schemaTreeRoot:string|undefined;
     if(['schema','schema-map','schema-array'].includes(scope.kind)) {
       let at=node.pointer;
       while(true) {
-        const parent=graph.scopes.get(doc.id+'#'+at);
+        const primary=graph.scopes.get(doc.id+'#'+at);
+        const parent=at===node.pointer?scope:primary&&['schema','schema-map','schema-array'].includes(primary.kind)?primary:graph.scopeAs(doc.id,at,'schema');
         if(parent?.kind==='schema')schemaTreeRoot=at;
         else if(!parent||!['schema-map','schema-array'].includes(parent.kind))break;
         if(!at)break;at=at.slice(0,at.lastIndexOf('/'));
@@ -394,7 +399,7 @@ export function inspect(input: any) {
         }
     }
     const sharedTarget=!!componentFamily(scope.kind,family)&&graph.references.some(ref=>ref.resolution==='resolved'&&ref.targetResource===doc.id&&ref.targetPointer===node.pointer);
-    return {version: 1, snapshot: input.snapshot, family, ...(isNativeFamily(family)?{capabilities:capabilitiesFor(family)}:{}), customSchemaKeywords: modernFamily(family), ...located(node, scope.kind), sharedTarget, componentDestination: graph.specifications.get(doc.id)?.family===family, componentDestinations, ...(componentFamily(scope.kind,family)?{componentFamily:componentFamily(scope.kind,family)}:{}), ...(schemaTreeRoot!==undefined?{schemaTreeRoot}:{}), removable, allowsExtensions: allowsExtensions(scope.kind, family, node.value, segments(node.pointer).at(-1),graph.allowsReference(scope)), fields, entries, offset, count: node.children.size, references,
+    return {version: 1, snapshot: input.snapshot, family, ...(isNativeFamily(family)?{capabilities:capabilitiesFor(family)}:{}), customSchemaKeywords: modernFamily(family), ...located(node, scope.kind), interpretations:graph.scopesAt(doc.id,node.pointer).map(({kind,family,dialect})=>({kind,family,dialect})), sharedTarget, componentDestination: graph.specifications.get(doc.id)?.family===family, componentDestinations, ...(componentFamily(scope.kind,family)?{componentFamily:componentFamily(scope.kind,family)}:{}), ...(schemaTreeRoot!==undefined?{schemaTreeRoot}:{}), removable, allowsExtensions: allowsExtensions(scope.kind, family, node.value, segments(node.pointer).at(-1),graph.allowsReference(scope)), fields, entries, offset, count: node.children.size, references,
         ...(ownerSchema ? {ownerSchema: located(ownerSchema, 'schema')} : {}),
         schemaSuggestion:schemaInferenceSources(graph,scope),
         ...(binding?{securityBinding:binding}:{}),
@@ -446,7 +451,7 @@ export function propose(input: any) {
             const ownerPointer=parts.length?'/'+parts.map(escape).join('/'):'';
             const source={resource:resource.id,pointer:ownerPointer,range:doc.nodes.get(ownerPointer)?.range??captured.range};
             const graph=createGraph({...input,resources:input.resources.map((entry:Resource)=>entry.id===resource.id?{...entry,text:doc.text}:entry)}).graph;
-            const scope=graph.scopes.get(resource.id+'#'+ownerPointer);
+            const scope=graph.scopeAs(resource.id,ownerPointer,'schema');
             if(name!=='type'||scope?.kind!=='schema'||!['set','remove'].includes(action.kind))
                 throw new SourceError('edit.schema-type.stale','The captured schema type field is unavailable',source.range,undefined,source);
             const choices=schemaTypeChoices(graph,scope);
@@ -465,7 +470,7 @@ export function propose(input: any) {
             const parentPointer = parts.length ? '/' + parts.map(escape).join('/') : '';
             const {graph} = createGraph({...input, resources: input.resources.map((item: Resource) => item.id === doc.id ? {...item, text: doc.text} : item)});
             const source = {resource: doc.id, pointer: parentPointer, range: doc.nodes.get(parentPointer)?.range ?? captured.range};
-            const scope = graph.scopes.get(doc.id + '#' + parentPointer);
+            const scope = graph.selectedScope(doc.id,parentPointer,parentPointer===input.target.pointer?input.target.kind:undefined);
             const field = scope && fieldsForScope(graph, scope, doc.node(parentPointer).value).find(field => field.name === name);
             fieldForms = field?.schemaValueForms;
             if (!fieldForms || !sameSchemaValueForms(action.schemaValueForms, fieldForms))

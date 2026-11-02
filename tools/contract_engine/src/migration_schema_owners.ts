@@ -22,10 +22,10 @@ export class MigrationSchemaOwners {
             throw new SourceError('limit.migration.owners','Schema specialization exceeds its bounded CST edit work');
     }
 
-    reserve(origin:MigrationLocation,label:string):{source:MigrationSource;location:MigrationLocation} {
+    reserve(origin:MigrationLocation,label:string,identity=JSON.stringify([origin.resource,origin.pointer])):{source:MigrationSource;location:MigrationLocation} {
         const entry=this.generatedResource?.()??this.sources.get(this.graph.root)!;
         const container=this.generatedResource?'':componentLocation('schemas',this.graph.family)!;
-        return {source:entry,location:this.allocate(entry,container,label,JSON.stringify([origin.resource,origin.pointer]))};
+        return {source:entry,location:this.allocate(entry,container,label,identity)};
     }
 
     /** All schema and object variants use this reservation boundary, including
@@ -56,12 +56,12 @@ export class MigrationSchemaOwners {
      * its original provenance for review, without making later reference repair
      * choose between the structural/data owner and the schema copy. The caller
      * composes this relation with the final coordinates after conversion. */
-    separate(origin:MigrationLocation,label:string,container?:MigrationLocation,captured?:MigrationSource):Readonly<{
+    separate(origin:MigrationLocation,label:string,container?:MigrationLocation,captured?:MigrationSource,identity=JSON.stringify([origin.resource,origin.pointer])):Readonly<{
         location:MigrationLocation;provenance:ReadonlyMap<string,MigrationLocation>;
     }> {
         const input=captured??this.sources.get(origin.resource)!;
         const owner=container?{source:this.sources.get(container.resource)!,location:this.allocate(
-            this.sources.get(container.resource)!,container.pointer,label,JSON.stringify([origin.resource,origin.pointer]))}:this.reserve(origin,label);
+            this.sources.get(container.resource)!,container.pointer,label,identity)}:this.reserve(origin,label,identity);
         this.admit(input,8);if(owner.source!==input)this.admit(owner.source,8);
         owner.source.copy(input,origin.pointer,owner.location.pointer,true);
         const inside=(at:string)=>at===owner.location.pointer||at.startsWith(owner.location.pointer+'/');

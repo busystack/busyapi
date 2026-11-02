@@ -31,7 +31,7 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
         // migrateInactiveSchemaAnnotations; retain that established mapping.
         !(/\/(?:writeOnly|deprecated)$/.test(scope.pointer)&&graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value===false)&&(
         graph.literalContainer(scope.resource,scope.pointer)!==undefined||
-        scope.kind==='schema'&&graph.hasOverlappingScope(scope.resource,scope.pointer)&&graph.scopes.get(scope.resource+'#'+scope.pointer)?.kind!=='schema'));
+        graph.hasOverlappingScope(scope.resource,scope.pointer)&&graph.scopes.get(scope.resource+'#'+scope.pointer)?.kind!==scope.kind));
     if(!candidates.length)return provenance;
     const uris=[...documentUriOccurrences(graph)];
     // A generated $defs owner may sit inside another independently interpreted
@@ -41,7 +41,7 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
     const placements:Placement[]=[];
     let work=0;
     const inspect=()=>{if(++work>2000000)throw new SourceError('limit.migration.owners','Independent semantic ownership exceeds its bounded graph work');};
-    for(const scope of candidates.sort((a,b)=>a.resource.localeCompare(b.resource)||a.pointer.length-b.pointer.length||a.pointer.localeCompare(b.pointer))){
+    for(const scope of candidates.sort((a,b)=>a.resource.localeCompare(b.resource)||a.pointer.length-b.pointer.length||a.pointer.localeCompare(b.pointer)||a.kind.localeCompare(b.kind))){
         // Ordinary descendants of a copied object already have an owner. A
         // nested literal or independently interpreted use still needs its own.
         const containing=placements.find(placement=>{
@@ -102,7 +102,13 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
             }
             container=holder?{resource:holder.resource,pointer:holder.pointer+'/$defs'}:{resource:scope.resource,pointer:nativeContainer!};
         }
-        const separated=owners.separate(scope,scope.kind==='schema'?'schema_use':'object_use',container,pristine.get(scope.resource));
+        // Unversioned native fragments belong in an entry's ordinary component
+        // map. A schema registry would interpret their unknown native fields
+        // as schema annotations and create another overlapping owner.
+        if(!container&&scope.kind!=='schema'&&group&&graph.specifications.get(graph.root)?.family===scope.family)
+            container={resource:graph.root,pointer:componentLocation(group,scope.family)!};
+        const separated=owners.separate(scope,scope.kind==='schema'?'schema_use':'object_use',container,pristine.get(scope.resource),
+            JSON.stringify([scope.resource,scope.pointer,scope.kind,scope.family,scope.dialect,scope.base,scope.resourcePointer]));
         placements.push({scope,location:separated.location,intrinsic,sameResource:container!==undefined});
         for(const [pointer,kind]of intrinsic){
             const captured=graph.scopeAs(scope.resource,pointer,kind);

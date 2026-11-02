@@ -35,7 +35,7 @@ export function documentUriValidity(value:string):'valid'|'invalid'|'unsupported
 
 /** Typed occurrences never acquire externalValue or traverse example data. */
 function* metadataUriOccurrences(graph:ReferenceGraph):Generator<{scope:GraphScope;pointer:string;field:string;value:string}> {
-    for(const scope of graph.scopes.values()){
+    for(const scope of graph.interpretedScopes()){
         const doc=graph.docs.get(scope.resource)!,node=doc.dataNode(scope.pointer);
         for(const field of metadataUriFields(scope,node?.value)){
             const pointer=scope.pointer+'/'+escape(field),value=doc.dataNode(pointer)?.value;

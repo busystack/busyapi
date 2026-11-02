@@ -77,7 +77,7 @@ test(`${version} ${format} native objects and literal values share one specializ
  const input=fixture(version,format),original=input.resources[0].text,doc=new SourceDocument(original,input.root);
  assert.equal(analyse(input).status,'complete');await wire(input);
  const review=await planMigration(input);
- assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'44');
+ assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'45');
  assert.equal(review.exampleOutputs.length,2);assert.equal(input.resources[0].text,original);
  const output=delivered(review),{graph}=createGraph(output);
  assert.equal(analyse(output).status,'complete');await wire(output);
@@ -130,4 +130,53 @@ for(const condition of ['missing','denied'])test(`${condition} external bytes re
   state:'unavailable',identity:resource.identity,problem:{condition:'unavailable',code:'example.external-value.denied',message:'Controlled denial'}}));
  const review=await planMigration(input);assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);assert.deepEqual(review.exampleOutputs,[]);
  assert(review.problems.some(problem=>problem.code.startsWith('migration.validation.')));assert.equal(input.resources[0].text,before);
+});
+
+// One value can satisfy more than one native Object definition. Its roles
+// share source bytes, never the interpretation of their incoming references.
+for(const version of ['3.0.4','3.1.2','3.2.1'])for(const format of ['yaml','json'])
+test(`${version} ${format} shared Response/Request Body roles remain editable and migrate independently`,async()=>{
+ const {inspect,propose}=require('./dist/model.cjs'),{referencePage,referenceDocument}=require('./dist/reference_projection.cjs');
+ const root='file:///approved/roles.'+format,pointer='/components/responses/Shared';
+ const value={openapi:version,info:{title:'Native roles',version:'business'},paths:{'/echo':{post:{
+  requestBody:{$ref:'#/components/requestBodies/Body'},responses:{200:{$ref:'#/components/responses/Shared'}}}}},
+  components:{responses:{Shared:{description:'[Guide](../guide.md)',content:{'application/json':{
+   schema:{type:'integer',enum:['EXACT']},examples:{Sample:{value:'EXACT'}}}}}},requestBodies:{Body:{$ref:'#/components/responses/Shared'}}}};
+ const text=(format==='yaml'?'# Roles 雪\r\n'+YAML.stringify(value).replaceAll('\n','\r\n'):JSON.stringify(value))
+  .replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const input={root,snapshot:'native-roles',resources:[{id:root,text,generation:7}],targetVersion:'3.2.1',destination:'file:///delivered/roles/'};
+ assert.equal(analyse(input).status,'complete',JSON.stringify(analyse(input).findings));
+ const graph=createGraph(input).graph;
+ assert.deepEqual(new Set(graph.scopesAt(root,pointer).map(scope=>scope.kind)),new Set(['response','request-body']));
+ for(const kind of ['response','request-body']){
+  const page=inspect({...input,resource:root,pointer,contextKind:kind});
+  assert.equal(page.kind,kind);assert.equal(page.interpretations.length,2);
+  assert(page.fields.some(field=>field.name===(kind==='response'?'headers':'required')));
+  assert.equal(page.fields.some(field=>field.name===(kind==='response'?'required':'headers')),false);
+  assert.equal(referencePage({...input,resource:root,pointer,contextKind:kind}).kind,kind);
+ }
+ assert.throws(()=>inspect({...input,resource:root,pointer,contextKind:'parameter'}),error=>error.code==='inspect.context.stale');
+ const documentation=referenceDocument(input),section=documentation.sections.find(section=>section.source.pointer===pointer);
+ assert.deepEqual(new Set(section.interpretations.map(role=>role.kind)),new Set(['response','request-body']));
+ const before=requestOperation({...input,resource:root,pointer:'/paths/~1echo/post'});
+ const check=async(packet,plan)=>{
+  const result=await evaluateSchemas({...packet,runtimeInstances:['request-body','response-body'].flatMap(subject=>
+   ['9007199254740993','9007199254740992'].map(text=>({subject,location:subject+text,text,
+    schema:subject==='request-body'?plan.requestBody.content[0].schema:plan.responses[0].content[0].schema})))});
+  assert.equal(result.complete,true,JSON.stringify(result.findings));
+  assert.deepEqual(result.runtimeEvaluations.map(result=>result.valid),[true,false,true,false]);
+ };
+ await check(input,before);
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const output=delivered(review),after=requestOperation({...output,resource:output.root,pointer:'/paths/~1echo/post'}),owned=createGraph(output).graph;
+ await check(output,after);
+ assert.equal(analyse(output).status,'complete',JSON.stringify(analyse(output).findings));
+ const binding=owned.referenceAs(output.root,'/components/requestBodies/Body','$ref','request-body');
+ assert(binding.targetPointer.startsWith('/components/requestBodies/_migrated_object_use_'));
+ assert.notEqual(binding.targetPointer,pointer);
+ assert.equal(owned.scopeAs(binding.targetResource,binding.targetPointer,'request-body').kind,'request-body');
+ const page=inspect({...output,resource:binding.targetResource,pointer:binding.targetPointer,contextKind:'request-body'});
+ assert(page.fields.some(field=>field.name==='required'));
+ const edit=propose({...output,target:page,actions:[{kind:'set',pointer:page.pointer+'/required',value:true}]});
+ assert(edit.edits.length>0);assert.equal(input.resources[0].text,text);
 });

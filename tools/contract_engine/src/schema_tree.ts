@@ -10,18 +10,19 @@ const bounded=(value:string)=>Array.from(value).slice(0,240).join('');
  * annotations and custom keywords are not traversed by resemblance. */
 export function schemaTree(input:any) {
  const {docs,graph}=createGraph(input),doc=docs.get(input.resource);
- const scope=graph.scopes.get(input.resource+'#'+input.pointer);
+ const physical=graph.scopes.get(input.resource+'#'+input.pointer);
+ const scope=input.contextKind===undefined?(physical&&kinds.has(physical.kind)?physical:graph.scopesAt(input.resource,input.pointer).find(scope=>kinds.has(scope.kind))):graph.selectedScope(input.resource,input.pointer,input.contextKind);
  if(!doc||!scope||!kinds.has(scope.kind))throw new SourceError('schema.tree.context','This occurrence is not an authored schema tree position');
  const resource=input.resources.find((r:any)=>r.id===input.resource);
  const immediate=(pointer:string,kind:string)=>{
-  const node=doc.node(pointer),typed=new Set(children(node.value,kind,graph.scope(doc.id,pointer).family).map(([name])=>name));
-  return [...node.children.keys()].filter(name=>typed.has(name)&&kinds.has(graph.scopes.get(doc.id+'#'+pointer+'/'+escape(name))?.kind??''));
+  const node=doc.node(pointer),context=graph.scopeAs(doc.id,pointer,kind)!;
+  return children(node.value,kind,context.family).filter(([name,,next])=>kinds.has(next)&&!!graph.scopeAs(doc.id,pointer+'/'+escape(name),next));
  };
- const row=(pointer:string,name:string)=>{
-  const node=doc.node(pointer),context=graph.scopes.get(doc.id+'#'+pointer);
+ const row=(pointer:string,name:string,kind:string)=>{
+  const node=doc.node(pointer),context=graph.scopeAs(doc.id,pointer,kind);
   if(!context||!kinds.has(context.kind))throw new SourceError('schema.tree.context','A child has no established schema context');
   const list=immediate(pointer,context.kind);
-  const refs=graph.references.filter(ref=>ref.resource===doc.id&&ref.pointer===pointer&&!ref.connection).map(ref=>({
+  const refs=graph.referencesAt(doc.id,pointer,context.kind).filter(ref=>!ref.connection).map(ref=>({
    keyword:ref.keyword,value:bounded(ref.value),resolution:ref.resolution,
    ...(ref.resolution==='resolved'?{target:{root:input.root,resource:ref.targetResource,pointer:ref.targetPointer}}:{}),
    ...(ref.dynamic?{dynamic:true}:{}),
@@ -37,8 +38,8 @@ export function schemaTree(input:any) {
  const all=immediate(input.pointer,scope.kind);
  const offset=Math.min(Math.max(0,Number.isInteger(input.offset)?input.offset:0),Math.max(0,(Math.ceil(all.length/50)-1)*50));
  const reveal=typeof input.reveal==='string'&&input.reveal.startsWith(input.pointer+'/')?input.reveal.slice(input.pointer.length+1).split('/')[0]:undefined;
- const revealIndex=reveal===undefined?-1:all.findIndex(name=>escape(name)===reveal);
- return {version:1,snapshot:input.snapshot,node:row(input.pointer,segments(input.pointer).at(-1)??''),count:all.length,offset,
+ const revealIndex=reveal===undefined?-1:all.findIndex(([name])=>escape(name)===reveal);
+ return {version:1,snapshot:input.snapshot,node:row(input.pointer,segments(input.pointer).at(-1)??'',scope.kind),count:all.length,offset,
   ...(revealIndex>=0?{revealOffset:Math.floor(revealIndex/50)*50}:{}),
-  entries:all.slice(offset,offset+50).map(name=>row(input.pointer+'/'+escape(name),name))};
+  entries:all.slice(offset,offset+50).map(([name,,kind])=>row(input.pointer+'/'+escape(name),name,kind))};
 }

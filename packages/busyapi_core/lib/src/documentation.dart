@@ -1247,6 +1247,12 @@ String _referenceHtml(Map document, String Function(String) portable) {
     html.write(
       '<section id="${_referenceAnchor(source)}"><h2>${escape(label(section))}</h2><p class="source">Source: ${escape(portable(source['resource'] as String))} · ${escape(source['pointer'])} · UTF-16 ${escape(source['range'])} (half-open; BOM excluded)</p>',
     );
+    final interpretations = section['interpretations'] as List? ?? const [];
+    if (interpretations.length > 1) {
+      html.write('<p>Object interpretations: ');
+      html.write(interpretations.map((role) => escape(role['kind'])).join(', '));
+      html.write('</p>');
+    }
     if (section['text'] != null)
       html.write('<pre>${escape(section['text'])}</pre>');
     if (section['kind'] == 'schema')

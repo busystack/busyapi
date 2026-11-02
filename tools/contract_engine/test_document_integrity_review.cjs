@@ -93,11 +93,11 @@ for(const version of ['3.1.2','3.2.1']) {
    assert(checked.runtimeEvaluations.every(result=>result.complete&&result.valid));
    assert.equal(input.resources[0].text,original);
   });
-  test(`incompatible non-schema reference kinds remain source-located errors ${version} ${json}`,()=>{
+  test(`each non-schema role retains its required-field validation ${version} ${json}`,()=>{
    const input=fixture(version,json,{components:{responses:{S:{description:'A response'}},parameters:{Use:{$ref:'#/components/responses/S'}}}}),original=input.resources[0].text,graph=createGraph(input).graph;
    assert.equal(graph.scope(input.root,'/components/responses/S').kind,'response');
-   assert(graph.issues.some(issue=>issue.code==='reference.target.context'&&issue.pointer==='/components/responses/S'));
-   assert(analyse(input).findings.some(f=>f.code==='reference.target.context'&&f.severity==='error'&&f.range[1]>f.range[0]));
+   assert.equal(graph.scopeAs(input.root,'/components/responses/S','parameter').kind,'parameter');
+   assert(analyse(input).findings.some(f=>f.code==='reference.target.required'&&f.pointer==='/components/responses/S'&&f.severity==='error'&&f.range[1]>f.range[0]));
    assert.equal(input.resources[0].text,original);
   });
   for(const location of ['component','media'])test(`null ${location} schema retains located analysis ${version} ${json}`,async()=>{
