@@ -440,6 +440,7 @@ class _NativeObjectPageState extends State<_NativeObjectPage> {
 
   @override
   Widget build(BuildContext context) => FutureBuilder<Map<String, dynamic>>(
+    key: ValueKey((viewKey, contextKind)),
     future: request,
     builder: (context, state) {
       final l = context.l10n, item = state.data;

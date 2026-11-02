@@ -39,7 +39,7 @@ part 'external_examples.dart';
 
 // Semantic revisions are part of captured evaluator ownership, alongside the
 // wire protocol and snapshot identity.
-const _schemaProducerVersion = '1.18.0+51';
+const _schemaProducerVersion = '1.18.0+52';
 
 // Keep native-isolate IO wakeups bounded without serializing every resource.
 // Each batch finishes (including failures) before access can be released.
@@ -2369,6 +2369,7 @@ class BusyProject {
     bool definitionOnly = false,
     bool data = false,
     String? contextKind,
+    String? parentKind,
     void Function(String resource)? onResourceRefreshed,
   }) async {
     final (snapshot, revision) = await _objectSnapshot(
@@ -2388,6 +2389,7 @@ class BusyProject {
       'definitionOnly': definitionOnly,
       'data': data,
       if (contextKind != null) 'contextKind': contextKind,
+      if (parentKind != null) 'parentKind': parentKind,
     });
     if (_closed ||
         !snapshot.current(store) ||

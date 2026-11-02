@@ -4,7 +4,7 @@ import {swaggerFileChoiceTargets} from './swagger_file';
 import {resolveIri} from '@hyperjump/uri';
 import {specificationDeclaration, defaultSchemaDialect, modernFamily, restrictedSchemaDialect, swaggerSchemaDialect, isNativeFamily, capabilitiesFor, Specification,declaredSchemaDialect} from './specification';
 
-export const schemaRoleContextRevision='3';
+export const schemaRoleContextRevision='4';
 
 export const knownDialects = new Set([
     restrictedSchemaDialect,
@@ -22,8 +22,14 @@ export const schemaDialectIdentity = (uri:string):string => uri.endsWith('#')?ur
 
 export type GraphTarget = { resource: string; pointer: string; kind: string };
 export type GraphScope = GraphTarget & {
-    base: string; resourcePointer: string; dialect: string|null; family: string; sourceKind?:string;
+    base: string; resourcePointer: string; dialect: string|null; family: string; sourceKind?:string;schemaParent?:string;
 };
+/** Canonical resource interpretation, separate from the authored spelling of
+ * a dialect declaration and from per-entry/role/directional use ownership. */
+export const schemaResourceContextIdentity=(scope:GraphScope):string=>JSON.stringify([
+    scope.resource,scope.base,scope.resourcePointer,scope.family,
+    typeof scope.dialect==='string'?schemaDialectIdentity(scope.dialect):scope.dialect,
+]);
 /** Restricted OpenAPI evaluation is an owning-family capability, not a
  * general-purpose additional JSON Schema dialect promised in modern roots. */
 export const supportedSchemaDialect = (scope: Pick<GraphScope, 'family' | 'dialect'>): boolean =>
@@ -64,8 +70,8 @@ export const documentUriBase=(graph:ReferenceGraph,scope:GraphScope)=>scope.kind
 /** BusyAPI's native CommonMark rendering context follows the captured logical
  * occurrence (OAS 3.1 §4.6 / 3.2 §4.1.2.2.3 leave rendering context to tools).
  * Physical alias ranges remain source coordinates, never a substitute base. */
-export function referenceMarkdownBase(graph:ReferenceGraph,resource:string,pointer:string):string|undefined {
-    const scope=graph.scope(resource,pointer);
+export function referenceMarkdownBase(graph:ReferenceGraph,resource:string,pointer:string,context?:GraphScope):string|undefined {
+    const scope=context??graph.scope(resource,pointer);
     return scope?documentUriBase(graph,scope):undefined;
 }
 
@@ -74,8 +80,8 @@ export function referenceMarkdownBase(graph:ReferenceGraph,resource:string,point
  * resource URI. Absence never implies a base. Distinct logical/$id bases stay
  * strings; repeating the same URI per field would exhaust bounded projections. */
 export type ReferenceMarkdownContext = string | true;
-export function referenceMarkdownContext(graph:ReferenceGraph,resource:string,pointer:string):ReferenceMarkdownContext|undefined {
-    const base=referenceMarkdownBase(graph,resource,pointer);
+export function referenceMarkdownContext(graph:ReferenceGraph,resource:string,pointer:string,context?:GraphScope):ReferenceMarkdownContext|undefined {
+    const base=referenceMarkdownBase(graph,resource,pointer,context);
     return base===resource?true:base;
 }
 
@@ -124,6 +130,7 @@ const same = (a: GraphTarget, b: GraphTarget) => a.resource === b.resource && a.
 export class ReferenceGraph {
     readonly specifications = new Map<string, Specification>();
     readonly scopes = new Map<string, GraphScope>();
+    private readonly documentScopes = new Map<string, GraphScope>();
     private readonly roleScopes = new Map<string, GraphScope>();
     private readonly roleKinds = new Map<string, Set<string>>();
     private readonly overlappingScopes = new Set<string>();
@@ -217,6 +224,7 @@ export class ReferenceGraph {
     private operationIndex?: readonly OperationOccurrence[];
     private operationContextsIndex = new Map<string,OperationOccurrence[]>();
     private schemaAdmissions = new Map<string,{target:GraphTarget;inherited:GraphScope;root:boolean}>();
+    private nativeAdmissions = new Map<string,GraphTarget>();
     private contextChanges = new Map<string,GraphTarget>();
     private static readonly scopeBudget=400000;
 
@@ -233,14 +241,13 @@ export class ReferenceGraph {
             if(work>2*ReferenceGraph.scopeBudget)break;
             if(!graph.contextChanges.size)return graph;
             const before=seeds.size;
+            // A native interpretation can establish schema roots inside data
+            // that an enclosing schema treats as an opaque annotation. Admit
+            // that proved owner before retrying direct schema pointers.
+            for(const [id,target]of graph.nativeAdmissions)seeds.set(id,target);
             for(const {target,root:entry} of graph.schemaAdmissions.values()) {
                 if(!entry)continue;
-                let parent=target.pointer,nested=false;
-                while(parent) {
-                    parent=parent.slice(0,parent.lastIndexOf('/'));
-                    if(graph.scopes.get(key(target.resource,parent))?.kind==='schema'){nested=true;break;}
-                }
-                if(!nested)seeds.set(key(target.resource,target.pointer)+':schema',target);
+                seeds.set(key(target.resource,target.pointer)+':schema',target);
             }
             if(seeds.size===before)break;
         }
@@ -266,6 +273,9 @@ export class ReferenceGraph {
             const documentFamily = declared ?? family;
             if (!specification && (Object.hasOwn(data ?? {}, 'openapi') || Object.hasOwn(data ?? {}, 'swagger')) && declaration.status !== 'supported')
                 this.issue({resource: doc.id, pointer: declaration.pointer, kind: 'root'}, declaration.code, declaration.message, true);
+            // jsonSchemaDialect applies to the containing OpenAPI document.
+            // Unversioned external fragments use the OAS dialect (3.1.2
+            // §4.8.24.5 / 3.2.1 §4.24.7), not an entry document's override.
             const defaultDialect = defaultSchemaDialect(documentFamily);
             const approvedIdentity = aliases.get(doc.id)?.[0];
             let base = resolveUri(approvedIdentity??doc.id, doc.id).href;
@@ -284,6 +294,7 @@ export class ReferenceGraph {
             this.register(this.identities, base, target);
             for (const alias of aliases.get(doc.id) ?? []) this.register(this.identities, resolveUri(alias, doc.id).href, target);
             const scope = { ...target, base, resourcePointer: '', dialect: specification ? specification.schemaDialect : defaultDialect, family: documentFamily };
+            this.documentScopes.set(doc.id,scope);
             if(specification&&modernFamily(documentFamily)&&specification.schemaDialect===null)
                 this.issue({...target,pointer:'/jsonSchemaDialect'},'schema.dialect.malformed','A schema dialect declaration must be a URI string; no default dialect was selected',true,'error');
             this.scopes.set(key(doc.id, ''), scope);
@@ -321,6 +332,12 @@ export class ReferenceGraph {
         for (const ref of this.references) {
             delete ref.targetResource; delete ref.targetPointer; delete ref.targetFamily; delete ref.dynamic;
             Object.assign(ref, this.resolveConnection(ref));
+            if(ref.resolution==='resolved'&&ref.kind==='schema'&&!modernFamily(ref.family)){
+                const value=this.docs.get(ref.targetResource!)!.dataNode(ref.targetPointer!)?.value;
+                if(value===null||typeof value!=='object'||Array.isArray(value))
+                    this.issue({...ref,pointer:ref.pointer+'/'+escape(ref.keyword)},'reference.target.schema',
+                        'This family requires a Schema or Reference Object target; a permitted boolean field is not a standalone Schema Object');
+            }
             if (ref.resolution !== 'resolved') {
                 const code = ref.resolution === 'unavailable' ? 'reference.unavailable' :
                     ref.resolution === 'ambiguous' ? 'reference.ambiguous' :
@@ -493,7 +510,7 @@ export class ReferenceGraph {
      * captured edges. This grants no acquisition or source-edit permission. */
     resolveConnection(ref: GraphScope & Pick<GraphReference,'connection'|'keyword'|'value'>): Partial<GraphReference> {
         if (ref.connection === 'operationId') {
-            const targets = [...this.scopes.values()].filter(scope => scope.kind === 'operation' && this.docs.get(scope.resource)?.dataNode(scope.pointer)?.value?.operationId === ref.value);
+            const targets = this.scopesFor('operation').filter(scope => this.docs.get(scope.resource)?.dataNode(scope.pointer)?.value?.operationId === ref.value);
             if (targets.length !== 1) return {resolution: targets.length ? 'ambiguous' : 'missing', candidateTargets: targets, candidateResources: [...new Set(targets.map(t => t.resource))]};
             return {resolution: 'resolved', targetResource: targets[0].resource, targetPointer: targets[0].pointer};
         }
@@ -602,14 +619,35 @@ export class ReferenceGraph {
         this.issueKeys.add(id); this.issues.push({ ...target, code, message, incomplete,...(severity?{severity}:{}) });
     }
 
+    /** Schema maps in Components are roots; maps/arrays reached through an
+     * actual Schema Object keyword are intrinsic subschema containment. A
+     * physical schema ancestor alone cannot decide an independently parsed
+     * native object's dialect-declaration rules. */
+    private schemaChildContext(inherited:GraphScope):GraphScope|undefined {
+        if(inherited.kind==='schema')return inherited;
+        if(!['schema-map','schema-array'].includes(inherited.kind))return;
+        const parent=inherited.pointer.slice(0,inherited.pointer.lastIndexOf('/'));
+        const owner=this.scopeAs(inherited.resource,parent,'schema');
+        return owner&&children(this.docs.get(owner.resource)!.dataNode(parent)?.value,'schema',owner.family)
+            .some(([name,,kind])=>kind===inherited.kind&&parent+'/'+escape(name)===inherited.pointer)?owner:undefined;
+    }
+
     private index(resource: string, pointer: string, kind: string, inherited: GraphScope, depth = 0) {
+        // An independently reached OpenAPI Object does not inherit a Schema
+        // Object's $id/$schema merely because those bytes were indexed first.
+        // Native URI fields use the document context; its nested schemas then
+        // establish their own resource identities and dialects as usual.
+        if(depth===0&&kind!=='schema'&&inherited.kind==='schema')
+            inherited=this.documentScopes.get(resource)!;
+        const schemaOwner=kind==='schema'&&depth>0?this.schemaChildContext(inherited):undefined;
+        const intrinsic=schemaOwner!==undefined;
         // Preserve unavailable feature sets as source, not a compatibility
         // layer interpreted using one of the supported authoring families.
         if (!isNativeFamily(inherited.family)) return;
         const id = key(resource, pointer) + ':' + kind;
         if (this.indexed.has(id)) {
             const previous=kind==='schema'&&depth>0?this.schemaAdmissions.get(id):undefined;
-            if(previous&&(['base','resourcePointer','dialect','family'] as const).some(field=>previous.inherited[field]!==inherited[field]))
+            if(previous&&(previous.root&&intrinsic||(['base','resourcePointer','dialect','family'] as const).some(field=>previous.inherited[field]!==inherited[field])))
                 this.contextChanges.set(id,previous.target);
             return;
         }
@@ -622,7 +660,8 @@ export class ReferenceGraph {
         }
         this.indexed.add(id);
         const target = { resource, pointer, kind };
-        if(kind==='schema')this.schemaAdmissions.set(id,{target,inherited,root:depth===0});
+        if(kind==='schema')this.schemaAdmissions.set(id,{target,inherited,root:!intrinsic});
+        else if(depth===0&&kind!=='root')this.nativeAdmissions.set(id,target);
         const established=this.scopes.get(key(resource,pointer));
         const differentRole=established&&established.kind!==kind&&this.indexed.has(key(resource,pointer)+':'+established.kind);
         const separateRole=differentRole&&
@@ -642,6 +681,8 @@ export class ReferenceGraph {
         let scope = { ...inherited, ...target };
         // Interpretation provenance belongs to this occurrence, not its children.
         delete scope.sourceKind;
+        delete scope.schemaParent;
+        if(schemaOwner)scope.schemaParent=schemaOwner.pointer;
         if (kind === 'schema' && modernFamily(scope.family) && value && typeof value === 'object') {
             if (typeof value.$id === 'string') {
                 try {
@@ -660,16 +701,11 @@ export class ReferenceGraph {
                 } catch { this.issue({ ...target, pointer: pointer + '/$id' }, 'reference.uri', 'Invalid schema resource identity'); }
             }
             if (Object.hasOwn(value,'$schema')) {
-                let parent = pointer, nested = false;
-                while (parent) {
-                    parent = parent.slice(0, parent.lastIndexOf('/'));
-                    if (this.scopeAs(resource,parent,'schema')) { nested = true; break; }
-                }
                 const dialect=declaredSchemaDialect(value.$schema);
                 if(dialect===null) {
                     scope.dialect=null;
                     this.issue({...target,pointer:pointer+'/$schema'},'schema.dialect.malformed','A schema dialect declaration must be a URI string; no inherited dialect was selected',true,'error');
-                } else if (nested && scope.resourcePointer !== pointer)
+                } else if (intrinsic && scope.resourcePointer !== pointer)
                     this.issue({ ...target, pointer: pointer + '/$schema' }, 'schema.dialect.location', 'A nested dialect declaration requires a schema resource root');
                 else scope.dialect = dialect;
             }

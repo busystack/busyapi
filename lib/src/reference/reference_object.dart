@@ -176,6 +176,7 @@ class _ReferenceObjectViewState extends State<ReferenceObjectView> {
           definitionOnly: definitionOnly,
           data: widget.target['data'] == true,
           contextKind: contextKind,
+          parentKind: widget.target['parentKind'] as String?,
           onResourceRefreshed: (resource) =>
               c.resourceRefreshed(project, resource),
         )
@@ -211,6 +212,14 @@ class _ReferenceObjectViewState extends State<ReferenceObjectView> {
   void didUpdateWidget(ReferenceObjectView oldWidget) {
     super.didUpdateWidget(oldWidget);
     final c = widget.controller;
+    final interpretationChanged = oldWidget.target['kind'] != widget.target['kind'] ||
+        oldWidget.target['parentKind'] != widget.target['parentKind'];
+    if (interpretationChanged) {
+      final kind = widget.target['kind'];
+      contextKind = kind is String && !const ['data', 'reference'].contains(kind)
+          ? kind
+          : null;
+    }
     // Relocated pages have a different widget key. Only an unchanged physical
     // occurrence may resume writing its own state after reconciliation.
     semanticRevision = c.semanticViewRevision;
@@ -218,7 +227,7 @@ class _ReferenceObjectViewState extends State<ReferenceObjectView> {
       c.analysis?['contextSnapshot'],
       c.store?.buffers[resource]?.generation,
     );
-    if (next != identity && !c.checking) load();
+    if ((next != identity || interpretationChanged) && !c.checking) load();
   }
 
   @override
@@ -433,6 +442,7 @@ class _ReferenceObjectViewState extends State<ReferenceObjectView> {
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<Map<String, dynamic>>(
+      key: ValueKey((contextKind, widget.target['parentKind'])),
       future: request,
       builder: (context, result) {
         final l = context.l10n;

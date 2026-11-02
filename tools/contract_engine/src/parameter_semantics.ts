@@ -72,7 +72,7 @@ export class ParameterSemantics {
             const tokens=segments(pointer);
             tokens.splice(tokens.at(-2)==='additionalOperations'?-2:-1);
             const parent=tokens.length?'/'+tokens.map(escape).join('/'):'';
-            const scope=this.graph.scopes.get(resource+'#'+parent);
+            const scope=this.graph.scopeAs(resource,parent,'path-item');
             if(scope?.kind==='path-item')path=scope;
         }
         const view=path?this.graph.pathItem(path):undefined,field=view?.fields.get('parameters');

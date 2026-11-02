@@ -18,11 +18,12 @@ import vocabulary32 from '../schemas/oas32-vocabulary.json';
 import previousDialect32 from '../schemas/oas32-dialect-2025-09-17.json';
 import previousVocabulary32 from '../schemas/oas32-vocabulary-2025-09-17.json';
 import {createGraph} from './engine';
-import {knownDialects,supportedSchemaDialect,GraphScope,schemaAddress,schemaDialectIdentity,schemaRoleContextRevision} from './reference_graph';
+import {knownDialects,supportedSchemaDialect,GraphScope,schemaAddress,schemaDialectIdentity,schemaRoleContextRevision,schemaResourceContextIdentity} from './reference_graph';
 import {SourceDocument,SourceError,escape} from './document';
 import {createExactNumericAdapter} from './exact_numbers';
 import {evaluateRuntimeInstances} from './runtime_evaluation';
 import {typedSchemaDocument,embeddedSchemaDocument} from './schema_document';
+import {SchemaResourceViews} from './schema_resource_views';
 import {safeFinding} from './security_design';
 import {schemaRoots,nestedSchemaBoundaries} from './schema_boundaries';
 import {discriminatorRelationships} from './authoring_relationships';
@@ -35,7 +36,7 @@ import {externalExampleRevision} from './external_examples';
 import {exampleRepresentation,mediaExampleRepresentations,type ExampleValueField} from './example_representation';
 import {embeddedMimeTextRevision} from './embedded_mime_text';
 
-export const schemaProducer={name:'hyperjump+busyapi-exact',version:'1.18.0+51',configuration:[
+export const schemaProducer={name:'hyperjump+busyapi-exact',version:'1.18.0+52',configuration:[
  `external-example-bytes-v${externalExampleRevision}`,
  'parameter-runtime-serialization-v1',
  'http-field-lines-v1',
@@ -145,10 +146,16 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
   if([...docs.values()].some(doc=>doc.issues.length)||graph.issues.some(issue=>issue.incomplete&&!bundledReferences.has(issue.resource+'#'+issue.pointer)))complete=false;
   for(const issue of graph.issues)if((issue.kind==='schema'||issue.code==='reference.cycle'||issue.code==='schema.dialect.malformed')&&!bundledReferences.has(issue.resource+'#'+issue.pointer)) {
    add(docs.get(issue.resource)!,issue.pointer,issue.code,issue.message,issue.severity??(issue.incomplete?'warning':'error'));
-   if(!issue.incomplete&&issue.kind==='schema')invalid.push(graph.scope(issue.resource,issue.pointer));
+   if(!issue.incomplete&&issue.kind==='schema'){
+    let pointer=issue.pointer,owner:GraphScope|undefined;
+    for(;;){owner=graph.scopeAs(issue.resource,pointer,'schema');if(owner||!pointer)break;pointer=pointer.slice(0,pointer.lastIndexOf('/'));}
+    invalid.push(owner??graph.scope(issue.resource,issue.pointer));
+   }
   }
   const all=schemaEvaluationScopes(graph).filter(scope=>!bundled.has(scope.resource));
   const evaluationScopes=new Map(all.map(scope=>[scope.resource+'#'+scope.pointer,scope]));
+  const views=new SchemaResourceViews(graph,all,input.snapshot);
+  if(views.active)exact.setSourceResolver(uri=>views.source(uri));
   for(const reference of swaggerFileContexts(graph).invalidReferences){
    invalid.push(graph.scope(reference.resource,reference.pointer));
    add(docs.get(reference.resource)!,reference.pointer+'/$ref','schema.file.context','Swagger file schemas are only permitted at a response schema root; this reference uses the fragment in another schema position.');
@@ -173,6 +180,9 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
    ownedIds.add(uri);
    schemes.add(new URL(uri).protocol.slice(0,-1));
   }
+  if(views.active)for(const uri of views.identities()){
+   ownedIds.add(uri);schemes.add(new URL(uri).protocol.slice(0,-1));
+  }
   // Override even unused conventional protocols: no default file/fetch loader
   // remains reachable through a third-party resolution path.
   for(const scheme of ['file','http','https',...schemes]) {
@@ -180,6 +190,10 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
    addUriSchemePlugin(scheme,{retrieve:async (reference:string)=>{
     if(!open)throw new SourceError('schema.owner','The evaluation snapshot is closed');
     const uri=new URL(reference);uri.hash='';
+    if(views.active&&views.owns(uri.href)){
+     const response=new Response(null,{headers:{'content-type':'application/vnd.busyapi.schema-snapshot+json'}});
+     Object.defineProperty(response,'url',{value:uri.href});return response;
+    }
     const targets=graph.identities.get(uri.href);
     if(targets?.length!==1)throw new SourceError('resource.unapproved','The validator requested an unavailable or ambiguous resource identity');
     const target=targets[0],doc=docs.get(target.resource)!;
@@ -192,6 +206,11 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
   }
   addMediaTypePlugin('application/vnd.busyapi.schema-snapshot+json',{fileMatcher:async()=>false,parse:async (response:Response)=>{
    if(!open)throw new SourceError('schema.owner','The evaluation snapshot is closed');
+   if(views.active&&views.owns(response.url)){
+    let document=documents.get(response.url);
+    if(!document){document=views.document(response.url);documents.set(response.url,document);}
+    return document;
+   }
    const target=graph.identities.get(response.url)?.[0],doc=target&&docs.get(target.resource);
    if(!doc)throw new SourceError('resource.unapproved','The schema snapshot is unavailable');
    let document=documents.get(doc.id);
@@ -201,10 +220,10 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
    if(!selected)throw new SourceError('schema.resource','The schema resource boundary is unavailable');
    return selected;
   }});
-  for(const doc of docs.values())exact.addExactSource(doc,graph);
+  for(const doc of docs.values())exact.addExactSource(doc,graph,views.active);
   // A parent meta-schema checks its nested schemas. Distinct dialect/resource
   // roots need their own explicit check; siblings stay independently eligible.
-  const physicalRoots=schemaRoots(all.filter(scope=>!scope.sourceKind)),roots=[...physicalRoots,...all.filter(scope=>scope.sourceKind)],nestedBoundaries=nestedSchemaBoundaries(physicalRoots);
+  const roots=schemaRoots(all),nestedBoundaries=nestedSchemaBoundaries(roots);
   for(const scope of roots) {
    const doc=docs.get(scope.resource)!;
    if(!supportedSchemaDialect(scope)){complete=false;invalid.push(scope);add(doc,scope.pointer,'schema.dialect.incomplete','This schema dialect is not configured; its content is preserved and no instance result is claimed.','warning');continue;}
@@ -233,6 +252,8 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
   // remain incomplete. No exception-message guessing or alternate resolver.
   const states=new Map<string,number>(),dependents=new Map<string,Set<string>>(),queue:string[]=[];
   const scopeId=(scope:GraphScope)=>scope.resource+'#'+scope.pointer;
+  const invalidOwners=new Set(invalid.map(scope=>JSON.stringify([schemaResourceContextIdentity(scope),scope.pointer])));
+  const invalidOwner=(scope:GraphScope)=>invalidOwners.has(JSON.stringify([schemaResourceContextIdentity(scope),scope.pointer]));
   const mark=(id:string,state:number)=>{if(state>(states.get(id)??0)){states.set(id,state);queue.push(id);}};
   let edgeCount=0;
   const depends=(owner:string,target:string)=>{
@@ -240,16 +261,23 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
    const parents=dependents.get(target)??new Set<string>();parents.add(owner);dependents.set(target,parents);
   };
   for(const scope of all) {
-   const id=scopeId(scope);let parent=scope.pointer;
-   while(parent){parent=parent.slice(0,parent.lastIndexOf('/'));const candidate=graph.scopeAs(scope.resource,parent,'schema');if(candidate?.kind==='schema'){
+   const id=scopeId(scope);
+   const candidate=scope.schemaParent===undefined?undefined:evaluationScopes.get(scope.resource+'#'+scope.schemaParent);
+   if(candidate){
     // Reserved definitions are not applicators. Their schema is required only
     // if an established reference reaches it; an unfamiliar unused $defs
     // resource cannot disable this independent parent's supported assertions.
-    const keyword=scope.pointer.slice(parent.length+1).split('/')[0];
+    const keyword=scope.pointer.slice(candidate.pointer.length+1).split('/')[0];
     if(!['$defs','definitions'].includes(keyword)&&children(docs.get(candidate.resource)!.dataNode(candidate.pointer)?.value,'schema',candidate.family).some(([name])=>name===keyword))depends(scopeId(candidate),id);
-    break;
-   }}
-   if(invalid.some(ancestor=>ancestor.resource===scope.resource&&within(scope.pointer,ancestor.pointer)))mark(id,1);
+   }
+   // A meta-schema failure owns intrinsic descendants in this resource only.
+   // Physical containment can also hold an independently interpreted native
+   // schema, which must retain its own eligibility and meta-validation.
+   let ancestor:GraphScope|undefined=scope;
+   while(ancestor&&schemaResourceContextIdentity(ancestor)===schemaResourceContextIdentity(scope)){
+    if(invalidOwner(ancestor)){mark(id,1);break;}
+    ancestor=ancestor.schemaParent===undefined?undefined:evaluationScopes.get(scope.resource+'#'+ancestor.schemaParent);
+   }
    if(!supportedSchemaDialect(scope)||!docs.get(scope.resource)!.dataSyntaxSafe(scope.pointer))mark(id,2);
   }
   for(const ref of graph.references)if(ref.kind==='schema'&&!ref.connection) {
@@ -261,9 +289,10 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
    else mark(id,['missing','invalid'].includes(ref.resolution)?1:2);
   }
   for(let i=0;i<queue.length;i++)for(const parent of dependents.get(queue[i])??[])mark(parent,states.get(queue[i])!);
+  views.schemaReady(scope=>!states.get(scopeId(scope)));
   const getCompiled=async(scope:GraphScope)=>{
    if(states.get(scopeId(scope))||evaluationScopes.get(scopeId(scope))?.file)return;
-   const uri=schemaAddress(scope);if(!compiled.has(uri))compiled.set(uri,await compile(await getSchema(uri)));
+   const uri=views.active?views.address(scope):schemaAddress(scope);if(!compiled.has(uri))compiled.set(uri,await compile(await getSchema(uri)));
    return compiled.get(uri);
   };
   // Compile every independently rooted authored schema, even when it has no

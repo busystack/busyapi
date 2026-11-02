@@ -1,4 +1,4 @@
-import {GraphScope} from './reference_graph';
+import {schemaResourceContextIdentity,type GraphScope} from './reference_graph';
 
 /** Known annotations cannot constrain a value. Dialect support is checked by
  * the caller before using this to omit a schema assertion. */
@@ -9,16 +9,14 @@ export function annotationOnlySchema(value:unknown):boolean {
   ['deprecated','readOnly','writeOnly'].includes(key)&&typeof item==='boolean');
 }
 
-/** Physical containment does not erase an embedded resource's own dialect. */
+/** Only intrinsic schema containment shares meta-validation. A schema inside
+ * another interpretation's annotation can have the same physical ancestors
+ * while retaining its independent native resource/dialect context. */
 export function schemaRoots<T extends GraphScope>(scopes:Iterable<T>):T[] {
  const all=[...scopes].filter(scope=>scope.kind==='schema');
- const key=(scope:GraphScope,pointer:string)=>JSON.stringify([scope.resource,scope.base,scope.dialect,pointer]);
+ const key=(scope:GraphScope,pointer:string)=>JSON.stringify([schemaResourceContextIdentity(scope),pointer]);
  const keys=new Set(all.map(scope=>key(scope,scope.pointer)));
- return all.filter(scope=>{
-  let pointer=scope.pointer;
-  while(pointer){pointer=pointer.slice(0,pointer.lastIndexOf('/'));if(keys.has(key(scope,pointer)))return false;}
-  return true;
- });
+ return all.filter(scope=>scope.schemaParent===undefined||!keys.has(key(scope,scope.schemaParent)));
 }
 
 export function nestedSchemaBoundaries(roots:GraphScope[]) {

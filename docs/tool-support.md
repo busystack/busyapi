@@ -986,8 +986,15 @@ Native property-access evaluation uses the logical schema occurrence even when
 its source is a reusable or aliased definition. Swagger `readOnly` properties
 are excluded from requests through schema references; OpenAPI 3.0 retains its
 request/response `required` rules for readOnly/writeOnly. Modern annotations keep
-ordinary JSON Schema assertions. The shared evaluator revision is **1.18.0+51**;
+ordinary JSON Schema assertions. The shared evaluator revision is **1.18.0+52**;
 matching mock/worker revisions are required before readiness is reported.
+
+When physical source has independent schema and native contexts, executable
+resource views preserve the canonical dialect, URI base and dynamic-anchor scope.
+Literal values avoid schema preprocessing and exact numbers retain original CST
+provenance. Reference navigation carries the selected interpretation's Markdown
+base. External fragments use their own declarations or the OAS default, rather
+than an entry document's `jsonSchemaDialect` override.
 
 The derived bundler uses the canonical graph and exact CST reader. It preserves
 literal data separately from semantic schema occurrences, nested `$id` resources,

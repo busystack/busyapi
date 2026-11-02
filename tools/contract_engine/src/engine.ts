@@ -144,6 +144,7 @@ export function analyse(input: any, context?: ReturnType<typeof createGraph>) {
         if(!view.complete)complete=false;
         const inherited=(name:string)=>{const field=view.fields.get(name);return field?docs.get(field.resource)!.dataNode(field.pointer)!.value:undefined;};
         operations.push(index(document,source.pointer,document.dataNode(source.pointer)?.value,{
+            kind:'operation',markdownBase:referenceMarkdownContext(graph,source.resource,source.pointer,graph.scopeAs(source.resource,source.pointer,'operation')),
             path:occurrence.path,method:occurrence.method,customMethod:occurrence.customMethod===true,role:occurrence.role,shared:occurrence.shared,
             occurrence:occurrence.occurrence,family:graph.scope(source.resource,source.pointer).family,
             inheritedParameters:inherited('parameters')??[],

@@ -19,7 +19,7 @@ function operationEffective(graph:ReferenceGraph,resource:string,pointer:string,
     if(!path){
         const parts=segments(pointer);parts.splice(parts.at(-2)==='additionalOperations'?-2:-1);
         const parent=parts.length?'/'+parts.map(escape).join('/'):'';
-        const scope=graph.scopes.get(resource+'#'+parent);if(scope?.kind==='path-item')path=scope;
+        const scope=graph.scopeAs(resource,parent,'path-item');if(scope)path=scope;
     }
     const view=path?graph.pathItem(path):undefined;
     for(const name of ['servers','security']) {
@@ -69,17 +69,22 @@ export function referencePage(input: any, context?:ReturnType<typeof createGraph
     const doc = docs.get(input.resource), node = read(input.resource,input.pointer);
     if (!doc || !node) throw new SourceError('reference.target', 'The documentation occurrence is absent');
     const scope = graph.selectedScope(doc.id,node.pointer,input.data===true?undefined:input.contextKind);
-    const family = scope?.family??graph.scope(doc.id,node.pointer).family;
+    const parentPointer=node.pointer.slice(0,node.pointer.lastIndexOf('/'));
+    const parent=graph.selectedScope(doc.id,parentPointer,input.parentKind);
+    const renderingScope=input.parentKind===undefined?scope:parent;
+    const family = renderingScope?.family??graph.scope(doc.id,node.pointer).family;
     const kind = input.data === true || !isNativeFamily(family) ? 'data' : scope?.kind ?? 'data';
     const generations = new Map(input.resources.map((r: Resource) => [r.id, r.generation]));
-    const located = (resource: string, pointer: string) => {
+    const located = (resource: string, pointer: string, kind?:string) => {
         const source=docs.get(resource),target=source?.dataNode(pointer);
         if (!target) throw new SourceError('reference.target', 'The documentation source is absent');
         let occurrence=pointer;
         while(occurrence&&!source!.nodes.has(occurrence))occurrence=occurrence.slice(0,occurrence.lastIndexOf('/'));
-        return {root: input.root, resource, pointer, markdownBase:referenceMarkdownContext(graph,resource,pointer), generation: generations.get(resource), range: target.range, data:false,
+        const selected=kind===undefined?undefined:graph.scopeAs(resource,pointer,kind);
+        const owner=selected??(resource===doc.id&&(pointer===node.pointer||pointer.slice(0,pointer.lastIndexOf('/'))===node.pointer)?renderingScope:undefined);
+        return {root: input.root, resource, pointer, markdownBase:referenceMarkdownContext(graph,resource,pointer,owner), generation: generations.get(resource), range: target.range, data:false,
             ...(target.pointer!==pointer?{physicalPointer:target.pointer,occurrenceRange:source!.nodes.get(occurrence)!.range}:{}),
-            kind: graph.scopes.get(resource + '#' + pointer)?.kind ?? 'data', syntaxSafe: source!.dataSyntaxSafe(pointer)};
+            kind: selected?.kind??graph.scopes.get(resource + '#' + pointer)?.kind ?? 'data', syntaxSafe: source!.dataSyntaxSafe(pointer)};
     };
     const fieldDefinitions = fieldsForScope(graph,{...(scope??graph.scope(doc.id,node.pointer)),kind},node.value);
     const definitions = new Map(fieldDefinitions.map(field => [field.name, field]));
@@ -109,9 +114,10 @@ export function referencePage(input: any, context?:ReturnType<typeof createGraph
         const context = referenceData ? undefined : children({[name]:child.value},kind,family,node.value).find(([key])=>key===name)?.[2];
         const schema = kind === 'schema-map' && node.pointer.endsWith('/properties') ? doc.dataNode(node.pointer.slice(0, -11)) : undefined;
         const pointer=node.pointer+'/'+escape(name),value=read(doc.id,pointer)!;
-        return {name, ...located(doc.id, pointer), kind:context??'data', data:!context, nodeKind: value.kind, count: value.children.size,
+        const richText=richTextField(kind,family,node.value,name,segments(node.pointer).at(-1),graph.allowsReference({...(scope??graph.scope(doc.id,node.pointer)),kind}))&&doc.nodes.get(pointer)?.alias===undefined;
+        return {name, ...located(doc.id, pointer,context), kind:context??'data', data:!context, nodeKind: value.kind, count: value.children.size,
             defined: !!definition, contextual: !!context, extension: name.startsWith('x-'),
-            richText:richTextField(kind,family,node.value,name,segments(node.pointer).at(-1),graph.allowsReference({...(scope??graph.scope(doc.id,node.pointer)),kind}))&&doc.nodes.get(pointer)?.alias===undefined,
+            richText,...(richText?{parentKind:kind}:{}),
             ...(schema ? {required: Array.isArray(schema.value?.required) && schema.value.required.includes(name)} : {}),
             ...(definition && Object.hasOwn(definition, 'effectiveDefault') ? {effectiveDefault: definition.effectiveDefault} : {}),
             ...(!['object','array'].includes(value.kind) ? excerpt(pointer, 0, 240) : {}),
@@ -120,8 +126,8 @@ export function referencePage(input: any, context?:ReturnType<typeof createGraph
     const visibleNames = new Set(entries.map(entry => entry.name));
     const references = graph.referencesAt(doc.id,node.pointer,kind).filter(ref=>visibleNames.has(ref.keyword)||['$ref','$dynamicRef'].includes(ref.keyword)).map(ref => ({...ref,
         source: located(ref.resource, ref.pointer + '/' + escape(ref.keyword)),
-        ...(ref.resolution === 'resolved' ? {target: {...located(ref.targetResource!,ref.targetPointer!),kind:ref.kind}} : {}),
-        ...(ref.dynamic ? {dynamic: {...ref.dynamic, candidates: ref.dynamic.candidates.map(target => located(target.resource, target.pointer))}} : {}),
+        ...(ref.resolution === 'resolved' ? {target: {...located(ref.targetResource!,ref.targetPointer!,ref.kind),kind:ref.kind}} : {}),
+        ...(ref.dynamic ? {dynamic: {...ref.dynamic, candidates: ref.dynamic.candidates.map(target => located(target.resource, target.pointer,'schema'))}} : {}),
     }));
     const defaults = fieldDefinitions.filter(field => !node.children.has(field.name) && Object.hasOwn(field, 'effectiveDefault')).map(field => ({name: field.name, value: field.effectiveDefault}));
     const interpretation = kind === 'schema' ? 'schema-applicators' : kind === 'path-item' ? 'path-item' :
@@ -221,9 +227,8 @@ export function referencePage(input: any, context?:ReturnType<typeof createGraph
     if (kind === 'operation' && node.value && node.kind === 'object') {
         if(selected)effective=operationEffective(graph,doc.id,node.pointer,selected.pathItem,located,input.parameterOffset,false,undefined,selected.method);
     }
-    const parentPointer=node.pointer.slice(0,node.pointer.lastIndexOf('/')),parent=graph.scopes.get(doc.id+'#'+parentPointer);
-    const richText=input.data!==true&&doc.nodes.get(node.pointer)?.alias===undefined&&!!parent&&richTextField(parent.kind,family,doc.dataNode(parentPointer)?.value,segments(node.pointer).at(-1)!,segments(parentPointer).at(-1),graph.allowsReference(parent));
-    return {version: 1, snapshot: input.snapshot, family, ...located(doc.id,node.pointer),kind,interpretations:graph.scopesAt(doc.id,node.pointer).map(({kind,family,dialect})=>({kind,family,dialect})),data:kind==='data', nodeKind: node.kind,richText,
+    const richText=(input.data!==true||input.parentKind!==undefined)&&doc.nodes.get(node.pointer)?.alias===undefined&&!!parent&&richTextField(parent.kind,family,doc.dataNode(parentPointer)?.value,segments(node.pointer).at(-1)!,segments(parentPointer).at(-1),graph.allowsReference(parent));
+    return {version: 1, snapshot: input.snapshot, family, ...located(doc.id,node.pointer,kind),kind,interpretations:graph.scopesAt(doc.id,node.pointer).map(({kind,family,dialect})=>({kind,family,dialect})),data:kind==='data', nodeKind: node.kind,richText,
         interpretation, references, defaults, entries, offset, count: node.children.size, issues:issues.slice(0,50).map(issue => ({...issue, source:located(issue.resource,issue.pointer)})), issueCount:issues.length, effective, previews, previewsLimited,
         ...(kind==='operation'?{occurrence:selected?.occurrence??null,contextSelectionRequired:contexts.length>0&&!selected,
             selectedContext:selected?{occurrence:selected.occurrence,navigationId:operationNavigationId(input.root,selected.occurrence),path:selected.path,method:selected.method,customMethod:selected.customMethod===true,role:selected.role,pathItem:located(selected.pathItem.resource,selected.pathItem.pointer)}:null,

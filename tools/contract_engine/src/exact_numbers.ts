@@ -72,6 +72,7 @@ const exactInstanceNumbers=new WeakMap<object,any>(), sourceLocations=new Map<st
 const binaryInstances=new WeakMap<object,Buffer>();
 const propertyInstances=new WeakSet<object>(),swaggerPropertySchemas=new WeakSet<object>();
 let referenceGraph:any;
+let sourceResolver:((uri:string)=>{doc:SourceDocument;node:ReturnType<SourceDocument['dataNode']>}|undefined)|undefined;
 let direction: 'request' | 'response' | undefined;
 const current=()=>{if(disposed)throw new SourceError('schema.owner','The schema evaluation owner was disposed');};
 const fallback=value=>{
@@ -81,9 +82,13 @@ const fallback=value=>{
 const number=node=>exactInstanceNumbers.get(node)??fallback(Instance.value(node));
 const encodedNumber=n=>'n:'+n.coefficient+'e'+n.exponent;
 
-function addExactSource(doc: SourceDocument,graph: any) {
+function addExactSource(doc: SourceDocument,graph: any,projected=false) {
  current();
  referenceGraph=graph;
+ if(projected){
+  if(!sourceResolver)throw new SourceError('schema.numeric.provenance','An executable schema view requires its captured source coordinate resolver');
+  return;
+ }
  for(const node of doc.nodes.values()) {
   if(typeof node.value!=='number'&&!/\/(?:const|enum)$/.test(node.pointer))continue;
   const scope=graph.scope(doc.id,node.pointer);
@@ -101,7 +106,7 @@ function exactInstance(doc: SourceDocument,pointer='',opaque?:ReadonlySet<string
  const value=doc.dataNode(pointer)!.value;
  const referenceView=(value:any,at:string):any=>{
   if(!value||typeof value!=='object')return value;
-  const scope=referenceGraph?.scopes.get(doc.id+'#'+at);
+  const scope=referenceGraph?.scopeAs(doc.id,at,'schema');
   if(scope?.kind==='schema'&&isReferenceObject(value,'schema',scope.family))return {$ref:value.$ref};
   return Array.isArray(value)?value.map((child,index)=>referenceView(child,at+'/'+index)):
    Object.fromEntries(Object.entries(value).map(([name,child])=>[name,referenceView(child,at+'/'+name.replaceAll('~','~0').replaceAll('/','~1'))]));
@@ -138,6 +143,7 @@ function fingerprint(value:any,source?:{doc:SourceDocument,node:any},instance?:a
 }
 const sourceAt=(uri:string)=>{
  const known=sourceLocations.get(uri);if(known)return known;
+ const projected=sourceResolver?.(uri);if(projected)return projected;
  const address=new URL(uri),fragment=decodeURIComponent(address.hash.slice(1));address.hash='';
  const targets=referenceGraph?.identities.get(address.href);
  if(targets?.length!==1||fragment&&!fragment.startsWith('/'))return;
@@ -260,6 +266,7 @@ function installExactNumericKeywords() {
  }} as any);
 }
 return {addExactSource,exactInstance,install:installExactNumericKeywords,setDirection:(value:typeof direction)=>{current();direction=value;},
+ setSourceResolver:(resolver:typeof sourceResolver)=>{current();sourceResolver=resolver;},
  fingerprintSource:(doc:SourceDocument,pointer:string)=>{const node=doc.dataNode(pointer);if(!node)throw new SourceError('schema.numeric.provenance','Exact equality source is absent');return fingerprint(node.value,{doc,node});},
- dispose:()=>{disposed=true;sourceLocations.clear();referenceGraph=undefined;}};
+ dispose:()=>{disposed=true;sourceLocations.clear();referenceGraph=undefined;sourceResolver=undefined;}};
 }

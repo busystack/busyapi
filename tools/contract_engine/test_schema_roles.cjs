@@ -95,3 +95,77 @@ for(const version of ['2.0','3.0.4'])test(`${version} retaining a Schema role do
  assert(findings.some(finding=>finding.code==='schema.additionalProperties'&&finding.severity==='error'&&finding.range[1]>finding.range[0]),JSON.stringify(findings));
  const checked=await evaluateSchemas(input);assert(checked.findings.some(finding=>finding.code==='schema.keyword.invalid'),JSON.stringify(checked.findings));
 });
+
+for(const version of ['3.1.2','3.2.1'])test(`${version} a native reference into a primary identified schema retains document URI and dialect context`,async()=>{
+ const {requestOperation}=require('./dist/execution.cjs'),{referencePage}=require('./dist/reference_projection.cjs');
+ const root='file:///approved/primary-schema.json',native='file:///approved/target.json',schema='https://schemas.invalid/base/target.json';
+ const pointer='/components/schemas/Shared';
+ const value={openapi:version,info:{title:'Independent native URI context',version:'1'},
+  paths:{'/p':{get:{responses:{200:{$ref:'#/components/responses/Use'}}}}},
+  components:{schemas:{Shared:{$schema:'https://json-schema.org/draft/2020-12/schema',$id:'https://schemas.invalid/base/shared',$ref:'target.json#/Thing'}},
+   responses:{Use:{$ref:'#/components/schemas/Shared'}}}};
+ const input={root,snapshot:'primary-schema-native-role',resources:[{id:root,text:JSON.stringify(value),generation:1},
+  {id:native,text:JSON.stringify({Thing:{description:'Native response URI'}}),generation:2},
+  {id:schema,text:'{"Thing":{"type":"integer","enum":[9007199254740993.00]}}',generation:3}]};
+ const graph=createGraph(input).graph,source=input.resources.map(resource=>resource.text);
+ assert.equal(graph.scope(root,pointer).kind,'schema');
+ const nativeScope=graph.scopeAs(root,pointer,'response');
+ assert.equal(nativeScope.base,root);assert.equal(nativeScope.dialect,graph.scope(root,'').dialect);
+ assert.equal(graph.scopeAs(root,pointer,'schema').base,'https://schemas.invalid/base/shared');
+ const edges=graph.references.filter(reference=>reference.resource===root&&reference.pointer===pointer&&reference.keyword==='$ref');
+ assert.deepEqual(new Set(edges.map(edge=>edge.targetResource)),new Set([native,schema]));
+ assert.equal(analyse(input).status,'complete',JSON.stringify(analyse(input).findings));
+ const checked=await evaluateSchemas({...input,runtimeInstances:['9007199254740993','0'].map(text=>({subject:'response-body',location:text,text,schema:{resource:root,pointer}}))});
+ assert.equal(checked.complete,true,JSON.stringify(checked.findings));assert.deepEqual(checked.runtimeEvaluations.map(result=>result.valid),[true,false]);
+ assert.equal(requestOperation({...input,resource:root,pointer:'/paths/~1p/get'}).responses[0].description,'Native response URI');
+ assert(referencePage({...input,resource:root,pointer:'/paths/~1p/get'}).previews.some(preview=>preview.text==='Native response URI'));
+ const review=await planMigration({...input,targetVersion:'3.2.1',destination:'file:///delivered/native-context/'});
+ assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const cold={root:review.outputRoot,snapshot:'cold-native-context',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0,
+  aliases:Object.entries(review.manifest.resourceMappings).filter(([,path])=>path===output.path).map(([uri])=>uri)}))};
+ assert.equal(analyse(cold).status,'complete',JSON.stringify(analyse(cold).findings));
+ assert.equal(requestOperation({...cold,resource:cold.root,pointer:'/paths/~1p/get'}).responses[0].description,'Native response URI');
+ assert.deepEqual(input.resources.map(resource=>resource.text),source);
+ // Different meanings of the original authored field still require a split
+ // before refactoring; the graph must not waive this guard because both roles
+ // are now valid and individually inspectable.
+ const target={root,resource:root,pointer,generation:1},contexts=[{root,resources:input.resources.map(resource=>resource.id)}];
+ assert.throws(()=>planSchemaDefinitionRename({...input,target,contexts,name:'Renamed'}),error=>error.code==='reference.edit.context');
+});
+
+for(const version of ['3.1.2','3.2.1'])test(`${version} native media under a schema resource uses document context and separate Markdown owners`,async()=>{
+ const {requestOperation}=require('./dist/execution.cjs'),{resolveUri}=require('./dist/reference_graph.cjs');
+ const root='file:///approved/native-media.json',model='file:///approved/target.json',pointer='/components/schemas/Resource/$defs/Shared';
+ const body={description:'[Guide](guide.md)',content:{'application/json':{schema:{$ref:'target.json#/Thing'}}}};
+ const value={openapi:version,info:{title:'Nested native role',version:'1'},paths:{'/p':{get:{responses:{200:{$ref:'#'+pointer}}}}},
+  components:{schemas:{Resource:{$id:'https://schemas.invalid/base/resource',$schema:'https://json-schema.org/draft/2020-12/schema',$defs:{Shared:body}}}}};
+ const input={root,snapshot:'native-schema-resource',resources:[{id:root,text:JSON.stringify(value),generation:0},
+  {id:model,text:'{"Thing":{"type":"integer","enum":[9007199254740993.00]}}',generation:0}]};
+ const original=input.resources.map(resource=>resource.text),graph=createGraph(input).graph;
+ assert.equal(graph.scopeAs(root,pointer,'schema').base,'https://schemas.invalid/base/resource');
+ assert.equal(graph.scopeAs(root,pointer,'response').base,root);
+ const mediaPointer=pointer+'/content/application~1json/schema',schema=graph.scopeAs(root,mediaPointer,'schema');
+ assert.equal(schema.base,root);assert.equal(schema.dialect,graph.scope(root,'').dialect);
+ assert.equal(graph.referenceAs(root,mediaPointer,'$ref','schema').targetResource,model);
+ assert.equal(analyse(input).status,'complete',JSON.stringify(analyse(input).findings));
+ const beforePlan=requestOperation({...input,resource:root,pointer:'/paths/~1p/get'});
+ const check=async(packet,plan)=>{
+  const result=await evaluateSchemas({...packet,runtimeInstances:['9007199254740993','0'].map(text=>({subject:'response-body',location:text,text,schema:plan.responses[0].content[0].schema}))});
+  assert.equal(result.complete,true,JSON.stringify(result.findings));assert.deepEqual(result.runtimeEvaluations.map(result=>result.valid),[true,false]);
+ };
+ await check(input,beforePlan);
+ const review=await planMigration({...input,targetVersion:'3.2.1',destination:'file:///delivered/native-media/'});
+ assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const cold={root:review.outputRoot,snapshot:'cold-nested-native',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0,
+  aliases:Object.entries(review.manifest.resourceMappings).filter(([,path])=>path===output.path).map(([uri])=>uri)}))};
+ assert.equal(analyse(cold).status,'complete',JSON.stringify(analyse(cold).findings));
+ await check(cold,requestOperation({...cold,resource:cold.root,pointer:'/paths/~1p/get'}));
+ const after=createGraph(cold).graph,reference=after.referenceAs(cold.root,'/paths/~1p/get/responses/200','$ref','response');
+ assert(reference.targetPointer.startsWith('/components/responses/_migrated_object_use_'));
+ const nativeDescription=after.docs.get(reference.targetResource).dataNode(reference.targetPointer+'/description').value;
+ const schemaDescription=after.docs.get(cold.root).dataNode(pointer+'/description').value;
+ assert.equal(resolveUri(nativeDescription.match(/\]\(([^)]+)\)/)[1],after.scopeAs(reference.targetResource,reference.targetPointer,'response').base).href,'file:///approved/guide.md');
+ assert.equal(schemaDescription,'[Guide](guide.md)');
+ assert.equal(after.docs.get(cold.root).dataJson(pointer+'/content'),graph.docs.get(root).dataJson(pointer+'/content'),'The schema annotation remains exact literal data');
+ assert.deepEqual(input.resources.map(resource=>resource.text),original);
+});

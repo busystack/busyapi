@@ -332,7 +332,7 @@ export async function requestMultipartEncoding(input:any){
 export function requestOperation(input:any,captured?:ReturnType<typeof createGraph>) {
   const {docs,graph,exampleResources}=captured??createGraph(input);
   const generation=new Map((input.resources as Resource[]).map(resource=>[resource.id,resource.generation]));
-  const operation=graph.scopes.get(input.resource+'#'+input.pointer);
+  const operation=graph.scopeAs(input.resource,input.pointer,'operation');
   if(operation?.kind!=='operation')throw new SourceError('request.operation','Select an authored Operation Object');
   const family=operation.family;
   if(!isNativeFamily(family))throw new SourceError('request.family.unsupported','The captured operation owner has no supported specification family');

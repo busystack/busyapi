@@ -12,6 +12,7 @@ type CapturedMarkdown=Readonly<{
     owner:MigrationLocation;
     value:string;
     base:string;
+    role:'schema'|'native';
 }>;
 type Mapped=(original:MigrationLocation)=>readonly MigrationLocation[];
 type Target=Readonly<{source:CapturedMarkdown;location:MigrationLocation;scope:GraphScope;value:string}>;
@@ -32,7 +33,7 @@ export function captureMigrationMarkdown(graph:ReferenceGraph,issue:MigrationIss
         try{
             if(relativeMarkdownDestinations(field.value).length)captured.push({
                 original,owner:{resource:scope.resource,pointer:scope.pointer},value:field.value,
-                base:documentUriBase(graph,scope),
+                base:documentUriBase(graph,scope),role:scope.kind==='schema'?'schema':'native',
             });
         }catch(error){
             if(!(error instanceof SourceError))throw error;
@@ -55,7 +56,8 @@ function targets(captured:readonly CapturedMarkdown[],graph:ReferenceGraph,mappe
         for(const location of mapped(source.original)){
             const field=graph.docs.get(location.resource)?.dataNode(location.pointer);
             const candidates=field?owners.get(key(location))??[]:[];
-            const selected=candidates.filter(scope=>!ownerLocations.length||ownerLocations.some(owner=>owner.resource===scope.resource&&owner.pointer===scope.pointer));
+            const selected=candidates.filter(scope=>(scope.kind==='schema')===(source.role==='schema')&&
+                (!ownerLocations.length||ownerLocations.some(owner=>owner.resource===scope.resource&&owner.pointer===scope.pointer)));
             if(!selected.length||typeof field?.value!=='string'){
                 continue;
             }

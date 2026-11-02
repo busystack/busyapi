@@ -37,7 +37,9 @@ export function schemaEvaluationScopes(graph:ReferenceGraph):SchemaEvaluationSco
         const flat=flatSchemaContext(graph,scope);
         if(scope.kind!=='schema'&&!flat)continue;
         const fileContext=scope.kind==='parameter'&&value?.in==='formData'||contexts.has(scope.resource+'#'+scope.pointer);
-        scopes.push({...scope,kind:'schema',objectKind:scope.kind,file:scope.family==='2.0'&&fileContext&&value?.type==='file'&&!isReferenceObject(value,'schema',scope.family)});
+        const parent=scope.pointer.slice(0,scope.pointer.lastIndexOf('/')),owner=graph.scopes.get(scope.resource+'#'+parent);
+        const schemaParent=scope.kind==='items'&&owner&&flatSchemaContext(graph,owner)?parent:scope.schemaParent;
+        scopes.push({...scope,kind:'schema',objectKind:scope.kind,...(schemaParent!==undefined?{schemaParent}:{}),file:scope.family==='2.0'&&fileContext&&value?.type==='file'&&!isReferenceObject(value,'schema',scope.family)});
     }
     return scopes;
 }

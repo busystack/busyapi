@@ -1,7 +1,7 @@
 import {createGraph,type Resource} from './engine';
 import type {MigrationIssue} from './migration_schema';
 import type {MigrationLocation} from './migration_source';
-import {supportedSchemaDialect,type ReferenceGraph,type GraphScope} from './reference_graph';
+import {supportedSchemaDialect,schemaResourceContextIdentity,type ReferenceGraph,type GraphScope} from './reference_graph';
 import {escape,SourceError} from './document';
 import {modernFamily} from './specification';
 import {projectSchemaReference} from './schema_reference_projection';
@@ -118,7 +118,7 @@ export function migrationDocumentContexts(input:{root:string;resources:Resource[
         for(const scope of graph.interpretedScopes()){
             if(scope.kind==='root'&&!graph.specifications.has(scope.resource))continue;
             const key=JSON.stringify([scope.resource,scope.pointer,scope.kind]);
-            const identity=JSON.stringify([scope.kind,scope.family,scope.dialect,scope.base,scope.resourcePointer]);
+            const identity=schemaResourceContextIdentity(scope);
             const previous=scopes.get(key);
             if(previous&&previous.identity!==identity&&!equivalentForwarder(previous.scope,previous.graph,scope,graph))
                 issue(scope,'migration.documents.context','This shared source has different schema or object contexts in captured descriptions; one converted owner is not proved equivalent','implementation');
