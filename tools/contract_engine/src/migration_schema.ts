@@ -14,6 +14,7 @@ import {migrateSchemaConditions} from './migration_schema_conditions';
 import {migrateSchemaTuple} from './migration_schema_tuples';
 import {migrateSchemaPropertyNames} from './migration_schema_property_names';
 import {MigrationArrayBounds,migrateConstantContains,migrateArrayAlternatives} from './migration_schema_arrays';
+import {migrationScopes} from './migration_documents';
 
 export type MigrationChoice=Readonly<{value:string;label:string;target:MigrationLocation&{range:readonly number[]}}>;
 export type MigrationProblem={resource:string;pointer:string;range:number[];code:string;message:string;reason:'target-representation'|'implementation'|'source-incomplete'|'decision';choices?:string[];choiceDetails?:readonly MigrationChoice[];id?:string};
@@ -23,12 +24,18 @@ export type MigrationChoose=(scope:MigrationIssueLocation,code:string,message:st
 
 /** Normative schema mappings. No schema is evaluated under another family's
  * dialect to make a migration pass. These edits affect planning copies only. */
-export function migrateSchemas(graph:ReferenceGraph,sources:Map<string,MigrationSource>,from:string,to:string,issue:MigrationIssue):void {
-    const references=new MigrationSchemaReferences(graph),requirements=new SchemaPropertyRequirements(graph);
+export function migrateSchemas(graph:ReferenceGraph,sources:Map<string,MigrationSource>,from:string,to:string,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph]):void {
+    const references=new MigrationSchemaReferences(graph,contexts),requirements=new SchemaPropertyRequirements(graph);
     const owners=new MigrationSchemaOwners(graph,sources);
     const booleans=new BooleanSchemaMigration(graph,sources,to,owners);
     const arrayBounds=new MigrationArrayBounds(graph);
-    const scopes=[...graph.scopes.values()].filter(scope=>scope.kind==='schema'&&scope.family===from).sort((a,b)=>b.pointer.length-a.pointer.length);
+    // Coordinated entries own their active schemas independently. A detached
+    // original schema file remains literal source history after specialization;
+    // parsing its identity does not authorize converting that dormant owner.
+    const captured=new Map<string,GraphScope>();
+    for(const scope of migrationScopes(contexts))if(scope.kind==='schema'&&scope.family===from)
+        captured.set(JSON.stringify([scope.resource,scope.pointer]),scope);
+    const scopes=[...captured.values()].sort((a,b)=>b.pointer.length-a.pointer.length);
     for(const scope of scopes){
         const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);if(pointer===undefined)continue;
         const original=graph.docs.get(scope.resource)!.dataNode(scope.pointer)!,value=original.value;

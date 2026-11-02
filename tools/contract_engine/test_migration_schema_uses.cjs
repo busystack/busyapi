@@ -25,7 +25,7 @@ async function migrate(input){
  const before=input.resources.map(resource=>resource.text);
  const review=await planMigration(input);
  assert.equal(review.complete,true,JSON.stringify(review.problems));
- assert.equal(review.producerVersion,'50');
+ assert.equal(review.producerVersion,'51');
  const output=delivered(review);
  assert.equal(analyse(output).status,'complete');
  assert.deepEqual(input.resources.map(resource=>resource.text),before);
@@ -180,6 +180,22 @@ test('resource holders do not leak earlier generated definitions into another sc
  const root=graph.docs.get(output.root);
  assert.equal(root.dataJson('/x-data'),new SourceDocument(input.resources[0].text,input.root).dataJson('/x-data'));
  assert.deepEqual(await outcomes(output,'/components/schemas/Data',['9007199254740993','9007199254740992']),[true,false]);
+});
+test('a static forwarding use retains its resource when a downstream schema uses dynamic scope',async()=>{
+ const input=capture('json',{
+  Model:{$id:'https://schemas.invalid/model',$defs:{node:{$dynamicAnchor:'node',type:'string'}},default:{$ref:'https://schemas.invalid/list'}},
+  Value:{$ref:'#/components/schemas/Model/default'},
+  List:{$id:'https://schemas.invalid/list',type:'array',items:{$dynamicRef:'#node'},$defs:{node:{$dynamicAnchor:'node'}}},
+ },'3.1.2');input.targetVersion='3.2.1';
+ const samples=['[]','["雪"]','[false]','null'];
+ assert.deepEqual(await outcomes(input,'/components/schemas/Value',samples),[true,true,false,false]);
+ const literal=new SourceDocument(input.resources[0].text,input.root).dataJson('/components/schemas/Model/default');
+ const {output}=await migrate(input),graph=createGraph(output).graph;
+ assert.deepEqual(await outcomes(output,'/components/schemas/Value',samples),[true,true,false,false]);
+ const reference=graph.referenceAs(output.root,'/components/schemas/Value','$ref','schema');
+ const scope=graph.scopeAs(reference.targetResource,reference.targetPointer,'schema');
+ assert.equal(scope.base,'https://schemas.invalid/model');assert(reference.targetPointer.startsWith('/components/schemas/Model/$defs/'));
+ assert.equal(graph.docs.get(output.root).dataJson('/components/schemas/Model/default'),literal);
 });
 test('ignored legacy reference siblings keep independent schema owners before an explicit discard decision',async()=>{
  const input=capture('json',{

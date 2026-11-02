@@ -10,11 +10,32 @@ import {migrationLogicalPointers} from './migration_yaml_ownership';
  * never from payload keys or whichever entry happened to be visited first. */
 export class MigrationSchemaOwners {
     private readonly reserved=new Set<string>();
+    private readonly resourceIdentities=new Set<string>();
+    private readonly externalIdentities:ReadonlySet<string>;
     private edits=0;
     private work=0;
     constructor(private readonly graph:ReferenceGraph,
         private readonly sources:ReadonlyMap<string,MigrationSource>,
-        private readonly generatedResource?:()=>MigrationSource){ }
+        private readonly generatedResource?:()=>MigrationSource,reservedIdentities:Iterable<string>=[]){
+        this.externalIdentities=new Set([...reservedIdentities].map(uri=>new URL(uri).href));
+    }
+
+    /** A specialized resource has its own identity; copying the old $id would
+     * make independent target owners ambiguous. This identity is embedded in
+     * its owning document and never grants permission to acquire another file. */
+    resourceIdentity(entry:string,identity:string):string {
+        if(this.resourceIdentities.size>=2048)throw new SourceError('limit.migration.owners','Resource specialization exceeds 2048 identities');
+        const stem=createHash('sha256').update(JSON.stringify([entry,identity])).digest('hex');
+        let index=0;
+        for(;;){
+            const uri=new URL(entry);uri.hash='';uri.searchParams.append('busyapi-schema-owner',stem+(index?'_'+index:''));
+            const value=uri.href;
+            if(!this.graph.identities.has(value)&&!this.externalIdentities.has(value)&&!this.resourceIdentities.has(value)){
+                this.resourceIdentities.add(value);return value;
+            }
+            if(++index>2048)throw new SourceError('limit.migration.owners','No bounded collision-free resource identity is available');
+        }
+    }
 
     admit(source:MigrationSource,edits=1):void {
         this.edits+=edits;this.work+=source.doc.text.length*edits*2;

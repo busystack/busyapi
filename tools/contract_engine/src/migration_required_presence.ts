@@ -2,6 +2,7 @@ import {segments,SourceError} from './document';
 import type {GraphScope,ReferenceGraph} from './reference_graph';
 import type {MigrationSource} from './migration_source';
 import {modernFamily} from './specification';
+import {migrationScopes,migrationReferences} from './migration_documents';
 
 const key=(scope:Pick<GraphScope,'resource'|'pointer'>)=>JSON.stringify([scope.resource,scope.pointer]);
 
@@ -11,14 +12,14 @@ const key=(scope:Pick<GraphScope,'resource'|'pointer'>)=>JSON.stringify([scope.r
  * not(object AND property-absent). A property with schema not:{} makes
  * properties succeed exactly when that name is absent. Non-objects remain
  * unaffected. Existing required, annotations and value assertions all survive. */
-export function migrateRequiredPresence(graph:ReferenceGraph,sources:Map<string,MigrationSource>,from:string,to:string):ReadonlySet<string> {
+export function migrateRequiredPresence(graph:ReferenceGraph,sources:Map<string,MigrationSource>,from:string,to:string,contexts:readonly ReferenceGraph[]=[graph]):ReadonlySet<string> {
     if(!modernFamily(from)||to!=='3.0')return new Set();
-    const annotations=graph.scopesFor('schema').filter(scope=>{
+    const annotations=[...migrationScopes(contexts)].filter(scope=>{
         const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
-        return scope.family===from&&(value?.readOnly===true||value?.writeOnly===true);
+        return scope.kind==='schema'&&scope.family===from&&(value?.readOnly===true||value?.writeOnly===true);
     });
     const incoming=new Map<string,GraphScope[]>();
-    for(const edge of graph.references){
+    for(const edge of migrationReferences(contexts)){
         if(edge.kind!=='schema'||edge.connection||!['$ref','$dynamicRef'].includes(edge.keyword)||edge.resolution!=='resolved')continue;
         const scope=graph.scopeAs(edge.resource,edge.pointer,'schema');if(!scope)continue;
         const id=key({resource:edge.targetResource!,pointer:edge.targetPointer!}),uses=incoming.get(id)??[];

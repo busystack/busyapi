@@ -9,6 +9,7 @@ import type {MigrationIssue} from './migration_schema';
 import {modernFamily} from './specification';
 import {ParameterSemantics} from './parameter_semantics';
 import {swaggerMedia} from './swagger_operation';
+import {migrationScopes} from './migration_documents';
 
 type Use=Readonly<{kind:'body'|'part'|'data';mediaType?:string;source:GraphScope;schema:GraphScope;path:readonly Step[]}>;
 type Step=Readonly<{property:string}>|'item'|'nested';
@@ -196,7 +197,8 @@ const annotation=(name:string)=>name.startsWith('x-')||['title','description','e
 export function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<string,MigrationSource>,from:string,to:string,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph]):void {
     if(!((from==='2.0'||from==='3.0')&&modernFamily(to)||from==='2.0'&&to==='3.0'||modernFamily(from)&&to==='3.0'))return;
     const uses=new BinaryUses(graph,contexts);
-    for(const scope of graph.scopesFor('schema')){
+    for(const scope of migrationScopes(contexts)){
+        if(scope.kind!=='schema')continue;
         if(scope.family!==from)continue;
         const doc=graph.docs.get(scope.resource)!,value=doc.dataNode(scope.pointer)?.value;
         if(value===null||typeof value!=='object'||Array.isArray(value)||typeof value.$ref==='string')continue;

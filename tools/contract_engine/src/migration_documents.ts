@@ -1,7 +1,7 @@
 import {createGraph,type Resource} from './engine';
 import type {MigrationIssue} from './migration_schema';
 import type {MigrationLocation} from './migration_source';
-import {supportedSchemaDialect,schemaResourceContextIdentity,type ReferenceGraph,type GraphScope} from './reference_graph';
+import {supportedSchemaDialect,schemaResourceContextIdentity,type ReferenceGraph,type GraphScope,type GraphReference} from './reference_graph';
 import {escape,SourceError} from './document';
 import {modernFamily} from './specification';
 import {projectSchemaReference} from './schema_reference_projection';
@@ -13,6 +13,29 @@ export type MigrationUse=Readonly<{
     baseUri:string;resourceBoundary:string;direction:'request'|'response'|'neutral';literal:boolean;
 }>;
 export type DocumentContext=Context&Readonly<{uses:readonly MigrationUse[]}>;
+
+/** Conversion owners come from actual entry uses, rather than dormant parsed
+ * identities. Preserve differing contexts until the common allocator has
+ * specialized them; payload/literal occurrences never become mutation owners. */
+export function* migrationScopes(contexts:readonly ReferenceGraph[]):IterableIterator<GraphScope> {
+    const seen=new Set<string>();
+    for(const graph of contexts)for(const scope of graph.entryScopes()){
+        const id=JSON.stringify([scope.resource,scope.pointer,scope.kind,schemaResourceContextIdentity(scope)]);
+        if(seen.has(id))continue;
+        if(seen.size>=200000)throw new SourceError('limit.migration.uses','Conversion ownership exceeds 200000 captured scope states');
+        seen.add(id);yield scope;
+    }
+}
+
+export function* migrationReferences(contexts:readonly ReferenceGraph[]):IterableIterator<GraphReference> {
+    const seen=new Set<string>();let work=0;
+    for(const graph of contexts)for(const reference of graph.entryReferences()){
+        if((work+=1+(reference.dynamic?.candidates.length??0))>2000000)throw new SourceError('limit.migration.uses','Conversion references exceed 2000000 captured states');
+        const id=JSON.stringify([reference.resource,reference.pointer,reference.kind,reference.connection,reference.keyword,
+            reference.value,schemaResourceContextIdentity(reference),reference.resolution,reference.targetResource,reference.targetPointer,reference.dynamic]);
+        if(!seen.has(id)){seen.add(id);yield reference;}
+    }
+}
 
 /** Keep entry interpretation separate from physical CST ownership. Direction
  * propagates over typed containment and resolved contract edges, including
@@ -143,15 +166,22 @@ export function migrationContextDifferences(contexts:readonly Pick<DocumentConte
  * a family conversion/omission, ownership separation also proves static edges. */
 export function proveMigrationConnections(source:ReferenceGraph,target:ReferenceGraph,mapped:(location:MigrationLocation)=>readonly MigrationLocation[],issue:MigrationIssue,includeStatic=false):void {
     const identity=(field:MigrationLocation,kind:string,connection:string|undefined)=>JSON.stringify([field.resource,field.pointer,kind,connection??'']);
-    const connections=new Map(target.references.filter(reference=>reference.connection||(includeStatic||reference.kind==='schema')&&['$ref','$dynamicRef'].includes(reference.keyword)).map(reference=>[
+    const connections=new Map(target.entryReferences().filter(reference=>reference.connection||(includeStatic||reference.kind==='schema')&&['$ref','$dynamicRef'].includes(reference.keyword)).map(reference=>[
         identity({...reference,pointer:reference.pointer+'/'+escape(reference.keyword)},reference.kind,reference.connection),reference]));
-    const mappedSchemas=(location:MigrationLocation)=>mapped(location).filter(location=>target.scopeAs(location.resource,location.pointer,'schema')!==undefined);
-    for(const reference of source.references){
+    const mappedSchemas=(location:MigrationLocation)=>mapped(location).filter(location=>{
+        const scope=target.scopeAs(location.resource,location.pointer,'schema');return scope!==undefined&&target.isEntryUse(scope);
+    });
+    for(const reference of source.entryReferences()){
         if((!reference.connection&&reference.keyword!=='$dynamicRef'&&!(includeStatic&&reference.keyword==='$ref'))||reference.resolution!=='resolved')continue;
         const field={resource:reference.resource,pointer:reference.pointer+'/'+escape(reference.keyword)};
         const connectionAt=(field:MigrationLocation)=>connections.get(identity(field,reference.kind,reference.connection));
+        const captured=source.scopeAs(reference.targetResource!,reference.targetPointer!,reference.kind);
         const fields=mapped(field).filter(field=>connectionAt(field)!==undefined),targets=mapped({resource:reference.targetResource!,pointer:reference.targetPointer!})
-            .filter(location=>!includeStatic||target.scopeAs(location.resource,location.pointer,reference.kind)!==undefined);
+            .filter(location=>{
+                if(!includeStatic)return true;
+                const scope=target.scopeAs(location.resource,location.pointer,reference.kind);
+                return scope!==undefined&&scope.family===captured?.family&&scope.dialect===captured?.dialect;
+            });
         if(!fields.length||fields.some(field=>{
             const connection=connectionAt(field);
             return !connection||connection.resolution!=='resolved'||!targets.some(target=>target.resource===connection.targetResource&&target.pointer===connection.targetPointer);

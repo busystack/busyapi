@@ -24,7 +24,7 @@ for(const version of ['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3
  assert.equal(input.resources[0].text,text);
 });
 test('serialized runtime semantics have a distinct producer and configuration identity',()=>{
- assert.equal(schemaProducer.version,'1.18.0+53');assert(schemaProducer.configuration.includes('parameter-runtime-serialization-v1'));
+ assert.equal(schemaProducer.version,'1.18.0+54');assert(schemaProducer.configuration.includes('parameter-runtime-serialization-v1'));
 });
 test('Swagger serialized parameter runtime retains its narrower Items and collectionFormat interpretation',async()=>{
  const root='file:///approved/api.json',pointer='/paths/~1p/get/parameters/0';

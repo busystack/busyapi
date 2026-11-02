@@ -53,13 +53,35 @@ test(`${format} entry-dependent ${recursive?'recursive':'scalar'} schemas, forwa
  assert.deepEqual(repeated.outputs,review.outputs,'Owner names and selected consumers are deterministic');
 });
 
-test('entry variants retain precise identity guards rather than globally rewriting an identified shared resource',async()=>{
+test('identified entry resources acquire distinct owned identities while retaining original literals and cold behavior',async()=>{
  const input=fixture('json',false),value=JSON.parse(input.resources[2].text);
  value.Node.$id='https://schemas.invalid/shared';value.Node.$dynamicAnchor='node';
  // Both entries use modern semantics, so the source resource is valid in
  // both dialects. Its declaration is still one shared physical identity.
  input.resources[0].text=input.resources[0].text.replace('3.0.4','3.1.2');
  input.resources[2].text=JSON.stringify(value);
+ const before=input.resources.map(resource=>resource.text);
+ await check(input,input.root,false,false);await check(input,other,false,false);
+ const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));
+ const packet={resources:result.outputs.map(output=>({id:output.id,text:output.text,generation:0})),snapshot:'cold-identified-entry'};
+ const identities=[];
+ for(const source of [input.root,other]){
+  const root=result.changes.find(change=>change.resource===source).destination;
+  await check(packet,root,false,false);
+  const graph=createGraph({...packet,root}).graph;
+  const generated=graph.scopesFor('schema').filter(scope=>scope.resource===root&&scope.pointer.startsWith('/components/schemas/_migrated_entry_use_')&&graph.docs.get(root).dataNode(scope.pointer+'/$id'));
+  assert.equal(generated.length,1);identities.push(generated[0].base);
+  assert.notEqual(generated[0].base,value.Node.$id);assert.equal(graph.identities.get(generated[0].base).length,1);
+ }
+ assert.equal(new Set(identities).size,2);
+ const originalFragment=result.outputs.find(output=>output.id===result.changes.find(change=>change.resource===models).destination);
+ assert.equal(originalFragment.text,input.resources[2].text);
+ assert.deepEqual(input.resources.map(resource=>resource.text),before);
+});
+
+test('entry variants retain the partial-resource guard until a common resource holder is proved',async()=>{
+ const input=fixture('json',false),value=JSON.parse(input.resources[2].text);
+ value.Node.$dynamicAnchor='node';input.resources[0].text=input.resources[0].text.replace('3.0.4','3.1.2');input.resources[2].text=JSON.stringify(value);
  const before=input.resources.map(resource=>resource.text),result=await planMigration(input);
  assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);
  const problem=result.problems.find(problem=>problem.code==='migration.owners.entry-resource');

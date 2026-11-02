@@ -5,6 +5,7 @@ import {MigrationSource,type MigrationLocation} from './migration_source';
 import type {MigrationIssue} from './migration_schema';
 import {DiscriminatorModels} from './discriminator_models';
 import {MigrationSchemaOwners} from './migration_schema_owners';
+import {migrationScopes} from './migration_documents';
 
 const key=(location:MigrationLocation)=>JSON.stringify([location.resource,location.pointer]);
 const inside=(pointer:string,root:string)=>pointer===root||pointer.startsWith(root+'/');
@@ -20,7 +21,8 @@ type Mapping=Readonly<{
  * states, retaining composition instead of flattening accepted instances. */
 export function migrateSwaggerDiscriminators(graph:ReferenceGraph,sources:Map<string,MigrationSource>,issue:MigrationIssue,
     contexts:readonly ReferenceGraph[],presentation:(original:MigrationLocation)=>void):Mapping {
-    const bases=graph.scopesFor('schema').filter(scope=>scope.family==='2.0'&&
+    const scopes=[...migrationScopes(contexts)].filter(scope=>scope.kind==='schema');
+    const bases=scopes.filter(scope=>scope.family==='2.0'&&
         typeof graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value?.discriminator==='string'&&
         typeof graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value?.$ref!=='string');
     const primaryTargets=new Map<string,MigrationLocation>(),referenceTargets=new Map<string,MigrationLocation>();
@@ -35,7 +37,7 @@ export function migrateSwaggerDiscriminators(graph:ReferenceGraph,sources:Map<st
     const locations=(original:MigrationLocation):MigrationLocation[]=>[...pristine].flatMap(([resource,source])=>
         [...(resource===original.resource?source.origins.get(original.pointer):source.foreignOrigins.get(original.resource+'#'+original.pointer))??[]]
             .map(pointer=>({resource,pointer})));
-    for(const scope of graph.scopesFor('schema'))if(scope.family==='2.0'){
+    for(const scope of scopes)if(scope.family==='2.0'){
         const mapped=locations(scope);if(mapped.length===1)primaryTargets.set(key(scope),mapped[0]);
     }
     const primary=(original:MigrationLocation):MigrationLocation=>{

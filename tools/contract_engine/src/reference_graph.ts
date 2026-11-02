@@ -4,7 +4,7 @@ import {swaggerFileChoiceTargets} from './swagger_file';
 import {resolveIri} from '@hyperjump/uri';
 import {specificationDeclaration, defaultSchemaDialect, modernFamily, restrictedSchemaDialect, swaggerSchemaDialect, isNativeFamily, capabilitiesFor, Specification,declaredSchemaDialect} from './specification';
 
-export const schemaRoleContextRevision='5';
+export const schemaRoleContextRevision='6';
 
 export const knownDialects = new Set([
     restrictedSchemaDialect,
@@ -135,6 +135,7 @@ export class ReferenceGraph {
     private readonly roleKinds = new Map<string, Set<string>>();
     private readonly overlappingScopes = new Set<string>();
     private entryUses?:ReadonlySet<string>;
+    private dynamicCandidateWork=0;
     private useIdentity(scope:GraphTarget):string{return JSON.stringify([scope.resource,scope.pointer,scope.kind]);}
     /** All parsed declarations remain available for identities and source
      * inspection. Semantic validation belongs to the selected entry's typed
@@ -184,6 +185,15 @@ export class ReferenceGraph {
             }
         }
         this.entryUses=selected;
+        // A dynamic override must belong to a resource reachable in this
+        // entry. A parsed anchor in another independent API cannot enter the
+        // evaluation path merely because both files were captured together.
+        for(const reference of this.entryReferences())if(reference.dynamic){
+            reference.dynamic={...reference.dynamic,candidates:reference.dynamic.candidates.filter(candidate=>{
+                admit();const scope=this.scopeAs(candidate.resource,candidate.pointer,'schema');
+                return scope!==undefined&&this.isEntryUse(scope);
+            })};
+        }
         // Located semantic findings use their nearest captured role, not an
         // arbitrary physical document. Ambiguous identities still diagnose
         // every active reference that encounters the ambiguity.
@@ -670,8 +680,14 @@ export class ReferenceGraph {
         if (!doc?.dataNode(target.pointer)) return { targetUri, targetResource: target.resource, targetPointer: target.pointer, resolution: 'missing' };
         const result: Partial<GraphReference> = { targetUri, targetResource: target.resource, targetPointer: target.pointer, resolution: 'resolved' };
         if (dynamic && fragment && !fragment.startsWith('/') &&
-            this.dynamicAnchors.get(fragment)?.some(t => same(t, target)))
-            result.dynamic = { anchor: fragment, candidates: [...this.dynamicAnchors.get(fragment)!] };
+            this.dynamicAnchors.get(fragment)?.some(t => same(t, target))){
+            const candidates=this.dynamicAnchors.get(fragment)!;
+            if((this.dynamicCandidateWork+=candidates.length)>2000000){
+                const range:Range=this.docs.get(scope.resource)?.dataNode(scope.pointer)?.range??[0,0];
+                throw new SourceError('limit.graph.dynamic-candidates','Dynamic reference capture exceeds 2000000 candidate steps',range,'unsupported',{resource:scope.resource,pointer:scope.pointer,range});
+            }
+            result.dynamic = { anchor: fragment, candidates: [...candidates] };
+        }
         return result;
     }
 

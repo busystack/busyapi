@@ -6,6 +6,7 @@ import {specializeMigrationText} from './migration_shared_text';
 import type {MigrationLocation} from './migration_source';
 import type {MigrationIssue} from './migration_schema';
 import {documentUriBase,type GraphScope,type ReferenceGraph} from './reference_graph';
+import {migrationScopes} from './migration_documents';
 
 type CapturedMarkdown=Readonly<{
     original:MigrationLocation;
@@ -25,9 +26,9 @@ function description(graph:ReferenceGraph,scope:GraphScope) {
 
 /** Capture rendered context before conversion changes identities or hoists an
  * object. Physical scalar provenance does not replace a logical URI base. */
-export function captureMigrationMarkdown(graph:ReferenceGraph,issue:MigrationIssue):readonly CapturedMarkdown[] {
+export function captureMigrationMarkdown(graph:ReferenceGraph,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph]):readonly CapturedMarkdown[] {
     const captured:CapturedMarkdown[]=[];
-    for(const scope of graph.interpretedScopes()){
+    for(const scope of migrationScopes(contexts)){
         const field=description(graph,scope);if(!field)continue;
         const original={resource:scope.resource,pointer:scope.pointer+'/description'};
         try{
@@ -43,9 +44,9 @@ export function captureMigrationMarkdown(graph:ReferenceGraph,issue:MigrationIss
     return captured;
 }
 
-function targets(captured:readonly CapturedMarkdown[],graph:ReferenceGraph,mapped:Mapped,issue:MigrationIssue):Target[] {
+function targets(captured:readonly CapturedMarkdown[],graph:ReferenceGraph,mapped:Mapped,issue:MigrationIssue,contexts:readonly ReferenceGraph[]):Target[] {
     const owners=new Map<string,GraphScope[]>(),result:Target[]=[];
-    for(const scope of graph.interpretedScopes()){
+    for(const scope of migrationScopes(contexts)){
         const field=description(graph,scope);if(!field)continue;
         const identity=key({resource:scope.resource,pointer:scope.pointer+'/description'}),values=owners.get(identity)??[];
         values.push(scope);owners.set(identity,values);
@@ -73,9 +74,9 @@ function targets(captured:readonly CapturedMarkdown[],graph:ReferenceGraph,mappe
  * destinations. Logical YAML uses may split; a single occurrence interpreted
  * as both rendered text and literal data still needs separate semantic owners. */
 export function rewriteMigrationMarkdown(captured:readonly CapturedMarkdown[],graph:ReferenceGraph,mapped:Mapped,issue:MigrationIssue,
-    changed:(location:MigrationLocation)=>void):ReadonlyMap<string,SourceDocument> {
+    changed:(location:MigrationLocation)=>void,contexts:readonly ReferenceGraph[]=[graph]):ReadonlyMap<string,SourceDocument> {
     const desired=new Map<string,{target:Target;value:string}>(),documents=new Map<string,SourceDocument>();
-    for(const target of targets(captured,graph,mapped,issue)){
+    for(const target of targets(captured,graph,mapped,issue,contexts)){
         const {source,location,scope}=target,finding={...location,original:source.original};
         if(target.value!==source.value){
             issue(finding,'migration.description.context','The documentation text changed before its URI mapping could be established','implementation');
@@ -119,8 +120,8 @@ export function rewriteMigrationMarkdown(captured:readonly CapturedMarkdown[],gr
     return documents;
 }
 
-export function proveMigrationMarkdown(captured:readonly CapturedMarkdown[],graph:ReferenceGraph,mapped:Mapped,issue:MigrationIssue):void {
-    for(const {source,location,scope,value}of targets(captured,graph,mapped,issue)){
+export function proveMigrationMarkdown(captured:readonly CapturedMarkdown[],graph:ReferenceGraph,mapped:Mapped,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph]):void {
+    for(const {source,location,scope,value}of targets(captured,graph,mapped,issue,contexts)){
         try{
             if(value!==relocateMarkdownLinks(source.value,source.base,documentUriBase(graph,scope)))
                 issue({...location,original:source.original},'migration.description.relative-links','The migrated Markdown has no complete source-context-preserving destination proof','implementation');

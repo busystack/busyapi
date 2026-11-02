@@ -8,7 +8,7 @@ import type {MigrationIssue} from './migration_schema';
  * URIs in 3.1 (§4.6). Capture their meaning before changing family. Distinct
  * Server choices cannot be collapsed to one arbitrary default URI. */
 export function migrateTerms(graph:ReferenceGraph,sources:Map<string,MigrationSource>,families:readonly string[],captured:Map<string,string>,issue:MigrationIssue):void {
-    for(const scope of graph.scopes.values()){
+    for(const scope of graph.entryScopes()){
         if(scope.kind!=='info'||scope.family==='2.0'||!families.includes(scope.family))continue;
         const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value?.termsOfService;
         if(typeof value!=='string'||/^[A-Za-z][A-Za-z0-9+.-]*:/u.test(value))continue;

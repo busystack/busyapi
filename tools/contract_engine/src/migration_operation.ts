@@ -12,7 +12,7 @@ import {standardOperationMethods} from './contexts';
  * methods. Refuse at the operation before offering body-only decisions. */
 export function checkOperationTarget(graph:ReferenceGraph,target:string,issue:MigrationIssue):void {
     if(target!=='2.0')return;
-    for(const scope of graph.scopes.values()) {
+    for(const scope of graph.entryScopes()) {
         if(scope.kind!=='operation')continue;
         const contexts=graph.operationContexts(scope.resource,scope.pointer);
         const methods=contexts.length?contexts.map(context=>context.method):[segments(scope.pointer).at(-1)!];
@@ -25,7 +25,7 @@ export function checkOperationTarget(graph:ReferenceGraph,target:string,issue:Mi
  * meaning. OAS 3.0's ignored declaration cannot represent an active body. */
 export function checkRequestBodyTarget(context:ReturnType<typeof createGraph>,resources:Resource[],target:string,issue:MigrationIssue):void {
     if(target!=='3.0')return;
-    for(const scope of context.graph.scopes.values()) {
+    for(const scope of context.graph.entryScopes()) {
         if(scope.kind!=='operation'||!modernFamily(scope.family)||!context.docs.get(scope.resource)!.dataNode(scope.pointer)?.children.has('requestBody'))continue;
         const contexts=context.graph.operationContexts(scope.resource,scope.pointer);
         // Reusable definitions also retain their declared fixed method, even
@@ -48,7 +48,7 @@ export function checkRequestBodyTarget(context:ReturnType<typeof createGraph>,re
 export function migrateOperationBodies(graph:ReferenceGraph,sources:Map<string,MigrationSource>,from:string,to:string,original:(scope:GraphScope)=>string,issue:MigrationIssue):MigrationLocation[] {
     const omitted:MigrationLocation[]=[];
     if(from!=='3.0'||to==='3.0')return omitted;
-    for(const scope of graph.scopes.values()) {
+    for(const scope of graph.entryScopes()) {
         if(scope.kind!=='operation'||scope.family!==from||original(scope)!=='3.0'||!graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.children.has('requestBody'))continue;
         const contexts=graph.operationContexts(scope.resource,scope.pointer),ignored=contexts.filter(context=>ignoresRequestBody(scope.family,context.method.toUpperCase()));
         if(!ignored.length)continue;

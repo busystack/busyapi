@@ -7,6 +7,7 @@ import {DiscriminatorModels} from './discriminator_models';
 import {MigrationSource,type MigrationLocation} from './migration_source';
 import type {MigrationIssue} from './migration_schema';
 import {MigrationSchemaOwners} from './migration_schema_owners';
+import {migrationScopes} from './migration_documents';
 
 type Direction='request'|'response';
 type LegacyOwner=Readonly<{family:string;property:boolean;origin:GraphScope}>;
@@ -56,11 +57,12 @@ function discriminatorBindings(graph:ReferenceGraph,scope:GraphScope,selection:D
  * All copies and replacements belong to the existing CST/provenance owner. */
 export function migrateDirectionalSchemas(original:ReferenceGraph,graph:ReferenceGraph,
     sources:Map<string,MigrationSource>,families:readonly string[],target:string,issue:MigrationIssue,
-    createSchemaResource:()=>MigrationSource,contexts:readonly ReferenceGraph[]):void {
+    createSchemaResource:()=>MigrationSource,contexts:readonly ReferenceGraph[],sourceContexts:readonly ReferenceGraph[]=[original]):void {
     const converting=new Set(families.filter(family=>family==='2.0'&&target!=='2.0'||family==='3.0'&&['3.1','3.2'].includes(target)));
     if(!converting.size)return;
     const legacy=new Map<string,LegacyOwner>();
-    for(const scope of original.scopesFor('schema')){
+    for(const scope of migrationScopes(sourceContexts)){
+        if(scope.kind!=='schema')continue;
         if(!converting.has(scope.family))continue;
         const owner={family:scope.family,property:/\/properties\/[^/]+$/.test(scope.pointer),origin:scope};
         for(const [resource,source]of sources){
@@ -77,7 +79,7 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
     }
     const report=(scope:GraphScope,code:string,message:string)=>
         issue(legacy.get(key(scope))?.origin??scope,code,message,'implementation');
-    const scopes=graph.scopesFor('schema');
+    const scopes=[...migrationScopes(contexts)].filter(scope=>scope.kind==='schema');
     if(scopes.length>20000)throw new SourceError('limit.migration.direction','Directional mapping exceeds 20000 schema occurrences');
     const byId=new Map(scopes.map(scope=>[key(scope),scope]));
     let inspections=0;

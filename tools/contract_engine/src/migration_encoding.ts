@@ -3,14 +3,15 @@ import {FormSemantics} from './form_semantics';
 import type {ReferenceGraph} from './reference_graph';
 import type {MigrationIssue} from './migration_schema';
 import {MigrationSource} from './migration_source';
+import {migrationScopes} from './migration_documents';
 
 /** OAS 3.0 §4.7.15 ignores multipart style fields. OAS 3.1 §4.8.15
  * activates them and ignores contentType instead. A declaration-only upgrade
  * would change request bytes even though both documents validate. */
-export function migrateEncodings(graph:ReferenceGraph,sources:Map<string,MigrationSource>,from:string,to:string,issue:MigrationIssue):void {
+export function migrateEncodings(graph:ReferenceGraph,sources:Map<string,MigrationSource>,from:string,to:string,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph]):void {
     if(from!=='3.0'&&to!=='3.0')return;
     const forms=new FormSemantics(graph);
-    for(const scope of graph.scopes.values())if(scope.kind==='media'&&scope.family===from){
+    for(const scope of migrationScopes(contexts))if(scope.kind==='media'&&scope.family===from){
         const content=scope.pointer.lastIndexOf('/content/');
         if(content<0||graph.scope(scope.resource,scope.pointer.slice(0,content)).kind!=='request-body')continue;
         const media=scope.pointer.slice(content+9).replaceAll('~1','/').replaceAll('~0','~').split(';')[0].trim().toLowerCase();
