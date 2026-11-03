@@ -927,9 +927,15 @@ busyapi refactor api.yaml --action yaml-ownership --pointer /info --review --jso
 busyapi refactor api.yaml --action yaml-ownership --pointer /info --apply REVIEW_SHA256 --json
 ```
 
-Actions are `component-rename`, `property-rename`, `schema-definition-rename`,
-`response-rename`, `extract`, `inline`, `move-definition` and `yaml-ownership`.
-Rename/extract/move require `--name`; definition moves also require `--destination`.
+Object actions are `component-rename`, `property-rename`,
+`schema-definition-rename`, `response-rename`, `extract`, `extract-file`, `inline`,
+`move-definition`, `object-delete`, `operation-move` and `yaml-ownership`.
+They require `--pointer`. Rename/extract/definition move require `--name`;
+definition moves and new-file extraction also require `--destination`.
+Operation moves require `--method` and exactly one `--path` or
+`--destination-pointer`; `--additional` selects OpenAPI 3.2 additional operations.
+`--operation-context preserve|destination` defaults to `preserve` and retains the
+native planner's inherited-context review and family-specific method checks.
 `--resource` and `--destination` are approved source paths relative to the project
 boundary, or local file URIs. `--root` selects an entry while every configured root
 participates in the review. `--context-kind` selects an established interpretation
@@ -937,7 +943,22 @@ of a shared occurrence. Review writes no project files. Apply recollects all inp
 and rejects an obsolete identity; linked source publication retains the existing
 journal/recovery behavior. JSON reports distinguish incomplete/partial publication
 and explicitly say contract validation was not run. Run `check` to validate saved
-contracts. File creation/move/deletion are still native maintenance actions.
+contracts.
+
+`file-create`, `file-move`, `file-delete` and `root-remove` use Core's existing
+file transactions without a pointer. Creation and moves require `--destination`;
+moves/deletions require `--resource`. `--retain-identity` selects the existing
+reviewed file-move identity option. Root removal uses a configured named `--root`
+and removes only its manifest declaration. File creation accepts `--text` or
+`--content-file`, `--bom` and an octal `--mode` (default `644`). Captured UTF-8
+content is inserted verbatim; relative references are interpreted at the new
+destination. Use extraction or file movement for semantic relocation. The content
+input joins Core's snapshot and freshness checks. Review identities cover output
+content, paths, presence, BOMs and permission modes as well as captured sources
+and engine assets. File publication includes path/presence changes with no text
+edits, preserves exact source bytes/modes and retains collision, consumer,
+cancellation and journal guards. Prepared Core/independent-CLI regressions cover
+these routes and cold reopening; they have not executed under the hold.
 
 New-file component extraction composes the existing CST/graph proofs and creates no OpenAPI wrapper. Swagger 2.0 parameters/responses use a named unversioned fragment and direct usage-site reference; the global definitions maps do not permit forwarding Reference Objects. Definition moves repair their captured consumers and remove the old binding. Other supported families retain their legal aliases. Native metadata, Source choices and graph traversal use the same source-position rule. Worker cases cover selected-version reusable families, referenced fragment sources, multi-root closure, boolean/recursive schemas, exact examples, legal named bindings and ambiguous-root refusal. Core tests cover a single coupled virtual transaction, full undo/redo, byte-exact save/reopen, unsaved shared fragments, stale inputs, occupied destinations and malformed creation replies. Real SIGKILL tests stop before publication and in both fragment/root receipt gaps, preserve newer versions of either member and recover without speculative writes. Native-style widget controls cover sequential capture, recovered filename drafts, complete review/cancel, retired callbacks, resource selection, folds and reading state. These do not substitute for the complete actual GTK refactoring scenario or native input/performance qualification.
 

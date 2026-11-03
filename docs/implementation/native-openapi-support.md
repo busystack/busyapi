@@ -136,7 +136,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 
 | ID / requirement and authority | Production owner | Surfaces | Prepared regression coverage | Implementation status / remaining closure | Executed acceptance |
 | --- | --- | --- | --- | --- | --- |
-| W6.01 Rename/extract/copy/inline/relocate at every schema-bearing position; JC §§8–10, family Schema/Components clauses | refactoring/copy/file owners, canonical schema traversal, Core transactions | A R S C | refactoring/copy/extract/file/schema-definition suites | Partially implemented; reviewed extract, definition move, new-file extraction, inline and renames now share migration YAML token ownership, original-coordinate transactions and native controls. Rename reads alias-backed required/dependency/composition relationships through logical paths and owns only affected writes, including security fields/configuration. Explicit YAML independence retains all logical values and graph identities and enables subsequent ordinary native controls. CLI review/apply exposes existing object maintenance through the same Core plans. Full schema-bearing-position, file-operation CLI and independently interpreted role coverage remains; current cold-reopen qualification is pending | H |
+| W6.01 Rename/extract/copy/inline/relocate at every schema-bearing position; JC §§8–10, family Schema/Components clauses | refactoring/copy/file owners, canonical schema traversal, Core transactions | A R S C | refactoring/copy/extract/file/schema-definition suites | Partially implemented; reviewed extract, definition move, new-file extraction, inline and renames now share migration YAML token ownership, original-coordinate transactions and native controls. Rename reads alias-backed required/dependency/composition relationships through logical paths and owns only affected writes, including security fields/configuration. Explicit YAML independence retains all logical values and graph identities and enables subsequent ordinary native controls. CLI review/apply exposes existing object/file maintenance and operation/root moves through the same Core plans, captured file intents and grouped publication. Full schema-bearing-position and independently interpreted role coverage remains; current cold-reopen qualification is pending | H |
 | W6.02 Preserve resource/dialect/anchor and dynamic evaluation scope without weakening recursion/identity/Path Item guards; JC §§8–9 | `refactoring_copy.ts`, reference choices/graph | A R S C | copy suite static-dynamic/dialect controls plus existing genuine dynamic/recursive refusals | Partially implemented; static dynamic-reference starting points and retained explicit dialects now have a guarded inline path; identified/dynamic resources and non-schema chains still need specific algorithms | H |
 | W6.03 Shared/conflicting Markdown and dual literal/contract owners; TEXT/URI, O32 URI-base clauses | refactoring Markdown/file/copy, migration shared-text, URI owners | A R M S C | Markdown identity/location/shared-text/refactoring suites, native-object-use migration controls | Partially implemented; reviewed copy/inline now separate YAML aliases before the existing Markdown/URI proofs and preserve literal alias values. Migration schema/data and native object/data owners are retained; general refactoring and incompatible entry/rendering-base specializations remain missing | H |
 | W6.04 Complete native Reference/export and exact pinned external renderer/generator/comparator adapters; family clauses, PINS | native Reference, `derived_bundle.ts`, Core renderer/export adapters | R M S C | reference family/display/Markdown, bundle/resource-package/adapter suites | Partially implemented; native family paths exist; complete relocated/offline output and exact adapter limitation qualification remain; never strip/relabel source to satisfy an adapter | H |
@@ -727,18 +727,30 @@ metadata and retain their guards until review is applied. The same Core snapshot
 publication, history and native stale-selection protections own this action.
 
 The independent CLI's `refactor` review/apply command uses these Core plans for
-component/property/schema-definition/response rename, extract, inline, definition
-move and YAML independence. Stable review identities include complete source
+component/property/schema-definition/response rename, extract/new-file extraction,
+inline, definition move, object deletion, operation move and YAML independence.
+File creation, movement, deletion and named-root removal now use the existing Core
+file/configuration plans too. Stable review identities include complete source
 snapshots, configuration, approved boundaries, captured external resources, engine
-assets and actual edits; process-local counters are excluded. Apply recollects
+assets, actual edits and every reviewed output/decision; process-local counters
+are excluded only at known protocol coordinates. Created content, BOMs, permission
+modes, destinations and presence changes have explicit immutable file intents.
+Raw UTF-8 content inputs join the captured snapshot and freshness owner; file
+creation captures configuration, approved boundaries and the actual engine asset
+identity even in a new CLI process. Apply recollects
 inputs and requires the supplied identity before changing buffers, then uses the
 existing journaled grouped publication. Partial publication and cancellation do
-not claim success or contract validation. File creation/relocation/deletion CLI
-commands remain outside this implemented boundary. Registered engine ownership,
+not claim success or contract validation. Publication selects the Core transaction's
+affected owners, including moves/deletions with no text edits. Registered engine ownership,
 Core/CLI `yaml_ownership_test.dart` and native widget `yaml_ownership_test.dart`
 prepare draft editing, exact numbers/bytes, incomplete and recursive references,
 multiple roots, review/cancel, stale inputs, Undo/Redo, publication and cold reopen.
-These paths are source-complete, unverified; mandatory execution remains held.
+Core/CLI `refactoring_cli_test.dart` additionally prepares changed output/mode/BOM
+reviews, captured-template and unopened-configuration freshness, zero-edit file
+publication, exact bytes/modes, collisions, referenced-file refusal, new-file
+extraction/relocation, cross-root operation Links, root declaration removal and
+cold reopening. These CLI routes are source-complete, unverified; the W6/W7 rows
+retain their other source gaps and mandatory execution remains held.
 
 Mixed-family connected entries now select a compatible component holder from
 this same owner allocator: the selected entry when its family matches, otherwise

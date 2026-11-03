@@ -486,24 +486,54 @@ class RefactoringPlan {
     final contexts = [for (final snapshot in _snapshots)
       {'root': snapshot.root, 'source': snapshot.sourceIdentity},
     ]..sort((a, b) => a['root']!.compareTo(b['root']!));
-    final changes = [for (final edit in edits) {
-      'resource': edit.buffer, 'start': edit.start, 'end': edit.end,
-      'expected': edit.expected, 'replacement': edit.replacement,
-    }]..sort((a, b) {
-      final resource = (a['resource'] as String).compareTo(b['resource'] as String);
-      if (resource != 0) return resource;
-      return (a['start'] as int).compareTo(b['start'] as int);
-    });
     Map<String, Object?> location(dynamic value) => {
-      if (value is Map) for (final key in ['root', 'resource', 'pointer', 'kind', 'range'])
-        if (value.containsKey(key)) key: value[key],
+      if (value is Map) for (final entry in value.entries)
+        if (entry.key != 'generation') (entry.key as String): entry.value,
     };
+    List<Object?> locations(dynamic values) => [
+      if (values is List) for (final value in values)
+        if (value is Map) location(value) else value,
+    ];
+    // Retain every reviewed output/decision, including created file content.
+    // Strip counters only at known protocol coordinates, never in user data.
     return textIdentity(jsonEncode({
-      'version': 1, 'kind': result['kind'], 'contexts': contexts,
-      'from': location(result['from']), 'to': location(result['to']),
-      'edits': changes, 'transitions': result['transitions'],
-      'warnings': result['warnings'], 'blockers': result['blockers'],
+      'version': 2, 'contexts': contexts, 'fileIntent': fileIntent,
+      'plan': {
+        for (final entry in result.entries)
+          if (!const ['snapshot', 'identity', 'from', 'to', 'edits', 'file', 'usages', 'blockers'].contains(entry.key))
+            entry.key: entry.value,
+        'from': location(result['from']), 'to': location(result['to']),
+        'edits': [for (final edit in edits) {
+          'buffer': edit.buffer, 'start': edit.start, 'end': edit.end,
+          'expected': edit.expected, 'replacement': edit.replacement,
+        }],
+        if (result.containsKey('file')) 'file': location(result['file']),
+        if (result.containsKey('usages')) 'usages': locations(result['usages']),
+        if (result.containsKey('blockers')) 'blockers': locations(result['blockers']),
+      },
     }));
+  }
+  Map<String, Object?> get fileIntent {
+    final plan = this;
+    if (plan is FileCreationPlan) return {
+      'kind': 'create', 'resource': plan.creation.id, 'path': plan.creation.path,
+      'identity': textIdentity('${plan.creation.hasBom ? '\ufeff' : ''}${plan.creation.text}'),
+      'hasBom': plan.creation.hasBom, 'mode': plan.creation.mode,
+    };
+    if (plan is FileMovePlan) return {
+      'kind': 'move', 'resource': plan.pathEdit.buffer,
+      'source': plan.pathEdit.expectedPath, 'destination': plan.pathEdit.path,
+      'identity': textIdentity('${plan.pathEdit.expectedBom ? '\ufeff' : ''}${plan.pathEdit.expectedText}'),
+      'hasBom': plan.pathEdit.expectedBom, 'mode': result['sourceMode'],
+    };
+    if (plan is FileDeletionPlan) return {
+      'kind': 'delete', 'resource': plan.presence.buffer,
+      'path': plan.presence.expectedPath,
+      'identity': textIdentity('${plan.presence.expectedBom ? '\ufeff' : ''}${plan.presence.expectedText}'),
+      'hasBom': plan.presence.expectedBom, 'mode': result['sourceMode'],
+      'expectedPresent': plan.presence.expectedPresent, 'present': plan.presence.present,
+    };
+    return const {};
   }
   List<String> get checkedRoots =>
       List<String>.from(result['checkedRoots'] as List);

@@ -559,6 +559,10 @@ extension FileRefactoring on BusyProject {
         'The proposed source or file permissions exceed their limits',
       );
     }
+    // A fresh CLI process may not have analysed a contract yet. Capture the
+    // actual engine asset owner just as semantic maintenance snapshots do.
+    final configuration = await _refreshResourceConfiguration();
+    await engine.start();
     final revision = _resourceRevision;
     final resources = <Map<String, Object?>>[];
     for (final b in store.buffers.values.toList()) {
@@ -567,6 +571,9 @@ extension FileRefactoring on BusyProject {
     final snapshot = AnalysisSnapshot(
       root: roots.first.id,
       resources: resources,
+      boundaries: approvedContexts,
+      engineIdentity: engine.assetIdentity,
+      configuration: [if (configuration.source != null) configuration.source!],
     );
     final identity = textIdentity(
       jsonEncode({
@@ -753,6 +760,7 @@ extension FileRefactoring on BusyProject {
             'failure': policyFailure,
           }),
         ),
+        'sourceMode': source.mode,
         'blockers': [
           ...plan.result['blockers'] as List,
           if (_resourceMappings.values.contains(source.id))
@@ -923,6 +931,7 @@ extension FileRefactoring on BusyProject {
             'failure': impact.failure,
           }),
         ),
+        'sourceMode': source.mode,
         'blockers': [
           ...plan.result['blockers'] as List? ?? const [],
           if (impact.failure != null ||

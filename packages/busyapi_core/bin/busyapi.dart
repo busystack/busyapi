@@ -14,7 +14,7 @@ Usage:
   busyapi bundle FILE_OR_PROJECT --output DIRECTORY [--format single-file|resource-package] [--root NAME_OR_PATH] [--map-resource URI FILE] [--replace-output RECEIPT_SHA256] [--json]
   busyapi build-docs FILE_OR_PROJECT --output DIRECTORY [--preset native-reference|redoc|swagger] [--root NAME_OR_PATH] [--map-resource URI FILE] [--replace-output RECEIPT_SHA256] [--json]
   busyapi migrate FILE_OR_PROJECT --target VERSION --output NEW_DIRECTORY [--review | --apply REVIEW_SHA256] [--decision ID=CHOICE ...] [--root NAME_OR_PATH] [--json]
-  busyapi refactor FILE_OR_PROJECT --action ACTION --pointer JSON_POINTER [--resource FILE] [--name NAME] [--destination FILE] [--context-kind KIND] [--review | --apply REVIEW_SHA256] [--root NAME_OR_PATH] [--json]
+  busyapi refactor FILE_OR_PROJECT --action ACTION [--pointer JSON_POINTER] [--resource FILE] [--name NAME] [--destination FILE] [--context-kind KIND] [--review | --apply REVIEW_SHA256] [--root NAME_OR_PATH] [--json]
   busyapi diff FILE_OR_PROJECT (--base REVISION | --merge-base REVISION) [--root NAME_OR_PATH] [--fail-on breaking|potentially-breaking|any] [--json]
   busyapi mock FILE_OR_PROJECT [--root NAME_OR_PATH] [--port PORT] [--proxy HTTP_BASE_URL] [--json]
   busyapi test FILE_OR_PROJECT --case NAME [--case NAME...] [--root NAME_OR_PATH] [--environment NAME] [--allow-tls-file PATH...] [--secrets-stdin] [--json]
@@ -24,7 +24,10 @@ Usage:
   busyapi generate FILE_OR_PROJECT --generator NAME --output DIRECTORY [--root NAME_OR_PATH] [--option NAME=JSON_OR_TEXT ...] [--template-directory DIRECTORY] [--replace-output RECEIPT_SHA256] [--json]
   busyapi --help | --version
 Creation: init writes a contract and busyapi.yaml by default; --standalone writes only the contract. Both print the contract path.
-Maintenance actions: component-rename, property-rename, schema-definition-rename, response-rename, extract, inline, move-definition, yaml-ownership. Names are required for rename/extract/move; move-definition requires a destination. Source paths are relative to the project boundary. All configured roots participate in review.
+Maintenance actions: component-rename, property-rename, schema-definition-rename, response-rename, extract, extract-file, inline, move-definition, yaml-ownership, object-delete, operation-move, file-create, file-move, file-delete, root-remove.
+Object actions require --pointer; rename/extract/definition move require --name. New-file extraction, definition/file move and file creation require --destination. File move/delete require --resource. File moves accept --retain-identity.
+Operation moves require --method and exactly one --path or --destination-pointer; --additional selects additionalOperations, and --operation-context preserve|destination defaults to preserve.
+File creation accepts --text TEXT or --content-file FILE, plus --bom and --mode OCTAL. Root removal uses the selected named --root. Paths are relative to the project boundary. Semantic actions review every configured root.
 Reports: check/lint --sarif FILE; test --junit FILE (no-clobber exports; command exit status is unchanged).
 Exit codes: 0 complete clean; 1 contract failure; 2 incomplete/unsupported; 3 operational/configuration failure.
 ''';
@@ -90,6 +93,9 @@ Future<void> runBusyApi(
       '--list-generators',
       '--generator-options',
       '--standalone',
+      '--additional',
+      '--retain-identity',
+      '--bom',
     ].contains(args[i])) {
       options[args[i].substring(2)] = 'true';
     } else if (args[i].startsWith('--')) {
@@ -171,6 +177,8 @@ Future<void> runBusyApi(
             if (args.first == 'refactor') ...[
               'action', 'pointer', 'resource', 'name', 'destination',
               'context-kind', 'review', 'apply',
+              'method', 'additional', 'operation-context', 'path', 'destination-pointer',
+              'retain-identity', 'content-file', 'text', 'mode', 'bom',
             ],
             if (args.first == 'diff') ...['base', 'merge-base', 'fail-on'],
             if (args.first == 'mock') ...['port', 'proxy'],
