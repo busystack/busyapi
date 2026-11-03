@@ -790,7 +790,7 @@ Annotation-only schema views of affected destination maps/documents are captured
 through the same role allocator before insertion. Other container/resource
 interpretations, uses without a proved holder and general refactoring ownership
 remain gaps.
-The migration producer is **59**; Core rejects previous
+The migration producer is **60**; Core rejects previous
 producer responses before publication. Current qualification remains pending.
 
 Older-family migration also lowers dynamic references when every captured
@@ -904,11 +904,14 @@ separately from specification errors.
 
 Independently referenced component-schema maps can retain their own JSON Schema
 assertions while native entry uses acquire specialized components. The common
-owner preserves their captured values and repairs only typed consumers. Equal
+owner preserves their captured values and repairs only typed consumers. Maps
+with polymorphic connections use reserved `$defs` in a captured schema or a
+neutral holder within the original resource, preserving the native model
+namespace. Entry variants reuse the same resource-holder mechanism. Equal
 native-root/applicator contexts share executable schemas and retain every
 intrinsic dependency; conflicting dialect-declaration applicability stays a
-located incomplete condition. Polymorphic name and resource-identity cases still
-require their existing proofs. See the implementation register for remaining
+located incomplete condition. Identified schema children and other resource
+sensitive cases still require their existing proofs. See the implementation register for remaining
 ownership gaps and unexecuted qualification.
 
 Shared YAML objects and collections offer **Make this YAML occurrence

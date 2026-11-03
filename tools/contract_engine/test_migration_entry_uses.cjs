@@ -232,7 +232,7 @@ for(const [foreignVersion,entryVersion,targetVersion,anchored]of [
   }
   assert.fail('The material owner forwarding chain must remain bounded');
  };
- const inspect=async(packet,name)=>{
+ const inspect=async(packet,name,dynamicChildren=anchored)=>{
   const analysis=analyse(packet);assert.equal(analysis.status,'complete',JSON.stringify(analysis.findings));
   const graph=createGraph(packet).graph,plan=requestOperation({...packet,resource:packet.root,pointer:'/paths/~1p/get'});
   const body=plan.responses[0].content[0].schema,owner=follow(graph,body.resource,body.pointer,'schema');
@@ -242,9 +242,9 @@ for(const [foreignVersion,entryVersion,targetVersion,anchored]of [
   assert.deepEqual(follow(graph,header.resource,header.pointer,'schema'),owner);
   const choice=graph.docs.get(binding.targetResource).dataNode(binding.targetPointer).value;
   assert.equal(choice['x-entry'],name);
-  const samples=['{"value":9007199254740993.00,"entry":"chosen"}','{"value":0}','{"value":"wrong"}',...(anchored?['{"value":9007199254740993.00,"entry":"chosen","child":{"value":9007199254740993.00,"entry":"chosen"}}','{"value":9007199254740993.00,"entry":"chosen","child":{"value":0,"entry":"chosen"}}']:[])];
+  const samples=['{"value":9007199254740993.00,"entry":"chosen"}','{"value":0}','{"value":"wrong"}',...(dynamicChildren?['{"value":9007199254740993.00,"entry":"chosen","child":{"value":9007199254740993.00,"entry":"chosen"}}','{"value":9007199254740993.00,"entry":"chosen","child":{"value":0,"entry":"chosen"}}']:[])];
   const evaluated=await evaluateSchemas({...packet,runtimeInstances:samples.map(text=>({subject:'response-body',location:'application/json',text,schema:body}))});
-  assert.equal(evaluated.complete,true,JSON.stringify(evaluated.findings));assert.deepEqual(evaluated.runtimeEvaluations.map(value=>value.valid),[true,false,false,...(anchored?[true,false]:[])]);
+  assert.equal(evaluated.complete,true,JSON.stringify(evaluated.findings));assert.deepEqual(evaluated.runtimeEvaluations.map(value=>value.valid),[true,false,false,...(dynamicChildren?[true,false]:[])]);
  };
  await inspect(input,'First');await inspect({...input,root:other},'Second');
  const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
@@ -301,15 +301,63 @@ for(const [foreignVersion,entryVersion,targetVersion,anchored]of [
   }
   assert.deepEqual(assertions.resources.map(resource=>resource.text),assertionOriginal);
   assert.deepEqual((await planMigration(assertions)).outputs,assertionReview.outputs);
-  const polymorphic=structuredClone(assertionSecond);
-  polymorphic.components.schemas.additionalProperties={allOf:[{$ref:'#/components/schemas/Base'}]};
-  const guardedNames={...assertions,snapshot:'polymorphic-container-guard',resources:[assertions.resources[0],{...assertions.resources[1],text:encode(polymorphic)}]};
-  assert.equal(analyse(guardedNames).status,'complete');
-  const guardedReview=await planMigration(guardedNames);
-  assert.equal(guardedReview.complete,false);
-  assert(guardedReview.problems.some(problem=>problem.code==='migration.owners.entry-container'&&problem.reason==='implementation'),JSON.stringify(guardedReview.problems));
-  assert.equal(guardedReview.outputs.length,0);assert.equal(guardedNames.resources[1].text,encode(polymorphic));
+  for(const keepDynamic of [true,false]){
+   const polymorphic=structuredClone(assertionSecond);
+   polymorphic.components.schemas.additionalProperties={allOf:[{$ref:'#/components/schemas/Base'}]};
+   if(!keepDynamic){delete polymorphic.components.schemas.Base.$dynamicAnchor;delete polymorphic.components.schemas.Base.properties.child;}
+   const polymorphicInput={...assertions,snapshot:'polymorphic-container-owners-'+keepDynamic,resources:[assertions.resources[0],{...assertions.resources[1],text:encode(polymorphic)}]};
+   assert.equal(analyse(polymorphicInput).status,'complete');
+   const polymorphicReview=await planMigration(polymorphicInput);
+   assert.equal(polymorphicReview.complete,true,JSON.stringify(polymorphicReview.problems));
+   const polymorphicCold={root:polymorphicReview.outputRoot,snapshot:'cold-polymorphic-map',resources:polymorphicReview.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
+   const modelInstances=['{}','{"a":{"value":9007199254740993.00,"entry":"chosen"}}',
+    '{"a":{"value":0,"entry":"chosen"}}','{"bad":{"value":9007199254740993.00,"entry":"chosen"}}',
+    '{"a":{"value":9007199254740993.00}}','null'];
+   for(const packet of [polymorphicInput,polymorphicCold]){
+    const result=await evaluateSchemas({...packet,runtimeInstances:modelInstances.map(text=>({subject:'response-body',location:'application/json',text,schema:{resource:packet.root,pointer:'/components/schemas/Assertions'}}))});
+    assert.equal(result.complete,true,JSON.stringify(result.findings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,true,false,false,false,true]);
+   }
+   const polymorphicGraph=createGraph(polymorphicCold).graph,mapOwner=follow(polymorphicGraph,polymorphicCold.root,'/components/schemas/Assertions','schema');
+   assert(mapOwner.pointer.includes('/$defs/'),'The map use must not acquire a new native component model name');
+   const polymorphicDoc=polymorphicGraph.docs.get(mapOwner.resource),originalMap=new (require('./dist/document.cjs').SourceDocument)(polymorphicInput.resources[1].text,other);
+   for(const name of ['Base','Choice'])assert.equal(polymorphicDoc.dataJson(mapOwner.pointer+'/'+name),originalMap.dataJson('/components/schemas/'+name));
+   await inspect(polymorphicCold,'First',keepDynamic);await inspect({...polymorphicCold,root:polymorphicReview.changes.find(change=>change.resource===other).destination},'Second',keepDynamic);
+   assert.equal(polymorphicInput.resources[1].text,encode(polymorphic));
+  }
  }
+});
+
+for(const identified of [false,true])test(`model-sensitive maps retain unnamed owners or an identified-resource guard, identified=${identified}`,async()=>{
+ const root='file:///holder-guard/a.json',other='file:///holder-guard/b.json';
+ const first={openapi:'3.2.1',info:{title:'Chooser',version:'1'},paths:{},components:{schemas:{
+  Target:{$ref:'b.json#/components/schemas'},Other:{type:'object',properties:{kind:{const:'Other'}}},
+  Chooser:{type:'object',required:['kind'],properties:{kind:{type:'string'}},discriminator:{propertyName:'kind'},
+   oneOf:[{$ref:'#/components/schemas/Target'},{$ref:'#/components/schemas/Other'}]}
+ }}},second={openapi:'3.1.2',info:{title:'Empty models',version:'1'},paths:{},components:{schemas:identified?{
+  additionalProperties:{$id:'https://schemas.invalid/value',type:'integer'}
+ }:{}}};
+ const input={root,snapshot:'model-holder-'+identified,targetVersion:'3.2.1',destination:'file:///holder-output/',resources:[
+  {id:root,text:JSON.stringify(first),generation:1},{id:other,text:JSON.stringify(second),generation:1}
+ ]},frozen=input.resources.map(resource=>resource.text);
+ assert.equal(analyse(input).status,'complete');assert.equal((await evaluateSchemas(input)).complete,true);
+ const source=await evaluateSchemas({...input,runtimeInstances:[{subject:'response-body',location:'source',text:identified?'{"kind":"Other"}':'{"kind":"Target"}',schema:{resource:root,pointer:'/components/schemas/Chooser'}}]});
+ assert.equal(source.complete,true,JSON.stringify(source.findings));assert.equal(source.runtimeEvaluations[0].valid,true);
+ const review=await planMigration(input);
+ if(identified){
+  assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);
+  assert(review.problems.some(problem=>problem.resource===other&&problem.pointer==='/components/schemas'&&problem.code==='migration.owners.resource-context'&&problem.reason==='implementation'),JSON.stringify(review.problems));
+ }else{
+  assert.equal(review.complete,true,JSON.stringify(review.problems));
+  const cold={root:review.outputRoot,snapshot:'cold-neutral-holder',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
+  assert.equal(analyse(cold).status,'complete');
+  const result=await evaluateSchemas({...cold,runtimeInstances:['{"kind":"Target"}','{"kind":"Other"}','{}'].map(text=>({subject:'response-body',location:'cold',text,schema:{resource:cold.root,pointer:'/components/schemas/Chooser'}}))});
+  assert.equal(result.complete,true,JSON.stringify(result.findings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,false,false]);
+  const graph=createGraph(cold).graph,branch=graph.referenceAs(cold.root,'/components/schemas/Chooser/oneOf/0','$ref','schema');
+  assert.equal(branch.targetResource,cold.root);assert.equal(branch.targetPointer,'/components/schemas/Target');
+  const reference=graph.referenceAs(cold.root,'/components/schemas/Target','$ref','schema');
+  assert(reference.targetPointer.includes('/$defs/'));assert.deepEqual(graph.docs.get(reference.targetResource).dataNode(reference.targetPointer).value,{});
+ }
+ assert.deepEqual(input.resources.map(resource=>resource.text),frozen);
 });
 
 test('ordinary patch migration retains authored operationId links when no operation owner was cloned',async()=>{

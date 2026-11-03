@@ -16,7 +16,7 @@ void main() {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(() => server.close(force: true));
       const wire = '{"value":9007199254740993.00,"entry":"chosen"}';
-      const dictionaryWire = '{"a":9007199254740993.00}';
+      const dictionaryWire = '{"a":{"value":9007199254740993.00,"entry":"chosen"}}';
       final sent = <List<int>>[];
       server.listen((request) async {
         if (request.uri.path == '/dictionary') {
@@ -57,7 +57,7 @@ void main() {
         (first['components'] as Map)['schemas']['Dictionary'] = {r'$ref': 'b.yaml#/components'};
         (first['components'] as Map)['schemas']['Document'] = {r'$ref': 'b.yaml#'};
         (first['components'] as Map)['schemas']['Assertions'] = {r'$ref': 'b.yaml#/components/schemas'};
-        (second['components'] as Map)['schemas']['additionalProperties'] = {'type': 'integer', 'minimum': 'EXACT'};
+        (second['components'] as Map)['schemas']['additionalProperties'] = {'allOf': [{r'$ref': '#/components/schemas/Base'}]};
         (second['components'] as Map)['schemas']['propertyNames'] = {'enum': ['a', '雪']};
         (first['paths'] as Map)['/dictionary'] = {'get': {'responses': {'200': {
           'description': 'Dictionary', 'content': {'application/json': {'schema': {r'$ref': '#/components/schemas/Assertions'}}},
@@ -96,6 +96,9 @@ void main() {
             final document = await material({'resource': root, 'pointer': '/components/schemas/Document'});
             final version = (document['entries'] as List).whereType<Map>().singleWhere((entry) => entry['name'] == 'openapi');
             expect(version['value'], foreignVersion);
+            final assertions = await material({'resource': root, 'pointer': '/components/schemas/Assertions'});
+            final field = (assertions['fields'] as List).cast<Map>().singleWhere((field) => field['name'] == 'additionalProperties');
+            expect(field['present'], true);expect(field['childKind'], 'schema');
           }
           final mapping = await project.inspectObject(root, at['resource'], '${at['pointer']}/discriminator/mapping', contextKind: 'discriminator-map');
           final binding = (mapping['references'] as List).whereType<Map>().single;
@@ -117,7 +120,7 @@ void main() {
           try {
             final body = ((((dictionaryPlan.result['responses'] as List).single as Map)['content'] as List).single as Map)['schema'] as Map;
             final result = await dictionaryPlan.evaluateRuntime([
-              for (final text in [dictionaryWire, '{"雪":9007199254740994}', '{"a":0}', '{"bad":9007199254740993}']) RuntimeSchemaInstance(
+              for (final text in [dictionaryWire, '{"雪":{"value":9007199254740993,"entry":"chosen"}}', '{"a":{"value":0,"entry":"chosen"}}', '{"bad":{"value":9007199254740993,"entry":"chosen"}}']) RuntimeSchemaInstance(
                 subject: 'response-body', location: 'application/json', text: text,
                 schemaResource: body['resource'], schemaPointer: body['pointer']),
             ]);

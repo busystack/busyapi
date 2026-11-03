@@ -180,7 +180,7 @@ export function separateMigrationEntryUses(contexts:readonly DocumentContext[],s
         }
         // Native allocation can change a map's independently interpreted
         // schema before the ordinary role pass reaches it. Capture affected
-        // model-independent views first, using this same owner
+        // views first, using this same owner
         // relation, immutable source and typed reference repair. They retain
         // the containing document's family even for a different entry.
         const protectedScopes=new Map<string,GraphScope>(),containers=new Map<string,MigrationLocation>();
@@ -190,11 +190,11 @@ export function separateMigrationEntryUses(contexts:readonly DocumentContext[],s
             let pointer=container.pointer;
             while(true){
                 admit();const schema=graph.scopeAs(container.resource,pointer,'schema');
-                if(schema&&!protectedScopes.has(useKey(schema))&&graph.hasOverlappingScope(schema.resource,schema.pointer)&&!owners.roleOwners(schema).length&&
-                    nativeSchemaHolderScope(graph,schema,admit)){
+                if(schema&&!protectedScopes.has(useKey(schema))&&graph.hasOverlappingScope(schema.resource,schema.pointer)&&!owners.roleOwners(schema).length){
                     const holder=entryComponentLocation(graph,schema,schema.resource);
                     if(holder){
-                        protectedScopes.set(useKey(schema),schema);containers.set(useKey(schema),holder);
+                        protectedScopes.set(useKey(schema),schema);
+                        if(nativeSchemaHolderScope(graph,schema,admit))containers.set(useKey(schema),holder);
                     }
                 }
                 if(!pointer)break;pointer=pointer.slice(0,pointer.lastIndexOf('/'));
@@ -285,7 +285,12 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
                 const value=graph.docs.get(schema.resource)!.dataNode(schema.pointer)?.value;
                 return typeof value?.$anchor==='string'||typeof value?.$dynamicAnchor==='string';
             });
-            if(anchored||dynamicDependency([scope]))needed.set(identity,scope);
+            // A map's Schema interpretation is not a named native model.
+            // Keep that status below the same neutral resource holder when
+            // entry specialization would otherwise invent a discriminator
+            // name. The existing identity/anchor proof owns the whole group.
+            const modelSensitive=scope.sourceKind==='schema-map'&&!nativeSchemaHolderScope(graph,scope,inspect);
+            if(anchored||dynamicDependency([scope])||modelSensitive)needed.set(identity,scope);
         }
         const selected=new Set(candidates.map(useKey));
         for(const [identity,scope]of [...needed].sort(([a],[b])=>a.localeCompare(b))){
@@ -411,22 +416,48 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
             container={resource:copiedHolder.location.resource,pointer:copiedHolder.location.pointer+'/$defs'};
             inheritedDialect=copiedHolder.dialect;inheritsResource=scope.pointer!==scope.resourcePointer;
         }
-        if(resourceSensitive&&!identified&&!copiedHolder&&!entry){
+        const preserveModelNamespace=scope.kind==='schema'&&modernFamily(scope.family)&&scope.sourceKind==='schema-map'&&!nativeSchemaHolderScope(graph,scope,inspect);
+        if((resourceSensitive&&!identified||preserveModelNamespace)&&!copiedHolder&&!entry){
             const holders=scope.kind==='schema'?schemaScopes.filter(holder=>{
                 inspect();return holder.resource===scope.resource&&holder.base===scope.base&&holder.dialect===scope.dialect&&
                 holder.family===scope.family&&holder.resourcePointer===scope.resourcePointer&&
                 graph.docs.get(holder.resource)!.dataNode(holder.pointer)?.kind==='object'&&
-                graph.literalContainer(holder.resource,holder.pointer)===undefined&&!graph.hasOverlappingScope(holder.resource,holder.pointer);
+                graph.literalContainer(holder.resource,holder.pointer)===undefined&&!graph.hasOverlappingScope(holder.resource,holder.pointer)&&
+                graph.literalContainer(holder.resource,holder.pointer+'/$defs')===undefined&&!graph.hasOverlappingScope(holder.resource,holder.pointer+'/$defs');
             }):[];
             holders.sort((a,b)=>Number(inside(scope.pointer,b.pointer))-Number(inside(scope.pointer,a.pointer))||
                 b.pointer.length-a.pointer.length||a.pointer.localeCompare(b.pointer));
             const holder=holders[0];
-            if(!holder&&!nativeContainer){
-                issue(scope,'migration.owners.resource-context','This anchored or dynamic use has no captured ordinary owner in its original resource and dialect','implementation');
+            const host=graph.scope(scope.resource,''),compatible=entryComponentLocation(graph,scope,scope.resource);
+            const neutral=preserveModelNamespace&&supportedSchemaDialect(scope)&&compatible?.resource===scope.resource&&
+                graph.specifications.get(scope.resource)?.family===scope.family&&scope.resourcePointer===''&&
+                scope.base===host.base&&scope.dialect===host.dialect&&intrinsicSchemas.every(schema=>{
+                    inspect();const value=graph.docs.get(schema.resource)!.dataNode(schema.pointer)?.value;
+                    return ['$id','$anchor','$dynamicAnchor'].every(name=>typeof value?.[name]!=='string');
+                });
+            if(neutral&&compatible){
+                // The holder has no assertion, reference or discriminator and
+                // cannot join an allOf model table. Its $defs child remains an
+                // unnamed use, in the original document resource and dialect.
+                // Downstream dynamic calls enter the same resource; no new
+                // identity or anchor is introduced by this captured subtree.
+                // Copy from the immutable capture after reserving this owner;
+                // a map/document annotation never absorbs the new member.
+                const source=sources.get(compatible.resource)!;
+                const reserved=owners.allocate(source,compatible.pointer,'schema_context',JSON.stringify([
+                    scope.resource,scope.pointer,scope.family,scope.dialect,scope.base,scope.resourcePointer]));
+                owners.admit(source,8);source.set(reserved.pointer,{$defs:{}});
+                source.presentationChanges.push(reserved.pointer);
+                container={resource:reserved.resource,pointer:reserved.pointer+'/$defs'};
+                inheritedDialect=scope.dialect;inheritsResource=true;
+            }else if(holder){
+                container={resource:holder.resource,pointer:holder.pointer+'/$defs'};
+                inheritedDialect=holder.dialect;inheritsResource=true;
+            }else if(nativeContainer){container={resource:scope.resource,pointer:nativeContainer};}
+            else {
+                issue(scope,'migration.owners.resource-context','This resource-sensitive or polymorphic use has no captured ordinary owner in its original resource and dialect','implementation');
                 return provenance;
             }
-            container=holder?{resource:holder.resource,pointer:holder.pointer+'/$defs'}:{resource:scope.resource,pointer:nativeContainer!};
-            if(holder){inheritedDialect=holder.dialect;inheritsResource=true;}
         }
         // Unversioned native fragments belong in an entry's ordinary component
         // map. A schema registry would interpret their unknown native fields

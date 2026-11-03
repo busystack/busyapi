@@ -11,6 +11,21 @@ const official=(file,description)=>{
 const cases=[official('dynamicRef','A $dynamicRef to a $dynamicAnchor in the same schema resource behaves like a normal $ref to an $anchor'),
  official('dynamicRef','A $dynamicRef resolves to the first $dynamicAnchor still in scope that is encountered when the schema is evaluated'),
  official('unevaluatedProperties','unevaluatedProperties with $ref')];
+for(const version of ['2.0','3.0.4'])for(const format of ['yaml','json'])
+test(`${version} ${format} native schema-map views keep restricted exclusive bounds`,async()=>{
+ const legacy=version==='2.0',root='file:///approved/restricted-map.'+format,prefix=legacy?'/definitions':'/components/schemas';
+ const body={$ref:'#'+prefix},schemas={additionalProperties:{type:'number',minimum:'EXACT',exclusiveMinimum:true}};
+ const value={...(legacy?{swagger:version}:{openapi:version}),info:{title:'Restricted map',version:'1'},paths:{'/p':{get:{responses:{200:{description:'Value',...(legacy?{schema:body}:{content:{'application/json':{schema:body}}})}}}}},...(legacy?{definitions:schemas}:{components:{schemas}})};
+ const text=(format==='json'?JSON.stringify(value):YAML.stringify(value)).replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const input={root,snapshot:'restricted-schema-map',resources:[{id:root,text,generation:1}]},analysis=analyse(input);
+ assert.equal(analysis.status,'complete',JSON.stringify(analysis.findings));
+ const graph=createGraph(input).graph;
+ assert.deepEqual(graph.schemaParentsOf({resource:root,pointer:prefix+'/additionalProperties'}).map(scope=>scope.pointer),[prefix]);
+ const pointer='/paths/~1p/get/responses/200'+(legacy?'/schema':'/content/application~1json/schema');
+ const result=await evaluateSchemas({...input,runtimeInstances:['{}','{"n":9007199254740993.00}','{"n":9007199254740994}','{"n":0}','[]'].map(text=>({subject:'response-body',location:'application/json',text,schema:{resource:root,pointer}}))});
+ assert.equal(result.complete,true,JSON.stringify(result.findings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,false,true,false,true]);
+ assert.equal(input.resources[0].text,text);
+});
 for(const version of ['3.1.2','3.2.1'])for(const format of ['json','yaml'])
 test(`${version} ${format} native schema-map roots share an equal applicator resource context`,async()=>{
  const root='file:///approved/schema-map.'+format,value={openapi:version,info:{title:'Schema map uses',version:'1'},paths:{},components:{schemas:{
