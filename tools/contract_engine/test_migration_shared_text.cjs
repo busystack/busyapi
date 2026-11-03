@@ -31,7 +31,7 @@ for(const version of ['2.0','3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1
 for(const [index,body]of cases.entries())test(`${version} shared Markdown ${index} retains each literal value and rendered destination`,async()=>{
     const input=fixture(version,body),original=input.resources[0].text;
     const review=await planMigration(input);
-    assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'62');
+    assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'63');
     const output=review.outputs.find(output=>output.id===review.outputRoot);
     const before=new SourceDocument(original,input.root),after=new SourceDocument(output.text,output.id);
     assert.equal(before.dataJson('/x-literal'),after.dataJson('/x-literal'));
@@ -98,4 +98,44 @@ test(`an unchanged shared Markdown value ${JSON.stringify(value)} retains its au
     const output=review.outputs.find(output=>output.id===review.outputRoot);
     assert(output.text.includes(body));assert.deepEqual(review.presentationChanges,[]);
     assert.equal(input.resources[0].text,fixture('3.2.1',body).resources[0].text);
+});
+
+test('one token owner preserves key aliases, exact literals and independent rendered bases while changing multiple descriptions',async()=>{
+ const input=fixture('3.2.0',[
+  'info:',
+  '  title: Shared',
+  '  version: "1"',
+  '  &description description: &docs "[Guide](../guide%20one.md?q=a%2Fb#part)" # retained key/value comment',
+  'components:',
+  '  schemas:',
+  '    Stable:',
+  '      $id: https://models.invalid/stable',
+  '      type: integer',
+  '      enum: [9007199254740993.00]',
+  '      description: *docs',
+  '    Moving:',
+  '      type: integer',
+  '      enum: [9007199254740993.00]',
+  '      description: *docs # retained logical use',
+  'x-key: *description',
+  'x-literal: *docs',
+  'x-values: {n: 9007199254740993.00, zero: 0, flag: false, empty: "", nil: null, $ref: "literal only"}',
+ ].join('\r\n'));
+ const before=input.resources[0].text,original=new SourceDocument(before,input.root),source=createGraph(input).graph;
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const output=review.outputs.find(output=>output.id===review.outputRoot),after=new SourceDocument(output.text,output.id);
+ const cold={root:output.id,snapshot:'cold-common-text-owner',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))},target=createGraph(cold).graph;
+ for(const owner of ['/info','/components/schemas/Stable','/components/schemas/Moving']){
+  const field=owner+'/description';
+  assert.deepEqual(destinations(after.dataNode(field).value,documentUriBase(target,target.scope(output.id,owner))),
+   destinations(original.dataNode(field).value,documentUriBase(source,source.scope(input.root,owner))));
+ }
+ for(const pointer of ['/x-key','/x-literal','/x-values'])assert.equal(after.dataJson(pointer),original.dataJson(pointer));
+ assert(output.text.includes('&description description:'));assert(output.text.includes('x-key: *description'));
+ assert(output.text.includes('# retained key/value comment'));assert(output.text.includes('# retained logical use'));
+ assert(review.presentationChanges.some(change=>change.pointer==='/info/description'));
+ assert(review.presentationChanges.some(change=>change.pointer==='/components/schemas/Moving/description'));
+ const evaluated=await evaluateSchemas({...cold,runtimeInstances:['9007199254740993','9007199254740992'].flatMap(text=>['Stable','Moving'].map(name=>({subject:'response-body',location:name,text,schema:{resource:cold.root,pointer:'/components/schemas/'+name}})))});
+ assert.equal(evaluated.complete,true,JSON.stringify(evaluated.findings));assert.deepEqual(evaluated.runtimeEvaluations.map(value=>value.valid),[true,true,false,false]);
+ assert.equal(input.resources[0].text,before);
 });
