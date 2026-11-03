@@ -243,7 +243,7 @@ void main() {
         environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
       final review = await run(['--json']);expect(review.exitCode, 0, reason: '${review.stdout} ${review.stderr}');
       final report = jsonDecode(review.stdout as String) as Map;
-      expect(report['published'], false);expect(report['producerVersion'], '61');
+      expect(report['published'], false);expect(report['producerVersion'], '62');
       final copy = (report['exampleOutputs'] as List).single as Map;
       expect(base64Decode(copy['base64'] as String), bytes);expect(await Directory(destination).exists(), false);
       final textReview = await run([]);expect(textReview.exitCode, 0, reason: textReview.stderr as String);
@@ -305,7 +305,7 @@ void main() {
             case 'identity': copy['identity'] = '0' * 64;break;
             case 'path': copy['path'] = '../escape.bin';break;
             case 'owner': (copy['source'] as Map)['resource'] = 'file:///not-captured';break;
-            case 'producer': result['producerVersion'] = '60';break;
+            case 'producer': result['producerVersion'] = '61';break;
           }
         });addTearDown(engine.close);
         final project = await BusyProject.open(file.path, engine);addTearDown(project.close);

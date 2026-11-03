@@ -19,6 +19,8 @@ type UseSelection=Readonly<{mode:'entry';entryNamespace:string;scopes:readonly G
 const useKey=(scope:{resource:string;pointer:string;kind:string})=>JSON.stringify([scope.resource,scope.pointer,scope.kind]);
 const referenceOwnerKind=(reference:GraphReference)=>reference.connection==='discriminator'?'discriminator':
     reference.connection==='security'?'security-requirement':reference.connection?'link':reference.kind;
+const secondarySchema=(graph:ReferenceGraph,scope:GraphScope)=>scope.kind==='schema'&&
+    graph.scopes.get(scope.resource+'#'+scope.pointer)?.kind!=='schema'&&graph.hasOverlappingScope(scope.resource,scope.pointer);
 
 /** Entry namespace and containing-document family are independent. Prefer the
  * selected entry's compatible component map; otherwise retain the captured
@@ -125,7 +127,7 @@ function dynamicSchemaDependencies(graph:ReferenceGraph,references:readonly Grap
  * owner per occurrence; the ordinary allocator repairs the resulting graph. */
 export function separateMigrationEntryUses(contexts:readonly DocumentContext[],sources:ReadonlyMap<string,MigrationSource>,
     issue:MigrationIssue,createSchemaResource:()=>MigrationSource,
-    preserveContext:(scope:GraphScope,destination:MigrationLocation,preserveBase:boolean,expectedBase?:string)=>void,
+    preserveContext:(scope:GraphScope,destination:MigrationLocation,preserveBase:boolean,expectedBase?:string,namespace?:string)=>void,
     allocator?:MigrationSchemaOwners):ReadonlyMap<string,readonly MigrationLocation[]> {
     const differences=migrationContextDifferences(contexts),provenance=new Map<string,MigrationLocation[]>();
     if(!contexts.length)return provenance;
@@ -168,10 +170,11 @@ export function separateMigrationEntryUses(contexts:readonly DocumentContext[],s
             admit();const scope=pending[index],id=useKey(scope);
             if(visited.has(id)||!graph.isEntryUse(scope))continue;
             visited.add(id);
-            // The owning entry keeps its intrinsic fields. Foreign document
+            // The owning entry keeps its intrinsic fields; secondary Schema
+            // interpretations can acquire their own owners too. Foreign document
             // subtrees can have independent entry names/media, even though
             // their containing document still owns their family and dialect.
-            if(scope.resource===graph.root){pending.push(...parents.get(id)??[],...incoming.get(id)??[]);continue;}
+            if(scope.resource===graph.root&&!secondarySchema(graph,scope)){pending.push(...parents.get(id)??[],...incoming.get(id)??[]);continue;}
             if(scope.kind==='root')continue;
             selected.set(id,scope);
             pending.push(...(parents.get(id)??[]),...(incoming.get(id)??[]));
@@ -227,7 +230,7 @@ export function separateMigrationEntryUses(contexts:readonly DocumentContext[],s
  * and moved by its structural owner without retargeting the schema copy. */
 export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<string,MigrationSource>,
     issue:MigrationIssue,createSchemaResource:()=>MigrationSource,
-    preserveContext:(scope:GraphScope,destination:MigrationLocation,preserveBase:boolean,expectedBase?:string)=>void,
+    preserveContext:(scope:GraphScope,destination:MigrationLocation,preserveBase:boolean,expectedBase?:string,namespace?:string)=>void,
     selection?:UseSelection,owners=new MigrationSchemaOwners(graph,sources,createSchemaResource)):ReadonlyMap<string,readonly MigrationLocation[]> {
     const provenance=new Map<string,MigrationLocation[]>();
     const entry=selection?.mode==='entry'?selection:undefined;
@@ -298,7 +301,7 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
         const needed=new Map<string,GraphScope>();
         for(const scope of candidates){
             inspect();
-            if(scope.kind!=='schema'||!modernFamily(scope.family)||scope.resource===graph.root||scope.pointer===scope.resourcePointer)continue;
+            if(scope.kind!=='schema'||!modernFamily(scope.family)||scope.resource===graph.root&&!secondarySchema(graph,scope)||scope.pointer===scope.resourcePointer)continue;
             const identity=schemaResourceContextIdentity(scope);
             const anchored=(groups.get(identity)??[]).some(schema=>{
                 inspect();if(!inside(schema.pointer,scope.pointer))return false;
@@ -531,8 +534,8 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
         owners.rememberEntry(entry?.entryNamespace??graph.root,captured,destination,owner.scope);
         if(!entry)owners.rememberRole(captured,destination,owner.scope);
         const expectedBase=kind==='schema'?resourceVariants.get(schemaResourceContextIdentity(captured)):undefined;
-        preserveContext(captured,destination,kind==='schema'&&(owner.resourceSensitive||expectedBase!==undefined),expectedBase);
-        if(placement.scope.kind==='schema'||kind!=='schema'||!nativeSlots.has(key(captured))||owner===placement)continue;
+        preserveContext(captured,destination,kind==='schema'&&(owner.resourceSensitive||expectedBase!==undefined),expectedBase,entry?.entryNamespace??graph.root);
+        if(kind!=='schema'||!nativeSlots.has(key(captured))||owner===placement)continue;
         const slot=mapped(captured,placement),source=sources.get(slot.resource)!;
         // The native field is a use of the material schema, not a second
         // anchor-bearing definition. Retire its old child coordinates before
@@ -633,7 +636,7 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
  * the same allocator and are proved again after this restructuring. */
 export function separateMigrationRoles(contexts:readonly DocumentContext[],sources:ReadonlyMap<string,MigrationSource>,
     issue:MigrationIssue,createSchemaResource:()=>MigrationSource,
-    preserveContext:(scope:GraphScope,destination:MigrationLocation,preserveBase:boolean,expectedBase?:string)=>void,
+    preserveContext:(scope:GraphScope,destination:MigrationLocation,preserveBase:boolean,expectedBase?:string,namespace?:string)=>void,
     owners:MigrationSchemaOwners):ReadonlyMap<string,readonly MigrationLocation[]> {
     const provenance=new Map<string,MigrationLocation[]>(),seen=new Set<string>();
     const references=[...migrationReferences(contexts.map(context=>context.graph))];
@@ -646,7 +649,7 @@ export function separateMigrationRoles(contexts:readonly DocumentContext[],sourc
         });
         const copies=separateMigrationUses(graph,sources,issue,createSchemaResource,preserveContext,{mode:'role',scopes,references},owners);
         for(const scope of graph.entryScopes()){
-            for(const material of owners.roleOwners(scope))owners.rememberEntry(graph.root,scope,material.location,material.owner);
+            for(const material of owners.roleOwners(scope))owners.rememberEntry(graph.root,scope,material.location,material.owner,'capture');
         }
         for(const [origin,locations]of copies){
             const values=provenance.get(origin)??[];values.push(...locations);provenance.set(origin,values);

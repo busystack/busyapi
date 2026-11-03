@@ -34,11 +34,11 @@ import {migrateTerms} from './migration_terms';
 import {migrateServerVariableDefaults,retainDefaultServers} from './migration_servers';
 import {migrationLogicalPointers} from './migration_yaml_ownership';
 import {separateMigrationRoles,separateMigrationEntryUses,materializeMigrationOperationConnections} from './migration_schema_uses';
-import {MigrationSchemaOwners} from './migration_schema_owners';
+import {MigrationSchemaOwners,MigrationConnectionOrigins} from './migration_schema_owners';
 import {projectSchemaReference} from './schema_reference_projection';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='61';
+const migrationProducerVersion='62';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const patch:Record<string,string>={'2.0':'2.0','3.0':'3.0.4','3.1':'3.1.2','3.2':'3.2.1'};
 export type MigrationInput=Readonly<{
@@ -126,6 +126,9 @@ export async function planMigration(input:MigrationInput) {
         }
     };
     const initialContexts=migrationDocumentContexts(input,initial,issue,true);
+    let connectionOrigins:MigrationConnectionOrigins|undefined;
+    if(!problems.length)try{connectionOrigins=new MigrationConnectionOrigins(initialContexts.map(context=>context.graph));}
+    catch(error){refused(error,{resource:input.root,pointer:''});}
     await validate(resources,input.root,'source');
     let externalExamples:MigrationExamples|undefined;
     if(!problems.length)try{externalExamples=new MigrationExamples(initialContexts.map(context=>context.graph),input.exampleResources);}
@@ -170,7 +173,7 @@ export async function planMigration(input:MigrationInput) {
                 sources.set(id,schemaResource);createdResources.set(id,graph.root);
                 return schemaResource;
             };
-            const contextProofs:{scope:GraphScope;destination:MigrationLocation;preserveBase:boolean;expectedBase?:string}[]=[];
+            const contextProofs:{scope:GraphScope;destination:MigrationLocation;preserveBase:boolean;expectedBase?:string;namespace:string}[]=[];
             const owners=new MigrationSchemaOwners(graph,sources,createSchemaResource,
                 (input.exampleResources??[]).flatMap(resource=>[resource.id,...resource.aliases]));
             const sourceContexts=contexts;
@@ -179,8 +182,8 @@ export async function planMigration(input:MigrationInput) {
             const admitOwnership=()=>{
                 if(++ownershipWork>2000000)throw new SourceError('limit.migration.owners','Composed ownership exceeds 2000000 source/proof states');
             };
-            const captureContext=(scope:GraphScope,destination:MigrationLocation,preserveBase:boolean,expectedBase?:string)=>
-                contextProofs.push({scope,destination,preserveBase,expectedBase});
+            const captureContext=(scope:GraphScope,destination:MigrationLocation,preserveBase:boolean,expectedBase?:string,namespace=graph.root)=>
+                contextProofs.push({scope,destination,preserveBase,expectedBase,namespace});
             const retainCopies=(copies:ReadonlyMap<string,readonly MigrationLocation[]>)=>{
                 const unique=(locations:Iterable<MigrationLocation>)=>{
                     const selected=new Map<string,MigrationLocation>();
@@ -208,6 +211,9 @@ export async function planMigration(input:MigrationInput) {
             const entryInput=preparationInput(),entryContext=createGraph(entryInput);
             const entryContexts=migrationDocumentContexts(entryInput,entryContext,issue,true);
             retainCopies(separateMigrationEntryUses(entryContexts,sources,issue,createSchemaResource,captureContext,owners));
+            if(problems.length)break;
+            const retainedInput=preparationInput();
+            owners.retireSupersededSchemas(sourceContexts.map(context=>createGraph({...retainedInput,root:context.graph.root}).graph));
             const materializedConnections=materializeMigrationOperationConnections(sourceContexts,sources,owners,issue);
             if(problems.length)break;
             if(specialized.size||materializedConnections){
@@ -230,32 +236,39 @@ export async function planMigration(input:MigrationInput) {
                 for(const sourceContext of sourceContexts){
                     const targetContext=contexts.find(context=>context.graph.root===sourceContext.graph.root)!;
                     proveMigrationConnections(sourceContext.graph,targetContext.graph,
-                        location=>[location,...(specialized.get(key(location.resource,location.pointer))??[])]
-                            .flatMap(location=>prepared.get(key(location.resource,location.pointer))??[]),proofIssue,true);
+                        (location,scope)=>owners.entryLocations(sourceContext.graph.root,location,scope,prepared),proofIssue,true);
                 }
                 graph=owned.graph;
-                const contextKey=(location:MigrationLocation,scope:GraphScope,base:string)=>JSON.stringify([
-                    location.resource,location.pointer,scope.kind,scope.family,scope.dialect,base,
+                const contextKey=(namespace:string,location:MigrationLocation,scope:GraphScope,base:string)=>JSON.stringify([
+                    namespace,location.resource,location.pointer,scope.kind,scope.family,scope.dialect,base,
                 ]);
                 const transitions=new Map<string,{destination:MigrationLocation;base:string}[]>();
                 for(const proof of contextProofs){
-                    admitOwnership();const id=contextKey(proof.scope,proof.scope,proof.scope.base),next=transitions.get(id)??[];
+                    admitOwnership();const id=contextKey(proof.namespace,proof.scope,proof.scope,proof.scope.base),next=transitions.get(id)??[];
                     next.push({destination:proof.destination,base:proof.expectedBase??proof.scope.base});transitions.set(id,next);
                 }
-                for(const {scope,destination,preserveBase,expectedBase}of contextProofs){
+                for(const {scope,destination,preserveBase,expectedBase,namespace}of contextProofs){
                     // Base changes are admitted only by a captured ownership
                     // transition, including a later entry-owned resource copy.
                     // Provenance alone cannot authorize substituting a URI.
-                    const pending=[{destination,base:expectedBase??scope.base}],seen=new Set<string>();let retained=false;
+                    const terminal=owners.entryOwner(namespace,scope,scope.kind);
+                    const terminalLocations=new Set((prepared.get(key(terminal.resource,terminal.pointer))??[]).map(location=>key(location.resource,location.pointer)));
+                    const ownerContext=contexts.find(context=>context.graph.root===namespace);
+                    // Role preparation and an entry refinement can start from
+                    // the same captured occurrence. Both are authorized edges;
+                    // only this entry's final material owner proves retention.
+                    const pending=[{destination,base:expectedBase??scope.base},
+                        ...transitions.get(contextKey(namespace,scope,scope,scope.base))??[]],seen=new Set<string>();let retained=false;
                     for(let index=0;index<pending.length&&!retained;index++){
-                        admitOwnership();const state=pending[index],id=contextKey(state.destination,scope,state.base);
+                        admitOwnership();const state=pending[index],id=contextKey(namespace,state.destination,scope,state.base);
                         if(seen.has(id))continue;seen.add(id);
                         const destinations=[state.destination,...specialized.get(key(state.destination.resource,state.destination.pointer))??[]]
                             .flatMap(location=>prepared.get(key(location.resource,location.pointer))??[]);
-                        retained=destinations.some(destination=>contexts.some(context=>{
-                            admitOwnership();const retained=context.graph.scopeAs(destination.resource,destination.pointer,scope.kind);
-                            return retained&&context.graph.isEntryUse(retained)&&(!preserveBase||retained.base===state.base)&&retained.dialect===scope.dialect&&retained.family===scope.family;
-                        }));
+                        retained=destinations.some(destination=>{
+                            admitOwnership();if(!terminalLocations.has(key(destination.resource,destination.pointer)))return false;
+                            const retained=ownerContext?.graph.scopeAs(destination.resource,destination.pointer,scope.kind);
+                            return retained&&ownerContext?.graph.isEntryUse(retained)&&(!preserveBase||retained.base===state.base)&&retained.dialect===scope.dialect&&retained.family===scope.family;
+                        });
                         pending.push(...transitions.get(id)??[]);
                     }
                     if(!retained)
@@ -405,6 +418,7 @@ export async function planMigration(input:MigrationInput) {
                 if(problems.length)break;
                 resources=resources.map(resource=>({...resource,text:sources.get(resource.id)!.doc.text}));
             }
+            connectionOrigins?.advance(sourceContexts.map(context=>context.graph),owners,migrationLocations(sources));
             stages.push(...stage.sources.map(from=>({from,to:after})));await validate(resources,input.root);
         }catch(error){
             refused(error,{resource:input.root,pointer:''});
@@ -602,7 +616,8 @@ export async function planMigration(input:MigrationInput) {
             const root=context.graph.root,output=identifiers.get(root)!,targetGraph=root===input.root?finalContext.graph:createGraph({...input,root:output,resources:outputResources}).graph;
             if(JSON.stringify(operationKeys(context.graph))!==JSON.stringify(operationKeys(targetGraph)))issue({resource:root,pointer:''},'migration.invariant.operations','The migrated graph changed an operation method, path, role or occurrence count','implementation');
             if(JSON.stringify(migrationRequestSignatures(context.graph,input.resources))!==JSON.stringify(migrationRequestSignatures(targetGraph,outputResources)))issue({resource:root,pointer:''},'migration.invariant.request','The migrated graph changed effective URL, serialization, authentication, request media or response declarations','implementation');
-            proveMigrationConnections(context.graph,targetGraph,location=>(origins.get(key(location.resource,location.pointer))??[]).map(location=>({resource:identifiers.get(location.resource)!,pointer:location.pointer})),issue);
+            proveMigrationConnections(context.graph,targetGraph,(location,scope)=>(connectionOrigins?.locations(root,location,scope)??[])
+                .map(location=>({resource:identifiers.get(location.resource)!,pointer:location.pointer})),issue);
         }
     }catch(error){
         if(!(error instanceof SourceError))throw error;

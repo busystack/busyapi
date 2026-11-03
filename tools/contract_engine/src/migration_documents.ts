@@ -200,13 +200,13 @@ export function migrationContextDifferences(contexts:readonly Pick<DocumentConte
  * selects the original definition. Prove its relocated physical owner for
  * every source entry, including names that intentionally vary by entry. Before
  * a family conversion/omission, ownership separation also proves static edges. */
-export function proveMigrationConnections(source:ReferenceGraph,target:ReferenceGraph,mapped:(location:MigrationLocation)=>readonly MigrationLocation[],issue:MigrationIssue,includeStatic=false):void {
+export function proveMigrationConnections(source:ReferenceGraph,target:ReferenceGraph,mapped:(location:MigrationLocation,scope:GraphScope|undefined)=>readonly MigrationLocation[],issue:MigrationIssue,includeStatic=false):void {
     const identity=(field:MigrationLocation,kind:string,connection:string|undefined)=>JSON.stringify([
         field.resource,field.pointer,kind,connection==='operationId'||connection==='operationRef'?'operation':connection??'',
     ]);
     const connections=new Map(target.entryReferences().filter(reference=>reference.connection||(includeStatic||reference.kind==='schema')&&['$ref','$dynamicRef'].includes(reference.keyword)).map(reference=>[
         identity({...reference,pointer:reference.pointer+'/'+escape(reference.keyword)},reference.kind,reference.connection),reference]));
-    const mappedSchemas=(location:MigrationLocation)=>mapped(location).filter(location=>{
+    const mappedSchemas=(location:MigrationLocation)=>mapped(location,source.scopeAs(location.resource,location.pointer,'schema')).filter(location=>{
         const scope=target.scopeAs(location.resource,location.pointer,'schema');return scope!==undefined&&target.isEntryUse(scope);
     });
     for(const reference of source.entryReferences()){
@@ -214,7 +214,7 @@ export function proveMigrationConnections(source:ReferenceGraph,target:Reference
         const field={resource:reference.resource,pointer:reference.pointer+'/'+escape(reference.keyword)};
         const connectionAt=(field:MigrationLocation)=>connections.get(identity(field,reference.kind,reference.connection));
         const captured=source.scopeAs(reference.targetResource!,reference.targetPointer!,reference.kind);
-        const fields=mapped(field).filter(field=>connectionAt(field)!==undefined),targets=mapped({resource:reference.targetResource!,pointer:reference.targetPointer!})
+        const fields=mapped(field,source.referenceOwner(reference)).filter(field=>connectionAt(field)!==undefined),targets=mapped({resource:reference.targetResource!,pointer:reference.targetPointer!},captured)
             .filter(location=>{
                 if(!includeStatic)return true;
                 const scope=target.scopeAs(location.resource,location.pointer,reference.kind);

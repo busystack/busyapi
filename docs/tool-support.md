@@ -798,7 +798,14 @@ remain exact literal data. Canonical recapture retains duplicate-identity and
 dynamic-scope guards. Conflicting holders keep a located implementation blocker. Registered engine/Core coverage prepares recursive
 dynamic candidates, exact numeric HTTP bytes, publication, original deletion,
 relocation and CLI cold reopening; this coverage remains unexecuted.
-The migration producer is **61**; Core rejects previous
+Connection proofs follow entry-qualified typed material owners through conversion
+and publication. Role refinements compose within that entry; an owning document
+can specialize a secondary Schema view without rewriting its native data.
+Superseded anonymous preparation schemas are retired only after terminal-owner,
+external-reference/dynamic-candidate, literal and schema-identity guards.
+Prepared engine/Core regressions cover distinct default discriminator targets,
+recursive assertions, native inspection, HTTP bytes and relocated CLI reopening.
+The migration producer is **62**; Core rejects previous
 producer responses before publication. Current qualification remains pending.
 
 Older-family migration also lowers dynamic references when every captured
