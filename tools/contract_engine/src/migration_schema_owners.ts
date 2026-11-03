@@ -1,8 +1,8 @@
 import {createHash} from 'node:crypto';
 import {componentLocation,richTextField} from './authoring';
 import {escape,segments,SourceError,type Range} from './document';
-import {documentUriOccurrences} from './document_uris';
-import {pointerFragment,schemaResourceContextIdentity,type ReferenceGraph,type GraphScope} from './reference_graph';
+import {documentUriOccurrences,type DocumentUriOccurrence} from './document_uris';
+import {documentUriBase,resolveUri,pointerFragment,schemaResourceContextIdentity,type ReferenceGraph,type GraphScope,type GraphReference} from './reference_graph';
 import type {MigrationLocation,MigrationSource} from './migration_source';
 import {migrationLogicalPointers} from './migration_yaml_ownership';
 
@@ -21,10 +21,12 @@ export class MigrationSchemaOwners {
     private readonly roleUses=new Map<string,SemanticOwner[]>();
     private readonly copiedOperationIds=new Set<string>();
     private readonly copiedOwners=new Map<string,{location:MigrationLocation;retirement:MigrationLocation;schemaIdentity:boolean}>();
+    private readonly documentUris=new WeakMap<ReferenceGraph,readonly DocumentUriOccurrence[]>();
     private useWork=0;
     constructor(private readonly graph:ReferenceGraph,
         private readonly sources:ReadonlyMap<string,MigrationSource>,
-        private readonly generatedResource?:()=>MigrationSource,reservedIdentities:Iterable<string>=[]){
+        private readonly generatedResource?:()=>MigrationSource,reservedIdentities:Iterable<string>=[],
+        private readonly contexts:readonly ReferenceGraph[]=[graph]){
         this.externalIdentities=new Set([...reservedIdentities].map(uri=>new URL(uri).href));
     }
 
@@ -110,6 +112,30 @@ export class MigrationSchemaOwners {
         this.inspectUse();return this.roleUses.get(this.roleKey(scope))??[];
     }
 
+    contextOf(scope:GraphScope):ReferenceGraph|undefined {
+        return this.contexts.find(context=>{
+            this.inspectUse();const captured=context.scopeAs(scope.resource,scope.pointer,scope.kind);
+            return captured!==undefined&&context.isEntryUse(captured)&&captured.schemaParent===scope.schemaParent&&
+                captured.sourceKind===scope.sourceKind&&schemaResourceContextIdentity(captured)===schemaResourceContextIdentity(scope);
+        });
+    }
+
+    /** Inactive assertions can retire only when no other captured use needs
+     * their material schemas or connection proofs. Callers supply all entry
+     * captures; the first graph's namespace cannot choose their targets. */
+    hasConsumers(at:MigrationLocation,references:readonly GraphReference[]):boolean {
+        const within=(target:MigrationLocation)=>target.resource===at.resource&&
+            (target.pointer===at.pointer||target.pointer.startsWith(at.pointer+'/'));
+        return references.some(reference=>{
+            this.inspectUse();
+            if(within(reference))return reference.connection!==undefined||reference.keyword==='$dynamicRef';
+            if(reference.kind!=='schema')return false;
+            return reference.resolution==='resolved'&&within({resource:reference.targetResource!,pointer:reference.targetPointer!})||
+                reference.dynamic?.candidates.some(target=>{this.inspectUse();return within(target);})===true||
+                reference.candidateTargets?.some(target=>{this.inspectUse();return within(target);})===true;
+        });
+    }
+
     /** Retire anonymous preparation copies after every entry has refined
      * them. An internal cycle is not an external consumer. Keep every terminal
      * typed owner, external connection/dynamic candidate and declared schema
@@ -177,7 +203,11 @@ export class MigrationSchemaOwners {
             throw new SourceError('limit.migration.owners','Schema specialization exceeds its bounded CST edit work');
     }
 
-    reserve(origin:MigrationLocation,label:string,identity=JSON.stringify([origin.resource,origin.pointer])):{source:MigrationSource;location:MigrationLocation} {
+    reserve(origin:MigrationLocation,label:string,identity=JSON.stringify([origin.resource,origin.pointer]),destination?:MigrationLocation):{source:MigrationSource;location:MigrationLocation} {
+        if(destination){
+            const source=this.sources.get(destination.resource)!;
+            return {source,location:this.allocate(source,destination.pointer,label,identity)};
+        }
         const entry=this.generatedResource?.()??this.sources.get(this.graph.root)!;
         const container=this.generatedResource?'':componentLocation('schemas',this.graph.family)!;
         return {source:entry,location:this.allocate(entry,container,label,identity)};
@@ -205,13 +235,38 @@ export class MigrationSchemaOwners {
         return location.resource+pointerFragment(pointer);
     }
 
-    move(origin:MigrationLocation,source:MigrationSource,pointer:string,label:string):MigrationLocation {
-        const owner=this.reserve(origin,label);
+    private materialOwner(reservation:{source:MigrationSource;location:MigrationLocation},layout:'array-item'|undefined):{
+        source:MigrationSource;location:MigrationLocation;retirement:MigrationLocation;
+    } {
+        if(layout){this.admit(reservation.source,8);reservation.source.set(reservation.location.pointer,{type:'array',items:{}});}
+        return {...reservation,retirement:reservation.location,
+            location:layout?{...reservation.location,pointer:reservation.location.pointer+'/items'}:reservation.location};
+    }
+
+    move(origin:MigrationLocation,source:MigrationSource,pointer:string,label:string,
+        options:Readonly<{layout?:'array-item';context?:ReferenceGraph}>={}):MigrationLocation {
+        const context=options.context??this.graph;
+        let uris=this.documentUris.get(context);
+        if(!uris){uris=[...documentUriOccurrences(context)];this.documentUris.set(context,uris);}
+        for(const occurrence of uris){
+            this.inspectUse();
+            if(occurrence.scope.resource!==origin.resource||occurrence.scope.kind==='server'||
+                occurrence.scope.pointer!==origin.pointer&&!occurrence.scope.pointer.startsWith(origin.pointer+'/'))continue;
+            const at=source.current(occurrence.pointer);
+            if(at===undefined||at!==pointer&&!at.startsWith(pointer+'/')||source.doc.dataNode(at)?.value!==occurrence.value)continue;
+            const absolute=resolveUri(occurrence.value,documentUriBase(context,occurrence.scope)).href;
+            if(absolute!==occurrence.value){this.admit(source);source.set(at,absolute);}
+        }
+        // A converter can retain the actual entry namespace when hoisting an
+        // independently consumed fragment. The existing allocator and storage
+        // layout still own its reservation and exact CST provenance.
+        const destination=options.context?{resource:context.root,pointer:componentLocation('schemas',context.family)!}:undefined;
+        const owner=this.materialOwner(this.reserve(origin,label,JSON.stringify([origin.resource,origin.pointer]),destination),options.layout);
         this.admit(source,8);
         if(owner.source!==source)this.admit(owner.source,8);
         if(owner.source===source)source.move(pointer,owner.location.pointer,true);
         else {owner.source.copy(source,pointer,owner.location.pointer,true);source.remove(pointer);}
-        owner.source.presentationChanges.push(owner.location.pointer);
+        owner.source.presentationChanges.push(owner.retirement.pointer);
         return owner.location;
     }
 
@@ -248,8 +303,7 @@ export class MigrationSchemaOwners {
         // allOf model. Consumers address the item directly, never the wrapper.
         // The shared reservation, CST copy, provenance and retirement guards
         // own both layouts; there is no second specialization mechanism.
-        if(layout){this.admit(reservation.source,8);reservation.source.set(reservation.location.pointer,{type:'array',items:{}});}
-        const owner=layout?{...reservation,location:{...reservation.location,pointer:reservation.location.pointer+'/items'}}:reservation;
+        const owner=this.materialOwner(reservation,layout);
         this.copiedOwners.set(JSON.stringify([owner.location.resource,owner.location.pointer]),{
             location:owner.location,retirement:reservation.location,schemaIdentity:options.schemaIdentity===true});
         this.admit(input,8);if(owner.source!==input)this.admit(owner.source,8);

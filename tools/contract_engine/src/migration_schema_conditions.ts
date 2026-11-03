@@ -1,4 +1,4 @@
-import type {GraphScope,ReferenceGraph} from './reference_graph';
+import type {GraphScope,ReferenceGraph,GraphReference} from './reference_graph';
 import {pointerFragment} from './reference_graph';
 import {SourceError} from './document';
 import {projectSchemaReference} from './schema_reference_projection';
@@ -33,23 +33,11 @@ function constantCondition(graph:ReferenceGraph,initial:GraphScope):boolean|unde
         {resource:initial.resource,pointer:initial.pointer,range});
 }
 
-const inside=(pointer:string,parent:string)=>pointer===parent||pointer.startsWith(parent+'/');
-function retainedCondition(graph:ReferenceGraph,resource:string,pointer:string):boolean {
-    return graph.references.some(reference=>{
-        // Preserve explicit connection/dynamic-scope proofs even when this
-        // branch is inactive. An internal static cycle is no outside consumer.
-        if(reference.resource===resource&&inside(reference.pointer,pointer))return reference.connection!==undefined||reference.keyword==='$dynamicRef';
-        if(reference.kind!=='schema')return false;
-        return reference.resolution==='resolved'&&reference.targetResource===resource&&inside(reference.targetPointer!,pointer)||
-            reference.dynamic?.candidates.some(target=>target.resource===resource&&inside(target.pointer,pointer))===true||
-            reference.candidateTargets?.some(target=>target.resource===resource&&inside(target.pointer,pointer))===true;
-    });
-}
-
 /** Remove a proved inactive, unconsumed branch before vocabulary conversion.
  * Otherwise an assertion that never runs could incorrectly block migration.
  * Consumed branches remain intact for normal conversion and later hoisting. */
-export function discardInactiveSchemaConditions(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,owners:MigrationSchemaOwners):void {
+export function discardInactiveSchemaConditions(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,owners:MigrationSchemaOwners,
+    references:readonly GraphReference[]):void {
     if(graph.literalContainer(scope.resource,scope.pointer)!==undefined||graph.hasOverlappingScope(scope.resource,scope.pointer))return;
     const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
     if(value===null||typeof value!=='object'||Array.isArray(value))return;
@@ -58,7 +46,7 @@ export function discardInactiveSchemaConditions(graph:ReferenceGraph,scope:Graph
     const inactive=!Object.hasOwn(value,'if')?['then','else']:constant===undefined?[]:[constant?'else':'then'];
     for(const name of inactive){
         const original=scope.pointer+'/'+name,pointer=source.current(original);
-        if(pointer!==undefined&&!retainedCondition(graph,scope.resource,original)){
+        if(pointer!==undefined&&!owners.hasConsumers({resource:scope.resource,pointer:original},references)){
             owners.admit(source,4);source.remove(pointer,true,true,true);
         }
     }
@@ -69,7 +57,7 @@ export function discardInactiveSchemaConditions(graph:ReferenceGraph,scope:Graph
  * annotations. The negated branch collects no annotations from the condition;
  * the successful positive branch does, including when then is absent. */
 export function migrateSchemaConditions(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,
-    pointer:string,target:string,owners:MigrationSchemaOwners,issue:MigrationIssue):void {
+    pointer:string,target:string,owners:MigrationSchemaOwners,issue:MigrationIssue,references:readonly GraphReference[]):void {
     const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
     if(!value||typeof value!=='object')return;
     const fields=['if','then','else'].filter(name=>Object.hasOwn(value,name));
@@ -83,8 +71,8 @@ export function migrateSchemaConditions(graph:ReferenceGraph,scope:GraphScope,so
         for(const name of fields){
             const original=scope.pointer+'/'+name,at=source.current(original);
             if(at===undefined)continue;
-            if(retainedCondition(graph,scope.resource,original))
-                owners.move({resource:scope.resource,pointer:original},source,at,'inactive_condition');
+            if(owners.hasConsumers({resource:scope.resource,pointer:original},references))
+                owners.move({resource:scope.resource,pointer:original},source,at,'inactive_condition',{context:graph,layout:'array-item'});
             else {owners.admit(source,4);source.remove(at,true,true,true);}
         }
         return;
@@ -96,15 +84,15 @@ export function migrateSchemaConditions(graph:ReferenceGraph,scope:GraphScope,so
         // target for independent uses and captured reference/scope proofs;
         // apply only the selected branch at the original instance location.
         const at=source.current(scope.pointer+'/if');
-        if(at!==undefined)owners.move({resource:scope.resource,pointer:scope.pointer+'/if'},source,at,'condition');
+        if(at!==undefined)owners.move({resource:scope.resource,pointer:scope.pointer+'/if'},source,at,'condition',{context:graph,layout:'array-item'});
         const allOf=pointer+'/allOf',selected=constant?'then':'else';
         for(const name of ['then','else']){
             const original=scope.pointer+'/'+name,current=source.current(original);if(current===undefined)continue;
             if(name===selected){
                 owners.admit(source,2);if(!source.doc.dataNode(allOf))source.set(allOf,[]);
                 source.move(current,allOf+'/'+source.doc.dataNode(allOf).children.size,true);
-            }else if(retainedCondition(graph,scope.resource,original))
-                owners.move({resource:scope.resource,pointer:original},source,current,'inactive_condition');
+            }else if(owners.hasConsumers({resource:scope.resource,pointer:original},references))
+                owners.move({resource:scope.resource,pointer:original},source,current,'inactive_condition',{context:graph,layout:'array-item'});
             else {owners.admit(source,4);source.remove(current,true,true,true);}
         }
         return;
@@ -113,7 +101,7 @@ export function migrateSchemaConditions(graph:ReferenceGraph,scope:GraphScope,so
         issue({...scope,pointer:scope.pointer+'/if'},'migration.schema.conditional','Swagger has no conditional, disjunction or negation keyword; this condition needs a specific equivalent assertion mapping','implementation');
         return;
     }
-    const condition=owners.move({resource:scope.resource,pointer:scope.pointer+'/if'},source,pointer+'/if','condition');
+    const condition=owners.move({resource:scope.resource,pointer:scope.pointer+'/if'},source,pointer+'/if','condition',{context:graph,layout:'array-item'});
     const reference={$ref:condition.resource+pointerFragment(condition.pointer)};
     const allOf=pointer+'/allOf';
     owners.admit(source,4);

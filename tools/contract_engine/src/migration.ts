@@ -38,7 +38,7 @@ import {MigrationSchemaOwners,MigrationSemanticOrigins} from './migration_schema
 import {projectSchemaReference} from './schema_reference_projection';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='67';
+const migrationProducerVersion='68';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const patch:Record<string,string>={'2.0':'2.0','3.0':'3.0.4','3.1':'3.1.2','3.2':'3.2.1'};
 export type MigrationInput=Readonly<{
@@ -357,25 +357,34 @@ export async function planMigration(input:MigrationInput) {
             }
             // Repair only established contract references at their mapped CST
             // occurrences. Example and extension payloads are never searched.
-            const retainedGraph=createGraph({...input,resources:resources.map(resource=>({...resource,text:sources.get(resource.id)!.doc.text}))}).graph;
-            const retainedReferences=new Set(retainedGraph.references.filter(reference=>reference.resolution==='resolved').map(reference=>
-                JSON.stringify([reference.resource,reference.pointer,reference.keyword,reference.value,reference.targetResource,reference.targetPointer])));
+            const retainedInput={...input,resources:resources.map(resource=>({...resource,text:sources.get(resource.id)!.doc.text}))};
+            const retained=createGraph(retainedInput);
+            // An unchanged spelling must be proved in its actual entry's
+            // namespace. A foreign document's dormant interpretation in the
+            // first graph cannot qualify another entry's model names.
+            const retainedContexts=migrationDocumentContexts(retainedInput,retained,issue,true);
+            const retainedReferences=new Set([...migrationReferences(retainedContexts.map(context=>context.graph))].filter(reference=>reference.resolution==='resolved').map(reference=>
+                JSON.stringify([reference.resource,reference.pointer,reference.kind,reference.connection,reference.keyword,reference.value,reference.targetResource,reference.targetPointer])));
             for(const reference of migrationReferences(contexts.map(context=>context.graph))){
-                if(!['$ref','$dynamicRef','operationRef'].includes(reference.keyword)||reference.resolution!=='resolved')continue;
-                if(reference.keyword==='$dynamicRef'&&(modernFamily(after)||projectSchemaReference(reference).state!=='fixed'))continue;
+                if(reference.connection!=='discriminator'&&!['$ref','$dynamicRef','operationRef'].includes(reference.keyword)||reference.resolution!=='resolved')continue;
+                // Discriminator mapping keys are arbitrary wire values. A key
+                // spelled $dynamicRef is still a native connection, not a
+                // dynamic schema applicator. Repair moved targets before the
+                // converted graph is captured and validated.
+                if(!reference.connection&&reference.keyword==='$dynamicRef'&&(modernFamily(after)||projectSchemaReference(reference).state!=='fixed'))continue;
                 const destinations=[...sources].flatMap(([id,source])=>[...(id===reference.targetResource?source.origins.get(reference.targetPointer!):source.foreignOrigins.get(reference.targetResource+'#'+reference.targetPointer!))??[]].map(pointer=>({resource:id,pointer})));
-                const primary=referenceTargets?.get(reference.resource+'#'+reference.pointer)??
+                const primary=(!reference.connection?referenceTargets?.get(reference.resource+'#'+reference.pointer):undefined)??
                     (reference.kind==='schema'?discriminator?.primaryTargets.get(key(reference.targetResource!,reference.targetPointer!)):undefined)??
                     (destinations.length===1?destinations[0]:undefined);
                 for(const [id,source]of sources){
                     const locations=id===reference.resource?source.origins.get(reference.pointer+'/'+escape(reference.keyword)):source.foreignOrigins.get(reference.resource+'#'+reference.pointer+'/'+escape(reference.keyword));
                     for(const pointer of locations??[]){
-                        const destination=discriminator?.referenceTargets.get(key(id,pointer))??primary;
+                        const destination=(!reference.connection?discriminator?.referenceTargets.get(key(id,pointer)):undefined)??primary;
                         if(destination===undefined){issue(reference,'migration.reference.target','An established target has no surviving mapped source owner','implementation');continue;}
                         // An unchanged locator with the same proved target
                         // needs no physical edit, including shared YAML text.
                         const owner=pointer.slice(0,pointer.lastIndexOf('/'));
-                        if(source.doc.dataNode(pointer)?.value===reference.value&&retainedReferences.has(JSON.stringify([id,owner,reference.keyword,reference.value,destination.resource,destination.pointer])))continue;
+                        if(source.doc.dataNode(pointer)?.value===reference.value&&retainedReferences.has(JSON.stringify([id,owner,reference.kind,reference.connection,reference.keyword,reference.value,destination.resource,destination.pointer])))continue;
                         source.set(pointer,destination.resource+fragment(destination.pointer));
                     }
                 }

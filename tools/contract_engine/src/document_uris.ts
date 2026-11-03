@@ -4,6 +4,7 @@ import type {GraphIssue,GraphScope,ReferenceGraph} from './reference_graph';
 
 export const documentUriRevision='2';
 type UriScope=Pick<GraphScope,'kind'|'family'>;
+export type DocumentUriOccurrence=Readonly<{scope:GraphScope;pointer:string;field:string;value:string}>;
 
 /** Passive document URI positions, not API endpoints or payload keys.
  * Swagger 2.0 §6.4.2 termsOfService is text; OAS 3.x Info makes it a URL.
@@ -34,7 +35,7 @@ export function documentUriValidity(value:string):'valid'|'invalid'|'unsupported
 }
 
 /** Typed occurrences never acquire externalValue or traverse example data. */
-function* metadataUriOccurrences(graph:ReferenceGraph):Generator<{scope:GraphScope;pointer:string;field:string;value:string}> {
+function* metadataUriOccurrences(graph:ReferenceGraph):Generator<DocumentUriOccurrence> {
     for(const scope of graph.interpretedScopes()){
         const doc=graph.docs.get(scope.resource)!,node=doc.dataNode(scope.pointer);
         for(const field of metadataUriFields(scope,node?.value)){

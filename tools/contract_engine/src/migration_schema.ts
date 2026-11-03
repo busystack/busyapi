@@ -13,8 +13,9 @@ import {MigrationSchemaOwners} from './migration_schema_owners';
 import {discardInactiveSchemaConditions,migrateSchemaConditions} from './migration_schema_conditions';
 import {migrateSchemaTuple} from './migration_schema_tuples';
 import {migrateSchemaPropertyNames} from './migration_schema_property_names';
+import {MigrationPatternProperties} from './migration_schema_patterns';
 import {MigrationArrayBounds,migrateConstantContains,migrateArrayAlternatives} from './migration_schema_arrays';
-import {migrationScopes} from './migration_documents';
+import {migrationScopes,migrationReferences} from './migration_documents';
 
 export type MigrationChoice=Readonly<{value:string;label:string;target:MigrationLocation&{range:readonly number[]}}>;
 export type MigrationProblem={resource:string;pointer:string;range:number[];code:string;message:string;reason:'target-representation'|'implementation'|'source-incomplete'|'decision';choices?:string[];choiceDetails?:readonly MigrationChoice[];id?:string};
@@ -26,7 +27,9 @@ export type MigrationChoose=(scope:MigrationIssueLocation,code:string,message:st
  * dialect to make a migration pass. These edits affect planning copies only. */
 export function migrateSchemas(graph:ReferenceGraph,sources:Map<string,MigrationSource>,from:string,to:string,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph]):void {
     const references=new MigrationSchemaReferences(graph,contexts),requirements=new SchemaPropertyRequirements(graph);
-    const owners=new MigrationSchemaOwners(graph,sources);
+    const owners=new MigrationSchemaOwners(graph,sources,undefined,[],contexts);
+    const capturedReferences=[...migrationReferences(contexts)];
+    const patterns=new MigrationPatternProperties(graph,owners,capturedReferences,issue);
     const booleans=new BooleanSchemaMigration(graph,sources,to,owners);
     const arrayBounds=new MigrationArrayBounds(graph);
     // Coordinated entries own their active schemas independently. A detached
@@ -38,7 +41,12 @@ export function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Migration
     const scopes=[...captured.values()].sort((a,b)=>b.pointer.length-a.pointer.length);
     if(modernFamily(from)&&!modernFamily(to))for(const scope of [...scopes].reverse()){
         const source=sources.get(scope.resource)!;
-        if(source.current(scope.pointer)!==undefined)discardInactiveSchemaConditions(graph,scope,source,owners);
+        if(source.current(scope.pointer)!==undefined){
+            const context=owners.contextOf(scope);
+            if(!context){issue(scope,'migration.schema.context','Schema conversion requires its captured entry, role and resource context','implementation');continue;}
+            discardInactiveSchemaConditions(context,scope,source,owners,capturedReferences);
+            patterns.discardInactive(scope,source);
+        }
     }
     for(const scope of scopes){
         const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);if(pointer===undefined)continue;
@@ -48,6 +56,8 @@ export function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Migration
             continue;
         }
         if(!value||typeof value!=='object'||Array.isArray(value))continue;
+        const context=owners.contextOf(scope);
+        if(!context){issue(scope,'migration.schema.context','Schema conversion requires its captured entry, role and resource context','implementation');continue;}
         const field=(name:string)=>({...scope,pointer:scope.pointer+'/'+escape(name)});
         if(from==='2.0'&&to!=='2.0'&&Array.isArray(value.type)&&value.type.includes('file'))
             issue(field('type'),'migration.schema.file-union','This Swagger file/data union needs occurrence-specific alternative schemas and media decoding before conversion','implementation');
@@ -70,7 +80,7 @@ export function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Migration
             for(const keyword of schemaDefinitionKeywords)if(source.doc.dataNode(pointer+'/'+keyword)){
                 for(const name of [...source.doc.dataNode(pointer+'/'+keyword).children.keys()]){
                     const at=pointer+'/'+keyword+'/'+escape(name);
-                    owners.move({...scope,pointer:scope.pointer+'/'+keyword+'/'+escape(name)},source,at,'definition');
+                    owners.move({...scope,pointer:scope.pointer+'/'+keyword+'/'+escape(name)},source,at,'definition',{context,layout:'array-item'});
                 }
                 source.remove(pointer+'/'+keyword);
             }
@@ -79,8 +89,9 @@ export function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Migration
             references.lower(scope,source,pointer,issue);
             migrateDependentRequired(graph,scope,source,pointer,to,requirements,issue);
             migrateDependentSchemas(graph,scope,source,pointer,to,requirements,issue);
-            migrateSchemaConditions(graph,scope,source,pointer,to,owners,issue);
-            migrateSchemaPropertyNames(graph,scope,source,pointer,owners,issue);
+            migrateSchemaConditions(context,scope,source,pointer,to,owners,issue,capturedReferences);
+            migrateSchemaPropertyNames(context,scope,source,pointer,owners,issue,capturedReferences);
+            patterns.lower(scope,source,pointer,to);
             migrateConstantContains(graph,scope,source,pointer,owners);
             if(to==='2.0')migrateArrayAlternatives(graph,scope,source,pointer,owners);
         }
