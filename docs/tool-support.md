@@ -789,8 +789,16 @@ partial modern resources retain one dialect-bearing material owner. Mixed-family
 Annotation-only schema views of affected destination maps/documents are captured
 through the same role allocator before insertion. Other container/resource
 interpretations, uses without a proved holder and general refactoring ownership
-remain gaps.
-The migration producer is **60**; Core rejects previous
+remain gaps. Model-sensitive map views can retain identified native child
+resources through the common allocator: copied occurrences become typed
+references from the same implicit resource, while original IDs, anchors, dynamic
+candidates and literal values stay with their captured material owner. Secondary-only
+resources/anchors move with their Schema view; their original native annotations
+remain exact literal data. Canonical recapture retains duplicate-identity and
+dynamic-scope guards. Conflicting holders keep a located implementation blocker. Registered engine/Core coverage prepares recursive
+dynamic candidates, exact numeric HTTP bytes, publication, original deletion,
+relocation and CLI cold reopening; this coverage remains unexecuted.
+The migration producer is **61**; Core rejects previous
 producer responses before publication. Current qualification remains pending.
 
 Older-family migration also lowers dynamic references when every captured

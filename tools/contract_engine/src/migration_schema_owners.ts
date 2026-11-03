@@ -137,11 +137,22 @@ export class MigrationSchemaOwners {
         return owner.location;
     }
 
+    /** A typed use can refer to its retained material owner. Retire the old
+     * child fields before installing the locator: their provenance belongs to
+     * the material schema, never to this newly generated reference. */
+    referenceUse(source:MigrationSource,pointer:string,target:MigrationLocation):void {
+        for(const locations of source.originSets())for(const at of [...locations]){
+            this.inspectUse();if(at!==pointer&&(at.startsWith(pointer+'/')))locations.delete(at);
+        }
+        this.admit(source);source.set(pointer,{$ref:target.resource+pointerFragment(target.pointer)});
+        source.origins.set(pointer+'/$ref',new Set([pointer+'/$ref']));
+    }
+
     /** A separately interpreted use has its own conversion coordinates. Keep
      * its original provenance for review, without making later reference repair
      * choose between the structural/data owner and the schema copy. The caller
      * composes this relation with the final coordinates after conversion. */
-    separate(origin:MigrationLocation,label:string,container?:MigrationLocation,captured?:MigrationSource,identity=JSON.stringify([origin.resource,origin.pointer])):Readonly<{
+    separate(origin:MigrationLocation,label:string,container?:MigrationLocation,captured?:MigrationSource,identity=JSON.stringify([origin.resource,origin.pointer]),retained:readonly MigrationLocation[]=[]):Readonly<{
         location:MigrationLocation;provenance:ReadonlyMap<string,MigrationLocation>;
     }> {
         const input=captured??this.sources.get(origin.resource)!;
@@ -149,12 +160,24 @@ export class MigrationSchemaOwners {
             this.sources.get(container.resource)!,container.pointer,label,identity)}:this.reserve(origin,label,identity);
         this.admit(input,8);if(owner.source!==input)this.admit(owner.source,8);
         owner.source.copy(input,origin.pointer,owner.location.pointer,true);
+        const retainedPointers:string[]=[];
+        for(const material of retained){
+            this.inspectUse();
+            if(material.resource!==origin.resource||material.pointer===origin.pointer||!material.pointer.startsWith(origin.pointer+'/'))
+                throw new SourceError('migration.owners.retained','A retained material schema must be a captured child of this occurrence');
+            const pointer=owner.location.pointer+material.pointer.slice(origin.pointer.length);
+            retainedPointers.push(pointer);this.referenceUse(owner.source,pointer,material);
+        }
         const inside=(at:string)=>at===owner.location.pointer||at.startsWith(owner.location.pointer+'/');
         for(const locations of owner.source.originSets())for(const at of [...locations])if(inside(at))locations.delete(at);
         const provenance=new Map<string,MigrationLocation>();
         for(const pointer of migrationLogicalPointers(owner.source.doc))if(inside(pointer)){
             owner.source.origins.set(pointer,new Set([pointer]));
-            provenance.set(origin.pointer+pointer.slice(owner.location.pointer.length),{...owner.location,pointer});
+            // The forwarding use has new fields and no copied resource
+            // identity. Original child targets/candidates stay with the
+            // retained material owner, not with an anonymous reference shell.
+            if(!retainedPointers.some(parent=>{this.inspectUse();return pointer===parent||pointer.startsWith(parent+'/');}))
+                provenance.set(origin.pointer+pointer.slice(owner.location.pointer.length),{...owner.location,pointer});
         }
         owner.source.presentationChanges.push(owner.location.pointer);
         return {location:owner.location,provenance};

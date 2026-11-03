@@ -122,7 +122,7 @@ void main() {
       final review = await project.prepareMigration(root, '${directory.path}/converted', targetVersion: '3.2.1');
       addTearDown(review.close);
       expect(review.publishable, true, reason: '${review.result}');
-      expect(review.result['producerVersion'], '60');
+      expect(review.result['producerVersion'], '61');
       expect(review.unsaved, true);
       expect(review.exampleCopies.map((copy) => copy.bytes), containsAll([utf8.encode(count), utf8.encode(query)]));
       await review.publish();

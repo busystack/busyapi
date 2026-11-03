@@ -157,6 +157,81 @@ void main() {
       expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');
     });
   }
+  test('identified native map children retain exact HTTP semantics after captured publication and original deletion', () async {
+    final directory = await Directory.systemTemp.createTemp('busyapi-retained-map-');
+    addTearDown(() => directory.delete(recursive: true));
+    final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);
+    addTearDown(engine.close);
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    const wire = '{"雪":9007199254740993.00,"value":false}';
+    server.listen((request) async {
+      expect(request.method, 'GET');expect(request.uri.path, '/dictionary');
+      expect(await request.fold<List<int>>([], (bytes, chunk) => bytes..addAll(chunk)), isEmpty);
+      request.response.headers.set('content-type', 'application/json');
+      request.response.add(utf8.encode(wire));await request.response.close();
+    });
+    final root = File('${directory.path}/a.json'), other = File('${directory.path}/b.yaml');
+    await root.writeAsString(jsonEncode({
+      'openapi': '3.2.1', 'info': {'title': 'Retained', 'version': '1'},
+      'servers': [{'url': 'http://127.0.0.1:${server.port}'}],
+      'paths': {'/dictionary': {'get': {'responses': {'200': {'description': 'Values', 'content': {
+        'application/json': {'schema': {r'$ref': '#/components/schemas/Target'}},
+      }}}}}},
+      'components': {'schemas': {
+        'Target': {r'$ref': 'b.yaml#/components/schemas'},
+        'Other': {'type': 'object', 'properties': {'kind': {'const': 'Other'}}},
+        'Chooser': {'required': ['kind'], 'discriminator': {'propertyName': 'kind'}, 'oneOf': [
+          {r'$ref': '#/components/schemas/Target'}, {r'$ref': '#/components/schemas/Other'},
+        ]},
+      }},
+    }));
+    const material = '{"\$id":"https://schemas.invalid/retained","type":"integer","enum":[9007199254740993.00]}';
+    const secondary = '{"\$id":"https://schemas.invalid/secondary","type":"boolean","const":false}';
+    await other.writeAsString('# retained 雪\r\nopenapi: 3.1.2\r\ninfo: {title: Resource, version: "1"}\r\npaths: {}\r\ncomponents:\r\n  schemas:\r\n    additionalProperties: $material\r\n    properties: {value: $secondary}\r\nx-history: $material\r\nx-secondary: $secondary\r\n');
+    final originals = [await root.readAsBytes(), await other.readAsBytes()];
+    Future<void> exercise(BusyProject project, String entry) async {
+      expect((await project.check(entry))['status'], 'complete');
+      final prepared = await project.prepareRequest(entry, resource: entry, pointer: '/paths/~1dictionary/get');
+      try {
+        final body = ((((prepared.result['responses'] as List).single as Map)['content'] as List).single as Map)['schema'] as Map;
+        final evaluated = await prepared.evaluateRuntime([
+          for (final value in [wire, '{}', '{"雪":0}', '{"value":true}']) RuntimeSchemaInstance(
+            subject: 'response-body', location: 'application/json', text: value,
+            schemaResource: body['resource'], schemaPointer: body['pointer']),
+        ]);
+        expect(evaluated['complete'], true, reason: '$evaluated');
+        expect((evaluated['runtimeEvaluations'] as List).map((value) => value['valid']), [true, true, false, false]);
+        final response = await const ContractRequestExecutor().execute(prepared,
+          OperationRequestDraft(planIdentity: prepared.identity), resolveSecret: (_) async => null);
+        try { expect(response.conforming, true, reason: '${response.received.findings}');expect(await response.response.bytes(), utf8.encode(wire)); }
+        finally { await response.close(); }
+      } finally { prepared.close(); }
+    }
+    final source = await BusyProject.open(root.path, engine);addTearDown(source.close);
+    await exercise(source, root.uri.toString());
+    final review = await source.prepareMigration(root.uri.toString(), '${directory.path}/output', targetVersion: '3.2.1');
+    addTearDown(review.close);expect(review.publishable, true, reason: '${review.result}');
+    await review.publish();expect([await root.readAsBytes(), await other.readAsBytes()], originals);
+    source.close();final relocated = await Directory(review.destination).rename('${directory.path}/cold');
+    await root.delete();await other.delete();
+    final cold = await BusyProject.open(relocated.path, engine);addTearDown(cold.close);
+    final entryName = Uri.parse(review.changes.singleWhere((change) => change.resource == root.uri.toString()).destination).pathSegments.last;
+    final entry = File('${relocated.path}/$entryName').uri.toString();await exercise(cold, entry);
+    final otherName = Uri.parse(review.changes.singleWhere((change) => change.resource == other.uri.toString()).destination).pathSegments.last;
+    final page = await cold.inspectObject(entry, File('${relocated.path}/$otherName').uri.toString(), '/components/schemas/additionalProperties', contextKind: 'schema');
+    expect(page['value'][r'$id'], 'https://schemas.invalid/retained');
+    final literal = await cold.inspectObject(entry, File('${relocated.path}/$otherName').uri.toString(), '/components/schemas/properties', contextKind: 'schema');
+    expect(literal['value']['value'][r'$id'], 'https://schemas.invalid/secondary');
+    final view = await cold.inspectObject(entry, entry, '/components/schemas/Target', contextKind: 'schema');
+    final target = (view['references'] as List).single['target'] as Map;
+    final child = await cold.inspectObject(entry, target['resource'], '${target['pointer']}/properties/value', contextKind: 'schema');
+    expect(child['value'][r'$id'], 'https://schemas.invalid/secondary');
+    expect(child['value']['const'], false);
+    expect(await File('${relocated.path}/$otherName').readAsString(), contains('9007199254740993.00'));
+    final cli = await Process.run('$testBundle/busyapi', ['check', relocated.path, '--json'], environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
+    expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');
+  });
   test('entry operation owners retain Link navigation and native fields after specialization', () async {
     final directory = await Directory.systemTemp.createTemp('busyapi-operation-owners-');
     addTearDown(() => directory.delete(recursive: true));

@@ -327,7 +327,7 @@ for(const [foreignVersion,entryVersion,targetVersion,anchored]of [
  }
 });
 
-for(const identified of [false,true])test(`model-sensitive maps retain unnamed owners or an identified-resource guard, identified=${identified}`,async()=>{
+for(const identified of [false,true])test(`model-sensitive maps retain unnamed owners and native identified children, identified=${identified}`,async()=>{
  const root='file:///holder-guard/a.json',other='file:///holder-guard/b.json';
  const first={openapi:'3.2.1',info:{title:'Chooser',version:'1'},paths:{},components:{schemas:{
   Target:{$ref:'b.json#/components/schemas'},Other:{type:'object',properties:{kind:{const:'Other'}}},
@@ -343,21 +343,84 @@ for(const identified of [false,true])test(`model-sensitive maps retain unnamed o
  const source=await evaluateSchemas({...input,runtimeInstances:[{subject:'response-body',location:'source',text:identified?'{"kind":"Other"}':'{"kind":"Target"}',schema:{resource:root,pointer:'/components/schemas/Chooser'}}]});
  assert.equal(source.complete,true,JSON.stringify(source.findings));assert.equal(source.runtimeEvaluations[0].valid,true);
  const review=await planMigration(input);
- if(identified){
-  assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);
-  assert(review.problems.some(problem=>problem.resource===other&&problem.pointer==='/components/schemas'&&problem.code==='migration.owners.resource-context'&&problem.reason==='implementation'),JSON.stringify(review.problems));
- }else{
   assert.equal(review.complete,true,JSON.stringify(review.problems));
   const cold={root:review.outputRoot,snapshot:'cold-neutral-holder',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
   assert.equal(analyse(cold).status,'complete');
   const result=await evaluateSchemas({...cold,runtimeInstances:['{"kind":"Target"}','{"kind":"Other"}','{}'].map(text=>({subject:'response-body',location:'cold',text,schema:{resource:cold.root,pointer:'/components/schemas/Chooser'}}))});
-  assert.equal(result.complete,true,JSON.stringify(result.findings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,false,false]);
+  assert.equal(result.complete,true,JSON.stringify(result.findings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[!identified,identified,false]);
   const graph=createGraph(cold).graph,branch=graph.referenceAs(cold.root,'/components/schemas/Chooser/oneOf/0','$ref','schema');
   assert.equal(branch.targetResource,cold.root);assert.equal(branch.targetPointer,'/components/schemas/Target');
   const reference=graph.referenceAs(cold.root,'/components/schemas/Target','$ref','schema');
-  assert(reference.targetPointer.includes('/$defs/'));assert.deepEqual(graph.docs.get(reference.targetResource).dataNode(reference.targetPointer).value,{});
- }
+  assert(reference.targetPointer.includes('/$defs/'));
+  const map=graph.docs.get(reference.targetResource).dataNode(reference.targetPointer).value;
+  if(identified){
+   assert.deepEqual(Object.keys(map),['additionalProperties']);assert.equal(typeof map.additionalProperties.$ref,'string');
+   const material=graph.referenceAs(reference.targetResource,reference.targetPointer+'/additionalProperties','$ref','schema');
+   assert.equal(material.targetPointer,'/components/schemas/additionalProperties');
+   assert.equal(graph.docs.get(material.targetResource).dataNode(material.targetPointer).value.$id,'https://schemas.invalid/value');
+   assert.deepEqual(graph.identities.get('https://schemas.invalid/value'),[{resource:material.targetResource,pointer:material.targetPointer,kind:'schema'}]);
+   const checked=await evaluateSchemas({...cold,runtimeInstances:['{}','{"n":0}','{"n":"bad"}'].map(text=>({subject:'response-body',location:'dictionary',text,schema:{resource:reference.targetResource,pointer:reference.targetPointer}}))});
+   assert.equal(checked.complete,true,JSON.stringify(checked.findings));assert.deepEqual(checked.runtimeEvaluations.map(value=>value.valid),[true,true,false]);
+  }else assert.deepEqual(map,{});
  assert.deepEqual(input.resources.map(resource=>resource.text),frozen);
+});
+
+for(const keyword of ['additionalProperties','properties'])for(const identified of [false,true])test(`map resource owners preserve recursive dynamic candidates and literal identity data, ${keyword}, identified=${identified}`,async()=>{
+ const root='file:///retained-map/a.yaml',other='file:///retained-map/b.yaml';
+ const material={...(identified?{$id:'https://schemas.invalid/node'}:{}),$dynamicAnchor:'node',type:'object',properties:{
+  n:{type:'integer',minimum:0},child:{$dynamicRef:'#node'}},required:['n']};
+ const first={openapi:'3.2.1',info:{title:'Entry',version:'1'},paths:{},components:{schemas:{
+  Target:{$ref:'b.yaml#/components/schemas'},Other:{type:'object',properties:{kind:{const:'Other'}}},
+  Chooser:{type:'object',required:['kind'],properties:{kind:{type:'string'}},discriminator:{propertyName:'kind'},
+   oneOf:[{$ref:'#/components/schemas/Target'},{$ref:'#/components/schemas/Other'}]}
+ }}},second={openapi:'3.1.2',info:{title:'Resource',version:'1'},paths:{},components:{schemas:keyword==='additionalProperties'?{additionalProperties:material}:{properties:{value:material}}},'x-history':material};
+ const resources=[first,second].map((value,index)=>({id:[root,other][index],text:'# retained 雪\r\n'+YAML.stringify(value).replaceAll('\n','\r\n'),generation:1}));
+ const frozen=resources.map(resource=>resource.text);
+ const input={root,snapshot:'retained-dynamic-map-'+keyword+identified,resources,targetVersion:'3.2.1',destination:'file:///retained-output/'};
+ assert.equal(analyse(input).status,'complete');
+ const name=keyword==='additionalProperties'?'a':'value';
+ const instances=['{}',`{"${name}":{"n":0,"child":{"n":2}}}`,`{"${name}":{"n":0,"child":{"n":-1}}}`,`{"${name}":false}`];
+ const evaluate=packet=>evaluateSchemas({...packet,runtimeInstances:instances.map(text=>({subject:'response-body',location:'dictionary',text,schema:{resource:packet.root,pointer:'/components/schemas/Target'}}))});
+ const source=await evaluate(input);assert.equal(source.complete,true,JSON.stringify(source.findings));
+ assert.deepEqual(source.runtimeEvaluations.map(value=>value.valid),[true,true,false,false]);
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const cold={root:review.outputRoot,snapshot:'cold-retained-dynamic-map',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
+ assert.equal(analyse(cold).status,'complete');const target=await evaluate(cold);
+ assert.equal(target.complete,true,JSON.stringify(target.findings));assert.deepEqual(target.runtimeEvaluations.map(value=>value.valid),[true,true,false,false]);
+ const graph=createGraph(cold).graph,dynamic=graph.entryReferences().filter(reference=>reference.keyword==='$dynamicRef');
+ assert.equal(dynamic.length,1);assert.equal(dynamic[0].dynamic.candidates.length,1);
+ const child=keyword==='additionalProperties'?'/components/schemas/additionalProperties':'/components/schemas/properties/value';
+ const candidate=dynamic[0].dynamic.candidates[0];
+ if(keyword==='additionalProperties')assert.equal(candidate.pointer,child);
+ else assert(candidate.pointer.includes('/$defs/')&&candidate.pointer.endsWith('/properties/value'));
+ const destination=review.changes.find(change=>change.resource===other).destination,document=graph.docs.get(destination);
+ assert.deepEqual(document.dataNode('/x-history').value,material);
+ assert.equal(document.dataNode(child).value.$id,material.$id);
+ assert.equal(document.dataNode(child).value.$dynamicAnchor,'node');
+ assert.deepEqual(input.resources.map(resource=>resource.text),frozen);
+});
+
+test('secondary-only identified children move with their Schema view while native annotations stay exact',async()=>{
+ const root='file:///unretained-map/a.json',other='file:///unretained-map/b.json';
+ const first={openapi:'3.2.1',info:{title:'Entry',version:'1'},paths:{},components:{schemas:{
+  Target:{$ref:'b.json#/components/schemas'},Other:{type:'object',properties:{kind:{const:'Other'}}},
+  Chooser:{required:['kind'],discriminator:{propertyName:'kind'},oneOf:[{$ref:'#/components/schemas/Target'},{$ref:'#/components/schemas/Other'}]}
+ }}},second={openapi:'3.1.2',info:{title:'Secondary only',version:'1'},paths:{},components:{schemas:{
+  properties:{value:{$id:'https://schemas.invalid/secondary',type:'integer'}}
+ }}};
+ const input={root,snapshot:'unretained-map',targetVersion:'3.2.1',destination:'file:///unretained-output/',resources:[first,second].map((value,index)=>({id:[root,other][index],text:JSON.stringify(value),generation:1}))};
+ assert.equal(analyse(input).status,'complete');const before=input.resources.map(resource=>resource.text);
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const cold={root:review.outputRoot,snapshot:'cold-secondary-material',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
+ const graph=createGraph(cold).graph,target=graph.referenceAs(cold.root,'/components/schemas/Target','$ref','schema');
+ assert(target.targetPointer.includes('/$defs/'));
+ const material=graph.docs.get(target.targetResource).dataNode(target.targetPointer+'/properties/value').value;
+ assert.equal(material.$id,'https://schemas.invalid/secondary');
+ const result=await evaluateSchemas({...cold,runtimeInstances:['{}','{"value":0}','{"value":"bad"}'].map(text=>({subject:'response-body',location:'secondary',text,schema:{resource:cold.root,pointer:'/components/schemas/Target'}}))});
+ assert.equal(result.complete,true,JSON.stringify(result.findings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,true,false]);
+ const destination=review.changes.find(change=>change.resource===other).destination;
+ assert.deepEqual(graph.docs.get(destination).dataNode('/components/schemas/properties').value,second.components.schemas.properties);
+ assert.deepEqual(input.resources.map(resource=>resource.text),before);
 });
 
 test('ordinary patch migration retains authored operationId links when no operation owner was cloned',async()=>{
