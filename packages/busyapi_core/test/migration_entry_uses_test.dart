@@ -16,8 +16,17 @@ void main() {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(() => server.close(force: true));
       const wire = '{"value":9007199254740993.00,"entry":"chosen"}';
+      const dictionaryWire = '{"a":9007199254740993.00}';
       final sent = <List<int>>[];
       server.listen((request) async {
+        if (request.uri.path == '/dictionary') {
+          expect(request.method, 'GET');
+          expect(await request.fold<List<int>>([], (all, chunk) => all..addAll(chunk)), isEmpty);
+          request.response.headers.set('content-type', 'application/json');
+          request.response.add(utf8.encode(dictionaryWire));
+          await request.response.close();
+          return;
+        }
         expect(request.method, 'POST');
         sent.add(await request.fold<List<int>>([], (all, chunk) => all..addAll(chunk)));
         request.response.headers.set('content-type', 'application/json');
@@ -47,6 +56,12 @@ void main() {
       if (foreignVersion == '3.1.2') {
         (first['components'] as Map)['schemas']['Dictionary'] = {r'$ref': 'b.yaml#/components'};
         (first['components'] as Map)['schemas']['Document'] = {r'$ref': 'b.yaml#'};
+        (first['components'] as Map)['schemas']['Assertions'] = {r'$ref': 'b.yaml#/components/schemas'};
+        (second['components'] as Map)['schemas']['additionalProperties'] = {'type': 'integer', 'minimum': 'EXACT'};
+        (second['components'] as Map)['schemas']['propertyNames'] = {'enum': ['a', '雪']};
+        (first['paths'] as Map)['/dictionary'] = {'get': {'responses': {'200': {
+          'description': 'Dictionary', 'content': {'application/json': {'schema': {r'$ref': '#/components/schemas/Assertions'}}},
+        }}}};
       }
       String encode(Map value) => '# Keep mixed source 雪\r\n${jsonEncode(value).replaceAll('"EXACT"', '9007199254740993.00')}\r\n';
       final originals = {'a.yaml': encode(first), 'b.yaml': encode(second)};
@@ -75,7 +90,7 @@ void main() {
             final raw = (annotation['entries'] as List).whereType<Map>().singleWhere((entry) => entry['name'] == 'schemas')['raw'] as String;
             expect(raw, contains('9007199254740993.00'));
             final schemas = jsonDecode(raw) as Map;
-            expect(schemas.keys.toSet(), {'Choice', 'Base'});
+            expect(schemas.keys.toSet(), {'Choice', 'Base', 'additionalProperties', 'propertyNames'});
             expect(schemas['Base']['discriminator']['mapping'], {'chosen': 'Choice'});
             expect(schemas['Choice']['x-entry'], 'Second');
             final document = await material({'resource': root, 'pointer': '/components/schemas/Document'});
@@ -97,6 +112,25 @@ void main() {
           try { expect(response.conforming, true, reason: '${response.outgoing.findings} ${response.received.findings}');expect(await response.response.bytes(), utf8.encode(wire));expect(sent.last, utf8.encode(wire)); }
           finally { await response.close(); }
         } finally { plan.close(); }
+        if (dictionary) {
+          final dictionaryPlan = await project.prepareRequest(root, resource: root, pointer: '/paths/~1dictionary/get');
+          try {
+            final body = ((((dictionaryPlan.result['responses'] as List).single as Map)['content'] as List).single as Map)['schema'] as Map;
+            final result = await dictionaryPlan.evaluateRuntime([
+              for (final text in [dictionaryWire, '{"雪":9007199254740994}', '{"a":0}', '{"bad":9007199254740993}']) RuntimeSchemaInstance(
+                subject: 'response-body', location: 'application/json', text: text,
+                schemaResource: body['resource'], schemaPointer: body['pointer']),
+            ]);
+            expect(result['complete'], true, reason: '$result');
+            expect((result['runtimeEvaluations'] as List).map((value) => value['valid']), [true, true, false, false]);
+            final response = await const ContractRequestExecutor().execute(dictionaryPlan,
+              OperationRequestDraft(planIdentity: dictionaryPlan.identity), resolveSecret: (_) async => null);
+            try {
+              expect(response.conforming, true, reason: '${response.received.findings}');
+              expect(await response.response.bytes(), utf8.encode(dictionaryWire));
+            } finally { await response.close(); }
+          } finally { dictionaryPlan.close(); }
+        }
       }
       await exercise(source, roots[0], dictionary: foreignVersion == '3.1.2');await exercise(source, roots[1]);
       final buffer = await source.buffer(roots[0]);source.store.replace(buffer.id, buffer.text.replaceFirst('First', 'Captured First'));

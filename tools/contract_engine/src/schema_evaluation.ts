@@ -36,7 +36,7 @@ import {externalExampleRevision} from './external_examples';
 import {exampleRepresentation,mediaExampleRepresentations,type ExampleValueField} from './example_representation';
 import {embeddedMimeTextRevision} from './embedded_mime_text';
 
-export const schemaProducer={name:'hyperjump+busyapi-exact',version:'1.18.0+56',configuration:[
+export const schemaProducer={name:'hyperjump+busyapi-exact',version:'1.18.0+57',configuration:[
  `external-example-bytes-v${externalExampleRevision}`,
  'parameter-runtime-serialization-v1',
  'http-field-lines-v1',
@@ -263,8 +263,9 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
   };
   for(const scope of all) {
    const id=scopeId(scope);
-   const candidate=scope.schemaParent===undefined?undefined:evaluationScopes.get(scope.resource+'#'+scope.schemaParent);
-   if(candidate){
+   for(const parent of graph.schemaParentsOf(scope)){
+    const candidate=evaluationScopes.get(parent.resource+'#'+parent.pointer);
+    if(!candidate)continue;
     // Reserved definitions are not applicators. Their schema is required only
     // if an established reference reaches it; an unfamiliar unused $defs
     // resource cannot disable this independent parent's supported assertions.

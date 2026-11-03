@@ -39,7 +39,9 @@ export class SchemaResourceViews {
             this.admit();
             if(!supportedSchemaDialect(scope))continue;
             const host=graph.scope(scope.resource,''),owner=key(scope);
-            active ||= graph.literalContainer(scope.resource,scope.pointer)!==undefined||
+            // A native schema dictionary and its Schema Object view have
+            // different keyword ownership even within the same resource.
+            active ||= scope.sourceKind==='schema-map'||graph.literalContainer(scope.resource,scope.pointer)!==undefined||
                 scope.resourcePointer===''&&scope.dialect!==host.dialect;
             let parent=scope.pointer;
             while(!active&&parent){

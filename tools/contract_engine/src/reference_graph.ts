@@ -4,7 +4,7 @@ import {swaggerFileChoiceTargets} from './swagger_file';
 import {resolveIri} from '@hyperjump/uri';
 import {specificationDeclaration, defaultSchemaDialect, modernFamily, restrictedSchemaDialect, swaggerSchemaDialect, isNativeFamily, capabilitiesFor, Specification,declaredSchemaDialect} from './specification';
 
-export const schemaRoleContextRevision='7';
+export const schemaRoleContextRevision='8';
 
 export const knownDialects = new Set([
     restrictedSchemaDialect,
@@ -22,7 +22,10 @@ export const schemaDialectIdentity = (uri:string):string => uri.endsWith('#')?ur
 
 export type GraphTarget = { resource: string; pointer: string; kind: string };
 export type GraphScope = GraphTarget & {
-    base: string; resourcePointer: string; dialect: string|null; family: string; sourceKind?:string;schemaParent?:string;
+    base: string; resourcePointer: string; dialect: string|null; family: string; sourceKind?:string;
+    /** Primary meta-validation boundary. All intrinsic applicator parents are
+     * retained separately by ReferenceGraph.schemaParentsOf(). */
+    schemaParent?:string;
 };
 /** Canonical resource interpretation, separate from the authored spelling of
  * a dialect declaration and from per-entry/role/directional use ownership. */
@@ -133,6 +136,8 @@ export class ReferenceGraph {
     private readonly documentScopes = new Map<string, GraphScope>();
     private readonly roleScopes = new Map<string, GraphScope>();
     private readonly roleKinds = new Map<string, Set<string>>();
+    private readonly intrinsicSchemaParents = new Map<string,Set<string>>();
+    private intrinsicSchemaEdges=0;
     private readonly overlappingScopes = new Set<string>();
     private entryUses?:ReadonlySet<string>;
     private dynamicCandidateWork=0;
@@ -245,6 +250,13 @@ export class ReferenceGraph {
     scopeAs(resource:string,pointer:string,kind:string):GraphScope|undefined {
         const scope=this.scopes.get(key(resource,pointer));
         return scope?.kind===kind?scope:this.roleScopes.get(key(resource,pointer)+':'+kind);
+    }
+    /** All intrinsic schema uses, including a child that is independently a
+     * native schema root. schemaParent retains its primary meta-validation
+     * boundary; executable dependencies follow every captured typed edge. */
+    schemaParentsOf(scope:Pick<GraphTarget,'resource'|'pointer'>):readonly GraphScope[] {
+        return [...this.intrinsicSchemaParents.get(key(scope.resource,scope.pointer))??[]]
+            .flatMap(pointer=>{const parent=this.scopeAs(scope.resource,pointer,'schema');return parent?[parent]:[];});
     }
     scopesAt(resource:string,pointer:string):readonly GraphScope[] {
         const primary=this.scopes.get(key(resource,pointer));
@@ -750,9 +762,34 @@ export class ReferenceGraph {
         // layer interpreted using one of the supported authoring families.
         if (!isNativeFamily(inherited.family)) return;
         const id = key(resource, pointer) + ':' + kind;
+        if(schemaOwner){
+            const location=key(resource,pointer),parents=this.intrinsicSchemaParents.get(location)??new Set<string>();
+            if(!parents.has(schemaOwner.pointer)){
+                if(++this.intrinsicSchemaEdges>2000000)
+                    throw new SourceError('limit.graph.schema-uses','Intrinsic schema ownership exceeds 2000000 typed edges');
+                parents.add(schemaOwner.pointer);this.intrinsicSchemaParents.set(location,parents);
+            }
+        }
         if (this.indexed.has(id)) {
             const previous=kind==='schema'&&depth>0?this.schemaAdmissions.get(id):undefined;
-            if(previous&&(previous.root&&intrinsic||(['base','resourcePointer','dialect','family'] as const).some(field=>previous.inherited[field]!==inherited[field])))
+            const sameContext=previous&&(['base','resourcePointer','dialect','family'] as const).every(field=>previous.inherited[field]===inherited[field]);
+            const value=previous&&this.docs.get(resource)!.dataNode(pointer)?.value;
+            // A native Components schema map can also be an independently
+            // referenced Schema Object. Its applicators may reach a member
+            // already admitted as a native schema root. Equal resource/dialect
+            // contexts share that executable schema while both typed container
+            // edges remain captured. Retain the native root for independent
+            // meta-validation. A $schema without its own $id has different
+            // root/subschema applicability and cannot use this equivalence.
+            const nativeRootUse=previous!==undefined&&sameContext&&intrinsic&&previous.root&&
+                previous.inherited.kind==='schema-map'&&schemaOwner?.pointer===previous.inherited.pointer&&
+                this.scopeAs(resource,previous.inherited.pointer,'schema-map')!==undefined;
+            const sharedNativeRoot=nativeRootUse&&(!Object.hasOwn(value??{},'$schema')||typeof value?.$id==='string');
+            if(nativeRootUse&&!sharedNativeRoot){
+                const at=pointer+'/$schema',range=this.docs.get(resource)!.dataNode(at)!.range;
+                throw new SourceError('reference.schema.context','This dialect declaration has both native-root and intrinsic-subschema interpretations; the latter requires its own schema resource identity',range,'unsupported',{resource,pointer:at,range});
+            }
+            if(previous&&(!sameContext||previous.root&&intrinsic&&!sharedNativeRoot))
                 this.contextChanges.set(id,previous.target);
             return;
         }

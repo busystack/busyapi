@@ -270,6 +270,45 @@ for(const [foreignVersion,entryVersion,targetVersion,anchored]of [
   assert.equal(doc.dataJson(annotation.pointer+'/headers'),before.dataJson('/components/headers'));
   assert.equal(new (require('./dist/document.cjs').SourceDocument)(protectedCold.resources.find(resource=>resource.id===annotation.resource).text,annotation.resource).dataJson('/x-history'),history);
   assert.deepEqual(guarded.resources.map(resource=>resource.text),[encode(first),original[1]]);
+  const assertionFirst=structuredClone(first),assertionSecond=structuredClone(second);
+  assertionFirst.components.schemas.Assertions={$ref:'b.'+format+'#/components/schemas'};
+  assertionSecond.components.schemas.additionalProperties={type:'integer',minimum:'EXACT'};
+  assertionSecond.components.schemas.propertyNames={enum:['a','雪']};
+  const assertions={...input,snapshot:'assertion-container-owners',resources:[
+   {...input.resources[0],text:encode(assertionFirst)},{...input.resources[1],text:encode(assertionSecond)}
+  ]},assertionOriginal=assertions.resources.map(resource=>resource.text);
+  assert.equal(analyse(assertions).status,'complete');assert.equal(analyse({...assertions,root:other}).status,'complete');
+  const assertInstances=async(packet)=>{
+   const result=await evaluateSchemas({...packet,runtimeInstances:[
+    '{}','{"a":9007199254740993.00}','{"雪":9007199254740994}',
+    '{"bad":9007199254740993}','{"a":0}','{"a":"wrong"}','[]','null'
+   ].map(text=>({subject:'response-body',location:'application/json',text,schema:{resource:packet.root,pointer:'/components/schemas/Assertions'}}))});
+   assert.equal(result.complete,true,JSON.stringify(result.findings));
+   assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,true,true,false,false,false,true,true]);
+  };
+  await assertInstances(assertions);
+  const assertionReview=await planMigration(assertions);assert.equal(assertionReview.complete,true,JSON.stringify(assertionReview.problems));
+  const assertionCold={snapshot:'cold-assertion-owners',root:assertionReview.outputRoot,resources:assertionReview.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
+  await assertInstances(assertionCold);await inspect(assertionCold,'First');
+  await inspect({...assertionCold,root:assertionReview.changes.find(change=>change.resource===other).destination},'Second');
+  const assertionGraph=createGraph(assertionCold).graph,material=follow(assertionGraph,assertionCold.root,'/components/schemas/Assertions','schema');
+  assert.notEqual(material.pointer,'/components/schemas');
+  const materialDoc=assertionGraph.docs.get(material.resource),capturedDoc=new (require('./dist/document.cjs').SourceDocument)(assertions.resources[1].text,other);
+  for(const name of ['Base','Choice'])assert.equal(materialDoc.dataJson(material.pointer+'/'+name),capturedDoc.dataJson('/components/schemas/'+name));
+  for(const [name,field]of [['additionalProperties','minimum'],['propertyNames','enum']]){
+   const child=follow(assertionGraph,material.resource,material.pointer+'/'+name,'schema');
+   assert.equal(assertionGraph.docs.get(child.resource).dataJson(child.pointer+'/'+field),capturedDoc.dataJson('/components/schemas/'+name+'/'+field));
+  }
+  assert.deepEqual(assertions.resources.map(resource=>resource.text),assertionOriginal);
+  assert.deepEqual((await planMigration(assertions)).outputs,assertionReview.outputs);
+  const polymorphic=structuredClone(assertionSecond);
+  polymorphic.components.schemas.additionalProperties={allOf:[{$ref:'#/components/schemas/Base'}]};
+  const guardedNames={...assertions,snapshot:'polymorphic-container-guard',resources:[assertions.resources[0],{...assertions.resources[1],text:encode(polymorphic)}]};
+  assert.equal(analyse(guardedNames).status,'complete');
+  const guardedReview=await planMigration(guardedNames);
+  assert.equal(guardedReview.complete,false);
+  assert(guardedReview.problems.some(problem=>problem.code==='migration.owners.entry-container'&&problem.reason==='implementation'),JSON.stringify(guardedReview.problems));
+  assert.equal(guardedReview.outputs.length,0);assert.equal(guardedNames.resources[1].text,encode(polymorphic));
  }
 });
 

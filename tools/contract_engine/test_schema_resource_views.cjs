@@ -11,6 +11,54 @@ const official=(file,description)=>{
 const cases=[official('dynamicRef','A $dynamicRef to a $dynamicAnchor in the same schema resource behaves like a normal $ref to an $anchor'),
  official('dynamicRef','A $dynamicRef resolves to the first $dynamicAnchor still in scope that is encountered when the schema is evaluated'),
  official('unevaluatedProperties','unevaluatedProperties with $ref')];
+for(const version of ['3.1.2','3.2.1'])for(const format of ['json','yaml'])
+test(`${version} ${format} native schema-map roots share an equal applicator resource context`,async()=>{
+ const root='file:///approved/schema-map.'+format,value={openapi:version,info:{title:'Schema map uses',version:'1'},paths:{},components:{schemas:{
+  additionalProperties:{type:'integer',minimum:'EXACT'},propertyNames:{enum:['a','雪']},View:{$ref:'#/components/schemas'}
+ }}};
+ const text=(format==='json'?JSON.stringify(value):YAML.stringify(value)).replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const input={root,snapshot:'shared-native-map',resources:[{id:root,text,generation:1}]},analysis=analyse(input);
+ assert.equal(analysis.status,'complete',JSON.stringify(analysis.findings));
+ const graph=createGraph(input).graph;
+ assert(graph.scopeAs(root,'/components/schemas','schema'));assert(graph.scopeAs(root,'/components/schemas','schema-map'));
+ assert.equal(graph.scopeAs(root,'/components/schemas/additionalProperties','schema').schemaParent,undefined,'The native root keeps independent meta-validation');
+ assert.deepEqual(graph.schemaParentsOf({resource:root,pointer:'/components/schemas/additionalProperties'}).map(scope=>scope.pointer),['/components/schemas']);
+ const samples=['{}','{"a":9007199254740993.00}','{"雪":9007199254740994}','{"a":0}','{"bad":9007199254740993}','null'];
+ const result=await evaluateSchemas({...input,runtimeInstances:[
+  ...samples.map(text=>({subject:'response-body',location:'map-use',text,schema:{resource:root,pointer:'/components/schemas/View'}})),
+  ...['9007199254740993.00','0'].map(text=>({subject:'response-body',location:'native-member',text,schema:{resource:root,pointer:'/components/schemas/additionalProperties'}}))
+ ]});
+ assert.equal(result.complete,true,JSON.stringify(result.findings));
+ assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,true,true,false,false,true,true,false]);
+ assert.equal(input.resources[0].text,text);
+});
+test('all captured intrinsic schema parents retain incomplete child dependencies',async()=>{
+ const root='file:///approved/schema-map-unavailable.json',value={openapi:'3.2.1',info:{title:'Unavailable schema use',version:'1'},paths:{},components:{schemas:{
+  additionalProperties:{$ref:'not-loaded.json#/Schema'},propertyNames:{enum:['a']},View:{$ref:'#/components/schemas'}
+ }}};
+ const input={root,snapshot:'shared-native-map-unavailable',resources:[{id:root,text:JSON.stringify(value),generation:1}]};
+ const result=await evaluateSchemas({...input,runtimeInstances:[
+  {subject:'response-body',location:'dependent',text:'{"a":1}',schema:{resource:root,pointer:'/components/schemas/View'}},
+  {subject:'response-body',location:'independent',text:'"a"',schema:{resource:root,pointer:'/components/schemas/propertyNames'}}
+ ]});
+ assert.equal(result.complete,false);assert.deepEqual(result.runtimeEvaluations.map(value=>[value.complete,value.valid]),[[false,false],[true,true]]);
+});
+for(const identified of [false,true])test(`native-root/subschema dialect declarations retain applicability, identified=${identified}`,async()=>{
+ const root='file:///approved/schema-map-dialect.json',pointer='/components/schemas/additionalProperties',value={openapi:'3.2.1',info:{title:'Dialect context',version:'1'},paths:{},components:{schemas:{
+  additionalProperties:{...(identified?{$id:'https://schemas.invalid/member'}:{}),$schema:'https://json-schema.org/draft/2020-12/schema',type:'integer'},
+  View:{$ref:'#/components/schemas'}
+ }}};
+ const input={root,snapshot:'shared-root-declaration',resources:[{id:root,text:JSON.stringify(value),generation:1}]};
+ if(!identified){
+  assert.throws(()=>createGraph(input),error=>error.code==='reference.schema.context'&&error.source.resource===root&&error.source.pointer===pointer+'/$schema');
+  return;
+ }
+ const graph=createGraph(input).graph;
+ assert.equal(graph.scopeAs(root,pointer,'schema').resourcePointer,pointer);
+ assert.equal(graph.scopeAs(root,pointer,'schema').dialect,'https://json-schema.org/draft/2020-12/schema');
+ const result=await evaluateSchemas({...input,runtimeInstances:['{"a":1}','{"a":"wrong"}'].map(text=>({subject:'response-body',location:'map-use',text,schema:{resource:root,pointer:'/components/schemas/View'}}))});
+ assert.equal(result.complete,true,JSON.stringify(result.findings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,false]);
+});
 for(const version of ['3.1.2','3.2.1'])for(const fixture of cases)
 test(`${version} captured executable views retain official resource/dynamic/unevaluated semantics: ${fixture.description}`,async()=>{
  const root='file:///approved/views.json',model='file:///approved/official.json';

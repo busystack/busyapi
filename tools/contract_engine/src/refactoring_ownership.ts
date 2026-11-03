@@ -20,7 +20,8 @@ function semanticIdentity(graph:ReferenceGraph,admit:(size:number)=>void):string
     const add=(kind:string,value:unknown)=>{const row=JSON.stringify([kind,value]);admit(row.length);rows.push(row);};
     for(const [resource,retrieval]of graph.retrievals)add('retrieval',[resource,retrieval]);
     for(const [resource,specification]of graph.specifications)add('specification',[resource,specification]);
-    for(const scope of graph.interpretedScopes())add('scope',[scopeIdentity(scope),graph.isEntryUse(scope)]);
+    for(const scope of graph.interpretedScopes())add('scope',[scopeIdentity(scope),graph.isEntryUse(scope),
+        scope.kind==='schema'?graph.schemaParentsOf(scope).map(scopeIdentity).sort():[]]);
     for(const ref of graph.references)add('reference',[scopeIdentity(ref),ref.keyword,ref.value,ref.connection,ref.resolution,
         ref.targetUri,ref.targetResource,ref.targetPointer,ref.targetFamily,[...(ref.candidateResources??[])].sort(),
         (ref.candidateTargets??[]).map(targetIdentity).sort(),ref.dynamic&&[ref.dynamic.anchor,ref.dynamic.candidates.map(targetIdentity).sort()]]);
