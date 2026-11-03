@@ -641,7 +641,7 @@ class _NativeObjectPageState extends State<_NativeObjectPage> {
                 if (item['responseStatusNamePolicy'] != null)
                   BusyApiActionRow(
                     title: l.renameResponseStatus,
-                    onTap: c.scopeSafe(item)
+                    onTap: c.scopeSafe(item, reviewedCopy: true)
                         ? () => run(
                             () => _renameObjectMember(
                               context,
@@ -655,14 +655,14 @@ class _NativeObjectPageState extends State<_NativeObjectPage> {
                 if (item['componentDefinition'] == true)
                   BusyApiActionRow(
                     title: l.renameComponent,
-                    onTap: c.scopeSafe(item)
+                    onTap: c.scopeSafe(item, reviewedCopy: true)
                         ? () => run(() => _renameObjectMember(context, c, item))
                         : null,
                   ),
                 if (item['schemaDefinitionNamePolicy'] != null)
                   BusyApiActionRow(
                     title: l.renameSchemaDefinition,
-                    onTap: c.scopeSafe(item)
+                    onTap: c.scopeSafe(item, reviewedCopy: true)
                         ? () => run(
                             () => _renameObjectMember(
                               context,
@@ -712,7 +712,7 @@ class _NativeObjectPageState extends State<_NativeObjectPage> {
                     RegExp(r'/properties/[^/]*$').hasMatch(widget.pointer))
                   BusyApiActionRow(
                     title: l.renameProperty,
-                    onTap: c.scopeSafe(item)
+                    onTap: c.scopeSafe(item, reviewedCopy: true)
                         ? () => run(
                             () => _renameObjectMember(
                               context,
@@ -1717,6 +1717,7 @@ Future<void> _renameObjectMember(
     onApply: (value) async {
       try {
         final target = <String, dynamic>{
+          'root': item['root'],
           'resource': item['resource'],
           'generation': item['generation'],
           'pointer': item['pointer'],

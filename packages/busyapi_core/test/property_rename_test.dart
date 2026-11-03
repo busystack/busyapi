@@ -18,12 +18,12 @@ void main() {
     );
     addTearDown(engine.close);
     final root = File('${temp.path}/root.json'),
-        part = File('${temp.path}/part.json');
+        part = File('${temp.path}/part.yaml');
     await root.writeAsString(
-      r'{"openapi":"3.2.1","info":{"title":"Property","version":"1"},"paths":{},"components":{"schemas":{"Model":{"$ref":"part.json#/Model"}}}}',
+      r'{"openapi":"3.2.1","info":{"title":"Property","version":"1"},"paths":{},"components":{"schemas":{"Model":{"$ref":"part.yaml#/Model"}}}}',
     );
     const original =
-        r'{"Model":{"type":"object","properties":{"old":{"type":"number"}},"required":["old"],"dependentSchemas":{"old":{"properties":{"old":{"minimum":1.00}},"required":["old"]}},"examples":[{"old":9007199254740993}],"x-kept":{"old":"literal"}}}';
+        r'{"Model":{"type":"object","properties":{"old":{"type":"number"}},"required": &names ["old"],"dependentSchemas":{"old":{"properties":{"old":{"minimum":1.00}},"required": *names}},"examples":[{"old":9007199254740993}],"x-kept":{"old":"literal"}},"x-shared": *names}';
     await part.writeAsString('\ufeff$original\r\n');
     final project = await BusyProject.open(root.path, engine);
     addTearDown(project.close);
@@ -33,7 +33,9 @@ void main() {
       'resource': buffer.id,
       'generation': buffer.generation,
       'pointer': '/Model/properties/old',
-    }, 'new/😀');
+    }, 'new/😀', actions: [
+      {'kind': 'setRequired', 'pointer': '/Model', 'name': 'new/😀', 'required': false},
+    ]);
     expect(plan.result['kind'], 'property-rename');
     expect(buffer.bytes(), before);
     final nested = '/Model/dependentSchemas/old/properties/old';
@@ -45,6 +47,8 @@ void main() {
     expect(buffer.text, contains('9007199254740993'));
     expect(buffer.text, contains('minimum":1.00'));
     expect(jsonDecode(buffer.text)['Model']['x-kept'], {'old': 'literal'});
+    expect(jsonDecode(buffer.text)['x-shared'], ['old']);
+    expect(jsonDecode(buffer.text)['Model']['required'], isEmpty);
     final reversed = project.store.undo();
     expect(buffer.bytes(), before);
     for (final transition in reversed) mapped = transition.map(mapped);

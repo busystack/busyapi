@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const {test} = require('node:test');
 const YAML = require('yaml');
 const {planRename,planPropertyRename} = require('./dist/refactoring.cjs');
-const {createGraph} = require('./dist/model.cjs');
+const {createGraph,analyse} = require('./dist/model.cjs');
 const {SourceDocument}=require('./dist/document.cjs');
 const root='file:///project/root.yaml', part='file:///project/part.yaml';
 for(const version of ['3.1.2','3.2.1'])for(const json of [false,true])for(const explicit of [false,true])test(`ignored Reference Object siblings retain literal ownership ${version} ${json} explicit=${explicit}`,()=>{
@@ -32,7 +32,7 @@ for(const version of ['3.1.2','3.2.1'])for(const json of [false,true])test(`prop
 });
 function fixture(version,json=false) {
  const id=json?root.replace('.yaml','.json'):root, fragment=json?part.replace('.yaml','.json'):part;
- const value={openapi:version,info:{title:'Rename',version:'1'},paths:{'/items':{get:{responses:{'200':{description:'OK',content:{'application/json':{schema:{$ref:'#/components/schemas/Old'},example:{$ref:'#/components/schemas/Old',name:'Old'}}}}}}}},components:{schemas:{Old:{type:'object',properties:{self:{$ref:'#/components/schemas/Old'},nested:{$id:'https://models.test/nested', $anchor:'entry',type:'string'}},'x-number':1.00},Union:{oneOf:[{$ref:'#/components/schemas/Old'}],discriminator:{propertyName:'kind'}}},securitySchemes:{Key:{type:'apiKey',in:'header',name:'X-Key'}}},security:[{Key:[]}], 'x-payload':{$ref:'#/components/schemas/Old'}};
+ const value={openapi:version,info:{title:'Rename',version:'1'},paths:{'/items':{get:{responses:{'200':{description:'OK',content:{'application/json':{schema:{$ref:'#/components/schemas/Old'},example:{$ref:'#/components/schemas/Old',name:'Old'}}}}}}}},components:{schemas:{Old:{type:'object',properties:{self:{$ref:'#/components/schemas/Old'},nested:{$id:'https://models.test/nested', $anchor:'entry',type:'string'}},'x-number':1.00},Union:{oneOf:[{$ref:'#/components/schemas/Old'}],properties:{kind:{type:'string'}},required:['kind'],discriminator:{propertyName:'kind'}}},securitySchemes:{Key:{type:'apiKey',in:'header',name:'X-Key'}}},security:[{Key:[]}], 'x-payload':{$ref:'#/components/schemas/Old'}};
  const external={schema:{$ref:(json?'root.json':'root.yaml')+'#/components/schemas/Old'},stable:{$ref:'https://models.test/nested#entry'}};
  const stringify=v=>json?JSON.stringify(v,null,2):YAML.stringify(v);
  let text=stringify(value);
@@ -42,6 +42,33 @@ function fixture(version,json=false) {
 const apply=(input,plan)=>input.resources.map(r=>{
  let text=r.text;for(const e of plan.edits.filter(e=>e.buffer===r.id).sort((a,b)=>b.start-a.start)) {assert.equal(text.slice(e.start,e.end),e.expected);text=text.slice(0,e.start)+e.replacement+text.slice(e.end);}
  return {...r,text};
+});
+for(const version of ['2.0','3.0.4','3.1.2','3.2.1'])test(`${version} anchored definitions, aliased schema uses and literal data retain separate rename ownership`,async()=>{
+ const legacy=version==='2.0',id='file:///project/owned.yaml',prefix=legacy?'/definitions':'/components/schemas',indent=legacy?'  ':'    ';
+ const text=(legacy?'swagger: "2.0"':'openapi: '+version)+'\ninfo: {title: Owned names, version: "1"}\npaths: {}\n'+(legacy?'definitions:':'components:\n  schemas:')+'\n'+indent+'Old: &model\n'+indent+'  type: object\n'+indent+'  properties:\n'+indent+'    n: {type: integer, enum: [9007199254740993.00]} # exact\n'+indent+'    self: {$ref: "#'+prefix+'/Old"}\n'+indent+'Alias: *model # separate schema use\n'+indent+'Use: {$ref: &reference "#'+prefix+'/Old"}\nx-model: *model\nx-reference: *reference\n';
+ const before=new SourceDocument(text,id),pointer=prefix+'/Old',target={root:id,resource:id,generation:2,pointer,range:before.node(pointer).range,expected:text.slice(...before.node(pointer).range)};
+ const input={root:id,snapshot:'owned-rename',resources:[{id,text,generation:2}],contexts:[{root:id,resources:[id]}],target,name:'New'};
+ assert.deepEqual(planRename({...input,name:'Old'}).edits,[]);
+ const plan=planRename(input),resources=apply(input,plan),after=new SourceDocument(resources[0].text,id);
+ assert.equal(after.dataJson('/x-model'),before.dataJson('/x-model'));assert.equal(after.dataJson('/x-reference'),before.dataJson('/x-reference'));
+ for(const at of [prefix+'/New/properties/self',prefix+'/Alias/properties/self',prefix+'/Use'])assert.equal(after.node(at+'/$ref').value,'#'+prefix+'/New');
+ assert(after.text.includes('9007199254740993.00'));assert(after.text.includes('# exact'));assert(after.text.includes('# separate schema use'));
+ assert.equal(analyse({...input,resources}).status,'complete');
+ const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
+ const instances=['{"n":9007199254740993.00}','{"n":0}','{"self":{"n":9007199254740993.00}}'];
+ for(const name of ['New','Alias']){
+  const evaluated=await evaluateSchemas({...input,resources,runtimeInstances:instances.map(text=>({subject:'response-body',location:'json',text,schema:{resource:id,pointer:prefix+'/'+name}}))});
+  assert.equal(evaluated.complete,true,JSON.stringify(evaluated.findings));assert.deepEqual(evaluated.runtimeEvaluations.map(value=>value.valid),[true,false,true]);
+ }
+ assert.throws(()=>planRename({...input,target:{...target,expected:'stale'}}),error=>error.code==='edit.stale');
+ assert.equal(input.resources[0].text,text);
+});
+test('renaming an anchored member key retains literal key aliases',()=>{
+ const id='file:///project/key.yaml',text='openapi: 3.2.1\ninfo: {title: Key ownership, version: "1"}\npaths: {}\ncomponents:\n  schemas:\n    &binding Old: {type: string}\n    Use: {$ref: "#/components/schemas/Old"}\nx-name: *binding\n';
+ const input={root:id,snapshot:'key-owner',resources:[{id,text,generation:1}],contexts:[{root:id,resources:[id]}],target:{resource:id,generation:1,pointer:'/components/schemas/Old'},name:'New'};
+ const result=planRename(input),resources=apply(input,result),doc=new SourceDocument(resources[0].text,id);
+ assert.equal(doc.node('/x-name').value,'Old');assert.equal(doc.node('/components/schemas/Use/$ref').value,'#/components/schemas/New');
+ assert.equal(analyse({...input,resources}).status,'complete');assert.equal(input.resources[0].text,text);
 });
 for(const version of ['3.1.2','3.2.1'])for(const json of [false,true])test(`semantic component rename ${version} ${json?'JSON':'YAML'}`,()=>{
  const input=fixture(version,json);
@@ -107,10 +134,13 @@ for(const version of ['3.2.0','3.2.1'])for(const format of ['yaml','json'])test(
  assert.deepEqual(planRename({...input,name:'Old'}).edits,[]);
  assert.equal(input.resources[0].text,text);assert.equal(input.resources[1].text,partText);
 });
-for(const version of ['3.2.0','3.2.1'])test(`security URI rename retains the shared YAML source refusal ${version}`,()=>{
+for(const version of ['3.2.0','3.2.1'])test(`security URI rename owns shared YAML fields and preserves literal consumers ${version}`,()=>{
  const id='file:///project/api.yaml',text=`# shared literal ownership\nopenapi: ${version}\ninfo: {title: Shared requirement, version: '1'}\npaths: {}\ncomponents:\n  securitySchemes:\n    Old: {type: apiKey, in: header, name: X-Key}\nsecurity:\n  - &requirement {'#/components/securitySchemes/Old': [reader]}\nx-payload: *requirement\n`;
  const input={root:id,snapshot:'shared-security',resources:[{id,text,generation:1}],contexts:[{root:id,resources:[id]}],target:{resource:id,generation:1,pointer:'/components/securitySchemes/Old'},name:'New'};
- assert.throws(()=>planRename(input),error=>['edit.shared','refactor.literal.ownership'].includes(error.code));
+ const plan=planRename(input),resources=apply(input,plan),before=new SourceDocument(text,id),after=new SourceDocument(resources[0].text,id);
+ assert.equal(after.dataJson('/x-payload'),before.dataJson('/x-payload'));
+ assert.deepEqual([...after.node('/security/0').children.keys()],['#/components/securitySchemes/New']);
+ assert.equal(analyse({...input,resources}).status,'complete');
  assert.equal(input.resources[0].text,text);
 });
 for(const version of ['2.0','3.0.4','3.1.2','3.2.1'])for(const format of ['yaml','json'])test(`security rename reviews exact configuration aliases ${version} ${format}`,()=>{
@@ -150,12 +180,11 @@ for(const sharedMap of [false,true])test(`security configuration aliases retain 
  input.target={resource:input.root,generation:3,pointer:'/components/securitySchemes/Key'};input.name='New';
  const text=sharedMap?'version: 1\nroots: [{name: api, path: root.json}]\nx-bindings: &bindings\n  Key: {secretRef: credential-reference}\nenvironments: {manual: {authentication: {schemes: *bindings}}}\n':"version: 1\nroots: [{name: api, path: root.json}]\nx-credential: &credential {secretRef: 'credential-reference', x-exact: 9007199254740993.00} # retained\nenvironments:\n  manual:\n    authentication:\n      schemes:\n        Key: *credential\n";
  input.configuration={id:'file:///project/busyapi.yaml',generation:4,identity:'configuration',text};
- if(sharedMap)assert.throws(()=>planRename(input),error=>error.code==='edit.shared');
- else {
+ {
   const change=planRename(input).changes.find(change=>change.resource===input.configuration.id),doc=new SourceDocument(change.after,input.configuration.id);
-  assert.equal(doc.dataJson('/environments/manual/authentication/schemes/New'),doc.dataJson('/x-credential'));
-  assert(change.after.includes("x-credential: &credential {secretRef: 'credential-reference', x-exact: 9007199254740993.00} # retained"));
-  assert(change.after.includes('Key: *credential'));
+  assert.equal(doc.dataJson('/environments/manual/authentication/schemes/New'),doc.dataJson(sharedMap?'/x-bindings/Key':'/x-credential'));
+  if(sharedMap){assert.equal(doc.dataJson('/x-bindings'),new SourceDocument(text,input.configuration.id).dataJson('/x-bindings'));assert(change.after.includes('x-bindings: &bindings'));}
+  else {assert(change.after.includes("x-credential: &credential {secretRef: 'credential-reference', x-exact: 9007199254740993.00} # retained"));assert(change.after.includes('Key: *credential'));}
  }
  assert.equal(input.configuration.text,text);
 });

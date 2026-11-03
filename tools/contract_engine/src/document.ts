@@ -266,11 +266,17 @@ export class SourceDocument {
      * An anchored member key is outside its own value, but inside an entry
      * removal or a containing value replacement. */
     assertUnshared(pointer:string,includeKey=false) {
+        const node=this.sharedNode(pointer,includeKey);
+        if(node)throw new SourceError('edit.shared','This source edit would change an anchored or aliased occurrence; edit its explicit source definition',node.keyShared?node.keyRange:node.range);
+    }
+    /** The same ownership predicate is available to reviewed CST planners.
+     * Reading it grants no mutation permission to ordinary proposal writers. */
+    sharedNode(pointer:string,includeKey=false):Node|undefined {
         const root=this.node(pointer),pending=[root];
         while(pending.length) {
             const node=pending.pop()!;
             if(node.shared||node.keyShared&&(includeKey||node!==root))
-                throw new SourceError('edit.shared','This source edit would change an anchored or aliased occurrence; edit its explicit source definition',node.keyShared?node.keyRange:node.range);
+                return node;
             for(const child of node.children.values())pending.push(child);
         }
     }

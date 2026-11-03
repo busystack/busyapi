@@ -178,7 +178,7 @@ test('R03-B collection to multiline string preserves nested compact sequence pos
   if(newline==='\r\n')assert(!/(?<!\r)\n/.test(changed));
  }
 });
-test('R05-B aliased same-instance constraint collections require explicit ownership',async()=>{
+test('R05-B reviewed property rename owns aliased same-instance constraints and preserves literal values',async()=>{
  for(const version of ['3.1.2','3.2.1'])for(const relation of [
   ['names','[old]','required: *names'],
   ['deps','{other: [old]}','dependentRequired: *deps'],
@@ -189,12 +189,26 @@ test('R05-B aliased same-instance constraint collections require explicit owners
   ['name','old','required: [*name]'],
   ['name','old','discriminator: {propertyName: *name}'],
  ]){
-  const [anchor,value,field]=relation,text=header.replace('3.2.1',version)+`x-shared: &${anchor} ${value}\ncomponents:\n  schemas:\n    Model:\n      type: object\n      properties: {old: {type: string}}\n      ${field}\n${field.startsWith('discriminator:')?'      allOf: [true]\n':''}`;
+  const [anchor,value,field]=relation,text=header.replace('3.2.1',version)+`x-shared: &${anchor} ${value}\ncomponents:\n  schemas:\n    Model:\n      type: object\n      properties: {old: {type: string}}\n      ${field}\n${field.startsWith('discriminator:')?'      allOf: [true]\n      required: [old]\n':''}`;
   assert.equal(analyse(input(text)).findings.length,0);
   const evaluation=await evaluateSchemas({...input(text),runtimeInstances:[{subject:'shared',location:'json',text:'{"old":"ok","other":true}',schema:{resource:root,pointer:'/components/schemas/Model'}}]});
   assert.equal(evaluation.runtimeEvaluations[0].valid,true);
-  assert.throws(()=>planPropertyRename({...input(text),contexts:[{root,resources:[root]}],target:{resource:root,generation:1,pointer:'/components/schemas/Model/properties/old'},name:'new'}),e=>e.code==='refactor.property.shared');
+  const plan=planPropertyRename({...input(text),contexts:[{root,resources:[root]}],target:{resource:root,generation:1,pointer:'/components/schemas/Model/properties/old'},name:'new'}),after=apply(text,plan),doc=new SourceDocument(after,root);
+  assert.equal(doc.dataJson('/x-shared'),new SourceDocument(text,root).dataJson('/x-shared'));assert(after.includes(`x-shared: &${anchor} ${value}\n`));
+  const values=['{"old":"ok","other":true}','{"old":1,"other":true}','{"other":true}'];
+  const check=(source,renamed)=>evaluateSchemas({...input(source),runtimeInstances:values.map(text=>({subject:'property',location:'json',text:renamed?text.replaceAll('"old"','"new"'):text,schema:{resource:root,pointer:'/components/schemas/Model'}}))});
+  const before=await check(text,false),converted=await check(after,true);assert.equal(before.complete,true,JSON.stringify(before.findings));assert.equal(converted.complete,true,JSON.stringify(converted.findings));
+  assert.deepEqual(converted.runtimeEvaluations.map(value=>value.valid),before.runtimeEvaluations.map(value=>value.valid));
+  assert.equal(analyse(input(after)).status,'complete');
  }
+});
+for(const version of ['3.0.4','3.2.1'])test(`reviewed ${version} required membership uses captured contexts without a top-level root hint`,()=>{
+ const text=`openapi: ${version}\ninfo: {title: Captured family, version: "1"}\npaths: {}\ncomponents:\n  schemas:\n    Model:\n      type: object\n      properties: {old: {type: string}}\n      required: &names [old]\nx-history: *names\n`;
+ const packet={snapshot:'required-context',resources:[{id:root,text,generation:1}],contexts:[{root,resources:[root]}],target:{resource:root,generation:1,pointer:'/components/schemas/Model/properties/old'},name:'new',actions:[{kind:'setRequired',pointer:'/components/schemas/Model',name:'new',required:false}]};
+ const plan=planPropertyRename(packet),after=apply(text,plan),doc=new SourceDocument(after,root);
+ assert.deepEqual(doc.dataNode('/components/schemas/Model/required')?.value,version==='3.0.4'?undefined:[]);
+ assert.deepEqual(doc.node('/x-history').value,['old']);assert(doc.node('/components/schemas/Model/properties/new'));
+ assert.equal(analyse(input(after)).status,'complete');assert.equal(packet.resources[0].text,text);
 });
 
 test('R03-C existing block scalars retain complete requested whitespace',()=>{

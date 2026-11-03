@@ -54,7 +54,7 @@ void _registerDefinitionTests(String keyword) {
                 'busyapi-schema-definition-design-',
               );
               final pointer = '/components/schemas/Envelope/$keyword/Old';
-              final original =
+              var original =
                   '${format == 'yaml' ? '# retained schema definition 雪😀\r\n' : ''}'
                   '${const JsonEncoder.withIndent('  ').convert({
                     'openapi': version,
@@ -70,6 +70,15 @@ void _registerDefinitionTests(String keyword) {
                     },
                     'x-literal': {'\$ref': '#$pointer', 'number': 'EXACT'},
                   }).replaceFirst('"EXACT"', '9007199254740993.00')}\r\n';
+              if (format == 'yaml') {
+                original = original.replaceFirst(
+                  '"Old": false',
+                  '"Old": &definition false',
+                );
+                final end = original.lastIndexOf('}');
+                original = '${original.substring(0, end)},\r\n'
+                    '  "x-owned": *definition\r\n${original.substring(end)}';
+              }
               final file = File('${directory.path}/api.$format')
                 ..writeAsBytesSync([239, 187, 191, ...utf8.encode(original)]);
               final c = WorkspaceController(
@@ -248,6 +257,7 @@ void _registerDefinitionTests(String keyword) {
                   false,
                 );
                 expect(parsed['x-literal']['\$ref'], '#$pointer');
+                if (format == 'yaml') expect(parsed['x-owned'], false);
                 expect(accepted, contains('9007199254740993.00'));
                 await runWidgetIo(tester, () async {
                   await c.undo();

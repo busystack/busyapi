@@ -450,7 +450,7 @@ export function inspect(input: any) {
         }
     }
     const sharedTarget=!!componentFamily(scope.kind,family)&&graph.references.some(ref=>ref.resolution==='resolved'&&ref.targetResource===doc.id&&ref.targetPointer===node.pointer);
-    // Read-only eligibility for an explicit copy/inline ownership review. An
+    // Read-only eligibility for an explicit structural ownership review. An
     // alias token is physical source; its descendants remain non-editable.
     const reviewedCopySource=doc.format==='yaml'&&!!componentFamily(scope.kind,family)&&doc.dataSyntaxSafe(node.pointer)
       ?{nodeKind:scope.kind==='schema'&&typeof node.value==='boolean'?'boolean':doc.dataNode(node.pointer)!.kind}:undefined;

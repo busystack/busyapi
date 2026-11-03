@@ -152,7 +152,7 @@ class WorkspaceController extends ChangeNotifier {
     if (resource is! String || Uri.parse(resource).scheme != 'file') {
       return false;
     }
-    // Only reviewed copy operations can ask the engine to separate YAML
+    // Only reviewed structural operations can ask the engine to separate YAML
     // tokens. This does not grant ordinary controls permission to edit aliases.
     final ownedCopy = reviewedCopy && item['reviewedCopySource'] is Map;
     final nodeKind = ownedCopy
@@ -1936,6 +1936,10 @@ class WorkspaceController extends ChangeNotifier {
         'object.extract',
         'object.extractFile',
         'object.moveDefinition',
+        'object.rename',
+        'object.renameProperty',
+        'object.renameResponse',
+        'object.renameSchemaDefinition',
       ].contains(kind),
     );
     final b = store!.get(target.buffer);

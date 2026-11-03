@@ -3,10 +3,33 @@ import {captureRefactoringGraph as createGraph} from './refactoring_graph';
 import {isSchemaDefinitionKeyword} from './schema_definitions';
 import { createHash } from 'node:crypto';
 import { propose, Resource } from './engine';
-import { escape, segments, SourceError } from './document';
+import { escape, segments, SourceError, SourceDocument } from './document';
 import { GraphReference, resolveUri, pointerFragment } from './reference_graph';
 import {securityConfigurationCopies,type SecurityBindingChange} from './security_configuration';
 import {componentNamePolicy,permitsMemberName,responseStatusNamePolicy,schemaDefinitionNamePolicy} from './member_names';
+import {MigrationSource} from './migration_source';
+import {editBudget,editsFor} from './refactoring_copy';
+import {modernFamily} from './specification';
+
+/** Apply only the planner's already established structural actions. YAML
+ * aliases are read through their canonical data, then affected tokens acquire
+ * the same exact-value ownership used by migration and copy reviews. */
+function ownedRenameSource(resource:Resource,actions:Iterable<Readonly<{kind:string;pointer:string}>>,admit:(id:string,size?:number)=>void):Resource {
+    const doc=new SourceDocument(resource.text,resource.id);
+    if(doc.format!=='yaml')return resource;
+    const source=new MigrationSource(doc);
+    for(const action of actions){
+        const pointer=action.kind==='setRequired'?action.pointer+'/required':action.pointer;
+        let ancestor=pointer;
+        while(ancestor&&!source.doc.nodes.has(ancestor))ancestor=ancestor.slice(0,ancestor.lastIndexOf('/'));
+        const descendants=ancestor===pointer,includeKey=['rename','remove'].includes(action.kind);
+        const node=source.doc.node(ancestor);
+        if(descendants?!source.doc.sharedNode(pointer,includeKey):!node.shared)continue;
+        source.own(pointer,descendants,includeKey);
+        admit(resource.id,source.doc.text.length);
+    }
+    return source.doc.text===resource.text?resource:{...resource,text:source.doc.text};
+}
 
 /** Semantic plans operate on each entry description's namespace separately.
  * Physical edits are coalesced only after every occurrence agrees. There is no
@@ -47,8 +70,8 @@ export function planRename(input: any) {
         throw new SourceError('refactor.shared-role','This name also belongs to an independently referenced Schema Object; its interpretations need separate reviewed ownership',range,'unsupported',{resource:source.id,pointer:parentMap,range});
     }
     const definition = graphs.map((g: any) => g.docs.get(source.id)?.nodes.get(oldPointer)).find(Boolean);
-    if(schemaDefinition&&(!definition||!definition.keyRange||definition.shared||definition.keyShared))
-        throw new SourceError('refactor.definition','The definition needs an unambiguous physical key, not an alias or reference projection');
+    if(schemaDefinition&&(!definition||!definition.keyRange))
+        throw new SourceError('refactor.definition','The definition needs an unambiguous physical key rather than a virtual projection');
     const owners=graphs.flatMap(({graph})=>{
         const scope=graph.scopes.get(source.id+'#'+oldPointer);
         return scope?[{graph,scope}]:[];
@@ -58,8 +81,8 @@ export function planRename(input: any) {
     if(!property&&(!owners.length||owners.some(({graph,scope})=>!permitsMemberName(schemaDefinition?schemaDefinitionNamePolicy(graph,scope):response?responseStatusNamePolicy(scope.family):componentNamePolicy(scope.family),input.name))))
         throw new SourceError('refactor.name','Choose a name permitted by every owning specification family',input.target.range,undefined,{resource:source.id,pointer:oldPointer,range:input.target.range});
     if(!property&&!response&&!schemaDefinition&&parts.length===2&&!graphs.some((g:any)=>g.graph.specifications.get(source.id)?.family==='2.0'))throw new SourceError('refactor.definition','Choose a native Swagger reusable definition');
-    if (!definition || !definition.keyRange || definition.shared || definition.keyShared)
-        throw new SourceError('refactor.definition', 'The definition needs an unambiguous physical key, not an alias or reference projection');
+    if (!definition || !definition.keyRange)
+        throw new SourceError('refactor.definition', 'The definition needs an unambiguous physical key rather than a virtual projection');
     if (!graphs.some((g: any) => g.graph.scopes.has(source.id + '#' + oldPointer)))
         throw new SourceError('refactor.definition', 'This preserved content is not a component family in the selected specification');
     const ownerPointer = parts.length === 2 ? '' : '/' + parts.slice(0,-2).map(escape).join('/');
@@ -96,13 +119,18 @@ export function planRename(input: any) {
         const doc=graphs.find((g:any)=>g.docs.has(source.id))!.docs.get(source.id)!;
         const constraint=(pointer:string)=>{
             const node=doc.dataNode(pointer);
-            if(node&&(node.shared||node.pointer!==pointer))throw new SourceError('refactor.property.shared','An aliased structural relationship needs explicit source ownership');
-            return node;
+            if(!node)return;
+            if(!doc.dataSyntaxSafe(pointer))throw new SourceError('refactor.scope.syntax','The structural relationship has ambiguous source syntax',node.range);
+            // A read-only logical occurrence retains the captured physical
+            // range. Children are rebound one level at a time; mutations use
+            // the original logical path after ownedRenameSource materializes
+            // its alias tokens. No virtual node becomes ordinarily editable.
+            return {...node,pointer,children:new Map([...node.children].map(([name,child])=>[name,{...child,pointer:pointer+'/'+escape(name)}]))};
         };
         const renameKey=(pointer:string)=>{
             const node=constraint(pointer);if(!node)return;
             const tokens=segments(pointer),next='/'+[...tokens.slice(0,-1),input.name].map(escape).join('/');
-            if(doc.nodes.has(next))throw new SourceError('edit.collision','A structural property relationship already uses the destination name');
+            if(doc.dataNode(next))throw new SourceError('edit.collision','A structural property relationship already uses the destination name');
             if(!moves.some(m=>m.from===pointer))moves.push({resource:source.id,from:pointer,to:next});
         };
         const renameList=(list:any)=>{
@@ -114,8 +142,8 @@ export function planRename(input: any) {
         };
         const sameInstance=(pointer:string,depth=0)=>{
             if(depth>128)throw new SourceError('limit.refactor','Property relationship nesting exceeds its bound');
-            const n=doc.dataNode(pointer);
-            if(!n||n.shared||n.pointer!==pointer)throw new SourceError('refactor.property.shared','An aliased same-instance constraint needs explicit source ownership');
+            const n=constraint(pointer);
+            if(!n)throw new SourceError('refactor.property.shared','The same-instance constraint has no captured source ownership');
             if(!n.value||typeof n.value!=='object'||Array.isArray(n.value))return;
             if(n.value.$ref||n.value.$dynamicRef)throw new SourceError('refactor.property.reference','A same-instance reference may constrain this wire name; explicitly resolve its shared ownership before renaming');
             if(doc.dataNode(pointer+'/properties/'+escape(input.name)))throw new SourceError('edit.collision','A same-instance property already uses the destination name');
@@ -233,12 +261,21 @@ export function planRename(input: any) {
         const pointer=transition(source.id,action.pointer);
         add(source.id,pointer,{...action,pointer});
     }
-    const edits: any[] = [], outputs = new Map<string, string>();
+    const outputs = new Map<string, string>(),admitOwnership=editBudget(resources,'limit.refactor.ownership');
     for (const [id, values] of actions) {
         const resource = resources.find(r => r.id === id)!;
-        const result = propose({...input, target: {resource: id, generation: resource.generation, pointer: ''}, actions: [...values.values()]});
-        edits.push(...result.edits);
-        let text = resource.text;
+        const owned=ownedRenameSource(resource,values.values(),admitOwnership);
+        const candidates=graphs.filter(owner=>owner.context.resources.includes(id));
+        // Required membership uses a captured containing-family context. An
+        // unversioned schema shared with a restricted family must omit its last
+        // required entry rather than leave an array that family prohibits.
+        const membership=[...values.values()].some(action=>action.kind==='setRequired')?candidates.find(({graph})=>{
+            const owner=graph.scopeAs(source.id,ownerPointer,'schema');return owner&&!modernFamily(owner.family);
+        }):undefined;
+        const selected=membership??candidates.find(owner=>owner.context.root===(input.target.root??input.root))??candidates[0];
+        if(!selected)throw new SourceError('refactor.context','An edited source has no captured root context');
+        const result = propose({...input,root:selected.context.root,resources:resources.map(value=>value.id===id?owned:value),target: {resource: id, generation: resource.generation, pointer: ''}, actions: [...values.values()]});
+        let text = owned.text;
         for (const e of [...result.edits].reverse()) text = text.slice(0, e.start) + e.replacement + text.slice(e.end);
         outputs.set(id, text);
     }
@@ -259,13 +296,15 @@ export function planRename(input: any) {
         }
     }
     const changes = [...outputs].map(([id, text]) => ({resource: id, before: resources.find(r => r.id === id)!.text, after: text}));
+    const edits=editsFor(resources,outputs);
     const configuration=securityConfigurationCopies(input.configuration,securityBindings);
     if(configuration?.actions.length){
         if(resources.some(resource=>resource.id===configuration.source.id))throw new SourceError('refactor.configuration.ownership','Project configuration cannot also be an edited API graph resource');
-        const result=propose({...input,resources:[configuration.source],target:{resource:configuration.source.id,generation:configuration.source.generation,pointer:''},actions:configuration.actions});
-        let text=configuration.source.text;for(const edit of [...result.edits].reverse())text=text.slice(0,edit.start)+edit.replacement+text.slice(edit.end);
+        const owned=ownedRenameSource(configuration.source,configuration.actions,admitOwnership);
+        const result=propose({...input,resources:[owned],target:{resource:configuration.source.id,generation:configuration.source.generation,pointer:''},actions:configuration.actions});
+        let text=owned.text;for(const edit of [...result.edits].reverse())text=text.slice(0,edit.start)+edit.replacement+text.slice(edit.end);
         if(Buffer.byteLength(text,'utf8')>65536)throw new SourceError('limit.refactor.configuration','The repaired project configuration would exceed 64 KiB',[0,configuration.source.text.length],'unsupported',{resource:configuration.source.id,pointer:'',range:[0,configuration.source.text.length]});
-        edits.push(...result.edits);changes.push({resource:configuration.source.id,before:configuration.source.text,after:text});
+        edits.push(...editsFor([configuration.source],new Map([[configuration.source.id,text]])));changes.push({resource:configuration.source.id,before:configuration.source.text,after:text});
         for(const usage of configuration.usages)usages.set(JSON.stringify([usage.resource,usage.pointer,usage.target.resource,usage.target.pointer]),usage);
     }
     return {version: 1, snapshot: input.snapshot, identity: createHash('sha256').update(JSON.stringify({snapshot: input.snapshot, target: input.target, name: input.name, edits})).digest('hex'), edits, changes, usages: [...usages.values()], from: input.target, to: {...input.target, pointer: transition(source.id, oldPointer)}, transitions:[...moves].sort((a,b)=>b.from.length-a.from.length), ...(property?{kind:'property-rename',preservedNameConstraints:[...warnings]}:{}), ...(schemaDefinition?{kind:'schema-definition-rename'}:{}), checkedRoots: input.contexts.map((c: any) => c.root), externalConsumers: 'Only the supplied configured-root graph is known; consumers outside this project are not rewritten.'};

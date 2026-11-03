@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:busyapi_core/busyapi_core.dart';
@@ -18,7 +19,7 @@ void main() {
       239,
       187,
       191,
-      ...'# retained\r\nopenapi: 3.2.1\r\ninfo: {title: Rename, version: "1"}\r\npaths: {}\r\ncomponents:\r\n  schemas:\r\n    \'Old\':\r\n      type: object\r\n      x-kept: 1.00\r\n      properties: {child: {\$ref: "#/components/schemas/Old"}}\r\n    External: {\$ref: "part.yaml#/Schema"}'
+      ...'# retained\r\nopenapi: 3.2.1\r\ninfo: {title: Rename, version: "1"}\r\npaths: {}\r\ncomponents:\r\n  schemas:\r\n    \'Old\': &model\r\n      type: object\r\n      x-kept: 1.00\r\n      properties: {child: {\$ref: "#/components/schemas/Old"}}\r\n    External: {\$ref: "part.yaml#/Schema"}\r\nx-history: *model'
           .codeUnits,
     ]);
     await File('${temp.path}/part.yaml').writeAsString(
@@ -55,6 +56,14 @@ void main() {
       final b = project.store.get(root), fragment = project.store.get(part);
       expect(b.text, contains("'New':"));
       expect(b.text, contains('x-kept: 1.00'));
+      final page = await project.inspectObject(root, root, '');
+      final historyEntry = (page['entries'] as List)
+          .whereType<Map>()
+          .singleWhere((entry) => entry['name'] == 'x-history');
+      final history = jsonDecode(
+        await project.readDataValue(Map<String, dynamic>.from(historyEntry)),
+      ) as Map;
+      expect(history['properties']['child'][r'$ref'], '#/components/schemas/Old');
       expect(b.hasBom, true);
       expect(b.text, isNot(endsWith('\n')));
       expect(fragment.text, contains('root.yaml#/components/schemas/New'));

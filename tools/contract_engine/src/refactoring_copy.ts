@@ -29,11 +29,11 @@ const semanticOwner=(graphs:{graph:ReferenceGraph}[],resource:string,pointer:str
   throw new SourceError('refactor.literal.ownership','This occurrence also belongs to literal data. Inline an API reference occurrence or edit the data owner explicitly before structural refactoring',range);
 };
 const same=(a:any,b:any)=>a?.resource===b?.resource&&a?.pointer===b?.pointer;
-const editBudget=(resources:Resource[])=>{
+export const editBudget=(resources:Resource[],code='limit.refactor.copy')=>{
  let operations=0,bytes=0;
- return (id:string)=>{
-  bytes+=(resources.find(r=>r.id===id)?.text.length??0)*2;
-  if(++operations>256||bytes>128*1024*1024)throw new SourceError('limit.refactor.copy','The source-preserving copy exceeds its bounded edit budget; no edits were prepared');
+ return (id:string,size=resources.find(r=>r.id===id)?.text.length??0)=>{
+  bytes+=size*2;
+  if(++operations>256||bytes>128*1024*1024)throw new SourceError(code,'The source transformation exceeds its bounded edit budget; no edits were prepared');
  };
 };
 const value=(doc:SourceDocument,pointer:string)=>doc.dataJson(pointer,n=>
