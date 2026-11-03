@@ -509,8 +509,14 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
         // as schema annotations and create another overlapping owner.
         if(!container&&scope.kind!=='schema'&&group&&graph.specifications.get(graph.root)?.family===scope.family)
             container={resource:graph.root,pointer:componentLocation(group,scope.family)!};
-        const separated=owners.separate(scope,entry?'entry_use':scope.kind==='schema'?'schema_use':'object_use',container,pristine.get(scope.resource),
-            JSON.stringify([entry?.entryNamespace??'',scope.resource,scope.pointer,scope.kind,scope.family,scope.dialect,scope.base,scope.resourcePointer]),retainedMaterials);
+        const separated=owners.separate(scope,entry?'entry_use':scope.kind==='schema'?'schema_use':'object_use',{
+            container,captured:pristine.get(scope.resource),retained:retainedMaterials,
+            identity:JSON.stringify([entry?.entryNamespace??'',scope.resource,scope.pointer,scope.kind,scope.family,scope.dialect,scope.base,scope.resourcePointer]),
+            schemaIdentity:intrinsicSchemas.some(schema=>{
+                inspect();const value=graph.docs.get(schema.resource)!.dataNode(schema.pointer)?.value;
+                return ['$id','$anchor','$dynamicAnchor'].some(name=>typeof value?.[name]==='string');
+            }),
+        });
         for(const schema of intrinsicSchemas){
             inspect();
             const value=graph.docs.get(schema.resource)!.dataNode(schema.pointer)?.value;

@@ -8,8 +8,9 @@ import {MigrationSource,type MigrationLocation} from './migration_source';
 
 type CapturedBytes=ReturnType<CapturedExampleResources['read']>;
 type SourceLocation=MigrationLocation&Readonly<{range:[number,number]}>;
-type Binding=Readonly<{state:'available';source:SourceLocation;bytes:CapturedBytes}>;
-type Capture=Binding|Readonly<{state:'unavailable';source:SourceLocation;code:string;message:string}>;
+type CapturedOwner=Readonly<{source:SourceLocation;namespace:string;scope:GraphScope}>;
+type Binding=CapturedOwner&Readonly<{state:'available';bytes:CapturedBytes}>;
+type Capture=Binding|(CapturedOwner&Readonly<{state:'unavailable';code:string;message:string}>);
 type Occurrence=Readonly<{source:SourceLocation;destination:MigrationLocation}>;
 export type MigrationExampleCopy=Readonly<{
     path:string;id:string;base64:string;identity:string;byteLength:number;
@@ -55,25 +56,28 @@ export class MigrationExamples {
         for(const graph of graphs)for(const request of externalExampleRequests(graph)) {
             const source={resource:request.resource,pointer:request.pointer,
                 range:graph.docs.get(request.resource)!.dataNode(request.pointer)!.range};
+            const scope=graph.scopeAs(source.resource,parent(source.pointer),'example');
+            if(!scope)throw new SourceError('migration.example.context','The source locator has no captured Example Object owner',source.range,'unsupported',source);
+            const owner={source,namespace:graph.root,scope};
             let binding:Capture;
-            try {binding={state:'available',source,bytes:captured.read(graph,source.resource,source.pointer)};}
+            try {binding={...owner,state:'available',bytes:captured.read(graph,source.resource,source.pointer)};}
             catch(error) {
                 if(!(error instanceof ExternalExampleError))throw error;
-                binding={state:'unavailable',source,code:error.code,message:error.message};
+                binding={...owner,state:'unavailable',code:error.code,message:error.message};
             }
-            const previous=this.bindings.get(key(source));
-            if(previous&&captureIdentity(previous)!==captureIdentity(binding))binding={state:'unavailable',source,
+            const identity=JSON.stringify([graph.root,source.resource,source.pointer]),previous=this.bindings.get(identity);
+            if(previous&&captureIdentity(previous)!==captureIdentity(binding))binding={...owner,state:'unavailable',
                 code:'migration.example.shared-context',message:'This shared external example selects different captured resources; occurrence specialization is required'};
-            this.bindings.set(key(source),binding);
+            this.bindings.set(identity,binding);
         }
     }
 
-    relocate(graph:ReferenceGraph,mapped:(source:MigrationLocation)=>readonly MigrationLocation[],
+    relocate(graph:ReferenceGraph,mapped:(source:MigrationLocation,namespace:string,scope:GraphScope)=>readonly MigrationLocation[],
         destination:string,documentPaths:Iterable<string>,contexts:readonly ReferenceGraph[]=[graph],retired:ReadonlySet<string>=new Set()):Relocation {
         const expected=new Map<string,Binding>();
         const locators=nativeExampleLocators(contexts),nativeLocators=new Set(locators.keys());
         for(const binding of this.bindings.values()){
-          const locations=mapped(binding.source),surviving=locations.filter(location=>nativeLocators.has(key(location)));
+          const locations=mapped(binding.source,binding.namespace,binding.scope),surviving=locations.filter(location=>nativeLocators.has(key(location)));
           if(!surviving.length&&retired.has(key(binding.source)))continue;
           if(locations.length&&!surviving.length)throw new SourceError('migration.example.context',
               'A surviving external example lost its native Example Object context',binding.source.range,'unsupported',binding.source);

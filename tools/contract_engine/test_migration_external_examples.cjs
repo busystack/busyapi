@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const {test} = require('node:test');
 const {createHash} = require('node:crypto');
 const YAML = require('yaml');
-const {analyse} = require('./dist/model.cjs');
+const {analyse,createGraph} = require('./dist/model.cjs');
 const {evaluateSchemas} = require('./dist/schema_evaluation.cjs');
 const {requestOperation} = require('./dist/execution.cjs');
 const {planMigration} = require('./dist/migration.cjs');
@@ -65,7 +65,7 @@ async function assertPortable(f, input = f.input) {
   const original = JSON.stringify(input);
   const plan = await planMigration(input);
   assert.equal(plan.complete, true, JSON.stringify(plan.problems));
-  assert.equal(plan.producerVersion, '63');
+  assert.equal(plan.producerVersion, '64');
   assert.equal(plan.exampleOutputs.length, 1);
   const copy = plan.exampleOutputs[0];
   if(input.resources[0].id.endsWith('.yaml'))assert(plan.outputs.find(value => value.id === plan.outputRoot).text.includes('# Keep Unicode 雪'));
@@ -209,6 +209,48 @@ for(const format of formats) {
     assert.equal(JSON.stringify(f.input), original);
   });
 }
+
+for(const format of formats)test(`${format} shared Example and Schema roles retain entry-owned locators, descriptions and occurrence media`,async()=>{
+ const root=`file:///approved/a.${format}`,other=`file:///approved/b.${format}`,fragment=`file:///approved/definitions/shared.${format}`,id='file:///approved/definitions/payload.bin';
+ const reference=`definitions/shared.${format}#/Example`,bytes=Buffer.from('0');
+ const api=(version,title,mediaType,schema)=>{
+  const media={schema,examples:{Wire:{$ref:reference}}};
+  return {openapi:version,info:{title,version:'1'},servers:[{url:'https://api.invalid'}],paths:{'/echo':{post:{
+   requestBody:{required:true,content:{[mediaType]:structuredClone(media)}},responses:{200:{description:'Reply',content:{[mediaType]:structuredClone(media)}}}
+  }}},components:{examples:{}}};
+ };
+ const first=api('3.1.2','First','application/json',{type:'integer',enum:[0]}),second=api('3.2.1','Second','text/plain',{type:'string',enum:['0']});
+ first.components.examples.Bridge={$ref:`b.${format}#/components/examples/Bridge`};second.components.examples.Bridge={value:'bridge'};
+ first.components.schemas={Data:{$ref:reference}};
+ const example={externalValue:'./payload.bin',description:'[Guide](./example-help.md)'};
+ first['x-history']=structuredClone(example);second['x-history']=structuredClone(example);
+ const input={root,snapshot:'scoped-example-'+format,targetVersion:'3.2.1',destination:'file:///separate/review/',exampleResources:[packet(id,bytes)],resources:[
+  {id:root,text:render(first,format),generation:1},{id:other,text:render(second,format),generation:2},
+  {id:fragment,text:render({Example:example},format),generation:3},
+ ]},before=JSON.stringify(input);
+ for(const entry of [root,other]){
+  const result=await evaluateSchemas({...input,root:entry});assert.equal(result.complete,true,JSON.stringify(result.findings));
+  assert(result.serializedEvaluations.every(value=>value.complete&&value.valid));
+ }
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ assert.equal(review.exampleOutputs.length,1);assert.equal(review.exampleOutputs[0].identity,hash(bytes));
+ const cold=delivered(review);
+ for(const entry of review.manifest.roots){
+  const namespace=new URL(entry.path,'file:///separate/moved%20%E9%9B%AA/').href,graph=createGraph({...cold,root:namespace}).graph;
+  const result=await evaluateSchemas({...cold,root:namespace});assert.equal(result.complete,true,JSON.stringify(result.findings));
+  assert(result.serializedEvaluations.every(value=>value.complete&&value.valid&&value.external.identity===hash(bytes)));
+  const request=requestOperation({...cold,root:namespace,resource:namespace,pointer:'/paths/~1echo/post'});
+  const media=request.requestBody.content[0];assert.equal(media.examples[0].wireBase64,bytes.toString('base64'));
+  const data=graph.docs.get(namespace).root.value;
+  assert.deepEqual(data['x-history'],example);
+  if(data.info.title==='First'){
+   assert.equal(media.mediaType,'application/json');const ref=graph.referenceAs(namespace,'/components/schemas/Data','$ref','schema');
+   const retained=graph.docs.get(ref.targetResource).dataNode(ref.targetPointer).value;
+   assert.equal(retained.externalValue,'./payload.bin');assert(retained.description.includes('file:///approved/definitions/example-help.md'));
+  }else assert.equal(media.mediaType,'text/plain');
+ }
+ assert.equal(JSON.stringify(input),before);
+});
 test('example routes retain the established 256-mapping publication bound', async () => {
   const f = fixture('3.0.4', 'json', 'empty'), examples = {};
   f.input.exampleResources = [];

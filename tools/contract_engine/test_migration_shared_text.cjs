@@ -31,7 +31,7 @@ for(const version of ['2.0','3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1
 for(const [index,body]of cases.entries())test(`${version} shared Markdown ${index} retains each literal value and rendered destination`,async()=>{
     const input=fixture(version,body),original=input.resources[0].text;
     const review=await planMigration(input);
-    assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'63');
+    assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'64');
     const output=review.outputs.find(output=>output.id===review.outputRoot);
     const before=new SourceDocument(original,input.root),after=new SourceDocument(output.text,output.id);
     assert.equal(before.dataJson('/x-literal'),after.dataJson('/x-literal'));
@@ -137,5 +137,45 @@ test('one token owner preserves key aliases, exact literals and independent rend
  assert(review.presentationChanges.some(change=>change.pointer==='/components/schemas/Moving/description'));
  const evaluated=await evaluateSchemas({...cold,runtimeInstances:['9007199254740993','9007199254740992'].flatMap(text=>['Stable','Moving'].map(name=>({subject:'response-body',location:name,text,schema:{resource:cold.root,pointer:'/components/schemas/'+name}})))});
  assert.equal(evaluated.complete,true,JSON.stringify(evaluated.findings));assert.deepEqual(evaluated.runtimeEvaluations.map(value=>value.valid),[true,true,false,false]);
+ assert.equal(input.resources[0].text,before);
+});
+
+for(const targetVersion of ['3.0.4','3.2.1'])test(`Swagger form descriptions retain rendered destinations when their native owner becomes a schema property in ${targetVersion}`,async()=>{
+ const input=fixture('2.0',[
+  'info: {title: Form, version: "1"}',
+  'host: api.invalid',
+  'schemes: [https]',
+  'basePath: /v1',
+  'consumes: [application/x-www-form-urlencoded]',
+  'paths:',
+  '  /form:',
+  '    post:',
+  '      parameters:',
+  '        - name: value',
+  '          in: formData',
+  '          type: integer',
+  '          minimum: 0',
+  '          required: true',
+  '          description: &docs "[Guide](../forms/guide.md?q=a%2Fb#part)"',
+  '          x-exact: 9007199254740993.00',
+  '      responses: {204: {description: Bodyless}}',
+  'x-literal: *docs # keep original literal',
+ ].join('\r\n'));
+ // This fixture supplies its actual Paths Object rather than the helper's
+ // ordinary empty one; duplicate keys must remain a source error elsewhere.
+ input.resources[0].text=input.resources[0].text.replace(/\r\npaths: \{\}\r\n$/,'\r\n');input.targetVersion=targetVersion;
+ const before=input.resources[0].text,source=createGraph(input).graph;
+ assert.equal(analyse(input).status,'complete');
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const output=review.outputs.find(output=>output.id===review.outputRoot),cold={root:output.id,snapshot:'cold-form-docs',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
+ const target=createGraph(cold).graph,original=new SourceDocument(before,input.root),after=new SourceDocument(output.text,output.id);
+ const from='/paths/~1form/post/parameters/0',to='/paths/~1form/post/requestBody/content/application~1x-www-form-urlencoded/schema/properties/value';
+ assert.deepEqual(destinations(after.dataNode(to+'/description').value,documentUriBase(target,target.scope(output.id,to))),
+  destinations(original.dataNode(from+'/description').value,documentUriBase(source,source.scope(input.root,from))));
+ assert.equal(after.dataJson('/x-literal'),original.dataJson('/x-literal'));
+ assert.equal(after.dataJson(to+'/x-exact'),original.dataJson(from+'/x-exact'));
+ assert.equal(after.dataNode(to+'/type').value,'integer');assert.equal(after.dataNode(to+'/minimum').value,0);
+ assert(output.text.includes('# keep original literal'));assert.equal(analyse(cold).status,'complete');
+ const schemas=await evaluateSchemas(cold);assert.equal(schemas.complete,true,JSON.stringify(schemas.findings));
  assert.equal(input.resources[0].text,before);
 });

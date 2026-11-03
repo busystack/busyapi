@@ -34,11 +34,11 @@ import {migrateTerms} from './migration_terms';
 import {migrateServerVariableDefaults,retainDefaultServers} from './migration_servers';
 import {migrationLogicalPointers} from './migration_yaml_ownership';
 import {separateMigrationRoles,separateMigrationEntryUses,materializeMigrationOperationConnections} from './migration_schema_uses';
-import {MigrationSchemaOwners,MigrationConnectionOrigins} from './migration_schema_owners';
+import {MigrationSchemaOwners,MigrationSemanticOrigins} from './migration_schema_owners';
 import {projectSchemaReference} from './schema_reference_projection';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='63';
+const migrationProducerVersion='64';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const patch:Record<string,string>={'2.0':'2.0','3.0':'3.0.4','3.1':'3.1.2','3.2':'3.2.1'};
 export type MigrationInput=Readonly<{
@@ -126,10 +126,10 @@ export async function planMigration(input:MigrationInput) {
         }
     };
     const initialContexts=migrationDocumentContexts(input,initial,issue,true);
-    let connectionOrigins:MigrationConnectionOrigins|undefined;
-    if(!problems.length)try{connectionOrigins=new MigrationConnectionOrigins(initialContexts.map(context=>context.graph));}
-    catch(error){refused(error,{resource:input.root,pointer:''});}
+    let semanticOrigins:MigrationSemanticOrigins|undefined;
     await validate(resources,input.root,'source');
+    if(!problems.length)try{semanticOrigins=new MigrationSemanticOrigins(initialContexts.map(context=>context.graph));}
+    catch(error){refused(error,{resource:input.root,pointer:''});}
     let externalExamples:MigrationExamples|undefined;
     if(!problems.length)try{externalExamples=new MigrationExamples(initialContexts.map(context=>context.graph),input.exampleResources);}
     catch(error){refused(error,{resource:input.root,pointer:''});}
@@ -212,10 +212,10 @@ export async function planMigration(input:MigrationInput) {
             const entryContexts=migrationDocumentContexts(entryInput,entryContext,issue,true);
             retainCopies(separateMigrationEntryUses(entryContexts,sources,issue,createSchemaResource,captureContext,owners));
             if(problems.length)break;
-            const retainedInput=preparationInput();
-            owners.retireSupersededSchemas(sourceContexts.map(context=>createGraph({...retainedInput,root:context.graph.root}).graph));
             const materializedConnections=materializeMigrationOperationConnections(sourceContexts,sources,owners,issue);
             if(problems.length)break;
+            const retainedInput=preparationInput();
+            owners.retireSuperseded(sourceContexts.map(context=>createGraph({...retainedInput,root:context.graph.root}).graph));
             if(specialized.size||materializedConnections){
                 for(const [origin,copies]of specialized){
                     const [resource,pointer]=JSON.parse(origin) as [string,string];
@@ -418,7 +418,7 @@ export async function planMigration(input:MigrationInput) {
                 if(problems.length)break;
                 resources=resources.map(resource=>({...resource,text:sources.get(resource.id)!.doc.text}));
             }
-            connectionOrigins?.advance(sourceContexts.map(context=>context.graph),owners,migrationLocations(sources));
+            semanticOrigins?.advance(sourceContexts.map(context=>context.graph),owners,migrationLocations(sources));
             stages.push(...stage.sources.map(from=>({from,to:after})));await validate(resources,input.root);
         }catch(error){
             refused(error,{resource:input.root,pointer:''});
@@ -486,12 +486,12 @@ export async function planMigration(input:MigrationInput) {
     let relocated=createGraph({...input,root:outputRoot,resources:outputResources});
     const markdownOwnerContexts=migrationDocumentContexts({...input,root:outputRoot,resources:outputResources},relocated,issue).map(context=>context.graph);
     const retainedMarkdown=markdownContexts.filter(context=>!omittedMarkdownOwners.has(key(context.owner.resource,context.owner.pointer)));
-    const mappedOutputLocations=(location:MigrationLocation)=>(origins.get(key(location.resource,location.pointer))??[])
+    const mappedSemanticOutputLocations=(location:MigrationLocation,namespace:string,scope:GraphScope)=>(semanticOrigins?.locations(namespace,location,scope)??[])
         .map(location=>({resource:identifiers.get(location.resource)!,pointer:location.pointer}));
-    const rewrittenMarkdown=rewriteMigrationMarkdown(retainedMarkdown,relocated.graph,mappedOutputLocations,issue,location=>{
+    const rewrittenMarkdown=rewriteMigrationMarkdown(retainedMarkdown,relocated.graph,mappedSemanticOutputLocations,issue,location=>{
         const original=sourceLocation(location.resource,location.pointer);
         presentationChanges.push({resource:original.resource,pointer:original.pointer});
-    },markdownOwnerContexts);
+    },markdownOwnerContexts,identifiers);
     try{
         for(const scope of relocated.graph.scopesFor('schema')){
             const changed=rewrittenMarkdown.get(scope.resource);
@@ -505,7 +505,7 @@ export async function planMigration(input:MigrationInput) {
     }
     relocated=createGraph({...input,root:outputRoot,resources:outputResources});
     const relocatedOwnerContexts=migrationDocumentContexts({...input,root:outputRoot,resources:outputResources},relocated,issue).map(context=>context.graph);
-    proveMigrationMarkdown(retainedMarkdown,relocated.graph,mappedOutputLocations,issue,markdownOwnerContexts);
+    proveMigrationMarkdown(retainedMarkdown,relocated.graph,mappedSemanticOutputLocations,issue,relocatedOwnerContexts,identifiers);
     if(problems.length)return {...common(),changes:[],outputs:[]};
     const mappings=new Map([...paths].map(([id,path])=>[identifiers.get(id)!,path]));
     for(const scope of relocated.graph.scopes.values())if(scope.pointer===''){
@@ -594,7 +594,7 @@ export async function planMigration(input:MigrationInput) {
     try{
         const capture={...input,root:outputRoot,resources:outputResources},primary=createGraph(capture),graph=primary.graph;
         const ownerContexts=migrationDocumentContexts(capture,primary,issue).map(context=>context.graph);
-        const copied=externalExamples!.relocate(graph,mappedOutputLocations,input.destination,paths.values(),ownerContexts,retiredExampleLocators);
+        const copied=externalExamples!.relocate(graph,mappedSemanticOutputLocations,input.destination,paths.values(),ownerContexts,retiredExampleLocators);
         for(const scope of graph.scopesFor('schema')){
             const changed=copied.sources.get(scope.resource);
             if(changed)assertRoleAnnotations(graph,scope,changed.doc,scope.pointer);
@@ -616,7 +616,7 @@ export async function planMigration(input:MigrationInput) {
             const root=context.graph.root,output=identifiers.get(root)!,targetGraph=root===input.root?finalContext.graph:createGraph({...input,root:output,resources:outputResources}).graph;
             if(JSON.stringify(operationKeys(context.graph))!==JSON.stringify(operationKeys(targetGraph)))issue({resource:root,pointer:''},'migration.invariant.operations','The migrated graph changed an operation method, path, role or occurrence count','implementation');
             if(JSON.stringify(migrationRequestSignatures(context.graph,input.resources))!==JSON.stringify(migrationRequestSignatures(targetGraph,outputResources)))issue({resource:root,pointer:''},'migration.invariant.request','The migrated graph changed effective URL, serialization, authentication, request media or response declarations','implementation');
-            proveMigrationConnections(context.graph,targetGraph,(location,scope)=>(connectionOrigins?.locations(root,location,scope)??[])
+            proveMigrationConnections(context.graph,targetGraph,(location,scope)=>(semanticOrigins?.locations(root,location,scope)??[])
                 .map(location=>({resource:identifiers.get(location.resource)!,pointer:location.pointer})),issue);
         }
     }catch(error){

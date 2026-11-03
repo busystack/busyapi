@@ -6,17 +6,17 @@ import {specializeMigrationText} from './migration_shared_text';
 import type {MigrationLocation} from './migration_source';
 import type {MigrationIssue} from './migration_schema';
 import {documentUriBase,type GraphScope,type ReferenceGraph} from './reference_graph';
-import {migrationScopes} from './migration_documents';
 
 type CapturedMarkdown=Readonly<{
     original:MigrationLocation;
     owner:MigrationLocation;
     value:string;
     base:string;
-    role:'schema'|'native';
+    namespace:string;
+    scope:GraphScope;
 }>;
-type Mapped=(original:MigrationLocation)=>readonly MigrationLocation[];
-type Target=Readonly<{source:CapturedMarkdown;location:MigrationLocation;scope:GraphScope;value:string}>;
+type Mapped=(original:MigrationLocation,namespace:string,scope:GraphScope)=>readonly MigrationLocation[];
+type Target=Readonly<{source:CapturedMarkdown;location:MigrationLocation;scope:GraphScope;context:ReferenceGraph;value:string}>;
 const key=(location:MigrationLocation)=>JSON.stringify([location.resource,location.pointer]);
 function description(graph:ReferenceGraph,scope:GraphScope) {
     const doc=graph.docs.get(scope.resource)!,value=doc.dataNode(scope.pointer)?.value;
@@ -28,14 +28,15 @@ function description(graph:ReferenceGraph,scope:GraphScope) {
  * object. Physical scalar provenance does not replace a logical URI base. */
 export function captureMigrationMarkdown(graph:ReferenceGraph,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph]):readonly CapturedMarkdown[] {
     const captured:CapturedMarkdown[]=[];
-    for(const scope of migrationScopes(contexts)){
-        const field=description(graph,scope);if(!field)continue;
+    for(const context of contexts)for(const scope of context.entryScopes()){
+        const field=description(context,scope);if(!field)continue;
         const original={resource:scope.resource,pointer:scope.pointer+'/description'};
         try{
             if(relativeMarkdownDestinations(field.value).length)captured.push({
                 original,owner:{resource:scope.resource,pointer:scope.pointer},value:field.value,
-                base:documentUriBase(graph,scope),role:scope.kind==='schema'?'schema':'native',
+                base:documentUriBase(context,scope),namespace:context.root,scope,
             });
+            if(captured.length>200000)throw new SourceError('limit.migration.markdown','Documentation ownership exceeds 200000 captured rendering contexts');
         }catch(error){
             if(!(error instanceof SourceError))throw error;
             issue({...original,original},error.code,error.message,'source-incomplete');
@@ -44,26 +45,29 @@ export function captureMigrationMarkdown(graph:ReferenceGraph,issue:MigrationIss
     return captured;
 }
 
-function targets(captured:readonly CapturedMarkdown[],graph:ReferenceGraph,mapped:Mapped,issue:MigrationIssue,contexts:readonly ReferenceGraph[]):Target[] {
-    const owners=new Map<string,GraphScope[]>(),result:Target[]=[];
-    for(const scope of migrationScopes(contexts)){
-        const field=description(graph,scope);if(!field)continue;
+function targets(captured:readonly CapturedMarkdown[],graph:ReferenceGraph,mapped:Mapped,issue:MigrationIssue,contexts:readonly ReferenceGraph[],namespaces:ReadonlyMap<string,string>):Target[] {
+    const owners=new Map<string,{graph:ReferenceGraph;scope:GraphScope}[]>(),result:Target[]=[];
+    for(const context of contexts)for(const scope of context.entryScopes()){
+        const field=description(context,scope);if(!field)continue;
         const identity=key({resource:scope.resource,pointer:scope.pointer+'/description'}),values=owners.get(identity)??[];
-        values.push(scope);owners.set(identity,values);
+        values.push({graph:context,scope});owners.set(identity,values);
     }
     for(const source of captured){
-        const ownerLocations=mapped(source.owner);
+        const ownerLocations=mapped(source.owner,source.namespace,source.scope);
         let matched=false;
-        for(const location of mapped(source.original)){
+        for(const location of mapped(source.original,source.namespace,source.scope)){
             const field=graph.docs.get(location.resource)?.dataNode(location.pointer);
             const candidates=field?owners.get(key(location))??[]:[];
-            const selected=candidates.filter(scope=>(scope.kind==='schema')===(source.role==='schema')&&
-                (!ownerLocations.length||ownerLocations.some(owner=>owner.resource===scope.resource&&owner.pointer===scope.pointer)));
+            const namespace=namespaces.get(source.namespace)??source.namespace;
+            const rendered=candidates.filter(({graph:context})=>context.root===namespace);
+            const matching=rendered.filter(({scope})=>scope.kind===source.scope.kind);
+            const selected=(matching.length?matching:rendered).filter(({scope})=>
+                !ownerLocations.length||ownerLocations.some(owner=>owner.resource===scope.resource&&owner.pointer===scope.pointer));
             if(!selected.length||typeof field?.value!=='string'){
                 continue;
             }
             matched=true;
-            for(const scope of selected)result.push({source,location,scope,value:field.value});
+            for(const {graph:context,scope}of selected)result.push({source,location,scope,context,value:field.value});
         }
         if(!matched)issue({...source.original,original:source.original},'migration.description.context','The original documentation has no proved surviving rendered context','implementation');
     }
@@ -74,17 +78,17 @@ function targets(captured:readonly CapturedMarkdown[],graph:ReferenceGraph,mappe
  * destinations. Logical YAML uses may split; a single occurrence interpreted
  * as both rendered text and literal data still needs separate semantic owners. */
 export function rewriteMigrationMarkdown(captured:readonly CapturedMarkdown[],graph:ReferenceGraph,mapped:Mapped,issue:MigrationIssue,
-    changed:(location:MigrationLocation)=>void,contexts:readonly ReferenceGraph[]=[graph]):ReadonlyMap<string,SourceDocument> {
+    changed:(location:MigrationLocation)=>void,contexts:readonly ReferenceGraph[]=[graph],namespaces:ReadonlyMap<string,string>=new Map()):ReadonlyMap<string,SourceDocument> {
     const desired=new Map<string,{target:Target;value:string}>(),documents=new Map<string,SourceDocument>();
-    for(const target of targets(captured,graph,mapped,issue,contexts)){
-        const {source,location,scope}=target,finding={...location,original:source.original};
+    for(const target of targets(captured,graph,mapped,issue,contexts,namespaces)){
+        const {source,location,scope,context}=target,finding={...location,original:source.original};
         if(target.value!==source.value){
             issue(finding,'migration.description.context','The documentation text changed before its URI mapping could be established','implementation');
             continue;
         }
         try{
-            const value=relocateMarkdownLinks(source.value,source.base,documentUriBase(graph,scope));
-            if(value!==source.value&&graph.literalContainer(location.resource,location.pointer)!==undefined){
+            const value=relocateMarkdownLinks(source.value,source.base,documentUriBase(context,scope));
+            if(value!==source.value&&context.literalContainer(location.resource,location.pointer)!==undefined){
                 issue(finding,'migration.description.literal-context','This rendered description is also literal data; its occurrences need separate context ownership','implementation');
                 continue;
             }
@@ -120,10 +124,10 @@ export function rewriteMigrationMarkdown(captured:readonly CapturedMarkdown[],gr
     return documents;
 }
 
-export function proveMigrationMarkdown(captured:readonly CapturedMarkdown[],graph:ReferenceGraph,mapped:Mapped,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph]):void {
-    for(const {source,location,scope,value}of targets(captured,graph,mapped,issue,contexts)){
+export function proveMigrationMarkdown(captured:readonly CapturedMarkdown[],graph:ReferenceGraph,mapped:Mapped,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph],namespaces:ReadonlyMap<string,string>=new Map()):void {
+    for(const {source,location,scope,value,context}of targets(captured,graph,mapped,issue,contexts,namespaces)){
         try{
-            if(value!==relocateMarkdownLinks(source.value,source.base,documentUriBase(graph,scope)))
+            if(value!==relocateMarkdownLinks(source.value,source.base,documentUriBase(context,scope)))
                 issue({...location,original:source.original},'migration.description.relative-links','The migrated Markdown has no complete source-context-preserving destination proof','implementation');
         }catch(error){
             if(!(error instanceof SourceError))throw error;

@@ -805,7 +805,7 @@ Superseded anonymous preparation schemas are retired only after terminal-owner,
 external-reference/dynamic-candidate, literal and schema-identity guards.
 Prepared engine/Core regressions cover distinct default discriminator targets,
 recursive assertions, native inspection, HTTP bytes and relocated CLI reopening.
-The migration producer is **63**; Core rejects previous
+The migration producer is **64**; Core rejects previous
 producer responses before publication. Current qualification remains pending.
 Shared Markdown text now uses the same captured YAML token owner as reviewed
 schema/native edits. Its separate alias-rewrite algorithm has been removed;
@@ -813,6 +813,15 @@ CommonMark destination proofs, exact literal values, comments/key aliases,
 no-op preservation and bounded work remain required. Existing registered
 engine/Core regressions and the added mixed-rendering-base case are prepared,
 unexecuted.
+Rendered descriptions and external-example locators now follow that same
+entry/role-qualified material provenance. Markdown uses the actual source and
+destination rendering contexts, including explicit transfers from Swagger form
+parameters to schema properties. Native example acquisition retains entry owners
+and real occurrence media while literal Schema annotations stay unchanged.
+The common retirement owner also protects declared schema identities captured
+before descendants become dormant. Added engine/Core production journeys prepare
+native choices, distinct JSON/text interpretations of captured bytes, HTTP
+exchange, publication and relocation after original deletion; they have not run.
 
 Older-family migration also lowers dynamic references when every captured
 matching anchor identifies their initial target. The same binding proof governs

@@ -143,7 +143,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W7.01 Creation, editing, unsaved Reference, request/example/mock/case, migration review, documentation and CLI integration for every capability; all applicable clauses above | shared engine, Core owners and native workspace controls | A R E M S C | engine/Core/widget/native journey suites | Partially implemented; applicable existing consumers inherit shared field/codec/routing changes; complete family journeys are not accepted | H |
 | W7.02 Stale-action invalidation on declaration/dialect/root/external/approval changes; coherent reviewed transactions, Undo/Redo and no buffer loss; Core transaction contract | Core project/store/capture and native review/request controllers | A R E M S C | stale capture/cancellation/publication/widget review suites | Partially implemented; existing source for existing safeguards; new paths require current integration qualification | H |
 | W7.03 CST fidelity, no-op saves, exact values, aliases, extensions and source-only migration restructuring; TEXT | `document.ts`, graph/CST editing, Core store/transaction owners | A R M S C | source ownership/alias/exact-value/no-op suites | Partially implemented; existing source for existing boundaries; generated schema owners retain original provenance and reviewed restructuring | H |
-| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+57`, migration producer `63`, response/parameter mock producers `4`, numeric sample producer remains `3`; no dependency versions/source changed | H |
+| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+57`, migration producer `64`, response/parameter mock producers `4`, numeric sample producer remains `3`; no dependency versions/source changed | H |
 | W8.01 Explicit independent evidence input across SDK/build/CMake/CI/installed/package checks; PINS | `flutter_archive.py`, SDK verifier, `build_linux.sh`, CMake, package/native-distribution/artifact-smoke inputs | P | `tools/test_flutter_sdk.py`, source-wiring regressions | Partially implemented; existing source for archive-input propagation; same existing evidence reaches installed checks; independent member pins remain an alternative; no SDK acquisition/replacement | H; actual evidence availability/authenticity has not been qualified |
 | W8.02 Ordered gates, registration, source-version-valid fixtures and production-byte regressions; PINS and each row's authority | `tools/build_engine.sh`, Linux workflow, engine/Core/widget/native/package suites | P | new direct-Swagger/conditional/tuple-tail/constant-containment/property-name/runtime-parameter suites registered; existing TypeScript-before-bundle gate retained | Partially implemented; compilation and all suspended gates remain unexecuted; missing regression coverage identified in this register remains implementation work | H |
 | W8.03 Current automated/native/packaged/offline acceptance and normal Quit; all approved families and PINS | native acceptance tools, Core/package/CLI suites | A R E M S C P | existing native acceptance including historical Quit/focus failures; complete new journeys still required | Missing for accepted evidence; no driver/engine attribution established; Snapcraft remains skipped | H |
@@ -836,7 +836,7 @@ exclusive bounds through actual response-schema references. Core mixed-entry jou
 also evaluate dictionary assertions and actual HTTP bytes before migration and
 after original-file deletion, relocation and cold reopening; CLI checks share
 that saved output. Evaluator `1.18.0+57`, graph role rules `8` and migration
-producer `63` agree across production admissions and obsolete-proof controls.
+producer `64` agree across production admissions and obsolete-proof controls.
 The registered entry suite also compares dynamic and static polymorphic maps,
 implicit selector targets, neutral holders without an existing schema, literal
 annotations, retained native children, secondary-only resource/anchor ownership
@@ -872,7 +872,7 @@ owning-entry secondary roles, recursive map assertions, different default
 discriminator targets, unchanged native annotations/exact values, native field
 inspection and actual HTTP responses. Core covers captured unsaved inputs,
 stale/cancelled publication, preserved originals, relocation, deletion of source
-files and CLI cold reopening. Migration producer `63` is synchronized with
+files and CLI cold reopening. Migration producer `64` is synchronized with
 Core/preflight and obsolete-proof controls. Coverage is prepared, unexecuted;
 other incompatible holder/identity/refactoring cases remain W2 source gaps.
 
@@ -889,6 +889,33 @@ case additionally prepares simultaneous native and schema description changes
 with stable/relocated rendering bases, key aliases and literal data. This common
 YAML text boundary is source-complete, unverified; independently conflicting
 semantic rendering contexts still require the W2/W6 closure recorded above.
+
+That same entry-qualified provenance now includes rendered descriptions and
+passive URI fields, including native Example external locators. Markdown capture
+uses each actual entry/role graph and rendering base; rewriting and delivered
+proofs follow its qualified material fields. Explicit CST transfers can change
+the description's object kind, including Swagger form parameters becoming schema
+properties, when the resulting field has an actual rich-text capability. Literal
+annotation/data copies retain their values. External-example capture retains
+entry namespaces and native owners before byte lookup, then publishes through
+those same field projections without an invented media interpretation.
+
+Superseded native-object preparation copies use the common retirement guards
+too. Declared schema IDs/anchors are recorded before copied descendants can become
+dormant, so a later graph cannot mistake an unindexed identity for disposable
+data. Potential ambiguous targets also retain their owners. Authored source and
+captured byte identities stay protected. Source validity is checked before
+initializing the qualified provenance projection.
+
+Existing registered shared-text/external-example suites prepare native-to-schema
+description transfers and shared Example/Schema roles in mixed modern entries.
+Core `migration_semantic_fields_test.dart` prepares native example choices,
+number-versus-string occurrence media, literal inspection, actual HTTP bytes,
+original preservation, byte publication, original deletion, relocated reopening
+and independent CLI checks. Migration producer `64` agrees across production
+admissions and obsolete controls; evaluator `1.18.0+57` and mock producers remain
+unchanged. These paths remain unverified, and W2/W3/W4/W6 retain their other source
+gaps.
 
 ## Required functionality still open
 
