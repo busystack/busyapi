@@ -20,7 +20,7 @@ export class MigrationSchemaOwners {
     private readonly entryUses=new Map<string,SemanticOwner[]>();
     private readonly roleUses=new Map<string,SemanticOwner[]>();
     private readonly copiedOperationIds=new Set<string>();
-    private readonly copiedOwners=new Map<string,{location:MigrationLocation;schemaIdentity:boolean}>();
+    private readonly copiedOwners=new Map<string,{location:MigrationLocation;retirement:MigrationLocation;schemaIdentity:boolean}>();
     private useWork=0;
     constructor(private readonly graph:ReferenceGraph,
         private readonly sources:ReadonlyMap<string,MigrationSource>,
@@ -128,29 +128,29 @@ export class MigrationSchemaOwners {
         }
         const within=(at:MigrationLocation,parent:MigrationLocation)=>at.resource===parent.resource&&
             (at.pointer===parent.pointer||at.pointer.startsWith(parent.pointer+'/'));
-        for(const [id,{location:copy,schemaIdentity}]of [...this.copiedOwners].sort(([,a],[,b])=>a.location.pointer.length-b.location.pointer.length)){
+        for(const [id,{location:copy,retirement,schemaIdentity}]of [...this.copiedOwners].sort(([,a],[,b])=>a.location.pointer.length-b.location.pointer.length)){
             this.inspectUse();const source=this.sources.get(copy.resource)!;
             // Capture identity ownership before a copy becomes unreachable:
             // a later graph need not index its dormant schema descendants.
-            if(schemaIdentity||!admitted.has(id)||!source.doc.dataNode(copy.pointer)||terminals.some(at=>{this.inspectUse();return within(at,copy);}))continue;
+            if(schemaIdentity||!admitted.has(id)||!source.doc.dataNode(copy.pointer)||terminals.some(at=>{this.inspectUse();return within(at,retirement);}))continue;
             let retained=false;
             for(const graph of graphs){
-                if(graph.literalContainer(copy.resource,copy.pointer)!==undefined){retained=true;break;}
+                if(graph.literalContainer(retirement.resource,retirement.pointer)!==undefined){retained=true;break;}
                 for(const schema of graph.scopesFor('schema')){
-                    this.inspectUse();if(!within(schema,copy))continue;
+                    this.inspectUse();if(!within(schema,retirement))continue;
                     const value=graph.docs.get(schema.resource)!.dataNode(schema.pointer)?.value;
                     if(['$id','$anchor','$dynamicAnchor'].some(name=>typeof value?.[name]==='string')){retained=true;break;}
                 }
                 if(retained)break;
                 for(const reference of graph.entryReferences()){
-                    this.inspectUse();if(within(reference,copy))continue;
-                    if(reference.resolution==='resolved'&&within({resource:reference.targetResource!,pointer:reference.targetPointer!},copy)||
-                        reference.dynamic?.candidates.some(candidate=>{this.inspectUse();return within(candidate,copy);})||
-                        reference.candidateTargets?.some(candidate=>{this.inspectUse();return within(candidate,copy);})){retained=true;break;}
+                    this.inspectUse();if(within(reference,retirement))continue;
+                    if(reference.resolution==='resolved'&&within({resource:reference.targetResource!,pointer:reference.targetPointer!},retirement)||
+                        reference.dynamic?.candidates.some(candidate=>{this.inspectUse();return within(candidate,retirement);})||
+                        reference.candidateTargets?.some(candidate=>{this.inspectUse();return within(candidate,retirement);})){retained=true;break;}
                 }
                 if(retained)break;
             }
-            if(!retained){this.admit(source,8);source.remove(copy.pointer);}
+            if(!retained){this.admit(source,8);source.remove(retirement.pointer);}
         }
     }
 
@@ -232,16 +232,26 @@ export class MigrationSchemaOwners {
      * composes this relation with the final coordinates after conversion. */
     separate(origin:GraphScope,label:string,options:Readonly<{
         container?:MigrationLocation;captured?:MigrationSource;identity?:string;
+        layout?:'array-item';
         retained?:readonly MigrationLocation[];schemaIdentity?:boolean;
     }>={}):Readonly<{
         location:MigrationLocation;provenance:ReadonlyMap<string,MigrationLocation>;
     }> {
-        const {container,captured,identity=JSON.stringify([origin.resource,origin.pointer]),retained=[]}=options;
+        const {container,captured,layout,identity=JSON.stringify([origin.resource,origin.pointer]),retained=[]}=options;
+        if(layout&&(origin.kind!=='schema'||!container||!['2.0','3.0'].includes(origin.family)))
+            throw new SourceError('migration.owners.layout','An anonymous array-item owner requires a compatible restricted Schema Object container');
         const input=captured??this.sources.get(origin.resource)!;
-        const owner=container?{source:this.sources.get(container.resource)!,location:this.allocate(
+        const reservation=container?{source:this.sources.get(container.resource)!,location:this.allocate(
             this.sources.get(container.resource)!,container.pointer,label,identity)}:this.reserve(origin,label,identity);
+        // Restricted Schema Objects have no $defs storage. A fresh array's
+        // item is an anonymous Schema Object without becoming a property or an
+        // allOf model. Consumers address the item directly, never the wrapper.
+        // The shared reservation, CST copy, provenance and retirement guards
+        // own both layouts; there is no second specialization mechanism.
+        if(layout){this.admit(reservation.source,8);reservation.source.set(reservation.location.pointer,{type:'array',items:{}});}
+        const owner=layout?{...reservation,location:{...reservation.location,pointer:reservation.location.pointer+'/items'}}:reservation;
         this.copiedOwners.set(JSON.stringify([owner.location.resource,owner.location.pointer]),{
-            location:owner.location,schemaIdentity:options.schemaIdentity===true});
+            location:owner.location,retirement:reservation.location,schemaIdentity:options.schemaIdentity===true});
         this.admit(input,8);if(owner.source!==input)this.admit(owner.source,8);
         owner.source.copy(input,origin.pointer,owner.location.pointer,true);
         const retainedPointers:string[]=[];
@@ -263,7 +273,7 @@ export class MigrationSchemaOwners {
             if(!retainedPointers.some(parent=>{this.inspectUse();return pointer===parent||pointer.startsWith(parent+'/');}))
                 provenance.set(origin.pointer+pointer.slice(owner.location.pointer.length),{...owner.location,pointer});
         }
-        owner.source.presentationChanges.push(owner.location.pointer);
+        owner.source.presentationChanges.push(reservation.location.pointer);
         return {location:owner.location,provenance};
     }
 }

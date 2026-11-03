@@ -19,8 +19,9 @@ type UseSelection=Readonly<{mode:'entry';entryNamespace:string;scopes:readonly G
 const useKey=(scope:{resource:string;pointer:string;kind:string})=>JSON.stringify([scope.resource,scope.pointer,scope.kind]);
 const referenceOwnerKind=(reference:GraphReference)=>reference.connection==='discriminator'?'discriminator':
     reference.connection==='security'?'security-requirement':reference.connection?'link':reference.kind;
-const secondarySchema=(graph:ReferenceGraph,scope:GraphScope)=>scope.kind==='schema'&&
-    graph.scopes.get(scope.resource+'#'+scope.pointer)?.kind!=='schema'&&graph.hasOverlappingScope(scope.resource,scope.pointer);
+const independentSchema=(graph:ReferenceGraph,scope:GraphScope)=>scope.kind==='schema'&&(
+    graph.literalContainer(scope.resource,scope.pointer)!==undefined||
+    graph.scopes.get(scope.resource+'#'+scope.pointer)?.kind!=='schema'&&graph.hasOverlappingScope(scope.resource,scope.pointer));
 
 /** Entry namespace and containing-document family are independent. Prefer the
  * selected entry's compatible component map; otherwise retain the captured
@@ -29,9 +30,6 @@ const secondarySchema=(graph:ReferenceGraph,scope:GraphScope)=>scope.kind==='sch
 function entryComponentLocation(graph:ReferenceGraph,scope:GraphScope,namespace:string):MigrationLocation|undefined {
     const group=componentFamily(scope.kind,scope.family);
     if(!group)return;
-    // Swagger model names participate in implicit discriminator tables. Its
-    // anonymous schema registry cannot borrow a different entry's family.
-    if(scope.kind==='schema'&&scope.family==='2.0'&&graph.specifications.get(namespace)?.family!==scope.family)return;
     const resource=graph.specifications.get(namespace)?.family===scope.family?namespace:
         graph.specifications.get(scope.resource)?.family===scope.family?scope.resource:undefined;
     const pointer=componentLocation(group,scope.family);
@@ -67,7 +65,7 @@ const nameSensitiveSchemas=new WeakMap<ReferenceGraph,ReadonlySet<string>>();
  * the container's independently referenced Schema Object. OAS 3.2 §4.25 leaves
  * assertion outcomes unchanged, but its dispatch metadata still needs ownership. */
 function nativeSchemaHolderScope(graph:ReferenceGraph,scope:GraphScope,inspect:()=>void):boolean {
-    if(scope.kind!=='schema'||!modernFamily(scope.family)||!supportedSchemaDialect(scope))return false;
+    if(scope.kind!=='schema'||!supportedSchemaDialect(scope))return false;
     let sensitive=nameSensitiveSchemas.get(graph);
     if(!sensitive){
         const adjacent=new Map<string,Set<string>>(),pending:string[]=[],selected=new Set<string>();
@@ -176,7 +174,7 @@ export function separateMigrationEntryUses(contexts:readonly DocumentContext[],s
             // interpretations can acquire their own owners too. Foreign document
             // subtrees can have independent entry names/media, even though
             // their containing document still owns their family and dialect.
-            if(scope.resource===graph.root&&!secondarySchema(graph,scope)){pending.push(...parents.get(id)??[],...incoming.get(id)??[]);continue;}
+            if(scope.resource===graph.root&&!independentSchema(graph,scope)){pending.push(...parents.get(id)??[],...incoming.get(id)??[]);continue;}
             if(scope.kind==='root')continue;
             selected.set(id,scope);
             pending.push(...(parents.get(id)??[]),...(incoming.get(id)??[]));
@@ -303,7 +301,7 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
         const needed=new Map<string,GraphScope>();
         for(const scope of candidates){
             inspect();
-            if(scope.kind!=='schema'||!modernFamily(scope.family)||scope.resource===graph.root&&!secondarySchema(graph,scope))continue;
+            if(scope.kind!=='schema'||!modernFamily(scope.family)||scope.resource===graph.root&&!independentSchema(graph,scope))continue;
             const modelSensitive=!nativeSchemaHolderScope(graph,scope,inspect);
             if(scope.pointer===scope.resourcePointer&&!modelSensitive)continue;
             const identity=schemaResourceContextIdentity(scope);
@@ -416,7 +414,8 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
         // Its containing document's map preserves the captured family in all
         // entries, independently of their processing order. An anonymous
         // registry would instead inherit each selected entry's feature set.
-        if(!container&&!entry&&nativeSchemaHolderScope(graph,scope,inspect))
+        if(!container&&!entry&&(modernFamily(scope.family)&&nativeSchemaHolderScope(graph,scope,inspect)||
+            scope.kind==='schema'&&!modernFamily(scope.family)&&scope.family!==graph.family))
             container=entryComponentLocation(graph,scope,scope.resource);
         let intrinsicSchemas=schemaScopes.filter(schema=>{
             inspect();return schema.resource===scope.resource&&intrinsic.get(schema.pointer)==='schema';
@@ -447,7 +446,7 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
             }
             // Swagger definition names participate in discriminator validation.
             // An anonymous captured use must not gain a new friendly model name.
-            container=(anonymous&&!entryContainer||scope.kind==='schema'&&scope.family==='2.0')?undefined:
+            container=(anonymous&&!entryContainer||scope.kind==='schema'&&scope.family==='2.0'&&entryFamily===scope.family)?undefined:
                 copiedHolder&&scope.kind==='schema'?{resource:copiedHolder.location.resource,pointer:copiedHolder.location.pointer+'/$defs'}:
                     entryContainer!;
             for(const schema of intrinsicSchemas){
@@ -555,6 +554,8 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
         }
         const separated=owners.separate(scope,entry?'entry_use':scope.kind==='schema'?'schema_use':'object_use',{
             container,captured:pristine.get(scope.resource),retained:retainedMaterials,
+            layout:container&&scope.kind==='schema'&&!modernFamily(scope.family)&&
+                (scope.family==='2.0'||scope.family!==graph.family||!nativeSchemaHolderScope(graph,scope,inspect))?'array-item':undefined,
             identity:JSON.stringify([entry?.entryNamespace??'',scope.resource,scope.pointer,scope.kind,scope.family,scope.dialect,scope.base,scope.resourcePointer]),
             schemaIdentity:intrinsicSchemas.some(schema=>{
                 inspect();const value=graph.docs.get(schema.resource)!.dataNode(schema.pointer)?.value;

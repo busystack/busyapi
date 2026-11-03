@@ -158,7 +158,7 @@ export function migrationContextDifferences(contexts:readonly Pick<DocumentConte
         if(previous===undefined)bindings.set(key,value);
     };
     for(const {graph}of contexts){
-        const models=new DiscriminatorModels(graph);
+        const models=new DiscriminatorModels(graph),modernModels=new DiscriminatorModels(graph,'/components/schemas');
         for(const scope of graph.entryScopes()){
             inspect();
             if(scope.kind==='root'&&!graph.specifications.has(scope.resource))continue;
@@ -171,6 +171,18 @@ export function migrationContextDifferences(contexts:readonly Pick<DocumentConte
                 const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
                 if(typeof value?.discriminator==='string'&&typeof value.$ref!=='string'){
                     const table=[...models.models(scope)].map(([name,model])=>[name,model.resource,model.pointer]).sort();
+                    inspect(table.length);binding(scope,'discriminator-models',JSON.stringify(table));
+                }
+            }else if(scope.kind==='schema'){
+                const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
+                // Modern allOf dispatch is metadata, but its implicit names
+                // still belong to this entry's components. It must seed the
+                // same ownership closure as explicit mappings. Reference
+                // siblings and adjacent unions retain their captured edges;
+                // this table uses only the ordinary allOf model identity.
+                if(value?.discriminator!==null&&typeof value?.discriminator==='object'&&
+                    typeof value.$ref!=='string'&&!Array.isArray(value.oneOf)&&!Array.isArray(value.anyOf)){
+                    const table=[...modernModels.models(scope,false)].map(([name,model])=>[name,model.resource,model.pointer]).sort();
                     inspect(table.length);binding(scope,'discriminator-models',JSON.stringify(table));
                 }
             }
