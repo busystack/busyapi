@@ -10,7 +10,7 @@ import {migrateDependentRequired,migrateDependentSchemas} from './migration_sche
 import {migrateInactiveSchemaAnnotations} from './migration_inactive_annotations';
 import {BooleanSchemaMigration} from './migration_boolean_schema';
 import {MigrationSchemaOwners} from './migration_schema_owners';
-import {migrateSchemaConditions} from './migration_schema_conditions';
+import {discardInactiveSchemaConditions,migrateSchemaConditions} from './migration_schema_conditions';
 import {migrateSchemaTuple} from './migration_schema_tuples';
 import {migrateSchemaPropertyNames} from './migration_schema_property_names';
 import {MigrationArrayBounds,migrateConstantContains,migrateArrayAlternatives} from './migration_schema_arrays';
@@ -36,6 +36,10 @@ export function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Migration
     for(const scope of migrationScopes(contexts))if(scope.kind==='schema'&&scope.family===from)
         captured.set(JSON.stringify([scope.resource,scope.pointer]),scope);
     const scopes=[...captured.values()].sort((a,b)=>b.pointer.length-a.pointer.length);
+    if(modernFamily(from)&&!modernFamily(to))for(const scope of [...scopes].reverse()){
+        const source=sources.get(scope.resource)!;
+        if(source.current(scope.pointer)!==undefined)discardInactiveSchemaConditions(graph,scope,source,owners);
+    }
     for(const scope of scopes){
         const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);if(pointer===undefined)continue;
         const original=graph.docs.get(scope.resource)!.dataNode(scope.pointer)!,value=original.value;

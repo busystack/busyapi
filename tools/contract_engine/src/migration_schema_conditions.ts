@@ -1,8 +1,68 @@
 import type {GraphScope,ReferenceGraph} from './reference_graph';
 import {pointerFragment} from './reference_graph';
+import {SourceError} from './document';
+import {projectSchemaReference} from './schema_reference_projection';
 import type {MigrationSource} from './migration_source';
 import {MigrationSchemaOwners} from './migration_schema_owners';
 import type {MigrationIssue} from './migration_schema';
+
+/** Prove only annotation-free constants, through captured fixed references.
+ * Resource metadata does not produce instance annotations. An assertion,
+ * annotation, competing dynamic target or cycle keeps the ordinary mapping.
+ * This finite proof is not a satisfiability search. */
+function constantCondition(graph:ReferenceGraph,initial:GraphScope):boolean|undefined {
+    let scope=initial;
+    const seen=new Set<string>();
+    for(let work=0;work<128;work++){
+        const id=JSON.stringify([scope.resource,scope.pointer]);if(seen.has(id))return;seen.add(id);
+        const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
+        if(typeof value==='boolean')return value;
+        if(value===null||typeof value!=='object'||Array.isArray(value)||
+            Object.keys(value).some(name=>!['$id','$schema','$anchor','$dynamicAnchor','$ref','$dynamicRef'].includes(name)))return;
+        const keywords=['$ref','$dynamicRef'].filter(name=>Object.hasOwn(value,name));
+        if(!keywords.length)return true;
+        if(keywords.length!==1)return;
+        const reference=graph.referenceAs(scope.resource,scope.pointer,keywords[0],'schema');
+        if(!reference)return;
+        const projected=projectSchemaReference(reference);if(projected.state!=='fixed')return;
+        const target=graph.scopeAs(projected.target.resource,projected.target.pointer,'schema');if(!target)return;
+        scope=target;
+    }
+    const range=graph.docs.get(initial.resource)!.dataNode(initial.pointer)!.range;
+    throw new SourceError('limit.migration.condition','Constant-condition proof exceeds 128 captured reference links',range,'unsupported',
+        {resource:initial.resource,pointer:initial.pointer,range});
+}
+
+const inside=(pointer:string,parent:string)=>pointer===parent||pointer.startsWith(parent+'/');
+function retainedCondition(graph:ReferenceGraph,resource:string,pointer:string):boolean {
+    return graph.references.some(reference=>{
+        // Preserve explicit connection/dynamic-scope proofs even when this
+        // branch is inactive. An internal static cycle is no outside consumer.
+        if(reference.resource===resource&&inside(reference.pointer,pointer))return reference.connection!==undefined||reference.keyword==='$dynamicRef';
+        if(reference.kind!=='schema')return false;
+        return reference.resolution==='resolved'&&reference.targetResource===resource&&inside(reference.targetPointer!,pointer)||
+            reference.dynamic?.candidates.some(target=>target.resource===resource&&inside(target.pointer,pointer))===true||
+            reference.candidateTargets?.some(target=>target.resource===resource&&inside(target.pointer,pointer))===true;
+    });
+}
+
+/** Remove a proved inactive, unconsumed branch before vocabulary conversion.
+ * Otherwise an assertion that never runs could incorrectly block migration.
+ * Consumed branches remain intact for normal conversion and later hoisting. */
+export function discardInactiveSchemaConditions(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,owners:MigrationSchemaOwners):void {
+    if(graph.literalContainer(scope.resource,scope.pointer)!==undefined||graph.hasOverlappingScope(scope.resource,scope.pointer))return;
+    const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
+    if(value===null||typeof value!=='object'||Array.isArray(value))return;
+    const condition=graph.scopeAs(scope.resource,scope.pointer+'/if','schema');
+    const constant=condition?constantCondition(graph,condition):undefined;
+    const inactive=!Object.hasOwn(value,'if')?['then','else']:constant===undefined?[]:[constant?'else':'then'];
+    for(const name of inactive){
+        const original=scope.pointer+'/'+name,pointer=source.current(original);
+        if(pointer!==undefined&&!retainedCondition(graph,scope.resource,original)){
+            owners.admit(source,4);source.remove(pointer,true,true,true);
+        }
+    }
+}
 
 /** Core 2020-12 §10.2.2: one mutually exclusive branch applies. Hoisting the
  * condition keeps a single owner for independent references, exact values and
@@ -23,10 +83,29 @@ export function migrateSchemaConditions(graph:ReferenceGraph,scope:GraphScope,so
         for(const name of fields){
             const original=scope.pointer+'/'+name,at=source.current(original);
             if(at===undefined)continue;
-            if(graph.references.some(reference=>reference.kind==='schema'&&reference.resolution==='resolved'&&
-                reference.targetResource===scope.resource&&(reference.targetPointer===original||reference.targetPointer?.startsWith(original+'/'))))
+            if(retainedCondition(graph,scope.resource,original))
                 owners.move({resource:scope.resource,pointer:original},source,at,'inactive_condition');
-            else source.remove(at,true,true,true);
+            else {owners.admit(source,4);source.remove(at,true,true,true);}
+        }
+        return;
+    }
+    const conditionScope=graph.scopeAs(scope.resource,scope.pointer+'/if','schema');
+    const constant=conditionScope?constantCondition(graph,conditionScope):undefined;
+    if(constant!==undefined){
+        // The condition contributes no instance annotations. Keep its converted
+        // target for independent uses and captured reference/scope proofs;
+        // apply only the selected branch at the original instance location.
+        const at=source.current(scope.pointer+'/if');
+        if(at!==undefined)owners.move({resource:scope.resource,pointer:scope.pointer+'/if'},source,at,'condition');
+        const allOf=pointer+'/allOf',selected=constant?'then':'else';
+        for(const name of ['then','else']){
+            const original=scope.pointer+'/'+name,current=source.current(original);if(current===undefined)continue;
+            if(name===selected){
+                owners.admit(source,2);if(!source.doc.dataNode(allOf))source.set(allOf,[]);
+                source.move(current,allOf+'/'+source.doc.dataNode(allOf).children.size,true);
+            }else if(retainedCondition(graph,scope.resource,original))
+                owners.move({resource:scope.resource,pointer:original},source,current,'inactive_condition');
+            else {owners.admit(source,4);source.remove(current,true,true,true);}
         }
         return;
     }

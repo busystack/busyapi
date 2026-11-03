@@ -107,7 +107,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W2.03 Twelve directed routes and same-family patch behavior; family schema clauses, J4/JC applicators | `migration_routes.ts`, Swagger/schema/binary/direction owners | M S C | `test_migration_entry_routes`, `test_migration_direct_swagger`, `test_swagger_empty_tuple`, Core entry routes and `migration_direct_swagger_test.dart` | Partially implemented; Swagger-to-modern now bypasses 3.0, mapping positional items directly; empty tuples retain no-op meaning; full route qualification and shared-role cases remain | H |
 | W3.01 Directional annotations and shared request/response/Header consumers in both directions; O20 Schema, O30 Schema, O31/O32 annotations | `migration_access.ts`, `migration_direction.ts`, required-presence owner | M E S C | direction/access/required-presence/Header suites and Core access review | Partially implemented; direct Swagger modern routes use existing specialization; active downgrade and mixed-entry ownership remain | H |
 | W3.02 Positional tuples/tails, recursion, exact bounds and references; J4 §5.3, JC §10.3.1 | `migration_schema.ts`, routes and schema-reference owners | M E S C | direct-Swagger/empty-tuple/migration suites and `test_migration_tuple_tails` | Partially implemented; unbounded Swagger tails upgrade to modern `prefixItems`; finite constrained modern tails expand to bounded Swagger positions referencing one retained tail owner; bounds now include same-instance composition, fixed references, finite enum/const values, non-array types, unreachable prefixes and constant containment counts; independent boolean tails retain owners too; unbounded constrained tails and additional equivalent downgrade algorithms remain | H |
-| W3.03 Conditional assertions and inactive conditional fields; JC §10.2.2 | `migration_schema_conditions.ts`, shared owner allocator, schema migration | M E S C | `test_migration_conditions` through production planning, source/target evaluations and cold graph | Partially implemented; existing source for modern-to-3.0 conditional lowering with one retained condition target; Swagger condition-specific mappings and overlapping roles remain open | H |
+| W3.03 Conditional assertions and inactive conditional fields; JC §10.2.2 | `migration_schema_conditions.ts`, shared owner allocator, schema migration | M E S C | `test_migration_conditions` through production planning, source/target evaluations and cold graph | Partially implemented; modern-to-3.0 conditional lowering retains one condition target; annotation-free boolean/empty/fixed-reference conditions now select their faithful branch for either restricted family. Unconsumed inactive branches (including absent-if cases) are pruned before vocabulary conversion; independent targets and connection/dynamic proofs remain owned. Nonconstant Swagger mappings, descendant-only inactive ownership and other overlapping cases remain open | H |
 | W3.04 Property/schema dependencies with independently referenced maps; JC §10.2.2.4, JV §6.5.4 | `migration_schema_dependencies.ts` | M E S C | dependency/dependent-schema suites, Core dependency review | Partially implemented; existing conditional lowering retained; representable independent map schemas use W2.02 ownership; unknown annotations still cannot be silently dropped for restricted targets; remaining Swagger conditional mappings remain open | H |
 | W3.05 Static/dynamic references, anchors, identities and independent annotations; JC §§8–9 | identity/schema-reference/role owners | M E S C | static-dynamicref/identity/boolean/inactive annotation suites, pinned official dynamicRef cases, Core static/dynamic reference publication/HTTP/CLI journeys | Partially implemented; inactive anchors and dynamic applicators whose captured candidates all identify the initial target lower through one shared binding proof. Sibling constraints and recursive references remain separate allOf/static edges; resource/role provenance and cold reopening are proved. Whole-resource entry variants retain static/dynamic targets, anchors and resource boundaries; downstream dynamic dependencies require a same-resource holder. Partial modern resources and native slots now receive common resource owners; competing-target lowering and cross-document/mixed-family specialization remain implementation work | H |
 | W3.06 Pattern/property-name/contains/count/unevaluated/content constraints; JC §§10–11, JV §§6/8 | `migration_schema.ts`, `migration_schema_property_names.ts`, binary/reference/dependency owners | M E S C | migration/binary/dependency suites (existing), `test_migration_property_names`, Core `migration_property_names_test.dart` | Partially implemented; finite annotation-free property-name enum/const/type restrictions now lower to an isolated closed-properties branch with retained independent owners; constant true/false containment now maps exact counts to array bounds and retains independent contains/unevaluated boolean owners; general name schemas, patterns, nonconstant containment and annotation-dependent unevaluated/content algorithms remain missing, with individual blockers | H |
@@ -143,7 +143,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W7.01 Creation, editing, unsaved Reference, request/example/mock/case, migration review, documentation and CLI integration for every capability; all applicable clauses above | shared engine, Core owners and native workspace controls | A R E M S C | engine/Core/widget/native journey suites | Partially implemented; applicable existing consumers inherit shared field/codec/routing changes; complete family journeys are not accepted | H |
 | W7.02 Stale-action invalidation on declaration/dialect/root/external/approval changes; coherent reviewed transactions, Undo/Redo and no buffer loss; Core transaction contract | Core project/store/capture and native review/request controllers | A R E M S C | stale capture/cancellation/publication/widget review suites | Partially implemented; existing source for existing safeguards; new paths require current integration qualification | H |
 | W7.03 CST fidelity, no-op saves, exact values, aliases, extensions and source-only migration restructuring; TEXT | `document.ts`, graph/CST editing, Core store/transaction owners | A R M S C | source ownership/alias/exact-value/no-op suites | Partially implemented; existing source for existing boundaries; generated schema owners retain original provenance and reviewed restructuring | H |
-| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+57`, migration producer `66`, response/parameter mock producers `4`, numeric sample producer remains `3`; no dependency versions/source changed | H |
+| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+57`, migration producer `67`, response/parameter mock producers `4`, numeric sample producer remains `3`; no dependency versions/source changed | H |
 | W8.01 Explicit independent evidence input across SDK/build/CMake/CI/installed/package checks; PINS | `flutter_archive.py`, SDK verifier, `build_linux.sh`, CMake, package/native-distribution/artifact-smoke inputs | P | `tools/test_flutter_sdk.py`, source-wiring regressions | Partially implemented; existing source for archive-input propagation; same existing evidence reaches installed checks; independent member pins remain an alternative; no SDK acquisition/replacement | H; actual evidence availability/authenticity has not been qualified |
 | W8.02 Ordered gates, registration, source-version-valid fixtures and production-byte regressions; PINS and each row's authority | `tools/build_engine.sh`, Linux workflow, engine/Core/widget/native/package suites | P | new direct-Swagger/conditional/tuple-tail/constant-containment/property-name/runtime-parameter suites registered; existing TypeScript-before-bundle gate retained | Partially implemented; compilation and all suspended gates remain unexecuted; missing regression coverage identified in this register remains implementation work | H |
 | W8.03 Current automated/native/packaged/offline acceptance and normal Quit; all approved families and PINS | native acceptance tools, Core/package/CLI suites | A R E M S C P | existing native acceptance including historical Quit/focus failures; complete new journeys still required | Missing for accepted evidence; no driver/engine attribution established; Snapcraft remains skipped | H |
@@ -872,7 +872,7 @@ owning-entry secondary roles, recursive map assertions, different default
 discriminator targets, unchanged native annotations/exact values, native field
 inspection and actual HTTP responses. Core covers captured unsaved inputs,
 stale/cancelled publication, preserved originals, relocation, deletion of source
-files and CLI cold reopening. Migration producer `66` is synchronized with
+files and CLI cold reopening. Migration producer `67` is synchronized with
 Core/preflight and obsolete-proof controls. Coverage is prepared, unexecuted;
 other incompatible holder/identity/refactoring cases remain W2 source gaps.
 
@@ -912,7 +912,7 @@ description transfers and shared Example/Schema roles in mixed modern entries.
 Core `migration_semantic_fields_test.dart` prepares native example choices,
 number-versus-string occurrence media, literal inspection, actual HTTP bytes,
 original preservation, byte publication, original deletion, relocated reopening
-and independent CLI checks. Migration producer `66` agrees across production
+and independent CLI checks. Migration producer `67` agrees across production
 admissions and obsolete controls; evaluator `1.18.0+57` and mock producers remain
 unchanged. These paths remain unverified, and W2/W3/W4/W6 retain their other source
 gaps.
@@ -958,10 +958,30 @@ The registered model-resource engine suite prepares mixed Swagger/modern and
 implicit model names, source/target evaluations, exact data and deterministic
 output. Core `migration_restricted_model_owners_test.dart` prepares native choices,
 exact numeric HTTP bytes, cancellation, original preservation, safe publication,
-original deletion, relocated reopening and CLI checks. Migration producer `66`
+original deletion, relocated reopening and CLI checks. Migration producer `67`
 is synchronized; evaluator/mock declarations are unchanged. This holder and
 entry-selection boundary is source-complete, unverified. W2/W3 retain the other
 concrete resource, direction and refactoring gaps in their rows.
+
+Conditional migration now proves annotation-free boolean/empty conditions and
+fixed static/dynamic reference chains without an instance search. It applies only
+the selected branch through `allOf`, retaining the converted condition and any
+independently consumed inactive schema through the common allocator. Inactive,
+unconsumed branches are removed before child-vocabulary conversion, including
+both branches when `if` is absent. Internal static recursion is not an outside
+consumer; captured implicit connections, dynamic scopes, candidate targets and
+literal/role guards remain protected. Nonconstant Swagger conditions retain a
+specific implementation blocker; partial inactive-subtree extraction remains
+separate source work rather than an unrepresentability claim.
+
+The registered conditional engine suite prepares both restricted targets,
+independent condition/branch evaluation, recursive schemas, exact numbers,
+fixed dynamic-reference lowering, literal preservation and an independently
+consumed inactive-assertion refusal. Core `migration_constant_conditions_test.dart`
+prepares native schema inspection, actual request/response bytes, cancellation,
+original preservation, publication, original deletion, relocated reopening and
+CLI checks. Migration producer `67` is synchronized; these paths remain
+unverified and W3.03 remains partially implemented.
 
 ## Required functionality still open
 
