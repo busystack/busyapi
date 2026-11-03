@@ -128,6 +128,11 @@ class WorkspaceController extends ChangeNotifier {
         (v) => v['outdated'] == true,
       );
   bool get designSafe => scopeSafe(projection?['info']);
+  bool authoredFieldShared(dynamic item, String field) =>
+      item is Map && (item['fields'] as List? ?? const []).any(
+        (entry) => entry is Map && entry['name'] == field &&
+            entry['target'] is Map && entry['target']['shared'] == true,
+      );
   bool scopeSafe(
     dynamic item, {
     String? referenceField,
@@ -175,6 +180,9 @@ class WorkspaceController extends ChangeNotifier {
       return false;
     }
     final ownerPointer = item['pointer'] as String;
+    if (authoredField != null && authoredFieldShared(item, authoredField)) {
+      return false;
+    }
     final pointer = authoredField == null
         ? ownerPointer
         : '$ownerPointer/${authoredField.replaceAll('~', '~0').replaceAll('/', '~1')}';

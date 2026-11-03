@@ -28,7 +28,7 @@ export class WorkerDispatcher {
   private failure:(id:string,code:string,message:string)=>void,private maxFrame:number,
   private kind:(request:DispatchRequest)=>string=()=> 'standard'){}
  private priority(method:string) {
-  return ['analyse','propose','assistSource'].includes(method)?0:['evaluateSchemas','govern','inspectPolicyCode','resolvePolicyCode','reviewPolicyCode','referenceDocument','referenceDisplay','deriveBundle','describeResourcePackage','planExtract','planExtractToFile','planInline','planMoveDefinition','planOperationMove','planFileMove','planFileDeletion','planRootRemoval','sourceFolds'].includes(method)?3:
+  return ['analyse','propose','assistSource'].includes(method)?0:['evaluateSchemas','govern','inspectPolicyCode','resolvePolicyCode','reviewPolicyCode','referenceDocument','referenceDisplay','deriveBundle','describeResourcePackage','planExtract','planExtractToFile','planInline','planYamlOwnership','planMoveDefinition','planOperationMove','planFileMove','planFileDeletion','planRootRemoval','sourceFolds'].includes(method)?3:
    ['inspect','readDataValue','schemaTree','referenceChoices','referencePage','semanticSearch'].includes(method)?2:1;
  }
  submit(request:DispatchRequest) {

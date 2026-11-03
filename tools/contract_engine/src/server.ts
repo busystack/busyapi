@@ -3,6 +3,7 @@ import {SourceError} from './document';
 import { analyse, propose, discover, inspect, readDataValue, protocol, engineVersion } from './engine';
 import { planRename, planPropertyRename, planResponseRename, planSchemaDefinitionRename } from './refactoring';
 import { planDelete } from './refactoring_delete';
+import {planYamlOwnership} from './refactoring_ownership';
 import {planExtract,planExtractToFile,planInline,planMoveDefinition,planOperationMove} from './refactoring_copy';
 import {planFileMove,planFileDeletion,planRootRemoval} from './refactoring_file';
 import {normalizeResourceUris} from './reference_graph';
@@ -59,6 +60,7 @@ if (!isMainThread) {
             methods.describeResourcePackage = describeResourcePackage;
             methods.planOperationMove = planOperationMove;
             methods.planExtractToFile = planExtractToFile;
+            methods.planYamlOwnership = planYamlOwnership;
             methods.planRootRemoval = planRootRemoval;
             const method = Object.hasOwn(methods, request.method) ? methods[request.method] : undefined;
             if (!method)

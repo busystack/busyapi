@@ -140,6 +140,8 @@ class _RefactoringReviewState extends State<_RefactoringReview> {
             ? l.reviewOperationMove
             : plan.result['kind'] == 'reference-inline'
             ? l.reviewReferenceInlining
+            : plan.result['kind'] == 'yaml-ownership'
+            ? l.reviewYamlOwnership
             : plan.result['kind'] == 'diagnostic-fix'
             ? l.reviewDiagnosticRepair
             : plan.result['kind'] == 'schema-suggestion'
@@ -278,6 +280,8 @@ class _RefactoringReviewState extends State<_RefactoringReview> {
           ],
           if (plan.result['kind'] == 'reference-inline')
             Text(l.referenceInliningImpact),
+          if (plan.result['kind'] == 'yaml-ownership')
+            Text(l.yamlOwnershipImpact),
           if (plan.result['kind'] == 'diagnostic-fix')
             Text(l.pathParameterRepairImpact),
           if (plan.result['kind'] == 'reference-selection') ...[
@@ -349,6 +353,7 @@ class _RefactoringReviewState extends State<_RefactoringReview> {
                   'file-delete',
                   'operation-move',
                   'reference-inline',
+                  'yaml-ownership',
                 ].contains(plan.result['kind'])
                 ? '${location(plan.result['from']['resource'])}#${plan.result['from']['pointer']} → ${location(plan.result['to']['resource'])}#${plan.result['to']['pointer']}'
                 : '${plan.result['from']['pointer']} → ${plan.result['to']['pointer']}',

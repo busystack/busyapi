@@ -902,6 +902,31 @@ grammar, enum/default membership, exact tag names and entry namespaces.
 `busyapi:recommended` reports advisory unmapped or unused Server variables
 separately from specification errors.
 
+Shared YAML objects and collections offer **Make this YAML occurrence
+independent…** in Design. The review retains contract values and resource/reference
+identities, then enables ordinary controls for that occurrence. Anchor/alias token
+changes and affected source appear before Apply; Cancel leaves the buffers intact.
+Undo/Redo retains the original source representation.
+
+The independent CLI supports the same object maintenance plans:
+
+```sh
+busyapi refactor api.yaml --action yaml-ownership --pointer /info --review --json
+busyapi refactor api.yaml --action yaml-ownership --pointer /info --apply REVIEW_SHA256 --json
+```
+
+Actions are `component-rename`, `property-rename`, `schema-definition-rename`,
+`response-rename`, `extract`, `inline`, `move-definition` and `yaml-ownership`.
+Rename/extract/move require `--name`; definition moves also require `--destination`.
+`--resource` and `--destination` are approved source paths relative to the project
+boundary, or local file URIs. `--root` selects an entry while every configured root
+participates in the review. `--context-kind` selects an established interpretation
+of a shared occurrence. Review writes no project files. Apply recollects all inputs
+and rejects an obsolete identity; linked source publication retains the existing
+journal/recovery behavior. JSON reports distinguish incomplete/partial publication
+and explicitly say contract validation was not run. Run `check` to validate saved
+contracts. File creation/move/deletion are still native maintenance actions.
+
 New-file component extraction composes the existing CST/graph proofs and creates no OpenAPI wrapper. Swagger 2.0 parameters/responses use a named unversioned fragment and direct usage-site reference; the global definitions maps do not permit forwarding Reference Objects. Definition moves repair their captured consumers and remove the old binding. Other supported families retain their legal aliases. Native metadata, Source choices and graph traversal use the same source-position rule. Worker cases cover selected-version reusable families, referenced fragment sources, multi-root closure, boolean/recursive schemas, exact examples, legal named bindings and ambiguous-root refusal. Core tests cover a single coupled virtual transaction, full undo/redo, byte-exact save/reopen, unsaved shared fragments, stale inputs, occupied destinations and malformed creation replies. Real SIGKILL tests stop before publication and in both fragment/root receipt gaps, preserve newer versions of either member and recover without speculative writes. Native-style widget controls cover sequential capture, recovered filename drafts, complete review/cancel, retired callbacks, resource selection, folds and reading state. These do not substitute for the complete actual GTK refactoring scenario or native input/performance qualification.
 
 Server-template bundling retains absolute templates (including variable ports), scheme-relative authorities and relative-path substitutions without pre-normalizing away variable-dependent dot segments. Finite enums can prove that an initial variable has one URL-reference form; literal braces inside enum values are data, not recursively substituted templates. Independent before/after URL expectations exercise both families. An unrestricted initial variable or an enum mixing reference forms can make one relocated template unable to retain its original retrieval context; this returns explicit `bundle.server.template-context`, not a guessed default or an altered declaration. Native Reference HTML remains independent and can document that original contract without bundling it.

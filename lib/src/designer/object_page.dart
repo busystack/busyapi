@@ -638,6 +638,15 @@ class _NativeObjectPageState extends State<_NativeObjectPage> {
                     item['sharedTarget'] == true ||
                     c.selectedOccurrence?.startsWith('definition:') == true)
                   Text(l.sharedDefinition),
+                if (item['yamlOwnershipAvailable'] == true)
+                  BusyApiActionRow(
+                    title: l.makeYamlOccurrenceIndependent,
+                    onTap: c.scopeSafe(item, reviewedCopy: true)
+                        ? () => run(() => _reviewObjectSourceChange(
+                            context, c, item, yamlOwnership: true,
+                          ))
+                        : null,
+                  ),
                 if (item['responseStatusNamePolicy'] != null)
                   BusyApiActionRow(
                     title: l.renameResponseStatus,
@@ -830,7 +839,7 @@ class _NativeObjectPageState extends State<_NativeObjectPage> {
                                   ref['resolution'] == 'resolved'
                               ? () => run(
                                   () =>
-                                      _inlineObjectReference(context, c, item),
+                                      _reviewObjectSourceChange(context, c, item),
                                 )
                               : null,
                         ),
@@ -2013,11 +2022,12 @@ Future<void> _extractObjectComponent(
   }
 }
 
-Future<void> _inlineObjectReference(
+Future<void> _reviewObjectSourceChange(
   BuildContext context,
   WorkspaceController c,
-  Map<String, dynamic> item,
-) async {
+  Map<String, dynamic> item, {
+  bool yamlOwnership = false,
+}) async {
   final prepared = await _prepareObjectAction(context, c, item);
   if (prepared == null || !context.mounted) return;
   final owner = c.project!, root = c.root, navigation = c.navigationGeneration;
@@ -2029,13 +2039,17 @@ Future<void> _inlineObjectReference(
   final failureText = _copyRefactoringFailure(context);
   RefactoringPlan plan;
   try {
-    plan = await owner.planReferenceInlining({
+    final target = <String, Object?>{
       'root': prepared['root'],
       'resource': prepared['resource'],
       'generation': prepared['generation'],
       'pointer': prepared['pointer'],
       'range': prepared['range'],
-    });
+      'kind': prepared['kind'],
+    };
+    plan = yamlOwnership
+        ? await owner.planYamlOwnership(target)
+        : await owner.planReferenceInlining(target);
   } on CoreFailure catch (failure) {
     throw failureText(failure.code);
   }

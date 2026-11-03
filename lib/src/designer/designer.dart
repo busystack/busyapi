@@ -40,12 +40,13 @@ class Designer extends StatefulWidget {
 class _DesignerState extends State<Designer> {
   WorkspaceController get c => widget.controller;
   bool fieldsAvailable(Map<String, dynamic> item, String field) =>
-      c.scopeSafe(item, authoredField: field) ||
-      (c.draft != null &&
-          c.draft!.root == c.root &&
-          c.draft!.buffer == item['resource'] &&
-          c.draft!.pointer == item['pointer'] &&
-          c.store!.get(c.draft!.buffer).generation == c.draft!.generation);
+      !c.authoredFieldShared(item, field) &&
+      (c.scopeSafe(item, authoredField: field) ||
+          (c.draft != null &&
+              c.draft!.root == c.root &&
+              c.draft!.buffer == item['resource'] &&
+              c.draft!.pointer == item['pointer'] &&
+              c.store!.get(c.draft!.buffer).generation == c.draft!.generation));
   Widget field(
     Map<String, dynamic> item,
     String key,
@@ -289,6 +290,15 @@ class _DesignerState extends State<Designer> {
                       : c.outdated
                       ? l.outdated
                       : l.objectScopeNeedsCorrection,
+                ),
+              if (item['yamlOwnershipAvailable'] == true)
+                BusyApiActionRow(
+                  title: l.makeYamlOccurrenceIndependent,
+                  onTap: c.scopeSafe(item, reviewedCopy: true)
+                      ? () => widget.run(() => _reviewObjectSourceChange(
+                          context, c, item, yamlOwnership: true,
+                        ))
+                      : null,
                 ),
               if (c.draft?.errors['session'] != null)
                 BusyApiGroupedList(

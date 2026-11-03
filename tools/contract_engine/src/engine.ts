@@ -75,6 +75,15 @@ export function createGraph(input: any) {
     return {docs, family, exampleResources:new CapturedExampleResources(input.exampleResources), graph: ReferenceGraph.capture(docs, input.root, family, new Map(input.resources.map((r: Resource) => [r.id, r.aliases ?? []])), input.occurrences)};
 }
 
+/** Read-only capability for an explicit source ownership review. Logical alias
+ * children remain non-editable until the captured review is applied. */
+function yamlOwnershipProjection(doc:SourceDocument,pointer:string,kind:string) {
+    const node=doc.nodes.get(pointer),data=node&&doc.dataNode(pointer);
+    if(doc.format!=='yaml'||!node||!data||!doc.dataSyntaxSafe(pointer))return {};
+    return {reviewedCopySource:{nodeKind:kind==='schema'&&typeof data.value==='boolean'?'boolean':data.kind},
+        ...(doc.sharedNode(pointer,true)?{yamlOwnershipAvailable:true}:{})};
+}
+
 /** Migration captures connected complete descriptions in their own entry
  * contexts. Discovery is separate from the selected root's native projection
  * and validity; Core retains its existing acquisition/approval boundary. */
@@ -338,7 +347,7 @@ export function analyse(input: any, context?: ReturnType<typeof createGraph>) {
     findings.push(...security.findings);
     if(!security.complete)complete=false;
     const categories={...categoryStates(),security:Object.fromEntries(Object.entries(security).filter(([name])=>name!=='findings'))};
-    return { ...(input.captureEntries ? {entryDiscovery:discoverEntries(input,graph)} : {}), ...(input.measure ? { timings: { parseMs: parsedAt - started, structuralMs: validatedAt - parsedAt, projectionMs: performance.now() - validatedAt } } : {}), version: 1, snapshot: input.snapshot, status: findings.some(d => d.category === 'syntax') ? 'invalid' : !supported ? 'unsupported' : !complete ? 'incomplete' : findings.some(d => d.severity === 'error') ? 'invalid' : 'complete', complete: complete && supported, findings, categories, info: index(root, '/info', data?.info ?? {}, {fields: fieldsFor('info', family, data?.info ?? {}).map(field => ({...field, present: Object.hasOwn(data?.info ?? {}, field.name)}))}), specification, openapi: specification?.declaredVersion, pathItems: ['paths','webhooks'].flatMap(role => data?.[role] && typeof data[role]==='object' && !Array.isArray(data[role]) ? Object.keys(data[role]).filter(name=>role==='webhooks'||name.startsWith('/')).map(name=>index(root,'/'+role+'/'+escape(name),undefined,{name,role})) : []), operations, components, componentLocations, references, externalExamples:externalExampleRequests(graph), coverage: { syntax: 'strict-json-and-yaml12-core', openapi: 'official-structural-shapes-and-initial-authoring-semantics', schemas: '2020-12-keyword-shapes', references: 'uri-resource-identities-pointers-anchors-and-contextual-dynamic-navigation', formats: 'not-validated', security:security.coverage }, versions, resources: input.resources.map((r: Resource) => ({ id: r.id, generation: r.generation, identity: r.identity })), otherRootFields: Object.keys(data ?? {}).filter(k => !['openapi', 'info', 'paths', 'components'].includes(k)), otherRootObjects: Object.keys(data ?? {}).filter(k => !['openapi', 'info', 'paths', 'components'].includes(k)).map(name => index(root, '/' + escape(name), data[name], { name })) };
+    return { ...(input.captureEntries ? {entryDiscovery:discoverEntries(input,graph)} : {}), ...(input.measure ? { timings: { parseMs: parsedAt - started, structuralMs: validatedAt - parsedAt, projectionMs: performance.now() - validatedAt } } : {}), version: 1, snapshot: input.snapshot, status: findings.some(d => d.category === 'syntax') ? 'invalid' : !supported ? 'unsupported' : !complete ? 'incomplete' : findings.some(d => d.severity === 'error') ? 'invalid' : 'complete', complete: complete && supported, findings, categories, info: index(root, '/info', data?.info ?? {}, {kind:'info',...yamlOwnershipProjection(root,'/info','info'),fields: fieldsFor('info', family, data?.info ?? {}).map(field => ({...field, present: Object.hasOwn(data?.info ?? {}, field.name),...(root.nodes.get('/info/'+escape(field.name))?{target:{shared:root.nodes.get('/info/'+escape(field.name))!.shared}}:{})}))}), specification, openapi: specification?.declaredVersion, pathItems: ['paths','webhooks'].flatMap(role => data?.[role] && typeof data[role]==='object' && !Array.isArray(data[role]) ? Object.keys(data[role]).filter(name=>role==='webhooks'||name.startsWith('/')).map(name=>index(root,'/'+role+'/'+escape(name),undefined,{name,role})) : []), operations, components, componentLocations, references, externalExamples:externalExampleRequests(graph), coverage: { syntax: 'strict-json-and-yaml12-core', openapi: 'official-structural-shapes-and-initial-authoring-semantics', schemas: '2020-12-keyword-shapes', references: 'uri-resource-identities-pointers-anchors-and-contextual-dynamic-navigation', formats: 'not-validated', security:security.coverage }, versions, resources: input.resources.map((r: Resource) => ({ id: r.id, generation: r.generation, identity: r.identity })), otherRootFields: Object.keys(data ?? {}).filter(k => !['openapi', 'info', 'paths', 'components'].includes(k)), otherRootObjects: Object.keys(data ?? {}).filter(k => !['openapi', 'info', 'paths', 'components'].includes(k)).map(name => index(root, '/' + escape(name), data[name], { name })) };
 }
 export function inspect(input: any) {
     const {docs, graph} = createGraph(input);
@@ -450,12 +459,8 @@ export function inspect(input: any) {
         }
     }
     const sharedTarget=!!componentFamily(scope.kind,family)&&graph.references.some(ref=>ref.resolution==='resolved'&&ref.targetResource===doc.id&&ref.targetPointer===node.pointer);
-    // Read-only eligibility for an explicit structural ownership review. An
-    // alias token is physical source; its descendants remain non-editable.
-    const reviewedCopySource=doc.format==='yaml'&&!!componentFamily(scope.kind,family)&&doc.dataSyntaxSafe(node.pointer)
-      ?{nodeKind:scope.kind==='schema'&&typeof node.value==='boolean'?'boolean':doc.dataNode(node.pointer)!.kind}:undefined;
     return {version: 1, snapshot: input.snapshot, family, ...(isNativeFamily(family)?{capabilities:capabilitiesFor(family)}:{}), customSchemaKeywords: modernFamily(family), ...located(node, scope.kind), interpretations:graph.scopesAt(doc.id,node.pointer).map(({kind,family,dialect})=>({kind,family,dialect})), sharedTarget, componentDestination: graph.specifications.get(doc.id)?.family===family, componentDestinations, ...(componentFamily(scope.kind,family)?{componentFamily:componentFamily(scope.kind,family)}:{}), ...(schemaTreeRoot!==undefined?{schemaTreeRoot}:{}), removable, allowsExtensions: allowsExtensions(scope.kind, family, node.value, segments(node.pointer).at(-1),graph.allowsReference(scope)), fields, entries, offset, count: node.children.size, references,
-        ...(reviewedCopySource?{reviewedCopySource}:{}),
+        ...yamlOwnershipProjection(doc,node.pointer,scope.kind),
         ...(ownerSchema ? {ownerSchema: located(ownerSchema, 'schema')} : {}),
         schemaSuggestion:schemaInferenceSources(graph,scope),
         ...(binding?{securityBinding:binding}:{}),

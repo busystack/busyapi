@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:busyapi_core/busyapi_core.dart';
+import 'refactoring_command.dart';
 
 const usage = '''BusyAPI 0.1.0
 Usage:
@@ -13,6 +14,7 @@ Usage:
   busyapi bundle FILE_OR_PROJECT --output DIRECTORY [--format single-file|resource-package] [--root NAME_OR_PATH] [--map-resource URI FILE] [--replace-output RECEIPT_SHA256] [--json]
   busyapi build-docs FILE_OR_PROJECT --output DIRECTORY [--preset native-reference|redoc|swagger] [--root NAME_OR_PATH] [--map-resource URI FILE] [--replace-output RECEIPT_SHA256] [--json]
   busyapi migrate FILE_OR_PROJECT --target VERSION --output NEW_DIRECTORY [--review | --apply REVIEW_SHA256] [--decision ID=CHOICE ...] [--root NAME_OR_PATH] [--json]
+  busyapi refactor FILE_OR_PROJECT --action ACTION --pointer JSON_POINTER [--resource FILE] [--name NAME] [--destination FILE] [--context-kind KIND] [--review | --apply REVIEW_SHA256] [--root NAME_OR_PATH] [--json]
   busyapi diff FILE_OR_PROJECT (--base REVISION | --merge-base REVISION) [--root NAME_OR_PATH] [--fail-on breaking|potentially-breaking|any] [--json]
   busyapi mock FILE_OR_PROJECT [--root NAME_OR_PATH] [--port PORT] [--proxy HTTP_BASE_URL] [--json]
   busyapi test FILE_OR_PROJECT --case NAME [--case NAME...] [--root NAME_OR_PATH] [--environment NAME] [--allow-tls-file PATH...] [--secrets-stdin] [--json]
@@ -22,6 +24,7 @@ Usage:
   busyapi generate FILE_OR_PROJECT --generator NAME --output DIRECTORY [--root NAME_OR_PATH] [--option NAME=JSON_OR_TEXT ...] [--template-directory DIRECTORY] [--replace-output RECEIPT_SHA256] [--json]
   busyapi --help | --version
 Creation: init writes a contract and busyapi.yaml by default; --standalone writes only the contract. Both print the contract path.
+Maintenance actions: component-rename, property-rename, schema-definition-rename, response-rename, extract, inline, move-definition, yaml-ownership. Names are required for rename/extract/move; move-definition requires a destination. Source paths are relative to the project boundary. All configured roots participate in review.
 Reports: check/lint --sarif FILE; test --junit FILE (no-clobber exports; command exit status is unchanged).
 Exit codes: 0 complete clean; 1 contract failure; 2 incomplete/unsupported; 3 operational/configuration failure.
 ''';
@@ -128,6 +131,7 @@ Future<void> runBusyApi(
           'build-docs',
           'generate',
           'migrate',
+          'refactor',
         ].contains(args.first)) {
       throw CoreFailure(
         'cli.option',
@@ -163,6 +167,10 @@ Future<void> runBusyApi(
               'output',
               'review',
               'apply',
+            ],
+            if (args.first == 'refactor') ...[
+              'action', 'pointer', 'resource', 'name', 'destination',
+              'context-kind', 'review', 'apply',
             ],
             if (args.first == 'diff') ...['base', 'merge-base', 'fail-on'],
             if (args.first == 'mock') ...['port', 'proxy'],
@@ -386,6 +394,7 @@ Future<void> runBusyApi(
       'test',
       'generate',
       'migrate',
+      'refactor',
     ].contains(args.first)) {
       throw CoreFailure('cli.command', 'Unknown command');
     }
@@ -441,6 +450,7 @@ Future<void> runBusyApi(
         ([
               'bundle',
               'migrate',
+              'refactor',
               'build-docs',
               'diff',
               'mock',
@@ -453,6 +463,33 @@ Future<void> runBusyApi(
         'cli.ambiguous',
         'Multiple unconfigured roots; select one with --root',
       );
+    }
+    if (args.first == 'refactor') {
+      if (roots.length != 1) throw CoreFailure('cli.refactor', 'Choose exactly one entry root for source maintenance');
+      selectedRoots = List.unmodifiable(project.roots);
+      final outcome = await refactoringCommand(project, engine, roots.single, options, beforePublish: beforePublish);
+      if (options['json'] == 'true') {
+        stdout.writeln(jsonEncode(outcome.report));
+      } else {
+        stdout.writeln('Source maintenance: ${outcome.report['status']}');
+        stdout.writeln('Review identity: ${outcome.report['reviewIdentity']}');
+        for (final change in (outcome.report['changes'] as List? ?? const []).cast<Map>()) {
+          stdout.writeln('${change['resource']}');
+          stdout.writeln('Before:');
+          stdout.writeln(change['before']);
+          stdout.writeln('After:');
+          stdout.writeln(change['after']);
+        }
+        for (final warning in outcome.report['warnings'] as List? ?? const []) stdout.writeln(warning);
+        if (outcome.report['publication'] case final Map publication) stdout.writeln(jsonEncode(publication));
+        stdout.writeln(outcome.report['published'] == true
+            ? 'Published reviewed source changes.'
+            : outcome.report['publication'] != null
+            ? 'Publication incomplete; consult the retained publication journal.'
+            : 'Review only; source files are unchanged.');
+      }
+      exitCode = outcome.code;
+      return;
     }
     if (args.first == 'migrate') {
       selectedRoots = List.unmodifiable(roots);
@@ -1123,7 +1160,7 @@ Future<void> runBusyApi(
         : 2;
   } on Object catch (e) {
     final code = e is CoreFailure ? e.code : 'io.failure';
-    final failureExit = args.first == 'generate' && code == 'cancelled'
+    final failureExit = ['generate', 'refactor'].contains(args.first) && code == 'cancelled'
             ? 2
             : outputFailureExitCode(e),
         incomplete =

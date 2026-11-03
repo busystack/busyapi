@@ -479,6 +479,32 @@ class RefactoringPlan {
   bool get hasChanges => edits.isNotEmpty;
   String get identity =>
       result['identity'] as String? ?? result['snapshot'] as String;
+  /// Review identity across independent CLI invocations. Source bytes, approved
+  /// boundaries, configuration, external resources and engine assets remain in
+  /// each source snapshot; process-local generations/revisions do not.
+  String get reviewIdentity {
+    final contexts = [for (final snapshot in _snapshots)
+      {'root': snapshot.root, 'source': snapshot.sourceIdentity},
+    ]..sort((a, b) => a['root']!.compareTo(b['root']!));
+    final changes = [for (final edit in edits) {
+      'resource': edit.buffer, 'start': edit.start, 'end': edit.end,
+      'expected': edit.expected, 'replacement': edit.replacement,
+    }]..sort((a, b) {
+      final resource = (a['resource'] as String).compareTo(b['resource'] as String);
+      if (resource != 0) return resource;
+      return (a['start'] as int).compareTo(b['start'] as int);
+    });
+    Map<String, Object?> location(dynamic value) => {
+      if (value is Map) for (final key in ['root', 'resource', 'pointer', 'kind', 'range'])
+        if (value.containsKey(key)) key: value[key],
+    };
+    return textIdentity(jsonEncode({
+      'version': 1, 'kind': result['kind'], 'contexts': contexts,
+      'from': location(result['from']), 'to': location(result['to']),
+      'edits': changes, 'transitions': result['transitions'],
+      'warnings': result['warnings'], 'blockers': result['blockers'],
+    }));
+  }
   List<String> get checkedRoots =>
       List<String>.from(result['checkedRoots'] as List);
   SemanticTransition get transition {
@@ -2968,6 +2994,10 @@ class BusyProject {
   Future<RefactoringPlan> planReferenceInlining(Map<String, Object?> target) =>
       _planSemantic('planInline', target, const {});
 
+  /// Separate captured YAML tokens without changing contract data or bindings.
+  Future<RefactoringPlan> planYamlOwnership(Map<String, Object?> target) =>
+      _planSemantic('planYamlOwnership', target, const {});
+
   /// Relocate an authored definition into an existing approved destination.
   /// The graph retains a public reference binding only where its family and
   /// position permit it; otherwise the review removes it and repairs consumers.
@@ -3259,6 +3289,7 @@ class BusyProject {
         'component-move' => 'Move component definition',
         'operation-move' => 'Relocate operation',
         'reference-inline' => 'Inline reference occurrence',
+        'yaml-ownership' => 'Make YAML occurrence independent',
         'file-move' => 'Move source file',
         'file-create' => 'Create source file',
         'file-delete' => 'Delete source file',
