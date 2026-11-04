@@ -72,6 +72,43 @@ test('an independently consumed inactive assertion remains a precise blocker rat
  assert.equal(input.resources[0].text,text);
 });
 
+for(const format of ['yaml','json'])for(const targetVersion of ['2.0','3.0.4'])for(const predicate of ['type','enum','const'])
+test(`${format} equal conditional branches retain independent owners through ${targetVersion} predicate=${predicate}`,async()=>{
+ const root='file:///equal-condition/api.'+format,condition=predicate==='type'?{type:'integer'}:predicate==='enum'?{enum:[0,'EXACT']}:{const:0};
+ const branch={enum:[0,'EXACT','snow 雪'],description:'Same branch','x-number':'EXACT'};
+ const document={openapi:'3.2.1',info:{title:'Equal conditional',version:'1'},paths:{},components:{schemas:{
+  Value:{if:condition,then:branch,else:structuredClone(branch)},
+  Condition:{$ref:'#/components/schemas/Value/if'},Then:{$ref:'#/components/schemas/Value/then'},Else:{$ref:'#/components/schemas/Value/else'},
+ }},'x-history':{if:condition,then:branch,else:branch}};
+ const text=(format==='yaml'?'# Keep equal condition\r\n'+YAML.stringify(document,{aliasDuplicateObjects:false}):JSON.stringify(document))
+  .replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const input={root,snapshot:'equal-'+predicate,resources:[{id:root,text,generation:3}],targetVersion,destination:'file:///equal-output/'};
+ assert.equal(analyse(input).status,'complete');
+ const samples=['0','9007199254740993','9007199254740992','"snow 雪"','"other"','false','null','{}','[]'];
+ const evaluate=async(packet,pointer)=>{
+  const result=await evaluateSchemas({...packet,runtimeInstances:samples.map(text=>({subject:'response-body',location:'application/json',text,schema:{resource:packet.root,pointer}}))});
+  assert.equal(result.complete,true,JSON.stringify(result.findings));return result.runtimeEvaluations.map(value=>value.valid);
+ };
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ assert.equal((await planMigration(input)).identity,review.identity);
+ const output={root:review.outputRoot,snapshot:'cold-equal',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
+ assert.equal(analyse(output).status,'complete');const group=targetVersion==='2.0'?'/definitions/':'/components/schemas/';
+ for(const name of ['Value','Condition','Then','Else'])assert.deepEqual(await evaluate(output,group+name),await evaluate(input,'/components/schemas/'+name));
+ assert.deepEqual(await evaluate(output,group+'Value'),[true,true,false,true,false,false,false,false,false]);
+ const doc=createGraph(output).graph.docs.get(output.root);
+ for(const field of ['if','then','else'])assert.equal(doc.dataNode(group+'Value/'+field),undefined);
+ assert.equal(doc.dataJson('/x-history'),new SourceDocument(text,root).dataJson('/x-history'));
+ assert.equal(input.resources[0].text,text);
+});
+
+test('equal branches do not discard conditional annotations',async()=>{
+ const root='file:///annotated-equal/api.json',branch={type:'integer'},document={openapi:'3.2.1',info:{title:'Conditional annotation',version:'1'},paths:{},
+  components:{schemas:{Value:{if:{type:'integer',description:'Applies only to a matching condition'},then:branch,else:branch}}}};
+ const text=JSON.stringify(document),review=await planMigration({root,snapshot:'annotated-equal',resources:[{id:root,text,generation:0}],targetVersion:'2.0',destination:'file:///annotated-output/'});
+ assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);
+ assert(review.problems.some(problem=>problem.code==='migration.schema.conditional'&&problem.reason==='implementation'));
+});
+
 test('absent if leaves unsupported unconsumed then and else assertions inactive during Swagger conversion',async()=>{
  const root='file:///absent-condition/api.json',document={openapi:'3.2.1',info:{title:'Absent condition',version:'1'},paths:{},components:{schemas:{
   Value:{type:'integer',then:{patternProperties:{'^n':{type:'integer'}}},else:{contains:{type:'integer'}}},

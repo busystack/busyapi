@@ -7,8 +7,10 @@ import 'package:test/test.dart';
 import 'test_support.dart';
 
 void main() {
-  for (final condition in [true, false]) {
-    test('constant $condition condition preserves request bytes, independent schemas and cold Swagger publication', () async {
+  for (final mode in ['true', 'false', 'equal']) {
+    final positive = mode == 'true', equal = mode == 'equal';
+    final Object condition = equal ? {'type': 'integer'} : positive;
+    test('$mode condition preserves request bytes, independent schemas and cold Swagger publication', () async {
       final directory = await Directory.systemTemp.createTemp('busyapi-constant-condition-');
       addTearDown(() => directory.delete(recursive: true));
       final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);addTearDown(engine.close);
@@ -28,8 +30,8 @@ void main() {
         'servers': [{'url': 'http://127.0.0.1:${server.port}'}],
         'paths': {'/echo': {'post': {'requestBody': {'required': true, 'content': media()}, 'responses': {'200': {'description': 'Reply', 'content': media()}}}}},
         'components': {'schemas': {
-          'Value': {'if': condition, 'then': condition ? active : inactive, 'else': condition ? inactive : active},
-          'Condition': {r'$ref': '#/components/schemas/Value/if'}, 'Branch': {r'$ref': '#/components/schemas/Value/${condition ? 'then' : 'else'}'},
+          'Value': {'if': condition, 'then': positive || equal ? active : inactive, 'else': equal || !positive ? active : inactive},
+          'Condition': {r'$ref': '#/components/schemas/Value/if'}, 'Branch': {r'$ref': '#/components/schemas/Value/${positive || equal ? 'then' : 'else'}'},
         }}, 'x-history': {'if': condition, 'then': inactive, 'zero': 0, 'flag': false, 'empty': '', 'text': '雪'},
       }).replaceAll('"EXACT"', '9007199254740993.00')}\r\n';
       await file.writeAsString(text);final original = await file.readAsBytes();
@@ -41,7 +43,7 @@ void main() {
             for (final name in ['Value', 'Branch', 'Condition']) for (final sample in [wire, '{"n":9007199254740992}', '{}', 'null'])
               RuntimeSchemaInstance(subject: 'request-body', location: name, text: sample, schemaResource: root, schemaPointer: '$prefix$name'),
           ]);
-          expect(result['complete'], true, reason: '$result');expect((result['runtimeEvaluations'] as List).map((value) => value['valid']), [true, false, false, false, true, false, false, false, condition, condition, condition, condition]);
+          expect(result['complete'], true, reason: '$result');expect((result['runtimeEvaluations'] as List).map((value) => value['valid']), [true, false, false, false, true, false, false, false, positive, positive, positive, positive]);
           final response = await const ContractRequestExecutor().execute(prepared,
             OperationRequestDraft(planIdentity: prepared.identity, body: const RequestBodyDraft.raw(mediaType: 'application/json', text: wire)), resolveSecret: (_) async => null);
           try { expect(response.conforming, true, reason: '${response.outgoing.findings} ${response.received.findings}');expect(await response.response.bytes(), utf8.encode(wire)); }

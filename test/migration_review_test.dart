@@ -178,9 +178,10 @@ void main() {
             : base;
         final uriSecurity = sourceVersion == '3.2.1' && formVersion != null && !ignoredBody;
         final original = uriSecurity
-            ? '${originalBase}components: {securitySchemes: {Key: {type: apiKey, in: header, name: X-Key}, '
-                'OAuth: {type: oauth2, flows: {implicit: {authorizationUrl: https://auth.invalid/authorize, scopes: {}}, '
-                'clientCredentials: {tokenUrl: https://auth.invalid/token, scopes: {}}}}}}\n'
+            ? '${originalBase}components:\n  securitySchemes:\n    Key: {type: apiKey, in: header, name: X-Key}\n'
+                '    OAuth: {type: oauth2, flows: {implicit: {authorizationUrl: https://auth.invalid/authorize, scopes: {}}, '
+                'clientCredentials: {tokenUrl: https://auth.invalid/token, scopes: {}}}}\n'
+                '  schemas:\n    Equal: {if: {type: integer}, then: {type: string}, else: {type: string}}\n'
                 'security: [{"#/components/securitySchemes/OAuth": []}, {"#/components/securitySchemes/Key": []}, {"${file.uri}#/components/securitySchemes/Key": []}]\n'
             : originalBase;
         file.writeAsStringSync(original);
@@ -357,6 +358,7 @@ void main() {
           if (uriSecurity) {
             expect(comparison.after, contains('_migrated_security_binding_'));
             expect(comparison.after, contains('_migrated_oauth_flow_'));
+            expect(comparison.after, contains('_migrated_equivalent_condition_'));
             expect(find.byWidgetPredicate((widget) => widget is SelectableText &&
                 (widget.data?.contains('#/components/securitySchemes/Key → _migrated_security_binding_') ?? false)),
                 findsNWidgets(2));

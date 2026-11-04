@@ -1,8 +1,8 @@
 import type {GraphScope,ReferenceGraph,GraphReference} from './reference_graph';
-import {pointerFragment} from './reference_graph';
+import {pointerFragment,schemaResourceContextIdentity,supportedSchemaDialect} from './reference_graph';
 import {SourceError} from './document';
 import {projectSchemaReference} from './schema_reference_projection';
-import type {MigrationSource} from './migration_source';
+import {migrationValueIdentity,type MigrationSource} from './migration_source';
 import {MigrationSchemaOwners} from './migration_schema_owners';
 import type {MigrationIssue} from './migration_schema';
 
@@ -31,6 +31,21 @@ function constantCondition(graph:ReferenceGraph,initial:GraphScope):boolean|unde
     const range=graph.docs.get(initial.resource)!.dataNode(initial.pointer)!.range;
     throw new SourceError('limit.migration.condition','Constant-condition proof exceeds 128 captured reference links',range,'unsupported',
         {resource:initial.resource,pointer:initial.pointer,range});
+}
+
+/** Type/enum/const assertions collect no instance-location annotations. When
+ * both branches have the same exact schema and resource context, selection
+ * cannot change either assertions or annotations. Keep all three authored
+ * schemas as material owners while applying the shared branch once. */
+function equivalentConditionBranches(graph:ReferenceGraph,scope:GraphScope):boolean {
+    const doc=graph.docs.get(scope.resource)!,condition=graph.scopeAs(scope.resource,scope.pointer+'/if','schema');
+    const value=doc.dataNode(scope.pointer+'/if')?.value;
+    if(!condition||!supportedSchemaDialect(condition)||!value||typeof value!=='object'||Array.isArray(value)||
+        Object.keys(value).some(name=>!['type','enum','const'].includes(name)))return false;
+    const positive=graph.scopeAs(scope.resource,scope.pointer+'/then','schema'),negative=graph.scopeAs(scope.resource,scope.pointer+'/else','schema');
+    return positive!==undefined&&negative!==undefined&&
+        schemaResourceContextIdentity(positive)===schemaResourceContextIdentity(negative)&&
+        migrationValueIdentity(doc,positive.pointer)===migrationValueIdentity(doc,negative.pointer);
 }
 
 /** Remove a proved inactive, unconsumed branch before vocabulary conversion.
@@ -95,6 +110,17 @@ export function migrateSchemaConditions(graph:ReferenceGraph,scope:GraphScope,so
                 owners.move({resource:scope.resource,pointer:original},source,current,'inactive_condition',{context:graph,layout:'array-item'});
             else {owners.admit(source,4);source.remove(current,true,true,true);}
         }
+        return;
+    }
+    if(equivalentConditionBranches(graph,scope)){
+        const at=source.current(scope.pointer+'/if');
+        if(at!==undefined)owners.move({resource:scope.resource,pointer:scope.pointer+'/if'},source,at,'condition',{context:graph,layout:'array-item'});
+        const positive=source.current(scope.pointer+'/then'),negative=source.current(scope.pointer+'/else');
+        if(positive===undefined||negative===undefined)throw new SourceError('migration.schema.condition-owner','Equivalent conditional branches lost their captured material owners');
+        const allOf=pointer+'/allOf';owners.admit(source,4);
+        if(!source.doc.dataNode(allOf))source.set(allOf,[]);
+        source.move(positive,allOf+'/'+source.doc.dataNode(allOf).children.size,true);
+        owners.move({resource:scope.resource,pointer:scope.pointer+'/else'},source,negative,'equivalent_condition',{context:graph,layout:'array-item'});
         return;
     }
     if(target!=='3.0'){
