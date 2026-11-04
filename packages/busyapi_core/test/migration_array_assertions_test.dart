@@ -28,7 +28,7 @@ void main() {
           await request.response.close();
         });
         final models = <String, Object?>{
-          'Model': {'type': 'array', 'contains': true, 'minContains': 1,
+          'Model': {'type': 'array', 'contains': {'allOf': [{'not': false}, {'oneOf': [false, true]}]}, 'minContains': 1,
             'maxContains': 2, 'unevaluatedItems': false},
           'Independent': {r'$ref': '#/components/schemas/Model/unevaluatedItems'},
           'Object': {'type': 'object', 'properties': {'known': {'type': 'string'}, 'next': {r'$ref': '#/components/schemas/Object'}},

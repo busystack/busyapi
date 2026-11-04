@@ -4,6 +4,7 @@ import {projectSchemaReference} from './schema_reference_projection';
 import type {GraphScope,ReferenceGraph} from './reference_graph';
 import type {MigrationSource} from './migration_source';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
+import {constantSchemaAssertion} from './schema_constant_assertions';
 
 const identity=(scope:GraphScope)=>JSON.stringify([scope.resource,scope.pointer]);
 const matchesAll=(schema:unknown)=>schema===true||schema!==null&&typeof schema==='object'&&!Array.isArray(schema)&&Object.keys(schema).length===0;
@@ -33,15 +34,17 @@ export class MigrationArrayBounds {
         };
         if(value===false)retain(0);
         if(value&&typeof value==='object'&&!Array.isArray(value)){
+            const contains=this.graph.scopeAs(scope.resource,scope.pointer+'/contains','schema');
+            const containsConstant=contains?constantSchemaAssertion(this.graph,contains):undefined;
             if(typeof value.type==='string'&&value.type!=='array'||Array.isArray(value.type)&&!value.type.includes('array'))retain(0);
             if(Object.hasOwn(value,'const'))retain(Array.isArray(value.const)?value.const.length:0);
             if(Array.isArray(value.enum))retain(value.enum.reduce((maximum:number,item:unknown)=>Array.isArray(item)?Math.max(maximum,item.length):maximum,0));
-            for(const field of ['maxItems',...(matchesAll(value.contains)?['maxContains']:[])])if(Object.hasOwn(value,field)){
+            for(const field of ['maxItems',...(containsConstant===true?['maxContains']:[])])if(Object.hasOwn(value,field)){
                 const exact=decimal(doc.dataJson(scope.pointer+'/'+field));
                 if(compare(exact,decimal('0'))>=0&&compare(exact,decimal(String(this.limit)))<=0&&exact.exponent>=0n)
                     retain(Number(exact.coefficient*10n**exact.exponent));
             }
-            if(value.contains===false&&(!Object.hasOwn(value,'minContains')||compare(decimal(doc.dataJson(scope.pointer+'/minContains')),decimal('0'))>0))retain(0);
+            if(containsConstant===false&&(!Object.hasOwn(value,'minContains')||compare(decimal(doc.dataJson(scope.pointer+'/minContains')),decimal('0'))>0))retain(0);
             const child=(pointer:string)=>this.graph.scopeAs(scope.resource,pointer,'schema');
             if(Array.isArray(value.prefixItems)){
                 const impossible=value.prefixItems.indexOf(false);
@@ -84,9 +87,10 @@ export function migrateConstantContains(graph:ReferenceGraph,scope:GraphScope,so
     pointer:string,owners:MigrationSchemaOwners):void {
     const doc=graph.docs.get(scope.resource)!,value=doc.dataNode(scope.pointer)?.value;
     if(!value||typeof value!=='object'||Array.isArray(value))return;
-    const present=Object.hasOwn(value,'contains'),constant=value.contains;
-    const all=matchesAll(constant);
-    if(present&&!all&&constant!==false)return;
+    const present=Object.hasOwn(value,'contains'),contains=graph.scopeAs(scope.resource,scope.pointer+'/contains','schema');
+    const constant=contains?constantSchemaAssertion(graph,contains):undefined;
+    const all=constant===true;
+    if(present&&constant===undefined)return;
     const bound=(field:string,raw:string,upper:boolean)=>{
         const at=pointer+'/'+field,existing=source.doc.dataNode(at);
         const comparison=existing?compare(decimal(raw),decimal(source.doc.dataJson(at))):undefined;

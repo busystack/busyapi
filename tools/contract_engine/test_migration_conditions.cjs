@@ -121,3 +121,76 @@ test('absent if leaves unsupported unconsumed then and else assertions inactive 
  assert.equal(result.complete,true,JSON.stringify(result.findings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,true,false,false]);
  assert.equal(input.resources[0].text,text);
 });
+
+for(const format of ['yaml','json'])for(const targetVersion of ['2.0','3.0.4'])for(const positive of [false,true])
+test(`${format} ${targetVersion} composed constant predicates preserve independent children positive=${positive}`,async()=>{
+ const root='file:///composed-condition/api.'+format;
+ const condition={allOf:[{anyOf:[false,{not:false}]},{oneOf:[true,false]}]};
+ if(!positive)condition.allOf.push({not:true});
+ const active={type:'integer',enum:[0,'EXACT'],description:'Active branch'};
+ const document={openapi:'3.2.1',info:{title:'Composed condition',version:'1'},paths:{},components:{schemas:{
+  Value:{if:condition,then:positive?active:{patternProperties:{'^unselected':{contains:{const:0}}}},
+   else:positive?{patternProperties:{'^unselected':{contains:{const:0}}}}:active},
+  Condition:{$ref:'#/components/schemas/Value/if'},
+  Independent:{$ref:'#/components/schemas/Value/if/allOf/0/anyOf/1/not'},
+ }},'x-history':{if:condition,exact:'EXACT'}};
+ const text=(format==='yaml'?'# Keep composed constants\r\n'+YAML.stringify(document,{aliasDuplicateObjects:false}):JSON.stringify(document))
+  .replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const input={root,snapshot:'composed-'+positive,resources:[{id:root,text,generation:2}],targetVersion,destination:'file:///composed-output/'};
+ assert.equal(analyse(input).status,'complete');
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ assert.equal(review.identity,(await planMigration(input)).identity);
+ const output={root:review.outputRoot,snapshot:'cold-composed-condition',resources:review.outputs.map(resource=>({id:resource.id,text:resource.text,generation:0}))};
+ const graph=createGraph(output).graph,group=targetVersion==='2.0'?'/definitions/':'/components/schemas/';
+ assert(graph.entryReferences().every(reference=>reference.resolution==='resolved'));
+ const samples=['0','9007199254740993','9007199254740992','"snow 雪"','null','{}','[]'];
+ for(const name of ['Value','Condition','Independent']){
+  const evaluate=async(packet,pointer)=>{
+   const result=await evaluateSchemas({...packet,runtimeInstances:samples.map(text=>({subject:'response-body',location:'application/json',text,schema:{resource:packet.root,pointer}}))});
+   assert.equal(result.complete,true,JSON.stringify(result.findings));return result.runtimeEvaluations.map(value=>value.valid);
+  };
+  assert.deepEqual(await evaluate(output,group+name),await evaluate(input,'/components/schemas/'+name),name);
+ }
+ assert.equal(graph.docs.get(output.root).dataJson('/x-history'),new SourceDocument(text,root).dataJson('/x-history'));
+ assert.equal(input.resources[0].text,text);
+});
+
+for(const format of ['yaml','json'])for(const targetVersion of ['2.0','3.0.4'])for(const present of [false,true])
+test(`${format} ${targetVersion} inactive descendant reference closure retains children without activating the containing assertion present=${present}`,async()=>{
+ const root='file:///inactive-descendants/api.'+format,child='/components/schemas/Value/'+(present?'else':'then')+'/properties';
+ const branch={patternProperties:{'^unselected':{contains:{const:0}}},properties:{
+  Kept:{type:'object',properties:{n:{$ref:'#'+child+'/Number'}},description:'Retain descendant'},
+  Number:{type:'integer',enum:[0,'EXACT']},
+ }};
+ const document={openapi:'3.2.1',info:{title:'Inactive descendants',version:'1'},paths:{},components:{schemas:{
+  Value:present?{type:'integer',if:true,then:{minimum:0},else:branch}:{type:'integer',then:branch},
+  Independent:{$ref:'#'+child+'/Kept'},
+ }},'x-history':branch};
+ const text=(format==='yaml'?'# Keep inactive descendants\r\n'+YAML.stringify(document,{aliasDuplicateObjects:false}):JSON.stringify(document))
+  .replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const input={root,snapshot:'descendant-condition-'+present,resources:[{id:root,text,generation:5}],targetVersion,destination:'file:///inactive-descendants-output/'};
+ assert.equal(analyse(input).status,'complete');
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const output={root:review.outputRoot,snapshot:'cold-descendants',resources:review.outputs.map(resource=>({id:resource.id,text:resource.text,generation:0}))};
+ const group=targetVersion==='2.0'?'/definitions/':'/components/schemas/',graph=createGraph(output).graph;
+ assert(graph.entryReferences().every(reference=>reference.resolution==='resolved'));
+ for(const name of ['Value','Independent']){
+  const samples=['0','-1','9007199254740993','null','{}','{"n":0}','{"n":9007199254740993}','{"n":9007199254740992}'];
+  const evaluate=async(packet,pointer)=>{
+   const result=await evaluateSchemas({...packet,runtimeInstances:samples.map(text=>({subject:'response-body',location:'application/json',text,schema:{resource:packet.root,pointer}}))});
+   assert.equal(result.complete,true,JSON.stringify(result.findings));return result.runtimeEvaluations.map(value=>value.valid);
+  };
+  assert.deepEqual(await evaluate(output,group+name),await evaluate(input,'/components/schemas/'+name),name);
+ }
+ assert.equal(graph.docs.get(output.root).dataJson('/x-history'),new SourceDocument(text,root).dataJson('/x-history'));
+ assert.equal(input.resources[0].text,text);
+});
+
+for(const predicate of [{not:{description:'Conditional annotation'}},{anyOf:[true,{description:'Successful conditional annotation'}]}])
+test('composed constant-like predicates retain their annotation blocker',async()=>{
+ const root='file:///constant-annotation/api.json',text=JSON.stringify({openapi:'3.2.1',info:{title:'Annotations',version:'1'},paths:{},
+  components:{schemas:{Value:{if:predicate,then:{type:'integer'},else:{type:'string'}}}}});
+ const review=await planMigration({root,snapshot:'constant-annotation',resources:[{id:root,text,generation:1}],targetVersion:'2.0',destination:'file:///constant-annotation-output/'});
+ assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);
+ assert(review.problems.some(problem=>problem.reason==='implementation'));
+});

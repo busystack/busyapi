@@ -7,9 +7,79 @@ import 'package:test/test.dart';
 import 'test_support.dart';
 
 void main() {
-  for (final mode in ['true', 'false', 'equal']) {
-    final positive = mode == 'true', equal = mode == 'equal';
-    final Object condition = equal ? {'type': 'integer'} : positive;
+  for (final dependency in [false, true]) {
+    test('${dependency ? 'constant dependency' : 'inactive descendants'} retains native requests and independent cold owners', () async {
+      final directory = await Directory.systemTemp.createTemp('busyapi-conditional-owners-');
+      addTearDown(() => directory.delete(recursive: true));
+      final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);
+      addTearDown(engine.close);
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      const wire = '{"n":9007199254740993.00}';
+      server.listen((request) async {
+        final bytes = await request.fold<List<int>>([], (all, chunk) => all..addAll(chunk));
+        expect(bytes, utf8.encode(wire));
+        request.response.headers.set('content-type', 'application/json');
+        request.response.add(bytes);await request.response.close();
+      });
+      final schema = dependency ? 'Value' : 'Independent';
+      Map media() => {'application/json': {'schema': {r'$ref': '#/components/schemas/$schema'}}};
+      final text = jsonEncode({
+        'openapi': '3.2.1', 'info': {'title': 'Conditional owners', 'version': '1'},
+        'servers': [{'url': 'http://127.0.0.1:${server.port}'}],
+        'paths': {'/echo': {'post': {'requestBody': {'required': true, 'content': media()},
+          'responses': {'200': {'description': 'Echo', 'content': media()}}}}},
+        'components': {'schemas': dependency ? {
+          'Value': {'dependentSchemas': {'forbidden': {'not': true}},
+            'properties': {'n': {'type': 'integer', 'enum': ['EXACT']}}},
+          'Independent': {r'$ref': '#/components/schemas/Value/dependentSchemas/forbidden'},
+        } : {
+          'Value': {'if': true, 'then': {'type': 'integer'}, 'else': {
+            'patternProperties': {'.': {'contains': {'const': 0}}},
+            'properties': {'Kept': {'type': 'object', 'properties': {'n': {r'$ref': '#/components/schemas/Value/else/properties/Number'}}},
+              'Number': {'type': 'integer', 'enum': ['EXACT']}},
+          }},
+          'Independent': {r'$ref': '#/components/schemas/Value/else/properties/Kept'},
+        }},
+        'x-history': {'then': {'patternProperties': {'.': {'contains': {'const': 0}}}}, 'number': 'EXACT'},
+      }).replaceAll('"EXACT"', '9007199254740993.00');
+      final file = File('${directory.path}/api.json');await file.writeAsString(text);
+      final source = await BusyProject.open(file.path, engine);addTearDown(source.close);
+      Future<void> exercise(BusyProject project, String prefix) async {
+        final root = project.roots.single.id;
+        final prepared = await project.prepareRequest(root, resource: root, pointer: '/paths/~1echo/post');
+        try {
+          final response = await const ContractRequestExecutor().execute(prepared,
+              OperationRequestDraft(planIdentity: prepared.identity,
+                  body: const RequestBodyDraft.raw(mediaType: 'application/json', text: wire)),
+              resolveSecret: (_) async => null);
+          try { expect(response.conforming, true);expect(await response.response.bytes(), utf8.encode(wire)); }
+          finally { await response.close(); }
+          final result = await prepared.evaluateRuntime([
+            RuntimeSchemaInstance(subject: 'request-body', location: 'application/json',
+                text: dependency ? '{"forbidden":false}' : '{"n":9007199254740992}',
+                schemaResource: root, schemaPointer: '$prefix/$schema'),
+          ]);
+          expect(result['complete'], true, reason: '$result');
+          expect((result['runtimeEvaluations'] as List).single['valid'], false);
+        } finally { prepared.close(); }
+      }
+      await exercise(source, '/components/schemas');
+      final review = await source.prepareMigration(file.uri.toString(), '${directory.path}/output', targetVersion: '2.0');
+      addTearDown(review.close);expect(review.publishable, true, reason: '${review.result}');
+      await review.publish();expect(await file.readAsString(), text);
+      await file.delete();
+      final cold = await BusyProject.open(review.destination, engine);addTearDown(cold.close);
+      await exercise(cold, '/definitions');
+      final cli = await Process.run('$testBundle/busyapi', ['check', review.destination, '--json'],
+          environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
+      expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');
+    });
+  }
+  for (final mode in ['true', 'false', 'equal', 'composed-true', 'composed-false']) {
+    final positive = mode == 'true' || mode == 'composed-true', equal = mode == 'equal';
+    final Object condition = equal ? {'type': 'integer'} : mode.startsWith('composed')
+        ? {'allOf': [{'anyOf': [false, {'not': false}]}, {'oneOf': [true, false]}, if (!positive) {'not': true}]} : positive;
     test('$mode condition preserves request bytes, independent schemas and cold Swagger publication', () async {
       final directory = await Directory.systemTemp.createTemp('busyapi-constant-condition-');
       addTearDown(() => directory.delete(recursive: true));

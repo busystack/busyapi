@@ -26,7 +26,7 @@ async function outcomes(input,pointer,values=samples,subject='response-body'){
 }
 async function faithful(input,targetVersion,values=samples){
  const original=input.resources.map(resource=>resource.text),result=await planMigration({...input,targetVersion});
- assert.equal(result.status,'faithfully-convertible',JSON.stringify(result.problems));assert.equal(result.complete,true);assert.equal(result.producerVersion,'76');assert(result.changes.length>0);
+ assert.equal(result.status,'faithfully-convertible',JSON.stringify(result.problems));assert.equal(result.complete,true);assert.equal(result.producerVersion,'77');assert(result.changes.length>0);
  const output=after(result),data=YAML.parse(result.outputs.find(output=>output.id===result.outputRoot).text),pointer=targetVersion==='2.0'?'/definitions/Model':'/components/schemas/Model';
  assert.equal(data.swagger??data.openapi,targetVersion);assert.equal(data.info.version,'API-1');assert.deepEqual(data['x-literal'].dependentSchemas,{trigger:false});assert(result.outputs.some(output=>output.text.includes('9007199254740993.00')));assert(!Object.hasOwn(data.swagger?data.definitions.Model:data.components.schemas.Model,'dependentSchemas'));
  assert.equal(analyse(output).status,'complete');
@@ -79,4 +79,22 @@ for(const placement of ['key','value'])test(`YAML ${placement} comments move onc
 test('YAML shared conditional schema cannot be rewritten through an ambiguous alias',async()=>{
  const input=capture('3.1.2','yaml'),resource=input.resources[0];resource.text='openapi: 3.1.2\ninfo: {title: Shared, version: API-1}\npaths: {}\ncomponents:\n  schemas:\n    Model:\n      dependentSchemas:\n        trigger: &held {required: [value]}\n    Independent: *held\n';
  const original=resource.text,result=await planMigration({...input,targetVersion:'3.0.4'});assert.equal(result.status,'blocked');assert.deepEqual(result.outputs,[]);assert(result.problems.some(problem=>problem.range[1]>problem.range[0]&&problem.resource===resource.id));assert.equal(resource.text,original);
+});
+
+for(const format of ['yaml','json'])for(const mode of ['false','true'])
+test(`${format} untyped ${mode} schema dependency has an exact Swagger property mapping and independent owner`,async()=>{
+ const input=capture('3.2.1',format,mode),resource=input.resources[0];
+ resource.text=new SourceDocument(resource.text,resource.id).set('/components/schemas/Independent',{$ref:'#/components/schemas/Model/dependentSchemas/trigger'});
+ const {output}=await faithful(input,'2.0');
+ assert.deepEqual(await outcomes(output,'/definitions/Independent'),await outcomes(input,'/components/schemas/Independent'));
+});
+for(const format of ['yaml','json'])for(const positive of [false,true])
+test(`${format} composed dependency constant ${positive} retains optional trigger and all JSON instance types`,async()=>{
+ const input=capture('3.2.1',format),resource=input.resources[0];
+ const guard=positive?{allOf:[{not:false},{oneOf:[false,true]}]}:{not:{anyOf:[false,{not:false}]}};
+ resource.text=new SourceDocument(resource.text,resource.id).set('/components/schemas/Model/dependentSchemas/trigger',guard);
+ resource.text=new SourceDocument(resource.text,resource.id).set('/components/schemas/Independent',{$ref:'#/components/schemas/Model/dependentSchemas/trigger/not'});
+ if(positive)resource.text=new SourceDocument(resource.text,resource.id).set('/components/schemas/Independent',{$ref:'#/components/schemas/Model/dependentSchemas/trigger/allOf/0/not'});
+ const {output}=await faithful(input,'2.0');
+ assert.deepEqual(await outcomes(output,'/definitions/Independent'),await outcomes(input,'/components/schemas/Independent'));
 });

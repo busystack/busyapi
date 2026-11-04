@@ -1,8 +1,10 @@
 import {escape} from './document';
-import type {GraphScope,ReferenceGraph} from './reference_graph';
+import type {GraphScope,GraphReference,ReferenceGraph} from './reference_graph';
 import type {MigrationIssue} from './migration_schema';
 import type {MigrationSource} from './migration_source';
 import type {SchemaPropertyRequirements} from './schema_property_requirements';
+import type {MigrationSchemaOwners} from './migration_schema_owners';
+import {constantSchemaAssertion} from './schema_constant_assertions';
 
 /** Validation 2020-12 6.5.4: presence implies required properties, regardless
  * of the triggering value. OAS 3.0's anyOf/not/required express the same rule.
@@ -66,7 +68,8 @@ export function migrateDependentRequired(graph:ReferenceGraph,scope:GraphScope,s
  * its trigger property is present. Both alternatives retain that condition,
  * keeping successful-branch annotations conditional too. required alone also
  * validates non-objects, whose assertions must remain unaffected. */
-export function migrateDependentSchemas(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,pointer:string,target:string,requirements:SchemaPropertyRequirements,issue:MigrationIssue):void {
+export function migrateDependentSchemas(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,pointer:string,target:string,
+    requirements:SchemaPropertyRequirements,issue:MigrationIssue,owners:MigrationSchemaOwners,references:readonly GraphReference[]):void {
     const doc=graph.docs.get(scope.resource)!,original=scope.pointer+'/dependentSchemas',node=doc.dataNode(original);
     if(!node)return;
     if(graph.scopeAs(scope.resource,original,'schema')){
@@ -75,27 +78,42 @@ export function migrateDependentSchemas(graph:ReferenceGraph,scope:GraphScope,so
     if(node.kind!=='object'){
         issue({...scope,pointer:original},'migration.schema.dependent-schemas','Expected a captured dependentSchemas map before conversion','source-incomplete');return;
     }
-    const entries=[...node.children.keys()].map(trigger=>({trigger,pointer:original+'/'+escape(trigger)}));
+    const entries=[...node.children.keys()].map(trigger=>{
+        const pointer=original+'/'+escape(trigger),schema=graph.scopeAs(scope.resource,pointer,'schema');
+        return {trigger,pointer,constant:schema?constantSchemaAssertion(graph,schema):undefined};
+    });
     const type=doc.dataNode(scope.pointer+'/type')?.value,objectOnly=type==='object'||Array.isArray(type)&&type.length===1&&type[0]==='object';
     for(const entry of entries){
         if(source.current(entry.pointer)===undefined){
             issue({...scope,pointer:entry.pointer},'migration.schema.dependency-owner','The dependent schema has no unique surviving planning owner','implementation');return;
         }
-        if(target==='2.0'&&(!objectOnly||!requirements.requires(scope,entry.trigger))){
+        if(target==='2.0'&&entry.constant===undefined&&(!objectOnly||!requirements.requires(scope,entry.trigger))){
             issue({...scope,pointer:entry.pointer},'migration.schema.dependency-conditional',requirements.exhausted?'The captured property-presence proof exhausted its budget before establishing a faithful Swagger 2.0 mapping':'This dependent schema needs a proved object-only instance and required trigger before its conditional assertion can be represented in Swagger 2.0','implementation');return;
         }
     }
-    if(entries.length){
+    const applied=target==='2.0'?entries.filter(entry=>entry.constant!==true):entries;
+    if(target==='2.0')for(const entry of entries)if(entry.constant===true){
+        const at=source.current(entry.pointer);
+        if(at!==undefined&&owners.hasConsumers({resource:scope.resource,pointer:entry.pointer},references))
+            owners.move({resource:scope.resource,pointer:entry.pointer},source,at,'inactive_dependency',{context:graph,layout:'array-item'});
+    }
+    if(applied.length){
         let collection=pointer+'/allOf';
         if(source.doc.dataNode(collection)){
             const branch=collection+'/'+source.doc.dataNode(collection).children.size;
             source.set(branch,{allOf:[]});collection=branch+'/allOf';
         }else source.set(collection,[]);
-        for(const entry of entries){
+        for(const entry of applied){
             const at=source.current(entry.pointer);
             if(at===undefined){issue({...scope,pointer:entry.pointer},'migration.schema.dependency-owner','The dependent schema lost its planning owner','implementation');return;}
             let destination=collection+'/'+source.doc.dataNode(collection).children.size;
-            if(target!=='2.0'){
+            if(target==='2.0'&&entry.constant===false){
+                // A false dependency forbids the triggering property on any
+                // object. Other JSON types remain unconstrained. Keep the
+                // original converted false schema as that property's owner.
+                source.set(destination,{properties:{}});
+                destination+='/properties/'+escape(entry.trigger);
+            }else if(target!=='2.0'){
                 source.set(destination,{anyOf:[{not:{type:'object',required:[entry.trigger]}},{type:'object',required:[entry.trigger],allOf:[]}]});
                 destination+='/anyOf/1/allOf/0';
             }

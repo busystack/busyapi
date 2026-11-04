@@ -62,3 +62,30 @@ for(const targetVersion of ['2.0','3.0.4'])test(`official constant containment $
   assert.deepEqual(result.runtimeEvaluations.map(result=>result.valid),fixture.tests.map(test=>test.valid));
  }
 });
+
+for(const format of ['yaml','json'])for(const targetVersion of ['2.0','3.0.4'])for(const positive of [false,true])
+test(`${format} ${targetVersion} composed constant containment maps counts and retains independent owners positive=${positive}`,async()=>{
+ const root='file:///composed-contains/api.'+format;
+ const predicate=positive?{allOf:[{not:false},{oneOf:[false,true]}]}:{not:{anyOf:[false,{not:false}]}};
+ const document={openapi:'3.2.1',info:{title:'Composed containment',version:'1'},paths:{},components:{schemas:{
+  Model:{contains:predicate,minContains:1,maxContains:2,...(positive?{unevaluatedItems:{patternProperties:{'.':{contains:{const:0}}}}}:{})},
+  Independent:{$ref:'#/components/schemas/Model/contains'},
+ }},'x-history':{contains:predicate,number:'EXACT'}};
+ const text=(format==='yaml'?'# Keep composed containment\r\n'+YAML.stringify(document,{aliasDuplicateObjects:false}):JSON.stringify(document))
+  .replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const input={root,snapshot:'composed-contains-'+positive,resources:[{id:root,text,generation:4}],targetVersion,destination:'file:///composed-contains-output/'};
+ assert.equal(analyse(input).status,'complete');
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const output={root:review.outputRoot,snapshot:'cold-composed-contains',resources:review.outputs.map(resource=>({id:resource.id,text:resource.text,generation:0}))};
+ const prefix=targetVersion==='2.0'?'/definitions/':'/components/schemas/';
+ for(const name of ['Model','Independent']){
+  const samples=['null','false','0','"雪"','{}','[]','[0]','[0,null]','[0,null,false]'];
+  const evaluate=async(packet,pointer)=>{
+   const result=await evaluateSchemas({...packet,runtimeInstances:samples.map(text=>({subject:'response-body',location:'application/json',text,schema:{resource:packet.root,pointer}}))});
+   assert.equal(result.complete,true,JSON.stringify(result.findings));return result.runtimeEvaluations.map(result=>result.valid);
+  };
+  assert.deepEqual(await evaluate(output,prefix+name),await evaluate(input,'/components/schemas/'+name));
+ }
+ assert.equal(new SourceDocument(review.outputs.find(resource=>resource.id===output.root).text,output.root).dataJson('/x-history'),new SourceDocument(text,root).dataJson('/x-history'));
+ assert.equal(input.resources[0].text,text);
+});

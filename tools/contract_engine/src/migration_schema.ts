@@ -10,7 +10,7 @@ import {migrateDependentRequired,migrateDependentSchemas} from './migration_sche
 import {migrateInactiveSchemaAnnotations} from './migration_inactive_annotations';
 import {BooleanSchemaMigration} from './migration_boolean_schema';
 import {MigrationSchemaOwners} from './migration_schema_owners';
-import {discardInactiveSchemaConditions,migrateSchemaConditions} from './migration_schema_conditions';
+import {discardInactiveSchemaConditions,migrateSchemaConditions,lowerConstantSchemaApplicators} from './migration_schema_conditions';
 import {migrateSchemaTuple} from './migration_schema_tuples';
 import {migrateSchemaPropertyNames} from './migration_schema_property_names';
 import {MigrationPatternProperties} from './migration_schema_patterns';
@@ -46,6 +46,7 @@ export function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Migration
             const context=owners.contextOf(scope);
             if(!context){issue(scope,'migration.schema.context','Schema conversion requires its captured entry, role and resource context','implementation');continue;}
             discardInactiveSchemaConditions(context,scope,source,owners,capturedReferences);
+            lowerConstantSchemaApplicators(context,scope,source,to,owners,capturedReferences);
             discardInactiveUnevaluated(context,scope,source,owners,capturedReferences);
             patterns.discardInactive(scope,source);
         }
@@ -92,7 +93,7 @@ export function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Migration
             references.lower(scope,source,pointer,issue);
             unevaluatedTail=migrateSchemaUnevaluated(context,scope,source,pointer,owners,capturedReferences);
             migrateDependentRequired(graph,scope,source,pointer,to,requirements,issue);
-            migrateDependentSchemas(graph,scope,source,pointer,to,requirements,issue);
+            migrateDependentSchemas(context,scope,source,pointer,to,requirements,issue,owners,capturedReferences);
             migrateSchemaConditions(context,scope,source,pointer,to,owners,issue,capturedReferences);
             migrateSchemaPropertyNames(context,scope,source,pointer,owners,issue,capturedReferences);
             patterns.lower(scope,source,pointer,to);
