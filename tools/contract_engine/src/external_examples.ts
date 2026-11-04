@@ -102,4 +102,12 @@ export class CapturedExampleResources {
         if(captured.state==='unavailable')throw new ExternalExampleError(captured.problem.condition,captured.problem.code,captured.problem.message);
         return captured;
     }
+    /** A child consumer receives only the already validated capture packet,
+     * never caller casts or a new acquisition capability. Aliases retain the
+     * same physical byte owner. */
+    packets():readonly ExternalExampleResourcePacket[] {
+        const resources=new Map<string,ExternalExampleResourcePacket>();
+        for(const captured of this.values.values())resources.set(captured.id,{version:1,...captured});
+        return [...resources.values()];
+    }
 }

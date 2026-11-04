@@ -1,6 +1,7 @@
 import {createGraph,type Resource} from './engine';
 import {requestOperation} from './execution';
-import {authoredMockResponseExample} from './mock_response_examples';
+import {authoredMockResponseExample,authoredMockResponseBytes} from './mock_response_examples';
+import {CapturedExampleResources,type ExternalExampleResourcePacket} from './external_examples';
 import {SourceError,limits} from './document';
 import {EngineWorkerClient,record} from './engine_worker_client';
 import {mediaTypes} from './media_types';
@@ -17,7 +18,7 @@ import {maximumMockMethodBytes} from './mock_method_transport';
 import {MockSchemaSamples,mockSampleProducer} from './mock_schema_samples';
 export type {NativeMockCheck} from './mock_projection';
 
-export type MockCapture={root:string;snapshot:string;resources:Resource[]};
+export type MockCapture={root:string;snapshot:string;resources:Resource[];exampleResources?:readonly ExternalExampleResourcePacket[]};
 type BodyDeclaration={required:boolean;source:SourceLocation;content:NativeMedia[]};
 
 export function mockCapture(value:unknown):MockCapture {
@@ -32,7 +33,8 @@ export function mockCapture(value:unknown):MockCapture {
     });
     if(!resources.some(resource=>resource.id===value.root)||new Set(resources.map(resource=>resource.id)).size!==resources.length)
         throw new SourceError('mock.capture','The captured native root is missing or resource identities repeat');
-    return {root:value.root,snapshot:value.snapshot,resources};
+    const examples=new CapturedExampleResources(value.exampleResources??[]).packets();
+    return {root:value.root,snapshot:value.snapshot,resources,...(examples.length?{exampleResources:examples}:{})};
 }
 
 /** Native request checks consume the original immutable graph. Prism receives
@@ -45,9 +47,11 @@ export class MockNativeValidation {
     private producer?:{name:string;version:string;configuration:string};
     private operationProjection?:MockOperationProjection;
     private readonly samples:MockSchemaSamples;
+    private readonly examples:CapturedExampleResources;
 
     constructor(private readonly capture:MockCapture) {
         this.context=createGraph(capture);
+        this.examples=new CapturedExampleResources(capture.exampleResources??[]);
         this.samples=new MockSchemaSamples(this.context.graph,(instances,signal)=>this.evaluateInstances(instances,signal),capture.snapshot);
         for(const operation of this.context.graph.operations())if(operation.role==='operation') {
             const key=JSON.stringify([operation.path,mockWireMethod(operation)]);
@@ -77,7 +81,7 @@ export class MockNativeValidation {
     }
 
     get identity(){return this.producer;}
-    get responseIdentity(){return this.producer&&{...mockResponseProducer,configuration:'response-wire-v4:'+this.producer.configuration};}
+    get responseIdentity(){return this.producer&&{...mockResponseProducer,configuration:'response-wire-v5:'+this.producer.configuration};}
     get parameterIdentity(){return this.producer&&{...mockParameterProducer,configuration:'parameter-wire-v4:'+this.producer.configuration};}
     get securityIdentity(){return this.producer&&{...mockSecurityProducer,configuration:'security-wire-v1:'+this.producer.configuration};}
     get generationIdentity(){return this.producer&&{...mockSampleProducer,configuration:'captured-schema-candidates-v3:'+this.producer.configuration};}
@@ -163,6 +167,11 @@ export class MockNativeValidation {
     authoredResponse(path:string,method:string,status:string,actual:string,keys:readonly string[],signal:AbortSignal):string|undefined {
         if(signal.aborted)throw new SourceError('cancelled','Mock example selection was cancelled');
         return authoredMockResponseExample(this.plan(path,method).description,status,actual,keys);
+    }
+
+    authoredResponseBytes(path:string,method:string,status:string,actual:string,keys:readonly string[],signal:AbortSignal):Buffer|undefined {
+        if(signal.aborted)throw new SourceError('cancelled','Mock example selection was cancelled');
+        return authoredMockResponseBytes(this.plan(path,method).description,status,actual,keys,this.context.graph,this.examples);
     }
 
     generationFailure(path:string,method:string,code:string,message:string):SourceError {

@@ -8,7 +8,7 @@ import type {ReferenceGraph} from './reference_graph';
 import {nativeMedia,selectNativeMedia,sourceLocation,type NativeMockCheck,type NativeRuntimeInstance,type SourceLocation} from './mock_projection';
 
 type Evaluate=(instances:NativeRuntimeInstance[])=>Promise<NativeMockCheck>;
-export const mockResponseProducer=Object.freeze({name:'busyapi-native-response',version:'4'});
+export const mockResponseProducer=Object.freeze({name:'busyapi-native-response',version:'5'});
 
 /** The response's actual bytes, status and header fields are checked under the
  * same captured operation as request preparation. Prism owns generation and

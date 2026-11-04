@@ -50,11 +50,11 @@ async function startMock(t,input,{failure=false,helper=path.join(__dirname,'dist
   assert.equal(event.nativeValidation.version,schemaProducer.version);
   assert.equal(event.nativeValidation.configuration,schemaProducer.configuration);
   assert.equal(event.nativeResponseValidation.name,'busyapi-native-response');
-  assert.equal(event.nativeResponseValidation.version,'3');
-  assert.equal(event.nativeResponseValidation.configuration,'response-wire-v3:'+schemaProducer.configuration);
+  assert.equal(event.nativeResponseValidation.version,'5');
+  assert.equal(event.nativeResponseValidation.configuration,'response-wire-v5:'+schemaProducer.configuration);
   assert.equal(event.nativeParameterValidation.name,'busyapi-native-parameters');
-  assert.equal(event.nativeParameterValidation.version,'3');
-  assert.equal(event.nativeParameterValidation.configuration,'parameter-wire-v3:'+schemaProducer.configuration);
+  assert.equal(event.nativeParameterValidation.version,'4');
+  assert.equal(event.nativeParameterValidation.configuration,'parameter-wire-v4:'+schemaProducer.configuration);
   assert.equal(event.nativeSecurityValidation.name,'busyapi-native-security');
   assert.equal(event.nativeSecurityValidation.version,'1');
   assert.equal(event.nativeSecurityValidation.configuration,'security-wire-v1:'+event.nativeValidation.configuration);

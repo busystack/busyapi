@@ -426,9 +426,9 @@ class MockRun {
         nativeGeneration == null ||
         nativeOperationRouting == null ||
         nativeValidation.version != _schemaProducerVersion ||
-        nativeResponseValidation.version != '4' ||
+        nativeResponseValidation.version != '5' ||
         nativeResponseValidation.configuration !=
-            'response-wire-v4:${nativeValidation.configuration}' ||
+            'response-wire-v5:${nativeValidation.configuration}' ||
         nativeParameterValidation.version != '4' ||
         nativeParameterValidation.configuration !=
             'parameter-wire-v4:${nativeValidation.configuration}' ||

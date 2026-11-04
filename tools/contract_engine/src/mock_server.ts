@@ -368,10 +368,12 @@ async function main(): Promise<void> {
             if(selection._tag==='Left')throw new Error('Unable to recover the selected mock error example');
             projected=selection.right.bodyExample;
           }
-          const exact=generation.rawBody(content)??
+          const wire=generation.wireBody(content,output.body);
+          const exact=wire!==undefined?undefined:generation.rawBody(content)??
             (declaration&&(!options.config.dynamic||options.config.exampleKey!==undefined)
               ?exactBody(examples,resource.method,resource.path,declaration.code,content,projected):undefined);
-          if(exact!==undefined) {
+          if(wire!==undefined)rawResponses.set(output,wire);
+          else if(exact!==undefined) {
             // Preserve lexemes only for the example Prism actually returned.
             // Its validation still sees the same projected value as these bytes.
             if(!isDeepStrictEqual(JSON.parse(exact),output.body))throw new Error('Selected mock example does not match Prism output');

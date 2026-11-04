@@ -628,6 +628,14 @@ where `Upload` names an external example on that operation's media occurrence.
 `externalExample` and `value` are mutually exclusive, including a null `value`.
 This field grants no additional resource access or media inference.
 
+Mocks retain these approved external example packets in their captured child
+input. The pinned negotiator chooses the response and named example; the exact
+byte path preserves its original entity and content type. Native validation
+checks those bytes against the original response, headers and schema before
+emission. Missing, denied or corrupt resources cannot qualify a mock session.
+The response readiness producer is `5`; parameter and numeric sample producers
+remain `4` and `3`.
+
 Generic MIME part Header Objects can use native `schema` or single-media `content`.
 Content values use the same captured media codecs and exact schema evaluator;
 references, dialects, numeric tokens and 3.2 `itemSchema` retain their owners.

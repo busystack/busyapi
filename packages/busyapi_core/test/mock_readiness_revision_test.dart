@@ -27,6 +27,7 @@ void main() {
     'schema-previous-entry-resources',
     'schema-previous-native-connections',
     'response-previous-field-lines',
+    'response-previous-external-bytes',
     'parameter-previous-field-lines',
     'response-version',
     'response-configuration',
@@ -69,8 +70,8 @@ void main() {
       };
       final response = <String, String>{
         'name': 'busyapi-native-response',
-        'version': '4',
-        'configuration': 'response-wire-v4:fixture-runtime',
+        'version': '5',
+        'configuration': 'response-wire-v5:fixture-runtime',
       };
       final parameter = <String, String>{
         'name': 'busyapi-native-parameters',
@@ -131,6 +132,8 @@ void main() {
           schema['version'] = '1.18.0+57';
         case 'response-previous-field-lines':
           response['version'] = '3';
+        case 'response-previous-external-bytes':
+          response['version'] = '4';
         case 'parameter-previous-field-lines':
           parameter['version'] = '3';
         case 'response-version':

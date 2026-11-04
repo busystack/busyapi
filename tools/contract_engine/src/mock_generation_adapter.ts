@@ -3,6 +3,7 @@ import type {Logger} from 'pino';
 import type {MockNativeValidation} from './mock_native_validation';
 import {record} from './engine_worker_client';
 import {SourceError} from './document';
+import {isDeepStrictEqual} from 'node:util';
 import {transformOas2Operation} from '@stoplight/http-spec/oas2/operation';
 import {OPERATION_CONFIG} from '@stoplight/http-spec/oas';
 
@@ -42,8 +43,9 @@ export function defaultSwaggerResponseMedia(document:Record<string,unknown>,oper
  * the authored schema nor the native validator receives this derived view. */
 export class MockGenerationAdapter {
     private readonly values=new WeakMap<IMediaTypeContent,string>();
+    private readonly wires=new WeakMap<IMediaTypeContent,{bytes:Buffer;value:GeneratorData;path:string;method:string}>();
 
-    constructor(private readonly native:Pick<MockNativeValidation,'authoredResponse'|'generatedResponse'|'generationFailure'>) {}
+    constructor(private readonly native:Pick<MockNativeValidation,'authoredResponse'|'authoredResponseBytes'|'generatedResponse'|'generationFailure'>) {}
 
     async prepare(operation:IHttpOperation,configuration:Configuration,diagnostics:readonly Diagnostic[],logger:Logger,signal:AbortSignal):Promise<{operation:IHttpOperation;configuration:Configuration}> {
         const unchanged={operation,configuration};
@@ -59,23 +61,29 @@ export class MockGenerationAdapter {
         const content=response?.contents?.find(value=>value.mediaType===selected.mediaType);
         if(!response||!content)return unchanged;
         const essence=content.mediaType.split(';')[0].trim().toLowerCase();
-        if(essence!=='application/json'&&!essence.endsWith('+json'))return unchanged;
+        const json=essence==='application/json'||essence.endsWith('+json');
         const dynamic=configuration.dynamic&&selected.bodyExample===undefined;
         // Invalid-input negotiation can suppress the requested example key.
         // Preserve its actual choice before skipping synthesized schema defaults.
         const keys=content.examples?.map(example=>example.key)??[];
         if(selected.bodyExample!==undefined)keys.unshift(selected.bodyExample.key);
-        const authored=dynamic?undefined:this.native.authoredResponse(operation.path,operation.method,response.code,content.mediaType,
+        const bytes=dynamic?undefined:this.native.authoredResponseBytes(operation.path,operation.method,response.code,content.mediaType,keys,signal);
+        if(!json&&bytes===undefined)return unchanged;
+        const authored=bytes!==undefined?undefined:dynamic?undefined:this.native.authoredResponse(operation.path,operation.method,response.code,content.mediaType,
             keys,signal);
-        const raw=authored??await this.native.generatedResponse(operation.path,operation.method,response.code,content.mediaType,dynamic,signal);
-        if(raw===undefined)return unchanged;
-        const value:unknown=JSON.parse(raw);
+        const raw=bytes===undefined?authored??await this.native.generatedResponse(operation.path,operation.method,response.code,content.mediaType,dynamic,signal):undefined;
+        if(raw===undefined&&bytes===undefined)return unchanged;
+        // Prism negotiates status/headers against this request-owned view.
+        // External wire bytes bypass its body serializer; original native
+        // response validation below remains mandatory before emission.
+        const value:unknown=bytes!==undefined?'':JSON.parse(raw!);
         if(!generatorData(value))throw this.native.generationFailure(operation.path,operation.method,'mock.sample.projection','The captured sample cannot cross the bounded generator data boundary');
         if(!/^\d{3}$/.test(selected.code))throw this.native.generationFailure(operation.path,operation.method,'mock.sample.status','The pinned negotiator did not select one concrete response status');
         const key=configuration.exampleKey||'busyapi:captured-schema-sample';
         const generated:IMediaTypeContent={...content,
             examples:[{id:content.id+':native-sample',key,value}]};
-        this.values.set(generated,raw);
+        if(bytes!==undefined)this.wires.set(generated,{bytes,value,path:operation.path,method:operation.method});
+        else this.values.set(generated,raw!);
         return {
             operation:{...operation,responses:operation.responses.map(candidate=>candidate===response
                 ?{...response,contents:response.contents?.map(candidate=>candidate===content?generated:candidate)}:candidate)},
@@ -88,5 +96,13 @@ export class MockGenerationAdapter {
 
     rawBody(content:IMediaTypeContent|undefined):string|undefined {
         return content&&this.values.get(content);
+    }
+
+    wireBody(content:IMediaTypeContent|undefined,actual:unknown):Buffer|undefined {
+        const selected=content&&this.wires.get(content);
+        if(!selected)return;
+        if(!isDeepStrictEqual(actual,selected.value))
+            throw this.native.generationFailure(selected.path,selected.method,'mock.sample.projection','The negotiator replaced the captured external response choice');
+        return selected.bytes;
     }
 }

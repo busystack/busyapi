@@ -31,7 +31,8 @@ void main() {
         'paths': {'/echo': {'post': {
           'requestBody': {'required': true, 'content': {media: {'schema': schema,
             'examples': {'Bytes': {'externalValue': 'payload.bin'}, 'Empty': {'externalValue': 'empty.bin'}}}}},
-          'responses': {'200': {'description': 'Echo', 'content': {media: {'schema': schema}}}},
+          'responses': {'200': {'description': 'Echo', 'content': {media: {'schema': schema,
+            'examples': {'Bytes': {'externalValue': 'payload.bin'}, 'Empty': {'externalValue': 'empty.bin'}}}}}},
         }}},
       })}\r\n';await file.writeAsString(text);
       final manifest = File('${directory.path}/busyapi.yaml');
@@ -54,6 +55,24 @@ void main() {
         finally { await result.close(); }
       }
       expect(seen, [payloadBytes, <int>[]]);
+      final mockPlan = await project.prepareMock(root);addTearDown(mockPlan.close);
+      await payload.writeAsBytes([1, 2]);
+      await expectLater(mockPlan.start(nodeExecutable: runtimeNode, helper: '$testBundle/libexec/busyapi/mock-server.cjs'),
+        throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'mock.stale')));
+      await payload.writeAsBytes(payloadBytes);
+      final mock = await mockPlan.start(nodeExecutable: runtimeNode, helper: '$testBundle/libexec/busyapi/mock-server.cjs');addTearDown(mock.stop);
+      expect(mock.nativeResponseValidation.version, '5');expect(mock.nativeParameterValidation.version, '4');
+      final client = HttpClient();addTearDown(() => client.close(force: true));
+      for (final name in ['Bytes', 'Empty']) {
+        final request = await client.postUrl(mock.baseUri.resolve('/echo'));
+        request.headers.set('content-type', media);request.contentLength = payloadBytes.length;
+        request.headers.set('prefer', 'code=200,example=$name');request.add(payloadBytes);
+        final response = await request.close();expect(response.statusCode, 200);
+        expect(response.headers.value('busyapi-response-validation-complete'), 'true');
+        final bytes = await response.fold<List<int>>([], (all, chunk) => all..addAll(chunk));
+        expect(bytes, name == 'Bytes' ? payloadBytes : <int>[]);
+      }
+      await mock.stop();
       final replacement = await project.prepareRequest(root, resource: root, pointer: '/paths/~1echo/post');addTearDown(replacement.close);
       await expectLater(const ContractRequestBuilder().build(replacement,
         OperationRequestDraft(planIdentity: replacement.identity, body: RequestBodyDraft.example(selected)), resolveSecret: (_) async => null),
