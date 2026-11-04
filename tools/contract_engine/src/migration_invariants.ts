@@ -1,9 +1,64 @@
 import {finiteServerVariableValues} from './server_semantics';
 import {requestOperation} from './execution';
-import type {ReferenceGraph} from './reference_graph';
+import type {ReferenceGraph,GraphScope} from './reference_graph';
 import type {Resource} from './engine';
 import {serverTemplate} from './derived_bundle';
 import {SourceError} from './document';
+import {securityFlowOrder,securityRequirementAlternatives,type SecurityAlternativeProjection} from './security_requirements';
+import type {MigrationLocation} from './migration_source';
+
+/** Project configured alternative indices through the same captured effective
+ * request-operation owner. Intersect permissible target branches across uses;
+ * invalid source selections must not become valid after array expansion. */
+export function migrationSecurityAlternativeProjection(source:ReferenceGraph,target:ReferenceGraph,resources:Resource[],
+    mapped:(location:MigrationLocation,scope:GraphScope|undefined)=>readonly MigrationLocation[]):SecurityAlternativeProjection {
+    const choices=new Map<number,Set<number>>(),bounds:{before:number;after:number}[]=[];
+    const seen=new Set<string>();let work=0;
+    const captured:{array:MigrationLocation;requirements:readonly {source:MigrationLocation}[]}[]=[];
+    for(const operation of source.operations().filter(operation=>operation.role==='operation')){
+        const plan=requestOperation({root:source.root,resources,snapshot:'migration-security-alternatives',resource:operation.source.resource,
+            pointer:operation.source.pointer,occurrence:operation.occurrence});
+        const requirements=plan.security.requirements;
+        if(!requirements.length)continue;
+        const first=requirements[0].source,array={resource:first.resource,pointer:first.pointer.slice(0,first.pointer.lastIndexOf('/'))};
+        captured.push({array,requirements});
+    }
+    // A declared root without request operations still retains its configured
+    // authentication choice when subsequently used by a new operation.
+    if(!captured.length){
+        const array=source.docs.get(source.root)?.dataNode('/security');
+        if(array?.kind==='array'&&array.children.size)captured.push({array:{resource:source.root,pointer:'/security'},requirements:
+            [...array.children.values()].map(node=>({source:{resource:source.root,pointer:node.pointer}}))});
+    }
+    for(const {array,requirements}of captured){
+        const id=JSON.stringify([array.resource,array.pointer]);
+        if(seen.has(id))continue;seen.add(id);
+        const arrays=mapped(array,source.scopeAs(array.resource,array.pointer,'security-array'));
+        if(!arrays.length)throw new SourceError('migration.invariant.security-alternative','An effective security array lost its captured owner');
+        for(const at of arrays){
+            const node=target.docs.get(at.resource)?.dataNode(at.pointer);
+            if(node?.kind!=='array')throw new SourceError('migration.invariant.security-alternative','An effective security owner is not a target requirement array');
+            bounds.push({before:requirements.length,after:node.children.size});
+        }
+        for(const [index,requirement]of requirements.entries()){
+            const at=requirement.source,locations=mapped(at,source.scopeAs(at.resource,at.pointer,'security-requirement'));
+            let allowed:Set<number>|undefined;
+            for(const array of arrays){
+                const indices=new Set<number>();
+                for(const location of locations){
+                    if(++work>2000000)throw new SourceError('limit.migration.security','Authentication selection projection exceeds its bounded work');
+                    if(location.resource!==array.resource||location.pointer.slice(0,location.pointer.lastIndexOf('/'))!==array.pointer)continue;
+                    const tail=location.pointer.slice(location.pointer.lastIndexOf('/')+1);
+                    if(/^\d+$/.test(tail))indices.add(Number(tail));
+                }
+                allowed=allowed===undefined?indices:new Set([...allowed].filter(index=>indices.has(index)));
+            }
+            const previous=choices.get(index);
+            choices.set(index,previous?new Set([...previous].filter(index=>allowed!.has(index))):allowed!);
+        }
+    }
+    return {choices,bounds};
+}
 
 function formSignatures(media:any):unknown {
     const type=media.mediaType.split(';')[0].trim().toLowerCase(),multipart=type==='multipart/form-data';
@@ -49,18 +104,28 @@ export function migrationRequestSignatures(graph:ReferenceGraph,resources:Resour
         // authentication name. Its relocation may change spelling. Keep
         // entry-component names, every declaration field and each required
         // scope/role attached to its own captured binding in the proof.
-        const security={anonymous:plan.security.anonymous,requirements:plan.security.requirements.map((requirement:any)=>({
-            schemes:requirement.schemes.map((name:string)=>{
+        const security={anonymous:plan.security.anonymous,requirements:plan.security.requirements.flatMap((requirement:any)=>{
+            const choices=requirement.schemes.map((name:string)=>{
                 const binding=securityBindings.get(JSON.stringify([requirement.source.resource,requirement.source.pointer,name]));
                 if(!binding||binding.resolution!=='resolved')throw new SourceError('migration.invariant.security','A request signature has no captured security binding');
                 // Spelling may become a component name on downgrade. The
                 // independent connection proof retains the exact captured
                 // definition; this proof retains ordered AND/OR bindings,
                 // declarations and each distinct scope/role array.
-                return {declaration:Object.fromEntries(Object.entries(plan.security.schemes[name]).filter(([field])=>field!=='name'&&field!=='description')),
-                    scopes:requirement.scopes[name]};
-            }),
-        }))};
+                const declaration=Object.fromEntries(Object.entries(plan.security.schemes[name]).filter(([field])=>field!=='name'&&field!=='description'));
+                if(declaration.type==='http'&&typeof declaration.scheme==='string')declaration.scheme=declaration.scheme.toLowerCase();
+                const flows=declaration.type==='oauth2'?declaration.flows as Record<string,Record<string,unknown>>:undefined;
+                const names=flows?securityFlowOrder.filter(name=>Object.hasOwn(flows,name)):[];
+                return (names.length?names.map(name=>({...declaration,flows:{[name]:{...flows![name],
+                    refreshUrl:flows![name].refreshUrl??flows![name].tokenUrl,
+                    // Scope names are literal dictionary keys, including
+                    // "source" and "definition". Tuple entries keep them out
+                    // of the projection-location metadata normalizer.
+                    scopes:Object.entries(flows![name].scopes??{}).sort(([a],[b])=>a<b?-1:a>b?1:0)}}})):[declaration])
+                    .map(declaration=>({declaration,scopes:requirement.scopes[name]}));
+            });
+            return securityRequirementAlternatives(choices).map(schemes=>({schemes}));
+        })};
         return JSON.stringify(normalize({method:plan.operation.method,path:plan.operation.path,
             servers:plan.servers.map((server:any)=>{
                 const source=server.urlSource??server.source;
@@ -69,7 +134,7 @@ export function migrationRequestSignatures(graph:ReferenceGraph,resources:Resour
                     const choices=finiteServerVariableValues(definition);
                     return [name,{...Object.fromEntries(Object.entries(definition).filter(([field])=>field!=='enum'&&field!=='defaultOutsideEnumAllowed')),...(choices?{enum:[...choices].sort()}: {})}];
                 }));
-                return {url:serverTemplate(server.url,server.base,server.variables,source),variables};
+                return {url:serverTemplate(server.url,server.base,server.variables,source),variables:Object.entries(variables).sort(([a],[b])=>a<b?-1:a>b?1:0)};
             }),
             parameters,security,body:plan.requestBody?{required:plan.requestBody.required,media:media(plan.requestBody.content),forms:plan.requestBody.content.map((value:any)=>({mediaType:value.mediaType,fields:formSignatures(value)})).sort((a:any,b:any)=>a.mediaType.localeCompare(b.mediaType))}:undefined,
             responses:plan.responses.map((response:any)=>({status:response.status,headers:response.headers.map((header:any)=>({name:header.name,required:header.required})),bodyAllowed:response.bodyAllowed??response.content.length>0,media:response.bodyAllowed===false?[]:media(response.content)}))}));

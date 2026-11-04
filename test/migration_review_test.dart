@@ -170,10 +170,21 @@ void main() {
             : base;
         final uriSecurity = sourceVersion == '3.2.1' && formVersion != null && !ignoredBody;
         final original = uriSecurity
-            ? '${originalBase}components: {securitySchemes: {Key: {type: apiKey, in: header, name: X-Key}}}\n'
-                'security: [{"#/components/securitySchemes/Key": []}, {"${file.uri}#/components/securitySchemes/Key": []}]\n'
+            ? '${originalBase}components: {securitySchemes: {Key: {type: apiKey, in: header, name: X-Key}, '
+                'OAuth: {type: oauth2, flows: {implicit: {authorizationUrl: https://auth.invalid/authorize, scopes: {}}, '
+                'clientCredentials: {tokenUrl: https://auth.invalid/token, scopes: {}}}}}}\n'
+                'security: [{"#/components/securitySchemes/OAuth": []}, {"#/components/securitySchemes/Key": []}, {"${file.uri}#/components/securitySchemes/Key": []}]\n'
             : originalBase;
         file.writeAsStringSync(original);
+        final authenticationConfiguration = uriSecurity
+            ? 'version: 1\nroots: [{name: api, path: api.yaml}]\nenvironments:\n  manual:\n'
+                '    authentication:\n      alternative: 2\n      schemes:\n'
+                '        "#/components/securitySchemes/Key": {secretRef: 11111111-1111-4111-8111-111111111111}\n'
+                '        "${file.uri}#/components/securitySchemes/Key": {secretRef: 11111111-1111-4111-8111-111111111111}\n'
+            : null;
+        if (authenticationConfiguration != null) {
+          File('${temp.path}/busyapi.yaml').writeAsStringSync(authenticationConfiguration);
+        }
         final c = WorkspaceController(
           EngineProcess(executable: runtimeNode, helper: runtimeHelper),
           StateLocations(
@@ -199,7 +210,7 @@ void main() {
         try {
           await tester.runAsync(() async {
             await c.initialize();
-            await c.open(file.path);
+            await c.open(uriSecurity ? temp.path : file.path);
             c.sourceEdit(c.root!, original.replaceFirst('Original', 'Unsaved'));
             if (coordinatedVersion != null) {
               final buffer = await c.project!.buffer(shared.uri.toString());
@@ -333,9 +344,12 @@ void main() {
           expect(comparison.after, contains('[Guide](/guide)'));
           if (uriSecurity) {
             expect(comparison.after, contains('_migrated_security_binding_'));
+            expect(comparison.after, contains('_migrated_oauth_flow_'));
             expect(find.byWidgetPredicate((widget) => widget is SelectableText &&
                 (widget.data?.contains('#/components/securitySchemes/Key → _migrated_security_binding_') ?? false)),
                 findsNWidgets(2));
+            expect(find.text('manual · Alternative 3 → Alternative 4'), findsOneWidget);
+            expect(File('${temp.path}/busyapi.yaml').readAsStringSync(), authenticationConfiguration);
           }
           expect(
             find.text('${file.uri} · $sourceVersion → $targetVersion'),

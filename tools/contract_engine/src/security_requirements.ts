@@ -1,6 +1,24 @@
 import {GraphIssue, GraphReference, GraphTarget, ReferenceGraph} from './reference_graph';
-import {escape} from './document';
+import {escape,SourceError} from './document';
 import {modernFamily} from './specification';
+
+export const securityFlowOrder=['implicit','password','authorizationCode','clientCredentials','deviceAuthorization'] as const;
+export type SecurityAlternativeProjection=Readonly<{
+    choices:ReadonlyMap<number,ReadonlySet<number>>;
+    bounds:readonly Readonly<{before:number;after:number}>[];
+}>;
+
+/** Ordered distributive expansion: alternatives inside each AND binding
+ * produce OR requirements. Equal bindings and arrays remain independent. */
+export function securityRequirementAlternatives<T>(bindings:readonly (readonly T[])[]):T[][] {
+    let alternatives:T[][]=[[]];
+    for(const choices of bindings){
+        if(alternatives.length*choices.length>2048)
+            throw new SourceError('limit.security.alternatives','Authentication expansion exceeds 2048 ordered alternatives');
+        alternatives=alternatives.flatMap(alternative=>choices.map(choice=>[...alternative,choice]));
+    }
+    return alternatives;
+}
 
 /** Resolve only the Reference Objects allowed at a Security Scheme position.
  * Shared by list constraints and native binding choices. */

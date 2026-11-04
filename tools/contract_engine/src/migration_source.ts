@@ -73,6 +73,26 @@ export class MigrationSource {
         fork.presentationChanges.push(...this.presentationChanges);
         return fork;
     }
+    /** Expand an ordered sequence from its captured occurrences. Copies retain
+     * original coordinates even after earlier entries acquire extra variants;
+     * aliases are separated before mutation and the array's own key/trivia
+     * stays in place. The caller owns the finite semantic alternatives. */
+    expandArray<T>(pointer:string,variants:readonly {sourcePointer:string;value:T}[],
+        transform:(pointer:string,value:T)=>void):void {
+        this.own(pointer);
+        const node=this.doc.dataNode(pointer);
+        if(node?.kind!=='array'||variants.length>2048||variants.some(variant=>
+            ![...node.children.values()].some(child=>child.pointer===variant.sourcePointer)))
+            throw new SourceError('migration.sequence.ownership','Sequence expansion requires bounded captured immediate members');
+        const captured=this.fork();
+        for(const name of [...node.children.keys()].reverse())this.remove(pointer+'/'+name,true,false);
+        for(const [index,variant]of variants.entries()){
+            const destination=pointer+'/'+index;
+            this.copy(captured,variant.sourcePointer,destination,true);
+            transform(destination,variant.value);
+        }
+        this.presentationChanges.push(pointer);
+    }
     *originSets():Generator<Set<string>>{yield* this.origins.values();yield* this.foreignOrigins.values();}
     private blockParent(pointer:string):boolean {
         let at=pointer;

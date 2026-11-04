@@ -71,7 +71,7 @@ void _verifyMigrationReview(
   if (result['version'] != 1 ||
       result['snapshot'] != input.snapshot.identity ||
       result['producer'] != 'busyapi-native-migration' ||
-      result['producerVersion'] != '71' ||
+      result['producerVersion'] != '72' ||
       result['problems'] is! List ||
       result['outputs'] is! List ||
       result['exampleOutputs'] is! List ||
@@ -198,7 +198,9 @@ void _verifyMigrationReview(
   if (manifestText is! String || utf8.encode(manifestText).length > 65536 ||
       textIdentity(manifestText) != result['manifestIdentity'] ||
       result['configurationBindings'] is! List ||
-      (result['configurationBindings'] as List).length > 4096) invalid();
+      (result['configurationBindings'] as List).length > 4096 ||
+      result['configurationAlternatives'] is! List ||
+      (result['configurationAlternatives'] as List).length > 2048) invalid();
   Object? manifest;
   try { manifest = jsonDecode(manifestText); } on Object { invalid(); }
   if (manifest is! Map || manifest['version'] != 1 ||
@@ -221,6 +223,17 @@ void _verifyMigrationReview(
   }
   final originalEnvironments = sourceConfiguration is Map ? sourceConfiguration['environments'] : null;
   if ((originalEnvironments == null) != (manifest['environments'] == null)) invalid();
+  final alternativeChanges = <String, int>{};
+  for (final value in result['configurationAlternatives'] as List) {
+    if (value case {'environment': String environment, 'before': int before, 'after': int after}) {
+      final original = originalEnvironments is Map ? originalEnvironments[environment] : null;
+      final authentication = original is Map ? original['authentication'] : null;
+      if (authentication is! Map || authentication['alternative'] is! int ||
+          authentication['alternative'] != before || before < 0 || after < 0 || after >= 2048 ||
+          before == after || alternativeChanges.containsKey(environment)) invalid();
+      alternativeChanges[environment] = after;
+    } else { invalid(); }
+  }
   for (final value in result['configurationBindings'] as List) {
     if (value case {'root': String root, 'resource': String resource,
         'pointer': String pointer, 'before': String before, 'after': String after}) {
@@ -249,15 +262,17 @@ void _verifyMigrationReview(
     if (delivered is! Map || delivered.length != originalEnvironments.length) invalid();
     for (final entry in originalEnvironments.entries) {
       final original = entry.value, environment = delivered[entry.key];
-      if (original is! Map || environment is! Map || environment.length != original.length) invalid();
+      if (original is! Map || environment is! Map || environment.length != original.length ||
+          environment.keys.any((key) => !original.containsKey(key))) invalid();
       for (final field in original.keys.where((key) => key != 'authentication' && key != 'tls')) {
         if (!sameConfiguration(original[field], environment[field])) invalid();
       }
       final before = original['authentication'], after = environment['authentication'];
       if (before is Map) {
-        if (after is! Map || before.length != after.length) invalid();
+        if (after is! Map || before.length != after.length || after.keys.any((key) => !before.containsKey(key))) invalid();
         for (final field in before.keys.where((key) => key != 'schemes')) {
-          if (!sameConfiguration(before[field], after[field])) invalid();
+          final expected = field == 'alternative' ? alternativeChanges[entry.key] ?? before[field] : before[field];
+          if (!sameConfiguration(expected, after[field])) invalid();
         }
         final originals = before['schemes'], aliases = after['schemes'];
         if (originals is Map) {
@@ -274,7 +289,7 @@ void _verifyMigrationReview(
       } else if (!sameConfiguration(before, after)) { invalid(); }
       final originalTls = original['tls'], tls = environment['tls'];
       if (originalTls is Map) {
-        if (tls is! Map || tls.length != originalTls.length) invalid();
+        if (tls is! Map || tls.length != originalTls.length || tls.keys.any((key) => !originalTls.containsKey(key))) invalid();
         for (final field in originalTls.keys) {
           final path = originalTls[field];
           final expected = const ['caFile', 'clientCertificateFile', 'clientKeyFile'].contains(field) &&
@@ -450,6 +465,15 @@ class MigrationSecurityBinding {
   final String root, resource, pointer, before, after;
 }
 
+/// Existing environment selection projected through captured OR expansion.
+class MigrationAuthenticationAlternative {
+  MigrationAuthenticationAlternative._(Map value)
+    : environment = value['environment'] as String,
+      before = value['before'] as int, after = value['after'] as int;
+  final String environment;
+  final int before, after;
+}
+
 /// An exact opaque copy in the reviewed output; no payload interpretation or
 /// source mutation is performed by this publication record.
 class MigrationExampleCopy {
@@ -502,6 +526,9 @@ class MigrationOutput extends BundleOutput {
       securityBindings = List.unmodifiable(
         (result['configurationBindings'] as List? ?? const []).cast<Map>().map(MigrationSecurityBinding._),
       ),
+      authenticationAlternatives = List.unmodifiable(
+        (result['configurationAlternatives'] as List? ?? const []).cast<Map>().map(MigrationAuthenticationAlternative._),
+      ),
       target = SpecificationContext.fromJson(result['target']),
       entryRoutes = List.unmodifiable(
         (result['entryRoutes'] as List).cast<Map>().map(MigrationEntryRoute._),
@@ -522,6 +549,7 @@ class MigrationOutput extends BundleOutput {
   final List<MigrationChange> changes;
   final List<MigrationExampleCopy> exampleCopies;
   final List<MigrationSecurityBinding> securityBindings;
+  final List<MigrationAuthenticationAlternative> authenticationAlternatives;
   final SpecificationContext target;
   final List<MigrationEntryRoute> entryRoutes;
   bool get publishable =>
@@ -664,6 +692,7 @@ extension ContractMigration on BusyProject {
         'presentationChanges': result['presentationChanges'],
         'invariants': result['invariants'],
         'configurationBindings': result['configurationBindings'],
+        'configurationAlternatives': result['configurationAlternatives'],
         'manifestIdentity': result['manifestIdentity'],
         'exampleCopies': [
           for (final copy in (result['exampleOutputs'] as List).cast<Map>())

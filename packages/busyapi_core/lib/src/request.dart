@@ -28,6 +28,7 @@ import 'response_field_capture.dart';
 import 'trace_request_policy.dart';
 
 typedef SecretResolver = Future<String?> Function(String reference);
+typedef _SecurityContribution = ({String wire, String reference, String? publicIdentity});
 typedef _QueryField = ({
   String name,
   String value,
@@ -661,6 +662,7 @@ class ContractRequestBuilder {
     trace?.headers(headers.map((header) => header.$1), const []);
     final sensitiveHeaders = <String>{'authorization', 'proxy-authorization'};
     final sensitiveQuery = <String>{};
+    final securityContributions = <String, _SecurityContribution>{};
     final security = Map<String, dynamic>.from(plan.result['security'] as Map);
     final requirements = (security['requirements'] as List? ?? const [])
         .cast<Map>();
@@ -707,6 +709,7 @@ class ContractRequestBuilder {
           cookieOwners,
           sensitiveHeaders,
           sensitiveQuery,
+          securityContributions,
           previewOnly: previewOnly,
         );
       }
@@ -1399,9 +1402,28 @@ class ContractRequestBuilder {
     List<(String, String)> cookies,
     Set<String> cookieOwners,
     Set<String> sensitiveHeaders,
-    Set<String> sensitiveQuery, {
+    Set<String> sensitiveQuery,
+    Map<String, _SecurityContribution> contributions, {
     required bool previewOnly,
   }) async {
+    _SecurityContribution? contribution(String wire, String key, [String? identity]) {
+      final reference = configuration[key] ?? configuration['secretRef'];
+      return reference is String ? (wire: wire, reference: reference, publicIdentity: identity) : null;
+    }
+    bool shared(String location, String wire, String key, bool occupied, String message, [String? identity]) {
+      if (!occupied) return false;
+      final candidate = contribution(wire, key, identity);
+      // Only an earlier security-generated field with the same credential
+      // reference and wire representation can be shared. Preview markers,
+      // coincidentally equal credential bytes and explicit inputs are never
+      // proofs. Every requirement/scope/role remains in the captured plan.
+      if (candidate != null && contributions[location] == candidate) return true;
+      throw CoreFailure('request.security.collision', message,
+          source: location.startsWith('cookie:') ? _definitionSource(declaration) : null);
+    }
+    void own(String location, String wire, String key, [String? identity]) {
+      contributions[location] = contribution(wire, key, identity)!;
+    }
     Future<String> secret(
       String key, {
       CredentialValuePolicy policy = CredentialValuePolicy.opaque,
@@ -1436,11 +1458,7 @@ class ContractRequestBuilder {
 
     final type = declaration['type'];
     if (type == 'apiKey') {
-      final value = await secret(
-            'secretRef',
-            policy: CredentialValuePolicy.apiKey,
-          ),
-          name = declaration['parameterName'];
+      final name = declaration['parameterName'];
       if (name is! String || name.isEmpty) {
         throw CoreFailure(
           'request.security.scheme',
@@ -1449,18 +1467,19 @@ class ContractRequestBuilder {
       }
       switch (declaration['in']) {
         case 'header':
-          if (headers.any(
+          // Reuse cannot bypass the header owner's lexical/transport guards
+          // through Unicode case folding or an otherwise invalid name.
+          _addHeader(<(String, String)>[], name, '');
+          final location = 'header:${name.toLowerCase()}';
+          if (shared(location, 'apiKey', 'secretRef', headers.any(
             (entry) => entry.$1.toLowerCase() == name.toLowerCase(),
-          )) {
-            throw CoreFailure(
-              'request.security.collision',
-              'Header $name already has an explicit value',
-            );
-          }
-          _addHeader(headers, name, value);
+          ), 'Header $name already has an explicit value')) return;
+          final headerValue = await secret('secretRef', policy: CredentialValuePolicy.apiKey);
+          _addHeader(headers, name, headerValue);
+          own(location, 'apiKey', 'secretRef');
           sensitiveHeaders.add(name.toLowerCase());
         case 'query':
-          if (base.query
+          if (shared('query:$name', 'apiKey', 'secretRef', base.query
                   .split('&')
                   .any(
                     (part) =>
@@ -1479,30 +1498,23 @@ class ContractRequestBuilder {
                                   ) ==
                                   name,
                             ),
-              )) {
-            throw CoreFailure(
-              'request.security.collision',
-              'Query input $name already has an explicit value',
-            );
-          }
+              ), 'Query input $name already has an explicit value')) return;
+          final queryValue = await secret('secretRef', policy: CredentialValuePolicy.apiKey);
           query.add((
             name: name,
-            value: value,
+            value: queryValue,
             allowReserved: false,
             encoded: false,
             whole: false,
           ));
+          own('query:$name', 'apiKey', 'secretRef');
           sensitiveQuery.add(name);
         case 'cookie':
-          if (cookieOwners.contains(name) ||
-              cookies.any((entry) => entry.$1 == name)) {
-            throw CoreFailure(
-              'request.security.collision',
-              'Cookie $name already has an explicit value',
-              source: _definitionSource(declaration),
-            );
-          }
-          cookies.add((name, value));
+          if (shared('cookie:$name', 'apiKey', 'secretRef', cookieOwners.contains(name) ||
+              cookies.any((entry) => entry.$1 == name), 'Cookie $name already has an explicit value')) return;
+          final cookieValue = await secret('secretRef', policy: CredentialValuePolicy.apiKey);
+          cookies.add((name, cookieValue));
+          own('cookie:$name', 'apiKey', 'secretRef');
           sensitiveQuery.add(name);
         default:
           throw CoreFailure(
@@ -1514,17 +1526,14 @@ class ContractRequestBuilder {
     }
     if (type == 'http' &&
         '${declaration['scheme']}'.toLowerCase() == 'bearer') {
-      if (headers.any((entry) => entry.$1.toLowerCase() == 'authorization')) {
-        throw CoreFailure(
-          'request.security.collision',
-          'Authorization already has an explicit value',
-        );
-      }
+      if (shared('header:authorization', 'bearer', 'tokenRef', headers.any((entry) => entry.$1.toLowerCase() == 'authorization'),
+          'Authorization already has an explicit value')) return;
       _addHeader(
         headers,
         'Authorization',
         'Bearer ${await secret('tokenRef', policy: CredentialValuePolicy.bearerToken)}',
       );
+      own('header:authorization', 'bearer', 'tokenRef');
       return;
     }
     if (type == 'http' && '${declaration['scheme']}'.toLowerCase() == 'basic') {
@@ -1535,32 +1544,26 @@ class ContractRequestBuilder {
           'Basic authentication requires a bounded username without a colon or control characters',
         );
       }
+      if (shared('header:authorization', 'basic', 'passwordRef', headers.any((entry) => entry.$1.toLowerCase() == 'authorization'),
+          'Authorization already has an explicit value', username)) return;
       final encoded = base64.encode(
         utf8.encode(
           '$username:${await secret('passwordRef', policy: CredentialValuePolicy.basicPassword)}',
         ),
       );
-      if (headers.any((entry) => entry.$1.toLowerCase() == 'authorization')) {
-        throw CoreFailure(
-          'request.security.collision',
-          'Authorization already has an explicit value',
-        );
-      }
       _addHeader(headers, 'Authorization', 'Basic $encoded');
+      own('header:authorization', 'basic', 'passwordRef', username);
       return;
     }
     if (type == 'oauth2' || type == 'openIdConnect') {
-      if (headers.any((entry) => entry.$1.toLowerCase() == 'authorization')) {
-        throw CoreFailure(
-          'request.security.collision',
-          'Authorization already has an explicit value',
-        );
-      }
+      if (shared('header:authorization', 'bearer', 'accessTokenRef', headers.any((entry) => entry.$1.toLowerCase() == 'authorization'),
+          'Authorization already has an explicit value')) return;
       _addHeader(
         headers,
         'Authorization',
         'Bearer ${await secret('accessTokenRef', policy: CredentialValuePolicy.bearerToken)}',
       );
+      own('header:authorization', 'bearer', 'accessTokenRef');
       return;
     }
     if (type == 'mutualTLS') return;

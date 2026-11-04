@@ -16,12 +16,12 @@ import {documentUriBase,resolveUri,pointerFragment as fragment,type GraphScope,t
 import {documentUriOccurrences} from './document_uris';
 import {serverTemplate} from './derived_bundle';
 import {captureMigrationMarkdown,rewriteMigrationMarkdown,proveMigrationMarkdown} from './migration_markdown';
-import {migrationRequestSignatures} from './migration_invariants';
+import {migrationRequestSignatures,migrationSecurityAlternativeProjection} from './migration_invariants';
 import {migrateEncodings} from './migration_encoding';
 import {migrateBinarySchemas} from './migration_binary';
 import {checkOperationTarget,checkRequestBodyTarget,migrateOperationBodies} from './migration_operation';
-import {checkSecurityRequirementTarget,migrateSecurityBindings} from './migration_security';
-import {migrationDocumentContexts,migrationScopes,migrationReferences,proveMigrationConnections} from './migration_documents';
+import {checkSecurityRequirementTarget,migrateSecurityBindings,migrationSecurityUriSpellings} from './migration_security';
+import {migrationDocumentContexts,migrationScopes,migrationReferences,migrationReferenceUses,proveMigrationConnections} from './migration_documents';
 import {migrationBatches,entryMigrationRoutes,type MigrationBatch} from './migration_routes';
 import {MigrationAccess} from './migration_access';
 import {migrateDirectionalSchemas} from './migration_direction';
@@ -37,9 +37,11 @@ import {separateMigrationRoles,separateMigrationEntryUses,materializeMigrationOp
 import {MigrationSchemaOwners,MigrationSemanticOrigins} from './migration_schema_owners';
 import {projectSchemaReference} from './schema_reference_projection';
 import {migrationSecurityConfiguration,securityConfigurationNames,type SecurityBindingChange} from './security_configuration';
+import {securityRequirementDefinition} from './security_requirements';
+import {migrateSwaggerSecurityFlows} from './migration_security_flows';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='71';
+const migrationProducerVersion='72';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const referenceLocator=(reference:GraphReference)=>!reference.connection&&['$ref','$dynamicRef'].includes(reference.keyword)||
     reference.connection==='operationRef'&&reference.keyword==='operationRef';
@@ -118,7 +120,7 @@ export async function planMigration(input:MigrationInput) {
     };
     const refused=(error:unknown,location:MigrationLocation)=>{
         if(!(error instanceof SourceError))throw error;
-        issue(error.source??location,error.code,error.message,'implementation');
+        issue(error.source??location,error.code,error.message,error.code==='migration.configuration.alternative'?'target-representation':'implementation');
     };
     const validate=async(values:Resource[],root:string,phase:'source'|'target'='target',exampleResources=input.exampleResources)=>{
         const roots=[root,...values.filter(value=>value.id!==root&&specificationDeclaration(new SourceDocument(value.text,value.id).root.value).status==='supported').map(value=>value.id)];
@@ -165,17 +167,18 @@ export async function planMigration(input:MigrationInput) {
                 source.origins.set(location.pointer,new Set([location.pointer]));
         }
         try {
-            let schemaResource:MigrationSource|undefined;
-            const createSchemaResource=():MigrationSource=>{
-                if(schemaResource)return schemaResource;
+            const schemaResources=new Map<SourceDocument['format'],MigrationSource>();
+            const createSchemaResource=(format=sources.get(graph.root)!.doc.format):MigrationSource=>{
+                const cached=schemaResources.get(format);
+                if(cached)return cached;
                 if(sources.size>=256)throw new SourceError('limit.migration.resources','Generated schema resources exceed the 256-resource migration bound');
-                const format=sources.get(graph.root)!.doc.format;
                 const stem='migration-schemas-'+digest(JSON.stringify([graph.root,after,migrationProducerVersion])).slice(0,24);
                 let id=new URL(stem+'.'+format,graph.root).href,index=0;
                 const unavailable=(id:string)=>sources.has(id)||graph.identities.has(id)||
                     input.exampleResources?.some(resource=>resource.id===id||resource.aliases?.includes(id));
                 while(unavailable(id))id=new URL(stem+'-'+(++index)+'.'+format,graph.root).href;
-                schemaResource=new MigrationSource(new SourceDocument('{}\n',id));
+                const schemaResource=new MigrationSource(new SourceDocument('{}\n',id));
+                schemaResources.set(format,schemaResource);
                 sources.set(id,schemaResource);createdResources.set(id,graph.root);
                 return schemaResource;
             };
@@ -283,18 +286,27 @@ export async function planMigration(input:MigrationInput) {
                 }
                 if(problems.length)break;
             }
-            const securityCopies=migrateSecurityBindings(contexts.map(context=>context.graph),sources,stage.sources,after,owners,securityConfigurationNames(input.configuration));
-            if(securityCopies.size){
-                retainCopies(securityCopies);
-                for(const [origin,copies]of securityCopies){
+            const retainNativeCopies=(copies:ReadonlyMap<string,readonly MigrationLocation[]>)=>{
+                if(!copies.size)return;
+                retainCopies(copies);
+                for(const [origin,locations]of copies){
                     const [resource,pointer]=JSON.parse(origin) as [string,string];
-                    for(const copy of copies)planningOrigins.set(key(copy.resource,copy.pointer),sourceLocation(resource,pointer));
+                    for(const copy of locations)planningOrigins.set(key(copy.resource,copy.pointer),sourceLocation(resource,pointer));
                 }
                 const securedInput=preparationInput(),secured=createGraph(securedInput);
                 contexts=migrationDocumentContexts(securedInput,secured,issue);
                 graph=secured.graph;
-                if(problems.length)break;
-            }
+            };
+            const configuredNames=new Set(securityConfigurationNames(input.configuration));
+            // Environment scheme settings are shared by captured roots. A
+            // fresh alias in one entry must not configure an unchanged name
+            // in another entry, even when that name has no settings yet.
+            for(const context of contexts)for(const reference of context.graph.entryReferences())
+                if(reference.connection==='security')configuredNames.add(reference.value);
+            retainNativeCopies(migrateSecurityBindings(contexts.map(context=>context.graph),sources,stage.sources,after,owners,configuredNames));
+            if(problems.length)break;
+            if(after==='2.0')retainNativeCopies(migrateSwaggerSecurityFlows(contexts.map(context=>context.graph),sources,stage.sources,owners,issue,configuredNames));
+            if(problems.length)break;
             for(const context of contexts)context.graph.assertReferenceEditsSupported();
             const terms=new Map<string,string>();
             for(const context of contexts)migrateTerms(context.graph,sources,stage.sources,terms,issue);
@@ -493,17 +505,15 @@ export async function planMigration(input:MigrationInput) {
         }
         for(const occurrence of documentUriOccurrences(context.graph))if(finalOwners.has(useKey(occurrence.scope))&&occurrence.scope.kind!=='server')sources.get(occurrence.scope.resource)!.set(occurrence.pointer,resolveUri(occurrence.value,documentUriBase(context.graph,occurrence.scope)).href);
         const securityNames=new Map<string,Set<string>>();
-        for(const reference of migrationReferences(finalOwnerContexts)){
+        const securitySpelling=migrationSecurityUriSpellings(finalOwnerContexts,securityConfigurationNames(input.configuration));
+        for(const {graph,reference}of migrationReferenceUses(finalOwnerContexts)){
             if(reference.resolution!=='resolved')continue;
             const source=sources.get(reference.resource)!;
             if(reference.connection==='security'&&reference.targetUri!==undefined){
-                const identity=key(reference.resource,reference.pointer),scope=context.graph.referenceOwner(reference)??reference;
+                const identity=key(reference.resource,reference.pointer);
                 const names=securityNames.get(identity)??new Set(source.doc.dataNode(reference.pointer)!.children.keys());
                 securityNames.set(identity,names);
-                const target=context.graph.scopeAs(reference.targetResource!,reference.targetPointer!,'security');
-                const excluded=new Set([...names,...(context.docs.get(context.graph.root)!.dataNode('/components/securitySchemes')?.children.keys()??[])]);
-                excluded.delete(reference.value);
-                const value=target&&referenceValue(context.graph,{...scope,kind:'security'},target,'security',excluded,{absolute:true,connection:'security'});
+                const value=securitySpelling(graph,reference,names,true);
                 if(value===undefined){issue(reference,'migration.security.uri','This captured URI binding has no proved absolute spelling before publication','implementation');continue;}
                 if(value!==reference.value){
                     source.rename(reference.pointer+'/'+escape(reference.keyword),value);names.delete(reference.value);names.add(value);
@@ -580,35 +590,34 @@ export async function planMigration(input:MigrationInput) {
     const portableReferences=new Set(portable.references.filter(reference=>reference.resolution==='resolved'&&(!referenceLocator(reference)||reference.keyword!=='$dynamicRef')).map(reference=>
         JSON.stringify([reference.resource,reference.pointer,reference.keyword,reference.value,reference.targetResource,reference.targetPointer])));
     const securityNames=new Map<string,Set<string>>();
+    const securitySpelling=migrationSecurityUriSpellings(relocatedOwnerContexts,securityConfigurationNames(input.configuration));
     const portableOwners=new Map<string,MigrationSource>();
-    for(const reference of migrationReferences(relocatedOwnerContexts)){
+    for(const {graph,reference}of migrationReferenceUses(relocatedOwnerContexts)){
         const security=reference.connection==='security'&&reference.targetUri!==undefined;
         const relocatable=referenceLocator(reference)||reference.connection==='discriminator'||security;
         if(!relocatable||reference.resolution!=='resolved')continue;
         if(portableReferences.has(JSON.stringify([reference.resource,reference.pointer,reference.keyword,reference.value,reference.targetResource,reference.targetPointer])))continue;
-        const scope=relocated.graph.referenceOwner(reference)??reference,
-            destination=relocated.graph.scopeAs(reference.targetResource!,reference.targetPointer!,reference.kind);
+        const scope=graph.referenceOwner(reference)??reference,
+            destination=graph.scopeAs(reference.targetResource!,reference.targetPointer!,reference.kind);
         const addressKeyword=security?'security':reference.connection==='discriminator'||reference.keyword==='$dynamicRef'&&!reference.dynamic?'$ref':reference.keyword;
-        let names:Set<string>|undefined,excluded:Set<string>|undefined;
+        let names:Set<string>|undefined;
         if(security){
             const identity=key(reference.resource,reference.pointer);
             names=securityNames.get(identity)??new Set(relocated.docs.get(reference.resource)!.dataNode(reference.pointer)!.children.keys());
             securityNames.set(identity,names);
-            excluded=new Set([...names,...(relocated.docs.get(relocated.graph.root)!.dataNode('/components/securitySchemes')?.children.keys()??[])]);
-            excluded.delete(reference.value);
         }
-        const value=destination&&referenceValue(relocated.graph,security?{...scope,kind:'security'}:scope,destination,addressKeyword,excluded,
-            security?{connection:'security'}:reference.connection==='discriminator'?{connection:'discriminator'}:{});
+        const value=security?securitySpelling(graph,reference,names!):destination&&referenceValue(graph,scope,destination,addressKeyword,undefined,
+            reference.connection==='discriminator'?{connection:'discriminator'}:{});
         const location={resource:reference.resource,pointer:reference.pointer+'/'+escape(reference.keyword)};
         if(value===undefined){issue(location,'migration.reference.relocation','A captured reference has no proved portable target spelling','implementation');continue;}
         if(reference.connection==='discriminator'||security){
-            const rebound=relocated.graph.resolveConnection({...reference,...scope,kind:reference.kind,keyword:security?value:reference.keyword,value});
+            const rebound=graph.resolveConnection({...reference,...scope,kind:reference.kind,keyword:security?value:reference.keyword,value});
             if(rebound.resolution!=='resolved'||rebound.targetResource!==reference.targetResource||rebound.targetPointer!==reference.targetPointer){
                 issue(location,'migration.reference.binding','The proposed native connection does not preserve its captured target','implementation');continue;
             }
         }
         if(!reference.connection&&reference.keyword==='$dynamicRef'){
-            const rebound=relocated.graph.resolveReference(value,scope,'$dynamicRef');
+            const rebound=graph.resolveReference(value,scope,'$dynamicRef');
             if(rebound.resolution!=='resolved'||rebound.targetResource!==reference.targetResource||rebound.targetPointer!==reference.targetPointer||Boolean(rebound.dynamic)!==Boolean(reference.dynamic)){
                 issue(location,'migration.reference.binding','The proposed spelling changes the captured dynamic reference binding','implementation');continue;
             }
@@ -666,17 +675,31 @@ export async function planMigration(input:MigrationInput) {
     await validate(outputResources,outputRoot,'target',outputExampleResources);
     const finalContext=createGraph({...input,root:outputRoot,resources:outputResources});
     const securityBindings:SecurityBindingChange[]=[];
+    const credentialHeaders=new Set<string>();
+    const alternativeChoices=new Map<number,ReadonlySet<number>>(),alternativeBounds:{before:number;after:number}[]=[];
     const operationKeys=(graph:typeof initial.graph)=>graph.operations().map(operation=>JSON.stringify([operation.role,operation.method,operation.customMethod===true,operation.path])).sort();
     try {
         for(const context of initialContexts){
             const root=context.graph.root,output=identifiers.get(root)!,targetGraph=root===input.root?finalContext.graph:createGraph({...input,root:output,resources:outputResources}).graph;
             if(JSON.stringify(operationKeys(context.graph))!==JSON.stringify(operationKeys(targetGraph)))issue({resource:root,pointer:''},'migration.invariant.operations','The migrated graph changed an operation method, path, role or occurrence count','implementation');
             if(JSON.stringify(migrationRequestSignatures(context.graph,input.resources))!==JSON.stringify(migrationRequestSignatures(targetGraph,outputResources)))issue({resource:root,pointer:''},'migration.invariant.request','The migrated graph changed effective URL, serialization, authentication, request media or response declarations','implementation');
-            proveMigrationConnections(context.graph,targetGraph,(location,scope)=>(semanticOrigins?.locations(root,location,scope)??[])
-                .map(location=>({resource:identifiers.get(location.resource)!,pointer:location.pointer})),issue);
+            const mapped=(location:MigrationLocation,scope:GraphScope|undefined)=>(semanticOrigins?.locations(root,location,scope)??[])
+                .map(location=>({resource:identifiers.get(location.resource)!,pointer:location.pointer}));
+            proveMigrationConnections(context.graph,targetGraph,mapped,issue);
+            const alternatives=migrationSecurityAlternativeProjection(context.graph,targetGraph,input.resources,mapped);
+            alternativeBounds.push(...alternatives.bounds);
+            for(const [index,choices]of alternatives.choices){
+                const previous=alternativeChoices.get(index);
+                alternativeChoices.set(index,previous?new Set([...previous].filter(index=>choices.has(index))):choices);
+            }
             const bindings=new Map(targetGraph.entryReferences().filter(reference=>reference.connection==='security').map(reference=>[
                 key(reference.resource,reference.pointer+'/'+escape(reference.keyword)),reference]));
             for(const before of context.graph.entryReferences())if(before.connection==='security'){
+                if(before.resolution==='resolved'){
+                    const target=securityRequirementDefinition(context.graph,{resource:before.targetResource!,pointer:before.targetPointer!,kind:'security'});
+                    const scheme=target&&context.docs.get(target.resource)!.dataNode(target.pointer)?.value;
+                    if(scheme?.type==='apiKey'&&scheme.in==='header'&&typeof scheme.name==='string')credentialHeaders.add(scheme.name.toLowerCase());
+                }
                 const field={resource:before.resource,pointer:before.pointer+'/'+escape(before.keyword)};
                 for(const location of semanticOrigins?.locations(root,field,context.graph.referenceOwner(before))??[]){
                     const after=bindings.get(key(identifiers.get(location.resource)!,location.pointer));
@@ -727,11 +750,21 @@ export async function planMigration(input:MigrationInput) {
     }
     if(problems.length)return {...common(),changes:[],outputs:[]};
     const baseManifest={version:1,roots:initialContexts.map(({graph})=>({name:graph.root===input.root?'migrated':'resource_'+digest(graph.root).slice(0,24),path:paths.get(graph.root)})),resourceMappings:Object.fromEntries(mappings)};
+    const changedBindings=securityBindings.filter(binding=>binding.before.value!==binding.after.value);
+    if(changedBindings.length>4096){
+        issue({resource:input.root,pointer:''},'limit.migration.security','Authentication review exceeds 4096 captured binding changes','implementation');
+        return {...common(),changes:[],outputs:[]};
+    }
+    for(const binding of changedBindings)if(binding.before.value.length>65536||binding.after.value.length>65536||
+        (binding.before.pointer+'/'+escape(binding.before.keyword)).length>65536)
+        issue(binding.before,'limit.migration.security','An authentication review field exceeds its 64 KiB bound','implementation');
+    if(problems.length)return {...common(),changes:[],outputs:[]};
     let configuration:ReturnType<typeof migrationSecurityConfiguration>;
-    try{configuration=migrationSecurityConfiguration(input.configuration,securityBindings,baseManifest);}
+    try{configuration=migrationSecurityConfiguration(input.configuration,securityBindings,baseManifest,credentialHeaders,
+        {choices:alternativeChoices,bounds:alternativeBounds});}
     catch(error){refused(error,{resource:input.root,pointer:''});return {...common(),changes:[],outputs:[]};}
-    const {manifest,manifestText}=configuration;
-    const configurationBindings=securityBindings.filter(binding=>binding.before.value!==binding.after.value).map(({root,before,after})=>({
+    const {manifest,manifestText,alternatives:configurationAlternatives}=configuration;
+    const configurationBindings=changedBindings.map(({root,before,after})=>({
         root,resource:before.resource,pointer:before.pointer+'/'+escape(before.keyword),before:before.value,after:after.value}));
     const outputs=outputResources.map(resource=>({path:[...paths].find(([id])=>identifiers.get(id)===resource.id)![1],id:resource.id,text:resource.text,hasBom:input.resources.find((source:Resource)=>identifiers.get(source.id)===resource.id)?.hasBom===true,identity:digest(resource.text)}));
     const changes=resources.map(resource=>{
@@ -743,5 +776,5 @@ export async function planMigration(input:MigrationInput) {
         return {resource:resource.id,destination,before:source?.text??'',after:output.text,...(createdFrom?{createdFrom}:{})};
     });
     for(const decision of Object.keys(decisions))if(!accepted.has(decision))throw new SourceError('migration.decisions.stale','A supplied decision does not belong to this captured migration plan');
-    return {...common(),entry:paths.get(input.root),outputRoot,outputs,exampleOutputs,changes,manifest,manifestText,manifestIdentity:digest(manifestText),configurationBindings,identity:digest(JSON.stringify([migrationProducerVersion,input.snapshot,target,outputs,exampleOwnership,exampleOutputs,manifestText,decisions])),validation:{complete:true,family:target.family},invariants:{operations:'preserved-method-and-path',requests:'effective-url-serialization-security-and-media',references:'canonical-target-relocation',examples:'exact-cst-values-and-captured-wire-bytes'}};
+    return {...common(),entry:paths.get(input.root),outputRoot,outputs,exampleOutputs,changes,manifest,manifestText,manifestIdentity:digest(manifestText),configurationBindings,configurationAlternatives,identity:digest(JSON.stringify([migrationProducerVersion,input.snapshot,target,outputs,exampleOwnership,exampleOutputs,manifestText,decisions])),validation:{complete:true,family:target.family},invariants:{operations:'preserved-method-and-path',requests:'effective-url-serialization-security-and-media',references:'canonical-target-relocation',examples:'exact-cst-values-and-captured-wire-bytes'}};
 }

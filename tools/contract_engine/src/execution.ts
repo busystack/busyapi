@@ -12,6 +12,7 @@ import {ParameterOccurrence, ParameterSemantics, parameterStyle} from './paramet
 import {responseStatusNamePolicy} from './member_names';
 import {swaggerFlat,swaggerMedia,swaggerResponseContent,swaggerServers} from './swagger_operation';
 import {responseAllowsContent} from './response_content';
+import {securityFlowOrder} from './security_requirements';
 import {componentLocation} from './authoring';
 import {formBinding,FormSemantics,namedFileShapeSelection} from './form_semantics';
 import type {NativeRuntimeInstance} from './mock_projection';
@@ -641,7 +642,7 @@ export function planResponseExample(input:any) {
 function oauthFlows(resource:string,pointer:string,flows:any,location:(resource:string,pointer:string)=>Located){
   if(!flows||typeof flows!=='object')return {};
   const result:any={};
-  for(const name of ['implicit','password','authorizationCode','clientCredentials','deviceAuthorization'])if(flows[name]&&typeof flows[name]==='object'){
+  for(const name of securityFlowOrder)if(flows[name]&&typeof flows[name]==='object'){
     const value=flows[name],at=pointer+'/flows/'+name;
     result[name]={authorizationUrl:value.authorizationUrl,tokenUrl:value.tokenUrl,refreshUrl:value.refreshUrl,
       scopes:value.scopes&&typeof value.scopes==='object'?value.scopes:{},source:location(resource,at)};

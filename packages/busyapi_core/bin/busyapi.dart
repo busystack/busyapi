@@ -578,6 +578,8 @@ Future<void> runBusyApi(
             );
           for (final binding in output.securityBindings)
             stdout.writeln('${binding.resource} ${binding.pointer}: ${binding.before} → ${binding.after}');
+          for (final alternative in output.authenticationAlternatives)
+            stdout.writeln('${alternative.environment}: authentication alternative ${alternative.before + 1} → ${alternative.after + 1}');
           for (final problem in output.problems)
             stdout.writeln(
               '${problem.resource} ${problem.pointer}: ${problem.code}: ${problem.message}${problem.choices.isEmpty ? '' : ' [${problem.id}: ${problem.choices.join(', ')}]'}',

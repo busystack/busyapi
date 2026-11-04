@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
 import {componentLocation,richTextField} from './authoring';
-import {escape,segments,SourceError,type Range} from './document';
+import {escape,segments,SourceError,type Range,type SourceDocument} from './document';
 import {documentUriOccurrences,type DocumentUriOccurrence} from './document_uris';
 import {documentUriBase,resolveUri,pointerFragment,schemaResourceContextIdentity,type ReferenceGraph,type GraphScope,type GraphReference} from './reference_graph';
 import type {MigrationLocation,MigrationSource} from './migration_source';
@@ -27,7 +27,7 @@ export class MigrationSchemaOwners {
     private useWork=0;
     constructor(private readonly graph:ReferenceGraph,
         private readonly sources:ReadonlyMap<string,MigrationSource>,
-        private readonly generatedResource?:()=>MigrationSource,reservedIdentities:Iterable<string>=[],
+        private readonly generatedResource?:(format?:SourceDocument['format'])=>MigrationSource,reservedIdentities:Iterable<string>=[],
         private readonly contexts:readonly ReferenceGraph[]=[graph]){
         this.externalIdentities=new Set([...reservedIdentities].map(uri=>new URL(uri).href));
     }
@@ -95,24 +95,28 @@ export class MigrationSchemaOwners {
      * cannot become this occurrence's connection fields or dynamic candidates. */
     entryLocations(namespace:string,location:MigrationLocation,scope:GraphScope|undefined,
         current:ReadonlyMap<string,readonly MigrationLocation[]>):readonly MigrationLocation[] {
-        this.inspectUse();let material=location;
+        this.inspectUse();
         const uses:MigrationLocation[]=[];
         if(scope){
             if(location.resource!==scope.resource||location.pointer!==scope.pointer&&!location.pointer.startsWith(scope.pointer+'/'))
                 throw new SourceError('migration.owners.field-context','A connection field is outside its captured semantic owner');
-            const owner=this.entryOwner(namespace,scope,scope.kind);
-            material={resource:owner.resource,pointer:owner.pointer+location.pointer.slice(scope.pointer.length)};
+            const suffix=location.pointer.slice(scope.pointer.length),pending:MigrationLocation[]=[scope],seen=new Set<string>();
             // Multiple independently named consumers can need the same native
             // definition. They are additional material occurrences, rather
             // than competing refinements of its canonical owner. Fields keep
             // their captured suffix and ordinary CST conversion coordinates.
-            for(const copy of this.additionalUses.get(this.useKey(namespace,owner,scope.kind))??[]){
-                this.inspectUse();const suffix=location.pointer.slice(scope.pointer.length);
-                if(suffix&&copy.excludedFields.has(segments(suffix)[0]))continue;
-                uses.push({resource:copy.location.resource,pointer:copy.location.pointer+suffix});
+            for(let index=0;index<pending.length;index++){
+                this.inspectUse();const owner=this.entryOwner(namespace,pending[index],scope.kind),id=this.useKey(namespace,owner,scope.kind);
+                if(seen.has(id))continue;seen.add(id);
+                uses.push({resource:owner.resource,pointer:owner.pointer+suffix});
+                for(const copy of this.additionalUses.get(id)??[]){
+                    this.inspectUse();
+                    if(suffix&&copy.excludedFields.has(segments(suffix)[0]))continue;
+                    pending.push(copy.location);
+                }
             }
-        }
-        return [material,...uses].flatMap(at=>current.get(JSON.stringify([at.resource,at.pointer]))??[]);
+        }else uses.push(location);
+        return uses.flatMap(at=>current.get(JSON.stringify([at.resource,at.pointer]))??[]);
     }
     rememberAdditionalUse(namespace:string,origin:GraphScope,destination:MigrationLocation,excludedFields:ReadonlySet<string>=new Set()):void {
         this.inspectUse();const owner=this.entryOwner(namespace,origin,origin.kind),id=this.useKey(namespace,owner,origin.kind);
@@ -248,7 +252,7 @@ export class MigrationSchemaOwners {
             const source=this.sources.get(destination.resource)!;
             return {source,location:this.allocate(source,destination.pointer,label,identity)};
         }
-        const entry=this.generatedResource?.()??this.sources.get(this.graph.root)!;
+        const entry=this.generatedResource?.(this.sources.get(origin.resource)?.doc.format)??this.sources.get(this.graph.root)!;
         const container=this.generatedResource?'':componentLocation('schemas',this.graph.family)!;
         return {source:entry,location:this.allocate(entry,container,label,identity)};
     }
@@ -405,6 +409,8 @@ export class MigrationSemanticOrigins {
             add(graph,{resource:reference.targetResource!,pointer:reference.targetPointer!},reference.kind,'target');
             for(const candidate of reference.dynamic?.candidates??[])add(graph,candidate,'schema','target');
         }
+        for(const graph of graphs)for(const scope of graph.entryScopes())
+            if(scope.kind==='security-array'||scope.kind==='security-requirement')add(graph,scope,scope.kind,'target');
         for(const graph of graphs)for(const {location,scope,field}of this.valueFields(graph)){
             add(graph,location,scope.kind,field);add(graph,scope,scope.kind,'target');
         }

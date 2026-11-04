@@ -6,6 +6,7 @@ import type {GraphReference} from './reference_graph';
 import {MigrationSource} from './migration_source';
 import {dirname,isAbsolute,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import type {SecurityAlternativeProjection} from './security_requirements';
 
 export type SecurityBindingChange={root:string;before:GraphReference;after:GraphReference};
 type BindingCopy={kind:'createData';pointer:string;raw:string};
@@ -103,30 +104,48 @@ export function securityConfigurationCopies(value:unknown,bindings:readonly Secu
  * and the shared exact alias repairs. Secret Service/session credentials and
  * TLS file bytes are never acquired. The manifest has its own exact text:
  * projecting arbitrary configuration numbers through JS would round them. */
-export function migrationSecurityConfiguration(value:unknown,bindings:readonly SecurityBindingChange[],manifest:object):{
-    manifest:object;manifestText:string;
+export function migrationSecurityConfiguration(value:unknown,bindings:readonly SecurityBindingChange[],manifest:object,
+    credentialHeaders:ReadonlySet<string>=new Set(),projection:SecurityAlternativeProjection={choices:new Map(),bounds:[]}):{
+    manifest:object;manifestText:string;alternatives:readonly {environment:string;before:number;after:number}[];
 } {
     if(value===undefined||value===null){
         const manifestText=JSON.stringify(manifest)+'\n';
         if(Buffer.byteLength(manifestText)>65536)throw new SourceError('limit.migration.configuration','The migrated configuration exceeds its 64 KiB bound');
-        return {manifest,manifestText};
+        return {manifest,manifestText,alternatives:[]};
     }
     const captured=capturedConfiguration(value),doc=new SourceDocument(captured.text,captured.id,true);
-    const fail=(pointer:string,message:string):never=>{
+    const fail=(pointer:string,message:string,code='migration.configuration.representation'):never=>{
         const range=doc.dataNode(pointer)?.range??doc.root.range;
-        throw new SourceError('migration.configuration.representation',message,range,'unsupported',{resource:captured.id,pointer,range});
+        throw new SourceError(code,message,range,'unsupported',{resource:captured.id,pointer,range});
     };
     if(doc.issues.length||doc.root.value?.version!==1)fail('','Repair the captured project configuration before migrating its environment bindings');
     const copies=securityConfigurationCopies(value,bindings),source=new MigrationSource(doc);
     for(const action of copies?.actions??[])source.exact(action.pointer,action.raw);
     const environments=source.doc.dataNode('/environments');
-    if(!environments)return {manifest,manifestText:JSON.stringify(manifest)+'\n'};
+    if(!environments)return migrationSecurityConfiguration(undefined,[],manifest);
     if(environments.kind!=='object')fail('/environments','Environments must be a mapping');
     const secretReference=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-    const settings=new Set(['secretRef','tokenRef','passwordRef','clientSecretRef','username','clientId','clientAuthentication','scopes']);
+    const settings=new Set(['secretRef','tokenRef','passwordRef','clientSecretRef','accessTokenRef','username','clientId','clientAuthentication','scopes']);
+    const sensitiveHeaders=new Set(['authorization','proxy-authorization','cookie',...credentialHeaders]);
+    const alternatives:{environment:string;before:number;after:number}[]=[];
     for(const [name,environment]of environments.children){
         const at='/environments/'+escape(name);
         if(environment.kind!=='object')fail(at,'An environment must be a mapping');
+        const alternativePointer=at+'/authentication/alternative',alternative=source.doc.dataNode(alternativePointer);
+        // Core selects only integer settings. Retain an ignored authored
+        // decimal/exponent value as data rather than activating it here.
+        if(alternative&&typeof alternative.value==='number'&&Number.isSafeInteger(alternative.value)&&alternative.value>=0&&
+            /^(?:0|[1-9]\d*)$/.test(source.doc.dataJson(alternativePointer))){
+            const before=alternative.value,choices=projection.choices.get(before);
+            const candidates=[...(choices??[before])].filter(index=>
+                projection.bounds.every(bound=>before<bound.before||index>=bound.after)).sort((a,b)=>a-b);
+            if(!candidates.length)fail(alternativePointer,'One configured authentication alternative cannot select the original requirement across these independently expanded operations','migration.configuration.alternative');
+            const after=candidates.includes(before)?before:candidates[0];
+            if(before!==after){source.set(alternativePointer,after);alternatives.push({environment:name,before,after});}
+        }
+        for(const [header,node]of source.doc.dataNode(at+'/headers')?.children??[])
+            if(sensitiveHeaders.has(header.toLowerCase())&&node.value!=='')
+                fail(at+'/headers/'+escape(header),'A literal authentication header cannot be copied into a migrated project; retain credentials through an existing secret reference');
         const schemes=source.doc.dataNode(at+'/authentication/schemes');
         if(schemes&&schemes.kind!=='object')fail(at+'/authentication/schemes','Authentication schemes must be a mapping');
         for(const [scheme,configuration]of schemes?.children??[]){
@@ -153,5 +172,5 @@ export function migrationSecurityConfiguration(value:unknown,bindings:readonly S
     const output=new MigrationSource(new SourceDocument(JSON.stringify(manifest)+'\n',captured.id));
     output.exact('/environments',source.doc.dataJson('/environments'));
     if(Buffer.byteLength(output.doc.text)>65536)fail('/environments','The migrated configuration exceeds its 64 KiB bound');
-    return {manifest:output.doc.root.value,manifestText:output.doc.text};
+    return {manifest:output.doc.root.value,manifestText:output.doc.text,alternatives};
 }

@@ -5,6 +5,7 @@ import {escape} from './document';
 import {downgradeFormBody} from './migration_form_downgrade';
 import {formBinding} from './form_semantics';
 import {isNativeFamily} from './specification';
+import {securityFlowOrder} from './security_requirements';
 
 /** Evaluate actual target representation. A simple 3.x API can be faithfully
  * represented in Swagger; newer-only constructs receive located blockers. */
@@ -86,13 +87,17 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migrati
         if(scope.kind==='security'){
             if(value.type==='http'&&value.scheme?.toLowerCase()==='basic'){source.set(pointer+'/type','basic');source.remove(pointer+'/scheme');}
             else if(value.type==='oauth2'){
-                const flows=Object.keys(value.flows??{});
-                if(flows.length!==1){issue(scope,'migration.security.flows','Multiple OAuth flows need a requirement-preserving Swagger scheme split','implementation');continue;}
+                const flows=securityFlowOrder.filter(name=>Object.hasOwn(value.flows??{},name));
+                if(Object.keys(value.flows??{}).some(name=>name.startsWith('x-')))
+                    issue({...scope,pointer:scope.pointer+'/flows'},'migration.security.flow-metadata','Swagger has no OAuth Flows Object in which to retain this authored extension','target-representation');
+                if(flows.length!==1){issue(scope,'migration.security.flows',flows.length?'The OAuth flow specialization did not produce a single captured flow':'Swagger requires one declared OAuth flow; an unspecified acquisition mechanism cannot be invented',flows.length?'implementation':'target-representation');continue;}
                 const flow=flows[0],name=({implicit:'implicit',password:'password',clientCredentials:'application',authorizationCode:'accessCode'} as Record<string,string>)[flow];
                 if(!name){issue(scope,'migration.security.flow','Swagger cannot express this OAuth flow','target-representation');continue;}
                 source.set(pointer+'/flow',name);
                 for(const field of ['authorizationUrl','tokenUrl','scopes'])if(source.doc.nodes.has(pointer+'/flows/'+flow+'/'+field))source.move(pointer+'/flows/'+flow+'/'+field,pointer+'/'+field);
-                if(value.flows[flow].refreshUrl)issue(scope,'migration.security.refresh','A distinct OAuth refresh endpoint is not described by Swagger','target-representation');
+                if(Object.hasOwn(value.flows[flow],'refreshUrl')&&value.flows[flow].refreshUrl!==value.flows[flow].tokenUrl)issue(scope,'migration.security.refresh','A distinct OAuth refresh endpoint is not described by Swagger','target-representation');
+                for(const name of Object.keys(value.flows[flow]).filter(name=>name.startsWith('x-')))
+                    issue({...scope,pointer:scope.pointer+'/flows/'+flow+'/'+name},'migration.security.flow-metadata','Swagger has no OAuth Flow Object in which to retain this authored extension','target-representation');
                 source.remove(pointer+'/flows');
             }else if(value.type!=='apiKey')issue(scope,'migration.security.type','Swagger has no equivalent standard security scheme for this authentication type','target-representation');
             if(value.type==='apiKey'&&!['query','header'].includes(value.in))issue(scope,'migration.security.location','Swagger API keys must be query or header parameters','target-representation');

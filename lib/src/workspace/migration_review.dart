@@ -63,7 +63,7 @@ class _MigrationReviewState extends State<_MigrationReview> {
   _CaptureFailure? captureFailure;
   final decisions = <String, String>{};
   bool busy = false, publishing = false, published = false, cancelled = false;
-  int epoch = 0, resourceIndex = 0, problemPage = 0, bindingPage = 0;
+  int epoch = 0, resourceIndex = 0, problemPage = 0, bindingPage = 0, alternativePage = 0;
   bool get current =>
       mounted &&
       !widget.workspace.disposed &&
@@ -113,6 +113,7 @@ class _MigrationReviewState extends State<_MigrationReview> {
     resourceIndex = 0;
     problemPage = 0;
     bindingPage = 0;
+    alternativePage = 0;
     failure = null;
     captureFailure = null;
   }
@@ -391,6 +392,14 @@ class _MigrationReviewState extends State<_MigrationReview> {
             ),
           for (final binding in review.securityBindings.skip(bindingPage * 50).take(50))
             SelectableText('${binding.resource} ${binding.pointer}\n${binding.before} → ${binding.after}'),
+          if (review.authenticationAlternatives.length > 50)
+            BusyApiReviewPages(
+              page: alternativePage,
+              pages: (review.authenticationAlternatives.length / 50).ceil(),
+              onChanged: (page) => setState(() => alternativePage = page),
+            ),
+          for (final alternative in review.authenticationAlternatives.skip(alternativePage * 50).take(50))
+            SelectableText('${alternative.environment} · ${l.securityAlternative(alternative.before + 1)} → ${l.securityAlternative(alternative.after + 1)}'),
           if ((review.result['presentationChanges'] as List).isNotEmpty)
             Text(l.migrationPresentation),
           if (review.problems.length > 50)

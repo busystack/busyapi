@@ -29,14 +29,18 @@ export function* migrationScopes(contexts:readonly ReferenceGraph[]):IterableIte
     }
 }
 
-export function* migrationReferences(contexts:readonly ReferenceGraph[]):IterableIterator<GraphReference> {
+export function* migrationReferenceUses(contexts:readonly ReferenceGraph[]):IterableIterator<Readonly<{graph:ReferenceGraph;reference:GraphReference}>> {
     const seen=new Set<string>();let work=0;
     for(const graph of contexts)for(const reference of graph.entryReferences()){
         if((work+=1+(reference.dynamic?.candidates.length??0))>2000000)throw new SourceError('limit.migration.uses','Conversion references exceed 2000000 captured states');
         const id=JSON.stringify([reference.resource,reference.pointer,reference.kind,reference.connection,reference.keyword,
             reference.value,schemaResourceContextIdentity(reference),reference.resolution,reference.targetResource,reference.targetPointer,reference.dynamic]);
-        if(!seen.has(id)){seen.add(id);yield reference;}
+        if(!seen.has(id)){seen.add(id);yield {graph,reference};}
     }
+}
+
+export function* migrationReferences(contexts:readonly ReferenceGraph[]):IterableIterator<GraphReference> {
+    for(const {reference}of migrationReferenceUses(contexts))yield reference;
 }
 
 /** Keep entry interpretation separate from physical CST ownership. Direction

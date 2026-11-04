@@ -1,5 +1,5 @@
 import {escape,segments,SourceError} from './document';
-import {pointerFragment,type ReferenceGraph,type GraphScope} from './reference_graph';
+import {pointerFragment,type ReferenceGraph,type GraphScope,type GraphReference} from './reference_graph';
 import type {MigrationIssue} from './migration_schema';
 import {modernFamily,type SpecificationFamily} from './specification';
 import {securityRequirementChain,securityRequirementDefinition,securityRequirementValuesAllowed} from './security_requirements';
@@ -7,6 +7,31 @@ import {MigrationSource,type MigrationLocation} from './migration_source';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import {entryComponentContainer} from './migration_schema_uses';
 import {children} from './contexts';
+import {referenceValue} from './reference_choices';
+
+const keyOf=(location:MigrationLocation)=>JSON.stringify([location.resource,location.pointer]);
+
+/** URI publication must be injective over independently configured source
+ * spellings, including different OR entries and different API roots. Reuse
+ * the canonical spelling prover and redundant URI dot segments; never merge
+ * settings just because two connections resolve to the same scheme. */
+export function migrationSecurityUriSpellings(graphs:readonly ReferenceGraph[],configured:ReadonlySet<string>) {
+    const reserved=new Set(configured),assigned=new Map<string,string>();
+    for(const graph of graphs)for(const reference of graph.entryReferences())
+        if(reference.connection==='security')reserved.add(reference.value);
+    return (graph:ReferenceGraph,reference:GraphReference,occupied:ReadonlySet<string>,absolute=false):string|undefined=>{
+        const target=graph.scopeAs(reference.targetResource!,reference.targetPointer!,'security');
+        if(!target)return;
+        const excluded=new Set([...reserved,...occupied]);excluded.delete(reference.value);
+        for(const [name,origin]of assigned)if(origin!==reference.value)excluded.add(name);
+        // Component names, even URI-looking ones, always win in this entry.
+        for(const name of graph.docs.get(graph.root)!.dataNode('/components/securitySchemes')?.children.keys()??[])excluded.add(name);
+        const scope=graph.referenceOwner(reference)??reference;
+        const value=referenceValue(graph,{...scope,kind:'security'},target,'security',excluded,{absolute,connection:'security'});
+        if(value!==undefined)assigned.set(value,reference.value);
+        return value;
+    };
+}
 
 /** OAS 3.2.1 §4.30: resolution has already selected component-name
  * precedence or a URI target. Give each URI binding a distinct standard
@@ -18,11 +43,14 @@ export function migrateSecurityBindings(graphs:readonly ReferenceGraph[],sources
     if(target==='3.2')return provenance;
     const pristine=new Map([...sources].map(([id,source])=>[id,new MigrationSource(source.doc)]));
     let work=0,bindingCount=0;
-    const remember=(graph:ReferenceGraph,scope:GraphScope,copied:ReturnType<MigrationSchemaOwners['separate']>,excludedFields:ReadonlySet<string>=new Set())=>{
+    const retain=(scope:GraphScope,copied:ReturnType<MigrationSchemaOwners['separate']>)=>{
         for(const [pointer,location]of copied.provenance){
             const id=JSON.stringify([scope.resource,pointer]),values=provenance.get(id)??[];
             values.push(location);provenance.set(id,values);
         }
+    };
+    const remember=(graph:ReferenceGraph,scope:GraphScope,copied:ReturnType<MigrationSchemaOwners['separate']>,excludedFields:ReadonlySet<string>=new Set())=>{
+        retain(scope,copied);
         const pending=[scope],seen=new Set<string>();
         for(let index=0;index<pending.length;index++){
             const child=pending[index],id=JSON.stringify([child.resource,child.pointer,child.kind]);
@@ -49,6 +77,11 @@ export function migrateSecurityBindings(graphs:readonly ReferenceGraph[],sources
         copy.remove(copied.location.pointer+'/description');
         copy.copy(pristine.get(annotation.resource)!,annotation.pointer+'/description',copied.location.pointer+'/description');
         copy.origins.set(copied.location.pointer+'/description',new Set([copied.location.pointer+'/description']));
+        const destination={resource:copied.location.resource,pointer:copied.location.pointer+'/description'};
+        const inherited=keyOf({resource:scope.resource,pointer:scope.pointer+'/description'});
+        provenance.set(inherited,(provenance.get(inherited)??[]).filter(at=>at.resource!==destination.resource||at.pointer!==destination.pointer));
+        const original=keyOf({resource:annotation.resource,pointer:annotation.pointer+'/description'});
+        provenance.set(original,[...provenance.get(original)??[],destination]);
         // The overriding Reference Object owns this annotation's URI base.
         owners.rememberAdditionalUse(graph.root,owner,copied.location);
     };
@@ -63,6 +96,17 @@ export function migrateSecurityBindings(graphs:readonly ReferenceGraph[],sources
             if(!scope)throw new SourceError('migration.security.target','A Security Scheme alias has no finite captured definition');
             const id=JSON.stringify([alias.resource,alias.pointer]);
             if(materialized.has(id))continue;materialized.add(id);
+            const ignored=Object.keys(value).filter(field=>field!=='$ref'&&
+                (!modernFamily(alias.family)||field!=='description'&&field!=='summary'));
+            if(ignored.length){
+                // Reference Object extras have no contract meaning. Preserve
+                // the complete authored occurrence as literal data in the
+                // common anonymous registry before materializing its native
+                // scheme. It acquires no native owner/reference repair: an
+                // ignored $id, URI-looking string or description stays data.
+                retain(alias,owners.separate(alias,'ignored_reference',{captured:pristine.get(alias.resource),
+                    identity:JSON.stringify([graph.root,alias.resource,alias.pointer,'ignored-fields'])}));
+            }
             const container=entryComponentContainer(graph,{...scope,family:graph.family},graph.root,owners);
             if(!container)throw new SourceError('migration.security.container','The captured entry has no Security Scheme component container');
             const copied=owners.separate(scope,'security_definition',{container,captured:pristine.get(scope.resource),identity:id});
@@ -85,7 +129,7 @@ export function migrateSecurityBindings(graphs:readonly ReferenceGraph[],sources
             const overridden=description(graph,alias);
             owners.rememberAdditionalUse(graph.root,scope,{resource:alias.resource,pointer:alias.pointer},
                 overridden&&(overridden.resource!==scope.resource||overridden.pointer!==scope.pointer)?new Set(['description']):undefined);
-            provenance.set(id,[{resource:alias.resource,pointer:alias.pointer}]);
+            provenance.set(id,[...provenance.get(id)??[],{resource:alias.resource,pointer:alias.pointer}]);
         }
         const references=graph.entryReferences().filter(reference=>reference.connection==='security'&&reference.targetUri!==undefined&&families.includes(reference.family))
             .sort((a,b)=>JSON.stringify([a.resource,a.pointer,a.keyword]).localeCompare(JSON.stringify([b.resource,b.pointer,b.keyword])));
@@ -135,14 +179,15 @@ export function checkSecurityRequirementTarget(graph:ReferenceGraph,target:Speci
         if(graph.referenceObject(value,scope)&&modernFamily(scope.family)&&Object.hasOwn(value,'summary'))
             issue({...scope,pointer:scope.pointer+'/summary'},'migration.security.reference-summary',
                 'The selected older Security Scheme cannot retain this Reference Object summary override','target-representation');
-        if(target==='2.0'&&graph.referenceObject(value,scope)&&!modernFamily(scope.family)&&Object.keys(value).some(field=>field!=='$ref'))
-            issue(scope,'migration.security.ignored-siblings',
-                'Materializing this legacy Security Scheme reference requires independent ownership for its authored ignored siblings','implementation');
     }
     for(const reference of graph.references){
         if(reference.connection!=='security'||reference.resolution!=='resolved'||reference.targetResource===undefined||reference.targetPointer===undefined)continue;
         const definition=securityRequirementDefinition(graph,{resource:reference.targetResource,pointer:reference.targetPointer,kind:'security'});
         const value=definition&&graph.docs.get(definition.resource)?.dataNode(definition.pointer)?.value;
+        if(definition&&target==='2.0'&&value?.type==='openIdConnect'){
+            issue(definition,'migration.security.type','Swagger has no OpenID Connect Security Scheme representation and cannot retain its scope requirements','target-representation');
+            continue;
+        }
         const pointer=reference.pointer+'/'+escape(reference.keyword),roles=graph.docs.get(reference.resource)?.dataNode(pointer);
         if(roles?.kind==='array'&&!securityRequirementValuesAllowed(target,value?.type,roles.children.size))
             issue({resource:reference.resource,pointer},'migration.security.roles','The target requires an empty non-OAuth security list and cannot retain these role requirements','target-representation');
