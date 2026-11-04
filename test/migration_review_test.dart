@@ -77,6 +77,7 @@ void main() {
         final sharedVersion = secondaryVersion ?? sourceVersion;
         final targetVersion = formVersion == null ? '3.2.1' : '2.0';
         final swagger = sourceVersion == '2.0';
+        final sharedBinary = coordinatedVersion?.startsWith('3.0.') == true && sharedVersion.startsWith('3.0.');
         final coordinated = coordinatedVersion == null
             ? null
             : {
@@ -97,6 +98,12 @@ void main() {
                     {'url': 'https://a.example.invalid'},
                   ],
                 'paths': {
+                  if (sharedBinary) '/bytes': {
+                    'get': {'responses': {'200': {'description': 'Binary and JSON', 'content': {
+                      'application/octet-stream': {'schema': {r'$ref': 'shared.yaml#/components/schemas/Binary'}},
+                      'application/json': {'schema': {r'$ref': 'shared.yaml#/components/schemas/Binary'}},
+                    }}}},
+                  },
                   '/items': {
                     'get': {
                       'responses': {
@@ -147,6 +154,7 @@ void main() {
                   } else 'components': {
                     'schemas': {
                       'Value': {'type': 'integer'},
+                      if (sharedBinary) 'Binary': {'type': 'string', 'format': 'binary', 'description': '[Bytes](./bytes.md)'},
                     },
                   },
               })}\r\n';
@@ -342,6 +350,10 @@ void main() {
           expect(comparison.before, contains('Unsaved'));
           expect(comparison.after, contains(targetVersion));
           expect(comparison.after, contains('[Guide](/guide)'));
+          if (sharedBinary) {
+            expect(comparison.after, contains('_migrated_binary_use_'));
+            expect(comparison.after, contains('application/octet-stream'));
+          }
           if (uriSecurity) {
             expect(comparison.after, contains('_migrated_security_binding_'));
             expect(comparison.after, contains('_migrated_oauth_flow_'));

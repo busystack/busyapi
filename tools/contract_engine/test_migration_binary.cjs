@@ -26,7 +26,7 @@ async function wire(input,type,bytes,form=false){
 for(const from of legacy)for(const target of ['3.1.2','3.2.1'])for(const format of ['yaml','json'])
 test(`${from} -> ${target} ${format} raw body mapping retains exact non-Unicode and empty bytes`,async()=>{
  const type='application/octet-stream',input=capture(from,format,type,{type:'string',format:'binary',description:'Keep leaf'},target),before=input.resources[0].text;
- const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));assert.equal(plan.producerVersion,'73');
+ const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));assert.equal(plan.producerVersion,'74');
  const output=cold(plan);assert.deepEqual(schema(output,type),{description:'Keep leaf'});
  for(const bytes of [Buffer.from([0,255,128,195,169]),Buffer.alloc(0)]){
   assert.deepEqual(await wire(output,type,bytes),await wire(input,type,bytes));assert((await wire(output,type,bytes)).every(value=>value.valid));
@@ -119,6 +119,55 @@ test(`${format} ${target} mixed raw and JSON forwarding consumers retain indepen
   assert.deepEqual(await wire(output,'application/json',Buffer.from(text)),await wire(input,'application/json',Buffer.from(text)));
 });
 
+for(const format of ['yaml','json'])for(const array of [false,true])
+test(`${format} multipart raw ${array?'array items':'property'} and JSON consumers retain their separate schema models`,async()=>{
+ const type='multipart/form-data; boundary=Shared',reference={$ref:'#/components/schemas/Binary'};
+ const value=array?{type:'array',items:reference}:reference;
+ const object={type:'object',required:['payload'],properties:{payload:value,count:{type:'integer'}}};
+ const input=capture('3.0.4',format,type,object,'3.2.1'),doc=format==='json'?JSON.parse(input.resources[0].text):YAML.parse(input.resources[0].text);
+ doc.components={schemas:{Binary:{type:'string',format:'binary',description:'[Payload](./payload.md)'}}};
+ for(const content of [doc.paths['/bytes'].post.requestBody.content,doc.paths['/bytes'].post.responses[200].content]){
+  content[type].encoding={payload:{contentType:'application/octet-stream'}};
+  content['application/json']={schema:structuredClone(object)};
+ }
+ input.resources[0].text=render(doc,format);const original=input.resources[0].text;
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const output=cold(review),{graph}=createGraph(output);
+ assert.equal(graph.docs.get(output.root).dataNode('/components/schemas/Binary/type').value,'string');
+ assert.equal(graph.docs.get(output.root).dataNode('/components/schemas/Binary/format').value,'binary');
+ for(const invalid of [false,true]){
+  const bytes=Buffer.concat([Buffer.from('--Shared\r\nContent-Disposition: form-data; name="payload"\r\nContent-Type: application/octet-stream\r\n\r\n'),
+   Buffer.from([0,255,128]),Buffer.from('\r\n--Shared\r\nContent-Disposition: form-data; name="count"\r\n\r\n'+(invalid?'wrong':'7')+'\r\n--Shared--\r\n')]);
+  const before=await wire(input,type,bytes,true),after=await wire(output,type,bytes,true);
+  assert.deepEqual(after,before);assert(after.every(value=>value.complete&&value.valid===!invalid));
+ }
+ for(const payload of [array?['snow 雪']:'snow 雪',array?[false]:false]){
+  const bytes=Buffer.from(JSON.stringify({payload,count:7}));
+  assert.deepEqual(await wire(output,'application/json',bytes),await wire(input,'application/json',bytes));
+ }
+ assert.equal(input.resources[0].text,original);
+});
+
+for(const format of ['yaml','json'])for(const target of ['3.1.2','3.2.1'])for(const multipart of [false,true])
+test(`${format} ${target} data references to an inline raw ${multipart?'part':'body'} retain neutral string assertions`,async()=>{
+ const type=multipart?'multipart/form-data; boundary=Neutral':'application/octet-stream',leaf={type:'string',format:'binary',description:'Keep inline'};
+ const input=capture('3.0.4',format,type,multipart?{type:'object',required:['payload'],properties:{payload:leaf}}:leaf,target);
+ const doc=format==='json'?JSON.parse(input.resources[0].text):YAML.parse(input.resources[0].text);
+ for(const [content,pointer]of [
+  [doc.paths['/bytes'].post.requestBody.content,'/paths/~1bytes/post/requestBody/content/'],
+  [doc.paths['/bytes'].post.responses[200].content,'/paths/~1bytes/post/responses/200/content/']]){
+  content['application/json']={schema:{$ref:'#'+pointer+escape(type)+'/schema'+(multipart?'/properties/payload':'')}};
+  if(multipart)content[type].encoding={payload:{contentType:'application/octet-stream'}};
+ }
+ input.resources[0].text=render(doc,format);const original=input.resources[0].text;
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));const output=cold(review);
+ for(const text of ['"snow 雪"','false','null'])assert.deepEqual(await wire(output,'application/json',Buffer.from(text)),await wire(input,'application/json',Buffer.from(text)));
+ let bytes=Buffer.from([0,255,128]);
+ if(multipart)bytes=Buffer.concat([Buffer.from('--Neutral\r\nContent-Disposition: form-data; name="payload"\r\nContent-Type: application/octet-stream\r\n\r\n'),bytes,Buffer.from('\r\n--Neutral--\r\n')]);
+ const before=await wire(input,type,bytes,multipart),after=await wire(output,type,bytes,multipart);
+ assert.deepEqual(after,before);assert(after.every(value=>value.complete&&value.valid));assert.equal(input.resources[0].text,original);
+});
+
 for(const format of ['yaml','json'])for(const mode of ['constraint','ancestor','mixed','opaque','unbound','targeted'])
 test(`${format} incomplete ${mode} binary mapping retains a located refusal without output`,async()=>{
  const type=mode==='opaque'?'application/unknown-binary':'application/octet-stream';
@@ -140,7 +189,7 @@ test(`${format} incomplete ${mode} binary mapping retains a located refusal with
   for(const [content,pointer]of [
    [doc.paths['/bytes'].post.requestBody.content,'/paths/~1bytes/post/requestBody/content/'],
    [doc.paths['/bytes'].post.responses[200].content,'/paths/~1bytes/post/responses/200/content/']])
-   content['application/json']={schema:{$ref:'#'+pointer+escape(type)+'/schema'}};
+   content['application/json']={schema:{allOf:[{$ref:'#'+pointer+escape(type)+'/schema'}]}};
   input.resources[0].text=render(doc,format);
  }
  const before=input.resources[0].text,plan=await planMigration(input);assert.equal(plan.status,'blocked');assert.equal(plan.complete,false);assert.deepEqual(plan.outputs,[]);assert.deepEqual(plan.changes,[]);
