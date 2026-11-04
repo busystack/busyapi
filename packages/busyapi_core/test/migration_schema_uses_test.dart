@@ -5,8 +5,10 @@ import 'package:busyapi_core/busyapi_core.dart';
 import 'package:test/test.dart';
 
 import 'test_support.dart';
+import 'migration_mixed_holder_fixture.dart';
 
 void main() {
+  mixedLegacySchemaUses();
   for (final format in ['yaml', 'json']) {
     test('$format independent schema uses retain captured data through review and cold publication', () async {
       final directory = await Directory.systemTemp.createTemp('busyapi-schema-uses-');
@@ -47,7 +49,7 @@ void main() {
       addTearDown(review.close);
       expect(review.publishable, true, reason: '${review.result}');
       expect(review.unsaved, true);
-      expect(review.result['producerVersion'], '79');
+      expect(review.result['producerVersion'], '80');
       await expectLater(review.publish(cancelled: () => true),
           throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'cancelled')));
       expect(await Directory(destination).exists(), false);
@@ -127,6 +129,48 @@ void main() {
       expect((model['default'] as Map)['properties']['next'][r'$dynamicRef'], '#node');
       expect(text, contains('9007199254740993.00'));
       expect(await file.readAsString(), original);
+    });
+  }
+}
+
+void mixedLegacySchemaUses() {
+  for (final (restrictedVersion, target) in [('2.0', '3.2.1'), ('2.0', '2.0'), ('3.0.4', '3.2.1'), ('3.0.4', '3.0.4')]) {
+    test('mixed $restrictedVersion holders retain recursive identified schemas, literal aliases and exact values for $target', () async {
+      final directory = await Directory.systemTemp.createTemp('busyapi-mixed-legacy-schemas-');addTearDown(() => directory.delete(recursive: true));
+      final originals = mixedLegacyHolderDocuments('https://api.invalid', restrictedVersion: restrictedVersion);
+      for (final entry in originals.entries) {
+        final file = File('${directory.path}/${entry.key}');await file.parent.create(recursive: true);await file.writeAsString(entry.value);
+      }
+      final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);addTearDown(engine.close);
+      final source = await BusyProject.open(directory.path, engine);addTearDown(source.close);
+      final legacy = File('${directory.path}/legacy/api.yaml').uri.toString(), modern = File('${directory.path}/modern/api.yaml').uri.toString();
+      Future<void> inspect(BusyProject project, String root, String pointer) async {
+        final plan = await project.prepareRequest(root, resource: root, pointer: '/paths/~1value/get');
+        try {
+          final result = await plan.evaluateRuntime([
+            for (final text in ['[]', '[[]]', '[[[]]]', '[0]', 'null']) RuntimeSchemaInstance(
+              subject: 'response-body', location: 'recursive', text: text, schemaResource: root, schemaPointer: pointer),
+            for (final text in ['9007199254740993.00', '9007199254740992', 'null']) RuntimeSchemaInstance(
+              subject: 'response-body', location: 'exact', text: text, schemaResource: root,
+              schemaPointer: pointer.startsWith('/definitions') ? '/definitions/Model' : '/components/schemas/Model'),
+          ]);
+          expect(result['complete'], true, reason: '$result');
+          expect((result['runtimeEvaluations'] as List).map((value) => value['valid']), [true, true, true, false, false, true, false, false]);
+        } finally { plan.close(); }
+      }
+      await inspect(source, modern, '/components/schemas/Node');
+      final review = await source.prepareMigration(legacy, '${directory.path}/output', targetVersion: target);addTearDown(review.close);
+      expect(review.publishable, true, reason: '${review.result}');await review.publish();
+      final modernPath = Uri.parse(review.changes.singleWhere((change) => change.resource == modern).destination).pathSegments.last;
+      final shared = File('${directory.path}/models/shared.yaml').uri.toString();
+      final sharedCopy = review.changes.singleWhere((change) => change.resource == shared).destination;
+      expect(await File.fromUri(Uri.parse(sharedCopy)).readAsString(), originals['models/shared.yaml']);
+      source.close();final moved = await Directory(review.destination).rename('${directory.path}/cold');
+      for (final path in originals.keys) await File('${directory.path}/$path').delete();
+      final cold = await BusyProject.open(moved.path, engine);addTearDown(cold.close);
+      final root = File('${moved.path}/$modernPath').uri.toString();
+      expect((await cold.check(root))['status'], 'complete');
+      await inspect(cold, root, target == '2.0' ? '/definitions/Node' : '/components/schemas/Node');
     });
   }
 }

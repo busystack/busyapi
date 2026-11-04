@@ -9,7 +9,8 @@ import {securityFlowOrder} from './security_requirements';
 
 /** Evaluate actual target representation. A simple 3.x API can be faithfully
  * represented in Swagger; newer-only constructs receive located blockers. */
-export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,MigrationSource>,from:string,issue:MigrationIssue):void {
+export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,MigrationSource>,from:string,issue:MigrationIssue,
+    releaseNativeHolders?:()=>void):void {
     for(const scope of graph.scopes.values()){
         if(scope.family!==from)continue;
         const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);if(pointer===undefined)continue;
@@ -103,6 +104,7 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migrati
             if(value.type==='apiKey'&&!['query','header'].includes(value.in))issue(scope,'migration.security.location','Swagger API keys must be query or header parameters','target-representation');
         }
     }
+    releaseNativeHolders?.();
     for(const [resource,specification]of graph.specifications){
         if(specification.family!==from)continue;
         const source=sources.get(resource)!,servers=source.doc.dataNode('/servers')?.value;

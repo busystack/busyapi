@@ -5,9 +5,28 @@ import 'package:busyapi_core/busyapi_core.dart';
 import 'package:test/test.dart';
 
 import 'test_support.dart';
+import 'migration_mixed_holder_fixture.dart';
 
 void main() {
-  for (final foreignVersion in ['3.0.4', '3.1.2']) {
+  test('declared legacy substitution is refused before Core publication', () async {
+    final directory = await Directory.systemTemp.createTemp('busyapi-legacy-family-refusal-');addTearDown(() => directory.delete(recursive: true));
+    final documents = mixedHolderDocuments('3.0.4', 'https://api.invalid');
+    final primary = jsonDecode(documents['a.yaml']!.split('\r\n')[1]) as Map;
+    primary['paths']['/local']['post']['responses']['200']['content']['application/json']['schema'] = {
+      r'$ref': 'b.yaml#/paths/~1p/post/responses/200/content/application~1json/schema',
+    };
+    documents['a.yaml'] = jsonEncode(primary);
+    for (final entry in documents.entries) await File('${directory.path}/${entry.key}').writeAsString(entry.value);
+    final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);addTearDown(engine.close);
+    final source = await BusyProject.open(directory.path, engine);addTearDown(source.close);
+    final root = File('${directory.path}/a.yaml').uri.toString();
+    final review = await source.prepareMigration(root, '${directory.path}/refused', targetVersion: '3.2.1');addTearDown(review.close);
+    expect(review.publishable, false);expect(review.result['outputs'], isEmpty);
+    expect((review.result['problems'] as List).whereType<Map>().any((problem) => problem['code'].toString().contains('reference.family')), true);
+    await expectLater(review.publish(), throwsA(isA<CoreFailure>()));expect(Directory(review.destination).existsSync(), false);
+    for (final entry in documents.entries) expect(await File('${directory.path}/${entry.key}').readAsString(), entry.value);
+  });
+  for (final foreignVersion in ['3.1.2']) {
     test('mixed $foreignVersion component owners retain native bindings and wire behavior after relocation', () async {
       final directory = await Directory.systemTemp.createTemp('busyapi-mixed-owners-');
       addTearDown(() => directory.delete(recursive: true));

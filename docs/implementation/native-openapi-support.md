@@ -31,7 +31,65 @@ consume those shared results. Source-preserving transactions remain authoritativ
 Current changes require complete engine, Core, native and packaged verification;
 source inspection or a successful build is not runtime acceptance.
 
-## Current continuation: exact configuration verification
+## A01: mixed-family uses without direct native holders
+
+**Source-complete, unverified for A01's representable no-holder paths.**
+The bounded completion program was read from
+`~/Downloads/BusyAPI-bounded-completion-program-20261104.md`; the primary
+checkout was verified clean at `79694f538da9d4fc3a8f526da84d7ab953d7b561`.
+`MigrationSchemaOwners` now supplies standard typed Callback/Path Item/Response
+layouts for pre-3.1 Path Items, Operations and pre-3.2 Media. Holder family and
+container are checked before allocation; immutable CST copies, exact provenance,
+selected-consumer repairs and context/connection proofs remain required. These
+unused reusable holders add no public route or discriminator model name, following
+the [Components Object rules](https://spec.openapis.org/oas/v3.0.4.html#components-object).
+Compatible anonymous Swagger/modern fragments retain their entry semantics.
+
+Intrinsic native schema roots enter the existing resource-holder preparation
+when a security/operation name selects their containing object. Foreign native
+requirements use collision-checked Security Scheme aliases, excluding configured
+names. Compatible families use bare Reference Objects; 3.0 boundaries use common
+CST copies only for proved API-key/HTTP declarations, including base-independent
+plain descriptions and exact extension data. Equal field profiles can retain an
+unchanged name, while the per-entry connection proof still requires its captured
+target or a common-allocator copy. Annotated Reference Object overrides, richer
+authentication objects and descriptions needing URI-context repair retain the
+located `migration.owners.connection-family` implementation refusal. No legacy
+Reference Object compatibility exception was added; configuration still uses
+the exact projection. Coordinated
+Swagger conversion releases only converted generated Path Item/Operation holders
+into the common anonymous registry before native component checks. Holder selection also uses the final target
+family so an intermediate modern stage cannot leave invalid 3.0 Path Item maps.
+Authored Operation method slots are retained; inherited Path Item parameters or
+server overrides needing an additional context mapping retain the located
+`migration.owners.operation-context` implementation refusal. Source family,
+dialect, URI, static/dynamic, literal, alias and publication guards remain
+mandatory; declared legacy cross-family references retain their located refusal.
+
+Prepared coverage extends `test_migration_schema_uses.cjs`,
+`test_migration_object_uses.cjs` and their existing Core suites, plus registered
+`test_migration_mixed_holders.cjs`, Core `migration_mixed_holders_test.dart` and
+native `migration_mixed_holders_review_test.dart`. Cases include Swagger↔modern
+and 3.0↔modern entries, anonymous Operations, identified recursive schemas,
+partial dynamic resources, exact values/aliases, distinct entry URI bases,
+traversal-order independence, named connections, authentication-name collisions,
+HTTP bytes, unsaved/stale/cancelled captures, original preservation/deletion,
+cold relocation, CLI review and precise refusal without output. Producer/Core
+admission/native preflight are `80`; obsolete `79` rejection is prepared too.
+
+**All regressions are prepared, not run.** Only source reads/edits and Git
+whitespace checks were performed. No compiler, analyzer, test, code generation,
+build, CI, native/browser, packaging or performance workload ran; Snapcraft stays
+skipped and the installed toolchain/third-party software remain unchanged.
+No remaining representable no-holder implementation subcase is identified within
+A01's defined boundary. Overlapping destination interpretations remain A02;
+whole-resource/dynamic ownership conflicts, inherited Operation context, richer authentication/rendered-URI
+mappings and unsupported vocabulary/object conversions retain located refusals
+and their assigned follow-on work. The prepared legacy-substitution tests now
+assert that refusal instead of demanding an unapproved compatibility exception.
+**Next: A02, not started. Overall SOURCE COMPLETE and ACCEPTED remain unmet.**
+
+## Earlier continuation: exact configuration verification
 
 Core migration review now reads numeric scalar provenance with the existing YAML
 parser for both source configuration and delivered JSON. Its independent
@@ -123,11 +181,10 @@ Continuation checkpoint for the current primary checkout:
   ownership), `b545f3d` (constant/inactive schema mappings), `b1ad20e` (bounded
   witnesses) and `e540d46` (uniform unbounded tuple tails). All changes are local;
   no worktree, push, dependency modification or SDK replacement was performed.
-- Next W2 source target: `migration_schema_uses.ts`, especially
+- Earlier W2 source target (superseded for direct-holder shortages by A01 above): `migration_schema_uses.ts`, especially
   `entryComponentLocation`/`entryComponentContainer` and the
   `migration.owners.entry-resource` / `migration.owners.resource-context`
-  branches. Mixed-family native uses with no compatible existing holder,
-  independently interpreted destination containers, remaining resource identity
+  branches. Independently interpreted destination containers, remaining resource identity
   conflicts and shared-context refactoring still require ownership algorithms.
   The binary extension covers finite static containment/composition routes; it
   does not close general W2 or constrained raw-instance assertion mappings.
@@ -219,8 +276,8 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 
 | ID / requirement and authority | Production owner | Surfaces | Prepared regression coverage | Implementation status / remaining closure | Executed acceptance |
 | --- | --- | --- | --- | --- | --- |
-| W2.01 Per-use entry namespace, role, family/dialect, URI base, resource boundary, direction and independent literal uses; JC §§8–9, URI/TEXT | `migration_documents.ts`, `MigrationSource`, canonical graph | M S C | document-owner/direction/boolean-owner suites (existing); use-capture controls in document-owner suite | Partially implemented; planning contexts now retain these use records; retrieval bookkeeping no longer creates false conflicts; pure static forwarders share a proved representation across modern entry dialects; differing unversioned schemas/native components now acquire common entry owners through typed containment and reference closure; whole identified resources and implicit boundaries receive independent collision-checked identities; implicit security/discriminator connections and Swagger/modern allOf named-model tables now seed the same closure; partial modern resources and native schema slots now share one proved holder; same-family foreign document uses now receive entry owners too; typed entry owners retain distinct parent roles; operation-name links materialize to exact captured URI targets when their operations acquire variants. Reviewed extract/move/inline, rename and explicit YAML independence reuse exact token ownership through native controls, Core transactions and CLI reviews; mixed-family components use compatible foreign native maps and partial resource holders. Entry-qualified reference/dynamic-candidate and context proofs follow terminal material owners across conversion/relocation, and owning-entry literal/secondary Schema views can specialize. Allocation first preserves map/document Schema views through the same role relation; assertions and polymorphic connections retain compatible named or anonymous holders. Mixed-family uses without a holder, other destination interpretations and refactoring roles still need algorithms | H |
-| W2.02 One deterministic specialization mechanism, selected-consumer repair, collisions and provenance; JC resource/reference rules, family object clauses | `migration_schema_owners.ts`, migration direction/discriminator/identity/shared-text/examples, `migration_schema_uses.ts` | M E S C | alias/boolean/inactive annotation/direction suites, `test_migration_schema_uses`, `test_migration_object_uses`, Core `migration_schema_uses_test` / `migration_object_uses_test` and existing publication suites | Partially implemented; common allocator serves schema containers, boolean/annotation/condition/tuple/name owners and direction/discriminator states, plus security binding/flow variants and ignored Reference Object literal owners. Additional typed uses compose transitively through the same provenance; anonymous storage retains each source format and ordered sequence expansion retains original member coordinates. Pre-conversion and patch-relocation ownership separates established schema and native object uses from data; repairs select intrinsic roles. Anchored/dynamic uses retain a proved existing resource through ordinary schema/object holders or their own retained $id. Native overlapping roles now use the same allocator and per-role static reference repair; Design, Reference, schema trees, examples and validation retain established interpretations. Independent native/schema URI contexts, intrinsic containment, meta roots and exact executable views retain the canonical source owner; role-selected Markdown bases survive scalar navigation. Cross-entry static forwarding and recursive/schema/Header ownership now propagate to each entry; whole identified/dynamic resources use entry-owned identity namespaces and active-owner conversion/relocation; entry namespaces, Swagger model tables and ordinary role/literal copies now use captured active contexts; partial modern schema/native-field resources share common material owners and captured slot references; model-sensitive map and whole-resource views now use neutral anonymous holders, including boolean alternatives, and forward proved native identified children through that same material-owner primitive; compatible foreign component maps preserve mixed-family source contexts through the same allocator and proofs; restricted Schema Object copies and conversion hoists now share anonymous array-item owners, captured entry contexts, passive URI preservation and common reservation/provenance/retirement; containing and composition-dependent binary uses now select finite instance-path owners, preserve independently targeted inline roots/descendants through neutral owners, and repair only captured route edges; objects without a compatible holder and remaining resource/refactoring contexts still need algorithms | H |
+| W2.01 Per-use entry namespace, role, family/dialect, URI base, resource boundary, direction and independent literal uses; JC §§8–9, URI/TEXT | `migration_documents.ts`, `MigrationSource`, canonical graph | M S C | document-owner/direction/boolean-owner suites (existing); use-capture controls in document-owner suite | Partially implemented; planning contexts now retain these use records; retrieval bookkeeping no longer creates false conflicts; pure static forwarders share a proved representation across modern entry dialects; differing unversioned schemas/native components now acquire common entry owners through typed containment and reference closure; whole identified resources and implicit boundaries receive independent collision-checked identities; implicit security/discriminator connections and Swagger/modern allOf named-model tables now seed the same closure; partial modern resources and native schema slots now share one proved holder; same-family foreign document uses now receive entry owners too; typed entry owners retain distinct parent roles; operation-name links materialize to exact captured URI targets when their operations acquire variants. Reviewed extract/move/inline, rename and explicit YAML independence reuse exact token ownership through native controls, Core transactions and CLI reviews; mixed-family components use compatible foreign native maps and partial resource holders. Entry-qualified reference/dynamic-candidate and context proofs follow terminal material owners across conversion/relocation, and owning-entry literal/secondary Schema views can specialize. Allocation first preserves map/document Schema views through the same role relation; assertions and polymorphic connections retain compatible named or anonymous holders. A01 adds typed Callback/Path Item/Response containment and proved named-security aliases/copies for mixed-family uses lacking direct holders; coordinated Swagger conversion releases generated native holders through the common CST owner. Other destination interpretations and resource/refactoring contexts still need algorithms | H |
+| W2.02 One deterministic specialization mechanism, selected-consumer repair, collisions and provenance; JC resource/reference rules, family object clauses | `migration_schema_owners.ts`, migration direction/discriminator/identity/shared-text/examples, `migration_schema_uses.ts` | M E S C | alias/boolean/inactive annotation/direction suites, `test_migration_schema_uses`, `test_migration_object_uses`, Core `migration_schema_uses_test` / `migration_object_uses_test` and existing publication suites | Partially implemented; common allocator serves schema containers, boolean/annotation/condition/tuple/name owners and direction/discriminator states, plus security binding/flow variants and ignored Reference Object literal owners. Additional typed uses compose transitively through the same provenance; anonymous storage retains each source format and ordered sequence expansion retains original member coordinates. Pre-conversion and patch-relocation ownership separates established schema and native object uses from data; repairs select intrinsic roles. Anchored/dynamic uses retain a proved existing resource through ordinary schema/object holders or their own retained $id. Native overlapping roles now use the same allocator and per-role static reference repair; Design, Reference, schema trees, examples and validation retain established interpretations. Independent native/schema URI contexts, intrinsic containment, meta roots and exact executable views retain the canonical source owner; role-selected Markdown bases survive scalar navigation. Cross-entry static forwarding and recursive/schema/Header ownership now propagate to each entry; whole identified/dynamic resources use entry-owned identity namespaces and active-owner conversion/relocation; entry namespaces, Swagger model tables and ordinary role/literal copies now use captured active contexts; partial modern schema/native-field resources share common material owners and captured slot references; model-sensitive map and whole-resource views now use neutral anonymous holders, including boolean alternatives, and forward proved native identified children through that same material-owner primitive; compatible foreign component maps preserve mixed-family source contexts through the same allocator and proofs; restricted Schema Object copies and conversion hoists now share anonymous array-item owners, captured entry contexts, passive URI preservation and common reservation/provenance/retirement; containing and composition-dependent binary uses now select finite instance-path owners, preserve independently targeted inline roots/descendants through neutral owners, and repair only captured route edges; A01 extends the same owner layouts to mixed-family Operations, pre-3.1 Path Items and pre-3.2 Media without direct holders, including intrinsic schema resources and named security aliases; remaining destination/resource/refactoring contexts still need algorithms | H |
 | W2.03 Twelve directed routes and same-family patch behavior; family schema clauses, J4/JC applicators | `migration_routes.ts`, Swagger/schema/binary/direction owners | M S C | `test_migration_entry_routes`, `test_migration_direct_swagger`, `test_swagger_empty_tuple`, Core entry routes and `migration_direct_swagger_test.dart` | Partially implemented; Swagger-to-modern now bypasses 3.0, mapping positional items directly; empty tuples retain no-op meaning; full route qualification and shared-role cases remain | H |
 | W3.01 Directional annotations and shared request/response/Header consumers in both directions; O20 Schema, O30 Schema, O31/O32 annotations | `migration_access.ts`, `migration_direction.ts`, required-presence owner | M E S C | direction/access/required-presence/Header suites and Core access review | Partially implemented; direct Swagger modern routes use existing specialization; active downgrade and mixed-entry ownership remain | H |
 | W3.02 Positional tuples/tails, recursion, exact bounds and references; J4 §5.3, JC §10.3.1 | `migration_schema.ts`, routes and schema-reference owners | M E S C | direct-Swagger/empty-tuple/migration suites and `test_migration_tuple_tails` | Partially implemented; unbounded Swagger tails upgrade to modern `prefixItems`; finite constrained modern tails expand to bounded Swagger positions referencing one retained tail owner; bounds now include same-instance composition, fixed references, finite enum/const values, non-array types, unreachable prefixes and constant containment counts; independent boolean tails retain owners too; unbounded annotation-free type tails now lower through one uniform items conjunct when every positional prefix implies that type, with exact enum/const, fixed-reference and composition proofs and retained prefix/tail owners; other unbounded constrained tails and additional equivalent downgrade algorithms remain | H |
@@ -260,7 +317,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W7.01 Creation, editing, unsaved Reference, request/example/mock/case, migration review, documentation and CLI integration for every capability; all applicable clauses above | shared engine, Core owners and native workspace controls | A R E M S C | engine/Core/widget/native journey suites | Partially implemented; applicable existing consumers inherit shared field/codec/routing changes; complete family journeys are not accepted | H |
 | W7.02 Stale-action invalidation on declaration/dialect/root/external/approval changes; coherent reviewed transactions, Undo/Redo and no buffer loss; Core transaction contract | Core project/store/capture and native review/request controllers | A R E M S C | stale capture/cancellation/publication/widget review suites | Partially implemented; existing source for existing safeguards; new paths require current integration qualification | H |
 | W7.03 CST fidelity, no-op saves, exact values, aliases, extensions and source-only migration restructuring; TEXT | `document.ts`, graph/CST editing, Core store/transaction owners | A R M S C | source ownership/alias/exact-value/no-op suites | Partially implemented; existing source for existing boundaries; generated schema owners retain original provenance and reviewed restructuring | H |
-| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+58`, migration producer `79`, response mock producer `5`, parameter mock producer `4`, sample producer is now `4`; no dependency versions/source changed | H |
+| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+58`, migration producer `80`, response mock producer `5`, parameter mock producer `4`, sample producer is now `4`; no dependency versions/source changed | H |
 | W8.01 Explicit independent evidence input across SDK/build/CMake/CI/installed/package checks; PINS | `flutter_archive.py`, SDK verifier, `build_linux.sh`, CMake, package/native-distribution/artifact-smoke inputs | P | `tools/test_flutter_sdk.py`, source-wiring regressions | Partially implemented; existing source for archive-input propagation; same existing evidence reaches installed checks; independent member pins remain an alternative; no SDK acquisition/replacement | H; actual evidence availability/authenticity has not been qualified |
 | W8.02 Ordered gates, registration, source-version-valid fixtures and production-byte regressions; PINS and each row's authority | `tools/build_engine.sh`, Linux workflow, engine/Core/widget/native/package suites | P | new direct-Swagger/conditional/tuple-tail/constant-containment/property-name/runtime-parameter and URI-security/OAuth-flow/invariant regressions registered; existing TypeScript-before-bundle gate retained | Partially implemented; compilation and all suspended gates remain unexecuted; missing regression coverage identified in this register remains implementation work | H |
 | W8.03 Current automated/native/packaged/offline acceptance and normal Quit; all approved families and PINS | native acceptance tools, Core/package/CLI suites | A R E M S C P | existing native acceptance including historical Quit/focus failures; complete new journeys still required | Missing for accepted evidence; no driver/engine attribution established; Snapcraft remains skipped | H |
@@ -640,9 +697,11 @@ captured unsaved changes, stale/cancelled publication, real HTTP request/respons
 bytes, original deletion, relocated roots and CLI checking. Coverage is prepared,
 unexecuted. Migration producer `49` is synchronized with Core/preflight.
 
-Partial schema resources and native uses lacking an ordinary
-component holder retain the precise `migration.owners.entry-resource`
-implementation refusal. This is unfinished ownership work, not a claim of
+At that checkpoint, partial schema resources and native uses lacking an ordinary
+component holder retained `migration.owners.entry-resource`. A01 above now supplies
+standard typed holders for the missing modern native positions and routes their
+intrinsic schemas through the common resource preparation. Remaining located
+resource/destination refusals identify unfinished algorithms rather than normative
 unrepresentability. Differing implicit namespace specializations and refactoring
 also remain in W2/W6.
 
@@ -875,7 +934,8 @@ the captured containing document. Entry namespaces, authored family/dialect and
 physical holder no longer have to coincide (O31 §4.3.2–§4.3.3, O32 §4.1.2).
 Partial modern resources use that holder too, retaining a single independently
 identified material resource. Existing typed consumer, URI, binding, dynamic,
-provenance and publication proofs remain mandatory. Swagger model registries, foreign objects without a proved holder and
+provenance and publication proofs remain mandatory. A01 above adds holders for
+foreign native objects lacking a direct component map. Swagger model registries and
 containers without an established independent ownership proof retain precise
 implementation refusals. Registered engine/Core entry-owner suites prepare YAML/JSON upgrades
 and downgrades, shared Header/schema bindings, partial recursive dynamic scopes,

@@ -25,7 +25,7 @@ async function migrate(input){
  const before=input.resources.map(resource=>resource.text);
  const review=await planMigration(input);
  assert.equal(review.complete,true,JSON.stringify(review.problems));
- assert.equal(review.producerVersion,'79');
+ assert.equal(review.producerVersion,'80');
  const output=delivered(review);
  assert.equal(analyse(output).status,'complete');
  assert.deepEqual(input.resources.map(resource=>resource.text),before);
@@ -248,4 +248,26 @@ test('shared Header reference syntax separates native-object and schema consumer
  assert.notEqual(schema.targetResource,output.root);
  const values=['null','false','0','1','{}','[]'];
  assert.deepEqual(await outcomes(output,'/components/schemas/HeaderSchema',values),await outcomes(input,'/components/schemas/HeaderSchema',values));
+});
+
+for(const format of ['yaml','json'])for(const [restrictedVersion,target]of [['2.0','3.2.1'],['2.0','2.0'],['3.0.4','3.2.1'],['3.0.4','3.0.4']])
+test(`${format} identified recursive Schema resources coexist with mixed ${restrictedVersion} anonymous holders for ${target}`,async()=>{
+ const input=require('./migration_mixed_holders_fixture.cjs')(format,target,restrictedVersion),before=input.resources.map(resource=>resource.text);
+ const modern=input.resources[1].id,pointer='/components/schemas/Node',values=['[]','[[]]','[[[]]]','[0]','null'];
+ assert.deepEqual(await outcomes({...input,root:modern},pointer,values),[true,true,true,false,false]);
+ const {review,output}=await migrate(input),root=review.changes.find(change=>change.resource===modern).destination;
+ assert.deepEqual(await outcomes({...output,root},target==='2.0'?'/definitions/Node':pointer,values),[true,true,true,false,false]);
+ const graph=createGraph({...output,root}).graph;
+ assert.equal(graph.issues.some(issue=>issue.code==='reference.identity.duplicate'),false);
+ const node=graph.docs.get(root).dataNode(target==='2.0'?'/definitions/Node':pointer);
+ if(target!=='2.0')assert.equal(node.value.$id,'https://schemas.invalid/legacy-holder-node');
+ assert.deepEqual(input.resources.map(resource=>resource.text),before);
+});
+
+test('declared Swagger-to-modern Schema references retain their located family refusal',async()=>{
+ const input=require('./migration_mixed_holders_fixture.cjs')('json','3.2.1'),legacy=JSON.parse(input.resources[0].text);
+ legacy.definitions.Model={$ref:'../modern/api.json#/components/schemas/Node'};input.resources[0].text=JSON.stringify(legacy);
+ const review=await planMigration(input);assert.equal(review.complete,false);assert.equal(review.status,'blocked');
+ assert(review.problems.some(problem=>problem.resource===input.root&&problem.code.includes('reference.family')));
+ assert.deepEqual(review.outputs,[]);assert.deepEqual(review.changes,[]);
 });

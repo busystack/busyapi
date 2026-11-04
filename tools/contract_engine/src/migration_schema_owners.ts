@@ -1,4 +1,5 @@
 import {createHash} from 'node:crypto';
+import {standardOperationMethods} from './contexts';
 import {componentLocation,richTextField} from './authoring';
 import {escape,segments,SourceError,type Range,type SourceDocument} from './document';
 import {documentUriOccurrences,type DocumentUriOccurrence} from './document_uris';
@@ -7,6 +8,8 @@ import type {MigrationLocation,MigrationSource} from './migration_source';
 import {migrationLogicalPointers} from './migration_yaml_ownership';
 
 type SemanticOwner=Readonly<{source:GraphScope;owner:GraphScope;location:MigrationLocation}>;
+export type MigrationOwnerLayout='array-item'|'callback-path-item'|'callback-operation'|'path-item-operation'|'response-media';
+export type MigrationOperationSlot=Readonly<{method:string;additional:boolean}>;
 
 /** Generated schema and OpenAPI object owners share one reservation/provenance boundary. A label
  * describes the reviewed restructuring; identity comes from the captured use,
@@ -21,6 +24,9 @@ export class MigrationSchemaOwners {
     private readonly roleUses=new Map<string,SemanticOwner[]>();
     private readonly additionalUses=new Map<string,{location:MigrationLocation;excludedFields:ReadonlySet<string>}[]>();
     private readonly copiedOperationIds=new Set<string>();
+    private readonly connectionAliases=new Map<string,string>();
+    private readonly nativeReleases:{family:string;source:MigrationSource;material:MigrationLocation;retirement:MigrationLocation;
+        container:string;destination:{source:MigrationSource;location:MigrationLocation}}[]=[];
     private readonly copiedOwners=new Map<string,{location:MigrationLocation;retirement:MigrationLocation;schemaIdentity:boolean}>();
     private readonly documentUris=new WeakMap<ReferenceGraph,readonly DocumentUriOccurrence[]>();
     private identityConsumers?:readonly MigrationLocation[];
@@ -28,7 +34,8 @@ export class MigrationSchemaOwners {
     constructor(private readonly graph:ReferenceGraph,
         private readonly sources:ReadonlyMap<string,MigrationSource>,
         private readonly generatedResource?:(format?:SourceDocument['format'])=>MigrationSource,reservedIdentities:Iterable<string>=[],
-        private readonly contexts:readonly ReferenceGraph[]=[graph]){
+        private readonly contexts:readonly ReferenceGraph[]=[graph],
+        private readonly connectionNames:ReadonlySet<string>=new Set()){
         this.externalIdentities=new Set([...reservedIdentities].map(uri=>new URL(uri).href));
     }
 
@@ -282,12 +289,76 @@ export class MigrationSchemaOwners {
         return location.resource+pointerFragment(pointer);
     }
 
-    private materialOwner(reservation:{source:MigrationSource;location:MigrationLocation},layout:'array-item'|undefined):{
+    /** A named security connection in a foreign native owner must select the
+     * same definition in every entry. Bare Reference Object aliases retain
+     * native definitions; an explicitly proved common concrete representation
+     * uses the same CST-copy/provenance owner when family substitution is barred.
+     * Names and CST work still pass through the common reservation boundary. */
+    securityAlias(containers:readonly MigrationLocation[],target:MigrationLocation,identity:string,
+        excludedNames:ReadonlySet<string>,definition?:Readonly<{scope:GraphScope;origin:GraphScope;captured:MigrationSource}>):string {
+        const previous=this.connectionAliases.get(identity);if(previous!==undefined)return previous;
+        let name:string|undefined;
+        for(const container of containers){
+            this.inspectUse();const source=this.sources.get(container.resource)!;
+            const excluded=new Set([...excludedNames,...this.connectionNames]);
+            const at=definition?this.separate(definition.scope,'security_owner',{
+                container,captured:definition.captured,identity,excludedNames:excluded}).location:
+                this.allocate(source,container.pointer,'security_owner',identity,excluded);
+            const selected=segments(at.pointer).at(-1)!;
+            if(name!==undefined&&name!==selected)
+                throw new SourceError('migration.owners.connection-name','No common collision-free security alias name is available');
+            name=selected;
+            if(definition){
+                this.rememberAdditionalUse(container.resource,definition.scope,at);
+                if(definition.origin.resource!==definition.scope.resource||definition.origin.pointer!==definition.scope.pointer)
+                    this.rememberAdditionalUse(container.resource,definition.origin,at);
+            }else{
+                this.admit(source);source.set(at.pointer,{$ref:target.resource+pointerFragment(target.pointer)});
+                for(const pointer of [at.pointer,at.pointer+'/$ref'])source.origins.set(pointer,new Set([pointer]));
+            }
+            source.presentationChanges.push(at.pointer);
+        }
+        if(name===undefined)throw new SourceError('migration.owners.connection-name','A security alias needs captured native entry containers');
+        this.connectionAliases.set(identity,name);return name;
+    }
+
+    private materialOwner(reservation:{source:MigrationSource;location:MigrationLocation},layout:MigrationOwnerLayout|undefined,
+        operation?:MigrationOperationSlot):{
         source:MigrationSource;location:MigrationLocation;retirement:MigrationLocation;
     } {
-        if(layout){this.admit(reservation.source,8);reservation.source.set(reservation.location.pointer,{type:'array',items:{}});}
+        const method=operation?.method??'get',slot=(operation?.additional?'/additionalOperations':'')+'/'+escape(method);
+        const pathItem=operation?.additional?{additionalOperations:{[method]:{}}}:{[method]:{}};
+        const suffix=layout==='array-item'?'/items':layout==='callback-path-item'?'/{$url}':
+            layout==='callback-operation'?'/{$url}'+slot:layout==='path-item-operation'?slot:
+                layout==='response-media'?'/content/application~1octet-stream':'';
+        if(layout){
+            this.admit(reservation.source,8);reservation.source.set(reservation.location.pointer,
+                layout==='array-item'?{type:'array',items:{}}:layout==='response-media'?{description:'',content:{'application/octet-stream':{}}}:
+                    layout==='path-item-operation'?pathItem:
+                    {'{$url}':layout==='callback-operation'?pathItem:{}});
+        }
         return {...reservation,retirement:reservation.location,
-            location:layout?{...reservation.location,pointer:reservation.location.pointer+'/items'}:reservation.location};
+            location:{...reservation.location,pointer:reservation.location.pointer+suffix}};
+    }
+
+    /** Mixed modern entries reach Swagger in one coordinated stage. Keep the
+     * native family holder until its fields have been converted, then move the
+     * converted material into the same anonymous registry used by ordinary
+     * Swagger fragments. Only generated wrappers/containers may retire here;
+     * authored callbacks, Path Items and their target checks remain intact. */
+    releaseNativeHolders(family:string):void {
+        for(const holder of this.nativeReleases){
+            this.inspectUse();if(holder.family!==family)continue;
+            if(holder.source.doc.dataNode(holder.material.pointer)){
+                const {source,location}=holder.destination;
+                this.admit(source,8);this.admit(holder.source,8);
+                source.copy(holder.source,holder.material.pointer,location.pointer,true);
+                holder.source.remove(holder.retirement.pointer);source.presentationChanges.push(location.pointer);
+            }
+            if(!holder.source.original.dataNode(holder.container)&&holder.source.doc.dataNode(holder.container)?.children.size===0){
+                this.admit(holder.source);holder.source.remove(holder.container);
+            }
+        }
     }
 
     move(origin:MigrationLocation,source:MigrationSource,pointer:string,label:string,
@@ -334,15 +405,29 @@ export class MigrationSchemaOwners {
      * composes this relation with the final coordinates after conversion. */
     separate(origin:GraphScope,label:string,options:Readonly<{
         container?:MigrationLocation;captured?:MigrationSource;identity?:string;
-        layout?:'array-item';
+        layout?:MigrationOwnerLayout;
+        operationSlot?:MigrationOperationSlot;
         retained?:readonly MigrationLocation[];schemaIdentity?:boolean;
         excludedNames?:ReadonlySet<string>;
+        releaseNativeHolder?:boolean;
     }>={}):Readonly<{
         location:MigrationLocation;provenance:ReadonlyMap<string,MigrationLocation>;
     }> {
         const {container,captured,layout,identity=JSON.stringify([origin.resource,origin.pointer]),retained=[]}=options;
-        if(layout&&(origin.kind!=='schema'||!container||!['2.0','3.0'].includes(origin.family)))
+        if(layout==='array-item'&&(origin.kind!=='schema'||!container||!['2.0','3.0'].includes(origin.family)))
             throw new SourceError('migration.owners.layout','An anonymous array-item owner requires a compatible restricted Schema Object container');
+        if(layout&&layout!=='array-item'&&(!container||
+            (layout==='response-media'?origin.kind!=='media'||!['3.0','3.1'].includes(origin.family):
+                layout==='callback-path-item'?origin.kind!=='path-item'||!['3.0','3.1','3.2'].includes(origin.family):
+                origin.kind!=='operation'||(layout==='callback-operation'?!['3.0','3.1','3.2'].includes(origin.family):!['3.1','3.2'].includes(origin.family)))||
+            container.pointer!==componentLocation(layout==='response-media'?'responses':layout==='path-item-operation'?'pathItems':'callbacks',origin.family)||
+            this.graph.specifications.get(container.resource)?.family!==origin.family))
+            throw new SourceError('migration.owners.layout','This native owner layout does not support the captured object kind and family');
+        if(options.operationSlot&&(!['callback-operation','path-item-operation'].includes(layout??'')||
+            (options.operationSlot.additional?origin.family!=='3.2'||
+                options.operationSlot.method.match(/^[-!#$%&'*+.^_`|~0-9A-Za-z]+$/)?.[0]!==options.operationSlot.method:
+                !standardOperationMethods(origin.family).includes(options.operationSlot.method))))
+            throw new SourceError('migration.owners.layout','The captured Operation method has no legal slot in this native holder');
         const input=captured??this.sources.get(origin.resource)!;
         const reservation=container?{source:this.sources.get(container.resource)!,location:this.allocate(
             this.sources.get(container.resource)!,container.pointer,label,identity,options.excludedNames)}:this.reserve(origin,label,identity);
@@ -350,8 +435,14 @@ export class MigrationSchemaOwners {
         // item is an anonymous Schema Object without becoming a property or an
         // allOf model. Consumers address the item directly, never the wrapper.
         // The shared reservation, CST copy, provenance and retirement guards
-        // own both layouts; there is no second specialization mechanism.
-        const owner=this.materialOwner(reservation,layout);
+        // own every layout; there is no second specialization mechanism.
+        const owner=this.materialOwner(reservation,layout,options.operationSlot);
+        if(options.releaseNativeHolder){
+            if(!container||!this.generatedResource||!['path-item','operation'].includes(origin.kind)||!['3.0','3.1','3.2'].includes(origin.family))
+                throw new SourceError('migration.owners.layout','Only a generated modern native holder can release a converted fragment');
+            this.nativeReleases.push({family:origin.family,source:owner.source,material:owner.location,retirement:reservation.location,
+                container:container.pointer,destination:this.reserve(origin,label+'_converted',identity)});
+        }
         this.copiedOwners.set(JSON.stringify([owner.location.resource,owner.location.pointer]),{
             location:owner.location,retirement:reservation.location,schemaIdentity:options.schemaIdentity===true});
         this.admit(input,8);if(owner.source!==input)this.admit(owner.source,8);

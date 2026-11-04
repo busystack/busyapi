@@ -77,7 +77,7 @@ test(`${version} ${format} native objects and literal values share one specializ
  const input=fixture(version,format),original=input.resources[0].text,doc=new SourceDocument(original,input.root);
  assert.equal(analyse(input).status,'complete');await wire(input);
  const review=await planMigration(input);
- assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'79');
+ assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'80');
  assert.equal(review.exampleOutputs.length,2);assert.equal(input.resources[0].text,original);
  const output=delivered(review),{graph}=createGraph(output);
  assert.equal(analyse(output).status,'complete');await wire(output);
@@ -179,4 +179,54 @@ test(`${version} ${format} shared Response/Request Body roles remain editable an
  assert(page.fields.some(field=>field.name==='required'));
  const edit=propose({...output,target:page,actions:[{kind:'set',pointer:page.pointer+'/required',value:true}]});
  assert(edit.edits.length>0);assert.equal(input.resources[0].text,text);
+});
+
+for(const format of ['yaml','json'])for(const [restrictedVersion,target]of [['2.0','3.2.1'],['2.0','2.0'],['3.0.4','3.2.1'],['3.0.4','3.0.4']])
+test(`${format} ${restrictedVersion}/modern mixed entries retain anonymous Path Item/Operation owners when migrating to ${target}`,async()=>{
+ const input=require('./migration_mixed_holders_fixture.cjs')(format,target,restrictedVersion),before=input.resources.map(resource=>resource.text);
+ const inspect=async(packet,name)=>{
+  const checked=analyse(packet);assert.equal(checked.status,'complete',JSON.stringify(checked.findings));
+  const graph=createGraph(packet).graph,operation=graph.operations().find(operation=>operation.path==='/p');
+  assert(operation);const plan=requestOperation({...packet,resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
+  assert.equal(plan.operation.method,'POST');assert.equal(plan.responses[0].status,'204');
+  assert.equal(Object.values(plan.security.schemes)[0].parameterName,'X-'+name);
+  assert.equal(graph.operations().length,2);
+  const value=graph.operations().find(operation=>operation.path==='/value');
+  const valuePlan=requestOperation({...packet,resource:value.source.resource,pointer:value.source.pointer,occurrence:value.occurrence});
+  const result=await evaluateSchemas({...packet,runtimeInstances:['9007199254740993.00','9007199254740992','"wrong"'].map(text=>({subject:'response-body',location:text,text,schema:valuePlan.responses[0].content[0].schema}))});
+  assert.equal(result.complete,true,JSON.stringify(result.findings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,false,false]);
+ };
+ await inspect(input,'First');await inspect({...input,root:input.resources[1].id},'Second');
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const cold={snapshot:'cold-mixed-legacy-owners',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
+ for(const [source,name]of [[input.root,'First'],[input.resources[1].id,'Second']])await inspect({...cold,root:review.changes.find(change=>change.resource===source).destination},name);
+ const original=review.outputs.find(output=>output.id===review.changes.find(change=>change.resource===input.resources[2].id).destination);
+ assert.equal(original.text,before[2]);assert.deepEqual(input.resources.map(resource=>resource.text),before);
+ const repeated=await planMigration({...input,resources:[...input.resources].reverse()});assert.equal(repeated.complete,true,JSON.stringify(repeated.problems));
+ assert.deepEqual(repeated.outputs.slice().sort((a,b)=>a.id.localeCompare(b.id)),review.outputs.slice().sort((a,b)=>a.id.localeCompare(b.id)));
+});
+
+for(const format of ['yaml','json'])test(`${format} anonymous Operation entry uses retain isolated named security consumers`,async()=>{
+ const root=`file:///anonymous-operations/a.${format}`,other=`file:///anonymous-operations/b.${format}`,shared=`file:///anonymous-operations/shared.${format}`;
+ const api=name=>({openapi:'3.0.4',info:{title:name,version:'business'},paths:{},components:{
+  links:{Use:{operationRef:`shared.${format}#/Operation`}},securitySchemes:{Access:{type:'apiKey',in:'header',name:'X-'+name}}}});
+ const fragment={Operation:{operationId:'detached',security:[{Access:[]}],responses:{204:{description:'Empty'}}},Literal:{flag:false,empty:'',exact:'EXACT'}};
+ const encode=value=>(format==='yaml'?YAML.stringify(value):JSON.stringify(value)).replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const input={root,snapshot:'anonymous-operation-owners',targetVersion:'3.2.1',destination:'file:///anonymous-output/',
+  resources:[api('First'),api('Second'),fragment].map((value,index)=>({id:[root,other,shared][index],generation:index+1,text:encode(value)}))};
+ const before=input.resources.map(resource=>resource.text),review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const resources=review.outputs.map(output=>({id:output.id,text:output.text,generation:0})),owners=[];
+ for(const [source,name]of [[root,'First'],[other,'Second']]){
+  const root=review.changes.find(change=>change.resource===source).destination,packet={root,resources,snapshot:'cold-anonymous-operations'};
+  assert.equal(analyse(packet).status,'complete');const graph=createGraph(packet).graph;
+  const link=graph.referenceAs(root,'/components/links/Use','operationRef','operation');assert.equal(link.resolution,'resolved');
+  owners.push([link.targetResource,link.targetPointer]);
+  assert.equal(graph.specifications.has(link.targetResource),false,'The material Operation remains an anonymous fragment');
+  const requirement=graph.entryReferences().find(reference=>reference.connection==='security'&&reference.resource===link.targetResource&&reference.pointer===link.targetPointer+'/security/0');
+  assert.equal(requirement.resolution,'resolved');assert.equal(graph.docs.get(requirement.targetResource).dataNode(requirement.targetPointer+'/name').value,'X-'+name);
+  assert.equal(graph.operations().length,0);
+ }
+ assert.notDeepEqual(owners[0],owners[1]);
+ assert.equal(review.outputs.find(output=>output.id===review.changes.find(change=>change.resource===shared).destination).text,before[2]);
+ assert.deepEqual(input.resources.map(resource=>resource.text),before);
 });

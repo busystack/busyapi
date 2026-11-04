@@ -208,7 +208,7 @@ test('an inactive primary interpretation cannot choose a foreign entry native/sc
 });
 
 for(const [foreignVersion,entryVersion,targetVersion,anchored]of [
- ['3.0.4','3.2.1','3.2.1',false],['3.1.2','3.2.1','3.2.1',true],['3.2.1','3.1.2','3.1.2',true],
+ ['3.1.2','3.2.1','3.2.1',true],['3.2.1','3.1.2','3.1.2',true],
 ])for(const format of ['yaml','json'])test(`${format} foreign ${foreignVersion} components retain their family and ${entryVersion} entry bindings`,async()=>{
  const root='file:///mixed/a.'+format,other='file:///mixed/b.'+format;
  const model={...(anchored?{$dynamicAnchor:'node'}:{}),type:'object',properties:{value:{type:'integer',enum:['EXACT']},entry:{type:'string'},
@@ -451,4 +451,13 @@ for(const format of ['yaml','json'])test(`${format} a foreign whole-document Sch
  const native=await evaluateSchemas({...cold,root:reference.targetResource,runtimeInstances:['9007199254740993.00','0'].map(text=>({subject:'response-body',location:'application/json',text,schema:plan.responses[0].content[0].schema}))});
  assert.equal(native.complete,true,JSON.stringify(native.findings));assert.deepEqual(native.runtimeEvaluations.map(value=>value.valid),[true,false]);
  assert.deepEqual(input.resources.map(resource=>resource.text),[encode(first),encode(second)]);
+});
+
+test('declared 3.0 Schema and Header references from a modern entry retain their family refusal',async()=>{
+ const root='file:///mixed-legacy-ref/a.json',other='file:///mixed-legacy-ref/b.json';
+ const foreign={openapi:'3.0.4',info:{title:'Foreign',version:'1'},paths:{},components:{schemas:{Base:{type:'integer'}},headers:{Shared:{schema:{type:'string'}}}}};
+ const primary={openapi:'3.2.1',info:{title:'Primary',version:'1'},paths:{'/p':{get:{responses:{200:{description:'Value',headers:{'X-Value':{$ref:'b.json#/components/headers/Shared'}},content:{'application/json':{schema:{$ref:'b.json#/components/schemas/Base'}}}}}}}};
+ const input={root,snapshot:'declared-legacy-family-refusal',targetVersion:'3.2.1',destination:'file:///refused-legacy/',resources:[primary,foreign].map((value,index)=>({id:[root,other][index],text:JSON.stringify(value),generation:index+1}))};
+ const review=await planMigration(input);assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);assert.deepEqual(review.changes,[]);
+ assert(review.problems.some(problem=>problem.resource===root&&problem.code.includes('reference.family')));
 });

@@ -1,6 +1,6 @@
 import {createGraph,type Resource} from './engine';
 import type {MigrationIssue} from './migration_schema';
-import type {MigrationLocation} from './migration_source';
+import {migrationValueIdentity,type MigrationLocation} from './migration_source';
 import {supportedSchemaDialect,schemaResourceContextIdentity,type ReferenceGraph,type GraphScope,type GraphReference} from './reference_graph';
 import {escape,SourceError} from './document';
 import {modernFamily} from './specification';
@@ -125,6 +125,49 @@ function equivalentForwarder(a:GraphScope,left:ReferenceGraph,b:GraphScope,right
         before.targetResource===after.targetResource&&before.targetPointer===after.targetPointer;
 }
 
+/** A bare native Security Scheme Reference Object contributes only its fixed
+ * target. Keep every annotated alias as an owner in its own right; never use
+ * terminal-definition equality to discard a description/summary override.
+ * Cycles and unresolved locators remain subject to the ordinary graph guards. */
+export function securityConnectionTarget(graph:ReferenceGraph,at:MigrationLocation,inspect:()=>void):MigrationLocation {
+    const seen=new Set<string>();let current=at;
+    for(let depth=0;depth<128;depth++){
+        inspect();
+        const id=JSON.stringify([current.resource,current.pointer]);if(seen.has(id))return at;
+        seen.add(id);
+        const scope=graph.scopeAs(current.resource,current.pointer,'security');
+        const node=graph.docs.get(current.resource)?.dataNode(current.pointer);
+        if(!scope||node?.kind!=='object'||node.children.size!==1||!graph.referenceObject(node.value,scope))return current;
+        const edge=graph.referenceAs(current.resource,current.pointer,'$ref','security');
+        if(edge?.resolution!=='resolved')return at;
+        current={resource:edge.targetResource!,pointer:edge.targetPointer!};
+    }
+    throw new SourceError('limit.migration.owners','Security alias proof exceeds 128 captured references');
+}
+
+const nativeSecurityProfiles=new WeakMap<ReferenceGraph,Map<string,string|undefined>>();
+/** These concrete declarations have identical field meaning in the supported
+ * OAS 3.x families. Reference overrides and richer authentication
+ * objects need their own representation proofs. Extensions stay exact data;
+ * no URI, rendered annotation or family-dependent OAuth field is inferred. */
+export function sharedNativeSecurityDefinition(graph:ReferenceGraph,scope:GraphScope,inspect:()=>void):string|undefined {
+    const id=JSON.stringify([scope.resource,scope.pointer,scope.family]);
+    let profiles=nativeSecurityProfiles.get(graph);if(!profiles){profiles=new Map();nativeSecurityProfiles.set(graph,profiles);}
+    if(profiles.has(id))return profiles.get(id);
+    profiles.set(id,undefined);
+    if(!['3.0','3.1','3.2'].includes(scope.family))return;
+    const node=graph.docs.get(scope.resource)?.dataNode(scope.pointer),value=node?.value;
+    // Without link/HTML delimiters, CommonMark cannot introduce a relative
+    // target. Plain descriptions retain identical rendering in both holders.
+    if(typeof value?.description==='string'&&(value.description.includes('[')||value.description.includes('<')))return;
+    const fields=value?.type==='apiKey'?new Set(['type','in','name','description']):value?.type==='http'?new Set(['type','scheme','bearerFormat','description']):undefined;
+    if(node?.kind!=='object'||fields===undefined||![...node.children.keys()].every(name=>{
+        inspect();return fields.has(name)||name.startsWith('x-');
+    }))return;
+    const identity=migrationValueIdentity(graph.docs.get(scope.resource)!,scope.pointer);
+    profiles.set(id,identity);return identity;
+}
+
 /** Each complete description is also an entry context. Only established typed
  * uses own conversion semantics. A fragment retrieval's bookkeeping root is
  * neither an OpenAPI Object nor a schema use. Distinct contexts require
@@ -195,8 +238,17 @@ export function migrationContextDifferences(contexts:readonly Pick<DocumentConte
             inspect(1+(reference.dynamic?.candidates.length??0));
             if(!reference.connection&&!reference.dynamic)continue;
             const owner=graph.referenceOwner(reference);if(!owner)continue;
+            const target=reference.connection==='security'&&reference.resolution==='resolved'?
+                securityConnectionTarget(graph,{resource:reference.targetResource!,pointer:reference.targetPointer!},inspect):undefined;
+            const definition=target&&graph.scopeAs(target.resource,target.pointer,'security');
+            // Equal simple definitions can retain one unchanged name in each
+            // entry. The later per-entry connection proof still requires the
+            // exact original target or a common-allocator material copy; value
+            // equality never substitutes for that identity proof.
+            const profile=definition&&sharedNativeSecurityDefinition(graph,definition,inspect);
+            const security=profile===undefined?undefined:['shared-native-security',profile];
             binding(owner,JSON.stringify([reference.keyword,reference.connection]),JSON.stringify([
-                reference.resolution,reference.targetResource,reference.targetPointer,reference.targetUri,
+                reference.resolution,security??target?.resource??reference.targetResource,security?undefined:target?.pointer??reference.targetPointer,reference.targetUri,
                 reference.dynamic?.anchor,reference.dynamic?.candidates.map(candidate=>[candidate.resource,candidate.pointer]).sort(),
             ]));
         }
@@ -217,6 +269,8 @@ export function migrationContextDifferences(contexts:readonly Pick<DocumentConte
  * every source entry, including names that intentionally vary by entry. Before
  * a family conversion/omission, ownership separation also proves static edges. */
 export function proveMigrationConnections(source:ReferenceGraph,target:ReferenceGraph,mapped:(location:MigrationLocation,scope:GraphScope|undefined)=>readonly MigrationLocation[],issue:MigrationIssue,includeStatic=false):void {
+    let work=0;
+    const inspect=()=>{if(++work>2000000)throw new SourceError('limit.migration.owners','Connection ownership proof exceeds 2000000 captured states');};
     const identity=(field:MigrationLocation,kind:string,connection:string|undefined)=>JSON.stringify([
         field.resource,field.pointer,kind,connection==='operationId'||connection==='operationRef'?'operation':connection??'',
     ]);
@@ -226,19 +280,26 @@ export function proveMigrationConnections(source:ReferenceGraph,target:Reference
         const scope=target.scopeAs(location.resource,location.pointer,'schema');return scope!==undefined&&target.isEntryUse(scope);
     });
     for(const reference of source.entryReferences()){
+        inspect();
         if((!reference.connection&&reference.keyword!=='$dynamicRef'&&!(includeStatic&&reference.keyword==='$ref'))||reference.resolution!=='resolved')continue;
         const field={resource:reference.resource,pointer:reference.pointer+'/'+escape(reference.keyword)};
         const connectionAt=(field:MigrationLocation)=>connections.get(identity(field,reference.kind,reference.connection));
         const captured=source.scopeAs(reference.targetResource!,reference.targetPointer!,reference.kind);
+        const canonical=(at:MigrationLocation)=>reference.connection==='security'?securityConnectionTarget(target,at,inspect):at;
+        const original=reference.connection==='security'&&captured?securityConnectionTarget(source,captured,inspect):captured;
+        const expected=original&&source.scopeAs(original.resource,original.pointer,reference.kind);
         const fields=mapped(field,source.referenceOwner(reference)).filter(field=>connectionAt(field)!==undefined),targets=mapped({resource:reference.targetResource!,pointer:reference.targetPointer!},captured)
+            .map(canonical)
             .filter(location=>{
                 if(!includeStatic)return true;
                 const scope=target.scopeAs(location.resource,location.pointer,reference.kind);
-                return scope!==undefined&&scope.family===captured?.family&&scope.dialect===captured?.dialect;
+                return scope!==undefined&&scope.family===expected?.family&&scope.dialect===expected?.dialect;
             });
         if(!fields.length||fields.some(field=>{
             const connection=connectionAt(field);
-            return !connection||connection.resolution!=='resolved'||!targets.some(target=>target.resource===connection.targetResource&&target.pointer===connection.targetPointer);
+            if(!connection||connection.resolution!=='resolved')return true;
+            const actual=canonical({resource:connection.targetResource!,pointer:connection.targetPointer!});
+            return !targets.some(target=>target.resource===actual.resource&&target.pointer===actual.pointer);
         }))issue({...field,original:field},'migration.invariant.connection','The migrated entry does not retain this reference or implicit name\'s captured target','implementation');
         if(!reference.connection&&reference.keyword==='$dynamicRef')for(const field of fields){
             const connection=connectionAt(field);

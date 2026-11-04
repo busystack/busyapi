@@ -37,6 +37,7 @@ void main() {
   // successful rejection therefore requires the independent semantic proof.
   for (final scenario in [
     (name: 'untouched', from: '', to: '', accepted: true),
+    (name: 'obsolete holder producer', from: 'producer:79', to: '', accepted: false),
     (name: 'equivalent decimals', from: '9007199254740993.00', to: '900719925474099300e-2', accepted: true),
     (name: 'equivalent positive exponent', from: '1e99999', to: '10e99998', accepted: true),
     (name: 'equivalent negative exponent', from: '1e-99999', to: '10e-100000', accepted: true),
@@ -68,9 +69,12 @@ child.stdout.on('data', chunk => {
   pending = pending.subarray(length+4);
   const result = value.result;
   if (result?.producer === 'busyapi-native-migration' && result.complete && from) {
-   if (!result.manifestText.includes(from)) throw Error('Mutation did not reach its production field');
-   result.manifestText = result.manifestText.replaceAll(from,to);
-   result.manifestIdentity = createHash('sha256').update(result.manifestText).digest('hex');
+   if (from === 'producer:79') result.producerVersion = '79';
+   else {
+    if (!result.manifestText.includes(from)) throw Error('Mutation did not reach its production field');
+    result.manifestText = result.manifestText.replaceAll(from,to);
+    result.manifestIdentity = createHash('sha256').update(result.manifestText).digest('hex');
+   }
   }
   const payload = Buffer.from(JSON.stringify(value)), header = Buffer.alloc(4);
   header.writeUInt32BE(payload.length);process.stdout.write(header);process.stdout.write(payload);

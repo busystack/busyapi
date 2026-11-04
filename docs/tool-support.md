@@ -1289,3 +1289,16 @@ headless checks from native desktop acceptance.
 Server URL template validation rejects raw ASCII DEL consistently with request
 preparation. A percent-encoded `%7F` stays encoded and is not treated as a raw
 control character. The original YAML/JSON spelling remains authoritative.
+
+A01 mixed-family migration ownership now uses the common allocator's standard
+Callback/Path Item/Response layouts when no direct component holder exists.
+Captured family/dialect/resource and connection proofs, exact CST provenance,
+configuration projection and safe publication remain required. Security aliases
+use native Reference Objects or proved common API-key/HTTP declaration copies;
+legacy substitution and unproved metadata mappings retain located refusals. Coordinated
+Swagger conversion releases only converted generated native holders into the
+existing anonymous registry. Migration producer, Core admission and native
+preflight are `80`; producer `79` is refused. The registered mixed-holder engine,
+Core HTTP/publication/CLI and native review regressions are prepared, not run.
+The execution hold and Snapcraft skip remain active; implementation status
+is recorded in `docs/implementation/native-openapi-support.md`.

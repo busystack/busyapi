@@ -42,7 +42,7 @@ import {securityRequirementDefinition} from './security_requirements';
 import {migrateSwaggerSecurityFlows} from './migration_security_flows';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='79';
+const migrationProducerVersion='80';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const referenceLocator=(reference:GraphReference)=>!reference.connection&&['$ref','$dynamicRef'].includes(reference.keyword)||
     reference.connection==='operationRef'&&reference.keyword==='operationRef';
@@ -185,7 +185,8 @@ export async function planMigration(input:MigrationInput) {
             };
             const contextProofs:{scope:GraphScope;destination:MigrationLocation;preserveBase:boolean;expectedBase?:string;namespace:string}[]=[];
             const owners=new MigrationSchemaOwners(graph,sources,createSchemaResource,
-                (input.exampleResources??[]).flatMap(resource=>[resource.id,...resource.aliases]));
+                (input.exampleResources??[]).flatMap(resource=>[resource.id,...resource.aliases]),
+                contexts.map(context=>context.graph),securityConfigurationNames(input.configuration));
             const sourceContexts=contexts;
             const specialized=new Map<string,readonly MigrationLocation[]>();
             let ownershipWork=0;
@@ -210,18 +211,18 @@ export async function planMigration(input:MigrationInput) {
             // copying. Otherwise the first parsed entry could choose another
             // use's family or overwrite a shared incoming locator.
             const securityComponentNames=after!=='3.2'&&stage.sources.includes('3.2');
-            retainCopies(separateMigrationEntryUses(contexts,sources,issue,createSchemaResource,captureContext,owners,securityComponentNames,after));
+            retainCopies(separateMigrationEntryUses(contexts,sources,issue,createSchemaResource,captureContext,owners,securityComponentNames,target.family));
             if(problems.length)break;
             const roleInput=preparationInput(),roleContext=createGraph(roleInput);
             const roleContexts=migrationDocumentContexts(roleInput,roleContext,issue,true);
-            retainCopies(separateMigrationRoles(roleContexts,sources,issue,createSchemaResource,captureContext,owners));
+            retainCopies(separateMigrationRoles(roleContexts,sources,issue,createSchemaResource,captureContext,owners,target.family));
             if(problems.length)break;
             // A new anonymous owner can itself need entry specialization.
             // Reuse the same reservations and compose its source relation;
             // this is one bounded preparation pass, never an expansion loop.
             const entryInput=preparationInput(),entryContext=createGraph(entryInput);
             const entryContexts=migrationDocumentContexts(entryInput,entryContext,issue,true);
-            retainCopies(separateMigrationEntryUses(entryContexts,sources,issue,createSchemaResource,captureContext,owners,securityComponentNames,after));
+            retainCopies(separateMigrationEntryUses(entryContexts,sources,issue,createSchemaResource,captureContext,owners,securityComponentNames,target.family));
             if(problems.length)break;
             const materializedConnections=materializeMigrationOperationConnections(sourceContexts,sources,owners,issue);
             if(problems.length)break;
@@ -380,7 +381,7 @@ export async function planMigration(input:MigrationInput) {
                 const original=sourceLocation(location.resource,location.pointer);
                 presentationChanges.push({resource:original.resource,pointer:original.pointer});
             }):undefined;
-            if(after==='2.0')for(const before of stage.sources)downgradeSwagger(graph,sources,before,issue);
+            if(after==='2.0')for(const before of stage.sources)downgradeSwagger(graph,sources,before,issue,()=>owners.releaseNativeHolders(before));
             if(problems.length)break;
             for(const [id,specification]of graph.specifications){
                 if(!stage.sources.includes(specification.family))continue;
