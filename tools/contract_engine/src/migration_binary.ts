@@ -11,8 +11,10 @@ import {ParameterSemantics} from './parameter_semantics';
 import {swaggerMedia} from './swagger_operation';
 import {migrationScopes} from './migration_documents';
 
-type Use=Readonly<{kind:'body'|'part'|'data';mediaType?:string;source:GraphScope;schema:GraphScope;path:readonly Step[]}>;
-type Step=Readonly<{property:string}>|'item'|'nested';
+export type BinaryUse=Readonly<{kind:'body'|'part'|'data';mediaType?:string;source:GraphScope;schema:GraphScope;path:readonly BinaryStep[]}>;
+export type BinaryStep=Readonly<{property:string}>|'item'|'nested';
+type Use=BinaryUse;
+type Step=BinaryStep;
 type Visit=Readonly<{scope:GraphScope;path:readonly Step[]}>;
 const identity=(scope:Pick<GraphScope,'resource'|'pointer'>)=>JSON.stringify([scope.resource,scope.pointer]);
 

@@ -26,7 +26,7 @@ async function wire(input,type,bytes,form=false){
 for(const from of legacy)for(const target of ['3.1.2','3.2.1'])for(const format of ['yaml','json'])
 test(`${from} -> ${target} ${format} raw body mapping retains exact non-Unicode and empty bytes`,async()=>{
  const type='application/octet-stream',input=capture(from,format,type,{type:'string',format:'binary',description:'Keep leaf'},target),before=input.resources[0].text;
- const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));assert.equal(plan.producerVersion,'75');
+ const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));assert.equal(plan.producerVersion,'76');
  const output=cold(plan);assert.deepEqual(schema(output,type),{description:'Keep leaf'});
  for(const bytes of [Buffer.from([0,255,128,195,169]),Buffer.alloc(0)]){
   assert.deepEqual(await wire(output,type,bytes),await wire(input,type,bytes));assert((await wire(output,type,bytes)).every(value=>value.valid));
@@ -168,7 +168,7 @@ test(`${format} ${target} data references to an inline raw ${multipart?'part':'b
  assert.deepEqual(after,before);assert(after.every(value=>value.complete&&value.valid));assert.equal(input.resources[0].text,original);
 });
 
-for(const format of ['yaml','json'])for(const mode of ['constraint','ancestor','mixed','opaque','unbound','targeted'])
+for(const format of ['yaml','json'])for(const mode of ['constraint','ancestor','mixed','opaque','unbound'])
 test(`${format} incomplete ${mode} binary mapping retains a located refusal without output`,async()=>{
  const type=mode==='opaque'?'application/unknown-binary':'application/octet-stream';
  let leaf={type:'string',format:'binary'};
@@ -182,14 +182,6 @@ test(`${format} incomplete ${mode} binary mapping retains a located refusal with
   else for(const content of [doc.paths['/bytes'].post.requestBody.content,doc.paths['/bytes'].post.responses[200].content]){
    content[type].schema={$ref:'#/components/schemas/Shared'};content['application/json']={schema:{$ref:'#/components/schemas/Shared'}};
   }
-  input.resources[0].text=render(doc,format);
- }
- if(mode==='targeted'){
-  const doc=format==='json'?JSON.parse(input.resources[0].text):YAML.parse(input.resources[0].text);
-  for(const [content,pointer]of [
-   [doc.paths['/bytes'].post.requestBody.content,'/paths/~1bytes/post/requestBody/content/'],
-   [doc.paths['/bytes'].post.responses[200].content,'/paths/~1bytes/post/responses/200/content/']])
-   content['application/json']={schema:{allOf:[{$ref:'#'+pointer+escape(type)+'/schema'}]}};
   input.resources[0].text=render(doc,format);
  }
  const before=input.resources[0].text,plan=await planMigration(input);assert.equal(plan.status,'blocked');assert.equal(plan.complete,false);assert.deepEqual(plan.outputs,[]);assert.deepEqual(plan.changes,[]);
@@ -230,4 +222,58 @@ for(const format of ['yaml','json'])test(`${format} raw constraints in another a
  const plan=await planMigration(input);assert.equal(plan.complete,false);assert.deepEqual(plan.outputs,[]);
  assert(plan.problems.some(value=>value.code==='migration.schema.binary-context'));
  assert.equal(input.resources[0].text,before);
+});
+
+for(const format of ['yaml','json'])for(const target of ['3.1.2','3.2.1'])for(const composition of [false,true])
+test(`${format} ${target} shared containing multipart schemas preserve independent JSON and nested consumers composition=${composition}`,async()=>{
+ const type='multipart/form-data; boundary=Container',models='file:///approved/contracts/models.'+format;
+ const input=capture('3.0.4',format,type,{$ref:'models.'+format+'#/Alias'},target);
+ const doc=format==='json'?JSON.parse(input.resources[0].text):YAML.parse(input.resources[0].text);
+ const binary={$ref:'#/Binary'},container={type:'object',required:['payload','count'],properties:{payload:binary,count:{type:'integer'},nested:{type:'object',properties:{value:binary}}}};
+ const shared=composition?{allOf:[container,{description:'Keep composed annotation',properties:{count:{minimum:1}}}]}:container;
+ for(const content of [doc.paths['/bytes'].post.requestBody.content,doc.paths['/bytes'].post.responses[200].content]){
+  content[type].encoding={payload:{contentType:'application/octet-stream'}};
+  content['application/json']={schema:{$ref:'models.'+format+'#/Shared'}};
+ }
+ doc['x-history']=structuredClone(shared);
+ input.resources[0].text=render(doc,format);
+ input.resources.push({id:models,generation:8,text:render({Alias:{$ref:'#/Shared'},Shared:shared,
+  Binary:{type:'string',format:'binary',description:'[Wire](./wire.md)','x-exact':'EXACT'}},format)
+  .replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00')});
+ const original=input.resources.map(resource=>resource.text),review=await planMigration(input);
+ assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.identity,(await planMigration(input)).identity);
+ const output=cold(review),{graph}=createGraph(output);
+ assert(graph.references.every(reference=>reference.resolution==='resolved'));
+ assert.deepEqual(input.resources.map(resource=>resource.text),original);
+ assert.equal(graph.docs.get(output.root).dataJson('/x-history'),new SourceDocument(original[0],input.root).dataJson('/x-history'));
+ for(const count of ['3','wrong']){
+  const bytes=Buffer.concat([Buffer.from('--Container\r\nContent-Disposition: form-data; name="payload"\r\nContent-Type: application/octet-stream\r\n\r\n'),
+   Buffer.from([0,255,128]),Buffer.from('\r\n--Container\r\nContent-Disposition: form-data; name="count"\r\n\r\n'+count+'\r\n--Container--\r\n')]);
+  const before=await wire(input,type,bytes,true),after=await wire(output,type,bytes,true);
+  assert.deepEqual(after,before);assert(after.every(value=>value.complete&&value.valid===(count==='3')));
+ }
+ for(const value of [{payload:'snow 雪',count:3,nested:{value:'data'}},{payload:false,count:3},{payload:'x',count:3,nested:{value:false}}])
+  assert.deepEqual(await wire(output,'application/json',Buffer.from(JSON.stringify(value))),await wire(input,'application/json',Buffer.from(JSON.stringify(value))));
+ assert(review.outputs.some(resource=>resource.text.includes('9007199254740993.00')));
+});
+
+for(const format of ['yaml','json'])for(const target of ['3.1.2','3.2.1'])for(const descendant of [false,true])
+test(`${format} ${target} composed JSON consumers target an inline raw ${descendant?'descendant':'root'} independently`,async()=>{
+ const type=descendant?'multipart/form-data; boundary=Target':'application/octet-stream',leaf={type:'string',format:'binary',description:'Keep target'};
+ const input=capture('3.0.4',format,type,descendant?{type:'object',required:['payload'],properties:{payload:leaf}}:leaf,target);
+ const doc=format==='json'?JSON.parse(input.resources[0].text):YAML.parse(input.resources[0].text);
+ for(const [content,pointer]of [
+  [doc.paths['/bytes'].post.requestBody.content,'/paths/~1bytes/post/requestBody/content/'],
+  [doc.paths['/bytes'].post.responses[200].content,'/paths/~1bytes/post/responses/200/content/']]){
+  content['application/json']={schema:{allOf:[{$ref:'#'+pointer+escape(type)+'/schema'+(descendant?'/properties/payload':'')}]}};
+  if(descendant)content[type].encoding={payload:{contentType:'application/octet-stream'}};
+ }
+ input.resources[0].text=render(doc,format);const original=input.resources[0].text,review=await planMigration(input);
+ assert.equal(review.complete,true,JSON.stringify(review.problems));const output=cold(review),{graph}=createGraph(output);
+ assert(graph.references.every(reference=>reference.resolution==='resolved'));
+ for(const text of ['"snow 雪"','false','null'])assert.deepEqual(await wire(output,'application/json',Buffer.from(text)),await wire(input,'application/json',Buffer.from(text)));
+ let bytes=Buffer.from([0,255,128]);
+ if(descendant)bytes=Buffer.concat([Buffer.from('--Target\r\nContent-Disposition: form-data; name="payload"\r\nContent-Type: application/octet-stream\r\n\r\n'),bytes,Buffer.from('\r\n--Target--\r\n')]);
+ const after=await wire(output,type,bytes,descendant);assert.deepEqual(after,await wire(input,type,bytes,descendant));assert(after.every(value=>value.valid));
+ assert.equal(input.resources[0].text,original);
 });

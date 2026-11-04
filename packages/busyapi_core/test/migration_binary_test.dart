@@ -31,10 +31,12 @@ String _source(String version, String format, int port, {required bool binary}) 
 }
 
 void main() {
-  for (final representation in ['body', 'part', 'items', 'targeted']) {
+  for (final representation in ['body', 'part', 'items', 'targeted',
+    'container', 'composition', 'targeted-composition', 'targeted-part']) {
     test('shared $representation and JSON schemas retain distinct execution after publication and cold reopening', () async {
-      final multipart = ['part', 'items'].contains(representation), array = representation == 'items';
-      final targeted = representation == 'targeted';
+      final multipart = ['part', 'items', 'container', 'composition', 'targeted-part'].contains(representation), array = representation == 'items';
+      final targeted = representation.startsWith('targeted');
+      final containing = ['container', 'composition'].contains(representation);
       final rawType = multipart ? 'multipart/form-data; boundary=Shared' : 'application/octet-stream';
       final directory = await Directory.systemTemp.createTemp('busyapi-mixed-binary-');
       addTearDown(() => directory.delete(recursive: true));
@@ -57,8 +59,14 @@ void main() {
       if (targeted) document.remove('components');
       final operation = document['paths']['/bytes']['post'] as Map;
       final reference = {r'$ref': '#/components/schemas/Shared'};
-      final schema = multipart ? {'type': 'object', 'required': ['payload'],
-        'properties': {'payload': array ? {'type': 'array', 'items': reference} : reference}}
+      final object = {'type': 'object', 'required': ['payload'],
+        'properties': {'payload': array ? {'type': 'array', 'items': reference}
+            : targeted ? {'type': 'string', 'format': 'binary'} : reference}};
+      if (containing) {
+        document['components']['schemas']['Container'] = representation == 'composition'
+            ? {'allOf': [object, {'description': 'Keep composition'}]} : object;
+      }
+      final schema = containing ? {r'$ref': '#/components/schemas/Container'} : multipart ? object
           : targeted ? {'type': 'string', 'format': 'binary'} : reference;
       for (final (content, pointer) in [
         (operation['requestBody']['content'], '/paths/~1bytes/post/requestBody/content/application~1octet-stream/schema'),
@@ -66,7 +74,11 @@ void main() {
       ]) {
         content.remove('application/octet-stream');
         content[rawType] = {'schema': schema, if (multipart) 'encoding': {'payload': {'contentType': 'application/octet-stream'}}};
-        content['application/json'] = {'schema': targeted ? {r'$ref': '#$pointer'} : schema};
+        final target = pointer.replaceFirst('application~1octet-stream',
+            rawType.replaceAll('~', '~0').replaceAll('/', '~1')) + (multipart ? '/properties/payload' : '');
+        content['application/json'] = {'schema': targeted
+            ? representation == 'targeted' ? {r'$ref': '#$target'} : {'allOf': [{r'$ref': '#$target'}]}
+            : schema};
       }
       final text = jsonEncode(document).replaceAll('"EXACT"', '9007199254740993.00');
       final file = File('${directory.path}/api.json');
@@ -84,7 +96,7 @@ void main() {
         ...utf8.encode('--Shared\r\nContent-Disposition: form-data; name="payload"\r\nContent-Type: application/octet-stream\r\n\r\n'),
         ...bytes, ...utf8.encode('\r\n--Shared--\r\n'),
       ] : bytes;
-      List<int> jsonBytes(Object value) => utf8.encode(jsonEncode(multipart ? {'payload': array ? [value] : value} : value));
+      List<int> jsonBytes(Object value) => utf8.encode(jsonEncode(multipart && !targeted ? {'payload': array ? [value] : value} : value));
       Future<List<(bool, bool)>> send(BusyProject owner) async {
         final root = owner.roots.single.id;
         final plan = await owner.prepareRequest(root, resource: root, pointer: '/paths/~1bytes/post');
@@ -115,7 +127,7 @@ void main() {
         environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
       expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');
       final report = jsonDecode(cli.stdout as String) as Map;
-      expect(report['complete'], true); expect(report['producerVersion'], '75');
+      expect(report['complete'], true); expect(report['producerVersion'], '76');
       expect(report['published'], false);
       await review.publish();
       expect(await file.readAsString(), text); expect(buffer.text, working);
@@ -162,7 +174,7 @@ void main() {
         final review = await project.prepareMigration(root, destination, targetVersion: target);
         addTearDown(review.close);
         expect(review.status, MigrationStatus.faithfullyConvertible, reason: '${review.result}');
-        expect(review.result['producerVersion'], '75');
+        expect(review.result['producerVersion'], '76');
         expect(review.unsaved, true);
         expect(Directory(destination).existsSync(), false);
         await review.publish();
@@ -212,7 +224,7 @@ void main() {
         expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');
         final report = jsonDecode(cli.stdout as String) as Map;
         expect(report['complete'], true);
-        expect(report['producerVersion'], '75');
+        expect(report['producerVersion'], '76');
         expect(report['published'], false);
         expect(Directory('${directory.path}/cli-review').existsSync(), false);
       });
