@@ -386,7 +386,8 @@ export function planFileMove(input:any) {
       throw new SourceError('file.move.self-routing','A declared OpenAPI identity needs a portable approved resource mapping before its physical retrieval route can move');
      value=relative(destination+hash,from.base);
     }
-    else if(!same({resource:now?.targetResource,pointer:now?.targetPointer},to)||now?.resolution!=='resolved')value=referenceValue(after.graph,from,to,ref.keyword)??'';
+    else if(!same({resource:now?.targetResource,pointer:now?.targetPointer},to)||now?.resolution!=='resolved')value=referenceValue(after.graph,from,to,ref.keyword,undefined,
+     ref.connection==='security'?{connection:'security'}:ref.connection==='discriminator'?{connection:'discriminator'}:{})??'';
    }
    if(!value)throw new SourceError('file.move.address','A connection has no proven address after the move');
    if(implicitNameReference(ref)||ref.connection==='operationId') {
@@ -396,7 +397,8 @@ export function planFileMove(input:any) {
     const relocating=value!==currentKeyword(ref)||proof.resolution!=='resolved'||!same({resource:proof.targetResource,pointer:proof.targetPointer},to);
     const occupied=ref.connection==='security'&&relocating?new Set([...new SourceDocument(outputs.get(ref.resource)??g.docs.get(ref.resource)!.text,ref.resource).node(ref.pointer).children.keys()].filter(name=>name!==currentKeyword(ref))):undefined;
     if(occupied?.has(value)||proof.resolution!=='resolved'||!same({resource:proof.targetResource,pointer:proof.targetPointer},to)){
-     const alternative=referenceValue(after.graph,{...from,kind:ref.kind},to,ref.keyword,occupied);
+     const alternative=referenceValue(after.graph,{...from,kind:ref.kind},to,ref.keyword,occupied,
+      ref.connection==='security'?{connection:'security'}:ref.connection==='discriminator'?{connection:'discriminator'}:{});
      if(alternative!==undefined){value=alternative;proof=after.graph.resolveConnection({...ref,...from,kind:ref.kind,value});}
     }
     if(proof.resolution!=='resolved'||!same({resource:proof.targetResource,pointer:proof.targetPointer},to))throw new SourceError('file.move.address','A repaired locator does not retain its exact captured target at '+ref.pointer+' ('+proof.resolution+')');

@@ -374,6 +374,15 @@ export class MigrationSemanticOrigins {
     locations(namespace:string,origin:MigrationLocation,scope:GraphScope|undefined):readonly MigrationLocation[] {
         this.inspect();return scope?this.records.get(this.key(namespace,origin,scope.kind))?.locations??[]:[];
     }
+    projectLocations(project:(location:MigrationLocation)=>readonly MigrationLocation[]):void {
+        for(const record of this.records.values()){
+            this.inspect();const locations=new Map<string,MigrationLocation>();
+            for(const location of record.locations)for(const current of project(location)){
+                this.inspect();locations.set(JSON.stringify([current.resource,current.pointer]),current);
+            }
+            record.locations=[...locations.values()];
+        }
+    }
     private *valueFields(graph:ReferenceGraph):Generator<{location:MigrationLocation;scope:GraphScope;field:'description'|'uri'}> {
         for(const scope of graph.entryScopes()){
             this.inspect();const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;

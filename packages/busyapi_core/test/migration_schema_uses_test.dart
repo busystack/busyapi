@@ -47,7 +47,7 @@ void main() {
       addTearDown(review.close);
       expect(review.publishable, true, reason: '${review.result}');
       expect(review.unsaved, true);
-      expect(review.result['producerVersion'], '68');
+      expect(review.result['producerVersion'], '69');
       await expectLater(review.publish(cancelled: () => true),
           throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'cancelled')));
       expect(await Directory(destination).exists(), false);

@@ -143,7 +143,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W7.01 Creation, editing, unsaved Reference, request/example/mock/case, migration review, documentation and CLI integration for every capability; all applicable clauses above | shared engine, Core owners and native workspace controls | A R E M S C | engine/Core/widget/native journey suites | Partially implemented; applicable existing consumers inherit shared field/codec/routing changes; complete family journeys are not accepted | H |
 | W7.02 Stale-action invalidation on declaration/dialect/root/external/approval changes; coherent reviewed transactions, Undo/Redo and no buffer loss; Core transaction contract | Core project/store/capture and native review/request controllers | A R E M S C | stale capture/cancellation/publication/widget review suites | Partially implemented; existing source for existing safeguards; new paths require current integration qualification | H |
 | W7.03 CST fidelity, no-op saves, exact values, aliases, extensions and source-only migration restructuring; TEXT | `document.ts`, graph/CST editing, Core store/transaction owners | A R M S C | source ownership/alias/exact-value/no-op suites | Partially implemented; existing source for existing boundaries; generated schema owners retain original provenance and reviewed restructuring | H |
-| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+57`, migration producer `68`, response/parameter mock producers `4`, numeric sample producer remains `3`; no dependency versions/source changed | H |
+| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+58`, migration producer `69`, response/parameter mock producers `4`, numeric sample producer remains `3`; no dependency versions/source changed | H |
 | W8.01 Explicit independent evidence input across SDK/build/CMake/CI/installed/package checks; PINS | `flutter_archive.py`, SDK verifier, `build_linux.sh`, CMake, package/native-distribution/artifact-smoke inputs | P | `tools/test_flutter_sdk.py`, source-wiring regressions | Partially implemented; existing source for archive-input propagation; same existing evidence reaches installed checks; independent member pins remain an alternative; no SDK acquisition/replacement | H; actual evidence availability/authenticity has not been qualified |
 | W8.02 Ordered gates, registration, source-version-valid fixtures and production-byte regressions; PINS and each row's authority | `tools/build_engine.sh`, Linux workflow, engine/Core/widget/native/package suites | P | new direct-Swagger/conditional/tuple-tail/constant-containment/property-name/runtime-parameter suites registered; existing TypeScript-before-bundle gate retained | Partially implemented; compilation and all suspended gates remain unexecuted; missing regression coverage identified in this register remains implementation work | H |
 | W8.03 Current automated/native/packaged/offline acceptance and normal Quit; all approved families and PINS | native acceptance tools, Core/package/CLI suites | A R E M S C P | existing native acceptance including historical Quit/focus failures; complete new journeys still required | Missing for accepted evidence; no driver/engine attribution established; Snapcraft remains skipped | H |
@@ -1210,3 +1210,25 @@ library/receipt pairs. No SDK acquisition or replacement occurs in this path.
 `tools/test_flutter_sdk.py` adds owned-fixture regressions for absent/modified
 archives, forged receipts and existing-SDK verification. Those tests and actual
 binary comparison have not run; native and packaged acceptance remain open.
+
+
+Native URI connections now retain their typed interpretation when mapping/member
+names are `$ref`, `$dynamicRef` or `operationRef`. Discriminator metadata uses
+static URI identity (OAS 3.2.1 §4.25); genuine Schema applicators retain dynamic
+scope. Friendly model names remain names. Security Requirement URI keys (§4.30)
+are relocated independently, with distinct ordered role/scope arrays preserved
+even when multiple spellings select the same scheme. Canonical choices, source
+navigation, file/definition relocation, bundling and migration share that rule.
+Final normalization and portable key repairs compose the existing qualified CST
+provenance, retaining source/target connection proofs through cold publication.
+
+Registered `test_native_connection_keys.cjs` prepares YAML/JSON native navigation,
+static-versus-dynamic controls, model relocation/bundling, all directed family
+routes for keyword-shaped security names and independent URI key arrays. Core
+`migration_native_connection_keys_test.dart` prepares native inspection, original
+constraint evaluation, exact HTTP bytes and security, cancellation, preserved
+originals, relocated publication and cold CLI reopening. These tests have not
+run. Evaluator `1.18.0+58`, graph role rules `9` and migration producer `69` are
+synchronized with Core admission and preflight. This closes the identified
+native-connection keyword confusion; W2/W3/W6 retain their other recorded source
+gaps and acceptance remains held.

@@ -312,7 +312,7 @@ function planOwnedCopy(input:any,moving=false) {
   if(at.kind==='schema'&&!inside(at.resourcePointer,target.pointer)){
    if(at.resourcePointer!==''||data&&typeof data==='object'&&['$anchor','$dynamicAnchor','$dynamicRef'].some(key=>Object.hasOwn(data,key)))
     throw new SourceError('refactor.copy.schema-resource','Extraction would move only part of an inherited schema resource or dynamic scope');
-   if(g.graph.references.some(ref=>ref.keyword==='$dynamicRef'))
+   if(g.graph.references.some(ref=>!ref.connection&&ref.keyword==='$dynamicRef'))
     throw new SourceError('refactor.copy.schema-resource','Anonymous-resource extraction cannot be proved by dynamic navigation candidates alone');
   }
  }
@@ -367,7 +367,8 @@ function planOwnedCopy(input:any,moving=false) {
     throw new SourceError('refactor.copy.implicit','An implicit connection needs an explicit ownership decision before extraction');
    const convert=ref.connection==='operationId'&&sourceResource!==ref.resource;
    if(convert&&g.docs.get(ref.resource)!.nodes.has(ref.pointer+'/operationRef'))throw new SourceError('edit.collision','The Link already authors both mutually exclusive target fields');
-   const next=ref.connection==='operationId'&&!convert?ref.value:referenceValue(after.graph,at,to,convert?'operationRef':ref.keyword);
+   const next=ref.connection==='operationId'&&!convert?ref.value:referenceValue(after.graph,at,to,convert?'operationRef':ref.keyword,
+    undefined,ref.connection==='discriminator'?{connection:'discriminator'}:{});
    if(next===undefined)throw new SourceError('refactor.copy.address','A required consumer cannot retain its proven target');
    const field=sourcePointer+'/'+escape(convert?'operationRef':ref.keyword),removed=convert?sourcePointer+'/operationId':undefined;
    addresses.push([sourceResource,field,next,removed]);
@@ -635,7 +636,8 @@ export function planOperationMove(input:any) {
    const implicit=ref.connection&&ref.connection!=='operationRef'&&!(ref.connection==='discriminator'&&(ref.value.includes('/')||ref.value.includes('#')));
    const existing=references.get(referenceKey({...ref,pointer:move(ref.resource,ref.pointer)}));
    const retained=existing?.resolution==='resolved'&&existing.targetResource===to.resource&&existing.targetPointer===to.pointer;
-   const value=implicit?ref.value:retained?existing!.value:referenceValue(after.graph,from,to,ref.keyword==='$dynamicRef'&&!ref.dynamic?'$ref':ref.keyword);
+   const value=implicit?ref.value:retained?existing!.value:referenceValue(after.graph,from,to,ref.keyword==='$dynamicRef'&&!ref.dynamic?'$ref':ref.keyword,
+    undefined,ref.connection==='discriminator'?{connection:'discriminator'}:{});
    if(value===undefined)throw new SourceError('refactor.proof','A required operation connection has no unambiguous replacement address');
    const pointer=move(ref.resource,ref.pointer)+'/'+escape(ref.keyword),key=ref.resource+'#'+pointer;
    if(repairs.has(key)&&repairs.get(key)!==value)throw new SourceError('refactor.context.ambiguous','Configured roots require different repairs of one physical operation consumer');

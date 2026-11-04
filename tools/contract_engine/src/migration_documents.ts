@@ -236,7 +236,7 @@ export function proveMigrationConnections(source:ReferenceGraph,target:Reference
             const connection=connectionAt(field);
             return !connection||connection.resolution!=='resolved'||!targets.some(target=>target.resource===connection.targetResource&&target.pointer===connection.targetPointer);
         }))issue({...field,original:field},'migration.invariant.connection','The migrated entry does not retain this reference or implicit name\'s captured target','implementation');
-        if(reference.keyword==='$dynamicRef')for(const field of fields){
+        if(!reference.connection&&reference.keyword==='$dynamicRef')for(const field of fields){
             const connection=connectionAt(field);
             // Static target preservation above is also the complete scope
             // proof when every captured dynamic candidate is that same target.

@@ -805,7 +805,7 @@ Superseded anonymous preparation schemas are retired only after terminal-owner,
 external-reference/dynamic-candidate, literal and schema-identity guards.
 Prepared engine/Core regressions cover distinct default discriminator targets,
 recursive assertions, native inspection, HTTP bytes and relocated CLI reopening.
-The migration producer is **68**; Core rejects previous
+The migration producer is **69**; Core rejects previous
 producer responses before publication. Current qualification remains pending.
 Shared Markdown text now uses the same captured YAML token owner as reviewed
 schema/native edits. Its separate alias-rewrite algorithm has been removed;
@@ -1080,7 +1080,7 @@ Native property-access evaluation uses the logical schema occurrence even when
 its source is a reusable or aliased definition. Swagger `readOnly` properties
 are excluded from requests through schema references; OpenAPI 3.0 retains its
 request/response `required` rules for readOnly/writeOnly. Modern annotations keep
-ordinary JSON Schema assertions. The shared evaluator revision is **1.18.0+57**;
+ordinary JSON Schema assertions. The shared evaluator revision is **1.18.0+58**;
 matching mock/worker revisions are required before readiness is reported.
 
 Selected-entry validation and evaluation follow canonical typed reachability.

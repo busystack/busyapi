@@ -4,7 +4,7 @@ import {swaggerFileChoiceTargets} from './swagger_file';
 import {resolveIri} from '@hyperjump/uri';
 import {specificationDeclaration, defaultSchemaDialect, modernFamily, restrictedSchemaDialect, swaggerSchemaDialect, isNativeFamily, capabilitiesFor, Specification,declaredSchemaDialect} from './specification';
 
-export const schemaRoleContextRevision='8';
+export const schemaRoleContextRevision='9';
 
 export const knownDialects = new Set([
     restrictedSchemaDialect,
@@ -633,6 +633,11 @@ export class ReferenceGraph {
             const pointer = (this.family==='2.0'?ref.connection==='security'?'/securityDefinitions':'/definitions':'/components/'+group) + '/' + escape(ref.value);
             if (this.docs.get(this.root)?.dataNode(pointer)) return {resolution: 'resolved', targetResource: this.root, targetPointer: pointer};
             if (ref.connection === 'security' && (!isNativeFamily(ref.family) || !capabilitiesFor(ref.family).securityRequirementUris)) return {resolution: 'missing', targetResource: this.root, targetPointer: pointer};
+            // A mapping/member name is data, including "$ref" and
+            // "$dynamicRef". Native URI connections use static identity and
+            // their captured native base; their spelling cannot activate a
+            // Schema Object applicator or Reference Object restrictions.
+            return this.resolve(ref.value,{...ref,kind:ref.connection==='security'?'security-requirement':'discriminator'});
         }
         return this.resolveReference(ref.value, ref, ref.keyword);
     }

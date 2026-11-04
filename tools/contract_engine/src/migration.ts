@@ -12,7 +12,7 @@ import {downgradeSwagger} from './migration_downgrade';
 import {evaluateSchemas} from './schema_evaluation';
 import {referenceValue} from './reference_choices';
 import {coldGraph} from './reference_selection';
-import {documentUriBase,resolveUri,pointerFragment as fragment,type GraphScope} from './reference_graph';
+import {documentUriBase,resolveUri,pointerFragment as fragment,type GraphScope,type GraphReference} from './reference_graph';
 import {documentUriOccurrences} from './document_uris';
 import {serverTemplate} from './derived_bundle';
 import {captureMigrationMarkdown,rewriteMigrationMarkdown,proveMigrationMarkdown} from './migration_markdown';
@@ -38,8 +38,10 @@ import {MigrationSchemaOwners,MigrationSemanticOrigins} from './migration_schema
 import {projectSchemaReference} from './schema_reference_projection';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='68';
+const migrationProducerVersion='69';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
+const referenceLocator=(reference:GraphReference)=>!reference.connection&&['$ref','$dynamicRef'].includes(reference.keyword)||
+    reference.connection==='operationRef'&&reference.keyword==='operationRef';
 const patch:Record<string,string>={'2.0':'2.0','3.0':'3.0.4','3.1':'3.1.2','3.2':'3.2.1'};
 export type MigrationInput=Readonly<{
     root:string;
@@ -366,7 +368,7 @@ export async function planMigration(input:MigrationInput) {
             const retainedReferences=new Set([...migrationReferences(retainedContexts.map(context=>context.graph))].filter(reference=>reference.resolution==='resolved').map(reference=>
                 JSON.stringify([reference.resource,reference.pointer,reference.kind,reference.connection,reference.keyword,reference.value,reference.targetResource,reference.targetPointer])));
             for(const reference of migrationReferences(contexts.map(context=>context.graph))){
-                if(reference.connection!=='discriminator'&&!['$ref','$dynamicRef','operationRef'].includes(reference.keyword)||reference.resolution!=='resolved')continue;
+                if(!referenceLocator(reference)&&reference.connection!=='discriminator'||reference.resolution!=='resolved')continue;
                 // Discriminator mapping keys are arbitrary wire values. A key
                 // spelled $dynamicRef is still a native connection, not a
                 // dynamic schema applicator. Repair moved targets before the
@@ -472,7 +474,28 @@ export async function planMigration(input:MigrationInput) {
             if(scope.kind==='server'&&typeof value?.url==='string')source.set(scope.pointer+'/url',serverTemplate(value.url,documentUriBase(context.graph,scope),value.variables,{resource:scope.resource,pointer:scope.pointer+'/url',range:context.docs.get(scope.resource)!.dataNode(scope.pointer+'/url')!.range}));
         }
         for(const occurrence of documentUriOccurrences(context.graph))if(finalOwners.has(useKey(occurrence.scope))&&occurrence.scope.kind!=='server')sources.get(occurrence.scope.resource)!.set(occurrence.pointer,resolveUri(occurrence.value,documentUriBase(context.graph,occurrence.scope)).href);
-        for(const reference of migrationReferences(finalOwnerContexts))if(['$ref','$dynamicRef','operationRef'].includes(reference.keyword)&&reference.resolution==='resolved')sources.get(reference.resource)!.set(reference.pointer+'/'+escape(reference.keyword),resolveUri(reference.value,reference.base).href);
+        const securityNames=new Map<string,Set<string>>();
+        for(const reference of migrationReferences(finalOwnerContexts)){
+            if(reference.resolution!=='resolved')continue;
+            const source=sources.get(reference.resource)!;
+            if(reference.connection==='security'&&reference.targetUri!==undefined){
+                const identity=key(reference.resource,reference.pointer),scope=context.graph.referenceOwner(reference)??reference;
+                const names=securityNames.get(identity)??new Set(source.doc.dataNode(reference.pointer)!.children.keys());
+                securityNames.set(identity,names);
+                const target=context.graph.scopeAs(reference.targetResource!,reference.targetPointer!,'security');
+                const excluded=new Set([...names,...(context.docs.get(context.graph.root)!.dataNode('/components/securitySchemes')?.children.keys()??[])]);
+                excluded.delete(reference.value);
+                const value=target&&referenceValue(context.graph,{...scope,kind:'security'},target,'security',excluded,{absolute:true,connection:'security'});
+                if(value===undefined){issue(reference,'migration.security.uri','This captured URI binding has no proved absolute spelling before publication','implementation');continue;}
+                if(value!==reference.value){
+                    source.rename(reference.pointer+'/'+escape(reference.keyword),value);names.delete(reference.value);names.add(value);
+                }
+            }else if(referenceLocator(reference)||reference.connection==='discriminator'&&reference.targetUri!==undefined)
+                source.set(reference.pointer+'/'+escape(reference.keyword),resolveUri(reference.value,reference.base).href);
+        }
+        const normalized=migrationLocations(sources);
+        semanticOrigins?.projectLocations(location=>normalized.get(key(location.resource,location.pointer))??[]);
+        for(const [origin,locations]of origins)origins.set(origin,locations.flatMap(location=>normalized.get(key(location.resource,location.pointer))??[]));
         for(const scope of migrationScopes(finalOwnerContexts))if(scope.kind==='schema')assertRoleAnnotations(context.graph,scope,sources.get(scope.resource)!.doc,scope.pointer);
         for(const [resource,source]of sources)for(const pointer of source.presentationChanges){
             const original=sourceLocation(resource,pointer);
@@ -536,18 +559,18 @@ export async function planMigration(input:MigrationInput) {
     // Prove retained static spellings without transient source-file aliases.
     // The final cold proof below still checks every repaired connection.
     const portable=coldGraph(outputRoot,coldResources());
-    const portableReferences=new Set(portable.references.filter(reference=>reference.resolution==='resolved'&&reference.keyword!=='$dynamicRef').map(reference=>
+    const portableReferences=new Set(portable.references.filter(reference=>reference.resolution==='resolved'&&(!referenceLocator(reference)||reference.keyword!=='$dynamicRef')).map(reference=>
         JSON.stringify([reference.resource,reference.pointer,reference.keyword,reference.value,reference.targetResource,reference.targetPointer])));
     const securityNames=new Map<string,Set<string>>();
     const portableOwners=new Map<string,MigrationSource>();
     for(const reference of migrationReferences(relocatedOwnerContexts)){
         const security=reference.connection==='security'&&reference.targetUri!==undefined;
-        const relocatable=['$ref','$dynamicRef','operationRef'].includes(reference.keyword)||reference.connection==='discriminator'||security;
+        const relocatable=referenceLocator(reference)||reference.connection==='discriminator'||security;
         if(!relocatable||reference.resolution!=='resolved')continue;
         if(portableReferences.has(JSON.stringify([reference.resource,reference.pointer,reference.keyword,reference.value,reference.targetResource,reference.targetPointer])))continue;
         const scope=relocated.graph.referenceOwner(reference)??reference,
             destination=relocated.graph.scopeAs(reference.targetResource!,reference.targetPointer!,reference.kind);
-        const addressKeyword=security?'security':reference.keyword==='$dynamicRef'&&!reference.dynamic?'$ref':reference.keyword;
+        const addressKeyword=security?'security':reference.connection==='discriminator'||reference.keyword==='$dynamicRef'&&!reference.dynamic?'$ref':reference.keyword;
         let names:Set<string>|undefined,excluded:Set<string>|undefined;
         if(security){
             const identity=key(reference.resource,reference.pointer);
@@ -556,7 +579,8 @@ export async function planMigration(input:MigrationInput) {
             excluded=new Set([...names,...(relocated.docs.get(relocated.graph.root)!.dataNode('/components/securitySchemes')?.children.keys()??[])]);
             excluded.delete(reference.value);
         }
-        const value=destination&&referenceValue(relocated.graph,security?{...scope,kind:'security'}:scope,destination,addressKeyword,excluded);
+        const value=destination&&referenceValue(relocated.graph,security?{...scope,kind:'security'}:scope,destination,addressKeyword,excluded,
+            security?{connection:'security'}:reference.connection==='discriminator'?{connection:'discriminator'}:{});
         const location={resource:reference.resource,pointer:reference.pointer+'/'+escape(reference.keyword)};
         if(value===undefined){issue(location,'migration.reference.relocation','A captured reference has no proved portable target spelling','implementation');continue;}
         if(reference.connection==='discriminator'||security){
@@ -565,7 +589,7 @@ export async function planMigration(input:MigrationInput) {
                 issue(location,'migration.reference.binding','The proposed native connection does not preserve its captured target','implementation');continue;
             }
         }
-        if(reference.keyword==='$dynamicRef'){
+        if(!reference.connection&&reference.keyword==='$dynamicRef'){
             const rebound=relocated.graph.resolveReference(value,scope,'$dynamicRef');
             if(rebound.resolution!=='resolved'||rebound.targetResource!==reference.targetResource||rebound.targetPointer!==reference.targetPointer||Boolean(rebound.dynamic)!==Boolean(reference.dynamic)){
                 issue(location,'migration.reference.binding','The proposed spelling changes the captured dynamic reference binding','implementation');continue;
@@ -591,11 +615,15 @@ export async function planMigration(input:MigrationInput) {
     }
     try{
         const portable=migrationLocations(portableOwners);
-        for(const [origin,locations]of origins)origins.set(origin,locations.flatMap(location=>{
+        const project=(location:MigrationLocation):readonly MigrationLocation[]=>{
             const resource=identifiers.get(location.resource)!;
             if(!portableOwners.has(resource))return [location];
             return (portable.get(key(resource,location.pointer))??[]).map(location=>({
                 resource:relocatedResources.get(location.resource)!,pointer:location.pointer}));
+        };
+        semanticOrigins?.projectLocations(project);
+        for(const [origin,locations]of origins)origins.set(origin,locations.flatMap(location=>{
+            return project(location);
         }));
     }catch(error){refused(error,{resource:input.root,pointer:''});}
     if(problems.length)return {...common(),changes:[],outputs:[]};

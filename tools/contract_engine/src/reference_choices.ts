@@ -37,7 +37,7 @@ export function discriminatorBindings(graph:ReferenceGraph,source:GraphScope):{
   const spellings:string[]=[];
   if(current?.resolution==='resolved'&&current.targetResource===target.resource&&current.targetPointer===target.pointer)spellings.push(current.value);
   if(target.resource===graph.root&&target.pointer==='/components/schemas/'+escape(name??''))spellings.push(name!);
-  const uri=referenceValue(graph,{...source,kind:'schema'},target);
+  const uri=referenceValue(graph,{...source,kind:'schema'},target,'$ref',undefined,{connection:'discriminator'});
   if(uri!==undefined)spellings.push(uri);
   for(const value of spellings){
    const proof=graph.resolveConnection({...source,kind:'schema',connection:'discriminator',keyword:'defaultMapping',value});
@@ -51,15 +51,17 @@ export function discriminatorBindings(graph:ReferenceGraph,source:GraphScope):{
 /** Address construction is not resolution. Every proposed spelling must be
  * proved by the canonical graph, including embedded ids and retrieval aliases.
  * Completion and native choices use this same operation. */
-export function referenceValue(graph:ReferenceGraph,from:GraphScope,to:GraphScope,keyword='$ref',excluded?:ReadonlySet<string>):string|undefined {
+export function referenceValue(graph:ReferenceGraph,from:GraphScope,to:GraphScope,keyword='$ref',excluded?:ReadonlySet<string>,
+ options:Readonly<{absolute?:boolean;connection?:'security'|'discriminator'}>={}):string|undefined {
  if(to.kind==='schema'&&!supportedSchemaDialect(to))return;
+ const dynamic=!options.connection&&keyword==='$dynamicRef';
  let target:URL,suffix:string;
  try {
   target=resolveUri(to.kind==='schema'?to.base:graph.scope(to.resource,'').base,to.resource);
   suffix=to.kind==='schema'?to.pointer.slice(to.resourcePointer.length):to.pointer;
   target.hash='';
   if(target.username||target.password)return;
-  if(keyword==='$dynamicRef') {
+  if(dynamic) {
    const anchor=graph.docs.get(to.resource)!.node(to.pointer).value?.$dynamicAnchor;
    if(typeof anchor!=='string')return;
    suffix=anchor;
@@ -67,8 +69,8 @@ export function referenceValue(graph:ReferenceGraph,from:GraphScope,to:GraphScop
   const source=resolveUri('',from.base);source.hash='';
   const attempts:string[]=[];
   const append=(target:URL,end:string)=>{
-   if(source.href===target.href)attempts.push(end);
-   if(source.protocol===target.protocol&&source.host===target.host&&['file:','http:','https:'].includes(target.protocol)) {
+   if(!options.absolute&&source.href===target.href)attempts.push(end);
+   if(!options.absolute&&source.protocol===target.protocol&&source.host===target.host&&['file:','http:','https:'].includes(target.protocol)) {
     let path=posix.relative(posix.dirname(source.pathname),target.pathname)||posix.basename(target.pathname);
     if(target.pathname.endsWith('/'))path=(path||'.')+'/';
     if(path.split('/')[0].includes(':'))path='./'+path;
@@ -79,7 +81,14 @@ export function referenceValue(graph:ReferenceGraph,from:GraphScope,to:GraphScop
     while(excluded?.has(relative)&&relative.length+2<=65536)relative='./'+relative;
     attempts.push(relative);
    }
-   attempts.push(target.href+end);
+   let absolute=target.href+end;
+   if(excluded?.has(absolute)&&['file:','http:','https:'].includes(target.protocol)){
+    const split=target.pathname.lastIndexOf('/')+1,prefix=target.protocol+'//'+target.host+target.pathname.slice(0,split),tail=target.pathname.slice(split)+target.search+end;
+    let dots='./';
+    while(excluded.has(prefix+dots+tail)&&prefix.length+dots.length+tail.length+2<=65536)dots+='./';
+    absolute=prefix+dots+tail;
+   }
+   attempts.push(absolute);
   };
   const data=graph.docs.get(to.resource)!.root.value;
   // A canonical identifier is not a retrieval capability. Retain a local
@@ -88,14 +97,15 @@ export function referenceValue(graph:ReferenceGraph,from:GraphScope,to:GraphScop
   // original $id/base/dialect at the selected location. JSON Schema Core 9.2.1
   // permits this physical-document addressing; moving the resource requires
   // reviewed reference repairs. OAS 3.2's declared $self is never bypassed.
-  if(to.kind==='schema'&&to.resource!==from.resource&&to.resource.startsWith('file:')&&
+  if((to.kind==='schema'||options.connection!==undefined)&&to.resource!==from.resource&&to.resource.startsWith('file:')&&
     !(String(data?.openapi).startsWith('3.2.')&&typeof data?.$self==='string')&&
-    (keyword!=='$dynamicRef'||to.resourcePointer===''))
-   append(resolveUri(to.resource,to.resource),keyword==='$dynamicRef'?'#'+encodeURIComponent(suffix):fragment(to.pointer));
-  append(target,keyword==='$dynamicRef'?'#'+encodeURIComponent(suffix):fragment(suffix));
+    (!dynamic||to.resourcePointer===''))
+   append(resolveUri(to.resource,to.resource),dynamic?'#'+encodeURIComponent(suffix):fragment(to.pointer));
+  append(target,dynamic?'#'+encodeURIComponent(suffix):fragment(suffix));
   for(const value of attempts) {
    if(excluded?.has(value))continue;
-   const result=graph.resolveReference(value,from,keyword);
+   const result=options.connection?graph.resolveConnection({...from,kind:to.kind,connection:options.connection,
+    keyword:options.connection==='security'?value:keyword,value}):graph.resolveReference(value,from,keyword);
    if(result.resolution==='resolved'&&to.resource===result.targetResource&&to.pointer===result.targetPointer)return value;
   }
  }catch { /* No guessed address when a pointer/identity cannot be represented. */ }
@@ -155,7 +165,7 @@ export function securityBindings(graph:ReferenceGraph,selection:SecuritySelectio
   if(options.bindingForm!=='uri'&&target.resource===graph.root&&group&&target.pointer===group+'/'+escape(label)&&names?.has(label))append(target,label,'name');
   if(options.bindingForm==='name'||!uriSupported)continue;
   const retained=current?.resolution==='resolved'&&!implicitNameReference(current)&&current.targetResource===target.resource&&current.targetPointer===target.pointer;
-  const value=retained?current.value:referenceValue(graph,{...source,kind:'security'},target,'security',excluded);
+  const value=retained?current.value:referenceValue(graph,{...source,kind:'security'},target,'security',excluded,{connection:'security'});
   if(value!==undefined)append(target,value,'uri');
  }
  return result;
