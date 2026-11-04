@@ -19,7 +19,7 @@ const identity=(scope:Pick<GraphScope,'resource'|'pointer'>)=>JSON.stringify([sc
 /** Occurrence context comes from the canonical graph, not the schema's file
  * name or its reusable component name. A reference preserves the instance path;
  * properties/items change it. No resource acquisition occurs in this proof. */
-class BinaryUses {
+export class BinaryUses {
     private readonly incoming=new Map<string,GraphScope[]>();
     private readonly swaggerUses=new Map<string,{mediaType:string;source:GraphScope}[]>();
     private readonly forms:FormSemantics;
@@ -187,7 +187,7 @@ function representation(use:Use):'raw'|'data'|'unknown' {
     });
     return kinds.every(kind=>kind==='raw')?'raw':kinds.every(kind=>kind==='data')?'data':'unknown';
 }
-const raw=(use:Use)=>representation(use)==='raw';
+export const rawBinaryUse=(use:Use)=>representation(use)==='raw';
 const annotation=(name:string)=>name.startsWith('x-')||['title','description','externalDocs','xml','deprecated','readOnly','writeOnly'].includes(name);
 
 /** OAS 3.0.4 §4.4.2 / 3.1.2 §§4.4.2–4.4.2.1. Encoded strings retain
@@ -209,7 +209,7 @@ export function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<string,Mig
         if(from==='2.0'&&to==='3.0'){
             if(value.type==='file'){
                 const contexts=uses.inspect(scope);
-                if(!contexts.length||contexts.some(use=>!raw(use)||!uses.rawCompatible(use,from)))
+                if(!contexts.length||contexts.some(use=>!rawBinaryUse(use)||!uses.rawCompatible(use,from)))
                     fail('type','This file needs a proved raw occurrence and assertion mapping before it can become a legacy binary string');
             }
             continue;
@@ -217,7 +217,7 @@ export function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<string,Mig
         if((from==='2.0'||from==='3.0')&&(['binary','byte'].includes(value.format)||from==='2.0'&&value.type==='file')){
             const contexts=uses.inspect(scope);
             if(value.format==='byte'){
-                if(contexts.some(use=>representation(use)==='unknown'||use.kind==='body'&&raw(use))){
+                if(contexts.some(use=>representation(use)==='unknown'||use.kind==='body'&&rawBinaryUse(use))){
                     fail('format','A whole encoded binary body needs its media-aware encoded-string interpretation before conversion');continue;
                 }
                 // A decoded content media type cannot be inferred from a JSON
@@ -228,7 +228,7 @@ export function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<string,Mig
             if(contexts.some(use=>representation(use)==='unknown')){
                 fail('format','The captured binary media choices do not yet have a complete raw or data-model representation mapping');continue;
             }
-            const rawContexts=contexts.filter(raw);
+            const rawContexts=contexts.filter(rawBinaryUse);
             if(from==='2.0'&&value.type==='file'&&(!contexts.length||rawContexts.length!==contexts.length)){
                 fail('type','A Swagger file needs captured raw-media occurrences; modeled data representations need a separate file-aware target owner');continue;
             }
@@ -260,7 +260,7 @@ export function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<string,Mig
             if(typeof value.format==='string'&&value.format!=='byte'){
                 fail('format','The existing format annotation needs an independent target owner before activating format: byte');continue;
             }
-            if(contexts.some(use=>representation(use)==='unknown'||use.kind==='body'&&raw(use))){
+            if(contexts.some(use=>representation(use)==='unknown'||use.kind==='body'&&rawBinaryUse(use))){
                 fail('contentEncoding','A whole encoded binary body needs its captured string/media representation before lowering');continue;
             }
             source.remove(pointer+'/contentEncoding');source.set(pointer+'/format','byte');
@@ -273,7 +273,7 @@ export function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<string,Mig
                 fail('contentMediaType','The decoded content media type has no proved concrete media binding at every occurrence');continue;
             }
             if(!encoded){
-                if(!contexts.every(raw)||Object.hasOwn(value,'type')){
+                if(!contexts.every(rawBinaryUse)||Object.hasOwn(value,'type')){
                     fail('contentMediaType','This unencoded content schema needs a proved raw media leaf without a conflicting JSON type');continue;
                 }
                 const assertions=Object.keys(value).filter(name=>name!=='contentMediaType'&&!annotation(name));

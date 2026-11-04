@@ -31,6 +31,81 @@ String _source(String version, String format, int port, {required bool binary}) 
 }
 
 void main() {
+  test('shared raw and JSON schemas retain distinct execution after publication and cold reopening', () async {
+    final directory = await Directory.systemTemp.createTemp('busyapi-mixed-binary-');
+    addTearDown(() => directory.delete(recursive: true));
+    final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);
+    addTearDown(engine.close);
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    final observed = <(String, List<int>)>[];
+    server.listen((request) async {
+      final type = request.headers.value('content-type')!;
+      final bytes = await request.fold<List<int>>([], (all, chunk) => all..addAll(chunk));
+      observed.add((type, bytes));
+      request.response.headers.set('content-type', type);
+      request.response.add(bytes); await request.response.close();
+    });
+    final document = jsonDecode(_source('3.0.4', 'json', server.port, binary: true)) as Map<String, dynamic>;
+    document['components'] = {'schemas': {'Shared': {'type': 'string', 'format': 'binary',
+      'description': '[Retained](./guide.md)', 'x-number': 'EXACT'}}};
+    final operation = document['paths']['/bytes']['post'] as Map;
+    for (final content in [operation['requestBody']['content'], operation['responses']['200']['content']]) {
+      content['application/octet-stream']['schema'] = {r'$ref': '#/components/schemas/Shared'};
+      content['application/json'] = {'schema': {r'$ref': '#/components/schemas/Shared'}};
+    }
+    final text = jsonEncode(document).replaceAll('"EXACT"', '9007199254740993.00');
+    final file = File('${directory.path}/api.json');
+    await file.writeAsString(text);
+    final project = await BusyProject.open(file.path, engine);
+    addTearDown(project.close);
+    final root = project.roots.single.id, buffer = await project.buffer(project.roots.single.id);
+    project.store.replace(root, buffer.text.replaceFirst('Original', 'Unsaved'));
+    final working = buffer.text, destination = '${directory.path}/output';
+    final review = await project.prepareMigration(root, destination, targetVersion: '3.2.1');
+    addTearDown(review.close);
+    expect(review.publishable, true, reason: '${review.result}'); expect(review.unsaved, true);
+    final payload = File('${directory.path}/payload.bin');
+    Future<List<(bool, bool)>> send(BusyProject owner) async {
+      final root = owner.roots.single.id;
+      final plan = await owner.prepareRequest(root, resource: root, pointer: '/paths/~1bytes/post');
+      try {
+        final outcomes = <(bool, bool)>[];
+        for (final (type, bytes) in <(String, List<int>)>[
+          ('application/octet-stream', [0, 255, 128, 195, 169]), ('application/octet-stream', []),
+          ('application/json', utf8.encode('"snow 雪"')), ('application/json', utf8.encode('false')),
+        ]) {
+          await payload.writeAsBytes(bytes);
+          final response = await const ContractRequestExecutor().execute(plan,
+              OperationRequestDraft(planIdentity: plan.identity, body: RequestBodyDraft.binaryFile(mediaType: type, file: payload.path)),
+              resolveSecret: (_) async => throw StateError('No credentials'));
+          try {
+            expect(observed.last.$1, type); expect(observed.last.$2, bytes);
+            expect(await response.response.decodedBytes(), bytes);
+            expect(response.outgoing.complete, true); expect(response.received.complete, true);
+            outcomes.add((response.outgoing.valid, response.received.valid));
+          } finally { await response.close(); }
+        }
+        return outcomes;
+      } finally { plan.close(); }
+    }
+    final before = await send(project);
+    expect(before, [(true, true), (true, true), (true, true), (false, false)]);
+    final cli = await Process.run('$testBundle/busyapi', ['migrate', file.path,
+      '--target', '3.1.2', '--output', '${directory.path}/cli-review', '--json'],
+      environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
+    expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');
+    final report = jsonDecode(cli.stdout as String) as Map;
+    expect(report['complete'], true); expect(report['producerVersion'], '73');
+    expect(report['published'], false);
+    await review.publish();
+    expect(await file.readAsString(), text); expect(buffer.text, working);
+    await file.delete();
+    final output = await BusyProject.open(destination, engine);
+    addTearDown(output.close);
+    expect(await send(output), before); expect(observed, hasLength(8));
+    expect(await File('$destination/openapi.json').readAsString(), contains('9007199254740993.00'));
+  });
   for (final version in ['3.0.0', '3.0.1', '3.0.2', '3.0.3', '3.0.4',
     '3.1.0', '3.1.1', '3.1.2', '3.2.0', '3.2.1']) {
     for (final format in ['yaml', 'json']) for (final binary in [true, false]) {
@@ -67,7 +142,7 @@ void main() {
         final review = await project.prepareMigration(root, destination, targetVersion: target);
         addTearDown(review.close);
         expect(review.status, MigrationStatus.faithfullyConvertible, reason: '${review.result}');
-        expect(review.result['producerVersion'], '72');
+        expect(review.result['producerVersion'], '73');
         expect(review.unsaved, true);
         expect(Directory(destination).existsSync(), false);
         await review.publish();
@@ -117,7 +192,7 @@ void main() {
         expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');
         final report = jsonDecode(cli.stdout as String) as Map;
         expect(report['complete'], true);
-        expect(report['producerVersion'], '72');
+        expect(report['producerVersion'], '73');
         expect(report['published'], false);
         expect(Directory('${directory.path}/cli-review').existsSync(), false);
       });

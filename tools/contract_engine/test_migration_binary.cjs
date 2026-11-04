@@ -1,8 +1,10 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
+const {createHash}=require('node:crypto');
 const YAML=require('yaml');
 const {planMigration}=require('./dist/migration.cjs');
 const {createGraph}=require('./dist/model.cjs');
+const {SourceDocument}=require('./dist/document.cjs');
 const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
 const escape=value=>value.replaceAll('~','~0').replaceAll('/','~1');
 const legacy=['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4'];
@@ -24,7 +26,7 @@ async function wire(input,type,bytes,form=false){
 for(const from of legacy)for(const target of ['3.1.2','3.2.1'])for(const format of ['yaml','json'])
 test(`${from} -> ${target} ${format} raw body mapping retains exact non-Unicode and empty bytes`,async()=>{
  const type='application/octet-stream',input=capture(from,format,type,{type:'string',format:'binary',description:'Keep leaf'},target),before=input.resources[0].text;
- const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));assert.equal(plan.producerVersion,'72');
+ const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));assert.equal(plan.producerVersion,'73');
  const output=cold(plan);assert.deepEqual(schema(output,type),{description:'Keep leaf'});
  for(const bytes of [Buffer.from([0,255,128,195,169]),Buffer.alloc(0)]){
   assert.deepEqual(await wire(output,type,bytes),await wire(input,type,bytes));assert((await wire(output,type,bytes)).every(value=>value.valid));
@@ -81,7 +83,43 @@ for(const format of ['yaml','json'])test(`${format} JSON binary-looking format r
  for(const text of ['"café"','"雪😀"','false','null','"too long"'])assert.deepEqual(await wire(output,type,Buffer.from(text)),await wire(input,type,Buffer.from(text)));
 });
 
-for(const format of ['yaml','json'])for(const mode of ['constraint','ancestor','mixed','opaque','unbound'])
+for(const format of ['yaml','json'])for(const target of ['3.1.2','3.2.1'])for(const alias of [false,true])
+test(`${format} ${target} mixed raw and JSON forwarding consumers retain independent owners alias=${alias}`,async()=>{
+ const type='application/octet-stream',input=capture('3.0.4',format,type,{$ref:'models.'+format+'#/Alias'},target);
+ const models='file:///approved/contracts/models.'+format,doc=format==='json'?JSON.parse(input.resources[0].text):YAML.parse(input.resources[0].text);
+ const scheme={type:'string',format:'binary',description:'[Binary](./guide.md)','x-number':'EXACT'};
+ const collision='_migrated_binary_use_'+createHash('sha256').update(JSON.stringify([input.root,models,'/Binary','raw'])).digest('hex').slice(0,24);
+ doc.components={schemas:{[collision]:{type:'integer',description:'Unrelated collision'}}};
+ for(const content of [doc.paths['/bytes'].post.requestBody.content,doc.paths['/bytes'].post.responses[200].content]){
+  content[type].schema={$ref:'models.'+format+(alias?'#/Alias':'#/Binary')};
+  content['application/json']={schema:{$ref:'models.'+format+'#/Binary'}};
+ }
+ doc['x-history']=structuredClone(scheme);
+ input.resources[0].text=render(doc,format).replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ input.resources.push({id:models,text:render({Alias:{$ref:'#/Binary'},Binary:scheme},format)
+  .replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00'),generation:8});
+ const original=input.resources.map(resource=>resource.text),review=await planMigration(input);
+ assert.equal(review.complete,true,JSON.stringify(review.problems));
+ assert.equal((await planMigration(input)).identity,review.identity);
+ assert.deepEqual(input.resources.map(resource=>resource.text),original);
+ const output=cold(review),{graph}=createGraph(output);
+ assert(graph.references.every(reference=>reference.resolution==='resolved'));
+ const entry=graph.docs.get(output.root),names=[...entry.dataNode('/components/schemas').children.keys()];
+ assert(names.includes(collision));assert(names.includes(collision+'_1'),'The common allocator retains an occupied native name');
+ const delivered=review.changes.find(change=>change.resource===models).destination,neutral=graph.docs.get(delivered).dataNode('/Binary').value;
+ assert.equal(neutral.type,'string');assert.equal(neutral.format,'binary');
+ assert.equal(entry.dataNode('/components/schemas/'+collision).value.type,'integer');
+ assert.equal(entry.dataJson('/x-history'),new SourceDocument(original[0],input.root).dataJson('/x-history'));
+ assert(review.outputs.some(resource=>resource.text.includes('9007199254740993.00')));
+ for(const bytes of [Buffer.alloc(0),Buffer.from([0,255,128,195,169])]){
+  assert.deepEqual(await wire(output,type,bytes),await wire(input,type,bytes));
+  assert((await wire(output,type,bytes)).every(value=>value.complete&&value.valid));
+ }
+ for(const text of ['"snow 雪"','false','null','{"bytes":0}'])
+  assert.deepEqual(await wire(output,'application/json',Buffer.from(text)),await wire(input,'application/json',Buffer.from(text)));
+});
+
+for(const format of ['yaml','json'])for(const mode of ['constraint','ancestor','mixed','opaque','unbound','targeted'])
 test(`${format} incomplete ${mode} binary mapping retains a located refusal without output`,async()=>{
  const type=mode==='opaque'?'application/unknown-binary':'application/octet-stream';
  let leaf={type:'string',format:'binary'};
@@ -90,11 +128,19 @@ test(`${format} incomplete ${mode} binary mapping retains a located refusal with
  const input=capture('3.0.4',format,type,leaf,'3.2.1');
  if(mode==='mixed'||mode==='unbound'){
   const doc=format==='json'?JSON.parse(input.resources[0].text):YAML.parse(input.resources[0].text);
-  doc.components={schemas:{Shared:{type:'string',format:'binary'}}};
+  doc.components={schemas:{Shared:{type:'string',format:'binary',...(mode==='mixed'?{maxLength:4}:{})}}};
   if(mode==='unbound')doc.paths={};
   else for(const content of [doc.paths['/bytes'].post.requestBody.content,doc.paths['/bytes'].post.responses[200].content]){
    content[type].schema={$ref:'#/components/schemas/Shared'};content['application/json']={schema:{$ref:'#/components/schemas/Shared'}};
   }
+  input.resources[0].text=render(doc,format);
+ }
+ if(mode==='targeted'){
+  const doc=format==='json'?JSON.parse(input.resources[0].text):YAML.parse(input.resources[0].text);
+  for(const [content,pointer]of [
+   [doc.paths['/bytes'].post.requestBody.content,'/paths/~1bytes/post/requestBody/content/'],
+   [doc.paths['/bytes'].post.responses[200].content,'/paths/~1bytes/post/responses/200/content/']])
+   content['application/json']={schema:{$ref:'#'+pointer+escape(type)+'/schema'}};
   input.resources[0].text=render(doc,format);
  }
  const before=input.resources[0].text,plan=await planMigration(input);assert.equal(plan.status,'blocked');assert.equal(plan.complete,false);assert.deepEqual(plan.outputs,[]);assert.deepEqual(plan.changes,[]);
