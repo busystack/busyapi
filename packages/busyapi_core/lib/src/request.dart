@@ -149,6 +149,7 @@ class RequestFormField {
 class RequestBodyDraft {
   const RequestBodyDraft.none()
     : kind = RequestBodyKind.none,
+      capturedExample = null,
       mediaType = null,
       text = null,
       file = null,
@@ -159,6 +160,7 @@ class RequestBodyDraft {
       files = const [];
   const RequestBodyDraft.raw({required this.mediaType, required this.text})
     : kind = RequestBodyKind.raw,
+      capturedExample = null,
       file = null,
       partMediaTypes = const {},
       partHeaders = const [],
@@ -170,6 +172,7 @@ class RequestBodyDraft {
     this.mediaType = 'application/x-www-form-urlencoded',
     this.partMediaTypes = const {},
   }) : kind = RequestBodyKind.form,
+       capturedExample = null,
        text = null,
        file = null,
        files = const [],
@@ -180,6 +183,7 @@ class RequestBodyDraft {
     this.mediaType = 'application/x-www-form-urlencoded',
     this.partMediaTypes = const {},
   }) : kind = RequestBodyKind.form,
+       capturedExample = null,
        text = json,
        file = null,
        fields = const [],
@@ -194,6 +198,7 @@ class RequestBodyDraft {
     this.partHeaders = const [],
     this.fileShapes = const {},
   }) : kind = RequestBodyKind.multipart,
+       capturedExample = null,
        text = null,
        file = null;
   const RequestBodyDraft.multipartValue({
@@ -204,6 +209,7 @@ class RequestBodyDraft {
     this.partHeaders = const [],
     this.fileShapes = const {},
   }) : kind = RequestBodyKind.multipart,
+       capturedExample = null,
        text = json,
        file = null,
        fields = const [];
@@ -211,12 +217,25 @@ class RequestBodyDraft {
     required this.mediaType,
     required this.file,
   }) : kind = RequestBodyKind.binaryFile,
+       capturedExample = null,
        text = null,
        partMediaTypes = const {},
        partHeaders = const [],
        fileShapes = const {},
        fields = const [],
        files = const [];
+  RequestBodyDraft.example(CapturedRequestBodyExample example)
+    : kind = RequestBodyKind.raw,
+      capturedExample = example,
+      mediaType = example.mediaType,
+      text = null,
+      file = null,
+      partMediaTypes = const {},
+      partHeaders = const [],
+      fileShapes = const {},
+      fields = const [],
+      files = const [];
+  final CapturedRequestBodyExample? capturedExample;
   final RequestBodyKind kind;
   final String? mediaType, text, file;
   final List<RequestFormField> fields;
@@ -736,7 +755,10 @@ class ContractRequestBuilder {
         'Choose the exact current request media declaration.',
       );
     }
-    if (draft.body.mediaType != null &&
+    if (draft.body.capturedExample case final example?) {
+      plan.ensureBodyExample(example);
+    }
+    if (draft.body.mediaType != null && draft.body.capturedExample == null &&
         draft.body.kind != RequestBodyKind.binaryFile) {
       final values = [
         draft.body.text ?? '',
@@ -749,7 +771,8 @@ class ContractRequestBuilder {
       }
     }
     if (previewOnly && draft.body.kind == RequestBodyKind.raw) {
-      trace?.content((draft.body.text ?? '').isEmpty ? 0 : 1);
+      trace?.content(draft.body.capturedExample?.byteLength ??
+          ((draft.body.text ?? '').isEmpty ? 0 : 1));
     }
     final body = previewOnly
         ? (draft.body.kind == RequestBodyKind.none
@@ -757,7 +780,7 @@ class ContractRequestBuilder {
               : PreparedRequestBody(
                   0,
                   () => const Stream.empty(),
-                  mediaType: draft.body.kind == RequestBodyKind.raw
+                  mediaType: draft.body.kind == RequestBodyKind.raw && draft.body.capturedExample == null
                       ? RequestTextEncoding.rawMediaType(
                           draft.body.mediaType!,
                           draft.body.text ?? '',
@@ -1792,6 +1815,13 @@ class ContractRequestBuilder {
       case RequestBodyKind.none:
         return null;
       case RequestBodyKind.raw:
+        if (body.capturedExample case final example?) {
+          final bytes = await plan.bodyExampleBytes(example, cancellation: cancellation);
+          checkOwner();
+          cancellation?.throwIfCancelled();
+          _uploadLimit(bytes.length);
+          return PreparedRequestBody(bytes.length, () => Stream.value(bytes), mediaType: body.mediaType);
+        }
         final mediaType = RequestTextEncoding.rawMediaType(
           body.mediaType!,
           body.text ?? '',

@@ -615,6 +615,19 @@ not claim serialized or external-example validation. A complete policy category
 therefore cannot make an incomplete native check successful. See
 [3.2 Example validation](https://spec.openapis.org/oas/v3.2.1.html#validating-examples).
 
+Native request-body example choices retain approved external bytes, including
+binary and empty resources. Selection binds the declared media occurrence,
+project, operation, snapshot and content identity. Preparation verifies resource
+freshness; the request body does not pass through Unicode text or form generation.
+The native editor displays the selected resource and offers an explicit switch
+to text. Unchanged request captures retain the selection; changed owners require
+selection from the current capture. Original-schema validation and codec
+completeness still apply. Saved contract cases and the CLI use the same owner
+with `body: {mediaType: application/octet-stream, externalExample: Upload}`,
+where `Upload` names an external example on that operation's media occurrence.
+`externalExample` and `value` are mutually exclusive, including a null `value`.
+This field grants no additional resource access or media inference.
+
 Generic MIME part Header Objects can use native `schema` or single-media `content`.
 Content values use the same captured media codecs and exact schema evaluator;
 references, dialects, numeric tokens and 3.2 `itemSchema` retain their owners.

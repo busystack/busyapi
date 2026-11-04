@@ -452,8 +452,12 @@ class ContractTestRunner {
       if (body is! Map ||
           body['mediaType'] is! String ||
           (body['mediaType'] as String).isEmpty ||
-          !body.containsKey('value'))
-        invalid('body', 'Expected mediaType and a typed value.');
+          body.containsKey('value') == body.containsKey('externalExample'))
+        invalid('body', 'Expected mediaType and exactly one typed value or external example name.');
+      if (body.containsKey('externalExample') &&
+          (body['externalExample'] is! String || (body['externalExample'] as String).length > 8192)) {
+        invalid('body/externalExample', 'Expected a bounded example name from the selected media occurrence.');
+      }
       if (body.containsKey('partMediaTypes')) {
         strings(
           body['partMediaTypes'],
@@ -630,7 +634,10 @@ class ContractTestRunner {
           ? RequestValue.json(value['text'] as String)
           : RequestValue.text(value['text'] as String);
     }
-    if (rawBody is Map && exact['body'] is Map) {
+    if (rawBody is Map && rawBody['externalExample'] is String) {
+      body = RequestBodyDraft.example(plan.captureBodyExample(rawBody['mediaType'] as String,
+        name: rawBody['externalExample'] as String));
+    } else if (rawBody is Map && exact['body'] is Map) {
       final media = rawBody['mediaType'] as String,
           text = exact['body']['text'] as String;
       final partMediaTypes = rawBody['partMediaTypes'] is Map

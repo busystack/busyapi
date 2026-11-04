@@ -126,7 +126,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W4.04 OAS XML data/wire mapping, namespaces/order/escaping and disabled external acquisition; O32 §4.26, XML/Namespaces | XML semantics plus runtime-media/Core codec integration | A R E S C | XML metadata suites only; wire coverage still required | Missing for modeled wire encoder/decoder across consumers; opaque bytes remain available with truthful evaluation limits | H |
 | W4.05 Linkset-to-JSON-model mapping; O32 §4.21.2, RFC 9264/8288/8187 | runtime-media/header codecs and request/mock integrations | A R E S C | wire regression coverage still required | Missing; `application/linkset` remains opaque | H |
 | W4.06 Parameter/Header externalValue occurrence serialization through approved captured bytes; O30/O31/O32 Example/Parameter/Header objects | `serialized_examples.ts`, serialized-parameter evaluator, `execution.ts`, Core captured-resource owner | A R E S C | external-example-resource and serialized-parameter suites; Core `external_parameter_examples_test.dart` and existing external-resource controls | Partially implemented; evaluation, request-selection projection and Core outgoing validation now reuse captured resources and actual occurrences, including header octets/charsets; query/header production byte-exchange regressions are prepared; acceptance remains pending | H |
-| W4.07 Concrete occurrence context, approved external/binary example selection and cache/decision ownership; Example clauses, Core capture contract | external/media/example/request owners | A R E M S C | external-resource/media-identity/binary-selection suites | Partially implemented; reusable media without a concrete occurrence remains missing context, not a guessed format; finish binary choices in every applicable native control | H |
+| W4.07 Concrete occurrence context, approved external/binary example selection and cache/decision ownership; Example clauses, Core capture contract | external/media/example/request owners | A R E M S C | external-resource/media-identity/binary-selection suites | Partially implemented; reusable media without a concrete occurrence remains missing context, not a guessed format; native external body choices and saved-case/CLI execution now retain approved bytes through one owner-bound selection, including unchanged draft restoration and empty resources; remaining binary Parameter/Header, part controls and mock paths still need closure | H |
 | W5.01 Incremental JSON Lines/NDJSON, JSON text sequences and SSE framing/evaluation; O32 media/itemSchema, WIRE | runtime media plus transport/capture/Core/native/CLI stream owners | E S C | finite runtime-media suites only; incremental production regressions still required | Missing for transport-integrated incremental evaluation/backpressure/progress; complete-input accumulation is not streaming | H |
 | W5.02 Multipart sequences, chunk boundaries, cancellation/bounds/retention, malformed/truncated terminal status and whole-sequence versus item results; MIME/WIRE | multipart runtime and stream transport/capture owners | E S C | finite multipart suites only; incremental byte-exchange coverage still required | Missing for incremental execution integration; retain bounded finite decoding | H |
 | W5.03 Authority-form CONNECT, successful tunnel transition, bounded approved peers, bidirectional bytes and closure; HTTP §9.3.6 | mock native validation/server/transport; Core/native mock ownership | E S C | current tunnel refusal controls only; controlled peer byte-exchange suites still required | Missing; ordinary-response mock transport still refuses CONNECT; no unrestricted proxy is authorized | H |
@@ -1256,3 +1256,30 @@ publication, original deletion, relocation and CLI reopening for those mappings.
 Migration producer `70` agrees across engine/Core/preflight and obsolete controls;
 evaluator `1.18.0+58` and mock producers are unchanged. Coverage is prepared, not
 executed. W3.02/W3.06 remain partial for their other recorded mappings.
+
+
+The W4.07 native request-body boundary now uses the existing captured external
+resource owner instead of requiring a Unicode text projection. A sealed Core
+selection binds project, operation, media occurrence, plan/snapshot and byte
+identity. Preparation verifies current resources and cancellation before using
+those immutable bytes. It retains the declared content type and existing upload,
+TRACE, original-schema and codec checks. Native controls show the selected
+resource, preserve unchanged draft selections through exact owner proofs, and
+provide an explicit text choice. They never create a file picker grant or infer
+a schema branch/media type.
+
+Saved cases select the same occurrence with `body.externalExample`, mutually
+exclusive with `body.value` even when the value is null. The CLI uses that same
+Core preparation and original-schema evaluation. Unavailable/ambiguous choices
+remain incomplete; changed resource/protocol inputs are runtime failures rather
+than successful validation. Existing preparation-refusal exit semantics remain
+unchanged. Core `external_body_examples_test.dart` prepares actual binary/empty
+HTTP bytes and responses across 3.0/3.1/3.2, unchanged restoration, owner/resource
+staleness, cancellation, unavailable resources, ambiguous configuration and CLI
+cases. Native `external_body_example_request_test.dart` prepares real example
+controls, byte exchange, stale rejection, explicit text choice and source
+preservation. Both register through the established Core/widget gates. They
+have not executed. Evaluator `1.18.0+58`, migration `70` and mock `4` declarations
+are unchanged: this increment consumes existing captured engine projections.
+W4.07 remains partial for its other concrete native/parameter/mock consumers;
+this request-body selection boundary is source-complete, unverified.

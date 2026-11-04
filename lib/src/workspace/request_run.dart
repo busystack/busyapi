@@ -111,6 +111,7 @@ class RequestRunController extends ChangeNotifier {
   final Map<String, RequestValueRepresentation> exampleRepresentations = {};
   final List<RequestHeaderValue> customHeaders = [];
   RequestBodyKind bodyKind = RequestBodyKind.raw;
+  CapturedRequestBodyExample? bodyExample;
   final Map<RequestTimeoutKind, String> timeoutInputs = {};
   final Map<String, int> _tlsSelections = {};
   Duration connectTimeout = const Duration(seconds: 15),
@@ -274,6 +275,8 @@ class RequestRunController extends ChangeNotifier {
     }
     final body = !bodyEnabled || bodyMediaType == null
         ? const RequestBodyDraft.none()
+        : bodyExample != null
+        ? RequestBodyDraft.example(bodyExample!)
         : switch (bodyKind) {
             RequestBodyKind.form =>
               bodyStructured
@@ -357,6 +360,7 @@ class RequestRunController extends ChangeNotifier {
   void selectBodyMedia(String? media) {
     if (busy || hasComposingInput) return;
     bodyMediaType = media;
+    bodyExample = null;
     bodyFiles.clear();
     partMediaTypes.clear();
     bodyKind = _kindForMedia(media);
@@ -379,6 +383,7 @@ class RequestRunController extends ChangeNotifier {
       return;
     }
     bodyKind = serialized ? RequestBodyKind.raw : _kindForMedia(bodyMediaType);
+    bodyExample = null;
     refresh();
   }
 
@@ -484,6 +489,7 @@ class RequestRunController extends ChangeNotifier {
     customHeaders.clear();
     timeoutInputs.clear();
     bodyKind = RequestBodyKind.raw;
+    bodyExample = null;
     bodyStructured = false;
     partMediaTypes.clear();
     fileShapes.clear();
@@ -758,6 +764,21 @@ class RequestRunController extends ChangeNotifier {
     if (example is! Map || example['raw'] is! String) return;
     final type = media['mediaType'] as String;
     final kind = _kindForMedia(type);
+    if (example['external'] is Map) {
+      try {
+        if (ContentType.parse(type).primaryType == 'multipart' &&
+            !ContentType.parse(type).parameters.containsKey('boundary')) {
+          throw CoreFailure('request.example.conversion', 'This serialized multipart example has no declared boundary.');
+        }
+        final selected = plan!.captureBodyExample(type, name: example['name'] as String?);
+        bodyExample = selected;bodyKind = RequestBodyKind.raw;bodyStructured = false;
+        bodyMediaType = type;bodyText = '';bodyFiles.clear();partMediaTypes.clear();bodyEnabled = true;
+        refresh();
+      } on CoreFailure catch (error) {
+        failure = error.code;failureMessage = error.message;_notify();
+      }
+      return;
+    }
     void validateText(Iterable<String> values) {
       if (kind == RequestBodyKind.raw) {
         ContractRequestBuilder.validateRawTextCharset(type, values);
@@ -837,6 +858,7 @@ class RequestRunController extends ChangeNotifier {
     }
     if (bodyMediaType != type) partMediaTypes.clear();
     bodyMediaType = type;
+    bodyExample = null;
     bodyText = text;
     bodyStructured = formData;
     bodyKind = example['representation'] == 'serialized'
@@ -860,6 +882,7 @@ class RequestRunController extends ChangeNotifier {
       );
     }
     if (busy || hasComposingInput) return;
+    bodyExample = null;
     if (!multipart) {
       bodyFiles.clear();
     }
@@ -884,6 +907,7 @@ class RequestRunController extends ChangeNotifier {
         bodyKind == RequestBodyKind.raw ||
         bodyKind == RequestBodyKind.binaryFile;
     bodyFiles.clear();
+    bodyExample = null;
     bodyKind = serialized ? RequestBodyKind.raw : _kindForMedia(bodyMediaType);
     refresh();
   }
@@ -1413,6 +1437,7 @@ class _RequestDraftState {
       representations = Map.of(run.exampleRepresentations),
       headers = List.of(run.customHeaders),
       kind = run.bodyKind,
+      bodyExample = run.bodyExample,
       bodyStructured = run.bodyStructured,
       partMediaTypes = Map.of(run.partMediaTypes),
       fileShapes = Map.of(run.fileShapes),
@@ -1445,6 +1470,7 @@ class _RequestDraftState {
   final Map<String, RequestValueRepresentation> representations;
   final List<RequestHeaderValue> headers;
   final RequestBodyKind kind;
+  final CapturedRequestBodyExample? bodyExample;
   final bool bodyStructured;
   final Map<String, String> partMediaTypes;
   final Map<String, MultipartFileShape> fileShapes;
@@ -1495,13 +1521,14 @@ class _RequestDraftState {
             0,
             (n, e) => n + e.key.length + e.value.length,
           )) *
-      2;
+      2 + (bodyExample?.byteLength ?? 0);
   void restore(RequestRunController run) {
     run.values.addAll(values);
     run.omittedValues.addAll(omitted);
     run.exampleRepresentations.addAll(representations);
     run.customHeaders.addAll(headers);
     run.bodyKind = kind;
+    run.bodyExample = bodyExample == null ? null : run.plan?.restoreBodyExample(bodyExample!) ?? bodyExample;
     run.bodyStructured = bodyStructured;
     run.partMediaTypes.addAll(partMediaTypes);
     run.fileShapes.addAll(fileShapes);
@@ -3153,9 +3180,9 @@ class _BodyEditor extends StatelessWidget {
           },
         ),
         if (run.bodyEnabled) ...[
-          if (run.bodyStructured && formInput ||
+          if (run.bodyExample == null && (run.bodyStructured && formInput ||
               selectedMedia == 'application/json' ||
-              selectedMedia?.endsWith('+json') == true)
+              selectedMedia?.endsWith('+json') == true))
             BusyApiActionRow(
               title: l.requestFormatJson,
               enabled: !run.busy && !run.hasComposingInput,
@@ -3172,7 +3199,9 @@ class _BodyEditor extends StatelessWidget {
             ),
           BusyApiActionRow(
             title: l.requestBodySource,
-            subtitle: run.bodyStructured && formInput
+            subtitle: run.bodyExample != null
+                ? l.examples
+                : run.bodyStructured && formInput
                 ? l.requestStructuredValue
                 : switch (run.bodyKind) {
                     RequestBodyKind.none => l.requestBodyMediaChoose,
@@ -3190,6 +3219,7 @@ class _BodyEditor extends StatelessWidget {
               enabled:
                   !run.busy &&
                   !run.hasComposingInput &&
+                  run.bodyExample == null &&
                   run.bodyKind != RequestBodyKind.binaryFile,
               onChanged: run.selectBodySerialization,
             ),
@@ -3203,13 +3233,16 @@ class _BodyEditor extends StatelessWidget {
                 run.refresh();
               },
             ),
-          if (run.bodyKind == RequestBodyKind.binaryFile)
+          if (run.bodyExample case final example?)
+            BusyApiActionRow(title: l.examples,
+              subtitle: '${example.name ?? example.mediaType}\n${example.resource}'),
+          if (run.bodyKind == RequestBodyKind.binaryFile || run.bodyExample != null)
             BusyApiActionRow(
               title: l.requestUseText,
               enabled: !run.busy && !run.hasComposingInput,
               onTap: run.clearBodyFiles,
             ),
-          if (run.bodyKind != RequestBodyKind.binaryFile)
+          if (run.bodyKind != RequestBodyKind.binaryFile && run.bodyExample == null)
             RequestDraftEntry(
               run: run,
               key: ValueKey('${run.plan!.identity}/${run.bodyMediaType}'),

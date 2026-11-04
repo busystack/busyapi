@@ -299,6 +299,18 @@ class IgnoredRequestBody {
   }
 }
 
+/// A selected occurrence in one captured request plan. Bytes stay with the
+/// approved external-resource owner; selection grants no new file acquisition.
+final class CapturedRequestBodyExample {
+  CapturedRequestBodyExample._(this._owner, this.mediaType, this.name,
+      this.resource, this.contentIdentity, this._bytes);
+  final OperationRequestPlan _owner;
+  final String mediaType, resource, contentIdentity;
+  final String? name;
+  final Uint8List _bytes;
+  int get byteLength => _bytes.length;
+}
+
 class OperationRequestPlan {
   OperationRequestPlan._(
     this._owner,
@@ -350,6 +362,97 @@ class OperationRequestPlan {
         'Reconcile the changed operation before preparing a request.',
       );
     }
+  }
+
+  /// Choose only a concrete example occurrence already projected by the
+  /// semantic engine. A reusable declaration alone supplies no media context.
+  CapturedRequestBodyExample captureBodyExample(
+    String mediaType, {
+    String? name,
+  }) {
+    ensureCurrentPreparation();
+    final body = result['requestBody'];
+    final content = body is Map ? body['content'] : null;
+    final declarations = content is List
+        ? content.whereType<Map>()
+            .where((media) => media['mediaType'] == mediaType).toList()
+        : const <Map>[];
+    if (declarations.length != 1) {
+      throw CoreFailure(
+        'request.example.occurrence', 'Choose one captured request media occurrence.',
+        kind: CoreFailureKind.unsupported,
+      );
+    }
+    final projected = declarations.single['examples'];
+    final examples = projected is List
+        ? projected.whereType<Map>()
+            .where((example) => example['name'] == name && example['external'] is Map).toList()
+        : const <Map>[];
+    if (examples.length != 1) {
+      throw CoreFailure(
+        'request.example.external', 'This occurrence has no unique available external example.',
+        kind: CoreFailureKind.unsupported,
+      );
+    }
+    final example = examples.single, external = example['external'] as Map;
+    final captured = snapshot.exampleResources
+        .where((resource) => resource.id == external['resource']).toList();
+    if (captured.length != 1 || !captured.single.available ||
+        captured.single.identity != external['identity'] ||
+        captured.single.bytes!.length != external['byteLength'] ||
+        example['wireBase64'] != base64Encode(captured.single.bytes!)) {
+      throw CoreFailure('runtime.request.example.protocol',
+          'The selected example does not match its approved captured bytes.');
+    }
+    return CapturedRequestBodyExample._(this, mediaType, name, captured.single.id,
+        captured.single.identity, captured.single.bytes!);
+  }
+
+  void ensureBodyExample(CapturedRequestBodyExample example) {
+    ensureCurrentPreparation();
+    if (!identical(example._owner, this)) {
+      throw CoreFailure('request.example.stale',
+          'Select the example again from the current request plan.');
+    }
+  }
+
+  /// Re-preparing unchanged inputs may replace a plan object. Preserve its
+  /// explicit draft selection only within the same project, operation and
+  /// snapshot. A changed capture keeps requiring an explicit new selection.
+  CapturedRequestBodyExample? restoreBodyExample(
+    CapturedRequestBodyExample previous,
+  ) {
+    ensureCurrentPreparation();
+    if (!identical(_owner, previous._owner._owner) ||
+        identity != previous._owner.identity ||
+        snapshot.identity != previous._owner.snapshot.identity) return null;
+    final selected = captureBodyExample(previous.mediaType, name: previous.name);
+    return selected.resource == previous.resource &&
+        selected.contentIdentity == previous.contentIdentity ? selected : null;
+  }
+
+  Future<Uint8List> bodyExampleBytes(
+    CapturedRequestBodyExample example, {
+    RunCancellation? cancellation,
+  }) async {
+    ensureBodyExample(example);
+    cancellation?.throwIfCancelled();
+    final current = await _owner._externalExampleInputsCurrent(
+      snapshot,
+      saved: saved,
+      cancelled: () {
+        ensureCurrentPreparation();
+        cancellation?.throwIfCancelled();
+        return false;
+      },
+    );
+    ensureBodyExample(example);
+    cancellation?.throwIfCancelled();
+    if (!current) {
+      throw CoreFailure('runtime.request.example.stale',
+          'The captured external example changed; select it from a new request plan.');
+    }
+    return example._bytes;
   }
 
   RequestFormBinding? formBindingForMedia(String? mediaType) {
