@@ -135,6 +135,7 @@ case "$(uname -m)" in x86_64) esbuild_bin="$engine_dir/node_modules/@esbuild/lin
 "$node_bin" "$engine_dir/test_migration.cjs"
 "$node_bin" "$engine_dir/test_migration_schema_uses.cjs"
 "$node_bin" "$engine_dir/test_migration_object_uses.cjs"
+"$node_bin" "$engine_dir/test_migration_security.cjs"
 "$node_bin" "$engine_dir/test_migration_direct_swagger.cjs"
 "$node_bin" "$engine_dir/test_migration_conditions.cjs"
 "$node_bin" "$engine_dir/test_migration_patterns.cjs"

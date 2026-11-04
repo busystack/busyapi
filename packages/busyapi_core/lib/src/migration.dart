@@ -71,7 +71,7 @@ void _verifyMigrationReview(
   if (result['version'] != 1 ||
       result['snapshot'] != input.snapshot.identity ||
       result['producer'] != 'busyapi-native-migration' ||
-      result['producerVersion'] != '70' ||
+      result['producerVersion'] != '71' ||
       result['problems'] is! List ||
       result['outputs'] is! List ||
       result['exampleOutputs'] is! List ||
@@ -96,6 +96,17 @@ void _verifyMigrationReview(
     for (final resource in input.snapshot.resources)
       resource['id'] as String: resource,
   };
+  final configuration = input.snapshot.configuration;
+  final expectedConfiguration = configuration.isEmpty ? null : {
+    'resource': configuration.single['id'],
+    'generation': configuration.single['generation'],
+    'identity': configuration.single['identity'],
+  };
+  if (jsonEncode(result['affectedConfiguration']) != jsonEncode(expectedConfiguration)) invalid();
+  final problemResources = {
+    ...resources,
+    for (final source in configuration) source['id'] as String: source,
+  };
   final entries = result['entryRoutes'] as List, entryResources = <String>{};
   if (entries.isEmpty || entries.length > resources.length) invalid();
   for (final value in entries) {
@@ -118,7 +129,7 @@ void _verifyMigrationReview(
       'reason': String reason,
       'range': [int start, int end],
     }) {
-      final source = resources[resource];
+      final source = problemResources[resource];
       if (source == null ||
           start < 0 ||
           end < start ||
@@ -181,8 +192,99 @@ void _verifyMigrationReview(
     return;
   }
   if ((result['problems'] as List).isNotEmpty ||
-      (result['outputs'] as List).isEmpty)
+      (result['outputs'] as List).isEmpty || result['manifest'] is! Map)
     invalid();
+  final manifestText = result['manifestText'];
+  if (manifestText is! String || utf8.encode(manifestText).length > 65536 ||
+      textIdentity(manifestText) != result['manifestIdentity'] ||
+      result['configurationBindings'] is! List ||
+      (result['configurationBindings'] as List).length > 4096) invalid();
+  Object? manifest;
+  try { manifest = jsonDecode(manifestText); } on Object { invalid(); }
+  if (manifest is! Map || manifest['version'] != 1 ||
+      manifest.keys.any((key) => !const ['version', 'roots', 'resourceMappings', 'environments'].contains(key))) invalid();
+  for (final key in ['version', 'roots', 'resourceMappings']) {
+    if (jsonEncode(manifest[key]) != jsonEncode((result['manifest'] as Map?)?[key])) invalid();
+  }
+  final sourceConfiguration = configuration.isEmpty
+      ? null : loadYaml(configuration.single['text'] as String);
+  var configurationWork = 0;
+  Object? canonicalConfiguration(Object? value, [int depth = 0]) {
+    if (++configurationWork > 2000000 || depth > 128) invalid();
+    if (value is Map) {
+      if (value.keys.any((key) => key is! String)) invalid();
+      final keys = value.keys.cast<String>().toList()..sort();
+      return {for (final key in keys) key: canonicalConfiguration(value[key], depth + 1)};
+    }
+    if (value is List) return value.map((item) => canonicalConfiguration(item, depth + 1)).toList();
+    return value;
+  }
+  final originalEnvironments = sourceConfiguration is Map ? sourceConfiguration['environments'] : null;
+  if ((originalEnvironments == null) != (manifest['environments'] == null)) invalid();
+  for (final value in result['configurationBindings'] as List) {
+    if (value case {'root': String root, 'resource': String resource,
+        'pointer': String pointer, 'before': String before, 'after': String after}) {
+      if (!entryResources.contains(root) || !resources.containsKey(resource) ||
+          pointer.length > 65536 || after.isEmpty || after.length > 65536 ||
+          !pointer.endsWith('/${before.replaceAll('~', '~0').replaceAll('/', '~1')}')) invalid();
+      if (originalEnvironments is Map) {
+        final deliveredEnvironments = manifest['environments'];
+        if (deliveredEnvironments is! Map) invalid();
+        for (final environment in originalEnvironments.entries) {
+          final settings = environment.value is Map ? environment.value['authentication'] : null;
+          final schemes = settings is Map ? settings['schemes'] : null;
+          if (schemes is! Map || !schemes.containsKey(before)) continue;
+          final delivered = deliveredEnvironments[environment.key];
+          final authentication = delivered is Map ? delivered['authentication'] : null;
+          final aliases = authentication is Map ? authentication['schemes'] : null;
+          if (aliases is! Map || jsonEncode(canonicalConfiguration(aliases[after])) != jsonEncode(canonicalConfiguration(schemes[before]))) invalid();
+        }
+      }
+    } else { invalid(); }
+  }
+  bool sameConfiguration(Object? a, Object? b) =>
+      jsonEncode(canonicalConfiguration(a)) == jsonEncode(canonicalConfiguration(b));
+  if (originalEnvironments is Map) {
+    final delivered = manifest['environments'];
+    if (delivered is! Map || delivered.length != originalEnvironments.length) invalid();
+    for (final entry in originalEnvironments.entries) {
+      final original = entry.value, environment = delivered[entry.key];
+      if (original is! Map || environment is! Map || environment.length != original.length) invalid();
+      for (final field in original.keys.where((key) => key != 'authentication' && key != 'tls')) {
+        if (!sameConfiguration(original[field], environment[field])) invalid();
+      }
+      final before = original['authentication'], after = environment['authentication'];
+      if (before is Map) {
+        if (after is! Map || before.length != after.length) invalid();
+        for (final field in before.keys.where((key) => key != 'schemes')) {
+          if (!sameConfiguration(before[field], after[field])) invalid();
+        }
+        final originals = before['schemes'], aliases = after['schemes'];
+        if (originals is Map) {
+          if (aliases is! Map) invalid();
+          for (final setting in originals.entries) {
+            if (!aliases.containsKey(setting.key) || !sameConfiguration(setting.value, aliases[setting.key])) invalid();
+          }
+          for (final name in aliases.keys.where((name) => !originals.containsKey(name))) {
+            if (!(result['configurationBindings'] as List).cast<Map>().any((binding) =>
+                binding['after'] == name && originals.containsKey(binding['before']) &&
+                sameConfiguration(originals[binding['before']], aliases[name]))) invalid();
+          }
+        } else if (!sameConfiguration(originals, aliases)) { invalid(); }
+      } else if (!sameConfiguration(before, after)) { invalid(); }
+      final originalTls = original['tls'], tls = environment['tls'];
+      if (originalTls is Map) {
+        if (tls is! Map || tls.length != originalTls.length) invalid();
+        for (final field in originalTls.keys) {
+          final path = originalTls[field];
+          final expected = const ['caFile', 'clientCertificateFile', 'clientKeyFile'].contains(field) &&
+              path is String && !p.isAbsolute(path)
+              ? p.normalize(p.join(p.dirname(Uri.parse(configuration.single['id'] as String).toFilePath()), path)) : path;
+          if (!sameConfiguration(expected, tls[field])) invalid();
+        }
+      } else if (!sameConfiguration(originalTls, tls)) { invalid(); }
+    }
+  }
   if (result['validation'] case {'complete': true, 'family': String _}) {
   } else {
     invalid();
@@ -339,6 +441,15 @@ class MigrationChange {
   bool get isCreated => createdFrom != null;
 }
 
+/// A reviewed spelling change only; credential values never enter this record.
+class MigrationSecurityBinding {
+  MigrationSecurityBinding._(Map value)
+    : root = value['root'] as String, resource = value['resource'] as String,
+      pointer = value['pointer'] as String, before = value['before'] as String,
+      after = value['after'] as String;
+  final String root, resource, pointer, before, after;
+}
+
 /// An exact opaque copy in the reviewed output; no payload interpretation or
 /// source mutation is performed by this publication record.
 class MigrationExampleCopy {
@@ -388,6 +499,9 @@ class MigrationOutput extends BundleOutput {
       exampleCopies = List.unmodifiable(
         (result['exampleOutputs'] as List).cast<Map>().map(MigrationExampleCopy._),
       ),
+      securityBindings = List.unmodifiable(
+        (result['configurationBindings'] as List? ?? const []).cast<Map>().map(MigrationSecurityBinding._),
+      ),
       target = SpecificationContext.fromJson(result['target']),
       entryRoutes = List.unmodifiable(
         (result['entryRoutes'] as List).cast<Map>().map(MigrationEntryRoute._),
@@ -407,6 +521,7 @@ class MigrationOutput extends BundleOutput {
   final List<MigrationProblem> problems;
   final List<MigrationChange> changes;
   final List<MigrationExampleCopy> exampleCopies;
+  final List<MigrationSecurityBinding> securityBindings;
   final SpecificationContext target;
   final List<MigrationEntryRoute> entryRoutes;
   bool get publishable =>
@@ -473,7 +588,10 @@ class MigrationOutput extends BundleOutput {
         throw CoreFailure('migration.protocol', 'Reviewed external example copy changed');
       files[copy.path] = copy.bytes;
     }
-    files['busyapi.yaml'] = utf8.encode('${jsonEncode(result['manifest'])}\n');
+    final manifestText = result['manifestText'] as String;
+    if (textIdentity(manifestText) != result['manifestIdentity'])
+      throw CoreFailure('migration.protocol', 'Reviewed configuration identity changed');
+    files['busyapi.yaml'] = utf8.encode(manifestText);
     files['migration.json'] = utf8.encode('${jsonEncode(metadata)}\n');
     return _access.publishOutput(
       destination,
@@ -511,6 +629,8 @@ extension ContractMigration on BusyProject {
     try {
       final result = await engine.request('planMigration', {
         ...captured.snapshot.toJson(),
+        if (captured.snapshot.configuration.isNotEmpty)
+          'configuration': captured.snapshot.configuration.single,
         'targetVersion': targetVersion,
         'destination': Uri.directory(captured.target).toString(),
         'decisions': decisions,
@@ -543,6 +663,8 @@ extension ContractMigration on BusyProject {
         'decisions': decisions,
         'presentationChanges': result['presentationChanges'],
         'invariants': result['invariants'],
+        'configurationBindings': result['configurationBindings'],
+        'manifestIdentity': result['manifestIdentity'],
         'exampleCopies': [
           for (final copy in (result['exampleOutputs'] as List).cast<Map>())
             {for (final entry in copy.entries) if (entry.key != 'base64') entry.key as String: entry.value},
@@ -552,6 +674,8 @@ extension ContractMigration on BusyProject {
             {'resource': source['id'], 'identity': source['identity']},
           for (final source in captured.snapshot.exampleResources)
             {'resource': source.id, 'identity': source.identity, 'kind': 'external-example'},
+          for (final source in captured.snapshot.configuration)
+            {'resource': source['id'], 'identity': source['identity'], 'kind': 'configuration'},
         ],
       };
       return MigrationOutput._(this, captured, result, metadata);

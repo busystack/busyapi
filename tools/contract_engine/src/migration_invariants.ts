@@ -53,8 +53,11 @@ export function migrationRequestSignatures(graph:ReferenceGraph,resources:Resour
             schemes:requirement.schemes.map((name:string)=>{
                 const binding=securityBindings.get(JSON.stringify([requirement.source.resource,requirement.source.pointer,name]));
                 if(!binding||binding.resolution!=='resolved')throw new SourceError('migration.invariant.security','A request signature has no captured security binding');
-                return {...(binding.targetUri===undefined?{name}:{uri:true}),
-                    declaration:Object.fromEntries(Object.entries(plan.security.schemes[name]).filter(([field])=>field!=='name'&&field!=='description')),
+                // Spelling may become a component name on downgrade. The
+                // independent connection proof retains the exact captured
+                // definition; this proof retains ordered AND/OR bindings,
+                // declarations and each distinct scope/role array.
+                return {declaration:Object.fromEntries(Object.entries(plan.security.schemes[name]).filter(([field])=>field!=='name'&&field!=='description')),
                     scopes:requirement.scopes[name]};
             }),
         }))};

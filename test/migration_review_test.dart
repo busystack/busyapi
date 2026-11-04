@@ -153,7 +153,7 @@ void main() {
         if (coordinatedVersion != null) {
           shared.writeAsStringSync(sharedOriginal);
         }
-        final original = coordinated != null
+        final originalBase = coordinated != null
             ? '# Keep original source\r\n${jsonEncode(coordinated)}\r\n'
             : formVersion != null && !ignoredBody
             ? '# Keep\nopenapi: $sourceVersion\ninfo: {title: Original, version: "1", description: "[Guide](/guide)"}\n'
@@ -168,6 +168,11 @@ void main() {
                 'paths: {"/data": {get: {requestBody: {required: true, content: {application/json: {schema: {type: string}, example: snow}}}, responses: {204: {description: Empty}}}}}',
               )
             : base;
+        final uriSecurity = sourceVersion == '3.2.1' && formVersion != null && !ignoredBody;
+        final original = uriSecurity
+            ? '${originalBase}components: {securitySchemes: {Key: {type: apiKey, in: header, name: X-Key}}}\n'
+                'security: [{"#/components/securitySchemes/Key": []}, {"${file.uri}#/components/securitySchemes/Key": []}]\n'
+            : originalBase;
         file.writeAsStringSync(original);
         final c = WorkspaceController(
           EngineProcess(executable: runtimeNode, helper: runtimeHelper),
@@ -326,6 +331,12 @@ void main() {
           expect(comparison.before, contains('Unsaved'));
           expect(comparison.after, contains(targetVersion));
           expect(comparison.after, contains('[Guide](/guide)'));
+          if (uriSecurity) {
+            expect(comparison.after, contains('_migrated_security_binding_'));
+            expect(find.byWidgetPredicate((widget) => widget is SelectableText &&
+                (widget.data?.contains('#/components/securitySchemes/Key → _migrated_security_binding_') ?? false)),
+                findsNWidgets(2));
+          }
           expect(
             find.text('${file.uri} · $sourceVersion → $targetVersion'),
             findsOneWidget,

@@ -6,7 +6,7 @@ import {serverTemplate} from './derived_bundle';
 import {documentUriBase,pointerFragment,resolveUri,schemaResourceContextIdentity,supportedSchemaDialect,type GraphScope,type GraphReference,type ReferenceGraph} from './reference_graph';
 import {MigrationSchemaOwners} from './migration_schema_owners';
 import {migrationContextDifferences,migrationReferences,type DocumentContext} from './migration_documents';
-import {defaultSchemaDialect,modernFamily} from './specification';
+import {defaultSchemaDialect,modernFamily,type SpecificationFamily} from './specification';
 import {MigrationSource,type MigrationLocation} from './migration_source';
 import type {MigrationIssue} from './migration_schema';
 
@@ -14,7 +14,7 @@ const key=(at:MigrationLocation)=>JSON.stringify([at.resource,at.pointer]);
 const inside=(pointer:string,parent:string)=>pointer===parent||pointer.startsWith(parent+'/');
 type ResourceHolder=Readonly<{location:MigrationLocation;dialect:string|null}>;
 type Placement=Readonly<{scope:GraphScope;location:MigrationLocation;intrinsic:ReadonlyMap<string,string>;inheritedDialect:string|null;inheritsResource:boolean;resourceSensitive:boolean}>;
-type UseSelection=Readonly<{mode:'entry';entryNamespace:string;scopes:readonly GraphScope[]}>|
+type UseSelection=Readonly<{mode:'entry';entryNamespace:string;scopes:readonly GraphScope[];targetFamily?:SpecificationFamily}>|
     Readonly<{mode:'role';scopes:readonly GraphScope[];references:readonly GraphReference[];containers?:ReadonlyMap<string,MigrationLocation>}>;
 const useKey=(scope:{resource:string;pointer:string;kind:string})=>JSON.stringify([scope.resource,scope.pointer,scope.kind]);
 const referenceOwnerKind=(reference:GraphReference)=>reference.connection==='discriminator'?'discriminator':
@@ -35,7 +35,7 @@ function entryComponentLocation(graph:ReferenceGraph,scope:GraphScope,namespace:
     const pointer=componentLocation(group,scope.family);
     return resource!==undefined&&pointer!==undefined?{resource,pointer}:undefined;
 }
-function entryComponentContainer(graph:ReferenceGraph,scope:GraphScope,namespace:string,owners:MigrationSchemaOwners,
+export function entryComponentContainer(graph:ReferenceGraph,scope:GraphScope,namespace:string,owners:MigrationSchemaOwners,
     prepared?:(scope:GraphScope)=>boolean):MigrationLocation|undefined {
     const container=entryComponentLocation(graph,scope,namespace);
     if(container){
@@ -128,7 +128,7 @@ function dynamicSchemaDependencies(graph:ReferenceGraph,references:readonly Grap
 export function separateMigrationEntryUses(contexts:readonly DocumentContext[],sources:ReadonlyMap<string,MigrationSource>,
     issue:MigrationIssue,createSchemaResource:()=>MigrationSource,
     preserveContext:(scope:GraphScope,destination:MigrationLocation,preserveBase:boolean,expectedBase?:string,namespace?:string)=>void,
-    allocator?:MigrationSchemaOwners):ReadonlyMap<string,readonly MigrationLocation[]> {
+    allocator?:MigrationSchemaOwners,securityComponentNames=false,targetFamily?:SpecificationFamily):ReadonlyMap<string,readonly MigrationLocation[]> {
     const differences=migrationContextDifferences(contexts),provenance=new Map<string,MigrationLocation[]>();
     if(!contexts.length)return provenance;
     const owners=allocator??new MigrationSchemaOwners(contexts[0].graph,sources,createSchemaResource);
@@ -136,6 +136,13 @@ export function separateMigrationEntryUses(contexts:readonly DocumentContext[],s
     const admit=()=>{if(++work>2000000)throw new SourceError('limit.migration.owners','Entry specialization exceeds its bounded graph work');};
     for(const {graph}of [...contexts].sort((a,b)=>a.graph.root.localeCompare(b.graph.root))){
         const pending=[...(differences.get(graph.root)?.values()??[])];
+        // URI bindings shared across entries need each entry's component-name
+        // namespace when lowered. Seed the existing typed containment and
+        // incoming-reference closure even when their URI targets agree.
+        if(securityComponentNames)for(const reference of graph.entryReferences())
+            if(reference.connection==='security'&&reference.targetUri!==undefined){
+                const owner=graph.referenceOwner(reference);if(owner)pending.push(owner);
+            }
         if(!pending.length)continue;
         const parents=new Map<string,GraphScope[]>(),incoming=new Map<string,GraphScope[]>();
         const connect=(index:Map<string,GraphScope[]>,child:string,parent:GraphScope)=>{
@@ -211,7 +218,7 @@ export function separateMigrationEntryUses(contexts:readonly DocumentContext[],s
             }
         }
         const copies=separateMigrationUses(graph,sources,issue,createSchemaResource,preserveContext,
-            {mode:'entry',entryNamespace:graph.root,scopes:[...selected.values()]},owners);
+            {mode:'entry',entryNamespace:graph.root,scopes:[...selected.values()],targetFamily},owners);
         for(const [origin,locations]of copies){
             const values=provenance.get(origin)??[];values.push(...locations);provenance.set(origin,values);
         }
@@ -434,7 +441,8 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
         let retainedMaterials:GraphScope[]=[];
         if(entry){
             const entryFamily=graph.specifications.get(entry.entryNamespace)?.family;
-            const entryContainer=entryComponentContainer(graph,scope,entry.entryNamespace,owners);
+            const entryContainer=scope.kind==='path-item'&&entry.targetFamily&&!componentLocation('pathItems',entry.targetFamily)?undefined:
+                entryComponentContainer(graph,scope,entry.entryNamespace,owners);
             // Older Path Items and independently referenced Operations have no
             // component map. A plain captured fragment is their native holder;
             // it must still be interpreted in the original specification family.
@@ -539,7 +547,7 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
         // Unversioned native fragments belong in an entry's ordinary component
         // map. A schema registry would interpret their unknown native fields
         // as schema annotations and create another overlapping owner.
-        if(!container&&scope.kind!=='schema'&&group&&graph.specifications.get(graph.root)?.family===scope.family)
+        if(!entry&&!container&&scope.kind!=='schema'&&group&&graph.specifications.get(graph.root)?.family===scope.family)
             container={resource:graph.root,pointer:componentLocation(group,scope.family)!};
         if(group&&container&&container.pointer===componentLocation(group,scope.family)){
             // A compatible native map can itself have a Schema interpretation.
@@ -602,6 +610,7 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
     const repair=(at:MigrationLocation,value:string,key:boolean)=>{
         if(!key){set(at,value);return;}
         const source=sources.get(at.resource)!,parent=at.pointer.slice(0,at.pointer.lastIndexOf('/'));
+        if(at.pointer===parent+'/'+escape(value))return;
         const occupied=source.doc.dataNode(parent)!.children;
         const failure=(message:string)=>new SourceError('migration.owners.connection-key',message,
             source.doc.dataNode(at.pointer)!.range,'unsupported',{...at,range:source.doc.dataNode(at.pointer)!.range});
@@ -638,7 +647,7 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
             target.resource+pointerFragment(target.pointer);
         if(sourcePlacement){
             const field=mapped({...reference,pointer:reference.pointer+'/'+escape(reference.keyword)},sourcePlacement);
-            if(reference.connection==='security'&&reference.targetUri!==undefined&&targetPlacement)repair(field,address,true);
+            if(reference.connection==='security'&&reference.targetUri!==undefined)repair(field,address,true);
             else if(!reference.connection||['discriminator','operationRef'].includes(reference.connection))repair(field,address,false);
         }
         // Intrinsic structural children can coexist with the separate

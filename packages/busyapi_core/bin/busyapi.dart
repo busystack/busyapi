@@ -576,6 +576,8 @@ Future<void> runBusyApi(
             stdout.writeln(
               '${entry.resource}: ${entry.from.declaredVersion} → ${entry.target.declaredVersion}',
             );
+          for (final binding in output.securityBindings)
+            stdout.writeln('${binding.resource} ${binding.pointer}: ${binding.before} → ${binding.after}');
           for (final problem in output.problems)
             stdout.writeln(
               '${problem.resource} ${problem.pointer}: ${problem.code}: ${problem.message}${problem.choices.isEmpty ? '' : ' [${problem.id}: ${problem.choices.join(', ')}]'}',

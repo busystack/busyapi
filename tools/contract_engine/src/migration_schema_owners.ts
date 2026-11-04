@@ -19,6 +19,7 @@ export class MigrationSchemaOwners {
     private work=0;
     private readonly entryUses=new Map<string,SemanticOwner[]>();
     private readonly roleUses=new Map<string,SemanticOwner[]>();
+    private readonly additionalUses=new Map<string,{location:MigrationLocation;excludedFields:ReadonlySet<string>}[]>();
     private readonly copiedOperationIds=new Set<string>();
     private readonly copiedOwners=new Map<string,{location:MigrationLocation;retirement:MigrationLocation;schemaIdentity:boolean}>();
     private readonly documentUris=new WeakMap<ReferenceGraph,readonly DocumentUriOccurrence[]>();
@@ -95,13 +96,30 @@ export class MigrationSchemaOwners {
     entryLocations(namespace:string,location:MigrationLocation,scope:GraphScope|undefined,
         current:ReadonlyMap<string,readonly MigrationLocation[]>):readonly MigrationLocation[] {
         this.inspectUse();let material=location;
+        const uses:MigrationLocation[]=[];
         if(scope){
             if(location.resource!==scope.resource||location.pointer!==scope.pointer&&!location.pointer.startsWith(scope.pointer+'/'))
                 throw new SourceError('migration.owners.field-context','A connection field is outside its captured semantic owner');
             const owner=this.entryOwner(namespace,scope,scope.kind);
             material={resource:owner.resource,pointer:owner.pointer+location.pointer.slice(scope.pointer.length)};
+            // Multiple independently named consumers can need the same native
+            // definition. They are additional material occurrences, rather
+            // than competing refinements of its canonical owner. Fields keep
+            // their captured suffix and ordinary CST conversion coordinates.
+            for(const copy of this.additionalUses.get(this.useKey(namespace,owner,scope.kind))??[]){
+                this.inspectUse();const suffix=location.pointer.slice(scope.pointer.length);
+                if(suffix&&copy.excludedFields.has(segments(suffix)[0]))continue;
+                uses.push({resource:copy.location.resource,pointer:copy.location.pointer+suffix});
+            }
         }
-        return current.get(JSON.stringify([material.resource,material.pointer]))??[];
+        return [material,...uses].flatMap(at=>current.get(JSON.stringify([at.resource,at.pointer]))??[]);
+    }
+    rememberAdditionalUse(namespace:string,origin:GraphScope,destination:MigrationLocation,excludedFields:ReadonlySet<string>=new Set()):void {
+        this.inspectUse();const owner=this.entryOwner(namespace,origin,origin.kind),id=this.useKey(namespace,owner,origin.kind);
+        const uses=this.additionalUses.get(id)??[];
+        if(!uses.some(use=>use.location.resource===destination.resource&&use.location.pointer===destination.pointer&&
+            JSON.stringify([...use.excludedFields].sort())===JSON.stringify([...excludedFields].sort())))uses.push({location:destination,excludedFields});
+        this.additionalUses.set(id,uses);
     }
     private roleKey(scope:GraphScope):string {
         return JSON.stringify([scope.resource,scope.pointer,scope.kind,schemaResourceContextIdentity(scope),scope.schemaParent]);
@@ -164,6 +182,13 @@ export class MigrationSchemaOwners {
                 this.inspectUse();const state=this.useKey(namespace,use.location,kind);
                 admitted.add(JSON.stringify([use.location.resource,use.location.pointer]));
                 if(states.has(state))continue;states.add(state);
+                terminals.push(this.entryOwner(namespace,use.location,kind));
+            }
+        }
+        for(const [id,uses]of this.additionalUses){
+            const [namespace,,,kind]=JSON.parse(id) as [string,string,string,string];
+            for(const use of uses){
+                this.inspectUse();admitted.add(JSON.stringify([use.location.resource,use.location.pointer]));
                 terminals.push(this.entryOwner(namespace,use.location,kind));
             }
         }
@@ -231,12 +256,15 @@ export class MigrationSchemaOwners {
     /** All schema and object variants use this reservation boundary, including
      * finite request/response and discriminator states. The caller supplies
      * the captured semantic state; payload member names never choose identity. */
-    allocate(source:MigrationSource,container:string,label:string,identity:string):MigrationLocation {
+    allocate(source:MigrationSource,container:string,label:string,identity:string,excludedNames:ReadonlySet<string>=new Set()):MigrationLocation {
         const stem='_migrated_'+label+'_'+createHash('sha256')
             .update(identity).digest('hex').slice(0,24);
         let pointer=container+'/'+stem,index=0;
         const key=(pointer:string)=>JSON.stringify([source.doc.id,pointer]);
-        while(source.doc.dataNode(pointer)||this.reserved.has(key(pointer)))pointer=container+'/'+stem+'_'+(++index);
+        while(source.doc.dataNode(pointer)||this.reserved.has(key(pointer))||excludedNames.has(segments(pointer).at(-1)!)){
+            if(++index>65536)throw new SourceError('limit.migration.owners','No bounded collision-free material owner name is available');
+            pointer=container+'/'+stem+'_'+index;
+        }
         if(this.reserved.size>=2048)throw new SourceError('limit.migration.owners','Schema specialization exceeds 2048 generated owners');
         this.reserved.add(key(pointer));
         return {resource:source.doc.id,pointer};
@@ -304,6 +332,7 @@ export class MigrationSchemaOwners {
         container?:MigrationLocation;captured?:MigrationSource;identity?:string;
         layout?:'array-item';
         retained?:readonly MigrationLocation[];schemaIdentity?:boolean;
+        excludedNames?:ReadonlySet<string>;
     }>={}):Readonly<{
         location:MigrationLocation;provenance:ReadonlyMap<string,MigrationLocation>;
     }> {
@@ -312,7 +341,7 @@ export class MigrationSchemaOwners {
             throw new SourceError('migration.owners.layout','An anonymous array-item owner requires a compatible restricted Schema Object container');
         const input=captured??this.sources.get(origin.resource)!;
         const reservation=container?{source:this.sources.get(container.resource)!,location:this.allocate(
-            this.sources.get(container.resource)!,container.pointer,label,identity)}:this.reserve(origin,label,identity);
+            this.sources.get(container.resource)!,container.pointer,label,identity,options.excludedNames)}:this.reserve(origin,label,identity);
         // Restricted Schema Objects have no $defs storage. A fresh array's
         // item is an anonymous Schema Object without becoming a property or an
         // allOf model. Consumers address the item directly, never the wrapper.

@@ -63,7 +63,7 @@ class _MigrationReviewState extends State<_MigrationReview> {
   _CaptureFailure? captureFailure;
   final decisions = <String, String>{};
   bool busy = false, publishing = false, published = false, cancelled = false;
-  int epoch = 0, resourceIndex = 0, problemPage = 0;
+  int epoch = 0, resourceIndex = 0, problemPage = 0, bindingPage = 0;
   bool get current =>
       mounted &&
       !widget.workspace.disposed &&
@@ -112,6 +112,7 @@ class _MigrationReviewState extends State<_MigrationReview> {
     published = false;
     resourceIndex = 0;
     problemPage = 0;
+    bindingPage = 0;
     failure = null;
     captureFailure = null;
   }
@@ -382,6 +383,14 @@ class _MigrationReviewState extends State<_MigrationReview> {
             SelectableText(
               '${entry.resource} · ${entry.from.declaredVersion} → ${entry.target.declaredVersion}',
             ),
+          if (review.securityBindings.length > 50)
+            BusyApiReviewPages(
+              page: bindingPage,
+              pages: (review.securityBindings.length / 50).ceil(),
+              onChanged: (page) => setState(() => bindingPage = page),
+            ),
+          for (final binding in review.securityBindings.skip(bindingPage * 50).take(50))
+            SelectableText('${binding.resource} ${binding.pointer}\n${binding.before} → ${binding.after}'),
           if ((review.result['presentationChanges'] as List).isNotEmpty)
             Text(l.migrationPresentation),
           if (review.problems.length > 50)
@@ -401,7 +410,7 @@ class _MigrationReviewState extends State<_MigrationReview> {
                       'root': widget.root,
                       'resource': problem.resource,
                       'pointer': problem.pointer,
-                      'generation': review.snapshot.resources.firstWhere(
+                      'generation': review.snapshot.allInputs.firstWhere(
                         (resource) => resource['id'] == problem.resource,
                       )['generation'],
                       'range': [problem.range.start, problem.range.end],

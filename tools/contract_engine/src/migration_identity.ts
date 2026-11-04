@@ -44,6 +44,10 @@ export function migrateDocumentIdentities(graph:ReferenceGraph,sources:ReadonlyM
     }
     for(const reference of graph.references){
         if(!identities.has(reference.resource)||reference.resolution!=='resolved'||implicitNameReference(reference))continue;
+        // Security locators are property names whose values are arrays. The
+        // binding owner lowers them before identity removal; a URI key spelled
+        // "$ref" or "operationRef" must never become a scalar value edit.
+        if(reference.connection==='security')continue;
         if(!['$ref','$dynamicRef','operationRef'].includes(reference.keyword)&&reference.connection!=='discriminator')continue;
         set({...reference,pointer:reference.pointer+'/'+escape(reference.keyword)},resolveUri(reference.value,reference.base).href);
     }

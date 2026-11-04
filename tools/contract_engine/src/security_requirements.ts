@@ -5,14 +5,22 @@ import {modernFamily} from './specification';
 /** Resolve only the Reference Objects allowed at a Security Scheme position.
  * Shared by list constraints and native binding choices. */
 export function securityRequirementDefinition(graph:ReferenceGraph,target:GraphTarget):GraphTarget|undefined {
+    return securityRequirementChain(graph,target)?.at(-1);
+}
+
+/** Captured Reference Object occurrences, including the terminal definition.
+ * Callers retain occurrence-specific annotations without another resolver. */
+export function securityRequirementChain(graph:ReferenceGraph,target:GraphTarget):readonly GraphTarget[]|undefined {
     const seen=new Set<string>();
+    const chain:GraphTarget[]=[];
     while(true){
         const at=target.resource+'#'+target.pointer;
         if(seen.has(at)||seen.size>=128)return;
         seen.add(at);
-        const scope=graph.scopes.get(at),node=graph.docs.get(target.resource)?.dataNode(target.pointer);
+        chain.push(target);
+        const scope=graph.scopeAs(target.resource,target.pointer,'security'),node=graph.docs.get(target.resource)?.dataNode(target.pointer);
         if(!scope||node?.kind!=='object')return;
-        if(!graph.referenceObject(node.value,scope))return target;
+        if(!graph.referenceObject(node.value,scope))return chain;
         const resolved=graph.resolveReference(node.value.$ref,scope);
         if(resolved.resolution!=='resolved'||resolved.targetResource===undefined||resolved.targetPointer===undefined)return;
         target={resource:resolved.targetResource,pointer:resolved.targetPointer,kind:'security'};
