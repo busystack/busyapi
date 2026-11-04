@@ -31,6 +31,28 @@ consume those shared results. Source-preserving transactions remain authoritativ
 Current changes require complete engine, Core, native and packaged verification;
 source inspection or a successful build is not runtime acceptance.
 
+## Current continuation: exact configuration verification
+
+Core migration review now reads numeric scalar provenance with the existing YAML
+parser for both source configuration and delivered JSON. Its independent
+comparison uses normalized decimal coefficients and arbitrary-size exponents,
+without native numeric decoding or power expansion. Mapping order is ignored;
+array order, scalar types and signed zero remain material. Mathematical number
+equality is separate from authored spelling. The integer-only authentication
+alternative selector retains its existing activation behavior. Alias, original
+binding, environment, TLS locator, identity, generation, stale-input and atomic
+publication checks remain in force. No parser or dependency was added.
+
+Authority: RFC 8259 §6 and JSON Schema Core §§4.2.2/6.1. The implementation is
+`packages/busyapi_core/lib/src/exact_configuration.dart`, integrated in
+`migration.dart`. `migration_exact_configuration_test.dart` prepares exact
+integer/fraction/exponent equality, map/array/alias and signed-zero controls,
+and real engine/Core publication with independently rehashed tampered manifests,
+credential changes and authentication selector activation controls. Core's
+existing `tools/build_linux.sh` test-directory gate includes the suite.
+**Prepared, not run**: execution hold remains active. This correction does not
+close W2–W7 or establish SOURCE COMPLETE/ACCEPTED.
+
 ## Finite completion register
 
 This register is the implementation queue. Its rows take precedence over the

@@ -208,28 +208,27 @@ void _verifyMigrationReview(
   for (final key in ['version', 'roots', 'resourceMappings']) {
     if (jsonEncode(manifest[key]) != jsonEncode((result['manifest'] as Map?)?[key])) invalid();
   }
-  final sourceConfiguration = configuration.isEmpty
-      ? null : loadYaml(configuration.single['text'] as String);
-  var configurationWork = 0;
-  Object? canonicalConfiguration(Object? value, [int depth = 0]) {
-    if (++configurationWork > 2000000 || depth > 128) invalid();
-    if (value is Map) {
-      if (value.keys.any((key) => key is! String)) invalid();
-      final keys = value.keys.cast<String>().toList()..sort();
-      return {for (final key in keys) key: canonicalConfiguration(value[key], depth + 1)};
-    }
-    if (value is List) return value.map((item) => canonicalConfiguration(item, depth + 1)).toList();
-    return value;
+  Object? sourceConfiguration, exactManifest;
+  try {
+    sourceConfiguration = configuration.isEmpty
+        ? null : exactConfiguration(configuration.single['text'] as String);
+    exactManifest = exactConfiguration(manifestText);
+  } on Object { invalid(); }
+  if (exactManifest is! Map) invalid();
+  final deliveredEnvironments = exactManifest['environments'];
+  bool sameConfiguration(Object? a, Object? b) {
+    try { return sameExactConfiguration(a, b); } on Object { invalid(); }
   }
   final originalEnvironments = sourceConfiguration is Map ? sourceConfiguration['environments'] : null;
-  if ((originalEnvironments == null) != (manifest['environments'] == null)) invalid();
+  if ((originalEnvironments == null) != (deliveredEnvironments == null)) invalid();
   final alternativeChanges = <String, int>{};
   for (final value in result['configurationAlternatives'] as List) {
     if (value case {'environment': String environment, 'before': int before, 'after': int after}) {
       final original = originalEnvironments is Map ? originalEnvironments[environment] : null;
       final authentication = original is Map ? original['authentication'] : null;
-      if (authentication is! Map || authentication['alternative'] is! int ||
-          authentication['alternative'] != before || before < 0 || after < 0 || after >= 2048 ||
+      final alternative = authentication is Map ? authentication['alternative'] : null;
+      if (alternative is! ExactConfigurationNumber || alternative.nativeInteger != before ||
+          !sameConfiguration(alternative, before) || before < 0 || after < 0 || after >= 2048 ||
           before == after || alternativeChanges.containsKey(environment)) invalid();
       alternativeChanges[environment] = after;
     } else { invalid(); }
@@ -241,7 +240,6 @@ void _verifyMigrationReview(
           pointer.length > 65536 || after.isEmpty || after.length > 65536 ||
           !pointer.endsWith('/${before.replaceAll('~', '~0').replaceAll('/', '~1')}')) invalid();
       if (originalEnvironments is Map) {
-        final deliveredEnvironments = manifest['environments'];
         if (deliveredEnvironments is! Map) invalid();
         for (final environment in originalEnvironments.entries) {
           final settings = environment.value is Map ? environment.value['authentication'] : null;
@@ -250,15 +248,14 @@ void _verifyMigrationReview(
           final delivered = deliveredEnvironments[environment.key];
           final authentication = delivered is Map ? delivered['authentication'] : null;
           final aliases = authentication is Map ? authentication['schemes'] : null;
-          if (aliases is! Map || jsonEncode(canonicalConfiguration(aliases[after])) != jsonEncode(canonicalConfiguration(schemes[before]))) invalid();
+          if (aliases is! Map || !aliases.containsKey(after) ||
+              !sameConfiguration(aliases[after], schemes[before])) invalid();
         }
       }
     } else { invalid(); }
   }
-  bool sameConfiguration(Object? a, Object? b) =>
-      jsonEncode(canonicalConfiguration(a)) == jsonEncode(canonicalConfiguration(b));
   if (originalEnvironments is Map) {
-    final delivered = manifest['environments'];
+    final delivered = deliveredEnvironments;
     if (delivered is! Map || delivered.length != originalEnvironments.length) invalid();
     for (final entry in originalEnvironments.entries) {
       final original = entry.value, environment = delivered[entry.key];
@@ -273,6 +270,13 @@ void _verifyMigrationReview(
         for (final field in before.keys.where((key) => key != 'schemes')) {
           final expected = field == 'alternative' ? alternativeChanges[entry.key] ?? before[field] : before[field];
           if (!sameConfiguration(expected, after[field])) invalid();
+          if (field == 'alternative') {
+            final originalSelection = expected is int ? expected :
+                expected is ExactConfigurationNumber ? expected.nativeInteger : null;
+            final targetSelection = after[field] is ExactConfigurationNumber
+                ? (after[field] as ExactConfigurationNumber).nativeInteger : null;
+            if (originalSelection != targetSelection) invalid();
+          }
         }
         final originals = before['schemes'], aliases = after['schemes'];
         if (originals is Map) {

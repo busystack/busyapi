@@ -22,6 +22,7 @@ import 'request_form_values.dart';
 import 'mime_text_materialization.dart';
 import 'form_media_types.dart';
 import 'multipart_encoding.dart';
+import 'exact_configuration.dart';
 
 part 'governance.dart';
 part 'policy_code_review.dart';
