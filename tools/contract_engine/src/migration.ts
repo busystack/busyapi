@@ -38,7 +38,7 @@ import {MigrationSchemaOwners,MigrationSemanticOrigins} from './migration_schema
 import {projectSchemaReference} from './schema_reference_projection';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='69';
+const migrationProducerVersion='70';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const referenceLocator=(reference:GraphReference)=>!reference.connection&&['$ref','$dynamicRef'].includes(reference.keyword)||
     reference.connection==='operationRef'&&reference.keyword==='operationRef';

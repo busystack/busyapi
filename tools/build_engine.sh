@@ -141,6 +141,7 @@ case "$(uname -m)" in x86_64) esbuild_bin="$engine_dir/node_modules/@esbuild/lin
 "$node_bin" "$engine_dir/test_native_connection_keys.cjs"
 "$node_bin" "$engine_dir/test_migration_tuple_tails.cjs"
 "$node_bin" "$engine_dir/test_migration_array_assertions.cjs"
+"$node_bin" "$engine_dir/test_migration_unevaluated.cjs"
 "$node_bin" --disable-proto=throw "$engine_dir/test_migration_property_names.cjs"
 "$node_bin" "$engine_dir/test_migration_binary.cjs"
 "$node_bin" --disable-proto=throw "$engine_dir/test_migration_default_servers.cjs"

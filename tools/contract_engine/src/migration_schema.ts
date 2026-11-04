@@ -14,6 +14,7 @@ import {discardInactiveSchemaConditions,migrateSchemaConditions} from './migrati
 import {migrateSchemaTuple} from './migration_schema_tuples';
 import {migrateSchemaPropertyNames} from './migration_schema_property_names';
 import {MigrationPatternProperties} from './migration_schema_patterns';
+import {discardInactiveUnevaluated,migrateSchemaUnevaluated} from './migration_schema_unevaluated';
 import {MigrationArrayBounds,migrateConstantContains,migrateArrayAlternatives} from './migration_schema_arrays';
 import {migrationScopes,migrationReferences} from './migration_documents';
 
@@ -45,6 +46,7 @@ export function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Migration
             const context=owners.contextOf(scope);
             if(!context){issue(scope,'migration.schema.context','Schema conversion requires its captured entry, role and resource context','implementation');continue;}
             discardInactiveSchemaConditions(context,scope,source,owners,capturedReferences);
+            discardInactiveUnevaluated(context,scope,source,owners,capturedReferences);
             patterns.discardInactive(scope,source);
         }
     }
@@ -85,8 +87,10 @@ export function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Migration
                 source.remove(pointer+'/'+keyword);
             }
         }
+        let unevaluatedTail:string|undefined;
         if(modernFamily(from)&&!modernFamily(to)){
             references.lower(scope,source,pointer,issue);
+            unevaluatedTail=migrateSchemaUnevaluated(context,scope,source,pointer,owners,capturedReferences);
             migrateDependentRequired(graph,scope,source,pointer,to,requirements,issue);
             migrateDependentSchemas(graph,scope,source,pointer,to,requirements,issue);
             migrateSchemaConditions(context,scope,source,pointer,to,owners,issue,capturedReferences);
@@ -113,7 +117,7 @@ export function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Migration
         };
         if(!modernFamily(to))for(const [name,message]of Object.entries(pending))
             if(Object.hasOwn(value,name)&&source.doc.dataNode(pointer+'/'+name))issue(field(name),'migration.schema.'+name,message+' for '+to,'implementation');
-        if(!modernFamily(to))migrateSchemaTuple(graph,scope,source,pointer,to,owners,issue,arrayBounds);
+        if(!modernFamily(to))migrateSchemaTuple(graph,scope,source,pointer,to,owners,issue,arrayBounds,unevaluatedTail);
         migrateInactiveSchemaAnnotations(graph,scope,source,sources,to,owners);
         if(to==='2.0')for(const name of ['oneOf','anyOf','not','writeOnly','deprecated'])if(Object.hasOwn(value,name)&&source.doc.dataNode(pointer+'/'+name))issue(field(name),'migration.schema.keyword','This Schema Object field requires an explicit faithful Swagger mapping','implementation');
         if(!modernFamily(from)&&modernFamily(to)){

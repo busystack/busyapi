@@ -17,15 +17,30 @@ void main() {
         final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
         addTearDown(() => server.close(force: true));
         const body = '[9007199254740993.00,0]';
+        const objectBody = '{"known":"雪","n":9007199254740993.00}';
         server.listen((request) async {
           request.response.headers.set('content-type', 'application/json');
-          request.response.add(utf8.encode(body));
+          if (request.uri.path == '/echo') {
+            expect(request.method, 'POST');
+            final bytes = await request.fold<List<int>>([], (all, chunk) => all..addAll(chunk));
+            expect(bytes, utf8.encode(objectBody));request.response.add(bytes);
+          } else { request.response.add(utf8.encode(body)); }
           await request.response.close();
         });
         final models = <String, Object?>{
           'Model': {'type': 'array', 'contains': true, 'minContains': 1,
             'maxContains': 2, 'unevaluatedItems': false},
           'Independent': {r'$ref': '#/components/schemas/Model/unevaluatedItems'},
+          'Object': {'type': 'object', 'properties': {'known': {'type': 'string'}, 'next': {r'$ref': '#/components/schemas/Object'}},
+            'unevaluatedProperties': {'type': 'integer', 'minimum': 'EXACT'}},
+          'ObjectValue': {r'$ref': '#/components/schemas/Object/unevaluatedProperties'},
+          'ArrayLocal': {'type': 'array', 'unevaluatedItems': {'type': 'integer'}},
+          'ArrayCovered': {'type': 'array', 'items': {'type': 'integer'},
+            'unevaluatedItems': {'patternProperties': {'.': {'contains': {'type': 'integer'}}}}},
+          if (target == '2.0') 'UnevaluatedTuple': {
+            'type': 'array', 'prefixItems': [{'type': 'string'}],
+            'unevaluatedItems': {'type': 'integer', 'minimum': 'EXACT'}, 'maxItems': 3,
+          },
           if (target == '2.0') 'Tuple': {
             'prefixItems': [{'type': 'string'}], 'items': {'type': 'integer', 'minimum': 'EXACT'},
             'allOf': [{r'$ref': '#/components/schemas/Bound'}],
@@ -37,7 +52,10 @@ void main() {
           'servers': [{'url': 'http://127.0.0.1:${server.port}'}],
           'paths': {'/p': {'get': {'responses': {'200': {'description': 'Array counts',
             'content': {'application/json': {'schema': {r'$ref': '#/components/schemas/Model'}}},
-          }}}}},
+          }}}}, '/echo': {'post': {
+            'requestBody': {'required': true, 'content': {'application/json': {'schema': {r'$ref': '#/components/schemas/Object'}}}},
+            'responses': {'200': {'description': 'Echo', 'content': {'application/json': {'schema': {r'$ref': '#/components/schemas/Object'}}}}},
+          }}},
           'components': {'schemas': models},
           'x-literal': {'contains': false, 'minContains': 'EXACT'},
         };
@@ -59,6 +77,14 @@ void main() {
               for (final text in ['null', '0', '[]'])
                 RuntimeSchemaInstance(subject: 'response-body', location: 'independent$text', text: text,
                     schemaResource: id, schemaPointer: '$prefix/Independent'),
+              for (final text in [objectBody, '{"known":0}', '{"n":0}', '{"next":{"n":9007199254740993.00}}'])
+                RuntimeSchemaInstance(subject: 'request-body', location: 'object$text', text: text, schemaResource: id, schemaPointer: '$prefix/Object'),
+              for (final text in ['9007199254740993.00', '0', 'null'])
+                RuntimeSchemaInstance(subject: 'response-body', location: 'object-value$text', text: text, schemaResource: id, schemaPointer: '$prefix/ObjectValue'),
+              for (final name in ['ArrayLocal', 'ArrayCovered']) for (final text in ['[]', body, '["雪"]'])
+                RuntimeSchemaInstance(subject: 'response-body', location: '$name$text', text: text, schemaResource: id, schemaPointer: '$prefix/$name'),
+              if (target == '2.0') for (final text in ['[]', '["雪",9007199254740993.00]', '["雪",0]', '["雪",9007199254740993,9007199254740993,9007199254740993]'])
+                RuntimeSchemaInstance(subject: 'response-body', location: 'tuple$text', text: text, schemaResource: id, schemaPointer: '$prefix/UnevaluatedTuple'),
             ]);
             expect(check['complete'], true, reason: '$check');
             final response = await const ContractRequestExecutor().execute(plan,
@@ -68,11 +94,23 @@ void main() {
               expect(response.received.valid, true, reason: '${response.received.findings}');
               expect(await response.response.bytes(), utf8.encode(body));
             } finally { await response.close(); }
+            final objectPlan = await owner.prepareRequest(id, resource: id, pointer: '/paths/~1echo/post');
+            try {
+              final echo = await const ContractRequestExecutor().execute(objectPlan,
+                OperationRequestDraft(planIdentity: objectPlan.identity, body: const RequestBodyDraft.raw(mediaType: 'application/json', text: objectBody)),
+                resolveSecret: (_) async => null);
+              try { expect(echo.conforming, true, reason: '${echo.outgoing.findings} ${echo.received.findings}');expect(await echo.response.bytes(), utf8.encode(objectBody)); }
+              finally { await echo.close(); }
+            } finally { objectPlan.close(); }
             return (check['runtimeEvaluations'] as List).cast<Map>()
                 .map((evaluation) => evaluation['valid'] as bool).toList();
           } finally { plan.close(); }
         }
         final before = await outcomes(project, root, '/components/schemas');
+        expect(before, [false, false, true, true, false, false, false, false,
+          true, false, false, true, true, false, false,
+          true, true, false, true, true, false,
+          if (target == '2.0') ...[true, true, false, false]]);
         final destination = '${directory.path}/converted';
         final review = await project.prepareMigration(root, destination, targetVersion: target);
         addTearDown(review.close);
@@ -90,7 +128,12 @@ void main() {
         addTearDown(output.close);
         final outputRoot = output.roots.single.id;
         expect((await output.check(outputRoot))['status'], 'complete');
-        expect(await outcomes(output, outputRoot, target == '2.0' ? '/definitions' : '/components/schemas'), before);
+        final prefix = target == '2.0' ? '/definitions' : '/components/schemas';
+        expect(await outcomes(output, outputRoot, prefix), before);
+        final object = await output.inspectObject(outputRoot, outputRoot, '$prefix/Object', contextKind: 'schema');
+        expect((object['fields'] as List).cast<Map>().singleWhere((field) => field['name'] == 'additionalProperties')['present'], true);
+        final array = await output.inspectObject(outputRoot, outputRoot, '$prefix/ArrayLocal', contextKind: 'schema');
+        expect((array['fields'] as List).cast<Map>().singleWhere((field) => field['name'] == 'items')['present'], true);
         final cli = await Process.run('$testBundle/busyapi', ['check', moved.path, '--json'],
             environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
         expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');

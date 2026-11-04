@@ -22,6 +22,7 @@ export class MigrationSchemaOwners {
     private readonly copiedOperationIds=new Set<string>();
     private readonly copiedOwners=new Map<string,{location:MigrationLocation;retirement:MigrationLocation;schemaIdentity:boolean}>();
     private readonly documentUris=new WeakMap<ReferenceGraph,readonly DocumentUriOccurrence[]>();
+    private identityConsumers?:readonly MigrationLocation[];
     private useWork=0;
     constructor(private readonly graph:ReferenceGraph,
         private readonly sources:ReadonlyMap<string,MigrationSource>,
@@ -126,6 +127,20 @@ export class MigrationSchemaOwners {
     hasConsumers(at:MigrationLocation,references:readonly GraphReference[]):boolean {
         const within=(target:MigrationLocation)=>target.resource===at.resource&&
             (target.pointer===at.pointer||target.pointer.startsWith(at.pointer+'/'));
+        // A declared resource/anchor remains an independent address even when
+        // the captured project contains no incoming reference to it. Inactive
+        // assertion pruning must not erase that published schema identity.
+        if(this.identityConsumers===undefined){
+            const identities=new Map<string,MigrationLocation>();
+            for(const context of this.contexts)for(const scope of context.entryScopes()){
+                this.inspectUse();if(scope.kind!=='schema')continue;
+                const value=context.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
+                if(['$id','$anchor','$dynamicAnchor'].some(name=>typeof value?.[name]==='string'))
+                    identities.set(JSON.stringify([scope.resource,scope.pointer]),scope);
+            }
+            this.identityConsumers=[...identities.values()];
+        }
+        if(this.identityConsumers.some(identity=>{this.inspectUse();return within(identity);}))return true;
         return references.some(reference=>{
             this.inspectUse();
             if(within(reference))return reference.connection!==undefined||reference.keyword==='$dynamicRef';

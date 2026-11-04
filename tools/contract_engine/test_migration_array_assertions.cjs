@@ -37,9 +37,9 @@ test(`${version} to ${targetVersion} ${format} constant contains preserves count
  assert.equal(output.dataJson('/x-literal'),new SourceDocument(text,root).dataJson('/x-literal'));
  assert.equal(input.resources[0].text,text);
 });
-test('nonconstant containment and an unevaluated annotated schema retain explicit implementation blockers',async()=>{
+test('nonconstant containment and composition-dependent unevaluated annotations retain explicit implementation blockers',async()=>{
  const root='file:///approved/nonconstant.json';
- for(const schema of [{contains:{type:'integer'},minContains:2},{contains:true,unevaluatedItems:{title:'Retain this owner'}}]){
+ for(const schema of [{contains:{type:'integer'},minContains:2},{allOf:[{items:{type:'integer'}}],unevaluatedItems:{title:'Retain this owner'}}]){
   const text=JSON.stringify({openapi:'3.2.1',info:{title:'Not a constant proof',version:'1'},paths:{},components:{schemas:{Model:schema}}});
   const review=await planMigration({root,resources:[{id:root,text,generation:0}],snapshot:'nonconstant',targetVersion:'3.0.4',destination:'file:///delivered/'});
   assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);
