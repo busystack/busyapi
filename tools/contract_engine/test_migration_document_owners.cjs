@@ -51,6 +51,7 @@ for(const format of ['yaml','json'])test(`${format} planning retains entry, dire
   const shared=context.uses.filter(use=>use.resource.endsWith('/models.'+format)&&use.pointer==='/definitions/Node'&&use.role==='schema');
   assert.deepEqual(shared.map(use=>use.direction).sort(),context.graph.root.endsWith('/models.'+format)?['neutral']:['neutral','request','response']);
   assert(shared.every(use=>use.family==='2.0'&&use.dialect==='urn:busyapi:schema-dialect:swagger-2.0'&&use.baseUri.endsWith('/models.'+format)&&use.resourceBoundary===''));
+  assert(shared.every(use=>use.schemaResourceIdentity===JSON.stringify([use.resource,use.baseUri,use.resourceBoundary,use.family,use.dialect])));
   assert(context.uses.some(use=>use.literal&&use.pointer==='/x-literal'&&use.direction==='neutral'));
  }
 });

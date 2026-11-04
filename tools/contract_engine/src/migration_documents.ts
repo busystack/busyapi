@@ -12,7 +12,8 @@ type Context=ReturnType<typeof createGraph>;
 export type MigrationUse=Readonly<{
     entryNamespace:string;resource:string;pointer:string;physicalPointer:string;
     role:string;sourceKind?:string;family:string;dialect:string|null;
-    baseUri:string;resourceBoundary:string;direction:'request'|'response'|'neutral';literal:boolean;
+    baseUri:string;resourceBoundary:string;schemaResourceIdentity:string;schemaParent?:string;
+    direction:'request'|'response'|'neutral';literal:boolean;
 }>;
 export type DocumentContext=Context&Readonly<{uses:readonly MigrationUse[]}>;
 
@@ -101,7 +102,8 @@ export function migrationUses(graph:ReferenceGraph):readonly MigrationUse[] {
             if(uses.length>=200000)throw new SourceError('limit.migration.uses','Semantic ownership exceeds 200000 captured uses');
             uses.push({entryNamespace:graph.root,resource:scope.resource,pointer:scope.pointer,physicalPointer:node.pointer,
                 role:literal?'literal':scope.kind,...(scope.sourceKind?{sourceKind:scope.sourceKind}:{}),family:scope.family,dialect:scope.dialect,
-                baseUri:scope.base,resourceBoundary:scope.resourcePointer,direction,literal});
+                baseUri:scope.base,resourceBoundary:scope.resourcePointer,schemaResourceIdentity:schemaResourceContextIdentity(scope),
+                ...(scope.schemaParent!==undefined?{schemaParent:scope.schemaParent}:{}),direction,literal});
         }
     };
     for(const scope of scopes)append(scope,false);
@@ -210,7 +212,7 @@ export function migrationContextDifferences(contexts:readonly Pick<DocumentConte
             inspect();
             if(scope.kind==='root'&&!graph.specifications.has(scope.resource))continue;
             const key=JSON.stringify([scope.resource,scope.pointer,scope.kind]);
-            const identity=schemaResourceContextIdentity(scope);
+            const identity=JSON.stringify([schemaResourceContextIdentity(scope),scope.schemaParent]);
             const previous=scopes.get(key);
             if(previous&&previous.identity!==identity&&!equivalentForwarder(previous.scope,previous.graph,scope,graph))different.add(key);
             if(!previous)scopes.set(key,{identity,scope,graph});

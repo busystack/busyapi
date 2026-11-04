@@ -16,7 +16,7 @@ import '../packages/busyapi_core/test/test_support.dart';
 
 void main() {
   for (final version in ['3.0.4', '3.1.2']) {
-    for (final outcome in ['publish', 'stale', 'invalid']) {
+    for (final outcome in ['publish', 'stale', 'invalid', 'overlap']) {
       testWidgets('native foreign $version holder review $outcome preserves original sources', (tester) async {
         tester.view.physicalSize = const Size(1400, 1200);tester.view.devicePixelRatio = 1;
         addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);
@@ -27,7 +27,8 @@ void main() {
           addTearDown(() => messenger.setMockMethodCallHandler(MethodChannel(name), null));
         }
         final directory = Directory.systemTemp.createTempSync('busyapi-native-mixed-holders-');
-        final originals = mixedHolderDocuments(version, 'https://api.invalid', invalid: outcome == 'invalid');
+        final originals = mixedHolderDocuments(version, 'https://api.invalid', invalid: outcome == 'invalid',
+          overlappingContainers: outcome == 'overlap');
         for (final entry in originals.entries) File('${directory.path}/${entry.key}').writeAsStringSync(entry.value);
         final controller = WorkspaceController(EngineProcess(executable: runtimeNode, helper: runtimeHelper),
           StateLocations(config: '${directory.path}/config', state: '${directory.path}/state', cache: '${directory.path}/cache'));
@@ -79,9 +80,13 @@ void main() {
               await tester.runAsync(() => tester.tap(publish));
               await ready(() => find.text('The migrated copy was created. Original documents are preserved.').evaluate().isNotEmpty);
               expect(File('${directory.path}/busyapi-migrated/openapi.yaml').readAsStringSync(), contains('3.2.1'));
+              if (outcome == 'overlap') {
+                final outputs = Directory('${directory.path}/busyapi-migrated').listSync().whereType<File>();
+                expect(outputs.any((file) => file.readAsStringSync().contains('_migrated_object_use_')), true);
+              }
             }
           }
-          expect(Directory('${directory.path}/busyapi-migrated').existsSync(), outcome == 'publish');
+          expect(Directory('${directory.path}/busyapi-migrated').existsSync(), outcome == 'publish' || outcome == 'overlap');
           for (final entry in originals.entries) expect(File('${directory.path}/${entry.key}').readAsStringSync(), entry.value);
           expect(controller.project!.store.get(File('${directory.path}/a.yaml').uri.toString()).dirty, true);
         } finally {

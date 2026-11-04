@@ -25,7 +25,7 @@ async function migrate(input){
  const before=input.resources.map(resource=>resource.text);
  const review=await planMigration(input);
  assert.equal(review.complete,true,JSON.stringify(review.problems));
- assert.equal(review.producerVersion,'80');
+ assert.equal(review.producerVersion,'81');
  const output=delivered(review);
  assert.equal(analyse(output).status,'complete');
  assert.deepEqual(input.resources.map(resource=>resource.text),before);
@@ -252,7 +252,9 @@ test('shared Header reference syntax separates native-object and schema consumer
 
 for(const format of ['yaml','json'])for(const [restrictedVersion,target]of [['2.0','3.2.1'],['2.0','2.0'],['3.0.4','3.2.1'],['3.0.4','3.0.4']])
 test(`${format} identified recursive Schema resources coexist with mixed ${restrictedVersion} anonymous holders for ${target}`,async()=>{
- const input=require('./migration_mixed_holders_fixture.cjs')(format,target,restrictedVersion),before=input.resources.map(resource=>resource.text);
+ const input=target==='3.2.1'?require('./migration_overlapping_containers_fixture.cjs')(format,restrictedVersion):
+  require('./migration_mixed_holders_fixture.cjs')(format,target,restrictedVersion);
+ const before=input.resources.map(resource=>resource.text);
  const modern=input.resources[1].id,pointer='/components/schemas/Node',values=['[]','[[]]','[[[]]]','[0]','null'];
  assert.deepEqual(await outcomes({...input,root:modern},pointer,values),[true,true,true,false,false]);
  const {review,output}=await migrate(input),root=review.changes.find(change=>change.resource===modern).destination;

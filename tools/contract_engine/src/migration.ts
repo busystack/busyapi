@@ -35,6 +35,7 @@ import {migrateTerms} from './migration_terms';
 import {migrateServerVariableDefaults,retainDefaultServers} from './migration_servers';
 import {migrationLogicalPointers} from './migration_yaml_ownership';
 import {separateMigrationRoles,separateMigrationEntryUses,materializeMigrationOperationConnections} from './migration_schema_uses';
+import {repairMigrationOwnerReferences} from './migration_owner_references';
 import {MigrationSchemaOwners,MigrationSemanticOrigins} from './migration_schema_owners';
 import {projectSchemaReference} from './schema_reference_projection';
 import {migrationSecurityConfiguration,securityConfigurationNames,type SecurityBindingChange} from './security_configuration';
@@ -42,7 +43,7 @@ import {securityRequirementDefinition} from './security_requirements';
 import {migrateSwaggerSecurityFlows} from './migration_security_flows';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='80';
+const migrationProducerVersion='81';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const referenceLocator=(reference:GraphReference)=>!reference.connection&&['$ref','$dynamicRef'].includes(reference.keyword)||
     reference.connection==='operationRef'&&reference.keyword==='operationRef';
@@ -223,6 +224,8 @@ export async function planMigration(input:MigrationInput) {
             const entryInput=preparationInput(),entryContext=createGraph(entryInput);
             const entryContexts=migrationDocumentContexts(entryInput,entryContext,issue,true);
             retainCopies(separateMigrationEntryUses(entryContexts,sources,issue,createSchemaResource,captureContext,owners,securityComponentNames,target.family));
+            if(problems.length)break;
+            repairMigrationOwnerReferences(sourceContexts,sources,owners,issue);
             if(problems.length)break;
             const materializedConnections=materializeMigrationOperationConnections(sourceContexts,sources,owners,issue);
             if(problems.length)break;

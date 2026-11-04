@@ -3,7 +3,7 @@ import 'dart:convert';
 const mixedHolderSecret = '11111111-1111-4111-8111-111111111111';
 const mixedHolderWire = '{"entry":"chosen","n":9007199254740993.00}';
 
-Map<String, String> mixedHolderDocuments(String foreignVersion, String server, {bool invalid = false}) {
+Map<String, String> mixedHolderDocuments(String foreignVersion, String server, {bool invalid = false, bool overlappingContainers = false}) {
   final entryVersion = foreignVersion == '3.2.1' ? '3.1.2' : '3.2.1';
   Map<String, dynamic> api(String version, String name) => {
     'openapi': version, 'info': {'title': name, 'version': 'business'},
@@ -46,6 +46,16 @@ Map<String, String> mixedHolderDocuments(String foreignVersion, String server, {
     }};
     (first['components'] as Map)['links']['Use'] = {'operationRef': 'b.yaml#/paths/~1p/post'};
   }
+  if (overlappingContainers) {
+    final components = second['components'] as Map;
+    final container = foreignVersion == '3.0.4' ? 'callbacks' : 'pathItems';
+    components[container] = <String, Object?>{};
+    components['examples'] = {'Dictionary': {r'$ref': '#/components/$container'}};
+    if (foreignVersion != '3.0.4') {
+      components['schemas']['ExampleMap'] = {r'$ref': '#/components/examples'};
+      components['schemas']['SchemaMap'] = {r'$ref': '#/components/schemas'};
+    }
+  }
   final literal = {'path': (second['paths'] as Map)['/p'], 'exact': 'EXACT',
     'flag': false, 'empty': '', 'zero': 0, 'lookalike': {r'$ref': 'literal-only'}};
   String exact(Object? value) => jsonEncode(value).replaceAll('"EXACT"', '9007199254740993.00');
@@ -59,7 +69,7 @@ Map<String, String> mixedHolderDocuments(String foreignVersion, String server, {
   };
 }
 
-Map<String, String> mixedLegacyHolderDocuments(String server, {String restrictedVersion = '2.0'}) {
+Map<String, String> mixedLegacyHolderDocuments(String server, {String restrictedVersion = '2.0', bool overlappingContainers = false}) {
   final uri = Uri.parse(server);
   Map<String, Object?> response(bool modern) => modern
     ? {'description': 'Value', 'content': {'application/json': {'schema': {r'$ref': '#/components/schemas/Model'}}}}
@@ -74,7 +84,13 @@ Map<String, String> mixedLegacyHolderDocuments(String server, {String restricted
       'schemas': {'Model': {r'$ref': '../models/shared.yaml#/Model'}, if (modern) 'Node': {
         r'$id': 'https://schemas.invalid/legacy-holder-node', 'type': 'array',
         'items': {r'$ref': 'https://schemas.invalid/legacy-holder-node'},
+      }, if (modern && overlappingContainers) ...{
+        'ExampleMap': {r'$ref': '#/components/examples'}, 'SchemaMap': {r'$ref': '#/components/schemas'},
       }}, 'securitySchemes': {'Access': {'type': 'apiKey', 'in': 'header', 'name': 'X-$name'}},
+      if (modern && overlappingContainers) ...{
+        'pathItems': {'value': {'x-literal': {'n': 'EXACT', 'flag': false, 'empty': '', r'$ref': 'literal-only'}}},
+        'examples': {'Dictionary': {r'$ref': '#/components/pathItems'}},
+      },
     } else ...{
       'definitions': {'Model': {r'$ref': '../models/shared.yaml#/Model'}},
       'securityDefinitions': {'Access': {'type': 'apiKey', 'in': 'header', 'name': 'X-$name'}},
@@ -82,7 +98,7 @@ Map<String, String> mixedLegacyHolderDocuments(String server, {String restricted
   };
   return {
     'legacy/api.yaml': '# Keep legacy 雪\r\n${jsonEncode(api(false, 'First'))}\r\n',
-    'modern/api.yaml': '# Keep modern 雪\r\n${jsonEncode(api(true, 'Second'))}\r\n',
+    'modern/api.yaml': '# Keep modern 雪\r\n${jsonEncode(api(true, 'Second')).replaceAll('"EXACT"', '9007199254740993.00')}\r\n',
     'models/shared.yaml': 'Path: {post: {operationId: shared, security: [{Access: []}], responses: {204: {description: Empty}}}}\r\n'
         'Model: &model {type: integer, enum: [9007199254740993.00], description: "[Model](model.md)"}\r\n'
         'Literal: *model\r\nx-literal: {flag: false, empty: "", exact: 9007199254740993.00, \$ref: literal-only}\r\n',

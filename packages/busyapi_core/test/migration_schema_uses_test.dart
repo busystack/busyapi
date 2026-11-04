@@ -49,7 +49,7 @@ void main() {
       addTearDown(review.close);
       expect(review.publishable, true, reason: '${review.result}');
       expect(review.unsaved, true);
-      expect(review.result['producerVersion'], '80');
+      expect(review.result['producerVersion'], '81');
       await expectLater(review.publish(cancelled: () => true),
           throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'cancelled')));
       expect(await Directory(destination).exists(), false);
@@ -137,7 +137,8 @@ void mixedLegacySchemaUses() {
   for (final (restrictedVersion, target) in [('2.0', '3.2.1'), ('2.0', '2.0'), ('3.0.4', '3.2.1'), ('3.0.4', '3.0.4')]) {
     test('mixed $restrictedVersion holders retain recursive identified schemas, literal aliases and exact values for $target', () async {
       final directory = await Directory.systemTemp.createTemp('busyapi-mixed-legacy-schemas-');addTearDown(() => directory.delete(recursive: true));
-      final originals = mixedLegacyHolderDocuments('https://api.invalid', restrictedVersion: restrictedVersion);
+      final originals = mixedLegacyHolderDocuments('https://api.invalid', restrictedVersion: restrictedVersion,
+        overlappingContainers: target == '3.2.1');
       for (final entry in originals.entries) {
         final file = File('${directory.path}/${entry.key}');await file.parent.create(recursive: true);await file.writeAsString(entry.value);
       }

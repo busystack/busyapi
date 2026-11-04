@@ -124,7 +124,7 @@ void main() {
       final review = await project.prepareMigration(root, '${directory.path}/converted', targetVersion: '3.2.1');
       addTearDown(review.close);
       expect(review.publishable, true, reason: '${review.result}');
-      expect(review.result['producerVersion'], '80');
+      expect(review.result['producerVersion'], '81');
       expect(review.unsaved, true);
       expect(review.exampleCopies.map((copy) => copy.bytes), containsAll([utf8.encode(count), utf8.encode(query)]));
       await review.publish();
@@ -177,7 +177,8 @@ void mixedLegacyObjectUses() {
         }
         await request.response.close();
       });
-      final originals = mixedLegacyHolderDocuments('http://127.0.0.1:${server.port}', restrictedVersion: restrictedVersion);
+      final originals = mixedLegacyHolderDocuments('http://127.0.0.1:${server.port}', restrictedVersion: restrictedVersion,
+        overlappingContainers: target == '3.2.1');
       for (final entry in originals.entries) {
         final file = File('${directory.path}/${entry.key}');await file.parent.create(recursive: true);await file.writeAsString(entry.value);
       }
@@ -209,7 +210,7 @@ void mixedLegacyObjectUses() {
       final cli = await Process.run('$testBundle/busyapi', ['migrate', moved.path, '--root', 'migrated', '--target', target, '--output', '${directory.path}/cli-preview', '--json'],
         environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
       expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');
-      final report = jsonDecode(cli.stdout as String) as Map;expect(report['producerVersion'], '80');expect(report['complete'], true);expect(report['published'], false);
+      final report = jsonDecode(cli.stdout as String) as Map;expect(report['producerVersion'], '81');expect(report['complete'], true);expect(report['published'], false);
       expect(Directory('${directory.path}/cli-preview').existsSync(), false);
     });
   }

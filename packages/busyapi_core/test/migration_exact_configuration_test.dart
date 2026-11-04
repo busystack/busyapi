@@ -38,6 +38,7 @@ void main() {
   for (final scenario in [
     (name: 'untouched', from: '', to: '', accepted: true),
     (name: 'obsolete holder producer', from: 'producer:79', to: '', accepted: false),
+    (name: 'obsolete container producer', from: 'producer:80', to: '', accepted: false),
     (name: 'equivalent decimals', from: '9007199254740993.00', to: '900719925474099300e-2', accepted: true),
     (name: 'equivalent positive exponent', from: '1e99999', to: '10e99998', accepted: true),
     (name: 'equivalent negative exponent', from: '1e-99999', to: '10e-100000', accepted: true),
@@ -69,7 +70,7 @@ child.stdout.on('data', chunk => {
   pending = pending.subarray(length+4);
   const result = value.result;
   if (result?.producer === 'busyapi-native-migration' && result.complete && from) {
-   if (from === 'producer:79') result.producerVersion = '79';
+   if (from.startsWith('producer:')) result.producerVersion = from.slice('producer:'.length);
    else {
     if (!result.manifestText.includes(from)) throw Error('Mutation did not reach its production field');
     result.manifestText = result.manifestText.replaceAll(from,to);

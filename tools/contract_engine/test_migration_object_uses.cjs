@@ -77,7 +77,7 @@ test(`${version} ${format} native objects and literal values share one specializ
  const input=fixture(version,format),original=input.resources[0].text,doc=new SourceDocument(original,input.root);
  assert.equal(analyse(input).status,'complete');await wire(input);
  const review=await planMigration(input);
- assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'80');
+ assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'81');
  assert.equal(review.exampleOutputs.length,2);assert.equal(input.resources[0].text,original);
  const output=delivered(review),{graph}=createGraph(output);
  assert.equal(analyse(output).status,'complete');await wire(output);
@@ -183,7 +183,9 @@ test(`${version} ${format} shared Response/Request Body roles remain editable an
 
 for(const format of ['yaml','json'])for(const [restrictedVersion,target]of [['2.0','3.2.1'],['2.0','2.0'],['3.0.4','3.2.1'],['3.0.4','3.0.4']])
 test(`${format} ${restrictedVersion}/modern mixed entries retain anonymous Path Item/Operation owners when migrating to ${target}`,async()=>{
- const input=require('./migration_mixed_holders_fixture.cjs')(format,target,restrictedVersion),before=input.resources.map(resource=>resource.text);
+ const input=target==='3.2.1'?require('./migration_overlapping_containers_fixture.cjs')(format,restrictedVersion):
+  require('./migration_mixed_holders_fixture.cjs')(format,target,restrictedVersion);
+ const before=input.resources.map(resource=>resource.text);
  const inspect=async(packet,name)=>{
   const checked=analyse(packet);assert.equal(checked.status,'complete',JSON.stringify(checked.findings));
   const graph=createGraph(packet).graph,operation=graph.operations().find(operation=>operation.path==='/p');

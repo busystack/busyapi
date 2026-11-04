@@ -71,7 +71,7 @@ test(`${format} foreign ${foreignVersion} ${kind} acquires a standard typed hold
  const history=new SourceDocument(before[1],input.resources[1].id).dataJson('/x-history');
  await inspect(input,'First',kind);await inspect({...input,root:input.resources[1].id},'Second','path-item');
  const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
- assert.equal(review.producerVersion,'80');
+ assert.equal(review.producerVersion,'81');
  const cold={snapshot:'cold-mixed-holders',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
  const first=await inspect({...cold,root:review.outputRoot},'First',kind);
  const other=review.changes.find(change=>change.resource===input.resources[1].id).destination;
@@ -180,13 +180,44 @@ test('security holder aliases reserve configured names and preserve distinct cap
  assert.equal(input.configuration.text,text);
 });
 
-test('an independently interpreted native holder container retains its ownership refusal',async()=>{
+test('an independently interpreted native holder container receives its own Example owner',async()=>{
  const input=fixture('json','3.1.2','path-item'),first=JSON.parse(input.resources[0].text),second=JSON.parse(input.resources[1].text);
  second.components.pathItems={};first.components.examples.Dictionary={$ref:'b.json#/components/pathItems'};
  input.resources[0].text=JSON.stringify(first);input.resources[1].text=JSON.stringify(second);
  const before=input.resources.map(resource=>resource.text),review=await planMigration(input);
- assert.equal(review.complete,false);assert.equal(review.status,'blocked');assert.deepEqual(review.outputs,[]);assert.deepEqual(review.changes,[]);
- assert(review.problems.some(problem=>problem.code==='migration.owners.entry-container'),JSON.stringify(review.problems));
+ assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const packet={root:review.outputRoot,snapshot:'cold-container-example',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
+ const graph=createGraph(packet).graph,edge=graph.referenceAs(packet.root,'/components/examples/Dictionary','$ref','example');
+ assert.equal(edge.resolution,'resolved');assert(edge.targetPointer.startsWith('/components/examples/_migrated_object_use_'));
+ assert.equal(graph.docs.get(edge.targetResource).dataJson(edge.targetPointer),'{}');
+ await inspect(packet,'First','path-item');
+ const other=review.changes.find(change=>change.resource===input.resources[1].id).destination;
+ await inspect({...packet,root:other},'Second','path-item');
+ assert.deepEqual(input.resources.map(resource=>resource.text),before);
+});
+
+for(const reverse of [false,true])test(`independent 3.2 URI bases retain container, dynamic and named connections, reverse=${reverse}`,async()=>{
+ const input=fixture('json','3.2.1','path-item','3.2.1');
+ const first=JSON.parse(input.resources[0].text.replaceAll('9007199254740993.00','"EXACT"'));
+ const second=JSON.parse(input.resources[1].text.replaceAll('9007199254740993.00','"EXACT"'));
+ first.$self='https://first.invalid/entry/api.json';second.$self='https://second.invalid/other/api.json';
+ first.paths['/p'].$ref=input.resources[1].id+'#/paths/~1p';
+ first.components.examples.Other.$ref=input.resources[1].id+'#/components/examples/Here';
+ for(const api of [first,second]){
+  api.components.pathItems={};api.components.examples.Dictionary={$ref:'#/components/pathItems'};
+ }
+ for(const [index,value]of [first,second].entries())input.resources[index].text=JSON.stringify(value).replaceAll('"EXACT"','9007199254740993.00');
+ if(reverse)input.resources.reverse();
+ const before=input.resources.map(resource=>resource.text),review=await planMigration(input);
+ assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const packet={root:review.outputRoot,snapshot:'independent-container-bases',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
+ await inspect(packet,'First','path-item');
+ const other=review.changes.find(change=>change.resource==='file:///mixed-holders/b.json').destination;
+ await inspect({...packet,root:other},'Second','path-item');
+ for(const root of [packet.root,other]){
+  const graph=createGraph({...packet,root}).graph,edge=graph.referenceAs(root,'/components/examples/Dictionary','$ref','example');
+  assert.equal(edge.resolution,'resolved');assert.equal(graph.docs.get(edge.targetResource).dataJson(edge.targetPointer),'{}');
+ }
  assert.deepEqual(input.resources.map(resource=>resource.text),before);
 });
 
