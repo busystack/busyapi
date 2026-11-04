@@ -125,9 +125,9 @@ Future<_CliMock> _cli(String path) async {
   expect(message['input'], 'saved-source');
   expect(message['nativeGeneration'], {
     'name': 'busyapi-native-schema-samples',
-    'version': '3',
+    'version': '4',
     'configuration':
-        'captured-schema-candidates-v3:${message['nativeValidation']['configuration']}',
+        'captured-schema-candidates-v4:${message['nativeValidation']['configuration']}',
   });
   final host = message['host'], port = message['port'];
   if (host is! String || port is! int)
@@ -137,6 +137,34 @@ Future<_CliMock> _cli(String path) async {
 }
 
 void main() {
+  for (final (name, schema, expected) in <(String, Map<String, Object?>, String)>[
+    ('optional', {'type': 'object', 'minProperties': 1, 'properties': {'id': {'enum': ['EXACT']}}, 'additionalProperties': false}, '{"id":9007199254740993.00}'),
+    ('conjoined-array', {'allOf': [{'type': 'array', 'items': {'enum': ['EXACT']}}, {'minItems': 2, 'maxItems': 2}]}, '[9007199254740993.00,9007199254740993.00]'),
+    ('branch', {'type': 'object', 'required': ['id'], 'properties': {'id': {'enum': ['EXACT']}},
+      'anyOf': [{'required': ['label'], 'properties': {'label': {'enum': ['雪']}}}]}, '{"id":9007199254740993.00,"label":"雪"}'),
+  ]) {
+    test('$name bounded candidate reaches Core and saved CLI with original response proof', () async {
+      final directory = await Directory.systemTemp.createTemp('busyapi-bounded-shape-');
+      addTearDown(() => directory.delete(recursive: true));
+      final file = File('${directory.path}/api.json');
+      final text = jsonEncode({'openapi': '3.2.1', 'info': {'title': name, 'version': '1'},
+        'paths': {'/data': {'get': {'responses': {'200': {'description': 'Candidate',
+          'content': {'application/json': {'schema': schema}}}}}}},
+      }).replaceAll('"EXACT"', '9007199254740993.00');
+      await file.writeAsString(text);
+      final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);addTearDown(engine.close);
+      final project = await BusyProject.open(file.path, engine);addTearDown(project.close);
+      final plan = await project.prepareMock(project.roots.single.id);addTearDown(plan.close);
+      final run = await plan.start(nodeExecutable: runtimeNode, helper: '$testBundle/libexec/busyapi/mock-server.cjs');
+      addTearDown(run.stop);
+      final client = HttpClient();addTearDown(() => client.close(force: true));
+      await _wire(client, run.baseUri, expected);
+      await run.stop();
+      final cli = await _cli(file.path);addTearDown(cli.close);
+      await _wire(client, cli.base, expected);await cli.close();
+      expect(await file.readAsString(), text);
+    });
+  }
   for (final version in ['2.0', '3.0.4', '3.1.2', '3.2.1']) {
     for (final format in ['yaml', 'json']) {
       test('$version $format exact bound generation uses captured buffers and the packaged CLI', () async {
@@ -252,10 +280,10 @@ void main() {
             );
             addTearDown(run.stop);
             expect(run.nativeGeneration.name, 'busyapi-native-schema-samples');
-            expect(run.nativeGeneration.version, '3');
+            expect(run.nativeGeneration.version, '4');
             expect(
               run.nativeGeneration.configuration,
-              'captured-schema-candidates-v3:${run.nativeValidation.configuration}',
+              'captured-schema-candidates-v4:${run.nativeValidation.configuration}',
             );
             final client = HttpClient();
             addTearDown(() => client.close(force: true));

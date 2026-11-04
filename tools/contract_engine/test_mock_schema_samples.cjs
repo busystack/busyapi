@@ -53,6 +53,17 @@ for(const version of versions)for(const format of ['yaml','json'])test(`${versio
   ['nested-default',{type:'object',required:['payload'],properties:{payload:{type:'object',default:rich}}},'{"payload":'+encode(rich,'json')+'}'],
   ['nested-falsy',{type:'object',required:['false','zero','empty','null'],properties:{false:{type:'boolean',enum:[false]},zero:{type:'integer',enum:[0]},empty:{type:'string',enum:['']},null:{...nullSchema,enum:[null]}}},'{"false":false,"zero":0,"empty":"","null":null}'],
   ['nested-objects',{allOf:[{type:'object',required:['id'],properties:{id:{type:'integer',enum:['BIG']}}},{type:'object',required:['label'],properties:{label:{type:'string',enum:['café 東京']}}}]},'{"id":'+high+',"label":"café 東京"}'],
+  ['optional-properties',{type:'object',minProperties:2,properties:{id:{type:'integer',enum:['BIG']},label:{type:'string',enum:['café 東京']}},additionalProperties:false},'{"id":'+high+',"label":"café 東京"}'],
+  ['required-additional',{type:'object',required:['id'],additionalProperties:{type:'integer',enum:['BIG']}},'{"id":'+high+'}'],
+  ['array-conjunction',{allOf:[{type:'array',items:{type:'integer',enum:['BIG']}},{minItems:2,maxItems:2}]},'['+high+','+high+']'],
+  ...(!swagger?[
+   ['object-alternative',{type:'object',required:['id'],properties:{id:{type:'integer',enum:['BIG']}},anyOf:[{required:['label'],properties:{label:{type:'string',enum:['café 東京']}}}]},'{"id":'+high+',"label":"café 東京"}'],
+  ]:[]),
+  ...(modern?[
+   ['positional-candidate',{type:'array',minItems:2,maxItems:2,prefixItems:[{enum:['BIG']},{enum:['café 東京']}],items:false},'['+high+',"café 東京"]'],
+   ['presence-closure',{type:'object',minProperties:1,properties:{seed:{enum:[false]},id:{type:'integer',enum:['BIG']}},dependentRequired:{seed:['id']},additionalProperties:false},'{"seed":false,"id":'+high+'}'],
+   ['contained-candidates',{type:'array',items:{type:'integer',enum:[0,'BIG']},minItems:3,maxItems:3,contains:{type:'integer',enum:['BIG']},minContains:2},'[0,'+high+','+high+']'],
+  ]:[]),
   ...(modern?[['const',{type:'integer',const:'BIG'},high]]:[]),
  ];
  const responseFor=schema=>({description:'Generated',...(swagger?{schema}:{content:{'application/json':{schema}}})});
@@ -78,7 +89,7 @@ for(const version of versions)for(const format of ['yaml','json'])test(`${versio
  const input=capturedMockStart(capture),before=JSON.stringify(input);
  const event=await startMock(t,input),{port}=event;
  assert.equal(event.nativeGeneration.name,'busyapi-native-schema-samples');
- assert.equal(event.nativeGeneration.version,'3');
+ assert.equal(event.nativeGeneration.version,'4');
  for(const [name,,expected]of [...samples,['preferred',{},low],['prefix',{},'0'],['alternative',{},high],
   ['nested-prefix',{},'{"id":0}'],['nested-wide',{},encode(Object.fromEntries(names.map(name=>[name,'BIG'])),'json')]]){
   const response=await send(port,'/'+name);

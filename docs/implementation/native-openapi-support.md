@@ -86,6 +86,23 @@ Migration producer/admission/preflight are now `77`. **Prepared, not run**;
 no compiler, analyzer, tests, build, native workload or Snapcraft was executed.
 W3 remains partial; this does not close W1–W7 or SOURCE COMPLETE.
 
+The next W5 bounded-generation continuation extends the existing shared
+`SchemaSampleCandidates` used by mocks and discriminator fallback suggestions.
+It combines whole-conjunction array length/tuple/containment choices, tries
+finite distinct-item diagonals before Cartesian combinations, and constructs
+optional/minimum-property objects, additional-property witnesses and finite
+property-dependency closures. Parent and alternative object members merge as
+exact CST fragments, retaining literal member names and numeric spelling.
+The existing 256-candidate / 8 MiB / bounded-state budgets remain authoritative;
+every selection still requires proof against the original captured schema and
+final status/header/body response validation. No failed search claims
+unsatisfiability. Generation producer and Core readiness are `4`; migration
+producer is `78` because discriminator suggestions share this constructor.
+Existing registered engine/Core mock suites now prepare these HTTP and CLI
+cases, including source preservation and obsolete-generation refusal.
+**Prepared, not run**. Streaming, CONNECT, media-specific generation, XML,
+Linkset and the remaining W1–W7 gaps remain open.
+
 ## Finite completion register
 
 This register is the implementation queue. Its rows take precedence over the
@@ -185,7 +202,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W5.01 Incremental JSON Lines/NDJSON, JSON text sequences and SSE framing/evaluation; O32 media/itemSchema, WIRE | runtime media plus transport/capture/Core/native/CLI stream owners | E S C | finite runtime-media suites only; incremental production regressions still required | Missing for transport-integrated incremental evaluation/backpressure/progress; complete-input accumulation is not streaming | H |
 | W5.02 Multipart sequences, chunk boundaries, cancellation/bounds/retention, malformed/truncated terminal status and whole-sequence versus item results; MIME/WIRE | multipart runtime and stream transport/capture owners | E S C | finite multipart suites only; incremental byte-exchange coverage still required | Missing for incremental execution integration; retain bounded finite decoding | H |
 | W5.03 Authority-form CONNECT, successful tunnel transition, bounded approved peers, bidirectional bytes and closure; HTTP §9.3.6 | mock native validation/server/transport; Core/native mock ownership | E S C | current tunnel refusal controls only; controlled peer byte-exchange suites still required | Missing; ordinary-response mock transport still refuses CONNECT; no unrestricted proxy is authorized | H |
-| W5.04 Bounded object/array/composition/reference/media-aware generated witnesses and final original-schema/status/header/body proof; JC/JV, family response clauses | schema sample candidates, mock sample/generation/response owners | E S C | numeric/nested/schema-sample/media/final-response suites | Partially implemented; exact numeric and final-proof fixes retained; remaining candidate paths are incomplete; exhausted search is not unsatisfiability | H |
+| W5.04 Bounded object/array/composition/reference/media-aware generated witnesses and final original-schema/status/header/body proof; JC/JV, family response clauses | schema sample candidates, mock sample/generation/response owners | E S C | numeric/nested/schema-sample/media/final-response suites | Partially implemented; exact numeric and final-proof fixes retained; optional/minimum-property objects, property-dependency closure, parent/alternative object merges, additional-property witnesses, conjoined array bounds, positional schemas and containment candidates now share bounded exact-fragment construction; media generation and remaining candidate paths are incomplete; exhausted search is not unsatisfiability | H |
 
 ### W6–W8: maintenance, integration and qualification
 
@@ -198,7 +215,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W7.01 Creation, editing, unsaved Reference, request/example/mock/case, migration review, documentation and CLI integration for every capability; all applicable clauses above | shared engine, Core owners and native workspace controls | A R E M S C | engine/Core/widget/native journey suites | Partially implemented; applicable existing consumers inherit shared field/codec/routing changes; complete family journeys are not accepted | H |
 | W7.02 Stale-action invalidation on declaration/dialect/root/external/approval changes; coherent reviewed transactions, Undo/Redo and no buffer loss; Core transaction contract | Core project/store/capture and native review/request controllers | A R E M S C | stale capture/cancellation/publication/widget review suites | Partially implemented; existing source for existing safeguards; new paths require current integration qualification | H |
 | W7.03 CST fidelity, no-op saves, exact values, aliases, extensions and source-only migration restructuring; TEXT | `document.ts`, graph/CST editing, Core store/transaction owners | A R M S C | source ownership/alias/exact-value/no-op suites | Partially implemented; existing source for existing boundaries; generated schema owners retain original provenance and reviewed restructuring | H |
-| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+58`, migration producer `77`, response mock producer `5`, parameter mock producer `4`, numeric sample producer remains `3`; no dependency versions/source changed | H |
+| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+58`, migration producer `78`, response mock producer `5`, parameter mock producer `4`, sample producer is now `4`; no dependency versions/source changed | H |
 | W8.01 Explicit independent evidence input across SDK/build/CMake/CI/installed/package checks; PINS | `flutter_archive.py`, SDK verifier, `build_linux.sh`, CMake, package/native-distribution/artifact-smoke inputs | P | `tools/test_flutter_sdk.py`, source-wiring regressions | Partially implemented; existing source for archive-input propagation; same existing evidence reaches installed checks; independent member pins remain an alternative; no SDK acquisition/replacement | H; actual evidence availability/authenticity has not been qualified |
 | W8.02 Ordered gates, registration, source-version-valid fixtures and production-byte regressions; PINS and each row's authority | `tools/build_engine.sh`, Linux workflow, engine/Core/widget/native/package suites | P | new direct-Swagger/conditional/tuple-tail/constant-containment/property-name/runtime-parameter and URI-security/OAuth-flow/invariant regressions registered; existing TypeScript-before-bundle gate retained | Partially implemented; compilation and all suspended gates remain unexecuted; missing regression coverage identified in this register remains implementation work | H |
 | W8.03 Current automated/native/packaged/offline acceptance and normal Quit; all approved families and PINS | native acceptance tools, Core/package/CLI suites | A R E M S C P | existing native acceptance including historical Quit/focus failures; complete new journeys still required | Missing for accepted evidence; no driver/engine attribution established; Snapcraft remains skipped | H |

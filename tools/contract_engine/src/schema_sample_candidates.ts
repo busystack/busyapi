@@ -1,9 +1,10 @@
 import {schemaContext} from './schema_context';
-import {SourceError,escape,type Range} from './document';
+import {SourceDocument,SourceError,escape,type Range} from './document';
 import {record} from './engine_worker_client';
 import {supportedSchemaDialect,type ReferenceGraph,type GraphTarget} from './reference_graph';
 import {modernFamily} from './specification';
 import {numericSampleCandidates} from './schema_numeric_candidates';
+import {decimal,compare} from './exact_numbers';
 export type SchemaSampleLocation=Readonly<{resource:string;pointer:string}>;
 export type SchemaSampleSource=Readonly<{resource:string;pointer:string;range:Range}>;
 type SchemaLocation=SchemaSampleLocation;
@@ -11,7 +12,8 @@ type SourceLocation=SchemaSampleSource;
 
 export type SchemaSample={raw:string;source:SourceLocation};
 type Suggestions=(schema:SchemaLocation)=>{samples:SchemaSample[];limit?:SourceLocation};
-type ObjectShape={properties:Map<string,GraphTarget[]>;required:Set<string>};
+type ObjectShape={properties:Map<string,GraphTarget[]>;required:Set<string>;additional:GraphTarget[];
+    dependencies:Map<string,Set<string>>;minimum:number};
 
 /** Bounded construction of suggestions, never schema evaluation. The caller
  * proves every completed value against the captured whole response schema. */
@@ -46,6 +48,14 @@ export class SchemaSampleCandidates {
             (this.references.get(JSON.stringify([target.resource,target.pointer]))??[])
                 .filter(edge=>['$ref','$dynamicRef'].includes(edge.keyword)&&edge.resolution==='resolved')
                 .map((edge):GraphTarget=>({resource:edge.targetResource!,pointer:edge.targetPointer!,kind:'schema'}));
+        const count=(target:GraphTarget,keyword:string):number|undefined=>{
+            const doc=this.graph.docs.get(target.resource)!,node=doc.dataNode(target.pointer+'/'+keyword);
+            if(!node)return;
+            if(typeof node.value!=='number'){limit??=source(target);return;}
+            const value=decimal(doc.dataJson(node.pointer));
+            if(value.exponent<0n||compare(value,decimal('0'))<0||compare(value,decimal('256'))>0){limit??=source(target);return;}
+            return Number(value.coefficient*10n**value.exponent);
+        };
         const locations=(target:GraphTarget,seen=new Set<string>(),depth=0):GraphTarget[]=>{
             const key=JSON.stringify([target.resource,target.pointer]);
             if(seen.has(key))return [];
@@ -86,7 +96,9 @@ export class SchemaSampleCandidates {
                 document:this.graph.docs.get(location.resource)!})));
             limit??=numeric.limit;
             for(const candidate of numeric.samples)add(candidate.raw,candidate.source);
-            const object:ObjectShape={properties:new Map(),required:new Set()};
+            const object:ObjectShape={properties:new Map(),required:new Set(),additional:[],dependencies:new Map(),minimum:0};
+            const arrays:GraphTarget[]=[];
+            const objectBranches:SchemaSample[]=[];
             let hasObject=false;
             for(const location of scopes) {
                 if(!step(location))break;
@@ -104,11 +116,25 @@ export class SchemaSampleCandidates {
                     if(!step(location))break;
                     if(typeof name==='string')object.required.add(name);
                 }
+                if(node.children.has('minProperties')){
+                    hasObject=true;object.minimum=Math.max(object.minimum,count(location,'minProperties')??0);
+                }
+                if(node.children.get('additionalProperties')?.kind==='object'&&
+                    this.graph.scopeAs(location.resource,location.pointer+'/additionalProperties','schema'))
+                    object.additional.push({...location,pointer:location.pointer+'/additionalProperties'});
+                if(modernFamily(scope.family))for(const [trigger,names]of Object.entries(value.dependentRequired??{})){
+                    if(!step(location))break;
+                    const required=object.dependencies.get(trigger)??new Set<string>();
+                    if(Array.isArray(names))for(const name of names)if(typeof name==='string')required.add(name);
+                    object.dependencies.set(trigger,required);
+                }
                 for(const keyword of ['oneOf','anyOf']) {
                     const array=node.children.get(keyword);
                     if(scope.family!=='2.0'&&array?.kind==='array')for(const index of array.children.keys())
-                        for(const candidate of build({...location,pointer:location.pointer+'/'+keyword+'/'+index},next,depth+1))
+                        for(const candidate of build({...location,pointer:location.pointer+'/'+keyword+'/'+index},next,depth+1)){
+                            if(candidate.raw.trimStart().startsWith('{'))objectBranches.push(candidate);
                             if(!add(candidate.raw,candidate.source))break;
+                        }
                 }
                 if(types.includes('string')) {
                     add('""');
@@ -118,58 +144,125 @@ export class SchemaSampleCandidates {
                 }
                 if(types.includes('boolean'))for(const raw of ['false','true'])add(raw);
                 if(types.includes('null')||(scope.family==='3.0'&&typeof value.type==='string'&&value.nullable===true))add('null');
-                if(types.includes('array')||node.children.has('items')||node.children.has('prefixItems')) {
-                    const count=value.minItems??0;
-                    if(!Number.isSafeInteger(count)||count<0||count>256){limit??=source(location);continue;}
+                if(types.includes('array')||['items','prefixItems','minItems',...(modernFamily(scope.family)?['contains']:[])].some(name=>node.children.has(name)))arrays.push(location);
+            }
+            if(arrays.length){
+                let minimum=0,maximum=256;
+                const sizes=new Set<number>(),contains:{choices:SchemaSample[];minimum:number}[]=[];
+                for(const location of arrays){
+                    if(!step(location))break;
+                    const doc=this.graph.docs.get(location.resource)!,node=doc.dataNode(location.pointer)!,scope=schemaContext(this.graph,location.resource,location.pointer)!;
+                    minimum=Math.max(minimum,count(location,'minItems')??0);
+                    maximum=Math.min(maximum,count(location,'maxItems')??256);
+                    const prefix=modernFamily(scope.family)?node.children.get('prefixItems'):scope.family==='2.0'?node.children.get('items'):undefined;
+                    if(prefix?.kind==='array')sizes.add(prefix.children.size);
+                    if(modernFamily(scope.family)&&node.children.has('contains')){
+                        const required=count(location,'minContains')??1;
+                        contains.push({minimum:required,choices:build({...location,pointer:location.pointer+'/contains'},next,depth+1)});
+                        sizes.add(required);sizes.add(Math.max(minimum,required));
+                    }
+                }
+                // Length, tuple and containment bounds belong to the whole
+                // conjunction. Do not generate each allOf array independently.
+                sizes.add(minimum);if(minimum<maximum)sizes.add(minimum+1);
+                const needed=Math.max(minimum,...contains.map(value=>value.minimum));sizes.add(needed);
+                for(const size of [...sizes].filter(size=>size>=minimum&&size<=maximum).sort((a,b)=>
+                    Number(b===needed)-Number(a===needed)||a-b)){
+                    if(output.length>=256||!step(target)){limit??=origin;break;}
                     const items:SchemaSample[][]=[];
-                    for(let index=0;index<count;index++) {
-                        const prefix=modernFamily(scope.family)?node.children.get('prefixItems'):undefined;
-                        const item=prefix?.kind==='array'&&prefix.children.has(String(index))
-                            ?{...location,pointer:location.pointer+'/prefixItems/'+index}
-                            :node.children.has('items')?{...location,pointer:location.pointer+'/items'}:undefined;
-                        const choices=item?build(item,next,depth+1):[{raw:'null',source:origin}];
-                        items.push(choices);
-                    }
-                    if(items.some(choices=>!choices.length))continue;
-                    add('['+items.map(choices=>choices[0].raw).join(',')+']');
-                    let arrays=[''];
-                    for(let index=0;index<items.length;index++) {
-                        const combined:string[]=[],choices=items[index];
-                        for(const before of arrays)for(const candidate of choices) {
-                            if(combined.length>=256||!step(location)){limit??=source(location);break;}
-                            const raw=before+(index?',':'')+candidate.raw;
-                            if(admit(raw,source(location)))combined.push(raw);
+                    for(let index=0;index<size;index++){
+                        const choices:SchemaSample[]=[];
+                        for(const location of arrays){
+                            if(!step(location))break;
+                            const doc=this.graph.docs.get(location.resource)!,node=doc.dataNode(location.pointer)!,scope=schemaContext(this.graph,location.resource,location.pointer)!;
+                            const prefix=modernFamily(scope.family)?node.children.get('prefixItems'):scope.family==='2.0'?node.children.get('items'):undefined;
+                            const item=prefix?.kind==='array'&&prefix.children.has(String(index))
+                                ?{...location,pointer:location.pointer+(modernFamily(scope.family)?'/prefixItems/':'/items/')+index}
+                                :node.children.get('items')?.kind!=='array'&&node.children.has('items')?{...location,pointer:location.pointer+'/items'}
+                                :prefix?.kind==='array'&&node.children.has('additionalItems')?{...location,pointer:location.pointer+'/additionalItems'}:undefined;
+                            if(item&&this.graph.scopeAs(item.resource,item.pointer,'schema'))choices.push(...build(item,next,depth+1));
                         }
-                        arrays=combined;
-                        if(!arrays.length)break;
+                        if(!choices.length)choices.push({raw:'null',source:origin});
+                        choices.push(...contains.flatMap(value=>value.choices));
+                        items.push([...new Map(choices.map(value=>[value.raw,value])).values()]);
                     }
-                    for(const raw of arrays)if(!add('['+raw+']'))break;
+                    add('['+items.map(choices=>choices[0].raw).join(',')+']');
+                    // Diagonal proposals find distinct enum/const witnesses
+                    // before a Cartesian prefix spends the combination budget.
+                    const width=Math.min(256,Math.max(0,...items.map(choices=>choices.length)));
+                    for(let offset=0;offset<width;offset++)if(!add('['+items.map((choices,index)=>choices[(offset+index)%choices.length].raw).join(',')+']'))break;
+                    let values=[''];
+                    for(let index=0;index<items.length;index++){
+                        const combined:string[]=[];
+                        outer:for(const before of values)for(const candidate of items[index]){
+                            if(combined.length>=256||!step(target)){limit??=origin;break outer;}
+                            const raw=before+(index?',':'')+candidate.raw;if(admit(raw,origin))combined.push(raw);
+                        }
+                        values=combined;if(!values.length)break;
+                    }
+                    for(const raw of values)if(!add('['+raw+']'))break;
                 }
             }
             if(hasObject) {
                 add('{}');
-                const fields:{name:string;choices:SchemaSample[]}[]=[];
-                for(const name of object.required) {
-                    const properties=object.properties.get(name);
-                    const choices=properties?properties.flatMap(property=>build(property,next,depth+1)):[{raw:'null',source:origin}];
-                    fields.push({name,choices});
-                }
-                if(fields.some(field=>!field.choices.length)) {
-                    memo.set(key,output);return output;
-                }
-                add('{'+fields.map(({name,choices})=>JSON.stringify(name)+':'+choices[0].raw).join(',')+'}');
-                let objects=[''];
-                for(const {name,choices} of fields) {
-                    const combined:string[]=[],unique=new Set<string>();
-                    for(const before of objects)for(const candidate of choices) {
-                        if(combined.length>=256||!step(target)){limit??=origin;break;}
-                        const raw=before+(before?',':'')+JSON.stringify(name)+':'+candidate.raw;
-                        if(!unique.has(raw)&&admit(raw,origin)){unique.add(raw);combined.push(raw);}
+                const choicesFor=(name:string)=>{
+                    const properties=object.properties.get(name)??object.additional;
+                    return properties.length?properties.flatMap(property=>build(property,next,depth+1)):[{raw:'null',source:origin}];
+                };
+                const required=(selected:Iterable<string>)=>{
+                    const names=new Set(selected),queue=[...names];
+                    for(let index=0;index<queue.length;index++)for(const name of object.dependencies.get(queue[index])??[]){
+                        if(!step(target))return names;
+                        if(!names.has(name)){names.add(name);queue.push(name);}
                     }
-                    objects=combined;
+                    return names;
+                };
+                const minimum=required(object.required);
+                for(const name of object.properties.keys()){
+                    if(minimum.size>=object.minimum)break;minimum.add(name);
                 }
-                for(const raw of objects)if(!add('{'+raw+'}'))break;
+                let serial=0;
+                while(minimum.size<object.minimum&&step(target)){
+                    const name='property'+serial++;if(!object.properties.has(name))minimum.add(name);
+                }
+                const sets=[required(object.required),required(minimum)];
+                for(const name of object.properties.keys())if(!minimum.has(name))sets.push(required([...minimum,name]));
+                if(object.properties.size)sets.push(required([...minimum,...object.properties.keys()]));
+                for(const names of sets){
+                    if(output.length>=256||!step(target)){limit??=origin;break;}
+                    const fields=[...names].map(name=>({name,choices:choicesFor(name)}));
+                    if(fields.some(field=>!field.choices.length))continue;
+                    const base='{'+fields.map(({name,choices})=>JSON.stringify(name)+':'+choices[0].raw).join(',')+'}';
+                    add(base);
+                    // Merge branch object members with the parent's required
+                    // fields using exact CST values. Neither JSON.parse nor
+                    // object spread may round or rebind literal member names.
+                    for(const branch of objectBranches){
+                        if(!step(target))break;
+                        const baseDoc=new SourceDocument(base,'urn:busyapi:sample-base',true,'json');
+                        const branchDoc=new SourceDocument(branch.raw,'urn:busyapi:sample-branch',true,'json');
+                        if(baseDoc.issues.length||branchDoc.issues.length||branchDoc.root.kind!=='object')continue;
+                        const members=new Map([...baseDoc.root.children.keys()].map(name=>[name,baseDoc.dataJson('/'+escape(name))]));
+                        for(const name of branchDoc.root.children.keys())members.set(name,branchDoc.dataJson('/'+escape(name)));
+                        add('{'+[...members].map(([name,raw])=>JSON.stringify(name)+':'+raw).join(',')+'}');
+                    }
+                    let objects=[''];
+                    for(const {name,choices}of fields){
+                        const combined:string[]=[],unique=new Set<string>();
+                        outer:for(const before of objects)for(const candidate of choices){
+                            if(combined.length>=256||!step(target)){limit??=origin;break outer;}
+                            const raw=before+(before?',':'')+JSON.stringify(name)+':'+candidate.raw;
+                            if(!unique.has(raw)&&admit(raw,origin)){unique.add(raw);combined.push(raw);}
+                        }
+                        objects=combined;
+                    }
+                    for(const raw of objects)if(!add('{'+raw+'}'))break;
+                }
             }
+            if(!scopes.length||scopes.every(location=>{
+                const value=this.graph.docs.get(location.resource)!.dataNode(location.pointer)?.value;
+                return record(value)&&!Object.hasOwn(value,'type');
+            }))for(const raw of ['null','false','0','""','{}','[]'])add(raw);
             memo.set(key,output);
             return output;
         };
