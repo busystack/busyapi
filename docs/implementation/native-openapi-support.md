@@ -115,6 +115,39 @@ source/target comparisons, independent targets, underflow-fraction negatives,
 source preservation, cold publication and CLI checks. Producer/admission are
 `79`. **Not run**; W3 remains partial.
 
+Continuation checkpoint for the current primary checkout:
+
+- Branch `release/v0.1.0`; this continuation started at
+  `c262eac7e0bef29957301f95420fe9f8c0719608`. Implementation commits are
+  `956da8d` (exact Core configuration comparison), `17a1159` (containing binary
+  ownership), `b545f3d` (constant/inactive schema mappings), `b1ad20e` (bounded
+  witnesses) and `e540d46` (uniform unbounded tuple tails). All changes are local;
+  no worktree, push, dependency modification or SDK replacement was performed.
+- Next W2 source target: `migration_schema_uses.ts`, especially
+  `entryComponentLocation`/`entryComponentContainer` and the
+  `migration.owners.entry-resource` / `migration.owners.resource-context`
+  branches. Mixed-family native uses with no compatible existing holder,
+  independently interpreted destination containers, remaining resource identity
+  conflicts and shared-context refactoring still require ownership algorithms.
+  The binary extension covers finite static containment/composition routes; it
+  does not close general W2 or constrained raw-instance assertion mappings.
+- Remaining W3 source work includes active directional downgrade/shared schemas,
+  nonconstant conditional/dependency mappings, other constrained binary and
+  unbounded tuple tails, vocabulary mappings and source/target reference repairs.
+  A missing proof or algorithm remains an implementation item, not a claim of
+  normative impossibility.
+- W4 typed ordered/nested multipart generation, XML/Linkset codecs and remaining
+  parameter/header/part choices remain open. W5 incremental transport and CONNECT
+  remain absent; media-specific witness generation remains partial. W6 general
+  resource relocation, shared rendering contexts and dynamic-safe maintenance,
+  plus W1/W7 full native/application surface closure, remain open in their rows.
+- Every added or changed regression is **prepared, not run**. The existing
+  registered engine suites and Core directory gate include the new cases.
+  Source reads and `git diff --check` establish neither compilation nor runtime
+  acceptance. The execution hold and Snapcraft skip remain in force. No external
+  prerequisite has been established that prevents further source implementation.
+  **SOURCE COMPLETE and ACCEPTED are both unmet.**
+
 ## Finite completion register
 
 This register is the implementation queue. Its rows take precedence over the
