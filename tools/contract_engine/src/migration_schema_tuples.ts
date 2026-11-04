@@ -4,6 +4,7 @@ import type {MigrationSource} from './migration_source';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import type {MigrationIssue} from './migration_schema';
 import type {MigrationArrayBounds} from './migration_schema_arrays';
+import {uniformTupleTail} from './migration_tuple_uniform_tail';
 
 /** A finite modern tail has a positional Draft 4 representation: repeat its
  * schema at every reachable tail position, retaining the original maxItems.
@@ -22,7 +23,10 @@ export function migrateSchemaTuple(graph:ReferenceGraph,scope:GraphScope,source:
     const originalTail=tailOrigin,tailValue=graph.docs.get(scope.resource)!.dataNode(originalTail)?.value;
     const constrained=tailValue!==undefined&&typeof tailValue!=='boolean';
     const maximum=constrained?bounds.maximum(scope):undefined;
-    if(constrained&&maximum===undefined){
+    const tailScope=graph.scopeAs(scope.resource,originalTail,'schema');
+    const prefixes=value.prefixItems.map((_:unknown,index:number)=>graph.scopeAs(scope.resource,scope.pointer+'/prefixItems/'+index,'schema'));
+    const uniform=constrained&&maximum===undefined&&tailScope!==undefined&&prefixes.every(scope=>scope!==undefined)&&uniformTupleTail(graph,tailScope,prefixes);
+    if(constrained&&maximum===undefined&&!uniform){
         issue({...scope,pointer:originalTail},'migration.schema.tuple-tail','No finite same-instance array bound was proved within the 2048-position conversion budget; a different equivalent Swagger mapping remains required','implementation');return;
     }
     const tail=pointer+'/items';
@@ -34,9 +38,15 @@ export function migrateSchemaTuple(graph:ReferenceGraph,scope:GraphScope,source:
     if(!retained)source.remove(tail);
     source.rename(pointer+'/prefixItems','items');
     if(constrained&&retained){
-        for(let index=value.prefixItems.length;index<maximum!;index++){
-            owners.admit(source);
-            source.set(pointer+'/items/'+index,{$ref:owners.reference(retained,target)});
+        if(uniform){
+            const allOf=pointer+'/allOf';owners.admit(source,2);
+            if(!source.doc.dataNode(allOf))source.set(allOf,[]);
+            source.set(allOf+'/'+source.doc.dataNode(allOf).children.size,{items:{$ref:owners.reference(retained,target)}});
+        }else{
+            for(let index=value.prefixItems.length;index<maximum!;index++){
+                owners.admit(source);
+                source.set(pointer+'/items/'+index,{$ref:owners.reference(retained,target)});
+            }
         }
     }
     if(tailValue===false){

@@ -140,7 +140,7 @@ void main() {
               reason: '${review.result}',
             );
             expect(review.unsaved, true);
-            expect(review.result['producerVersion'], '78');
+            expect(review.result['producerVersion'], '79');
             await review.publish();
             final copy = await BusyProject.open(review.destination, engine);
             addTearDown(copy.close);

@@ -58,3 +58,47 @@ for(const format of ['yaml','json'])test(`${format} constrained tails use finite
  const after=await evaluate(cold,'/definitions');assert.equal(after.complete,true,JSON.stringify(after.findings));
  assert.deepEqual(after.runtimeEvaluations.map(result=>result.valid),before.runtimeEvaluations.map(result=>result.valid));
 });
+
+for(const format of ['yaml','json'])for(const prefix of ['type','enum','reference','conjunction'])
+test(`${format} unbounded ${prefix} prefixes retain positional assertions while a uniform owner constrains the tail`,async()=>{
+ const root='file:///uniform-tuple/api.'+format;
+ const item=prefix==='type'?{type:'integer',minimum:'EXACT'}:prefix==='enum'?{enum:['EXACT',0]}:
+  prefix==='reference'?{$ref:'#/components/schemas/Prefix'}:{allOf:[{type:'integer'},{minimum:'EXACT'}]};
+ const document={openapi:'3.2.1',info:{title:'Uniform tuple tail',version:'1'},paths:{},components:{schemas:{
+  Tuple:{type:'array',prefixItems:[item],items:{$ref:'#/components/schemas/TailType'}},
+  Prefix:{type:'integer',minimum:'EXACT'},TailType:{type:'number'},
+  IndependentPrefix:{$ref:'#/components/schemas/Tuple/prefixItems/0'},
+  IndependentTail:{$ref:'#/components/schemas/Tuple/items'},
+ }},'x-history':{prefixItems:[item],items:{$ref:'#/components/schemas/TailType'},exact:'EXACT'}};
+ const text=(format==='yaml'?'# Keep unbounded source\r\n'+YAML.stringify(document,{aliasDuplicateObjects:false}):JSON.stringify(document))
+  .replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const input={root,snapshot:'uniform-'+prefix,resources:[{id:root,text,generation:4}],targetVersion:'2.0',destination:'file:///uniform-output/'};
+ assert.equal(analyse(input).status,'complete');
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ assert.equal(review.identity,(await planMigration(input)).identity);
+ const output={root:review.outputRoot,snapshot:'cold-uniform',resources:review.outputs.map(resource=>({id:resource.id,text:resource.text,generation:0}))};
+ assert.equal(analyse(output).status,'complete');
+ const values=['null','0','9007199254740993','[]','[0]','[9007199254740993]','[9007199254740993,0.25,-1e999]',
+  '[9007199254740992,1]','[9007199254740993,"bad"]','["bad",1]'];
+ for(const name of ['Tuple','IndependentPrefix','IndependentTail']){
+  const evaluate=async(packet,pointer)=>{
+   const result=await evaluateSchemas({...packet,runtimeInstances:values.map(text=>({subject:'response-body',location:'application/json',text,schema:{resource:packet.root,pointer}}))});
+   assert.equal(result.complete,true,JSON.stringify(result.findings));return result.runtimeEvaluations.map(value=>value.valid);
+  };
+  assert.deepEqual(await evaluate(output,'/definitions/'+name),await evaluate(input,'/components/schemas/'+name),name);
+ }
+ const owner=new SourceDocument(review.outputs.find(resource=>resource.id===output.root).text,output.root);
+ assert.equal(owner.dataNode('/definitions/Tuple/maxItems'),undefined);
+ assert.equal(owner.dataJson('/x-history'),new SourceDocument(text,root).dataJson('/x-history'));
+ assert.equal(input.resources[0].text,text);
+});
+
+for(const tail of [{type:'integer',description:'Tail-only annotation'},{type:'integer'}])
+test('uniform tuple proofs preserve annotations and exact nonintegral prefix values',async()=>{
+ const root='file:///uniform-negative/api.json',schema={prefixItems:[{enum:['FRACTION']}],items:tail};
+ const text=JSON.stringify({openapi:'3.2.1',info:{title:'No invented implication',version:'1'},paths:{},components:{schemas:{Tuple:schema}}})
+  .replace('"FRACTION"','1e-99999');
+ const review=await planMigration({root,snapshot:'uniform-negative',resources:[{id:root,text,generation:0}],targetVersion:'2.0',destination:'file:///uniform-negative-output/'});
+ assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);
+ assert(review.problems.some(problem=>problem.code==='migration.schema.tuple-tail'&&problem.reason==='implementation'));
+});

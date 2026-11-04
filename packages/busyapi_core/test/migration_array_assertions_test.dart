@@ -45,6 +45,10 @@ void main() {
             'prefixItems': [{'type': 'string'}], 'items': {'type': 'integer', 'minimum': 'EXACT'},
             'allOf': [{r'$ref': '#/components/schemas/Bound'}],
           },
+          if (target == '2.0') 'UniformTuple': {
+            'type': 'array', 'prefixItems': [{'type': 'integer', 'enum': ['EXACT']}],
+            'items': {'type': 'number'},
+          },
           if (target == '2.0') 'Bound': {'anyOf': [{'maxItems': 2}, {'maxItems': 3}]},
         };
         final value = {
@@ -85,6 +89,8 @@ void main() {
                 RuntimeSchemaInstance(subject: 'response-body', location: '$name$text', text: text, schemaResource: id, schemaPointer: '$prefix/$name'),
               if (target == '2.0') for (final text in ['[]', '["雪",9007199254740993.00]', '["雪",0]', '["雪",9007199254740993,9007199254740993,9007199254740993]'])
                 RuntimeSchemaInstance(subject: 'response-body', location: 'tuple$text', text: text, schemaResource: id, schemaPointer: '$prefix/UnevaluatedTuple'),
+              if (target == '2.0') for (final text in ['[]', '[9007199254740993.00]', '[9007199254740993,0.25,-1e999]', '[9007199254740992,0]', '[9007199254740993,"bad"]'])
+                RuntimeSchemaInstance(subject: 'response-body', location: 'uniform$text', text: text, schemaResource: id, schemaPointer: '$prefix/UniformTuple'),
             ]);
             expect(check['complete'], true, reason: '$check');
             final response = await const ContractRequestExecutor().execute(plan,
@@ -110,7 +116,7 @@ void main() {
         expect(before, [false, false, true, true, false, false, false, false,
           true, false, false, true, true, false, false,
           true, true, false, true, true, false,
-          if (target == '2.0') ...[true, true, false, false]]);
+          if (target == '2.0') ...[true, true, false, false, true, true, true, false, false]]);
         final destination = '${directory.path}/converted';
         final review = await project.prepareMigration(root, destination, targetVersion: target);
         addTearDown(review.close);
