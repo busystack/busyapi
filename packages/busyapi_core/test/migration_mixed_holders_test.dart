@@ -74,7 +74,7 @@ void main() {
       await expectLater(stale.publish(), throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'migration.stale')));
       expect(Directory(stale.destination).existsSync(), false);
       final review = await source.prepareMigration(roots[0], '${directory.path}/output', targetVersion: target);addTearDown(review.close);
-      expect(review.publishable, true, reason: '${review.result}');expect(review.result['producerVersion'], '82');expect(review.unsaved, true);
+      expect(review.publishable, true, reason: '${review.result}');expect(review.result['producerVersion'], '83');expect(review.unsaved, true);
       await expectLater(review.publish(cancelled: () => true), throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'cancelled')));
       expect(Directory(review.destination).existsSync(), false);await review.publish();
       final destinations = [for (final root in roots) Uri.parse(review.changes.singleWhere((change) => change.resource == root).destination).pathSegments.last];
@@ -98,7 +98,7 @@ void main() {
         environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
       expect(preview.exitCode, 0, reason: '${preview.stdout} ${preview.stderr}');
       final report = jsonDecode(preview.stdout as String) as Map;
-      expect(report['producerVersion'], '82');expect(report['complete'], true);expect(report['published'], false);
+      expect(report['producerVersion'], '83');expect(report['complete'], true);expect(report['published'], false);
       expect(Directory('${directory.path}/cli-preview').existsSync(), false);
     });
   }
@@ -115,7 +115,7 @@ void main() {
     final cli = await Process.run('$testBundle/busyapi', ['migrate', directory.path, '--root', 'first', '--target', '3.2.1', '--output', '${directory.path}/cli-refused', '--review', '--json'],
       environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
     expect(cli.exitCode, isNot(0));
-    final report = jsonDecode(cli.stdout as String) as Map;expect(report['producerVersion'], '82');expect(report['complete'], false);expect(report['outputs'], isEmpty);
+    final report = jsonDecode(cli.stdout as String) as Map;expect(report['producerVersion'], '83');expect(report['complete'], false);expect(report['outputs'], isEmpty);
     expect(Directory('${directory.path}/cli-refused').existsSync(), false);
     for (final entry in originals.entries) expect(await File('${directory.path}/${entry.key}').readAsString(), entry.value);
   });

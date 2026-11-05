@@ -34,10 +34,10 @@ function capture(version,target,format,flag,required,name='value'){
         resources:[{id:root,generation:7,text:text(value)},{id:models,generation:4,text:text(definitions)}]};
 }
 
-async function values(input,payloads){
+async function values(input,payloads,subjects=['request-body','response-body']){
     const source=new SourceDocument(input.resources.find(resource=>resource.id===input.root).text,input.root);
     const legacy=source.node('').value.swagger==='2.0';
-    const runtimeInstances=['request-body','response-body'].flatMap(subject=>payloads.map(text=>({
+    const runtimeInstances=subjects.flatMap(subject=>payloads.map(text=>({
         subject,text,location:'application/json',schema:{resource:input.root,pointer:subject==='request-body'?
             (legacy?'/paths/~1value/post/parameters/0/schema':'/paths/~1value/post/requestBody/content/application~1json/schema'):
             (legacy?'/paths/~1value/post/responses/200/schema':'/paths/~1value/post/responses/200/content/application~1json/schema')},
@@ -50,9 +50,10 @@ async function values(input,payloads){
 }
 
 const routes=[...['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4'].flatMap(version=>['3.1.2','3.2.1'].map(target=>[version,target])),
-    ...['3.0.4','3.1.2','3.2.1'].map(target=>['2.0',target])];
+    ...['3.0.4','3.1.2','3.2.1'].map(target=>['2.0',target]),
+    ...['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'].map(version=>[version,'2.0'])];
 for(const [version,target]of routes)for(const format of ['yaml','json'])
-for(const flag of version==='2.0'?['readOnly']:['readOnly','writeOnly'])for(const required of [false,true])
+for(const flag of version==='2.0'||target==='2.0'?['readOnly']:['readOnly','writeOnly'])for(const required of [false,true])
 test(`${version} to ${target} ${format} ${flag} required=${required} preserves recursive directional values and neutral examples`,async()=>{
     const input=capture(version,target,format,flag,required),originals=input.resources.map(resource=>resource.text);
     const payloads=['{}','{"value":"café"}','{"value":false}','{"value":null}','null','false','0','""',
@@ -60,15 +61,15 @@ test(`${version} to ${target} ${format} ${flag} required=${required} preserves r
     const before=await values(input,payloads);
     const review=await planMigration(input);
     assert.equal(review.status,'faithfully-convertible',JSON.stringify(review.problems));
-    assert.equal(review.producerVersion,'82');assert.equal(review.complete,true);
+    assert.equal(review.producerVersion,'83');assert.equal(review.complete,true);
     assert(review.changes.length>0);assert(review.outputs.length>=3);
     const targetInput={root:review.outputRoot,snapshot:'cold:'+input.snapshot,
         resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
     assert.equal(analyse(targetInput).status,'complete');
     assert.deepEqual(await values(targetInput,payloads),before);
     const root=new SourceDocument(targetInput.resources.find(resource=>resource.id===targetInput.root).text,targetInput.root);
-    const request=root.node('/paths/~1value/post/requestBody/content/application~1json/schema').value;
-    const response=root.node('/paths/~1value/post/responses/200/content/application~1json/schema').value;
+    const request=root.node(target==='2.0'?'/paths/~1value/post/parameters/0/schema':'/paths/~1value/post/requestBody/content/application~1json/schema').value;
+    const response=root.node(target==='2.0'?'/paths/~1value/post/responses/200/schema':'/paths/~1value/post/responses/200/content/application~1json/schema').value;
     assert.notDeepEqual(request,response,'One schema binding cannot stand for both directions');
     const created=review.changes.filter(change=>change.createdFrom);
     assert(created.length>=1);assert(created.every(change=>change.createdFrom===input.root&&change.before===''));
@@ -99,6 +100,96 @@ test(`directional required membership retains exact property ${JSON.stringify(na
     assert.deepEqual(await values({root:review.outputRoot,snapshot:'escaped',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))},payloads),before);
 });
 
+for(const from of ['3.0.4','3.1.2','3.2.1'])for(const format of ['yaml','json'])
+for(const shape of ['direct','allOf','reference'])for(const use of ['request','response','both','neutral'])
+test(`${from} ${format} Swagger ${shape} ${use} owners keep required names, neighboring values and neutral definitions`,async()=>{
+ const input=capture(from,'2.0',format,'readOnly',true),rootDoc=new SourceDocument(input.resources[0].text,input.root);
+ const definition=new SourceDocument(input.resources[1].text,input.resources[1].id),model=definition.node('/Model').value;
+ delete model.default;delete model.example;
+ const field={type:'integer',minimum:7,maximum:9,readOnly:true};
+ model.properties.value=shape==='direct'?field:shape==='allOf'?{allOf:[field]}:{$ref:'#/Flag'};
+ model.required.push('neighbor');model.properties.neighbor={type:'string',enum:['kept']};
+ input.resources[1].text=definition.set('/Model',model);
+ input.resources[1].text=new SourceDocument(input.resources[1].text,input.resources[1].id).set('/Flag',field);
+ let root=rootDoc.node('').value;
+ if(use==='response'||use==='neutral')delete root.paths['/value'].post.requestBody;
+ if(use==='request'||use==='neutral')delete root.paths['/value'].post.responses[200].content;
+ // A neutral consumer keeps the original constraints/access declaration.
+ root.components={schemas:{Neutral:{$ref:'models.'+format+'#/Model'}}};
+ root['x-kept'].number='EXACT';
+ input.resources[0].text=(format==='yaml'?YAML.stringify(root):JSON.stringify(root)).replace(/"?EXACT"?/g,'9007199254740993.000');
+ const subjects=use==='both'?['request-body','response-body']:use==='neutral'?[]:[use+'-body'];
+ const payloads=['{}','{"neighbor":"kept"}','{"value":7,"neighbor":"kept"}',
+  '{"value":6,"neighbor":"kept"}','{"value":9,"neighbor":"kept"}','{"value":10,"neighbor":"kept"}',
+  '{"value":8,"neighbor":"changed"}','{"value":8}','{"value":8,"neighbor":"kept","next":{"neighbor":"kept"}}'];
+ const before=input.resources.map(resource=>resource.text),expected=subjects.length?await values(input,payloads,subjects):[];
+ if(subjects.length){
+  assert.equal(expected[2],true);assert.equal(expected[3],false);assert.equal(expected[4],true);
+  assert.equal(expected[5],false);assert.equal(expected[6],false);assert.equal(expected[7],false);
+  assert.equal(expected[1],from==='3.0.4'&&shape!=='allOf'&&subjects[0]==='request-body');
+ }
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const converted={root:review.outputRoot,snapshot:'cold-owner-matrix',resources:review.outputs.map(output=>({...output,generation:0}))};
+ assert.equal(analyse(converted).status,'complete');
+ if(subjects.length)assert.deepEqual(await values(converted,payloads,subjects),expected);
+ const {graph,docs}=createGraph(converted),neutral=terminalSchema(graph,converted.root,'/definitions/Neutral');
+ const neutralValue=docs.get(neutral.resource).node(neutral.pointer).value;
+ assert.deepEqual(neutralValue.required,['value','neighbor']);assert.equal(neutralValue.additionalProperties,false);
+ assert.deepEqual(input.resources.map(resource=>resource.text),before);
+ const again=await planMigration({...input,resources:[...input.resources].reverse()});
+ assert.equal(again.complete,true,JSON.stringify(again.problems));assert.deepEqual(again.outputs,review.outputs);
+});
+
+for(const from of ['3.0.4','3.1.2','3.2.1'])for(const format of ['yaml','json'])
+test(`${from} ${format} an inline request-only Swagger variant retains its original read-only annotation owner`,async()=>{
+ const input=capture(from,'2.0',format,'readOnly',true),document=new SourceDocument(input.resources[0].text,input.root).node('').value;
+ document.paths['/value'].post.requestBody.content['application/json'].schema={type:'object',required:['value'],
+  properties:{value:{type:'integer',minimum:7,maximum:9,readOnly:true}},additionalProperties:false};
+ delete document.paths['/value'].post.responses[200].content;
+ document['x-kept'].number='EXACT';
+ input.resources=[{id:input.root,generation:7,text:(format==='yaml'?YAML.stringify(document):JSON.stringify(document)).replace(/"?EXACT"?/g,'9007199254740993.000')}];
+ const payloads=['{}','{"value":7}','{"value":6}','{"value":9}','{"value":10}','{"value":null}'];
+ const expected=await values(input,payloads,['request-body']),review=await planMigration(input);
+ assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const converted={root:review.outputRoot,snapshot:'inline-cold',resources:review.outputs.map(output=>({...output,generation:0}))};
+ assert.deepEqual(await values(converted,payloads,['request-body']),expected);
+ const neutral=review.outputs.flatMap(output=>Object.values(new SourceDocument(output.text,output.id).node('').value))
+  .find(value=>value?.properties?.value?.readOnly===true);
+ assert(neutral,'Request specialization must retain an authored annotation even without another consumer');
+ assert.deepEqual(neutral.required,['value']);assert.equal(neutral.properties.value.minimum,7);assert.equal(neutral.properties.value.maximum,9);
+});
+
+for(const from of ['3.0.4','3.1.2','3.2.1'])for(const referenced of [false,true])
+test(`${from} ${referenced?'referenced':'direct'} object-valued Headers retain their actual Swagger representation limit`,async()=>{
+ const input=capture(from,'2.0','json','readOnly',true),document=JSON.parse(input.resources[0].text);
+ const schema=referenced?{$ref:'models.json#/Model'}:{type:'object',required:['value'],properties:{value:{type:'string',readOnly:true}}};
+ document.components={headers:{Alias:{$ref:'#/components/headers/Value'},Value:{schema}}};
+ document.paths['/value'].post.responses[200].headers={X:{$ref:'#/components/headers/Alias'}};
+ document['x-kept'].number='EXACT';
+ input.resources[0].text=JSON.stringify(document).replace('"EXACT"','9007199254740993.000');const original=input.resources.map(resource=>resource.text);
+ const review=await planMigration(input);assert.equal(review.status,'blocked');assert.deepEqual(review.outputs,[]);assert.deepEqual(review.changes,[]);
+ const limit=review.problems.find(problem=>problem.code==='migration.parameter.type');assert(limit,JSON.stringify(review.problems));
+ assert.equal(limit.reason,'target-representation');assert.equal(limit.resource,input.root);assert.equal(limit.pointer,'/components/headers/Value');
+ assert(!review.problems.some(problem=>problem.code==='migration.schema.direction'));
+ assert.deepEqual(input.resources.map(resource=>resource.text),original);
+});
+
+for(const from of ['3.1.2','3.2.1'])for(const format of ['yaml','json'])
+test(`${from} ${format} fixed dynamic references and schema resource identities survive read-only Swagger specialization`,async()=>{
+ const input=capture(from,'2.0',format,'readOnly',true),modelSource=input.resources[1];
+ modelSource.text=new SourceDocument(modelSource.text,modelSource.id).set('/Model/properties/value',{$dynamicRef:'#/Flag'});
+ modelSource.text=new SourceDocument(modelSource.text,modelSource.id).set('/Flag/$id','https://schemas.invalid/annotated-value');
+ const payloads=['{}','{"value":"snow 雪"}','{"value":false}','{"value":null}',
+  '{"value":"root","next":{}}','{"value":"root","next":{"value":"nested"}}'];
+ const original=input.resources.map(resource=>resource.text),expected=await values(input,payloads),review=await planMigration(input);
+ assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const converted={root:review.outputRoot,snapshot:'fixed-resource-cold',resources:review.outputs.map(output=>({...output,generation:0}))};
+ assert.deepEqual(await values(converted,payloads),expected);
+ const {graph}=createGraph(converted);
+ assert([...graph.entryReferences()].every(reference=>reference.resolution==='resolved'));
+ assert.deepEqual(input.resources.map(resource=>resource.text),original);
+});
+
 test('an unresolved directional dependency cannot publish a partial conversion',async()=>{
     const input=capture('2.0','3.1.2','yaml','readOnly',false);
     const before=input.resources[0].text;input.resources.pop();
@@ -107,6 +198,32 @@ test('an unresolved directional dependency cannot publish a partial conversion',
     assert.deepEqual(review.outputs,[]);assert.deepEqual(review.changes,[]);
     assert(review.problems.some(problem=>problem.reason==='source-incomplete'));
     assert.equal(input.resources[0].text,before);
+});
+
+test('a nonstandard Swagger writeOnly field cannot acquire modern access behavior through migration',async()=>{
+ const input=capture('2.0','3.1.2','json','writeOnly',true),before=input.resources.map(resource=>resource.text);
+ const review=await planMigration(input);assert.equal(review.status,'blocked');assert.deepEqual(review.outputs,[]);assert.deepEqual(review.changes,[]);
+ assert(review.problems.some(problem=>problem.reason==='source-incomplete'),JSON.stringify(review.problems));
+ assert.deepEqual(input.resources.map(resource=>resource.text),before);
+});
+
+for(const target of ['3.0.4','3.1.2','3.2.1'])for(const format of ['yaml','json'])
+test(`${format} mixed Swagger/3.0 entries preserve different read-only request policies through ${target}`,async()=>{
+ const input=capture('2.0',target,format,'readOnly',true),otherRoot='file:///directions/other.'+format;
+ const other=capture('3.0.4',target,format,'readOnly',true);
+ input.resources.push({...other.resources[0],id:otherRoot});
+ const original=input.resources.map(resource=>resource.text),payloads=['{}','{"value":"café"}','{"value":false}','{"value":null}',
+  '{"value":"root","next":{}}','{"value":"root","next":{"value":"nested"}}'];
+ const expected=[await values(input,payloads),await values({...input,root:otherRoot},payloads)];
+ assert.equal(expected[0][0],false);assert.equal(expected[0][1],false);
+ assert.equal(expected[1][0],true);assert.equal(expected[1][1],true);
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const converted={root:review.outputRoot,snapshot:'mixed-legacy-cold',resources:review.outputs.map(output=>({...output,generation:0}))};
+ for(const [index,root]of [input.root,otherRoot].entries()){
+  const entry=review.changes.find(change=>change.resource===root).destination;
+  assert.deepEqual(await values({...converted,root:entry},payloads),expected[index]);
+ }
+ assert.deepEqual(input.resources.map(resource=>resource.text),original);
 });
 
 function terminalSchema(graph,resource,pointer){
@@ -270,4 +387,50 @@ test(`${format} shared Header alias retains separate encoding and response schem
     assert(Object.keys(doc.node('/components/headers').value).some(name=>name.startsWith('_migrated_header_request_')));
     assert(Object.keys(doc.node('/components/headers').value).some(name=>name.startsWith('_migrated_header_response_')));
     assert.equal(input.resources[0].text,text);
+});
+
+for(const modern of ['3.1.2','3.2.1'])for(const target of ['3.0.4','3.1.2','3.2.1'])
+for(const format of ['yaml','json'])for(const flag of ['readOnly','writeOnly'])
+test(`${format} mixed 3.0/${modern} Header and literal resource ownership stays independent through ${target} for ${flag}`,async()=>{
+ const root='file:///mixed-directions/a.'+format,other='file:///mixed-directions/b.'+format,data='file:///mixed-directions/data.'+format;
+ const schema={$ref:'data.'+format+'#/Example/value/Payload'},header={$ref:'data.'+format+'#/Example/value/Alias'};
+ const api=version=>({openapi:version,info:{title:'Mixed '+version,version:'1'},paths:{'/value':{post:{
+  requestBody:{content:{'application/json':{schema},'multipart/form-data':{
+   schema:{type:'object',properties:{part:{type:'string'}}},encoding:{part:{headers:{X:header}}}}}},
+  responses:{200:{description:'Value',headers:{X:header},content:{'application/json':{schema}}}},
+ }}},components:{examples:{History:{$ref:'data.'+format+'#/Example'}},schemas:{Neutral:schema}}});
+ const content={Example:{value:{
+  Alias:{$ref:'#/Example/value/Header'},Header:{description:'Keep Header',schema:{$ref:'#/Example/value/Payload'}},
+  Payload:{type:'object',required:['value'],properties:{value:{type:'integer',minimum:7,maximum:9,[flag]:true},
+   next:{$ref:'#/Example/value/Payload'}},additionalProperties:false},number:'EXACT',literal:{$ref:'unrelated.json#/never-fetch'},
+ }}};
+ const render=value=>(format==='yaml'?'# keep shared literal aliases\r\n'+YAML.stringify(value).replaceAll('\n','\r\n'):JSON.stringify(value))
+  .replace(/"?EXACT"?/g,'9007199254740993.000');
+ const resources=[{id:root,text:render(api('3.0.4')),generation:2},{id:other,text:render(api(modern)),generation:3},
+  {id:data,text:render(content),generation:4}];
+ const originals=resources.map(resource=>resource.text),input={root,snapshot:'mixed-directions',resources,targetVersion:target,destination:'file:///mixed-direction-output/'};
+ const payloads=['{}','{"value":7}','{"value":6}','{"value":9}','{"value":10}','{"value":null}','{"value":8,"next":{}}'];
+ const request='/paths/~1value/post/requestBody/content/multipart~1form-data/encoding/part/headers/X';
+ const response='/paths/~1value/post/responses/200/headers/X';
+ async function outcomes(packet){
+  const body=await values(packet,payloads),runtimeInstances=[['request-body',request],['response-body',response]].flatMap(([subject,pointer])=>
+   payloads.map(text=>({subject,text,location:'X',schema:headerBinding(packet,pointer)})));
+  const checked=await evaluateSchemas({...packet,runtimeInstances});assert.equal(checked.complete,true,JSON.stringify(checked.findings));
+  assert(checked.runtimeEvaluations.every(value=>value.complete),JSON.stringify(checked.runtimeFindings));
+  return [...body,...checked.runtimeEvaluations.map(value=>value.valid)];
+ }
+ const expected=[await outcomes(input),await outcomes({...input,root:other})];
+ assert.notDeepEqual(expected[0],expected[1],'The source entries must actually interpret the shared required annotation differently');
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const converted={root:review.outputRoot,snapshot:'mixed-cold',resources:review.outputs.map(output=>({...output,generation:0}))};
+ for(const [index,original]of [root,other].entries()){
+  const entry=review.changes.find(change=>change.resource===original).destination;
+  assert.equal(analyse({...converted,root:entry}).status,'complete');
+  assert.deepEqual(await outcomes({...converted,root:entry}),expected[index]);
+ }
+ const literal=review.changes.find(change=>change.resource===data);
+ assert.equal(review.outputs.find(output=>output.id===literal.destination).text,originals[2]);
+ assert.deepEqual(resources.map(resource=>resource.text),originals);
+ const reversed=await planMigration({...input,resources:[...resources].reverse()});
+ assert.equal(reversed.complete,true,JSON.stringify(reversed.problems));assert.deepEqual(reversed.outputs,review.outputs);
 });

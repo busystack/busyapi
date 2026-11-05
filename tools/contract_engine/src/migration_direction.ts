@@ -7,10 +7,11 @@ import {DiscriminatorModels} from './discriminator_models';
 import {MigrationSource,type MigrationLocation} from './migration_source';
 import type {MigrationIssue} from './migration_schema';
 import {MigrationSchemaOwners} from './migration_schema_owners';
-import {migrationScopes} from './migration_documents';
+import {migrationScopes,migrationReferences} from './migration_documents';
+import {modernFamily} from './specification';
 
 type Direction='request'|'response';
-type LegacyOwner=Readonly<{family:string;property:boolean;origin:GraphScope}>;
+type AccessOwner=Readonly<{family:string;property:boolean;origin:GraphScope}>;
 type Child=Readonly<{scope:GraphScope;property:boolean;sameInstance:boolean}>;
 const key=(location:MigrationLocation)=>JSON.stringify([location.resource,location.pointer]);
 const inside=(pointer:string,parent:string)=>pointer===parent||pointer.startsWith(parent+'/');
@@ -50,17 +51,18 @@ function discriminatorBindings(graph:ReferenceGraph,scope:GraphScope,selection:D
     return {models,unbound:unbound.filter(model=>!covered.has(key(selection.target(model)??model)))};
 }
 
-/** Preserve the legacy occurrence's access assertions rather than assigning
- * one interpretation to a shared definition. Swagger 2.0 §6.4.18.1 excludes
+/** Preserve each source occurrence's access assertions. Swagger 2.0 §6.4.18.1 excludes
  * read-only request properties; 3.0 §4.7.24.2 suppresses required by direction.
  * Original neutral definitions survive. Known consumers use explicit variants.
  * All copies and replacements belong to the existing CST/provenance owner. */
 export function migrateDirectionalSchemas(original:ReferenceGraph,graph:ReferenceGraph,
     sources:Map<string,MigrationSource>,families:readonly string[],target:string,issue:MigrationIssue,
-    createSchemaResource:()=>MigrationSource,contexts:readonly ReferenceGraph[],sourceContexts:readonly ReferenceGraph[]=[original]):void {
-    const converting=new Set(families.filter(family=>family==='2.0'&&target!=='2.0'||family==='3.0'&&['3.1','3.2'].includes(target)));
+    createSchemaResource:()=>MigrationSource,contexts:readonly ReferenceGraph[],sourceContexts:readonly ReferenceGraph[]=[original],
+    owners=new MigrationSchemaOwners(graph,sources,createSchemaResource,[],contexts)):void {
+    const converting=new Set(families.filter(family=>family==='2.0'&&target!=='2.0'||
+        family==='3.0'&&(modernFamily(target)||target==='2.0')||modernFamily(family)&&target==='2.0'));
     if(!converting.size)return;
-    const legacy=new Map<string,LegacyOwner>();
+    const legacy=new Map<string,AccessOwner>();
     for(const scope of migrationScopes(sourceContexts)){
         if(scope.kind!=='schema')continue;
         if(!converting.has(scope.family))continue;
@@ -77,9 +79,23 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
             }
         }
     }
-    const report=(scope:GraphScope,code:string,message:string)=>
-        issue(legacy.get(key(scope))?.origin??scope,code,message,'implementation');
+    const report=(scope:GraphScope,code:string,message:string,reason:'implementation'|'source-incomplete'='implementation')=>
+        issue(legacy.get(key(scope))?.origin??scope,code,message,reason);
     const scopes=[...migrationScopes(contexts)].filter(scope=>scope.kind==='schema');
+    // Entry/role/resource separation has already assigned material owners.
+    // Resolve each such owner in its actual capture, never in another entry's
+    // dormant interpretation of the same physical file.
+    const capturedContexts=new Map<string,ReferenceGraph>();
+    const contextOf=(scope:GraphScope):ReferenceGraph=>{
+        const id=JSON.stringify([scope.resource,scope.pointer,scope.kind]),known=capturedContexts.get(id);
+        if(known)return known;
+        const captured=contexts.find(context=>{
+            const use=context.scopeAs(scope.resource,scope.pointer,scope.kind);
+            return use!==undefined&&context.isEntryUse(use);
+        })??graph;
+        capturedContexts.set(id,captured);return captured;
+    };
+    const references=[...migrationReferences(contexts)];
     if(scopes.length>20000)throw new SourceError('limit.migration.direction','Directional mapping exceeds 20000 schema occurrences');
     const byId=new Map(scopes.map(scope=>[key(scope),scope]));
     let inspections=0;
@@ -88,21 +104,22 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
         const id=key(child),values=parents.get(id)??new Set<string>();values.add(key(parent));parents.set(id,values);
     };
     for(const scope of scopes){
+        const context=contextOf(scope);
         const nested:Child[]=[];
         const visit=(value:unknown,kind:string,pointer:string,keyword:string)=>{
             for(const [name,item,next]of children(value,kind,scope.family)){
                 const at=pointer+'/'+escape(name),first=keyword||name;
                 if(next==='schema'){
-                    const child=graph.scopeAs(scope.resource,at,'schema');
+                    const child=context.scopeAs(scope.resource,at,'schema');
                     if(child){nested.push({scope:child,property:first==='properties',sameInstance:['allOf','anyOf','oneOf','not','if','then','else'].includes(first)});connect(child,scope);}
                 }else if(next==='schema-map'||next==='schema-array')visit(item,next,at,first);
             }
         };
         visit(graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value,'schema',scope.pointer,'');
         descendants.set(key(scope),nested);
-        const reference=graph.referenceAs(scope.resource,scope.pointer,'$ref','schema');
+        const reference=context.referenceAs(scope.resource,scope.pointer,'$ref','schema');
         if(reference?.resolution==='resolved'){
-            const target=graph.scopeAs(reference.targetResource!,reference.targetPointer!,'schema');
+            const target=context.scopeAs(reference.targetResource!,reference.targetPointer!,'schema');
             if(target)connect(target,scope);
         }
     }
@@ -118,7 +135,7 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
     for(const scope of scopes){
         const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
         if(!value?.discriminator||typeof value.discriminator!=='object')continue;
-        const selected=discriminatorBindings(graph,scope,selection(graph),inspect);
+        const context=contextOf(scope),selected=discriminatorBindings(context,scope,selection(context),inspect);
         bindings.set(key(scope),selected.models);unbound.set(key(scope),selected.unbound);
         for(const model of selected.models.values())connect(model,scope);
     }
@@ -126,9 +143,9 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
     for(const scope of scopes){
         const owner=legacy.get(key(scope)),value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
         if(!owner||!value||typeof value!=='object'||Array.isArray(value))continue;
-        const changes=owner.family==='2.0'?value.readOnly===true:
+        const changes=(owner.family==='2.0'||target==='2.0')?value.readOnly===true:
             Array.isArray(value.required)&&value.required.some((name:unknown)=>typeof name==='string'&&
-                Object.values(propertyAccess(graph,scope,name)).some(flag=>flag));
+                Object.values(propertyAccess(contextOf(scope),scope,name)).some(flag=>flag));
         if(changes){affected.add(key(scope));pending.push(key(scope));}
     }
     while(pending.length){
@@ -143,12 +160,12 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
     for(const scope of scopes)if(affected.has(key(scope))&&bindings.has(key(scope))){
         if(unbound.get(key(scope))?.length){
             report(unbound.get(key(scope))![0],'migration.direction.discriminator-name',
-                'This external or nested discriminator choice has no captured implicit component name or explicit wire mapping');
+                'This external or nested discriminator choice has no captured implicit component name or explicit wire mapping','source-incomplete');
             return;
         }
         for(const context of contexts){
             if(context.root===graph.root)continue;
-            const shared=context.scopeAs(scope.resource,scope.pointer,'schema');if(!shared)continue;
+            const shared=context.scopeAs(scope.resource,scope.pointer,'schema');if(!shared||!context.isEntryUse(shared))continue;
             const selected=discriminatorBindings(context,shared,selection(context),inspect);
             if(selected.unbound.length||signature(selected.models)!==signature(bindings.get(key(scope))!)){
                 report(scope,'migration.direction.discriminator-context',
@@ -157,9 +174,9 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
             }
         }
     }
-    const uris=[...documentUriOccurrences(graph)];
+    const uris=contexts.flatMap(context=>[...documentUriOccurrences(context)]);
     function literalOwner(location:MigrationLocation):GraphScope|undefined {
-        if(graph.literalContainer(location.resource,location.pointer)===undefined)return;
+        if(!contexts.some(context=>context.literalContainer(location.resource,location.pointer)!==undefined))return;
         let pointer=location.pointer;
         while(true){
             inspect();
@@ -168,16 +185,16 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
             if(!pointer)return;pointer=pointer.slice(0,pointer.lastIndexOf('/'));
         }
     }
-    for(const location of [...graph.references,...uris.map(uri=>({resource:uri.scope.resource,pointer:uri.pointer}))]){
+    for(const location of [...references,...uris.map(uri=>({resource:uri.scope.resource,pointer:uri.pointer}))]){
         const owner=literalOwner(location);
         if(owner){report(owner,'migration.direction.shared-owner','This schema contains independently interpreted literal URI/reference data; separate ownership is required');return;}
     }
     for(const scope of scopes)if(affected.has(key(scope))){
-        if(graph.literalContainer(scope.resource,scope.pointer)!==undefined||graph.hasOverlappingScope(scope.resource,scope.pointer)){
+        const context=contextOf(scope);
+        if(context.literalContainer(scope.resource,scope.pointer)!==undefined||context.hasOverlappingScope(scope.resource,scope.pointer)){
             report(scope,'migration.direction.shared-owner','This directional schema also owns literal or independently interpreted content; separate ownership is required');
             return;
         }
-        sources.get(scope.resource)!.own(scope.pointer,true,true);
     }
     const pristine=new Map([...sources].map(([resource,source])=>[resource,source.fork()]));
     const entry=sources.get(graph.root)!;
@@ -185,8 +202,6 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
     const variants=new Map<string,MigrationLocation>();
     const neutralVariants=new Map<string,MigrationLocation>();
     const headerVariants=new Map<string,MigrationLocation>();
-    const owners=new MigrationSchemaOwners(graph,sources);
-    const swagger=converting.has('2.0');
     let edits=0,work=0,bytes=0;
     const admit=(source:MigrationSource)=>{
         if(++edits>4096||(work+=source.doc.text.length*2)>128*1024*1024)
@@ -208,21 +223,25 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
         return owners.allocate(source,prefix,label,identity);
     }
     function copy(scope:GraphScope,destination:MigrationLocation):void {
-        const source=pristine.get(scope.resource)!,node=source.doc.node(scope.pointer);
+        const source=pristine.get(scope.resource)!;
+        // Only the captured copy needs independent token ownership. A neutral
+        // original with no edited consumer keeps its anchors and aliases.
+        source.own(scope.pointer,true,true);
+        const node=source.doc.node(scope.pointer);
         if((bytes+=node.range[1]-node.range[0])>16*1024*1024)
             throw new SourceError('limit.migration.direction','Directional schema copies exceed 16 MiB');
         const output=sources.get(destination.resource)!;
         admit(output);output.copy(source,scope.pointer,destination.pointer,true);
         for(const uri of uris){
             inspect();
-            if(uri.scope.resource===scope.resource&&inside(uri.pointer,scope.pointer)&&graph.literalContainer(uri.scope.resource,uri.pointer)===undefined)
-                set({resource:destination.resource,pointer:destination.pointer+uri.pointer.slice(scope.pointer.length)},resolveUri(uri.value,documentUriBase(graph,uri.scope)).href);
+            if(uri.scope.resource===scope.resource&&inside(uri.pointer,scope.pointer)&&contextOf(uri.scope).literalContainer(uri.scope.resource,uri.pointer)===undefined)
+                set({resource:destination.resource,pointer:destination.pointer+uri.pointer.slice(scope.pointer.length)},resolveUri(uri.value,documentUriBase(contextOf(uri.scope),uri.scope)).href);
         }
-        for(const reference of graph.references){
+        for(const reference of references){
             inspect();
             if(!['$ref','$dynamicRef','operationRef'].includes(reference.keyword)||reference.resolution!=='resolved'||
                 reference.resource!==scope.resource||!inside(reference.pointer,scope.pointer))continue;
-            if(graph.literalContainer(reference.resource,reference.pointer)!==undefined)continue;
+            if(contextOf(reference).literalContainer(reference.resource,reference.pointer)!==undefined)continue;
             set({resource:destination.resource,pointer:destination.pointer+reference.pointer.slice(scope.pointer.length)+'/'+escape(reference.keyword)},
                 address({resource:reference.targetResource!,pointer:reference.targetPointer!}));
         }
@@ -236,12 +255,12 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
         if(depth>128)throw new SourceError('limit.migration.direction','Neutral schema reference inspection exceeds 128 levels');
         const destination=reserve('neutral',identity);neutralVariants.set(identity,destination);
         copy(scope,destination);
-        for(const reference of graph.references){
+        for(const reference of references){
             inspect();
             if(reference.keyword!=='$ref'||reference.kind!=='schema'||reference.resolution!=='resolved'||
                 reference.resource!==scope.resource||!inside(reference.pointer,scope.pointer))continue;
-            if(graph.literalContainer(reference.resource,reference.pointer)!==undefined)continue;
-            const reached=graph.scopeAs(reference.targetResource!,reference.targetPointer!,'schema');
+            if(contextOf(reference).literalContainer(reference.resource,reference.pointer)!==undefined)continue;
+            const reached=contextOf(scope).scopeAs(reference.targetResource!,reference.targetPointer!,'schema');
             if(!reached)throw new SourceError('migration.direction.reference','A neutral schema reference has no captured target');
             const target=affected.has(key(reached))?neutral(reached,depth+1):reached;
             set({resource:destination.resource,pointer:destination.pointer+reference.pointer.slice(scope.pointer.length)+'/$ref'},address(target));
@@ -255,10 +274,10 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
             const selected=affected.has(key(model))?(direction?variant(model,direction,false,depth+1):neutral(model,depth+1)):model;
             set({...location,pointer:location.pointer+'/discriminator/mapping/'+escape(name)},address(selected));
         }
-        const fallback=graph.references.find(reference=>reference.connection==='discriminator'&&reference.resource===scope.resource&&
+        const fallback=references.find(reference=>reference.connection==='discriminator'&&reference.resource===scope.resource&&
             reference.pointer===scope.pointer+'/discriminator'&&reference.keyword==='defaultMapping');
         if(fallback?.resolution==='resolved'){
-            const model=graph.scopeAs(fallback.targetResource!,fallback.targetPointer!,'schema');
+            const model=contextOf(scope).scopeAs(fallback.targetResource!,fallback.targetPointer!,'schema');
             if(!model)throw new SourceError('migration.direction.discriminator','The default mapping has no captured Schema Object');
             const selected=affected.has(key(model))?(direction?variant(model,direction,false,depth+1):neutral(model,depth+1)):model;
             set({...location,pointer:location.pointer+'/discriminator/defaultMapping'},address(selected));
@@ -271,6 +290,11 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
         const destination=reserve(direction,identity);
         variants.set(identity,destination);
         let assertions=destination;
+        const swagger=legacy.get(key(scope))?.family==='2.0';
+        // Even a request-only inline source retains a neutral material owner
+        // for its response annotation and original provenance. It cannot be
+        // an asserting allOf branch here: Swagger would reject the request.
+        if(target==='2.0'&&direction==='request')neutral(scope,depth+1);
         if(swagger){
             // Keep neutral examples/defaults associated with their unchanged
             // constraints. The second branch adds directional assertions only.
@@ -288,6 +312,7 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
         const source=sources.get(location.resource)!,value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
         if(!value||typeof value!=='object'||Array.isArray(value))return;
         const owner=legacy.get(key(scope));
+        const swagger=owner?.family==='2.0';
         if(owner?.family==='2.0'&&direction==='request'&&value.readOnly===true&&(property||owner.property)){
             // Other annotations and their original associations remain in the
             // neutral branch; only this generated assertion is unsatisfiable.
@@ -298,9 +323,16 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
                 admit(source);source.remove(location.pointer+'/'+annotation,true,true,true);
             }
         }
-        const reference=graph.referenceAs(scope.resource,scope.pointer,'$ref','schema');
+        // Swagger's active readOnly rejects request values. In a request
+        // variant of a 3.x schema retain its assertions and exact values but
+        // leave that response annotation with the neutral/response owners.
+        // This follows BusyAPI's documented annotation-only modern policy.
+        if(target==='2.0'&&owner&&owner.family!=='2.0'&&direction==='request'&&value.readOnly===true){
+            admit(source);source.remove(location.pointer+'/readOnly',true,true,true);
+        }
+        const context=contextOf(scope),reference=context.referenceAs(scope.resource,scope.pointer,'$ref','schema');
         if(reference?.resolution==='resolved'){
-            const reached=graph.scopeAs(reference.targetResource!,reference.targetPointer!,'schema');
+            const reached=context.scopeAs(reference.targetResource!,reference.targetPointer!,'schema');
             if(!reached)throw new SourceError('migration.direction.reference','A directional schema reference has no captured target');
             set({...location,pointer:location.pointer+'/$ref'},affected.has(key(reached))?
                 address(variant(reached,direction,property,depth+1)):address(reached));
@@ -310,7 +342,7 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
         if(owner?.family==='3.0'&&Array.isArray(value.required)){
             const omitted=value.required.map((name:unknown,index:number)=>({name,index})).filter(({name})=>{
                 if(typeof name!=='string')return false;
-                const access=propertyAccess(graph,scope,name);
+                const access=propertyAccess(context,scope,name);
                 return direction==='request'?access.readOnly:access.writeOnly;
             });
             for(const {index}of omitted.sort((left,right)=>right.index-left.index)){
@@ -327,26 +359,28 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
         const identity=key(scope);if(seen.has(identity))return new Set<Direction>();
         if(seen.size>=128)throw new SourceError('limit.migration.direction','Directional consumer inspection exceeds 128 references');
         const visited=new Set(seen).add(identity);
+        const context=contextOf(scope);
         let pointer=scope.pointer;let header:GraphScope|undefined;let encoding=false;
         while(true){
-            if(graph.scopeAs(scope.resource,pointer,'response'))return new Set<Direction>(['response']);
-            if(graph.scopeAs(scope.resource,pointer,'request-body')||graph.scopeAs(scope.resource,pointer,'parameter'))return new Set<Direction>(['request']);
-            encoding||=graph.scopeAs(scope.resource,pointer,'encoding')!==undefined;
-            header??=graph.scopeAs(scope.resource,pointer,'header');
+            if(context.scopeAs(scope.resource,pointer,'response'))return new Set<Direction>(['response']);
+            if(context.scopeAs(scope.resource,pointer,'request-body')||context.scopeAs(scope.resource,pointer,'parameter'))return new Set<Direction>(['request']);
+            encoding||=context.scopeAs(scope.resource,pointer,'encoding')!==undefined;
+            header??=context.scopeAs(scope.resource,pointer,'header');
             if(!pointer)break;pointer=pointer.slice(0,pointer.lastIndexOf('/'));
         }
         if(encoding)return new Set<Direction>(['request']);
         if(!followHeaders)return new Set<Direction>();
         const result=new Set<Direction>();
-        if(header)for(const reference of graph.references)if(reference.kind==='header'&&reference.resolution==='resolved'&&
+        if(header)for(const reference of references)if(reference.kind==='header'&&reference.resolution==='resolved'&&
             reference.targetResource===header.resource&&reference.targetPointer===header.pointer)
             for(const direction of directions(reference,visited))result.add(direction);
         return result;
     }
     function containingHeader(scope:GraphScope):GraphScope|undefined {
+        const context=contextOf(scope);
         let pointer=scope.pointer;
         while(true){
-            const header=graph.scopeAs(scope.resource,pointer,'header');if(header)return header;
+            const header=context.scopeAs(scope.resource,pointer,'header');if(header)return header;
             if(!pointer)return;pointer=pointer.slice(0,pointer.lastIndexOf('/'));
         }
     }
@@ -360,7 +394,7 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
         const header=containingHeader(scope);if(!header)continue;
         const id=key(header),owned=headerSchemas.get(id)??[];owned.push(scope);headerSchemas.set(id,owned);affectedHeaders.add(id);
     }
-    const headerReferences=graph.references.filter(reference=>reference.kind==='header'&&reference.resolution==='resolved'&&reference.keyword==='$ref');
+    const headerReferences=references.filter(reference=>reference.kind==='header'&&reference.resolution==='resolved'&&reference.keyword==='$ref');
     let changed=true;
     while(changed){
         changed=false;
@@ -371,9 +405,9 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
         if(known)return known;
         if(depth>128||headerVariants.size>=512)throw new SourceError('limit.migration.direction','Directional Header specialization exceeds its bounded state/depth');
         const destination=reserve('header_'+direction,identity,'headers');headerVariants.set(identity,destination);copy(scope,destination);
-        const reference=graph.referenceAs(scope.resource,scope.pointer,'$ref','header');
+        const context=contextOf(scope),reference=context.referenceAs(scope.resource,scope.pointer,'$ref','header');
         if(reference?.resolution==='resolved'){
-            const reached=graph.scopeAs(reference.targetResource!,reference.targetPointer!,'header');
+            const reached=context.scopeAs(reference.targetResource!,reference.targetPointer!,'header');
             if(!reached)throw new SourceError('migration.direction.header','The captured Header reference has no typed target');
             set({...destination,pointer:destination.pointer+'/$ref'},address(headerVariant(reached,direction,depth+1)));
         }else{
@@ -391,19 +425,20 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
     for(const reference of headerReferences){
         if(!affectedHeaders.has(key({resource:reference.targetResource!,pointer:reference.targetPointer!})))continue;
         const roles=directions(reference,new Set<string>(),false);if(roles.size!==1)continue;
-        if(graph.literalContainer(reference.resource,reference.pointer)!==undefined||graph.hasOverlappingScope(reference.resource,reference.pointer)){
+        const context=contextOf(reference);
+        if(context.literalContainer(reference.resource,reference.pointer)!==undefined||context.hasOverlappingScope(reference.resource,reference.pointer)){
             issue(reference,'migration.direction.shared-owner','This Header reference also owns literal or independently interpreted content; separate ownership is required','implementation');return;
         }
-        const reached=graph.scopeAs(reference.targetResource!,reference.targetPointer!,'header');
+        const reached=contextOf(reference).scopeAs(reference.targetResource!,reference.targetPointer!,'header');
         if(!reached)throw new SourceError('migration.direction.header','The selected Header reference has no captured target');
         set({resource:reference.resource,pointer:reference.pointer+'/$ref'},address(headerVariant(reached,[...roles][0])));
     }
     // Definitions that remain neutral must not keep links into an inline
     // occurrence whose descendants are about to be replaced. Their own stable
     // copies retain the original schema and exact payload associations.
-    for(const reference of graph.references){
+    for(const reference of references){
         if(reference.keyword!=='$ref'||reference.kind!=='schema'||reference.resolution!=='resolved')continue;
-        const reached=graph.scopeAs(reference.targetResource!,reference.targetPointer!,'schema');
+        const reached=contextOf(reference).scopeAs(reference.targetResource!,reference.targetPointer!,'schema');
         if(reached&&affected.has(key(reached)))set({resource:reference.resource,pointer:reference.pointer+'/$ref'},address(neutral(reached)));
     }
     for(const scope of scopes)if(affected.has(key(scope))&&bindings.has(key(scope)))rewriteBindings(scope,scope,undefined,0);
@@ -417,7 +452,8 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
             report(scope,'migration.direction.shared-owner','This request/response container needs separate occurrence-owned definitions before its schema can be specialized');return;
         }
         if(!roles.size)continue;
-        if(graph.literalContainer(scope.resource,scope.pointer)!==undefined||graph.hasOverlappingScope(scope.resource,scope.pointer)){
+        const context=contextOf(scope);
+        if(context.literalContainer(scope.resource,scope.pointer)!==undefined||context.hasOverlappingScope(scope.resource,scope.pointer)){
             report(scope,'migration.direction.shared-owner','This directional occurrence also owns literal or independently interpreted content; separate ownership is required');return;
         }
         const direction=[...roles][0];

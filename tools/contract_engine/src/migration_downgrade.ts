@@ -1,11 +1,32 @@
-import type {ReferenceGraph} from './reference_graph';
+import type {GraphScope,ReferenceGraph} from './reference_graph';
 import {MigrationSource} from './migration_source';
 import type {MigrationIssue} from './migration_schema';
-import {escape} from './document';
+import {escape,SourceError} from './document';
 import {downgradeFormBody} from './migration_form_downgrade';
 import {formBinding} from './form_semantics';
-import {isNativeFamily} from './specification';
+import {isNativeFamily,modernFamily} from './specification';
 import {securityFlowOrder} from './security_requirements';
+
+/** Inspect a captured Schema reference chain before a Header/parameter loses
+ * its schema wrapper. A referenced object is just as unrepresentable in a
+ * Swagger flat Header as a directly declared object. No target role may be
+ * invented by moving a schema $ref into a Header Reference Object position. */
+function flatSchema(graph:ReferenceGraph,owner:GraphScope):unknown {
+    let scope=graph.scopeAs(owner.resource,owner.pointer+'/schema','schema');
+    const seen=new Set<string>();
+    while(scope){
+        const identity=scope.resource+'#'+scope.pointer;
+        if(seen.has(identity))return;
+        if(seen.size>=128)throw new SourceError('limit.migration.header','Flat schema inspection exceeds 128 references');
+        seen.add(identity);
+        const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
+        const reference=graph.referenceAs(scope.resource,scope.pointer,'$ref','schema');
+        if(!reference)return value;
+        if(modernFamily(scope.family)&&Object.keys(value).some(name=>name!=='$ref'))return value;
+        if(reference.resolution!=='resolved')return;
+        scope=graph.scopeAs(reference.targetResource!,reference.targetPointer!,'schema');
+    }
+}
 
 /** Evaluate actual target representation. A simple 3.x API can be faithfully
  * represented in Swagger; newer-only constructs receive located blockers. */
@@ -19,7 +40,7 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migrati
             if(typeof value?.$ref==='string')continue;
             if(value.content||scope.kind==='parameter'&&value.in==='cookie')issue(scope,'migration.parameter.representation','This parameter representation has no implemented faithful Swagger mapping','implementation');
             const style=value.style??(['query','cookie'].includes(value.in)?'form':'simple'),explode=value.explode??style==='form';
-            const type=value.schema?.type;
+            const shape=flatSchema(graph,scope) as {type?:unknown}|undefined,type=shape?.type;
             if(type==='object'||Array.isArray(type))issue(scope,'migration.parameter.type','Swagger flat parameters cannot represent this schema type','target-representation');
             if(type==='array'){
                 const format=style==='simple'?'csv':style==='form'?explode?'multi':'csv':style==='spaceDelimited'?'ssv':style==='pipeDelimited'?'pipes':undefined;

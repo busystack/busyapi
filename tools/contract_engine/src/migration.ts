@@ -44,7 +44,7 @@ import {securityRequirementDefinition} from './security_requirements';
 import {migrateSwaggerSecurityFlows} from './migration_security_flows';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='82';
+const migrationProducerVersion='83';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const referenceLocator=(reference:GraphReference)=>!reference.connection&&['$ref','$dynamicRef'].includes(reference.keyword)||
     reference.connection==='operationRef'&&reference.keyword==='operationRef';
@@ -440,7 +440,7 @@ export async function planMigration(input:MigrationInput) {
             const converted=createGraph(convertedInput);
             const convertedContexts=migrationDocumentContexts(convertedInput,converted,issue);
             if(problems.length)break;
-            migrateDirectionalSchemas(graph,converted.graph,sources,stage.sources,after,issue,createSchemaResource,convertedContexts.map(context=>context.graph),contexts.map(context=>context.graph));
+            migrateDirectionalSchemas(graph,converted.graph,sources,stage.sources,after,issue,createSchemaResource,convertedContexts.map(context=>context.graph),contexts.map(context=>context.graph),owners);
             if(problems.length)break;
             for(const scope of graph.scopesFor('schema')){
                 const source=sources.get(scope.resource)!,at=source.current(scope.pointer);

@@ -17,12 +17,22 @@ import '../packages/busyapi_core/test/test_support.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   for (final (from, target, flag, required, blocked, fallback) in [
-    for (final (from, target) in [('3.0.4', '3.2.1'), ('3.2.1', '3.0.4')])
+    for (final (from, target) in [
+      ('3.0.4', '3.1.2'), ('3.0.4', '3.2.1'),
+      ('3.1.2', '3.0.4'), ('3.2.1', '3.0.4'),
+      ('3.1.2', '3.2.1'), ('3.2.1', '3.1.2'),
+    ])
       for (final flag in ['readOnly', 'writeOnly'])
         for (final required in [false, true])
           (from, target, flag, required, false, false),
     for (final from in ['3.0.4', '3.1.2', '3.2.1'])
-      (from, '2.0', 'readOnly', false, true, false),
+      for (final required in [false, true])
+        (from, '2.0', 'readOnly', required, false, false),
+    for (final from in ['3.0.4', '3.1.2', '3.2.1'])
+      (from, '2.0', 'writeOnly', false, true, false),
+    for (final target in ['3.0.4', '3.1.2', '3.2.1'])
+      for (final required in [false, true])
+        ('2.0', target, 'readOnly', required, false, false),
     ('3.0.4', '3.2.1', 'readOnly', true, false, true),
   ]) {
     testWidgets(
@@ -70,32 +80,45 @@ void main() {
               'busyapi-access-review-',
             ),
             file = File('${temp.path}/api.yaml');
+        final legacy = from == '2.0';
+        final schema = {r'$ref': legacy ? '#/definitions/Model' : '#/components/schemas/Model'};
+        final model = {
+          'type': 'object',
+          if (fallback) 'discriminator': {'propertyName': 'value'},
+          if (required) 'required': ['value'],
+          'properties': {'value': {'type': 'string', flag: true}},
+        };
         final original =
             '# Keep comments 雪\r\n${jsonEncode({
-              'openapi': from,
+              legacy ? 'swagger' : 'openapi': from,
               'info': {'title': 'Original 雪', 'version': 'api-version'},
+              if (legacy) ...{
+                'host': 'api.invalid', 'schemes': ['https'],
+                'consumes': ['application/json'], 'produces': ['application/json'],
+              } else 'servers': [{'url': 'https://api.invalid'}],
               'paths': {
-                if (fallback) '/value': {
+                '/value': {
                   'post': {
-                    'requestBody': {
+                    if (legacy) 'parameters': [{'in': 'body', 'name': 'body', 'schema': schema}] else 'requestBody': {
                       'content': {
-                        'application/json': {'schema': {r'$ref': '#/components/schemas/Model'}},
+                        'application/json': {'schema': schema},
                       },
                     },
-                    'responses': {'204': {'description': 'No content'}},
+                    'responses': {
+                      if (fallback) '204': {'description': 'No content'} else
+                        '200': {
+                          'description': 'Shared response',
+                          if (legacy) 'schema': schema else 'content': {
+                            'application/json': {'schema': schema},
+                          },
+                        },
+                    },
                   },
                 },
               },
-              'components': {
+              if (legacy) 'definitions': {'Model': model} else 'components': {
                 'schemas': {
-                  'Model': {
-                    'type': 'object',
-                    if (fallback) 'discriminator': {'propertyName': 'value'},
-                    if (required) 'required': ['value'],
-                    'properties': {
-                      'value': {'type': 'string', flag: true},
-                    },
-                  },
+                  'Model': model,
                   if (fallback) 'Child': {'allOf': [{r'$ref': '#/components/schemas/Model'}]},
                 },
               },
@@ -206,7 +229,7 @@ void main() {
             await ready(
               () => find
                   .byWidgetPredicate(
-                    (widget) => widget is BusyApiActionRow && widget.title == 'Access annotations need a direction-specific schema mapping to preserve their captured property and required-list semantics in the target family',
+                    (widget) => widget is BusyApiActionRow && widget.title == 'Swagger 2.0 has no standard writeOnly annotation; directional required-list specialization cannot preserve this active annotation',
                   )
                   .evaluate()
                   .isNotEmpty,

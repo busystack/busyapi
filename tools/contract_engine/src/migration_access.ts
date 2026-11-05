@@ -24,11 +24,14 @@ export class MigrationAccess {
         if(modernFamily(from)&&to==='3.0'&&this.presence.has(key(scope)))return true;
         const value=this.graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
         if(value?.readOnly!==true&&value?.writeOnly!==true)return true;
-        // Swagger upgrades already own their explicit read-only exclusion
-        // blocker. writeOnly has no standard Swagger representation either.
+        // Swagger upgrades preserve their explicit request exclusion through
+        // the occurrence mapper; Swagger defines no writeOnly behavior.
         if(from==='2.0')return true;
         if(!modernFamily(from)&&typeof value?.$ref==='string')return true;
-        if(to==='2.0')return value?.readOnly!==true;
+        // Read-only Swagger downgrades are specialized at their consumers.
+        // Active writeOnly has no Swagger annotation and is reported at that
+        // exact field by migrateSchemas, rather than as a missing algorithm.
+        if(to==='2.0')return true;
         const pending=[scope],seen=new Set<string>();let properties=0;
         while(pending.length){
             const current=pending.pop()!,id=key(current);if(seen.has(id))continue;

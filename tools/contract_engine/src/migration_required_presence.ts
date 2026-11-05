@@ -57,5 +57,23 @@ export function migrateRequiredPresence(graph:ReferenceGraph,sources:Map<string,
                 {not:{type:'object',properties:{[child.value]:{not:{}}}}});
         }
     }
+    for(const scope of annotations){
+        const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
+        if(value.readOnly!==true||value.writeOnly!==true)continue;
+        const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);
+        if(pointer===undefined)continue;
+        if(++branches>2048){
+            const range=graph.docs.get(scope.resource)!.dataNode(scope.pointer)!.range;
+            throw new SourceError('limit.migration.direction','Access/presence mapping exceeds 2048 assertions',range,'unsupported',{...scope,range});
+        }
+        // Modern annotations can coexist. Restricted 3.0 forbids this pair
+        // on one Schema Object; retain both in applicable allOf schemas.
+        // Presence assertions above retain modern required semantics even
+        // when a property now exposes only one flag directly to 3.0.
+        const collection=pointer+'/allOf';
+        if(!source.doc.dataNode(collection))source.set(collection,[]);
+        const branch=collection+'/'+source.doc.dataNode(collection).children.size;
+        source.set(branch,{});source.move(pointer+'/writeOnly',branch+'/writeOnly');
+    }
     return new Set(annotations.map(key));
 }

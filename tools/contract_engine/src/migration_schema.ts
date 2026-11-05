@@ -120,7 +120,9 @@ export function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Migration
             if(Object.hasOwn(value,name)&&source.doc.dataNode(pointer+'/'+name))issue(field(name),'migration.schema.'+name,message+' for '+to,'implementation');
         if(!modernFamily(to))migrateSchemaTuple(graph,scope,source,pointer,to,owners,issue,arrayBounds,unevaluatedTail);
         migrateInactiveSchemaAnnotations(graph,scope,source,sources,to,owners);
-        if(to==='2.0')for(const name of ['oneOf','anyOf','not','writeOnly','deprecated'])if(Object.hasOwn(value,name)&&source.doc.dataNode(pointer+'/'+name))issue(field(name),'migration.schema.keyword','This Schema Object field requires an explicit faithful Swagger mapping','implementation');
+        if(to==='2.0'&&value.writeOnly===true&&!graph.referenceObject(value,scope)&&source.doc.dataNode(pointer+'/writeOnly'))
+            issue(field('writeOnly'),'migration.schema.write-only','Swagger 2.0 has no standard writeOnly annotation; directional required-list specialization cannot preserve this active annotation','target-representation');
+        if(to==='2.0')for(const name of ['oneOf','anyOf','not','deprecated'])if(Object.hasOwn(value,name)&&source.doc.dataNode(pointer+'/'+name))issue(field(name),'migration.schema.keyword','This Schema Object field requires an explicit faithful Swagger mapping','implementation');
         if(!modernFamily(from)&&modernFamily(to)){
             if(from==='3.0'){
                 if(value.nullable===true&&typeof value.type==='string')source.set(pointer+'/type',[value.type,'null']);

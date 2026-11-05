@@ -40,6 +40,7 @@ void main() {
     (name: 'obsolete holder producer', from: 'producer:79', to: '', accepted: false),
     (name: 'obsolete container producer', from: 'producer:80', to: '', accepted: false),
     (name: 'obsolete resource producer', from: 'producer:81', to: '', accepted: false),
+    (name: 'obsolete B01 producer', from: 'producer:82', to: '', accepted: false),
     (name: 'equivalent decimals', from: '9007199254740993.00', to: '900719925474099300e-2', accepted: true),
     (name: 'equivalent positive exponent', from: '1e99999', to: '10e99998', accepted: true),
     (name: 'equivalent negative exponent', from: '1e-99999', to: '10e-100000', accepted: true),

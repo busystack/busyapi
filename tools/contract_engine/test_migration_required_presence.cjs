@@ -34,7 +34,7 @@ const values=[
 for(const version of versions)for(const format of ['yaml','json'])for(const flag of ['readOnly','writeOnly'])for(const mode of ['direct','chain','composition','sibling'])
 test(`${version} ${format} ${flag} ${mode} lowering keeps shared request/response presence without weakening values`,async()=>{
  const input=capture(version,format,flag,mode),before=input.resources.map(value=>value.text),source=await outcomes(input,values),plan=await planMigration(input);
- assert.equal(plan.complete,true,JSON.stringify(plan.problems));assert.equal(plan.producerVersion,'82');
+ assert.equal(plan.complete,true,JSON.stringify(plan.problems));assert.equal(plan.producerVersion,'83');
  const output={root:plan.outputRoot,snapshot:'cold-presence',resources:plan.outputs.map(value=>({id:value.id,text:value.text,generation:0}))};
  assert.deepEqual(await outcomes(output,values),source);
  const graph=createGraph(output).graph,doc=graph.docs.get(output.root),model=doc.dataNode('/components/schemas/Model').value;
@@ -57,6 +57,26 @@ test(`${version} ${format} an unrelated required schema keeps its exact source o
  const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));
  const output={root:plan.outputRoot,resources:plan.outputs.map(value=>({...value,generation:0}))},node=createGraph(output).graph.docs.get(output.root).dataNode('/components/schemas/Unrelated');
  assert.deepEqual(node.value,unrelated);assert.equal(node.value.allOf,undefined);
+});
+
+for(const version of ['3.1.2','3.2.1'])for(const format of ['yaml','json'])
+test(`${version} ${format} coexisting modern access annotations retain presence and value assertions in 3.0`,async()=>{
+ const input=capture(version,format,'readOnly','direct');
+ for(const name of names){
+  const document=new SourceDocument(input.resources[0].text,input.root);
+  input.resources[0].text=document.set('/components/schemas/Model/properties/'+escape(name)+'/writeOnly',true);
+ }
+ const before=await outcomes(input,values),plan=await planMigration(input);
+ assert.equal(plan.complete,true,JSON.stringify(plan.problems));
+ const output={root:plan.outputRoot,snapshot:'both-access-cold',resources:plan.outputs.map(value=>({...value,generation:0}))};
+ assert.deepEqual(await outcomes(output,values),before);
+ const graph=createGraph(output).graph;
+ assert([...graph.entryScopes()].some(scope=>graph.docs.get(scope.resource).dataNode(scope.pointer+'/readOnly')?.value===true));
+ assert([...graph.entryScopes()].some(scope=>graph.docs.get(scope.resource).dataNode(scope.pointer+'/writeOnly')?.value===true));
+ assert(![...graph.entryScopes()].some(scope=>{
+  const value=graph.docs.get(scope.resource).dataNode(scope.pointer)?.value;
+  return scope.kind==='schema'&&value?.readOnly===true&&value?.writeOnly===true;
+ }));
 });
 
 for(const format of ['yaml','json'])test(`${format} property access annotations survive static dynamic-reference lowering`,async()=>{

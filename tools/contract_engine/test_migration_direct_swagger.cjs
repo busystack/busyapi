@@ -19,7 +19,7 @@ for(const targetVersion of versions)for(const format of ['yaml','json'])for(cons
  const values=['[]','[9007199254740994]','[9007199254740994,"雪",false,null,{}]','[9007199254740993]','["wrong"]','[9007199254740994,0]'];
  const evaluate=(capture,pointer)=>evaluateSchemas({...capture,runtimeInstances:values.map(text=>({subject:'response-body',location:'application/json',text,schema:{resource:capture.root,pointer}}))});
  const before=await evaluate(input,'/definitions/Tuple');assert.equal(before.complete,true,JSON.stringify(before.findings));
- const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(result.producerVersion,'82');
+ const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(result.producerVersion,'83');
  assert(!result.stages.some(stage=>stage.from==='2.0'&&stage.to==='3.0'));
  const target={root:result.outputRoot,snapshot:'cold',resources:result.outputs.map(o=>({id:o.id,text:o.text,generation:0}))};
  assert.equal(analyse(target).status,'complete');
