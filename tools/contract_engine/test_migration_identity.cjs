@@ -47,7 +47,7 @@ test(`${version} ${format} $self=${JSON.stringify(self)} lowers to ${target} wit
     const before=input.resources[0].text,source=createGraph(input).graph;
     const base=source.scope(input.root,'').base,validity=await outcomes(input);
     const review=await planMigration(input);
-    assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'81');
+    assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'82');
     const output=review.outputs.find(value=>value.id===review.outputRoot),doc=new SourceDocument(output.text,output.id);
     assert.equal(doc.dataNode('/$self'),undefined);assert.equal(doc.node('/info/version').value,'business');
     assert.equal(doc.node('/info/contact/url').value,resolveUri('./contact',base).href);
@@ -144,4 +144,20 @@ test('a shared YAML identity lowers while retaining other literal consumers',asy
     assert.equal(checked.status,'complete',JSON.stringify(checked.findings));
     assert(review.presentationChanges.some(change=>change.resource===root&&change.pointer==='/x-identity'));
     assert.equal(input.resources[0].text,text);
+});
+
+for(const targetVersion of ['3.1.2','3.2.1'])test(`retrieval, document and nested resource identities stay independent for ${targetVersion}`,async()=>{
+ const input=require('./migration_schema_resources_fixture.cjs')('json',targetVersion),first=JSON.parse(input.resources[0].text);
+ first.$self='https://documents.invalid/first/api';input.resources[0].text=JSON.stringify(first);
+ input.resources[0].aliases=['https://retrieval.invalid/captured/api'];
+ const before=input.resources.map(resource=>resource.text),review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const output={root:review.outputRoot,snapshot:'cold-nested-identities',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
+ const graph=createGraph(output).graph,root=graph.docs.get(output.root);
+ assert.equal(root.dataNode('/jsonSchemaDialect').value,'https://json-schema.org/draft/2020-12/schema');
+ for(const reference of graph.entryReferences())assert.equal(reference.resolution,'resolved');
+ assert(graph.entryReferences().some(reference=>reference.keyword==='$dynamicRef'&&reference.dynamic));
+ const result=await evaluateSchemas({...output,runtimeInstances:['{"n":9007199254740993,"tag":"First","next":{"n":9007199254740993}}',
+  '{"n":9007199254740993,"tag":"First","next":{"n":9007199254740993,"tag":"First"}}'].map(text=>({subject:'response-body',location:text,text,schema:{resource:output.root,pointer:'/components/schemas/Strict'}}))});
+ assert.equal(result.complete,true,JSON.stringify(result.findings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[false,true]);
+ assert.deepEqual(input.resources.map(resource=>resource.text),before);
 });

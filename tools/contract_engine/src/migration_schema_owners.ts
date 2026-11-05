@@ -6,6 +6,7 @@ import {documentUriOccurrences,type DocumentUriOccurrence} from './document_uris
 import {documentUriBase,resolveUri,pointerFragment,schemaResourceContextIdentity,type ReferenceGraph,type GraphScope,type GraphReference} from './reference_graph';
 import type {MigrationLocation,MigrationSource} from './migration_source';
 import {migrationLogicalPointers} from './migration_yaml_ownership';
+import {modernFamily} from './specification';
 
 type SemanticOwner=Readonly<{source:GraphScope;owner:GraphScope;location:MigrationLocation}>;
 export type MigrationOwnerLayout='array-item'|'callback-path-item'|'callback-operation'|'path-item-operation'|'response-media';
@@ -28,6 +29,8 @@ export class MigrationSchemaOwners {
     private readonly nativeReleases:{family:string;source:MigrationSource;material:MigrationLocation;retirement:MigrationLocation;
         container:string;destination:{source:MigrationSource;location:MigrationLocation}}[]=[];
     private readonly copiedOwners=new Map<string,{location:MigrationLocation;retirement:MigrationLocation;schemaIdentity:boolean}>();
+    private readonly resourceReferences:{slot:MigrationLocation;scope:GraphScope;
+        parent:{scope:GraphScope;location:MigrationLocation}}[]=[];
     private readonly documentUris=new WeakMap<ReferenceGraph,readonly DocumentUriOccurrence[]>();
     private identityConsumers?:readonly MigrationLocation[];
     private useWork=0;
@@ -36,6 +39,7 @@ export class MigrationSchemaOwners {
         private readonly generatedResource?:(format?:SourceDocument['format'])=>MigrationSource,reservedIdentities:Iterable<string>=[],
         private readonly contexts:readonly ReferenceGraph[]=[graph],
         private readonly connectionNames:ReadonlySet<string>=new Set()){
+        this.contexts=[...contexts].sort((a,b)=>a.root.localeCompare(b.root));
         this.externalIdentities=new Set([...reservedIdentities].map(uri=>new URL(uri).href));
     }
 
@@ -80,6 +84,9 @@ export class MigrationSchemaOwners {
         }
     }
     operationNameHasVariants(name:string):boolean{return this.copiedOperationIds.has(name);}
+    rememberResourceHolder(location:MigrationLocation):void {
+        this.copiedOwners.set(JSON.stringify([location.resource,location.pointer]),{location,retirement:location,schemaIdentity:true});
+    }
     entryOwner(namespace:string,origin:MigrationLocation,kind:string):MigrationLocation {
         const pending=[{location:origin,leave:false}],seen=new Set<string>(),active=new Set<string>(),terminal=new Map<string,MigrationLocation>();
         while(pending.length){
@@ -180,11 +187,10 @@ export class MigrationSchemaOwners {
         });
     }
 
-    /** Retire anonymous preparation copies after every entry has refined
+    /** Retire private preparation copies after every entry has refined
      * them. An internal cycle is not an external consumer. Keep every terminal
-     * typed owner, external connection/dynamic candidate and declared schema
-     * identity; this never removes authored definitions or guesses that an
-     * independently identified resource is disposable. */
+     * typed owner, actual entering connection and authored schema identity.
+     * Only this allocator can establish a private generated identity. */
     retireSuperseded(graphs:readonly ReferenceGraph[]):void {
         const terminals:MigrationLocation[]=[],admitted=new Set<string>(),states=new Set<string>();
         for(const [id,uses]of this.entryUses){
@@ -205,29 +211,53 @@ export class MigrationSchemaOwners {
         }
         const within=(at:MigrationLocation,parent:MigrationLocation)=>at.resource===parent.resource&&
             (at.pointer===parent.pointer||at.pointer.startsWith(parent.pointer+'/'));
-        for(const [id,{location:copy,retirement,schemaIdentity}]of [...this.copiedOwners].sort(([,a],[,b])=>a.location.pointer.length-b.location.pointer.length)){
-            this.inspectUse();const source=this.sources.get(copy.resource)!;
-            // Capture identity ownership before a copy becomes unreachable:
-            // a later graph need not index its dormant schema descendants.
-            if(schemaIdentity||!admitted.has(id)||!source.doc.dataNode(copy.pointer)||terminals.some(at=>{this.inspectUse();return within(at,retirement);}))continue;
-            let retained=false;
-            for(const graph of graphs){
-                if(graph.literalContainer(retirement.resource,retirement.pointer)!==undefined){retained=true;break;}
-                for(const schema of graph.scopesFor('schema')){
-                    this.inspectUse();if(!within(schema,retirement))continue;
-                    const value=graph.docs.get(schema.resource)!.dataNode(schema.pointer)?.value;
-                    if(['$id','$anchor','$dynamicAnchor'].some(name=>typeof value?.[name]==='string')){retained=true;break;}
-                }
-                if(retained)break;
-                for(const reference of graph.entryReferences()){
-                    this.inspectUse();if(within(reference,retirement))continue;
-                    if(reference.resolution==='resolved'&&within({resource:reference.targetResource!,pointer:reference.targetPointer!},retirement)||
-                        reference.dynamic?.candidates.some(candidate=>{this.inspectUse();return within(candidate,retirement);})||
-                        reference.candidateTargets?.some(candidate=>{this.inspectUse();return within(candidate,retirement);})){retained=true;break;}
-                }
-                if(retained)break;
+        const admittedLocations=[...admitted].map(id=>{const [resource,pointer]=JSON.parse(id) as [string,string];return {resource,pointer};});
+        const schemas=graphs.flatMap(graph=>graph.scopesFor('schema'));
+        const candidates:{retirement:MigrationLocation;privateIdentity:boolean}[]=[];
+        for(const [id,{location:copy,retirement,schemaIdentity}]of this.copiedOwners){
+            this.inspectUse();if(!this.sources.get(copy.resource)!.doc.dataNode(copy.pointer)||
+                !admitted.has(id)&&!admittedLocations.some(at=>{this.inspectUse();return within(at,retirement);})||
+                terminals.some(at=>{this.inspectUse();return within(at,retirement);}))continue;
+            let declared=false,authored=false;
+            for(const schema of schemas){
+                this.inspectUse();if(!within(schema,retirement))continue;
+                const value=this.sources.get(schema.resource)!.doc.dataNode(schema.pointer)?.value;
+                if(!['$id','$anchor','$dynamicAnchor'].some(name=>typeof value?.[name]==='string'))continue;
+                declared=true;if(!this.resourceIdentities.has(schema.base)){authored=true;break;}
             }
-            if(!retained){this.admit(source,8);source.remove(retirement.pointer);}
+            // Authored identities stay published, even without captured incoming
+            // edges. Only IDs reserved by this allocator are private preparation
+            // identities; absent context cannot prove an identified copy dead.
+            if(authored||schemaIdentity&&!declared||graphs.some(graph=>graph.literalContainer(retirement.resource,retirement.pointer)!==undefined))continue;
+            candidates.push({retirement,privateIdentity:declared});
+        }
+        // Retain the closure reachable from non-retiring consumers. References
+        // between obsolete copies (including cycles) do not keep one another
+        // alive. A private dynamic candidate with no entering edge cannot occur
+        // on an evaluation path; a static dynamic starting point still can.
+        const retained=new Set<number>(),references=graphs.flatMap(graph=>graph.entryReferences());
+        let changed=true;
+        while(changed){
+            changed=false;
+            for(const reference of references){
+                this.inspectUse();const consumers:number[]=[];
+                for(const [index,candidate]of candidates.entries()){
+                    this.inspectUse();if(within(reference,candidate.retirement))consumers.push(index);
+                }
+                if(consumers.length&&!consumers.some(index=>retained.has(index)))continue;
+                for(const [index,candidate]of candidates.entries()){
+                    this.inspectUse();if(retained.has(index))continue;
+                    const needed=reference.resolution==='resolved'&&within({resource:reference.targetResource!,pointer:reference.targetPointer!},candidate.retirement)||
+                        reference.candidateTargets?.some(target=>{this.inspectUse();return within(target,candidate.retirement);})||
+                        !candidate.privateIdentity&&reference.dynamic?.candidates.some(target=>{this.inspectUse();return within(target,candidate.retirement);});
+                    if(needed){retained.add(index);changed=true;}
+                }
+            }
+        }
+        for(const [index,{retirement}]of candidates.entries()){
+            if(retained.has(index))continue;
+            const source=this.sources.get(retirement.resource)!;
+            if(source.doc.dataNode(retirement.pointer)){this.admit(source,8);source.remove(retirement.pointer);}
         }
     }
 
@@ -241,7 +271,7 @@ export class MigrationSchemaOwners {
         for(;;){
             const uri=new URL(entry);uri.hash='';uri.searchParams.append('busyapi-schema-owner',stem+(index?'_'+index:''));
             const value=uri.href;
-            if(!this.graph.identities.has(value)&&!this.externalIdentities.has(value)&&!this.resourceIdentities.has(value)){
+            if(!this.contexts.some(context=>context.identities.has(value))&&!this.externalIdentities.has(value)&&!this.resourceIdentities.has(value)){
                 this.resourceIdentities.add(value);return value;
             }
             if(++index>2048)throw new SourceError('limit.migration.owners','No bounded collision-free resource identity is available');
@@ -399,6 +429,54 @@ export class MigrationSchemaOwners {
         source.origins.set(pointer+'/$ref',new Set([pointer+'/$ref']));
     }
 
+    /** A native Schema slot moved into another document must not contribute
+     * that document's unrelated dynamic anchors before entering its material
+     * owner. An anchorless, explicitly dialected resource is a neutral frame
+     * on every dynamic path. Its identity uses the common reservation set. */
+    resourceReferenceUse(source:MigrationSource,pointer:string,target:MigrationLocation,scope:GraphScope,
+        parent:{scope:GraphScope;location:MigrationLocation}):void {
+        this.referenceUse(source,pointer,target);
+        this.inspectUse();this.resourceReferences.push({slot:{resource:source.doc.id,pointer},scope,parent});
+        if(!modernFamily(scope.family)||!scope.dialect)return;
+        const base=this.resourceIdentity(source.doc.id,JSON.stringify(['schema-slot',source.doc.id,pointer,schemaResourceContextIdentity(scope)]));
+        this.admit(source,2);source.set(pointer+'/$id',base);source.set(pointer+'/$schema',scope.dialect);
+        for(const name of ['$id','$schema'])source.origins.set(pointer+'/'+name,new Set([pointer+'/'+name]));
+    }
+
+    /** Generated slots have no authored $ref provenance. Keep their edges in
+     * this same owner boundary and compose refinements before any retirement. */
+    repairResourceReferences():void {
+        const edits=new Map<string,{source:MigrationSource;field:string;value:string}>();
+        const same=(a:MigrationLocation,b:MigrationLocation)=>a.resource===b.resource&&a.pointer===b.pointer;
+        for(const reference of this.resourceReferences){
+            for(const graph of this.contexts){
+                this.inspectUse();const namespace=graph.root;
+                if(!this.entryUses.has(this.useKey(namespace,reference.parent.scope,reference.parent.scope.kind)))continue;
+                const slot=this.entryOwner(namespace,reference.slot,'schema');
+                const parent=this.entryOwner(namespace,reference.parent.scope,reference.parent.scope.kind);
+                // A fresh native copy may come directly from immutable source,
+                // without this generated shell. Only its exact schema-owner
+                // transition can project the shell into a later occurrence.
+                if(same(slot,reference.slot)&&!same(parent,reference.parent.location))continue;
+                const target=this.entryOwner(namespace,reference.scope,'schema');
+                const source=this.sources.get(slot.resource)!,field=source.current(slot.pointer+'/$ref');
+                const failure=(code:string,message:string)=>{
+                    const range:Range=source.doc.dataNode(slot.pointer)?.range??[0,0];
+                    return new SourceError(code,message,range,'unsupported',{...slot,range});
+                };
+                if(field===undefined||typeof source.doc.dataNode(field)?.value!=='string')
+                    throw failure('migration.owners.resource-reference','A generated schema slot has no retained reference field');
+                const value=target.resource+pointerFragment(target.pointer),id=JSON.stringify([source.doc.id,field]),previous=edits.get(id);
+                if(previous&&previous.value!==value)
+                    throw failure('migration.owners.resource-reference-context','This shared generated slot still needs independent entry ownership for its resource targets');
+                edits.set(id,{source,field,value});
+            }
+        }
+        for(const {source,field,value}of edits.values()){
+            if(source.doc.dataNode(field)!.value!==value){this.admit(source);source.set(field,value);}
+        }
+    }
+
     /** A separately interpreted use has its own conversion coordinates. Keep
      * its original provenance for review, without making later reference repair
      * choose between the structural/data owner and the schema copy. The caller
@@ -407,7 +485,7 @@ export class MigrationSchemaOwners {
         container?:MigrationLocation;captured?:MigrationSource;identity?:string;
         layout?:MigrationOwnerLayout;
         operationSlot?:MigrationOperationSlot;
-        retained?:readonly MigrationLocation[];schemaIdentity?:boolean;
+        retained?:readonly GraphScope[];schemaIdentity?:boolean;
         excludedNames?:ReadonlySet<string>;
         releaseNativeHolder?:boolean;
     }>={}):Readonly<{
@@ -453,7 +531,8 @@ export class MigrationSchemaOwners {
             if(material.resource!==origin.resource||material.pointer===origin.pointer||!material.pointer.startsWith(origin.pointer+'/'))
                 throw new SourceError('migration.owners.retained','A retained material schema must be a captured child of this occurrence');
             const pointer=owner.location.pointer+material.pointer.slice(origin.pointer.length);
-            retainedPointers.push(pointer);this.referenceUse(owner.source,pointer,material);
+            retainedPointers.push(pointer);this.resourceReferenceUse(owner.source,pointer,material,material,
+                {scope:origin,location:owner.location});
         }
         const inside=(at:string)=>at===owner.location.pointer||at.startsWith(owner.location.pointer+'/');
         for(const locations of owner.source.originSets())for(const at of [...locations])if(inside(at))locations.delete(at);
@@ -500,6 +579,11 @@ export class MigrationSemanticOrigins {
             add(graph,{resource:reference.targetResource!,pointer:reference.targetPointer!},reference.kind,'target');
             for(const candidate of reference.dynamic?.candidates??[])add(graph,candidate,'schema','target');
         }
+        // Resource proofs need every captured member, including an anchor in
+        // an otherwise unreferenced reserved definition. Typed provenance is
+        // retained through the same entry/role relation as reference targets.
+        for(const graph of graphs)for(const scope of graph.entryScopes())
+            if(scope.kind==='schema')add(graph,scope,'schema','target');
         for(const graph of graphs)for(const scope of graph.entryScopes())
             if(scope.kind==='security-array'||scope.kind==='security-requirement')add(graph,scope,scope.kind,'target');
         for(const graph of graphs)for(const {location,scope,field}of this.valueFields(graph)){

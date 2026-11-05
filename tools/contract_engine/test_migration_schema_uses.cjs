@@ -25,7 +25,7 @@ async function migrate(input){
  const before=input.resources.map(resource=>resource.text);
  const review=await planMigration(input);
  assert.equal(review.complete,true,JSON.stringify(review.problems));
- assert.equal(review.producerVersion,'81');
+ assert.equal(review.producerVersion,'82');
  const output=delivered(review);
  assert.equal(analyse(output).status,'complete');
  assert.deepEqual(input.resources.map(resource=>resource.text),before);
@@ -272,4 +272,18 @@ test('declared Swagger-to-modern Schema references retain their located family r
  const review=await planMigration(input);assert.equal(review.complete,false);assert.equal(review.status,'blocked');
  assert(review.problems.some(problem=>problem.resource===input.root&&problem.code.includes('reference.family')));
  assert.deepEqual(review.outputs,[]);assert.deepEqual(review.changes,[]);
+});
+
+for(const format of ['yaml','json'])test(`${format} ordinary fragment roles share one resource owner for dynamic forwarders and anchors`,async()=>{
+ const input=require('./migration_schema_resources_fixture.cjs')(format,'3.2.1',true);
+ const {review,output}=await migrate(input),{graph}=createGraph(output);
+ const use=graph.referenceAs(output.root,'/components/schemas/Node','$ref','schema');assert.equal(use.resolution,'resolved');
+ const forward=graph.scopeAs(use.targetResource,use.targetPointer,'schema'),edge=graph.referenceAs(forward.resource,forward.pointer,'$ref','schema');
+ const node=graph.scopeAs(edge.targetResource,edge.targetPointer,'schema');
+ assert.equal(forward.base,node.base);assert.equal(forward.resourcePointer,node.resourcePointer);
+ const values=['{"n":9007199254740993}','{"n":9007199254740993,"tag":"First","next":{"n":9007199254740993}}',
+  '{"n":9007199254740993,"tag":"First","next":{"n":9007199254740993,"tag":"First"}}','{"n":9007199254740992}'];
+ assert.deepEqual(await outcomes(output,'/components/schemas/Node',values),[true,true,true,false]);
+ assert.deepEqual(await outcomes(output,'/components/schemas/Strict',values),[false,false,true,false]);
+ assert.equal(review.outputs.find(output=>output.id===review.changes.find(change=>change.resource===input.resources.at(-1).id).destination).text,input.resources.at(-1).text);
 });

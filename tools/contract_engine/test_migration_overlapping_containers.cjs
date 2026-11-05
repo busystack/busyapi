@@ -21,7 +21,7 @@ test(`${format} ${restrictedVersion}/3.1 entries independently own overlapping n
  assert.equal(analyse(input).status,'complete',JSON.stringify(analyse(input).findings));
  assert.equal(analyse({...input,root:modern}).status,'complete');
  const original=new SourceDocument(before[1],modern);
- const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'81');
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'82');
  const output=cold(review),root=review.changes.find(change=>change.resource===modern).destination;
  for(const entry of [output.root,root])assert.equal(analyse({...output,root:entry}).status,'complete');
  const example=roleTarget(output,root,'/components/examples/Dictionary','example');
@@ -97,4 +97,20 @@ for(const reverse of [false,true])test(`copied Header fields follow later Schema
  }
  assert.equal(header.graph.docs.get(targetRoot).dataJson('/x-model'),JSON.stringify(second['x-model']).replaceAll('"EXACT"','9007199254740993.00'));
  assert.deepEqual(input.resources.map(resource=>resource.text),before);
+});
+
+test('native container copies forward to one published identified Schema resource through an anchorless frame',async()=>{
+ const root='file:///native-resource/api.json',id='https://schemas.invalid/native-array';
+ const input={root,snapshot:'native-resource-holder',targetVersion:'3.2.1',destination:'file:///native-resource-output/',resources:[{id:root,generation:1,text:JSON.stringify({
+  openapi:'3.1.2',info:{title:'Native resource',version:'1'},paths:{'/p':{get:{responses:{200:{description:'Value',headers:{'X-N':{$ref:'#/components/schemas'}}}}}}},
+  components:{schemas:{schema:{$id:id,$dynamicAnchor:'node',type:'array',items:{$dynamicRef:'#node'}}}},
+ })}]};
+ const before=input.resources[0].text,review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const output=cold(review),header=roleTarget(output,output.root,'/paths/~1p/get/responses/200/headers/X-N','header'),graph=header.graph;
+ assert.equal(graph.identities.get(id).length,1);const native=graph.identities.get(id)[0];assert.equal(native.pointer,'/components/schemas/schema');
+ const slot=graph.scopeAs(header.resource,header.pointer+'/schema','schema');assert(slot);
+ assert.notEqual(slot.base,graph.scope(output.root,'').base);assert.notEqual(slot.base,id);
+ const edge=graph.referenceAs(slot.resource,slot.pointer,'$ref','schema');assert.equal(edge.resolution,'resolved');assert.equal(edge.targetPointer,native.pointer);
+ assert.deepEqual(await values(output,output.root,native.pointer,['[]','[[]]','[0]','null']),[true,true,false,false]);
+ assert.equal(input.resources[0].text,before);
 });

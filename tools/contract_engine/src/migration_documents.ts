@@ -1,7 +1,7 @@
 import {createGraph,type Resource} from './engine';
 import type {MigrationIssue} from './migration_schema';
 import {migrationValueIdentity,type MigrationLocation} from './migration_source';
-import {supportedSchemaDialect,schemaResourceContextIdentity,type ReferenceGraph,type GraphScope,type GraphReference} from './reference_graph';
+import {supportedSchemaDialect,schemaResourceContextIdentity,sameSchemaDialect,type ReferenceGraph,type GraphScope,type GraphReference} from './reference_graph';
 import {escape,SourceError} from './document';
 import {modernFamily} from './specification';
 import {projectSchemaReference} from './schema_reference_projection';
@@ -295,7 +295,7 @@ export function proveMigrationConnections(source:ReferenceGraph,target:Reference
             .filter(location=>{
                 if(!includeStatic)return true;
                 const scope=target.scopeAs(location.resource,location.pointer,reference.kind);
-                return scope!==undefined&&scope.family===expected?.family&&scope.dialect===expected?.dialect;
+                return scope!==undefined&&scope.family===expected?.family&&sameSchemaDialect(scope.dialect,expected?.dialect);
             });
         if(!fields.length||fields.some(field=>{
             const connection=connectionAt(field);

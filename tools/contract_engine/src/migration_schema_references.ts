@@ -1,5 +1,5 @@
 import {escape,SourceError} from './document';
-import type {GraphReference,GraphScope,ReferenceGraph} from './reference_graph';
+import {schemaResourceContextIdentity,type GraphReference,type GraphScope,type ReferenceGraph} from './reference_graph';
 import type {MigrationIssue} from './migration_schema';
 import type {MigrationSource} from './migration_source';
 import {projectSchemaReference} from './schema_reference_projection';
@@ -14,20 +14,22 @@ export class MigrationSchemaReferences {
     constructor(graph:ReferenceGraph,contexts:readonly ReferenceGraph[]=[graph]){
         let work=0;
         const key=(reference:GraphReference)=>JSON.stringify([reference.resource,reference.pointer]);
+        const binding=(reference:GraphReference)=>JSON.stringify([schemaResourceContextIdentity(reference),reference.resolution,
+            reference.targetResource,reference.targetPointer,reference.dynamic?.anchor,
+            reference.dynamic?.candidates.map(candidate=>[candidate.resource,candidate.pointer])
+                .sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)))]);
         const retained=new Set(graph.references.filter(reference=>reference.kind==='schema'&&reference.keyword==='$dynamicRef'&&!reference.connection).map(key));
         for(const context of contexts)for(const reference of context.entryReferences())if(reference.kind==='schema'&&reference.keyword==='$dynamicRef'&&!reference.connection&&retained.has(key(reference))){
             work+=1+(reference.dynamic?.candidates.length??0);
             if(work>2000000)throw new SourceError('limit.migration.dynamic','Dynamic binding inspection exceeds 2000000 captured candidates');
             const id=key(reference),previous=this.references.get(id);
-            if(previous&&(previous.resolution!==reference.resolution||previous.targetResource!==reference.targetResource||previous.targetPointer!==reference.targetPointer)){
+            if(previous&&binding(previous)!==binding(reference)){
                 const pointer=reference.pointer+'/$dynamicRef',range=graph.docs.get(reference.resource)!.dataNode(pointer)!.range;
-                throw new SourceError('migration.dynamic.context','This shared dynamic starting point requires independent entry ownership',range,'unsupported',{resource:reference.resource,pointer,range});
+                throw new SourceError('migration.dynamic.context','This dynamic applicator has distinct captured resource contexts or binding sets; independent owners are required before lowering',range,'unsupported',{resource:reference.resource,pointer,range});
             }
-            const dynamic=previous?.dynamic??reference.dynamic;
-            const merged:GraphReference=dynamic?{...reference,dynamic:{anchor:dynamic.anchor,candidates:[...new Map([
-                ...(previous?.dynamic?.candidates??[]),...(reference.dynamic?.candidates??[]),
-            ].map(candidate=>[JSON.stringify([candidate.resource,candidate.pointer]),candidate])).values()]}}:reference;
-            this.references.set(id,merged);
+            // Ownership must establish one binding before lowering. Combining
+            // unrelated entry candidate sets is not a resolution proof.
+            this.references.set(id,previous??reference);
         }
         for(const reference of this.references.values())if(reference.dynamic&&projectSchemaReference(reference).state!=='fixed')for(const candidate of reference.dynamic.candidates)
             this.requiredAnchors.add(JSON.stringify([candidate.resource,candidate.pointer]));

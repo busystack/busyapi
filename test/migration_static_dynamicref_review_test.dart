@@ -72,7 +72,9 @@ void _registerMigrationTests(String definitionKeyword) {
             ),
             file = File('${temp.path}/api.$format'),
             model = File('${temp.path}/model.yaml');
-        final original = staticDynamicRefApi(from, format);
+        final original = blocked
+            ? staticDynamicRefApi(from, format).replaceFirst('"schemas":{', '"schemas":{"Peer":{"\$id":"peer-resource","\$dynamicAnchor":"model","type":"string"},')
+            : staticDynamicRefApi(from, format);
         final modelOriginal = blocked
             ? staticDynamicRefModel(definitionKeyword: definitionKeyword)
                   .replaceFirst(r'"$anchor"', r'"$dynamicAnchor"')
@@ -171,7 +173,7 @@ void _registerMigrationTests(String definitionKeyword) {
             await ready(
               () => find
                   .byWidgetPredicate(
-                    (widget) => widget is BusyApiActionRow && widget.title == 'This reference starts at a dynamic anchor; a faithful older-family dynamic-scope mapping is not implemented',
+                    (widget) => widget is BusyApiActionRow && widget.title == 'Captured matching anchors can select different schemas; older-family dynamic-scope specialization is not implemented',
                   )
                   .evaluate()
                   .isNotEmpty,

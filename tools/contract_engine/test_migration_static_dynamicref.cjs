@@ -34,7 +34,7 @@ async function outcomes(input,pointer,samples){
 }
 for(const version of modern)for(const format of ['yaml','json'])for(const targetVersion of older)for(const mode of ['plain','siblings','both','allOf','static-anchor','identified','recursive','external-anchor'])test(`${version} ${format} ${mode} static dynamicRef converts to ${targetVersion} with exact assertions and reference owners`,async()=>{
  const input={...packet(version,format,mode),targetVersion},original=input.resources.map(r=>r.text),result=await planMigration(input);
- assert.equal(result.status,'faithfully-convertible',JSON.stringify(result.problems));assert.equal(result.complete,true);assert.equal(result.producerVersion,'81');assert.equal(result.target.declaredVersion,targetVersion);
+ assert.equal(result.status,'faithfully-convertible',JSON.stringify(result.problems));assert.equal(result.complete,true);assert.equal(result.producerVersion,'82');assert.equal(result.target.declaredVersion,targetVersion);
  const after=output(result);assert.equal(analyse(after).status,'complete',JSON.stringify(analyse(after).findings));const entry=result.outputs.find(r=>r.id===result.outputRoot),data=YAML.parse(entry.text);assert.equal(data.info.version,'API-1');assert.equal(data[targetVersion==='2.0'?'swagger':'openapi'],targetVersion);assert.equal(data['x-payload'].$dynamicRef,'literal space');assert(entry.text.includes('9007199254740993.00'));if(format==='yaml')assert(entry.text.includes('# Preserve source and CRLF'));
  const schemas=targetVersion==='2.0'?data.definitions:data.components.schemas;assert(schemas.Use.allOf.some(branch=>typeof branch.$ref==='string'));assert(!Object.hasOwn(schemas.Use,'$dynamicRef'));if(mode==='both')assert(schemas.Use.allOf.filter(branch=>branch.$ref).length>=2);if(mode==='allOf')assert.equal(new SourceDocument(entry.text,entry.id).dataJson((targetVersion==='2.0'?'/definitions':'/components/schemas')+'/Use/allOf/0/minimum'),'9007199254740993.00');
  const samples=mode==='recursive'?['{"value":9007199254740993,"next":{"value":9007199254740992}}','{"value":9007199254740993,"next":{"value":9007199254740994}}','{"next":{}}','null','false','0']:['9007199254740993','9007199254740992','9007199254740994','"雪"','null','false','0'];
@@ -78,4 +78,16 @@ for(const description of [
 for(const version of modern)for(const format of ['yaml','json'])for(const targetVersion of ['3.0.4','2.0'])for(const mode of ['dynamic-peer','unresolved'])test(`${version} ${format} ${mode} refuses unproved ${targetVersion} conversion with original locations and no outputs`,async()=>{
  const edits=mode==='unresolved'?[['/components/schemas/Use/$dynamicRef','missing.yaml#base']]:[['/components/schemas/Base/$dynamicAnchor','base'],['/components/schemas/Use/$dynamicRef','#base'],...(mode==='dynamic-peer'?[['/components/schemas/Peer',{$id:'peer',$dynamicAnchor:'base',type:'string'}]]:[])],input=changed(packet(version,format,'plain'),edits),original=input.resources[0].text;
  const result=await planMigration({...input,targetVersion});assert.equal(result.complete,false);assert.equal(result.status,'blocked');assert.deepEqual(result.outputs,[]);assert.deepEqual(result.changes,[]);const found=result.problems.find(p=>p.resource===input.root&&p.pointer.includes(mode==='unresolved'?'Use':'Base'));assert(found,JSON.stringify(result.problems));assert(found.range[1]>found.range[0]);assert.equal(input.resources[0].text,original);
+});
+
+for(const description of ['multiple dynamic paths to the $dynamicRef keyword','after leaving a dynamic scope, it is not used by a $dynamicRef'])
+for(const targetVersion of ['3.1.2','3.2.1'])test(`whole resource ownership preserves ${description} through ${targetVersion}`,async()=>{
+ const fixture=official.find(value=>value.description===description);assert(fixture,description);
+ const input=packet('3.2.1','json','plain');
+ input.resources[0].text=JSON.stringify({openapi:'3.2.1',info:{title:'Dynamic paths',version:'1'},paths:{},components:{schemas:{Use:fixture.schema}}});
+ const texts=fixture.tests.map(value=>JSON.stringify(value.data)),expected=fixture.tests.map(value=>value.valid);
+ assert.deepEqual(await outcomes(input,'/components/schemas/Use',texts),expected);
+ const review=await planMigration({...input,targetVersion});assert.equal(review.complete,true,JSON.stringify(review.problems));
+ assert.deepEqual(await outcomes(output(review),'/components/schemas/Use',texts),expected);
+ assert(require('./dist/model.cjs').createGraph(output(review)).graph.entryReferences().some(reference=>reference.keyword==='$dynamicRef'&&reference.dynamic));
 });

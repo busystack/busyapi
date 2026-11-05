@@ -19,6 +19,8 @@ export const knownDialects = new Set([
 /** JSON Schema Core 8.2.1: an empty fragment identifies the same schema
  * resource. Preserve the declared spelling separately from its lookup key. */
 export const schemaDialectIdentity = (uri:string):string => uri.endsWith('#')?uri.slice(0,-1):uri;
+export const sameSchemaDialect=(a:string|null,b:string|null):boolean=>a===b||
+    typeof a==='string'&&typeof b==='string'&&schemaDialectIdentity(a)===schemaDialectIdentity(b);
 
 export type GraphTarget = { resource: string; pointer: string; kind: string };
 export type GraphScope = GraphTarget & {
