@@ -98,6 +98,12 @@ void main() {
                     {'url': 'https://a.example.invalid'},
                   ],
                 'paths': {
+                  if (sharedBinary) '/literal': {
+                    'get': {'responses': {'200': {'description': 'Literal and JSON', 'content': {
+                      'multipart/form-data': {'schema': {r'$ref': 'shared.yaml#/components/schemas/Literal'}, 'encoding': {'payload': {'contentType': 'application/octet-stream'}}},
+                      'application/json': {'schema': {r'$ref': 'shared.yaml#/components/schemas/Literal'}},
+                    }}}},
+                  },
                   if (sharedBinary) '/bytes': {
                     'get': {'responses': {'200': {'description': 'Binary and JSON', 'content': {
                       'application/octet-stream': {'schema': {r'$ref': 'shared.yaml#/components/schemas/Binary'}},
@@ -154,6 +160,8 @@ void main() {
                   } else 'components': {
                     'schemas': {
                       'Value': {'type': 'integer'},
+                      if (sharedBinary) 'Empty': {'type': 'string', 'format': 'binary', 'enum': ['', 'discarded'], 'maxLength': 0, 'pattern': r'^$'},
+                      if (sharedBinary) 'Literal': {'type': 'object', 'required': ['payload'], 'properties': {'payload': {r'$ref': '#/components/schemas/Empty'}}, 'enum': [{'payload': ''}]},
                       if (sharedBinary) 'Binary': {'type': 'string', 'format': 'binary', 'nullable': true, 'minLength': 1, 'maxLength': 5, 'description': '[Bytes](./bytes.md)'},
                     },
                   },
@@ -355,6 +363,7 @@ void main() {
             expect(comparison.after, contains('_migrated_binary_use_'));
             expect(comparison.after, contains('application/octet-stream'));
             expect(comparison.after, contains('maxLength'));
+            expect(comparison.after, contains('binary_container_literal'));
           }
           if (uriSecurity) {
             expect(comparison.after, contains('_migrated_security_binding_'));

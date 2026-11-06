@@ -14,10 +14,10 @@ const key=(at:MigrationLocation)=>JSON.stringify([at.resource,at.pointer]);
  * occurrences. A shared JSON consumer retains its string model. Specialize
  * captured static forwarding chains through the existing material allocator,
  * leaving every neutral definition and unrelated incoming consumer intact. */
-export function specializeBinarySchemaUses(graphs:readonly ReferenceGraph[],sources:ReadonlyMap<string,MigrationSource>,
-    families:readonly string[],target:string,owners:MigrationSchemaOwners):ReadonlyMap<string,readonly MigrationLocation[]> {
+export async function specializeBinarySchemaUses(graphs:readonly ReferenceGraph[],sources:ReadonlyMap<string,MigrationSource>,
+    families:readonly string[],target:string,owners:MigrationSchemaOwners):Promise<ReadonlyMap<string,readonly MigrationLocation[]>> {
     const provenance=new Map<string,MigrationLocation[]>();
-    if(!families.some(family=>family==='3.0'&&modernFamily(target)||modernFamily(family)&&!modernFamily(target)))return provenance;
+    if(!families.some(family=>['2.0','3.0'].includes(family)&&modernFamily(target)||modernFamily(family)&&!modernFamily(target)))return provenance;
     const pristine=new Map([...sources].map(([id,source])=>[id,source.fork()]));
     const prepared=new Map<string,MigrationLocation>(),repaired=new Set<string>(),preparedContainers=new Set<string>();let work=0;
     const inspect=()=>{if(++work>2000000)throw new SourceError('limit.migration.binary','Binary use specialization exceeds its bounded graph work');};
@@ -25,12 +25,14 @@ export function specializeBinarySchemaUses(graphs:readonly ReferenceGraph[],sour
         const containing:BinaryContainerUse[]=[];
         const uses=new BinaryUses(graph,graphs),incoming=new Set(graph.entryReferences().filter(reference=>
             reference.kind==='schema'&&reference.resolution==='resolved').map(reference=>key({resource:reference.targetResource!,pointer:reference.targetPointer!})));
+        await uses.prepare();
         for(const scope of graph.entryScopes()){
             inspect();if(scope.kind!=='schema'||!families.includes(scope.family))continue;
             const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
-            if(!value||typeof value!=='object'||typeof value.$ref==='string'&&(!modernFamily(scope.family)||Object.keys(value).length===1)||
-                !modernFamily(scope.family)&&!(['type','minLength','pattern','enum','const','contentMediaType','contentEncoding'].some(name=>Object.hasOwn(value,name))||value.format==='binary'))continue;
+            if(!value||typeof value!=='object'||typeof value.$ref==='string'&&(!modernFamily(scope.family)||Object.keys(value).length===1))continue;
             const contexts=uses.inspect(scope),raw=contexts.filter(rawBinaryUse);
+            if(!modernFamily(scope.family)&&!(['type','minLength','pattern','enum','const','contentMediaType','contentEncoding'].some(name=>Object.hasOwn(value,name))||value.format==='binary')&&
+                !raw.some(use=>uses.constraints.requiresLiteralOwner(use)))continue;
             if(!raw.length||raw.length===contexts.length)continue;
             const occurrenceAt=(use:(typeof contexts)[number]):GraphScope|undefined=>{
                 // The binary-use owner supplies an instance path. Resolve

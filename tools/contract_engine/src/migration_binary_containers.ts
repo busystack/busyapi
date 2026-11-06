@@ -72,7 +72,7 @@ export function specializeBinaryContainers(graph:ReferenceGraph,sources:Readonly
         if(preparedRoots.has(key(root)))continue;
         // Existing role/entry preparation owns independently interpreted data.
         // A binary specialization must not bypass that ambiguity boundary.
-        if(!['3.0','3.1','3.2'].includes(root.family)||graph.literalContainer(root.resource,root.pointer)!==undefined||graph.hasOverlappingScope(root.resource,root.pointer))continue;
+        if(!['2.0','3.0','3.1','3.2'].includes(root.family)||graph.literalContainer(root.resource,root.pointer)!==undefined||graph.hasOverlappingScope(root.resource,root.pointer))continue;
         const routes=new Map<string,Route>();
         const selectionsKey=(selections:readonly Selection[])=>[...new Set(selections.map(selection=>
             JSON.stringify([selection.target.resource,selection.target.pointer,selection.path])))].sort();

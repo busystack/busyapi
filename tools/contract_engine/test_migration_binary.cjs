@@ -26,7 +26,7 @@ async function wire(input,type,bytes,form=false){
 for(const from of legacy)for(const target of ['3.1.2','3.2.1'])for(const format of ['yaml','json'])
 test(`${from} -> ${target} ${format} raw body mapping retains exact non-Unicode and empty bytes`,async()=>{
  const type='application/octet-stream',input=capture(from,format,type,{type:'string',format:'binary',description:'Keep leaf'},target),before=input.resources[0].text;
- const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));assert.equal(plan.producerVersion,'87');
+ const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));assert.equal(plan.producerVersion,'88');
  const output=cold(plan);assert.deepEqual(schema(output,type),{description:'Keep leaf'});
  for(const bytes of [Buffer.from([0,255,128,195,169]),Buffer.alloc(0)]){
   assert.deepEqual(await wire(output,type,bytes),await wire(input,type,bytes));assert((await wire(output,type,bytes)).every(value=>value.valid));
@@ -380,4 +380,191 @@ for(const from of modern)for(const format of ['yaml','json'])test(`${from} ${for
  const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));
  for(const bytes of [Buffer.alloc(0),Buffer.from([0,255,128]),Buffer.from([0,255,128,0])])
   assert.deepEqual(await wire(cold(plan),type,bytes),await wire(input,type,bytes));
+});
+
+function r1LiteralCapture(version,format,target,{array=false,composition=false,impossible=false,constant=false,untyped=false}={}){
+ const type='multipart/form-data; boundary=Literal',input=capture(version,format,type,{$ref:'#/components/schemas/Box'},target);
+ const doc=format==='json'?JSON.parse(input.resources[0].text):YAML.parse(input.resources[0].text),models='file:///approved/contracts/literal-model.'+format;
+ const literal={payload:array?['','']:'',exact:'EXACT',flag:false,meta:{type:'literal type',$ref:'literal.json',values:[null,1.25,'雪']}};
+ const object={type:'object',required:['payload','exact','flag','meta'],properties:{payload:array?{type:'array',items:{$ref:'#/Binary'}}:{$ref:'#/Binary'},exact:{type:'integer'},flag:{type:'boolean'},meta:{type:'object'}}};
+ const constraint=constant?{const:literal}:{enum:[literal]};
+ const box=composition?{allOf:[object,constraint]}:{...object,...constraint};
+ doc.components={schemas:{Box:{$ref:'literal-alias.'+format+'#/Box'}}};doc['x-history']=literal;
+ for(const content of [doc.paths['/bytes'].post.requestBody.content,doc.paths['/bytes'].post.responses[200].content]){
+  content[type].encoding={payload:{contentType:'application/octet-stream'},exact:{contentType:'text/plain'},flag:{contentType:'text/plain'},meta:{contentType:'application/json'}};
+  content['application/json']={schema:{$ref:'#/components/schemas/Box'}};
+ }
+ const binary=version.startsWith('3.0.')&&!untyped?{type:'string',format:'binary',...(impossible?{minLength:1}:{})}:{};
+ const encode=value=>render(value,format).replace(/"?EXACT"?/g,'9007199254740993.00');
+ input.resources[0].text=encode(doc);
+ input.resources.push({id:models,aliases:['file:///approved/contracts/literal-alias.'+format],text:encode({Box:box,Binary:binary,'x-literal':literal}),generation:12});
+ return {input,type,array};
+}
+function r1LiteralWire(bytes,{array=false,number='9007199254740993.00',flag='false',extra=false}={}){
+ const part=(name,type,bytes)=>Buffer.concat([Buffer.from('--Literal\r\nContent-Disposition: form-data; name="'+name+'"\r\nContent-Type: '+type+'\r\n\r\n'),Buffer.isBuffer(bytes)?bytes:Buffer.from(bytes),Buffer.from('\r\n')]);
+ return Buffer.concat([part('payload','application/octet-stream',bytes),...(array?[part('payload','application/octet-stream',bytes)]:[]),
+  part('exact','text/plain',number),part('flag','text/plain',flag),part('meta','application/json','{"type":"literal type","$ref":"literal.json","values":[null,1.25,"雪"]}'),
+  ...(extra?[part('extra','text/plain','unrelated')]:[]),Buffer.from('--Literal--\r\n')]);
+}
+for(const version of legacy)for(const target of modern)for(const format of ['yaml','json'])for(const array of [false,true])
+test(`R1 ${version} -> ${target} ${format} containing ${array?'array-item':'property'} equality retains independent exact JSON literals`,async()=>{
+ const {input,type}=r1LiteralCapture(version,format,target,{array,composition:array}),original=input.resources.map(resource=>resource.text);
+ const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));assert.equal(plan.identity,(await planMigration(input)).identity);
+ const output=cold(plan),graph=createGraph(output).graph;assert(graph.references.every(reference=>reference.resolution==='resolved'));
+ assert.equal(graph.docs.get(output.root).dataJson('/x-history'),new SourceDocument(original[0],input.root).dataJson('/x-history'));
+ for(const [bytes,options,valid]of [[Buffer.alloc(0),{},true],[Buffer.from([0,255,128]),{},false],
+  [Buffer.alloc(0),{number:'9007199254740992'},false],[Buffer.alloc(0),{flag:'true'},false],[Buffer.alloc(0),{extra:true},false]]){
+  const payload=r1LiteralWire(bytes,{array,...options}),before=await wire(input,type,payload,true),after=await wire(output,type,payload,true);
+  assert.deepEqual(after,before);assert(after.every(value=>value.valid===valid));
+ }
+ const json='{"payload":'+(array?'["",""]':'""')+',"exact":9007199254740993.00,"flag":false,"meta":{"type":"literal type","$ref":"literal.json","values":[null,1.25,"雪"]}}';
+ for(const text of [json,json.replace('9007199254740993.00','9007199254740992'),json.replace('"flag":false','"flag":true')])
+  assert.deepEqual(await wire(output,'application/json',Buffer.from(text)),await wire(input,'application/json',Buffer.from(text)));
+ assert(output.resources.some(resource=>resource.text.includes('9007199254740993.00')));
+ assert.deepEqual(input.resources.map(resource=>resource.text),original);
+});
+for(const format of ['yaml','json'])for(const composition of [false,true])test(`R1 ${format} an inherited leaf assertion makes a containing literal impossible composition=${composition}`,async()=>{
+ const {input,type}=r1LiteralCapture('3.0.4',format,'3.2.1',{composition,impossible:true});
+ const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));
+ for(const bytes of [Buffer.alloc(0),Buffer.from([0,255,128])]){
+  const before=await wire(input,type,r1LiteralWire(bytes),true),after=await wire(cold(plan),type,r1LiteralWire(bytes),true);
+  assert.deepEqual(after,before);assert(after.every(value=>!value.valid));
+ }
+});
+for(const version of modern)for(const format of ['yaml','json'])test(`R1 ${version} ${format} a containing const never equates raw bytes with its JSON string member`,async()=>{
+ const {input,type}=r1LiteralCapture(version,format,'3.0.4',{constant:true});
+ const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));const output=cold(plan);
+ for(const bytes of [Buffer.alloc(0),Buffer.from([255])]){
+  const before=await wire(input,type,r1LiteralWire(bytes),true),after=await wire(output,type,r1LiteralWire(bytes),true);
+  assert.deepEqual(after,before);assert(after.every(value=>!value.valid));
+ }
+ const text='{"payload":"","exact":9007199254740993.00,"flag":false,"meta":{"type":"literal type","$ref":"literal.json","values":[null,1.25,"雪"]}}';
+ assert.deepEqual(await wire(output,'application/json',Buffer.from(text)),await wire(input,'application/json',Buffer.from(text)));
+});
+for(const version of legacy)for(const target of ['3.1.2','3.2.1'])for(const format of ['yaml','json'])
+for(const schema of [
+ {type:'string',format:'binary',maxLength:0,pattern:'^$'},
+ {type:'string',format:'binary',enum:['','PNG'],maxLength:0,pattern:'^$'},
+ {allOf:[{type:'string',format:'binary',minLength:3},{maxLength:1,pattern:'^PNG'}]},
+ {allOf:[{type:'string',format:'binary',enum:['','PNG']},{not:{enum:['PNG']}}]},
+ {type:'string',format:'binary',enum:['','a'],oneOf:[{pattern:'^$'},{pattern:'^a$'}],maxLength:0},
+ {type:'string',format:'binary',pattern:'(?!)'},
+ {type:'string',format:'binary',pattern:'.*'},
+])test(`R1 ${version} -> ${target} ${format} complete raw constraint certificate ${JSON.stringify(schema)}`,async()=>{
+ const type='application/octet-stream',input=capture(version,format,type,schema,target),original=input.resources[0].text;
+ const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));
+ for(const bytes of [Buffer.alloc(0),Buffer.from('a'),Buffer.from('PNG'),Buffer.from([0,255,128]),Buffer.from('\r\n')])
+  assert.deepEqual(await wire(cold(plan),type,bytes),await wire(input,type,bytes));
+ assert.equal(input.resources[0].text,original);
+});
+for(const format of ['yaml','json'])test(`R1 ${format} an exhaustive one-octet language is length-equivalent; a proper subset stays blocked`,async()=>{
+ const type='application/octet-stream',language=['',...Array.from({length:256},(_,value)=>String.fromCharCode(value))];
+ const input=capture('3.0.4',format,type,{type:'string',format:'binary',enum:language},'3.2.1'),plan=await planMigration(input);
+ assert.equal(plan.complete,true,JSON.stringify(plan.problems));
+ for(const bytes of [Buffer.alloc(0),Buffer.from([0]),Buffer.from([255]),Buffer.from([0,255])])
+  assert.deepEqual(await wire(cold(plan),type,bytes),await wire(input,type,bytes));
+ const refused=await planMigration(capture('3.0.4',format,type,{type:'string',format:'binary',enum:language.slice(0,-1)},'3.2.1'));
+ assert.equal(refused.complete,false);assert.deepEqual(refused.outputs,[]);
+});
+for(const format of ['yaml','json'])test(`R1 ${format} rejected containing nonempty byte equality retains its exact source`,async()=>{
+ const {input}=r1LiteralCapture('3.0.4',format,'3.2.1'),original=input.resources.map(resource=>resource.text);
+ input.resources[1].text=input.resources[1].text.replaceAll(format==='json'?'"payload":""':'payload: \'\'',format==='json'?'"payload":"PNG"':"payload: PNG");
+ const captured=input.resources.map(resource=>resource.text),plan=await planMigration(input);
+ assert.equal(plan.complete,false,JSON.stringify(plan.problems));assert.deepEqual(plan.outputs,[]);assert.deepEqual(plan.changes,[]);
+ assert(plan.problems.some(problem=>problem.code==='migration.schema.binary-literal'));
+ assert.deepEqual(input.resources.map(resource=>resource.text),captured);assert.notDeepEqual(captured,original);
+});
+for(const version of modern)for(const format of ['yaml','json'])test(`R1 ${version} ${format} a raw containing-const predicate preserves conditional applicability`,async()=>{
+ const type='multipart/form-data; boundary=Conditional';
+ const model={type:'object',properties:{payload:{}},if:{const:{payload:''}},then:{required:['impossible']},else:{required:['payload']}};
+ const input=capture(version,format,type,{$ref:'#/components/schemas/Box'},'3.0.4'),doc=format==='json'?JSON.parse(input.resources[0].text):YAML.parse(input.resources[0].text);
+ doc.components={schemas:{Box:model}};
+ for(const content of [doc.paths['/bytes'].post.requestBody.content,doc.paths['/bytes'].post.responses[200].content]){
+  content[type].encoding={payload:{contentType:'application/octet-stream'}};
+  content['application/json']={schema:{$ref:'#/components/schemas/Box'}};
+ }
+ input.resources[0].text=render(doc,format);const plan=await planMigration(input);
+ assert.equal(plan.complete,true,JSON.stringify(plan.problems));const output=cold(plan);
+ for(const bytes of [Buffer.alloc(0),Buffer.from([0,255,128])]){
+  const payload=Buffer.concat([Buffer.from('--Conditional\r\nContent-Disposition: form-data; name="payload"\r\nContent-Type: application/octet-stream\r\n\r\n'),bytes,Buffer.from('\r\n--Conditional--\r\n')]);
+  assert.deepEqual(await wire(output,type,payload,true),await wire(input,type,payload,true));
+ }
+ for(const text of ['{"payload":""}','{"payload":"x"}','{}','{"payload":"","impossible":true}'])
+  assert.deepEqual(await wire(output,'application/json',Buffer.from(text)),await wire(input,'application/json',Buffer.from(text)));
+});
+for(const format of ['yaml','json'])test(`R1 ${format} exact contradictory bounds retain their original lexemes`,async()=>{
+ const type='application/octet-stream',input=capture('3.0.4',format,type,{type:'string',format:'binary',minLength:'LOWER',maxLength:0},'3.2.1');
+ input.resources[0].text=input.resources[0].text.replace(/"?LOWER"?/g,'1e10000');
+ const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));assert(plan.outputs.some(output=>output.text.includes('1e10000')));
+ for(const bytes of [Buffer.alloc(0),Buffer.from([0,255,128])])assert.deepEqual(await wire(cold(plan),type,bytes),await wire(input,type,bytes));
+});
+for(const format of ['yaml','json'])test(`R1 ${format} independently referenced predicates keep their JSON meaning beside a raw length intersection`,async()=>{
+ const type='application/octet-stream',input=capture('3.0.4',format,type,{$ref:'predicate-alias.'+format+'#/Binary'},'3.2.1');
+ const root=format==='json'?JSON.parse(input.resources[0].text):YAML.parse(input.resources[0].text);
+ for(const content of [root.paths['/bytes'].post.requestBody.content,root.paths['/bytes'].post.responses[200].content])
+  content['application/json']={schema:{$ref:'predicate-alias.'+format+'#/Predicate'}};
+ input.resources[0].text=render(root,format);
+ input.resources.push({id:'file:///approved/contracts/predicate.'+format,aliases:['file:///approved/contracts/predicate-alias.'+format],generation:19,
+  text:render({Binary:{allOf:[{$ref:'#/Bounds'},{$ref:'#/Predicate'}]},Bounds:{type:'string',format:'binary',maxLength:0},Predicate:{pattern:'^$'}},format)});
+ const original=input.resources.map(resource=>resource.text),plan=await planMigration(input);
+ assert.equal(plan.complete,true,JSON.stringify(plan.problems));const output=cold(plan);
+ for(const bytes of [Buffer.alloc(0),Buffer.from('\n'),Buffer.from([0,255,128])])
+  assert.deepEqual(await wire(output,type,bytes),await wire(input,type,bytes));
+ for(const text of ['""','"\\n"','"PNG"','false'])
+  assert.deepEqual(await wire(output,'application/json',Buffer.from(text)),await wire(input,'application/json',Buffer.from(text)));
+ assert.deepEqual(input.resources.map(resource=>resource.text),original);
+});
+for(const format of ['yaml','json'])test(`R1 ${format} finite raw equivalence preserves successful branch metadata`,async()=>{
+ const {evaluateMigrationAnnotations}=require('./dist/migration_annotations.cjs');
+ const type='application/octet-stream',input=capture('3.0.4',format,type,{type:'string',format:'binary',enum:['','a'],maxLength:0,
+  description:'Root metadata',default:'',oneOf:[{pattern:'^$',description:'Empty metadata'},{pattern:'^a$',title:'Nonempty metadata'}]},'3.2.1');
+ input.resources[0].text=input.resources[0].text.replace(/"?EXACT"?/g,'9007199254740993.00');
+ const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));
+ const annotations=async(packet,bytes)=>{
+  const checked=await evaluateMigrationAnnotations({...packet,runtimeInstances:['request-body','response-body'].map((subject,index)=>({subject,location:type,
+   text:bytes.toString('base64'),mediaBase64:true,mediaType:type,media:{resource:packet.root,pointer:index?'/paths/~1bytes/post/responses/200/content/'+escape(type):'/paths/~1bytes/post/requestBody/content/'+escape(type)}}))});
+  assert.equal(checked.checked.complete,true,JSON.stringify(checked.checked.runtimeFindings));return checked.annotations;
+ };
+ for(const bytes of [Buffer.alloc(0),Buffer.from('a'),Buffer.from([255])])assert.deepEqual(await annotations(cold(plan),bytes),await annotations(input,bytes));
+});
+for(const format of ['yaml','json'])for(const targetVersion of modern)test(`R1 Swagger ${format} -> ${targetVersion} raw string intersections use the same exact certificate`,async()=>{
+ const root='file:///approved/swagger.'+format,type='application/octet-stream';
+ const doc={swagger:'2.0',info:{title:'Raw string proof',version:'1'},host:'api.invalid',schemes:['https'],consumes:[type],produces:[type],
+  paths:{'/bytes':{post:{parameters:[{in:'body',name:'body',schema:{$ref:'#/definitions/Raw'}}],responses:{200:{description:'Reply',schema:{$ref:'#/definitions/Raw'}}}}}},
+  definitions:{Raw:{type:'string',format:'binary',enum:['','PNG'],maxLength:0,pattern:'^$'}}};
+ const input={root,snapshot:'swagger-r1',targetVersion,destination:'file:///swagger-r1-copy/',resources:[{id:root,text:render(doc,format),generation:2}]};
+ const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));
+ for(const bytes of [Buffer.alloc(0),Buffer.from('PNG'),Buffer.from([0,255,128])]){
+  const before=await evaluateSchemas({...input,runtimeInstances:['request-body','response-body'].map(subject=>({subject,location:type,mediaType:type,mediaBase64:true,text:bytes.toString('base64'),
+   schema:{resource:root,pointer:subject==='request-body'?'/paths/~1bytes/post/parameters/0/schema':'/paths/~1bytes/post/responses/200/schema'}}))});
+  assert.equal(before.complete,true,JSON.stringify(before.runtimeFindings));
+  assert.deepEqual(await wire(cold(plan),type,bytes),before.runtimeEvaluations.map(value=>({complete:value.complete,valid:value.valid})));
+ }
+});
+for(const format of ['yaml','json'])test(`R1 ${format} representation-neutral leaves still give their containing literal independent raw and JSON owners`,async()=>{
+ const {input,type}=r1LiteralCapture('3.0.4',format,'3.2.1',{untyped:true}),original=input.resources.map(resource=>resource.text);
+ const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));const output=cold(plan);
+ for(const bytes of [Buffer.alloc(0),Buffer.from([0,255,128])])assert.deepEqual(await wire(output,type,r1LiteralWire(bytes),true),await wire(input,type,r1LiteralWire(bytes),true));
+ const text='{"payload":"","exact":9007199254740993.00,"flag":false,"meta":{"type":"literal type","$ref":"literal.json","values":[null,1.25,"雪"]}}';
+ const before=await wire(input,'application/json',Buffer.from(text)),after=await wire(output,'application/json',Buffer.from(text));
+ assert.deepEqual(after,before);assert(after.every(value=>value.valid));assert.deepEqual(input.resources.map(resource=>resource.text),original);
+});
+for(const format of ['yaml','json'])test(`R1 ${format} enclosing nonbinary assertions can make byte equality and patterns irrelevant`,async()=>{
+ const {input,type}=r1LiteralCapture('3.0.4',format,'3.2.1');
+ const model=format==='json'?JSON.parse(input.resources[1].text):YAML.parse(input.resources[1].text);
+ model.Box.enum[0].payload='PNG';model.Box.enum[0].exact='EXACT';model.Box.properties.flag={type:'boolean',enum:[true]};model.Binary.pattern='^PNG';
+ input.resources[1].text=render(model,format).replace(/"?EXACT"?/g,'9007199254740993.00');
+ const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));
+ for(const bytes of [Buffer.alloc(0),Buffer.from('PNG'),Buffer.from([0,255,128])]){
+  const before=await wire(input,type,r1LiteralWire(bytes),true),after=await wire(cold(plan),type,r1LiteralWire(bytes),true);
+  assert.deepEqual(after,before);assert(after.every(value=>!value.valid));
+ }
+});
+for(const format of ['yaml','json'])test(`R1 ${format} a legacy forced-octet part is not mistaken for an ordinary JSON consumer`,async()=>{
+ const type='multipart/form-data; boundary=Binding',input=capture('3.0.4',format,type,{type:'object',required:['payload'],properties:{payload:{type:'string',format:'binary',enum:['']}}},'3.2.1');
+ const doc=format==='json'?JSON.parse(input.resources[0].text):YAML.parse(input.resources[0].text);
+ for(const content of [doc.paths['/bytes'].post.requestBody.content,doc.paths['/bytes'].post.responses[200].content])content[type].encoding={payload:{contentType:'application/json'}};
+ input.resources[0].text=render(doc,format);const original=input.resources[0].text;
+ const plan=await planMigration(input);assert.equal(plan.complete,false);assert.deepEqual(plan.outputs,[]);
+ assert(plan.problems.some(problem=>problem.code==='migration.schema.binary-context'));assert.equal(input.resources[0].text,original);
 });

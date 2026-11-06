@@ -154,7 +154,7 @@ $_tail''').replaceAll('\n', '\r\n')}',
             MigrationStatus.faithfullyConvertible,
             reason: '${review.result}',
           );
-          expect(review.result['producerVersion'], '87');
+          expect(review.result['producerVersion'], '88');
           expect(review.unsaved, isTrue);
           expect(review.outdated, isFalse);
           expect(await Directory(review.destination).exists(), isFalse);
@@ -221,7 +221,7 @@ $_tail''').replaceAll('\n', '\r\n')}',
             reason: '${prepared.stdout}\n${prepared.stderr}',
           );
           final report = jsonDecode(prepared.stdout as String) as Map;
-          expect(report['producerVersion'], '87');
+          expect(report['producerVersion'], '88');
           expect(report['published'], false);
           expect(await Directory(cliDestination).exists(), isFalse);
           final published = await cli([
@@ -345,7 +345,7 @@ $_tail''').replaceAll('\n', '\r\n')}',
     },
   );
 
-  test('a previous migration producer cannot authorize publication', () async {
+  for (final obsolete in ['86', '87']) test('migration producer $obsolete cannot authorize publication', () async {
     final directory = await Directory.systemTemp.createTemp(
       'busyapi-migration-previous-',
     );
@@ -366,7 +366,7 @@ child.stdout.on('data', chunk => {
   if (pending.length < length + 4) break;
   const value = JSON.parse(pending.subarray(4, length + 4).toString('utf8'));
   pending = pending.subarray(length + 4);
-  if (value.result?.producer === 'busyapi-native-migration') value.result.producerVersion = '86';
+  if (value.result?.producer === 'busyapi-native-migration') value.result.producerVersion = 'OBSOLETE_PRODUCER';
   const payload = Buffer.from(JSON.stringify(value)), header = Buffer.alloc(4);
   header.writeUInt32BE(payload.length);
   process.stdout.write(header);
@@ -375,7 +375,7 @@ child.stdout.on('data', chunk => {
 });
 process.once('SIGTERM', () => child.kill('SIGTERM'));
 child.once('exit', code => { process.exitCode = code ?? 1; });
-''',
+'''.replaceAll('OBSOLETE_PRODUCER', obsolete),
     );
     final engine = EngineProcess(executable: runtimeNode, helper: proxy.path);
     addTearDown(engine.close);

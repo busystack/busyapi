@@ -15,6 +15,7 @@ import {MigrationSchemaOwners} from './migration_schema_owners';
 import {MultipartEncoding,type MultipartSchemaStep} from './multipart_encoding';
 import {projectSchemaReference} from './schema_reference_projection';
 import {rawConstraintBlocker,projectRawConstraints,rawContainerLiteralUnchanged,rawConstraintReason} from './migration_binary_constraints';
+import {BinaryConstraintProofs} from './migration_binary_proofs';
 
 export type BinaryUse=Readonly<{kind:'body'|'part'|'data';representation?:'data'|'unknown';mediaType?:string;source:GraphScope;schema:GraphScope;path:readonly BinaryStep[]}>;
 export type BinaryStep=Readonly<{property:string}>|'item'|'nested';
@@ -31,9 +32,11 @@ export class BinaryUses {
     private readonly swaggerUses=new Map<string,{mediaType:string;source:GraphScope}[]>();
     private readonly forms:FormSemantics;
     private readonly transfers:MultipartEncoding;
+    readonly constraints:BinaryConstraintProofs;
     constructor(private readonly graph:ReferenceGraph,contexts:readonly ReferenceGraph[]=[graph]){
         this.forms=new FormSemantics(graph);
         this.transfers=new MultipartEncoding(graph);
+        this.constraints=new BinaryConstraintProofs(graph);
         for(const edge of graph.references){
             const projection=projectSchemaReference(edge);
             if(projection.state!=='fixed')continue;
@@ -80,6 +83,11 @@ export class BinaryUses {
             }
         }
     }
+    async prepare():Promise<void>{
+        const uses:BinaryUse[]=[];
+        for(const scope of this.graph.entryScopes())if(scope.kind==='schema')uses.push(...this.inspect(scope).filter(rawBinaryUse));
+        await this.constraints.prepare(uses);
+    }
     rawCompatible(use:Use,family:string):boolean {
         const seen=new Set<string>();
         const visit=(scope:GraphScope,path:readonly Step[]):boolean=>{
@@ -106,9 +114,9 @@ export class BinaryUses {
                 // Container enums compare literal JSON data, whose embedded
                 // octet strings are not modern raw leaves. They need a separate
                 // whole-instance mapping rather than a leaf annotation edit.
-                if(!rawContainerLiteralUnchanged(value,path))return false;
+                if(!rawContainerLiteralUnchanged(value,path)&&!this.constraints.compatible(use,scope,path))return false;
             }else{
-                if(!modernFamily(scope.family)&&rawConstraintBlocker(value)!==undefined)return false;
+                if(!modernFamily(scope.family)&&rawConstraintBlocker(value)!==undefined&&!this.constraints.compatible(use,scope,path))return false;
             }
             for(const keyword of ['allOf','anyOf','oneOf'])if(Array.isArray(value[keyword]))
                 for(let index=0;index<value[keyword].length;index++)if(!child(scope.pointer+'/'+keyword+'/'+index))return false;
@@ -149,7 +157,13 @@ export class BinaryUses {
                     if(part&&typeof part==='object'&&path.slice(1).every(step=>step==='item')){
                         const value=this.graph.docs.get(resource)!.dataNode(owner.pointer)!.value;
                         let shape=this.forms.shape(resource,pointer).properties?.[part.property];
-                        if(shape?.types?.includes('array'))shape=shape.items;
+                        if(shape?.types?.includes('array')){
+                            // Named MIME encoding applies to each array item.
+                            // The array container is modeled data, not a raw
+                            // part instance, even when all of its items are raw.
+                            if(path.length===1){uses.push({kind:'data',source:owner,schema:at,path});continue;}
+                            shape=shape.items;
+                        }
                         const rule=value.encoding?.[part.property];
                         // Styled encodings use their RFC6570 text representation.
                         const styled=essence==='application/x-www-form-urlencoded'&&
@@ -158,7 +172,17 @@ export class BinaryUses {
                         let representation:'data'|'unknown'|undefined=essence==='application/x-www-form-urlencoded'?'data':undefined;
                         if(representation===undefined){
                             const steps:MultipartSchemaStep[]=path.map(step=>step==='item'?{item:undefined}:{property:(step as {property:string}).property});
-                            try{if(this.transfers.schemaPathEncoding(at,steps).schemaEncoded)representation='data';}
+                            try{
+                                const transfer=this.transfers.schemaPathEncoding(at,steps);
+                                if(transfer.schemaEncoded)representation='data';
+                                else if(transfer.instanceEncoding==='octets'&&!mediaTypes(contentType).every(type=>
+                                    runtimeMediaKind(type.text)==='opaque'&&runtimeBinaryMedia(type.text)))
+                                    // A legacy binary annotation can force an
+                                    // octet view even for a JSON/text MIME part.
+                                    // The target codec binding is not established
+                                    // by a JSON-compatible media label alone.
+                                    representation='unknown';
+                            }
                             catch(error){
                                 if(!(error instanceof SourceError)||error.code.startsWith('limit.'))throw error;
                                 representation='unknown';
@@ -214,10 +238,15 @@ const annotation=(name:string)=>name.startsWith('x-')||['title','description','e
  * their type and base64 spelling. Raw leaves are outside JSON types in modern
  * OAS; only proved raw occurrences can lose the legacy octet-string type.
  * Assertions with no established raw-instance mapping remain located blockers. */
-export function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<string,MigrationSource>,from:string,to:string,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph]):ReadonlySet<string> {
+export async function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<string,MigrationSource>,from:string,to:string,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph]):Promise<ReadonlySet<string>> {
     const rawScopes=new Set<string>();
     if(!((from==='2.0'||from==='3.0')&&modernFamily(to)||from==='2.0'&&to==='3.0'||modernFamily(from)&&(to==='3.0'||to==='2.0')))return rawScopes;
     const uses=new BinaryUses(graph,contexts),owners=new MigrationSchemaOwners(graph,sources,undefined,[],contexts);
+    if(modernFamily(from)!==modernFamily(to)){
+        await uses.prepare();
+        uses.constraints.projectGuards(sources,from);
+        uses.constraints.projectLiterals(sources,owners,from,to,issue);
+    }
     for(const scope of migrationScopes(contexts)){
         if(scope.kind!=='schema')continue;
         if(scope.family!==from)continue;
@@ -259,7 +288,8 @@ export function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<string,Mig
                 continue;
             }
             const blocker=rawConstraintBlocker(value);
-            if(blocker){
+            const equivalent=uses.constraints.scalar(scope);
+            if(blocker&&equivalent===undefined){
                 issue(field(blocker),'migration.schema.binary-constraint',
                     blocker==='pattern'?'No length-language or redundant-constraint certificate establishes this octet-string pattern; the target has no direct raw-byte pattern assertion':
                         'Nonempty octet literals have no JSON literal spelling for equality with modern raw instances', rawConstraintReason(value,blocker));continue;
@@ -271,7 +301,7 @@ export function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<string,Mig
                 fail('format','A containing literal assertion or referenced constraint lacks a complete raw-instance mapping');continue;
             }
             projectRawConstraints(source,pointer,value,name=>owners.retainLiteralValue(
-                {...scope,pointer:scope.pointer+'/'+name},source,pointer+'/'+name,'binary_constraint'));continue;
+                {...scope,pointer:scope.pointer+'/'+name},source,pointer+'/'+name,'binary_constraint'),equivalent);continue;
         }
         if(from==='2.0'||from==='3.0')continue;
         const capturedUses=uses.inspect(scope),rawUses=capturedUses.filter(rawBinaryUse);

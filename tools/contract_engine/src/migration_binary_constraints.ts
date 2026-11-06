@@ -1,6 +1,7 @@
 import {SourceError} from './document';
 import {compare,decimal} from './exact_numbers';
 import type {MigrationSource} from './migration_source';
+import {universalNamePatterns} from './migration_schema_regex';
 
 /** A legacy opaque instance is the bijective Latin-1 octet view, not UTF-8
  * text. Modern raw instances have no JSON type or JSON literal spelling.
@@ -22,8 +23,8 @@ export function rawConstraintBlocker(value:Record<string,any>):string|undefined 
 
 /** A strict end assertion is required: ECMAScript `$` alone also accepts a
  * final line terminator, so it cannot certify an octet-length language. */
-function rawPatternBounds(pattern:string):{minimum:bigint;maximum?:bigint}|undefined {
-    if(['','^','(?:)','[\\s\\S]*','^[\\s\\S]*$'].includes(pattern))return {minimum:0n};
+export function rawPatternBounds(pattern:string):{minimum:bigint;maximum?:bigint}|undefined {
+    if(universalNamePatterns.has(pattern)||pattern==='(?:)')return {minimum:0n};
     const start='^[\\s\\S]',end='(?![\\s\\S])';
     if(pattern.endsWith('$'))pattern=pattern.slice(0,-1);
     if(!pattern.startsWith(start)||!pattern.endsWith(end))return;
@@ -61,7 +62,17 @@ export function rawContainerLiteralUnchanged(value:Record<string,any>,path:reado
         (!Array.isArray(value.enum)||!value.enum.some(literal=>reaches(literal,path)));
 }
 
-export function projectRawConstraints(source:MigrationSource,pointer:string,value:Record<string,any>,retain:(field:string)=>void):void {
+export function projectRawConstraints(source:MigrationSource,pointer:string,value:Record<string,any>,retain:(field:string)=>void,equivalent?:string):void {
+    if(equivalent!==undefined){
+        // An exhaustive source certificate preserves the complete scalar
+        // intersection. Authored operands keep exact neutral literal owners;
+        // logical applications and their metadata remain in place.
+        for(const field of ['type','nullable','minLength','maxLength','pattern','enum','const'])
+            if(Object.hasOwn(value,field))retain(field);
+        if(value.format==='binary')source.remove(pointer+'/format');
+        const at=pointer+'/allOf';if(!source.doc.dataNode(at))source.set(at,[]);
+        source.exact(at+'/'+source.doc.dataNode(at)!.children.size,equivalent);return;
+    }
     const append=(assertion:Record<string,unknown>)=>{
         const at=pointer+'/allOf';
         if(!source.doc.dataNode(at))source.set(at,[]);

@@ -109,3 +109,28 @@ for(const version of versions)for(const format of ['yaml','json'])test(`${versio
  // String bounds count Unicode characters, and content fields remain annotations.
  assertResult(await run(capture(version,format,{type:'string',maxLength:1,contentEncoding:'base64'},'application/json'),Buffer.from('"雪"')),true);
 });
+
+for(const version of versions)for(const format of ['yaml','json'])test(`${version} ${format} exact empty raw predicates survive references and suppress structural annotations`,async()=>{
+ const input=capture(version,format,{allOf:[{$ref:'#/components/schemas/Empty'}]});
+ const doc=format==='json'?JSON.parse(input.resources[0].text):YAML.parse(input.resources[0].text);
+ doc.components={schemas:{Empty:{allOf:[{maxLength:0},{not:{type:['null','boolean','object','array','number','string']}}]}}};
+ input.resources[0].text=format==='json'?JSON.stringify(doc):YAML.stringify(doc);
+ assertResult(await run(input,Buffer.alloc(0)),true);assertResult(await run(input,binary),false);
+ const empty={maxLength:0,not:{type:['null','boolean','object','array','number','string']}};
+ const exact={not:{not:{type:'array',minItems:1,maxItems:1,prefixItems:[empty],items:false}}};
+ const encoded={itemEncoding:{contentType:'application/octet-stream'}};
+ if(version.startsWith('3.2.')){
+  assertResult(await run(capture(version,format,{allOf:[exact],unevaluatedItems:false},'multipart/mixed',encoded),wire([{body:Buffer.alloc(0)}])),false);
+  assertResult(await run(capture(version,format,{allOf:[exact],items:{}},'multipart/mixed',encoded),wire([{body:Buffer.alloc(0)}])),true);
+  assertResult(await run(capture(version,format,{allOf:[exact],items:{}},'multipart/mixed',encoded),wire([{body:binary}])),false);
+  const nested={type:'array',minItems:1,maxItems:1,prefixItems:[{type:'array',minItems:2,maxItems:2,prefixItems:[empty,empty],items:false}],items:false};
+  const binding={itemEncoding:{contentType:'multipart/mixed',itemEncoding:{contentType:'application/octet-stream'}}};
+  for(const bytes of [Buffer.alloc(0),binary]){
+   const payload=wire([{type:'multipart/mixed; boundary=Inner',body:wire([{body:bytes},{body:Buffer.alloc(0)}],'Inner')}]);
+   assertResult(await run(capture(version,format,{not:{not:nested}},'multipart/mixed',binding),payload),bytes.length===0);
+  }
+ }
+ // JSON empty strings are ordinary strings; raw predicates do not match them.
+ assertResult(await run(capture(version,format,empty,'application/json'),Buffer.from('""')),false);
+ assertResult(await run(capture(version,format,{type:'string',minLength:1,maxLength:1},'application/json'),Buffer.from('"😀"')),true);
+});

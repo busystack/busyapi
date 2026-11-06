@@ -44,7 +44,7 @@ import {securityRequirementDefinition} from './security_requirements';
 import {migrateSwaggerSecurityFlows} from './migration_security_flows';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='87';
+const migrationProducerVersion='88';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const referenceLocator=(reference:GraphReference)=>!reference.connection&&['$ref','$dynamicRef'].includes(reference.keyword)||
     reference.connection==='operationRef'&&reference.keyword==='operationRef';
@@ -319,7 +319,7 @@ export async function planMigration(input:MigrationInput) {
             if(problems.length)break;
             if(after==='2.0')retainNativeCopies(migrateSwaggerSecurityFlows(contexts.map(context=>context.graph),sources,stage.sources,owners,issue,configuredNames));
             if(problems.length)break;
-            retainNativeCopies(specializeBinarySchemaUses(contexts.map(context=>context.graph),sources,stage.sources,after,owners));
+            retainNativeCopies(await specializeBinarySchemaUses(contexts.map(context=>context.graph),sources,stage.sources,after,owners));
             if(problems.length)break;
             for(const context of contexts)context.graph.assertReferenceEditsSupported();
             const terms=new Map<string,string>();
@@ -382,7 +382,7 @@ export async function planMigration(input:MigrationInput) {
             if(problems.length)break;
             for(const before of stage.sources)migrateServerVariableDefaults(graph,sources,before,after,issue);
             const rawBinaryScopes=new Set<string>();
-            for(const before of stage.sources)for(const id of migrateBinarySchemas(graph,sources,before,after,issue,contexts.map(context=>context.graph)))rawBinaryScopes.add(id);
+            for(const before of stage.sources)for(const id of await migrateBinarySchemas(graph,sources,before,after,issue,contexts.map(context=>context.graph)))rawBinaryScopes.add(id);
             if(problems.length)break;
             if(rawBinaryScopes.size){
                 // Binary ownership has projected selected occurrences into the

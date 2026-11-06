@@ -6,11 +6,11 @@ import 'package:test/test.dart';
 
 import 'test_support.dart';
 
-String _source(String version, String format, int port, {required bool binary}) {
+String _source(String version, String format, int port, {required bool binary, bool r1 = false}) {
   final legacy = version.startsWith('3.0.');
   final type = binary ? 'application/octet-stream' : 'application/json';
   final schema = binary
-      ? legacy ? {'type': 'string', 'format': 'binary'}
+      ? legacy ? {'type': 'string', 'format': 'binary', if (r1) ...{'enum': ['', 'discarded'], 'maxLength': 0, 'pattern': r'^$'}}
           : {'contentMediaType': 'application/octet-stream'}
       : {'type': 'string', if (legacy) 'format': 'byte'
           else 'contentEncoding': 'base64', 'minLength': 4, 'maxLength': 8};
@@ -33,12 +33,14 @@ String _source(String version, String format, int port, {required bool binary}) 
 void main() {
   for (final representation in ['body', 'part', 'items', 'targeted',
     'container', 'composition', 'targeted-composition', 'targeted-part',
-    'bounded', 'bounded-composition', 'bounded-part']) {
+    'bounded', 'bounded-composition', 'bounded-part', 'literal', 'literal-items', 'literal-impossible', 'proof']) {
     test('shared $representation and JSON schemas retain distinct execution after publication and cold reopening', () async {
-      final multipart = ['part', 'items', 'container', 'composition', 'targeted-part', 'bounded-part'].contains(representation), array = representation == 'items';
+      final multipart = ['part', 'items', 'container', 'composition', 'targeted-part', 'bounded-part', 'literal', 'literal-items', 'literal-impossible'].contains(representation), array = representation == 'items' || representation == 'literal-items';
       final targeted = representation.startsWith('targeted');
       final bounded = representation.startsWith('bounded');
-      final containing = ['container', 'composition'].contains(representation);
+      final literal = representation.startsWith('literal'), proof = representation == 'proof';
+      final impossible = representation == 'literal-impossible';
+      final containing = ['container', 'composition'].contains(representation) || literal;
       final rawType = multipart ? 'multipart/form-data; boundary=Shared' : 'application/octet-stream';
       final directory = await Directory.systemTemp.createTemp('busyapi-mixed-binary-');
       addTearDown(() => directory.delete(recursive: true));
@@ -64,6 +66,8 @@ void main() {
           document['components']['schemas']['Shared'] = {'allOf': [leaf, {'type': 'string'}]};
         }
       }
+      if (proof) document['components']['schemas']['Shared'].addAll({'enum': ['', 'discarded'], 'maxLength': 0, 'pattern': r'^$'});
+      if (impossible) document['components']['schemas']['Shared']['minLength'] = 1;
       document['x-number'] = 'EXACT';
       if (targeted) document.remove('components');
       final operation = document['paths']['/bytes']['post'] as Map;
@@ -71,6 +75,7 @@ void main() {
       final object = {'type': 'object', 'required': ['payload'],
         'properties': {'payload': array ? {'type': 'array', 'items': reference}
             : targeted ? {'type': 'string', 'format': 'binary'} : reference}};
+      if (literal) object['enum'] = [{'payload': array ? ['', ''] : ''}];
       if (containing) {
         document['components']['schemas']['Container'] = representation == 'composition'
             ? {'allOf': [object, {'description': 'Keep composition'}]} : object;
@@ -103,7 +108,9 @@ void main() {
       final payload = File('${directory.path}/payload.bin');
       List<int> rawBytes(List<int> bytes) => multipart ? [
         ...utf8.encode('--Shared\r\nContent-Disposition: form-data; name="payload"\r\nContent-Type: application/octet-stream\r\n\r\n'),
-        ...bytes, ...utf8.encode('\r\n--Shared--\r\n'),
+        ...bytes, ...utf8.encode(array && literal
+            ? '\r\n--Shared\r\nContent-Disposition: form-data; name="payload"\r\nContent-Type: application/octet-stream\r\n\r\n' : ''),
+        if (array && literal) ...bytes, ...utf8.encode('\r\n--Shared--\r\n'),
       ] : bytes;
       List<int> jsonBytes(Object value) => utf8.encode(jsonEncode(multipart && !targeted ? {'payload': array ? [value] : value} : value));
       Future<List<(bool, bool)>> send(BusyProject owner) async {
@@ -130,13 +137,14 @@ void main() {
         } finally { plan.close(); }
       }
       final before = await send(project);
-      expect(before, [(true, true), (!bounded, !bounded), (true, true), (false, false)]);
+      expect(before, [(!(literal || proof), !(literal || proof)), (!bounded && !impossible, !bounded && !impossible),
+        (!(literal || proof), !(literal || proof)), (false, false)]);
       final cli = await Process.run('$testBundle/busyapi', ['migrate', file.path,
         '--target', '3.1.2', '--output', '${directory.path}/cli-review', '--json'],
         environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
       expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');
       final report = jsonDecode(cli.stdout as String) as Map;
-      expect(report['complete'], true); expect(report['producerVersion'], '87');
+      expect(report['complete'], true); expect(report['producerVersion'], '88');
       expect(report['published'], false);
       await review.publish();
       expect(await file.readAsString(), text); expect(buffer.text, working);
@@ -183,7 +191,7 @@ void main() {
         final review = await project.prepareMigration(root, destination, targetVersion: target);
         addTearDown(review.close);
         expect(review.status, MigrationStatus.faithfullyConvertible, reason: '${review.result}');
-        expect(review.result['producerVersion'], '87');
+        expect(review.result['producerVersion'], '88');
         expect(review.unsaved, true);
         expect(Directory(destination).existsSync(), false);
         await review.publish();
@@ -233,18 +241,18 @@ void main() {
         expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');
         final report = jsonDecode(cli.stdout as String) as Map;
         expect(report['complete'], true);
-        expect(report['producerVersion'], '87');
+        expect(report['producerVersion'], '88');
         expect(report['published'], false);
         expect(Directory('${directory.path}/cli-review').existsSync(), false);
       });
     }
   }
-  for (final format in ['yaml', 'json']) {
-    test('$format binary migration cancellation and stale review leave both destinations absent', () async {
+  for (final format in ['yaml', 'json']) for (final r1 in [false, true]) {
+    test('$format R1=$r1 binary migration cancellation and stale review leave both destinations absent', () async {
       final directory = await Directory.systemTemp.createTemp('busyapi-binary-stale-');
       addTearDown(() => directory.delete(recursive: true));
       final file = File('${directory.path}/api.$format')
-        ..writeAsStringSync(_source('3.0.4', format, 12345, binary: true));
+        ..writeAsStringSync(_source('3.0.4', format, 12345, binary: true, r1: r1));
       final original = file.readAsBytesSync();
       final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);
       addTearDown(engine.close);
@@ -257,6 +265,16 @@ void main() {
       await expectLater(review.publish(cancelled: () => true), throwsA(isA<CoreFailure>()
           .having((e) => e.code, 'code', 'cancelled')));
       expect(Directory(destination).existsSync(), false);
+      if (r1) {
+        final refused = await project.prepareMigration(root, '${directory.path}/refused', targetVersion: '3.2.1');
+        addTearDown(refused.close);
+        await expectLater(refused.publish(beforePublish: () async {
+          await Directory(refused.destination).create();
+          await File('${refused.destination}/foreign').writeAsString('Keep');
+        }), throwsA(anything));
+        expect(await File('${refused.destination}/foreign').readAsString(), 'Keep');
+        expect(await File('${refused.destination}/openapi.$format').exists(), false);
+      }
       final buffer = await project.buffer(root);
       project.store.replace(root, buffer.text.replaceFirst('Original', 'Changed'));
       await expectLater(review.publish(), throwsA(isA<CoreFailure>()
