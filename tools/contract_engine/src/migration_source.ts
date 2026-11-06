@@ -60,7 +60,9 @@ export class MigrationSource {
             this.doc=result.document;this.presentationChanges.push(...result.changed);
         });
     }
-    current(pointer:string):string|undefined{return this.origins.get(pointer)?.values().next().value;}
+    current(pointer:string,resource=this.original.id):string|undefined{
+        return (resource===this.original.id?this.origins.get(pointer):this.foreignOrigins.get(resource+'#'+pointer))?.values().next().value;
+    }
     /** Capture a planning copy and its logical provenance before specialization.
      * The converted CST may use different coordinates from the original source;
      * rebuilding origins from its node names would lose moved/foreign owners. */

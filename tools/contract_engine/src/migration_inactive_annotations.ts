@@ -16,11 +16,12 @@ export function migrateInactiveSchemaAnnotations(graph:ReferenceGraph,scope:Grap
     if(graph.referenceObject(value,scope))return;
     for(const field of ['writeOnly','deprecated']){
         if(value?.[field]!==false)continue;
-        const original=scope.pointer+'/'+escape(field),current=source.current(original);
+        const original=scope.pointer+'/'+escape(field),current=source.current(original,scope.resource);
         if(current===undefined||!source.doc.dataNode(current))continue;
         if(graph.scopeAs(scope.resource,original,'schema')){
-            const entry=sources.get(graph.root)!;
-            const destination=owners.move({resource:scope.resource,pointer:original},source,current,'annotation').pointer;
+            const retained=owners.move({resource:scope.resource,pointer:original},source,current,'annotation',
+                {context:owners.contextOf(scope)??graph,layout:'array-item'});
+            const entry=sources.get(retained.resource)!,destination=retained.pointer;
             // The graph may retain this independent schema role separately
             // from its physical annotation field. Lower its boolean value
             // after moving it, without giving the annotation object meaning.

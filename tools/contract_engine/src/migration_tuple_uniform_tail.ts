@@ -2,6 +2,8 @@ import {decimal} from './exact_numbers';
 import {SourceError} from './document';
 import {supportedSchemaDialect,type GraphScope,type ReferenceGraph} from './reference_graph';
 import {projectSchemaReference} from './schema_reference_projection';
+import {MigrationSchemaProofs} from './migration_schema_proofs';
+import {MigrationPropertyPresence} from './migration_property_presence';
 
 const metadata=new Set(['$id','$schema','$anchor','$dynamicAnchor']);
 const jsonTypes=['null','boolean','object','array','number','integer','string'];
@@ -13,6 +15,44 @@ const jsonTypes=['null','boolean','object','array','number','integer','string'];
  * All other tail shapes retain the finite mapping or explicit missing proof.
  */
 export function uniformTupleTail(graph:ReferenceGraph,initial:GraphScope,prefixes:readonly GraphScope[]):boolean {
+    const assertions=new MigrationSchemaProofs(graph);
+    if(assertions.annotationFree(initial)&&prefixes.every(prefix=>assertions.implies(prefix,initial)))return true;
+    if(prefixes.every(prefix=>assertions.implies(prefix,initial)&&assertions.annotationsInactiveIn(initial,assertions.domains(prefix))))return true;
+    const presence=new MigrationPropertyPresence(graph);
+    const coverage=(prefix:GraphScope,tail:GraphScope,seen=new Set<string>()):boolean=>{
+        if(assertions.annotationFree(tail))return true;
+        const id=JSON.stringify([prefix.resource,prefix.pointer,tail.resource,tail.pointer]);
+        if(seen.has(id)||seen.size>=128)return false;
+        const value=graph.docs.get(tail.resource)!.dataNode(tail.pointer)?.value;
+        if(!value||typeof value!=='object'||Array.isArray(value))return false;
+        const parts=assertions.conjuncts(prefix),next=new Set(seen).add(id);
+        for(const name of Object.keys(value)){
+            if(metadata.has(name)||['type','required','minProperties','maxProperties'].includes(name))continue;
+            if(['$ref','$dynamicRef'].includes(name)){
+                const target=assertions.fixed(tail,name);if(!target||!coverage(prefix,target,next))return false;
+            }else if(name==='allOf'){
+                if(!value.allOf.every((_:unknown,index:number)=>{
+                    const child=graph.scopeAs(tail.resource,tail.pointer+'/allOf/'+index,'schema');return child&&coverage(prefix,child,next);
+                }))return false;
+            }else if(name==='properties'){
+                for(const key of Object.keys(value.properties)){
+                    if(presence.absent(prefix,key))continue;
+                    const child=graph.scopeAs(tail.resource,tail.pointer+'/properties/'+key.replace(/~/g,'~0').replace(/\//g,'~1'),'schema');
+                    if(!child||!parts.some(part=>{
+                        const source=graph.scopeAs(part.resource,part.pointer+'/properties/'+key.replace(/~/g,'~0').replace(/\//g,'~1'),'schema');
+                        return source&&coverage(source,child,next);
+                    }))return false;
+                }
+            }else if(name==='additionalProperties'&&typeof value.additionalProperties==='boolean'){
+                if(value.additionalProperties&& !parts.some(part=>{
+                    const schema=graph.docs.get(part.resource)!.dataNode(part.pointer)?.value;
+                    return schema?.additionalProperties===false&&!schema.patternProperties;
+                }))return false;
+            }else return false;
+        }
+        return true;
+    };
+    if(assertions.annotationFree(initial,true)&&prefixes.every(prefix=>assertions.implies(prefix,initial)&&coverage(prefix,initial)))return true;
     let work=0;
     const inspect=(scope:GraphScope)=>{
         if(++work>20000){

@@ -1,6 +1,69 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),YAML=require('yaml');
 const {planMigration}=require('./dist/migration.cjs'),{analyse}=require('./dist/model.cjs'),{evaluateSchemas}=require('./dist/schema_evaluation.cjs'),{SourceDocument}=require('./dist/document.cjs');
+const {evaluateMigrationAnnotations}=require('./dist/migration_annotations.cjs');
 const modern=['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'],older=['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4'];
+for(const dependency of ['dependentRequired','dependentSchemas','if'])
+test(`finite ${dependency} bodies retain their object guard and independent neutral owner before lowering`,
+ dependency==='if'?{todo:'B02: compose a selected nested conditional with its independently owned outer dependency guard'}:{},async()=>{
+ const root='file:///remaining-dependency/api.json';
+ const body={type:'object',required:['a'],properties:{a:{type:'boolean'},b:{type:'boolean'}},additionalProperties:false,
+  ...(dependency==='if'?{if:{required:['a']},then:{required:['b']}}:
+   {[dependency]:dependency==='dependentRequired'?{a:['b']}:{a:{required:['b']}}})};
+ const document={openapi:'3.2.1',info:{title:'Finite guarded dependency',version:'1'},paths:{},components:{schemas:{
+  Value:{required:['a'],dependentSchemas:{a:body}},Independent:{$ref:'#/components/schemas/Value/dependentSchemas/a'},
+ }}};
+ const input={root,snapshot:'remaining-dependency',resources:[{id:root,text:JSON.stringify(document),generation:1}],targetVersion:'2.0',destination:'file:///remaining-dependency-output/'};
+ const instances=['null','false','[]','{}','{"a":false}','{"a":false,"b":true}','{"a":false,"b":0}','{"a":false,"b":true,"c":false}'];
+ const evaluate=async(packet,prefix)=>{
+  const checked=await evaluateSchemas({...packet,runtimeInstances:['Value','Independent'].flatMap(name=>instances.map(text=>({
+   subject:'response-body',text,location:name,schema:{resource:packet.root,pointer:prefix+'/'+name}})))});
+  assert.equal(checked.complete,true,JSON.stringify(checked.findings));assert(checked.runtimeEvaluations.every(value=>value.complete));
+  return checked.runtimeEvaluations.map(value=>value.valid);
+ };
+ const before=await evaluate(input,'/components/schemas');
+ assert.deepEqual(before.slice(0,8),[true,true,true,false,false,true,false,false]);
+ // A concrete standard Swagger witness establishes representability, including
+ // the independent typed owner. A failed proof must not claim impossibility.
+ const fields={required:['a','b'],properties:body.properties,additionalProperties:false};
+ const witness={root,snapshot:'remaining-witness',resources:[{id:root,generation:0,text:JSON.stringify({swagger:'2.0',info:document.info,paths:{},
+  definitions:{Value:fields,Independent:{type:'object',...fields}}})}]};
+ assert.deepEqual(await evaluate(witness,'/definitions'),before);
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const output={root:review.outputRoot,snapshot:'remaining-cold',resources:review.outputs.map(value=>({...value,generation:0}))};
+ assert.deepEqual(await evaluate(output,'/definitions'),before);
+});
+for(const format of ['yaml','json'])for(const targetVersion of ['2.0','3.0.4'])
+test(`${format} ${targetVersion} fixed referenced dependency guards retain recursive neutral targets and conditional metadata`,async()=>{
+ const root='file:///dependency-projection/api.'+format,rules='file:///dependency-projection/rules.yaml';
+ const schema={$ref:'#/components/schemas/Model'};
+ const document={openapi:'3.2.1',info:{title:'Projected reference',version:'1'},paths:{'/value':{post:{
+  requestBody:{content:{'application/json':{schema}}},responses:{200:{description:'Value',content:{'application/json':{schema}}}},
+ }}},components:{schemas:{Model:{dependentSchemas:{trigger:{$ref:'./rules.yaml#rule'}}},Independent:{$ref:'./rules.yaml#rule'}}}};
+ const text=format==='yaml'?YAML.stringify(document):JSON.stringify(document);
+ const rule={$anchor:'rule',allOf:[{type:['object','null'],required:['trigger']},{properties:{trigger:{
+  type:'object',readOnly:true,description:'Only a present trigger',properties:{n:{type:'integer',exclusiveMinimum:'EXACT'},next:{$ref:'#rule'}},
+ }}}]};
+ const ruleText='$schema: https://json-schema.org/draft/2020-12/schema\r\n$id: rules.yaml\r\n$defs:\r\n  Rule: '+
+  JSON.stringify(rule).replace('"EXACT"','9007199254740993.00')+'\r\n'+
+  'x-literal: &literal {number: 9007199254740993.00, flag: false}\r\nx-alias: *literal\r\n';
+ const input={root,snapshot:'projected-reference',resources:[{id:root,text,generation:1},{id:rules,text:ruleText,generation:2}],targetVersion,destination:'file:///dependency-projection-output/'};
+ const values=['null','0','[]','{}','{"trigger":{}}','{"trigger":{"n":9007199254740994}}',
+  '{"trigger":{"n":9007199254740993}}','{"trigger":{"next":{"trigger":{}}}}','{"trigger":{"next":{}}}'];
+ const evaluate=async(packet,legacy)=>{
+  const result=await evaluateMigrationAnnotations({...packet,runtimeInstances:['request-body','response-body'].flatMap(subject=>values.map(text=>({
+   subject,text,location:subject,schema:{resource:packet.root,pointer:subject==='request-body'?
+    legacy?'/paths/~1value/post/parameters/0/schema':'/paths/~1value/post/requestBody/content/application~1json/schema':
+    legacy?'/paths/~1value/post/responses/200/schema':'/paths/~1value/post/responses/200/content/application~1json/schema'}})))});
+  assert.equal(result.checked.complete,true,JSON.stringify(result.checked.findings));assert(result.checked.runtimeEvaluations.every(value=>value.complete));
+  return {valid:result.checked.runtimeEvaluations.map(value=>value.valid),annotations:result.annotations};
+ };
+ const before=await evaluate(input,false),review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const output=after(review);assert.deepEqual(await evaluate(output,targetVersion==='2.0'),before);
+ assert.deepEqual(before.valid.slice(0,values.length),[true,true,true,true,true,true,false,true,false]);
+ assert.deepEqual(await outcomes(output,(targetVersion==='2.0'?'/definitions':'/components/schemas')+'/Independent',values),
+  await outcomes(input,'/components/schemas/Independent',values));
+ assert(review.outputs.some(value=>value.text.includes('x-alias: *literal')));assert.equal(input.resources[1].text,ruleText);
+});
 const samples=['null','false','0','""','[]','{}','{"trigger":false}','{"trigger":0}','{"trigger":null}','{"trigger":""}','{"trigger":false,"value":9007199254740993}','{"trigger":0,"value":9007199254740992}','{"value":9007199254740992}'];
 function capture(version,format,mode='untyped'){
  const child={type:'object',required:['value'],properties:{value:{type:'integer',enum:['EXACT']}}};
@@ -26,7 +89,7 @@ async function outcomes(input,pointer,values=samples,subject='response-body'){
 }
 async function faithful(input,targetVersion,values=samples){
  const original=input.resources.map(resource=>resource.text),result=await planMigration({...input,targetVersion});
- assert.equal(result.status,'faithfully-convertible',JSON.stringify(result.problems));assert.equal(result.complete,true);assert.equal(result.producerVersion,'83');assert(result.changes.length>0);
+ assert.equal(result.status,'faithfully-convertible',JSON.stringify(result.problems));assert.equal(result.complete,true);assert.equal(result.producerVersion,'84');assert(result.changes.length>0);
  const output=after(result),data=YAML.parse(result.outputs.find(output=>output.id===result.outputRoot).text),pointer=targetVersion==='2.0'?'/definitions/Model':'/components/schemas/Model';
  assert.equal(data.swagger??data.openapi,targetVersion);assert.equal(data.info.version,'API-1');assert.deepEqual(data['x-literal'].dependentSchemas,{trigger:false});assert(result.outputs.some(output=>output.text.includes('9007199254740993.00')));assert(!Object.hasOwn(data.swagger?data.definitions.Model:data.components.schemas.Model,'dependentSchemas'));
  assert.equal(analyse(output).status,'complete');
@@ -97,4 +160,64 @@ test(`${format} composed dependency constant ${positive} retains optional trigge
  if(positive)resource.text=new SourceDocument(resource.text,resource.id).set('/components/schemas/Independent',{$ref:'#/components/schemas/Model/dependentSchemas/trigger/allOf/0/not'});
  const {output}=await faithful(input,'2.0');
  assert.deepEqual(await outcomes(output,'/definitions/Independent'),await outcomes(input,'/components/schemas/Independent'));
+});
+
+for(const version of modern)for(const format of ['yaml','json'])for(const targetVersion of ['2.0','3.0.4'])
+for(const mode of ['self-property','guarded-required','required-untyped','required-untyped-object','composed-seed','absent-trigger'])
+test(`${version} ${format} ${targetVersion} ${mode} dependent schemas preserve conditional annotations and independent targets`,async()=>{
+ const root='file:///dependent-proof/api.'+format;
+ const dependency=['self-property','guarded-required'].includes(mode)?{
+  ...(mode==='guarded-required'?{type:'object',required:['trigger']}:{}),properties:{trigger:{type:'integer',description:'Only a present trigger'}}}:
+  mode==='absent-trigger'?{contains:{const:'unreachable'}}:
+  {...(mode==='required-untyped-object'?{type:'object'}:{}),required:['value'],properties:{value:{type:'integer',minimum:'EXACT',description:'Required value'}}};
+ const model=mode==='composed-seed'?{type:'object',required:['seed'],allOf:[
+  {dependentRequired:{seed:['trigger']}},{dependentSchemas:{trigger:dependency}},
+ ]}:mode.startsWith('required-untyped')?{required:['trigger'],dependentSchemas:{trigger:dependency}}:
+  mode==='absent-trigger'?{properties:{trigger:false},dependentSchemas:{trigger:dependency}}:{dependentSchemas:{trigger:dependency}};
+ const branch=mode==='composed-seed'?'/allOf/1/dependentSchemas/trigger':'/dependentSchemas/trigger';
+ const schemas={Model:model};
+ if(mode!=='absent-trigger')schemas.Independent={$ref:'#/components/schemas/Model'+branch};
+ const document={openapi:version,info:{title:'Dependent proofs',version:'1'},paths:{},components:{schemas},'x-data':{dependency,number:'EXACT'}};
+ const text=(format==='yaml'?'# Preserve conditional annotations\r\n'+YAML.stringify(document).replaceAll('\n','\r\n'):JSON.stringify(document)).replace(/"?EXACT"?/g,'9007199254740993.00');
+ const input={root,snapshot:'dependent-proof-'+mode,resources:[{id:root,text,generation:4}],targetVersion,destination:'file:///dependent-proof-output/'};
+ const values=['null','false','0','[]','{}','{"trigger":0}','{"trigger":false}',
+  '{"trigger":0,"value":9007199254740993}','{"trigger":0,"value":9007199254740992}',
+  '{"seed":false,"trigger":0,"value":9007199254740993}','{"seed":false,"value":9007199254740993}'];
+ const evaluate=async(packet,prefix)=>{
+  const runtimeInstances=Object.keys(schemas).flatMap(name=>values.map(text=>({subject:'response-body',location:name,text,
+   schema:{resource:packet.root,pointer:prefix+'/'+name}})));
+  const result=await evaluateMigrationAnnotations({...packet,runtimeInstances});
+  assert.equal(result.checked.complete,true,JSON.stringify(result.checked.findings));assert(result.checked.runtimeEvaluations.every(value=>value.complete));
+  assert.equal(result.annotations.length,runtimeInstances.length);
+  return {valid:result.checked.runtimeEvaluations.map(value=>value.valid),annotations:result.annotations};
+ };
+ const before=await evaluate(input,'/components/schemas'),review=await planMigration(input);
+ assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const output=after(review);assert.deepEqual(await evaluate(output,targetVersion==='2.0'?'/definitions':'/components/schemas'),before);
+ const doc=new SourceDocument(output.resources.find(resource=>resource.id===output.root).text,output.root);
+ assert.equal(doc.dataJson('/x-data'),new SourceDocument(text,root).dataJson('/x-data'));assert.equal(input.resources[0].text,text);
+ if(['self-property','guarded-required'].includes(mode)){assert.equal(before.valid[4],true);assert.equal(before.valid[5],true);assert.equal(before.valid[6],false);}
+ if(mode==='composed-seed'){assert.equal(before.valid[9],true);assert.equal(before.valid[10],false);}
+});
+
+for(const format of ['yaml','json'])for(const targetVersion of ['2.0','3.0.4'])
+test(`${format} ${targetVersion} independently interpreted extension-named dependency maps keep their literal schema annotations`,async()=>{
+ const input=capture('3.2.1',format,'required'),resource=input.resources[0];
+ resource.text=new SourceDocument(resource.text,resource.id).set('/components/schemas/Model',{
+  type:'object',required:['x-trigger'],dependentSchemas:{'x-trigger':{required:['value'],properties:{value:{enum:['EXACT']}}}},
+ }).replace(/"?EXACT"?/g,'9007199254740993.00');
+ resource.text=new SourceDocument(resource.text,resource.id).set('/components/schemas/Map',{$ref:'#/components/schemas/Model/dependentSchemas'});
+ const original=resource.text,review=await planMigration({...input,targetVersion});
+ assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const output=after(review),prefix=targetVersion==='2.0'?'/definitions':'/components/schemas';
+ const values=['null','{}','{"x-trigger":false}','{"x-trigger":false,"value":9007199254740993}','{"x-trigger":false,"value":9007199254740992}'];
+ for(const name of ['Model','Map'])assert.deepEqual(await outcomes(output,prefix+'/'+name,values),await outcomes(input,'/components/schemas/'+name,values));
+ const {createGraph}=require('./dist/model.cjs'),graph=createGraph(output).graph;
+ let at={resource:output.root,pointer:prefix+'/Map'};
+ for(let index=0;index<128;index++){
+  const reference=graph.referenceAs(at.resource,at.pointer,'$ref','schema');if(!reference)break;
+  assert.equal(reference.resolution,'resolved');at={resource:reference.targetResource,pointer:reference.targetPointer};
+ }
+ assert.equal(graph.docs.get(at.resource).dataJson(at.pointer),new SourceDocument(original,resource.id).dataJson('/components/schemas/Model/dependentSchemas'));
+ assert.equal(resource.text,original);
 });

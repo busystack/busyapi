@@ -1,8 +1,16 @@
 import {escape,SourceError} from './document';
-import type {GraphTarget,ReferenceGraph} from './reference_graph';
+import type {GraphScope,GraphTarget,ReferenceGraph} from './reference_graph';
 
 export type PropertyAccess=Readonly<{readOnly:boolean;writeOnly:boolean}>;
 const unmarked:PropertyAccess={readOnly:false,writeOnly:false};
+
+/** A migration may assume presence without selecting a direction only when
+ * the owning family's required rule applies in both request and response. */
+export function requiredInBothDirections(graph:ReferenceGraph,scope:GraphScope,name:string):boolean {
+    if(scope.family!=='2.0'&&scope.family!=='3.0')return true;
+    const access=propertyAccess(graph,scope,name);
+    return !access.readOnly&&(scope.family!=='3.0'||!access.writeOnly);
+}
 
 /** Legacy Schema Object references replace their occurrence and ignore
  * siblings. Access flags belong to that resolved property schema, including

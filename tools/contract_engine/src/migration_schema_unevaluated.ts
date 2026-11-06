@@ -13,7 +13,7 @@ const destination=(field:Field)=>field==='unevaluatedProperties'?'additionalProp
  * These proofs hold even beside other in-place applicators. Without such
  * applicators, the unevaluated selection is exactly the local additional
  * selection. Unknown composition coverage is never guessed or expanded. */
-function mapping(value:any,field:Field,containsAll=false):'inactive'|'local'|undefined {
+export function migrationUnevaluatedMapping(value:any,field:Field,containsAll=false):'inactive'|'local'|undefined {
     if(value===null||typeof value!=='object'||Array.isArray(value)||!Object.hasOwn(value,field))return;
     const type=field==='unevaluatedProperties'?'object':'array';
     if(typeof value.type==='string'&&value.type!==type||Array.isArray(value.type)&&!value.type.includes(type))return 'inactive';
@@ -39,8 +39,8 @@ export function discardInactiveUnevaluated(graph:ReferenceGraph,scope:GraphScope
     const contains=graph.scopeAs(scope.resource,scope.pointer+'/contains','schema');
     const containsAll=contains!==undefined&&constantSchemaAssertion(graph,contains)===true;
     for(const field of fields){
-        if(mapping(value,field,containsAll)!=='inactive')continue;
-        const original={resource:scope.resource,pointer:scope.pointer+'/'+field},current=source.current(original.pointer);
+        if(migrationUnevaluatedMapping(value,field,containsAll)!=='inactive')continue;
+        const original={resource:scope.resource,pointer:scope.pointer+'/'+field},current=source.current(original.pointer,scope.resource);
         if(current!==undefined&&!owners.hasConsumers(original,references)){
             owners.admit(source,4);source.remove(current,true,true,true);
         }
@@ -58,9 +58,9 @@ export function migrateSchemaUnevaluated(graph:ReferenceGraph,scope:GraphScope,s
     const containsAll=contains!==undefined&&constantSchemaAssertion(graph,contains)===true;
     let tail:string|undefined;
     for(const field of fields){
-        const mode=mapping(value,field,containsAll);if(mode===undefined)continue;
-        const original={resource:scope.resource,pointer:scope.pointer+'/'+field},current=source.current(original.pointer);
-        if(current===undefined)continue;
+        const mode=migrationUnevaluatedMapping(value,field,containsAll);if(mode===undefined)continue;
+        const original={resource:scope.resource,pointer:scope.pointer+'/'+field},current=source.current(original.pointer,scope.resource);
+        if(current!==pointer+'/'+field)continue;
         if(mode==='inactive'){
             if(owners.hasConsumers(original,references))owners.move(original,source,current,'inactive_unevaluated',{context:graph,layout:'array-item'});
             else {owners.admit(source,4);source.remove(current,true,true,true);}

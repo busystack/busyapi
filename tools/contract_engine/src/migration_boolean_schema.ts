@@ -13,18 +13,20 @@ export class BooleanSchemaMigration {
     private readonly owners:MigrationSchemaOwners;
 
     constructor(private readonly graph:ReferenceGraph,
-        sources:ReadonlyMap<string,MigrationSource>,private readonly target:string,owners=new MigrationSchemaOwners(graph,sources)){
+        sources:ReadonlyMap<string,MigrationSource>,private readonly target:string,owners=new MigrationSchemaOwners(graph,sources),contexts:readonly ReferenceGraph[]=[graph]){
         this.owners=owners;
-        for(const reference of graph.references){
+        for(const reference of contexts.flatMap(context=>context.entryReferences())){
             if(reference.kind==='schema'&&!reference.connection&&reference.resolution==='resolved')
                 this.referenced.add(JSON.stringify([reference.targetResource,reference.targetPointer]));
         }
     }
 
     lower(scope:GraphScope,source:MigrationSource,pointer:string,value:boolean):void {
+        const context=this.owners.contextOf(scope)??this.graph;
         const parent=scope.pointer.slice(0,scope.pointer.lastIndexOf('/'));
         const field=scope.pointer.endsWith('/additionalProperties')&&
-            this.graph.scopeAs(scope.resource,parent,'schema')!==undefined;
+            pointer===source.current(parent,scope.resource)+'/additionalProperties'&&
+            context.scopeAs(scope.resource,parent,'schema')!==undefined;
         if(!field){source.set(pointer,restrictedBooleanSchema(value,this.target));return;}
         if(!this.referenced.has(JSON.stringify([scope.resource,scope.pointer])))return;
 

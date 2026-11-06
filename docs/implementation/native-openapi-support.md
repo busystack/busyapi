@@ -31,13 +31,141 @@ consume those shared results. Source-preserving transactions remain authoritativ
 Current changes require complete engine, Core, native and packaged verification;
 source inspection or a successful build is not runtime acceptance.
 
+## B02: conditional, dependency and constrained tuple-tail migrations
+
+**Partially implemented, unverified. B02 is not source-complete.** Work started
+in the primary `release/v0.1.0` checkout at
+`32d39d66def5249d3bfd1f2476d3a745d6dbaf6d`. The bounded completion program at
+`~/Downloads/BusyAPI-bounded-completion-program-20261104.md` and W3.02–W3.04
+remain the scope. A01–A03's canonical ownership allocator and B01's directional
+policy remain authoritative. B03 has not started.
+
+The conditional implementation now includes positive implication/disjointness,
+native-domain and presence guards, selected negative type/presence/exact-bound
+predicates, sibling-forced branches, and exhaustive finite-domain reductions.
+Guard projections retain neutral schemas and create assertion variants through
+`MigrationSchemaOwners`. They copy after ordinary vocabulary lowering, preserve
+fixed reference targets and forward untouched value schemas to their neutral
+owners. Native applications that cannot run in a branch are retired before
+child conversion; independently referenced descendants and their transitive
+reference closure remain material. Guarded conditional bodies prefer the native
+mapping to whole-instance finite folding. The ordinary 3.0 applicator mapping,
+constant predicates, equal branches and absent-if semantics remain in place.
+
+Dependency lowering now uses captured positive presence closure, seeded
+transitive/cyclic requirements, composed/fixed constraints, finite literals,
+closed-object cardinality and hypothetical forbidden-trigger proofs. Optional
+cycles never establish their own presence. Explicit requirements used for
+tautology elimination are separate from dependency-derived facts, preventing
+the cause of a requirement from erasing itself. Required-trigger, self-property,
+native-domain and presence projections preserve object/non-object applicability;
+inactive dependencies retain independently addressed children. The migration
+proof reuses `schema_access.ts` to avoid assuming a legacy direction-specific
+required property in both directions. Ordinary evaluation keeps its existing
+default presence policy.
+
+Tuple lowering retains the existing finite positional expansion and uniform
+tail algorithms. Additional proofs cover exact numeric bounds/divisibility,
+integer lattices, finite prefix values, object constraints/coverage, inactive
+native annotations and common tail conjuncts or exact keyword subsets. Equal
+reachable positions can use uniform items in either restricted family. Proved
+unreachable positions/tails are retired with their independent owners retained.
+Finite array languages can become whole-array enums in 3.0, using exhaustive
+supersets filtered through the production source evaluator in both directions.
+Captured external example bytes are supplied to that evaluator. No finite
+cutoff replaces an unbounded language. Work/candidate/resource limits abandon
+the proof; they do not establish target impossibility.
+
+`migration_schema_proofs.ts`, `migration_property_presence.ts`,
+`migration_guard_projection.ts` and `migration_finite_domain.ts` hold the new
+proof/projection work. Existing schema, condition, dependency, tuple, reference,
+Boolean, resource-coordinate, annotation and array modules integrate it. Source
+coordinates now remain usable after independently retained external schemas
+move into native holders. Assertion variants preserve field provenance for
+B01's request/response ownership without giving independent schema consumers
+the variant's identity. No additional ownership registry or production schema
+validator was introduced. Normal editing and publication transactions are
+unchanged; validation has not been weakened.
+
+**Remaining B02 implementation/evidence boundaries:**
+
+- A required-trigger dependency with an untyped parent and a finite typed body
+  containing a nested conditional still needs application-specific ownership
+  and composition of the inner conditional with the outer guard.
+  For example, `required: [a]` with `dependentSchemas.a` requiring `a`, declaring
+  Boolean `a`/`b`, closing other properties, and declaring
+  `if: {required: [a]}, then: {required: [b]}` has a faithful
+  Swagger native-object conjunction. An independent reference to that body
+  must retain its object type. The outer dependency projection does not compose
+  that inner conditional plan and refuses with
+  `migration.schema.dependency-conditional`; finite folding can also leave a
+  whole-instance enum requiring `migration.proof.guard-lowering`. A TODO regression in
+  `test_migration_dependent_schemas.cjs` supplies a concrete Swagger witness and
+  source/target instance comparisons. This is missing B02 implementation, not a
+  target limitation or merely an unexecuted verification task.
+- The corresponding finite bodies using seeded `dependentRequired` or a
+  required-trigger `dependentSchemas` conjunction now prefer native lowering
+  and have ordinary positive regressions alongside that TODO. The common
+  presence proofs are reused rather than evaluating folded enums under a
+  different applicability policy.
+- The same ordering/ownership issue needs coverage for externally referenced
+  finite guarded bodies and further lowerings that encode removed applicability
+  guards in `enum`, `not`, `anyOf` or `oneOf`. The compatibility refusal is a
+  missing applicability proof, not proof of universal inequivalence.
+- Generated uniform tuple item references still need a reviewed concrete Items
+  Object representation when consumed by Swagger flat Headers/parameters.
+  Source inspection shows the downgrade currently moves schema fields into the
+  flat declaration; it does not specialize these newly generated references.
+  A primitive homogeneous tuple can be representable, so target structural
+  failure here cannot establish impossibility. This integration is unfinished.
+- Same-instance discriminator projection and competing dynamic bindings retain
+  their existing identity/binding proof boundaries. Bounded implication and
+  finite enumeration refusals remain evidence limitations. Active Swagger
+  write-only annotations and other unsupported older-family vocabularies keep
+  their separately located blockers; they are not silently discarded.
+
+Prepared engine regressions extend `test_migration_conditions.cjs`,
+`test_migration_dependencies.cjs`, `test_migration_dependent_schemas.cjs` and
+`test_migration_tuple_tails.cjs`. They cover published modern/3.0 patches on
+applicable routes, Swagger tuple upgrades, YAML/JSON, direct/fixed/composed/
+recursive/shared schemas, independent targets, exact values, aliases, inactive
+descendants, actual request/response bindings and positive/negative neighboring
+instances. A test-only annotation oracle bundles the production evaluator and
+the pinned public annotation plugin; source/target metadata collection is
+compared without changing production validation. It is registered in
+`tools/build_engine.sh`; the four suites retain their existing registrations.
+
+Core `migration_b02_test.dart` and native
+`test/migration_b02_review_test.dart` share `b02_migration_support.dart` fixtures
+for conditions, dependencies, unbounded tails and finite tuples. Prepared paths
+include dirty root/shared buffers, real request/response evaluations, CLI
+review/apply/check, cancellation, stale reviews, destination collisions, staged
+publication failure, preservation of originals, review presentation and cold
+reopening after relocation/deletion of the originals. Existing Core/native
+directory gates register the new files. The TODO witness above intentionally
+records unfinished production work; it is not a passing positive regression.
+
+Migration engine/Core admission/native preflight are now **84**; current
+assertions are synchronized and obsolete **83** rejection is prepared alongside
+older controls. Evaluator `1.18.0+58`, graph role revision `9`, response mock
+producer `5`, parameter mock producer `4` and sample producer `4` are unchanged.
+No third-party source, dependency version or SDK was changed.
+
+**No regression was executed.** Only source inspection and Git whitespace
+review were performed. No compiler, analyzer, test, build, code generation, CI,
+graphical, packaging or performance workload ran. Generated bundles have not
+been rebuilt. The execution hold remains active and Snapcraft remains skipped.
+B02 source-completion criteria are unmet. Continue B02 before beginning
+**B03 — Remaining schema-vocabulary conversions**. Overall BusyAPI SOURCE
+COMPLETE and ACCEPTED remain unmet.
+
 ## B01: directional schemas and shared request/response owners
 
 **Source-complete, unverified for W3.01's directional mappings.** Work started
 on `release/v0.1.0` at `f15e9a66df4c1dbf20ed709eb25e4df07fe515f5` in the
 primary checkout. A01–A03's allocator, resource preparation and connection
-proofs remain authoritative. No B02 conditional/dependency/tuple-tail work was
-undertaken.
+proofs remain authoritative. At the B01 handoff, no B02
+conditional/dependency/tuple-tail work had been undertaken.
 
 `migration_direction.ts` now specializes read-only 3.0/3.1/3.2 schemas when
 downgrading to Swagger, alongside the existing Swagger and 3.0 upgrade mappings.
@@ -539,9 +667,9 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W2.02 One deterministic specialization mechanism, selected-consumer repair, collisions and provenance; JC resource/reference rules, family object clauses | `migration_schema_owners.ts`, migration direction/discriminator/identity/shared-text/examples, `migration_schema_uses.ts` | M E S C | alias/boolean/inactive annotation/direction suites, `test_migration_schema_uses`, `test_migration_object_uses`, Core `migration_schema_uses_test` / `migration_object_uses_test` and existing publication suites | Partially implemented; common allocator serves schema containers, boolean/annotation/condition/tuple/name owners and direction/discriminator states, plus security binding/flow variants and ignored Reference Object literal owners. Additional typed uses compose transitively through the same provenance; anonymous storage retains each source format and ordered sequence expansion retains original member coordinates. Pre-conversion and patch-relocation ownership separates established schema and native object uses from data; repairs select intrinsic roles. Anchored/dynamic uses retain a proved existing resource through ordinary schema/object holders or their own retained $id. Native overlapping roles now use the same allocator and per-role static reference repair; Design, Reference, schema trees, examples and validation retain established interpretations. Independent native/schema URI contexts, intrinsic containment, meta roots and exact executable views retain the canonical source owner; role-selected Markdown bases survive scalar navigation. Cross-entry static forwarding and recursive/schema/Header ownership now propagate to each entry; whole identified/dynamic resources use entry-owned identity namespaces and active-owner conversion/relocation; entry namespaces, Swagger model tables and ordinary role/literal copies now use captured active contexts; partial modern schema/native-field resources share common material owners and captured slot references; model-sensitive map and whole-resource views now use neutral anonymous holders, including boolean alternatives, and forward proved native identified children through that same material-owner primitive; compatible foreign component maps preserve mixed-family source contexts through the same allocator and proofs; restricted Schema Object copies and conversion hoists now share anonymous array-item owners, captured entry contexts, passive URI preservation and common reservation/provenance/retirement; containing and composition-dependent binary uses now select finite instance-path owners, preserve independently targeted inline roots/descendants through neutral owners, and repair only captured route edges; A01 extends the same owner layouts to mixed-family Operations, pre-3.1 Path Items and pre-3.2 Media without direct holders, including intrinsic schema resources and named security aliases; A02 prepares mutually overlapping component destinations through the same allocator before insertion, including native Objects and interpretations active only in other entries, and repairs copied static fields after later targets materialize; A03 adds whole-resource capture/proofs, generated-slot connection composition, collision checks across captured entries and proved retirement of superseded private resources; remaining representation/refactoring work stays in its assigned rows | H |
 | W2.03 Twelve directed routes and same-family patch behavior; family schema clauses, J4/JC applicators | `migration_routes.ts`, Swagger/schema/binary/direction owners | M S C | `test_migration_entry_routes`, `test_migration_direct_swagger`, `test_swagger_empty_tuple`, Core entry routes and `migration_direct_swagger_test.dart` | Partially implemented; Swagger-to-modern now bypasses 3.0, mapping positional items directly; empty tuples retain no-op meaning; full route qualification and shared-role cases remain | H |
 | W3.01 Directional annotations and shared request/response/Header consumers in both directions; O20 Schema, O30 Schema, O31/O32 annotations | `migration_access.ts`, `migration_direction.ts`, required-presence owner | M E S C | direction/access/required-presence/Header suites, Core HTTP/CLI access journeys and native access review | Source-complete, unverified within B01; read-only Swagger downgrades specialize captured request/response owners, modern required presence and coexisting annotations survive 3.0 lowering, and shared Header/mixed-entry uses reuse A01–A03 ownership. Active writeOnly has a located Swagger target limitation; unavailable source bindings retain blockers | H |
-| W3.02 Positional tuples/tails, recursion, exact bounds and references; J4 §5.3, JC §10.3.1 | `migration_schema.ts`, routes and schema-reference owners | M E S C | direct-Swagger/empty-tuple/migration suites and `test_migration_tuple_tails` | Partially implemented; unbounded Swagger tails upgrade to modern `prefixItems`; finite constrained modern tails expand to bounded Swagger positions referencing one retained tail owner; bounds now include same-instance composition, fixed references, finite enum/const values, non-array types, unreachable prefixes and constant containment counts; independent boolean tails retain owners too; unbounded annotation-free type tails now lower through one uniform items conjunct when every positional prefix implies that type, with exact enum/const, fixed-reference and composition proofs and retained prefix/tail owners; other unbounded constrained tails and additional equivalent downgrade algorithms remain | H |
-| W3.03 Conditional assertions and inactive conditional fields; JC §10.2.2 | `migration_schema_conditions.ts`, shared owner allocator, schema migration | M E S C | `test_migration_conditions` through production planning, source/target evaluations and cold graph | Partially implemented; modern-to-3.0 conditional lowering retains one condition target; annotation-free boolean/empty/fixed-reference conditions now select their faithful branch for either restricted family. Equal exact branch schemas in the same resource context now apply once under annotation-free type/enum/const predicates, retaining the predicate and both branch owners; conditional annotations keep their blockers. Unconsumed inactive branches (including absent-if cases) are pruned before vocabulary conversion; independent targets and connection/dynamic proofs remain owned. Composed annotation-free constant predicates now lower through shared finite truth proofs; descendant-only inactive consumers retain their exact transitive reference closure without activating the containing assertion. Nonconstant Swagger mappings and other overlapping cases remain open | H |
-| W3.04 Property/schema dependencies with independently referenced maps; JC §10.2.2.4, JV §6.5.4 | `migration_schema_dependencies.ts` | M E S C | dependency/dependent-schema suites, Core dependency review | Partially implemented; existing conditional lowering retained; representable independent map schemas use W2.02 ownership; unknown annotations still cannot be silently dropped for restricted targets; annotation-free constant true/false dependencies now retain independent targets and lower to an inactive constraint or forbidden trigger property for all JSON types; remaining nonconstant Swagger conditional mappings remain open | H |
+| W3.02 Positional tuples/tails, recursion, exact bounds and references; J4 §5.3, JC §10.3.1 | `migration_schema_tuples.ts`, `migration_tuple_uniform_tail.ts`, finite-domain and shared schema owners | M E S C | tuple-tail/empty-tuple suites, Core/native B02 journeys | Partially implemented, unverified; existing finite positional expansion retained; uniform proofs now include exact bounds/divisibility, integer lattices, object coverage, inactive annotations and shared conjunct/keyword factoring; homogeneous and exhaustive finite languages reach 3.0; unreachable positions retain independent owners. Work limits remain evidence refusals. Newly generated references still need concrete Swagger flat Items ownership; see B02's remaining cases | H |
+| W3.03 Conditional assertions and inactive conditional fields; JC §10.2.2 | `migration_schema_conditions.ts`, guard projections, shared owner allocator | M E S C | conditional suite with instance/annotation comparisons, Core/native B02 journeys | Partially implemented, unverified; existing 3.0/constant/equal-branch mappings retained; positive implication, forced branches, native-domain/presence guards, selected complements and finite reductions added; inactive native applications preserve independent descendant closures. Nested conditional plans are not yet composed through all outer dependency guards, and some post-lowering applicability proofs remain missing; see B02's concrete witness | H |
+| W3.04 Property/schema dependencies with independently referenced maps; JC §10.2.2.4, JV §6.5.4 | `migration_schema_dependencies.ts`, migration presence proofs and existing allocator | M E S C | dependency/dependent-schema suites, Core/native B02 journeys | Partially implemented, unverified; constant mappings retained; seeded transitive/cyclic presence, closed/composed/exact constraints, forbidden triggers, native/presence guards and independent owners added. Native conjunctions take priority over finite folding when proved. The independently owned typed body containing a nested conditional still has an established representable Swagger case awaiting guard-plan composition; TODO witness records that missing implementation | H |
 | W3.05 Static/dynamic references, anchors, identities and independent annotations; JC §§8–9 | identity/schema-reference/role owners | M E S C | static-dynamicref/identity/boolean/inactive annotation suites, pinned official dynamicRef cases, Core static/dynamic reference publication/HTTP/CLI journeys | Partially implemented; inactive anchors and dynamic applicators whose captured candidates all identify the initial target lower through one shared binding proof. Sibling constraints and recursive references remain separate allOf/static edges; resource/role provenance and cold reopening are proved. Whole-resource entry variants retain static/dynamic targets, anchors and resource boundaries; downstream dynamic dependencies require a same-resource holder. Partial modern resources and native slots now receive common resource owners; moved definitions remain anonymous and native discriminator URI targets repair before stage validation; A03 adds ordinary and foreign whole-resource holders, nested identity/dialect ownership, named dynamic retargeting, resource/anchor isomorphism and neutral native-slot frames; old-family competing-target lowering remains an explicitly unfinished representation mapping, while unsupported dialects and unavailable/ambiguous source identities stay incomplete | H |
 | W3.06 Pattern/property-name/contains/count/unevaluated/content constraints; JC §§10–11, JV §§6/8 | `migration_schema.ts`, `migration_schema_property_names.ts`, binary/reference/dependency owners | M E S C | migration/binary/dependency suites (existing), `test_migration_property_names`, Core `migration_property_names_test.dart` | Partially implemented; finite annotation-free property-name enum/const/type restrictions now lower to an isolated closed-properties branch with retained independent owners; those same finite domains now lower pattern-selected value assertions through anonymous owners, including overlapping patterns and original additional-property exclusions; constant true/false containment now maps exact counts to array bounds and retains independent contains/unevaluated boolean owners; general name schemas, unbounded pattern domains, local unevaluated property/item selections now lower through their original material schemas, and explicit all-location coverage retires inactive assertions while preserving independent identities/consumers; nonconstant containment and broader composition-dependent unevaluated/content algorithms remain missing, with individual blockers | H |
 | W3.07 Raw/data/base64/byte/file/union consumers and byte constraints; family binary clauses, JV §8 | `migration_binary.ts`, Swagger flat/media owners | M E S C | migration binary, direct Swagger, native binary suites | Partially implemented; direct Swagger route now inspects actual body/response media and modernizes flat bounds/byte encodings; captured static forwarding chains now give raw-body and direct multipart property/item consumers separate common schema owners from JSON consumers, retaining neutral definitions, collisions, metadata and exact provenance. Forwarded containing-object and composition-dependent occurrence splits, constrained raw assertions and file-union ownership remain | H |
@@ -576,7 +704,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W7.01 Creation, editing, unsaved Reference, request/example/mock/case, migration review, documentation and CLI integration for every capability; all applicable clauses above | shared engine, Core owners and native workspace controls | A R E M S C | engine/Core/widget/native journey suites | Partially implemented; applicable existing consumers inherit shared field/codec/routing changes; complete family journeys are not accepted | H |
 | W7.02 Stale-action invalidation on declaration/dialect/root/external/approval changes; coherent reviewed transactions, Undo/Redo and no buffer loss; Core transaction contract | Core project/store/capture and native review/request controllers | A R E M S C | stale capture/cancellation/publication/widget review suites | Partially implemented; existing source for existing safeguards; new paths require current integration qualification | H |
 | W7.03 CST fidelity, no-op saves, exact values, aliases, extensions and source-only migration restructuring; TEXT | `document.ts`, graph/CST editing, Core store/transaction owners | A R M S C | source ownership/alias/exact-value/no-op suites | Partially implemented; existing source for existing boundaries; generated schema owners retain original provenance and reviewed restructuring | H |
-| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+58`, migration producer `83`, response mock producer `5`, parameter mock producer `4`, sample producer is now `4`; no dependency versions/source changed | H |
+| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+58`, migration producer `84`, response mock producer `5`, parameter mock producer `4`, sample producer is now `4`; no dependency versions/source changed | H |
 | W8.01 Explicit independent evidence input across SDK/build/CMake/CI/installed/package checks; PINS | `flutter_archive.py`, SDK verifier, `build_linux.sh`, CMake, package/native-distribution/artifact-smoke inputs | P | `tools/test_flutter_sdk.py`, source-wiring regressions | Partially implemented; existing source for archive-input propagation; same existing evidence reaches installed checks; independent member pins remain an alternative; no SDK acquisition/replacement | H; actual evidence availability/authenticity has not been qualified |
 | W8.02 Ordered gates, registration, source-version-valid fixtures and production-byte regressions; PINS and each row's authority | `tools/build_engine.sh`, Linux workflow, engine/Core/widget/native/package suites | P | new direct-Swagger/conditional/tuple-tail/constant-containment/property-name/runtime-parameter and URI-security/OAuth-flow/invariant regressions registered; existing TypeScript-before-bundle gate retained | Partially implemented; compilation and all suspended gates remain unexecuted; missing regression coverage identified in this register remains implementation work | H |
 | W8.03 Current automated/native/packaged/offline acceptance and normal Quit; all approved families and PINS | native acceptance tools, Core/package/CLI suites | A R E M S C P | existing native acceptance including historical Quit/focus failures; complete new journeys still required | Missing for accepted evidence; no driver/engine attribution established; Snapcraft remains skipped | H |

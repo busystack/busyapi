@@ -67,15 +67,29 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
         if(scope.kind!=='schema')continue;
         if(!converting.has(scope.family))continue;
         const owner={family:scope.family,property:/\/properties\/[^/]+$/.test(scope.pointer),origin:scope};
+        const remember=(resource:string,pointer:string)=>{
+            const id=key({resource,pointer}),prior=legacy.get(id);
+            if(prior&&(prior.family!==owner.family&&!(modernFamily(prior.family)&&modernFamily(owner.family))||prior.property!==owner.property)){
+                issue(scope,'migration.direction.context','This converted schema has conflicting original access contexts; separate owners are required','implementation');
+                return false;
+            }
+            legacy.set(id,owner);return true;
+        };
         for(const [resource,source]of sources){
             const pointers=resource===scope.resource?source.origins.get(scope.pointer):source.foreignOrigins.get(scope.resource+'#'+scope.pointer);
             for(const pointer of pointers??[]){
-                const id=key({resource,pointer}),prior=legacy.get(id);
-                if(prior&&(prior.family!==owner.family||prior.property!==owner.property)){
-                    issue(scope,'migration.direction.context','This converted schema has conflicting original access contexts; separate owners are required','implementation');
-                    return;
+                if(!remember(resource,pointer))return;
+            }
+            // Assertion variants intentionally keep neutral schema targets
+            // unique, while copied fields retain their original provenance.
+            // Recover access policy from those fields without assigning an
+            // independent reference consumer to the assertion variant.
+            for(const field of ['readOnly','writeOnly','required']){
+                const original=scope.pointer+'/'+field;
+                const locations=resource===scope.resource?source.origins.get(original):source.foreignOrigins.get(scope.resource+'#'+original);
+                for(const pointer of locations??[])if(pointer.endsWith('/'+field)){
+                    if(!remember(resource,pointer.slice(0,-field.length-1)))return;
                 }
-                legacy.set(id,owner);
             }
         }
     }

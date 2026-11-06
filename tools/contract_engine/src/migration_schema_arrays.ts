@@ -5,18 +5,20 @@ import type {GraphScope,ReferenceGraph} from './reference_graph';
 import type {MigrationSource} from './migration_source';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import {constantSchemaAssertion} from './schema_constant_assertions';
+import {migrationUnevaluatedMapping} from './migration_schema_unevaluated';
 
 const identity=(scope:GraphScope)=>JSON.stringify([scope.resource,scope.pointer]);
 const matchesAll=(schema:unknown)=>schema===true||schema!==null&&typeof schema==='object'&&!Array.isArray(schema)&&Object.keys(schema).length===0;
 
 /** A conservative proof of a finite upper bound on arrays accepted at this
- * schema occurrence. No ancestor constraints, instance search or annotation
- * changes enter the proof. Cyclic references retain finite graph identities;
+ * schema occurrence. Ancestor constraints apply only to a non-independent
+ * same-instance occurrence. Cyclic references retain finite graph identities;
  * an unavailable bound is not evidence of an unbounded language. */
 export class MigrationArrayBounds {
     private readonly proved=new Map<string,number>();
     private work=0;
-    constructor(private readonly graph:ReferenceGraph,private readonly limit=2048){}
+    constructor(private readonly graph:ReferenceGraph,private readonly limit=2048,
+        private readonly canInherit:(scope:GraphScope)=>boolean=()=>false){}
     maximum(scope:GraphScope,seen=new Set<string>()):number|undefined {
         const id=identity(scope),known=this.proved.get(id);
         if(known!==undefined)return known;
@@ -33,6 +35,9 @@ export class MigrationArrayBounds {
             if(bound!==undefined&&bound<=this.limit){this.proved.set(id,bound);return bound;}
         };
         if(value===false)retain(0);
+        if(this.canInherit(scope))for(const parent of this.graph.schemaParentsOf(scope))if(parent.resource===scope.resource&&scope.pointer.startsWith(parent.pointer+'/')&&
+            /^\/(?:allOf\/\d+|anyOf\/\d+|oneOf\/\d+|if|then|else|not)$/.test(scope.pointer.slice(parent.pointer.length)))
+            retain(this.maximum(parent,path));
         if(value&&typeof value==='object'&&!Array.isArray(value)){
             const contains=this.graph.scopeAs(scope.resource,scope.pointer+'/contains','schema');
             const containsConstant=contains?constantSchemaAssertion(this.graph,contains):undefined;
@@ -49,6 +54,8 @@ export class MigrationArrayBounds {
             if(Array.isArray(value.prefixItems)){
                 const impossible=value.prefixItems.indexOf(false);
                 if(impossible>=0)retain(impossible);
+                const tail=child(scope.pointer+(migrationUnevaluatedMapping(value,'unevaluatedItems')==='local'?'/unevaluatedItems':'/items'));
+                if(tail&&constantSchemaAssertion(this.graph,tail)===false)retain(value.prefixItems.length);
             }
             // One conjunctive bound suffices. Unrelated recursive or dynamic
             // branches need no additional proof and cannot widen that bound.
@@ -99,7 +106,7 @@ export function migrateConstantContains(graph:ReferenceGraph,scope:GraphScope,so
         }
     };
     const retire=(field:string)=>{
-        const original=scope.pointer+'/'+field,at=source.current(original);
+        const original=scope.pointer+'/'+field,at=source.current(original,scope.resource);
         if(at===undefined)return;
         const referenced=graph.references.some(reference=>reference.kind==='schema'&&reference.resolution==='resolved'&&
             reference.targetResource===scope.resource&&(reference.targetPointer===original||reference.targetPointer?.startsWith(original+'/')));
@@ -148,7 +155,7 @@ export function migrateArrayAlternatives(graph:ReferenceGraph,scope:GraphScope,s
     }
     let retained:string|undefined;
     for(let index=0;index<choices.length;index++){
-        const original=scope.pointer+'/anyOf/'+index,at=source.current(original);
+        const original=scope.pointer+'/anyOf/'+index,at=source.current(original,scope.resource);
         if(at===undefined)throw new SourceError('migration.schema.array-choice-owner','An array bound choice has no surviving captured owner');
         if(index===selected||graph.references.some(reference=>reference.kind==='schema'&&reference.resolution==='resolved'&&
             reference.targetResource===scope.resource&&(reference.targetPointer===original||reference.targetPointer?.startsWith(original+'/')))){
@@ -161,6 +168,6 @@ export function migrateArrayAlternatives(graph:ReferenceGraph,scope:GraphScope,s
     owners.admit(source,3);
     if(!source.doc.dataNode(collection))source.set(collection,[]);
     source.set(collection+'/'+source.doc.dataNode(collection)!.children.size,{$ref:retained});
-    const current=source.current(scope.pointer+'/anyOf');
+    const current=source.current(scope.pointer+'/anyOf',scope.resource);
     if(current!==undefined)source.remove(current,true,true,true);
 }

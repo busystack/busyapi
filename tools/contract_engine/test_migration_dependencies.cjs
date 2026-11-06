@@ -23,7 +23,7 @@ async function outcomes(input,pointer,samples,subject='response-body'){
 const samples=['{}','{"trigger":false}','{"trigger":0}','{"trigger":null}','{"trigger":""}','{"trigger":false,"value":9007199254740993}','{"trigger":0,"value":9007199254740993,"other":false}','{"value":9007199254740993}','{"trigger":false,"value":9007199254740992}','null','false','0','[]','{"trigger":false,"value":9007199254740993,"next":{"trigger":0}}'];
 for(const version of modern)for(const format of ['yaml','json'])for(const targetVersion of older)for(const mode of ['presence','multiple','unconditional','tautology','allOf','nullable','readOnly','writeOnly','recursive'])test(`${version} ${format} ${mode} dependencies retain presence and direction in ${targetVersion}`,async()=>{
  const input=capture(version,format,mode),original=input.resources.map(r=>r.text),result=await planMigration({...input,targetVersion});
- assert.equal(result.status,'faithfully-convertible',JSON.stringify(result.problems));assert.equal(result.complete,true);assert.equal(result.producerVersion,'83');const output=after(result),entry=result.outputs.find(r=>r.id===result.outputRoot),data=YAML.parse(entry.text);
+ assert.equal(result.status,'faithfully-convertible',JSON.stringify(result.problems));assert.equal(result.complete,true);assert.equal(result.producerVersion,'84');const output=after(result),entry=result.outputs.find(r=>r.id===result.outputRoot),data=YAML.parse(entry.text);
  assert.equal(data.openapi,targetVersion);assert.equal(data.info.version,'API-1');assert(!Object.hasOwn(data.components.schemas.Model,'dependentRequired'));assert.equal(data['x-payload'].dependentRequired.trigger[0],'opaque');assert(entry.text.includes('9007199254740993.00'));if(format==='yaml')assert(entry.text.startsWith('# Preserve CRLF\r\n'));
  assert.equal(analyse(output).status,'complete');
  for(const subject of ['request-body','response-body']){
@@ -48,6 +48,37 @@ for(const mode of ['ordinary','tautology','alias'])test(`YAML ${mode} dependency
  if(mode==='alias'){assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);assert(result.problems.some(p=>p.code.includes('shared')||p.code.includes('alias')),JSON.stringify(result.problems));}
  else{assert.equal(result.complete,true,JSON.stringify(result.problems));const text=result.outputs[0].text;for(const comment of ['# Original','# Dependency map','# Trigger entry','# Required name','# Inline name'])assert.equal(text.split(comment).length-1,1,comment+'\n'+text);assert(text.includes('      properties: {trigger: {}, value: {}}\r\n'));}
  assert.equal(r.text,original);
+});
+
+for(const version of modern)for(const format of ['yaml','json'])for(const targetVersion of ['2.0','3.0.4'])
+for(const mode of ['forbidden-chain','already-required','closed-count','finite-cycle','composed-seed','count-forbidden','composed-forbidden'])
+test(`${version} ${format} ${targetVersion} ${mode} dependency proof retains optional triggers and exact names`,async()=>{
+ const root='file:///dependency-proof/api.'+format,trigger='seed/~雪';
+ const schema=mode==='forbidden-chain'?{dependentRequired:{[trigger]:['middle'],middle:['blocked']},properties:{blocked:false}}:
+  mode==='already-required'?{required:['value'],dependentRequired:{[trigger]:['value']},properties:{value:{type:'integer'}}}:
+  mode==='composed-forbidden'?{allOf:[{dependentRequired:{[trigger]:['middle']}},{dependentRequired:{middle:['blocked']}},{properties:{blocked:false}}]}:
+  mode==='count-forbidden'?{maxProperties:1,dependentRequired:{[trigger]:['middle'],middle:['value']}}:
+  mode==='composed-seed'?{required:[trigger],allOf:[{dependentRequired:{[trigger]:['middle']}},{dependentRequired:{middle:['value']}}]}:
+  mode==='closed-count'?{type:'object',properties:{[trigger]:{},value:{type:'integer'}},additionalProperties:false,
+   allOf:[{minProperties:2}],dependentRequired:{[trigger]:['value']}}:
+  {type:'object',additionalProperties:false,properties:{[trigger]:{enum:[0,false]},middle:{type:'boolean'},value:{enum:['EXACT']}},
+   dependentRequired:{[trigger]:['middle'],middle:[trigger,'value']}};
+ const document={openapi:version,info:{title:'Dependency proof',version:'1'},paths:{},components:{schemas:{Model:schema}},
+  'x-data':{names:[trigger,'middle','blocked'],number:'EXACT',reference:{$ref:'literal.json#/unchanged'}}};
+ const text=(format==='yaml'?'# Keep names and aliases\r\n'+YAML.stringify(document).replaceAll('\n','\r\n'):JSON.stringify(document)).replace(/"?EXACT"?/g,'9007199254740993.00');
+ const input={root,snapshot:'dependency-proof-'+mode,resources:[{id:root,text,generation:5}],targetVersion,destination:'file:///dependency-proof-output/'};
+ const values=['null','false','0','[]','{}','{"blocked":0}','{"middle":false}',JSON.stringify({[trigger]:false}),
+  '{"value":9007199254740993}',`{"${trigger}":false,"middle":false,"value":9007199254740993}`,`{"${trigger}":0,"value":0}`];
+ const before=await outcomes(input,'/components/schemas/Model',values),review=await planMigration(input);
+ assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const output=after(review),prefix=targetVersion==='2.0'?'/definitions':'/components/schemas';
+ assert.deepEqual(await outcomes(output,prefix+'/Model',values),before);
+ const doc=new SourceDocument(output.resources.find(resource=>resource.id===output.root).text,output.root);
+ assert.equal(doc.dataJson('/x-data'),new SourceDocument(text,root).dataJson('/x-data'));assert.equal(input.resources[0].text,text);
+ if(['forbidden-chain','composed-forbidden'].includes(mode)){assert.equal(before[4],true);assert.equal(before[5],false);assert.equal(before[6],false);assert.equal(before[7],false);}
+ if(mode==='finite-cycle'){assert.equal(before[4],true);assert.equal(before[6],false);assert.equal(before[7],false);assert.equal(before[9],true);}
+ if(mode==='composed-seed'){assert.equal(before[7],false);assert.equal(before[9],true);}
+ if(mode==='count-forbidden'){assert.equal(before[4],true);assert.equal(before[6],false);assert.equal(before[7],false);}
 });
 for(const version of modern)for(const format of ['yaml','json'])test(`${version} ${format} captured external dependency schema retains recursion and resource ownership`,async()=>{
  const input=capture(version,format,'recursive'),r=input.resources[0],doc=new SourceDocument(r.text,r.id),model='file:///approved/model.yaml';

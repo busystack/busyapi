@@ -7,6 +7,7 @@ import {documentUriBase,resolveUri,pointerFragment,schemaResourceContextIdentity
 import type {MigrationLocation,MigrationSource} from './migration_source';
 import {migrationLogicalPointers} from './migration_yaml_ownership';
 import {modernFamily} from './specification';
+import {projectSchemaReference} from './schema_reference_projection';
 
 type SemanticOwner=Readonly<{source:GraphScope;owner:GraphScope;location:MigrationLocation}>;
 export type MigrationOwnerLayout='array-item'|'callback-path-item'|'callback-operation'|'path-item-operation'|'response-media';
@@ -157,6 +158,20 @@ export class MigrationSchemaOwners {
         });
     }
 
+    /** A reference to the exact root can enter it without its lexical parent,
+     * including recursive entries from child instances. Descendant consumers
+     * do not, by themselves, invalidate a parent's same-instance assumptions. */
+    hasRootConsumer(origin:MigrationLocation,references:readonly GraphReference[]):boolean {
+        const value=this.graph.docs.get(origin.resource)?.dataNode(origin.pointer)?.value;
+        if(['$id','$anchor','$dynamicAnchor'].some(name=>typeof value?.[name]==='string'))return true;
+        const matches=(at:MigrationLocation)=>at.resource===origin.resource&&at.pointer===origin.pointer;
+        return references.some(reference=>{
+            this.inspectUse();if(reference.kind!=='schema')return false;
+            return reference.resolution==='resolved'&&matches({resource:reference.targetResource!,pointer:reference.targetPointer!})||
+                reference.dynamic?.candidates.some(matches)===true||reference.candidateTargets?.some(matches)===true;
+        });
+    }
+
     /** Inactive assertions can retire only when no other captured use needs
      * their material schemas or connection proofs. Callers supply all entry
      * captures; the first graph's namespace cannot choose their targets. */
@@ -294,6 +309,25 @@ export class MigrationSchemaOwners {
         return {source:entry,location:this.allocate(entry,container,label,identity)};
     }
 
+    materialLocations(origin:MigrationLocation):readonly {source:MigrationSource;location:MigrationLocation}[] {
+        const found:{source:MigrationSource;location:MigrationLocation}[]=[];
+        for(const [resource,source]of this.sources){
+            const pointers=resource===origin.resource?source.origins.get(origin.pointer):source.foreignOrigins.get(origin.resource+'#'+origin.pointer);
+            for(const pointer of pointers??[]){this.inspectUse();found.push({source,location:{resource,pointer}});}
+        }
+        return found;
+    }
+    uniqueLocation(origin:MigrationLocation):{source:MigrationSource;location:MigrationLocation} {
+        const found=this.materialLocations(origin);
+        // A prepared canonical scope can retain an explicit forwarding use
+        // alongside historical copy provenance. Its exact captured coordinate
+        // selects that interpretation; relocated scopes need a unique survivor.
+        const captured=found.filter(value=>value.location.resource===origin.resource&&value.location.pointer===origin.pointer);
+        if(captured.length===1)return captured[0];
+        if(found.length!==1)throw new SourceError('migration.owners.source-coordinate','A projected schema or field requires one surviving captured material coordinate');
+        return found[0];
+    }
+
     /** All schema and object variants use this reservation boundary, including
      * finite request/response and discriminator states. The caller supplies
      * the captured semantic state; payload member names never choose identity. */
@@ -314,9 +348,120 @@ export class MigrationSchemaOwners {
      * Captured references retain the existing provenance-based repair path. */
     reference(location:MigrationLocation,targetFamily:string):string {
         const prefix='/components/schemas/';
-        const pointer=targetFamily==='2.0'&&this.graph.specifications.has(location.resource)&&location.pointer.startsWith(prefix)?
-            '/definitions/'+location.pointer.slice(prefix.length):location.pointer;
+        const native=this.graph.specifications.get(location.resource);
+        const pointer=targetFamily==='2.0'&&native&&location.pointer.startsWith(prefix)?
+            '/definitions/'+location.pointer.slice(prefix.length):targetFamily!=='2.0'&&native?.family==='2.0'&&location.pointer.startsWith('/definitions/')?
+                prefix+location.pointer.slice('/definitions/'.length):location.pointer;
         return location.resource+pointerFragment(pointer);
+    }
+
+    /** Retiring an unapplied assertion does not authorize deleting its exact
+     * enum/default/extension data. Keep those values as literal annotations in
+     * a neutral standard Schema Object, through the common reservation and CST
+     * provenance path. Reference-looking members remain literal data. */
+    retainLiteralValue(origin:MigrationLocation,source:MigrationSource,pointer:string,label='retired_value'):MigrationLocation {
+        const owner=this.reserve(origin,label,JSON.stringify([origin.resource,origin.pointer]));
+        this.admit(source,4);this.admit(owner.source,4);
+        owner.source.set(owner.location.pointer,{});
+        const location={...owner.location,pointer:owner.location.pointer+'/x-busyapi-retained-value'};
+        owner.source.copy(source,pointer,location.pointer,true);source.remove(pointer,true,false);
+        owner.source.presentationChanges.push(owner.location.pointer);return location;
+    }
+
+    /** An assertion variant has new schema identities but retains the source
+     * fields' exact data/rendering provenance. Existing references continue to
+     * select the neutral schemas; the caller explicitly selects the variant.
+     * All fixed references use captured targets and current CST coordinates. */
+    assertionVariant(context:ReferenceGraph,scope:GraphScope,source:MigrationSource,pointer:string,label:string,targetFamily:string,
+        removed:readonly string[]=[]):MigrationLocation {
+        const captured=source.fork(),container=componentLocation('schemas',context.family);
+        if(!container)throw new SourceError('migration.owners.variant-container','This assertion variant has no native Schema Object container');
+        const variant=this.separate({...scope,pointer},label,{captured,layout:'array-item',
+            container:{resource:context.root,pointer:container},identity:JSON.stringify([scope.resource,scope.pointer,label])}).location;
+        const output=this.sources.get(variant.resource)!;
+        for(const field of migrationLogicalPointers(captured.doc))if(field===pointer||field.startsWith(pointer+'/')){
+            this.inspectUse();output.associate(captured,field,variant.pointer+field.slice(pointer.length));
+        }
+        const inside=(at:string)=>at===variant.pointer||at.startsWith(variant.pointer+'/');
+        const capturedField=(origin:MigrationLocation)=>{
+            const fields=origin.resource===captured.original.id?captured.origins.get(origin.pointer):captured.foreignOrigins.get(origin.resource+'#'+origin.pointer);
+            return [...fields??[]].find(field=>field.startsWith(pointer+'/'));
+        };
+        // Schema-target provenance is intentionally neutral. Metadata fields
+        // retain both copies for exact-data and Markdown/URI proofs.
+        for(const schema of context.entryScopes())if(schema.kind==='schema'&&schema.resource===scope.resource&&
+            (schema.pointer===scope.pointer||schema.pointer.startsWith(scope.pointer+'/'))){
+            this.inspectUse();
+            const locations=variant.resource===schema.resource?output.origins.get(schema.pointer):output.foreignOrigins.get(schema.resource+'#'+schema.pointer);
+            for(const at of [...locations??[]])if(inside(at))locations!.delete(at);
+        }
+        // Value schemas have independent resource/discriminator identities.
+        // Guard and conjunct projections change their containing assertions,
+        // so retain these untouched bodies through their neutral targets.
+        const valueSchemas:{scope:GraphScope;pointer:string}[]=[];
+        for(const schema of context.entryScopes())if(schema.kind==='schema'&&schema.resource===scope.resource&&
+            schema.pointer.startsWith(scope.pointer+'/')){
+            this.inspectUse();
+            const valueApplication=context.schemaParentsOf(schema).some(parent=>parent.resource===schema.resource&&
+                /^\/(?:properties\/[^/]*|patternProperties\/[^/]*|(?:prefixItems|items)\/\d+|items|additionalProperties|contains|unevaluatedItems|unevaluatedProperties|propertyNames)$/.test(schema.pointer.slice(parent.pointer.length)));
+            if(!valueApplication)continue;
+            const material=this.uniqueLocation(schema);
+            if(material.source===source&&material.location.pointer.startsWith(pointer+'/')&&
+                captured.doc.dataNode(material.location.pointer)?.kind==='object')valueSchemas.push({scope:schema,pointer:material.location.pointer});
+        }
+        const retained:string[]=[];
+        for(const child of valueSchemas.sort((a,b)=>a.pointer.length-b.pointer.length)){
+            if(retained.some(parent=>child.pointer.startsWith(parent+'/')))continue;
+            const destination=variant.pointer+child.pointer.slice(pointer.length);
+            if(!output.doc.dataNode(destination))continue;
+            this.referenceUse(output,destination,{resource:source.doc.id,pointer:child.pointer});
+            output.set(destination+'/$ref',this.reference({resource:source.doc.id,pointer:child.pointer},targetFamily));
+            retained.push(child.pointer);
+        }
+        for(const reference of context.entryReferences())if(reference.kind==='schema'&&!reference.connection&&
+            reference.resource===scope.resource&&(reference.pointer===scope.pointer||reference.pointer.startsWith(scope.pointer+'/'))&&
+            ['$ref','$dynamicRef'].includes(reference.keyword)){
+            this.inspectUse();
+            if(reference.resolution!=='resolved')throw new SourceError('migration.owners.variant-reference','An assertion variant needs a resolved captured schema reference');
+            if(projectSchemaReference(reference).state!=='fixed')throw new SourceError('migration.owners.variant-dynamic','An assertion variant needs a proved fixed schema reference');
+            const field=capturedField({resource:reference.resource,pointer:reference.pointer+'/'+escape(reference.keyword)});
+            if(field===undefined||!field.startsWith(pointer+'/'))continue;
+            if(retained.some(parent=>field.startsWith(parent+'/')))continue;
+            const destinations:MigrationLocation[]=[];
+            for(const [resource,current]of this.sources){
+                const pointers=resource===reference.targetResource?current.origins.get(reference.targetPointer!):
+                    current.foreignOrigins.get(reference.targetResource+'#'+reference.targetPointer!);
+                for(const pointer of pointers??[])destinations.push({resource,pointer});
+            }
+            const unique=new Map(destinations.map(at=>[JSON.stringify([at.resource,at.pointer]),at]));
+            if(unique.size!==1)throw new SourceError('migration.owners.variant-target','An assertion variant needs one neutral captured target');
+            this.admit(output);output.set(variant.pointer+field.slice(pointer.length),this.reference([...unique.values()][0],targetFamily));
+        }
+        for(const occurrence of documentUriOccurrences(context))if(occurrence.scope.resource===scope.resource&&
+            (occurrence.pointer===scope.pointer||occurrence.pointer.startsWith(scope.pointer+'/'))){
+            const field=capturedField({resource:occurrence.scope.resource,pointer:occurrence.pointer});
+            if(field!==undefined&&field.startsWith(pointer+'/')&&!retained.some(parent=>field.startsWith(parent+'/'))){
+                this.admit(output);output.set(variant.pointer+field.slice(pointer.length),resolveUri(occurrence.value,documentUriBase(context,occurrence.scope)).href);
+            }
+        }
+        for(const suffix of removed){
+            const field=variant.pointer+suffix,parent=field.slice(0,field.lastIndexOf('/'));
+            this.admit(output,2);output.remove(field,true,true,true);
+            if(output.doc.dataNode(parent)?.kind==='array'&&!output.doc.dataNode(parent)!.children.size)output.remove(parent,true,true,true);
+        }
+        return variant;
+    }
+
+    /** A projected applicator deliberately selects a specialized target.
+     * Its neutral original remains the captured reference consumer; keep the
+     * replacement out of ordinary neutral-target reference repair. */
+    replaceAssertionReference(variant:MigrationLocation,origin:MigrationLocation,target:MigrationLocation,family:string):void {
+        const source=this.sources.get(variant.resource)!;
+        const locations=origin.resource===variant.resource?source.origins.get(origin.pointer):
+            source.foreignOrigins.get(origin.resource+'#'+origin.pointer);
+        const fields=[...locations??[]].filter(field=>field.startsWith(variant.pointer+'/'));
+        if(fields.length!==1)throw new SourceError('migration.owners.projection-reference','A projected reference requires one local captured applicator');
+        this.admit(source);source.set(fields[0],this.reference(target,family));locations!.delete(fields[0]);
     }
 
     /** A named security connection in a foreign native owner must select the
@@ -400,7 +545,7 @@ export class MigrationSchemaOwners {
             this.inspectUse();
             if(occurrence.scope.resource!==origin.resource||occurrence.scope.kind==='server'||
                 occurrence.scope.pointer!==origin.pointer&&!occurrence.scope.pointer.startsWith(origin.pointer+'/'))continue;
-            const at=source.current(occurrence.pointer);
+            const at=source.current(occurrence.pointer,origin.resource);
             if(at===undefined||at!==pointer&&!at.startsWith(pointer+'/')||source.doc.dataNode(at)?.value!==occurrence.value)continue;
             const absolute=resolveUri(occurrence.value,documentUriBase(context,occurrence.scope)).href;
             if(absolute!==occurrence.value){this.admit(source);source.set(at,absolute);}
@@ -492,8 +637,8 @@ export class MigrationSchemaOwners {
         location:MigrationLocation;provenance:ReadonlyMap<string,MigrationLocation>;
     }> {
         const {container,captured,layout,identity=JSON.stringify([origin.resource,origin.pointer]),retained=[]}=options;
-        if(layout==='array-item'&&(origin.kind!=='schema'||!container||!['2.0','3.0'].includes(origin.family)))
-            throw new SourceError('migration.owners.layout','An anonymous array-item owner requires a compatible restricted Schema Object container');
+        if(layout==='array-item'&&(origin.kind!=='schema'||!container||!['2.0','3.0','3.1','3.2'].includes(origin.family)))
+            throw new SourceError('migration.owners.layout','An anonymous array-item owner requires a compatible native Schema Object container');
         if(layout&&layout!=='array-item'&&(!container||
             (layout==='response-media'?origin.kind!=='media'||!['3.0','3.1'].includes(origin.family):
                 layout==='callback-path-item'?origin.kind!=='path-item'||!['3.0','3.1','3.2'].includes(origin.family):

@@ -44,7 +44,7 @@ import {securityRequirementDefinition} from './security_requirements';
 import {migrateSwaggerSecurityFlows} from './migration_security_flows';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='83';
+const migrationProducerVersion='84';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const referenceLocator=(reference:GraphReference)=>!reference.connection&&['$ref','$dynamicRef'].includes(reference.keyword)||
     reference.connection==='operationRef'&&reference.keyword==='operationRef';
@@ -383,7 +383,7 @@ export async function planMigration(input:MigrationInput) {
             for(const before of stage.sources)migrateServerVariableDefaults(graph,sources,before,after,issue);
             for(const before of stage.sources)migrateBinarySchemas(graph,sources,before,after,issue,contexts.map(context=>context.graph));
             if(problems.length)break;
-            for(const before of stage.sources)migrateSchemas(graph,sources,before,after,issue,contexts.map(context=>context.graph));
+            for(const before of stage.sources)await migrateSchemas(graph,sources,before,after,issue,contexts.map(context=>context.graph),resources,input.exampleResources);
             for(const before of stage.sources)migrateEncodings(graph,sources,before,after,issue,contexts.map(context=>context.graph));
             const referenceTargets=stage.sources.includes('2.0')?upgradeSwagger(graph,sources,issue,contexts.map(context=>context.graph),after):undefined;
             if(problems.length)break;

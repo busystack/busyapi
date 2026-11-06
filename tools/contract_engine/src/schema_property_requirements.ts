@@ -1,4 +1,4 @@
-import {supportedSchemaDialect,type GraphTarget,type ReferenceGraph} from './reference_graph';
+import {supportedSchemaDialect,type GraphScope,type GraphTarget,type ReferenceGraph} from './reference_graph';
 import {projectSchemaReference} from './schema_reference_projection';
 
 /** Positive property-presence proof over captured Schema Objects. Core 10.2
@@ -7,7 +7,7 @@ import {projectSchemaReference} from './schema_reference_projection';
 export class SchemaPropertyRequirements {
  private readonly edges=new Map<string,GraphTarget[]>();
  private work=0;
- constructor(private readonly graph:ReferenceGraph){
+ constructor(private readonly graph:ReferenceGraph,private readonly applies:(scope:GraphScope,name:string)=>boolean=()=>true){
   for(const reference of graph.references){
    const projection=projectSchemaReference(reference);
    if(projection.state!=='fixed')continue;
@@ -25,7 +25,7 @@ export class SchemaPropertyRequirements {
   if(!scope||!supportedSchemaDialect(scope))return false;
   const value=this.graph.docs.get(target.resource)?.dataNode(target.pointer)?.value;
   if(!value||typeof value!=='object'||Array.isArray(value))return false;
-  if(Array.isArray(value.required)&&value.required.includes(name))return true;
+  if(Array.isArray(value.required)&&value.required.includes(name)&&this.applies(scope,name))return true;
   const nested=new Set(seen).add(key);
   if(this.edges.get(key)?.some(reference=>this.requires(reference,name,nested)))return true;
   const child=(keyword:string,index:number)=>({...target,pointer:target.pointer+'/'+keyword+'/'+index});

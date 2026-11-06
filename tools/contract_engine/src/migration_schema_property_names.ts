@@ -47,7 +47,7 @@ export function migrateSchemaPropertyNames(graph:ReferenceGraph,scope:GraphScope
     if(overlapping){
         issue({...scope,pointer:original},'migration.schema.property-name-owner','This property-name schema also has literal or object uses requiring semantic owner specialization','implementation');return;
     }
-    const at=source.current(original);
+    const at=source.current(original,scope.resource);
     if(at===undefined){
         issue({...scope,pointer:original},'migration.schema.property-name-owner','The property-name schema has no unique surviving planning owner','implementation');return;
     }

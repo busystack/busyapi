@@ -69,7 +69,7 @@ export class MigrationPatternProperties {
 
     discardInactive(scope:GraphScope,source:MigrationSource):void {
         for(const use of this.plan(scope)??[]){
-            const at=source.current(use.pointer);
+            const at=source.current(use.pointer,scope.resource);
             if(at!==undefined&&!use.names.length&&!this.owners.hasConsumers({resource:scope.resource,pointer:use.pointer},this.references)){
                 this.owners.admit(source,4);source.remove(at,true,true,true);
             }
@@ -82,7 +82,7 @@ export class MigrationPatternProperties {
         if(!context){this.issue(scope,'migration.schema.pattern-context','Finite pattern values require their captured entry and schema resource context','implementation');return;}
         const properties=pointer+'/properties',allOf=pointer+'/allOf';
         for(const use of uses){
-            const at=source.current(use.pointer);if(at===undefined)continue;
+            const at=source.current(use.pointer,scope.resource);if(at===undefined)continue;
             const owner=this.owners.move({resource:scope.resource,pointer:use.pointer},source,at,'pattern',{layout:'array-item',context});
             if(!use.names.length)continue;
             const reference=this.owners.reference(owner,target);
@@ -97,7 +97,7 @@ export class MigrationPatternProperties {
             const branch=allOf+'/'+source.doc.dataNode(allOf).children.size;
             source.set(branch,{properties:values});source.presentationChanges.push(branch);
         }
-        const at=source.current(scope.pointer+'/patternProperties');
+        const at=source.current(scope.pointer+'/patternProperties',scope.resource);
         if(at!==undefined){this.owners.admit(source,4);source.remove(at,true,true,true);}
     }
 }

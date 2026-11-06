@@ -3,6 +3,75 @@ const {planMigration}=require('./dist/migration.cjs'),{analyse}=require('./dist/
 const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
 const {SourceDocument}=require('./dist/document.cjs');
 const {createGraph}=require('./dist/model.cjs');
+const {evaluateMigrationAnnotations}=require('./dist/migration_annotations.cjs');
+for(const dependency of ['dependentRequired','dependentSchemas'])for(const finite of [false,true])for(const composed of [false,true])
+test(`guarded ${dependency} retains its native object conjunction, finite=${finite}, composed=${composed}`,async()=>{
+ const dependencyMap=dependency==='dependentRequired'?{a:['b']}:{a:{type:'object',required:['b']}};
+ const branch={type:'object',...(composed?{allOf:[{required:['a']},{[dependency]:dependencyMap}]}:{required:['a'],[dependency]:dependencyMap}),
+  ...(finite?{properties:{a:{type:'boolean'},b:{type:'boolean'}},additionalProperties:false}:{})};
+ const root='file:///remaining-guard/api.json',document={openapi:'3.2.1',info:{title:'Guarded dependency',version:'1'},paths:{},components:{schemas:{
+  Value:{if:{type:'object'},then:branch},
+ }}};
+ const input={root,snapshot:'remaining-guard-'+dependency,resources:[{id:root,text:JSON.stringify(document),generation:1}],targetVersion:'2.0',destination:'file:///remaining-guard-output/'};
+ const values=['null','false','[]','{}','{"a":false}','{"a":false,"b":false}','{"a":false,"b":0}'];
+ const evaluate=async(packet,pointer)=>{
+  const result=await evaluateSchemas({...packet,runtimeInstances:values.map(text=>({subject:'response-body',text,location:dependency,schema:{resource:packet.root,pointer}}))});
+  assert.equal(result.complete,true,JSON.stringify(result.findings));return result.runtimeEvaluations.map(value=>value.valid);
+ };
+ const before=await evaluate(input,'/components/schemas/Value');assert.deepEqual(before,[true,true,true,false,false,true,!finite]);
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const output={root:review.outputRoot,snapshot:'cold-guard',resources:review.outputs.map(value=>({...value,generation:0}))};
+ assert.deepEqual(await evaluate(output,'/definitions/Value'),before);
+});
+for(const format of ['yaml','json'])for(const targetVersion of ['2.0','3.0.4'])
+test(`${format} ${targetVersion} an externally retained inactive descendant is converted at its mapped material coordinate`,async()=>{
+ const root='file:///external-inactive/api.'+format,model='file:///external-inactive/model.yaml';
+ const document={openapi:'3.2.1',info:{title:'Retained external branch',version:'1'},paths:{},components:{schemas:{
+  Value:{$ref:'./model.yaml#/$defs/Value'},Independent:{$ref:'./model.yaml#/$defs/Value/else/properties/Kept'},
+ }}};
+ const text=format==='yaml'?YAML.stringify(document):JSON.stringify(document),external='$schema: https://json-schema.org/draft/2020-12/schema\r\n'+
+  '$id: model.yaml\r\n$defs:\r\n  Value:\r\n    if: true\r\n    then: {type: string}\r\n    else:\r\n'+
+  '      contains: {const: unused}\r\n      properties:\r\n        Kept: {type: integer, const: 9007199254740993.00}\r\n'+
+  'x-kept: &literal {n: 9007199254740993.00, flag: false}\r\nx-alias: *literal\r\n';
+ const input={root,snapshot:'external-inactive',resources:[{id:root,text,generation:1},{id:model,text:external,generation:2}],targetVersion,destination:'file:///external-inactive-output/'};
+ const values=['null','{}','"snow 雪"','9007199254740993','9007199254740992'];
+ const evaluate=async(packet,prefix)=>{
+  const result=await evaluateSchemas({...packet,runtimeInstances:['Value','Independent'].flatMap(name=>values.map(text=>({
+   subject:'response-body',text,location:name,schema:{resource:packet.root,pointer:prefix+'/'+name}})))});
+  assert.equal(result.complete,true,JSON.stringify(result.findings));assert(result.runtimeEvaluations.every(value=>value.complete));return result.runtimeEvaluations.map(value=>value.valid);
+ };
+ const before=await evaluate(input,'/components/schemas'),review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const output={root:review.outputRoot,snapshot:'cold-inactive',resources:review.outputs.map(value=>({...value,generation:0}))};
+ assert.deepEqual(await evaluate(output,targetVersion==='2.0'?'/definitions':'/components/schemas'),before);
+ assert.deepEqual(before,[false,false,true,false,false,false,false,false,true,false]);
+ assert(review.outputs.some(value=>value.text.includes('x-alias: *literal')));assert.equal(input.resources[1].text,external);
+});
+for(const format of ['yaml','json'])for(const targetVersion of ['2.0','3.0.4'])
+for(const field of ['minimum','exclusiveMinimum','maximum','exclusiveMaximum','minLength','maxLength','minItems','maxItems','minProperties','maxProperties'])
+test(`${format} ${targetVersion} referenced ${field} predicates retain exact scalar/count complements`,async()=>{
+ const root='file:///condition-complement/api.'+format,numeric=/minimum|maximum/i.test(field);
+ const document={openapi:'3.2.1',info:{title:'Complements',version:'1'},paths:{},components:{schemas:{
+  Value:{if:{$ref:'#/components/schemas/Guard'},then:false,else:{description:'Complement branch'}},
+  Guard:{[field]:numeric?'EXACT':1},Branch:{$ref:'#/components/schemas/Value/else'},
+ }},'x-literal':{[field]:'EXACT'}};
+ const text=(format==='yaml'?YAML.stringify(document):JSON.stringify(document)).replace(/"?EXACT"?/g,'9007199254740993.00');
+ const input={root,snapshot:'complement-'+field,resources:[{id:root,text,generation:1}],targetVersion,destination:'file:///condition-complement-output/'};
+ const values=['null','false','{}','{"a":0}','{"a":0,"b":false}','[]','[0]','[0,false]','""','"x"','"xy"',
+  '9007199254740992','9007199254740993','9007199254740994'];
+ const evaluate=async(packet,prefix)=>{
+  const result=await evaluateMigrationAnnotations({...packet,runtimeInstances:['Value','Guard','Branch'].flatMap(name=>values.map(text=>({
+   subject:'response-body',location:name,text,schema:{resource:packet.root,pointer:prefix+'/'+name}})))});
+  assert.equal(result.checked.complete,true,JSON.stringify(result.checked.findings));
+  assert(result.checked.runtimeEvaluations.every(value=>value.complete));
+  return {valid:result.checked.runtimeEvaluations.map(value=>value.valid),annotations:result.annotations};
+ };
+ const before=await evaluate(input,'/components/schemas'),review=await planMigration(input);
+ assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const output={root:review.outputRoot,snapshot:'cold-complement',resources:review.outputs.map(value=>({id:value.id,text:value.text,generation:0}))};
+ assert.deepEqual(await evaluate(output,targetVersion==='2.0'?'/definitions':'/components/schemas'),before);
+ assert(before.valid.slice(0,values.length).some(Boolean));assert(before.valid.slice(0,values.length).some(value=>!value));
+ assert.equal(input.resources[0].text,text);
+});
 for(const version of ['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const format of ['yaml','json'])for(const mode of ['both','then','else','neither','no-if'])test(`${version} ${format} ${mode} conditional lowers with independent captured targets`,async()=>{
  const root='file:///approved/api.'+format,condition={properties:{flag:{enum:[true]}},required:['flag']};
  const schema={type:'object',properties:{flag:{type:'boolean'}},...(mode!=='no-if'?{if:condition}:{}),
@@ -101,12 +170,12 @@ test(`${format} equal conditional branches retain independent owners through ${t
  assert.equal(input.resources[0].text,text);
 });
 
-test('equal branches do not discard conditional annotations',async()=>{
+test('branches that force the predicate retain its annotations through Swagger reduction',async()=>{
  const root='file:///annotated-equal/api.json',branch={type:'integer'},document={openapi:'3.2.1',info:{title:'Conditional annotation',version:'1'},paths:{},
   components:{schemas:{Value:{if:{type:'integer',description:'Applies only to a matching condition'},then:branch,else:branch}}}};
  const text=JSON.stringify(document),review=await planMigration({root,snapshot:'annotated-equal',resources:[{id:root,text,generation:0}],targetVersion:'2.0',destination:'file:///annotated-output/'});
- assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);
- assert(review.problems.some(problem=>problem.code==='migration.schema.conditional'&&problem.reason==='implementation'));
+ assert.equal(review.complete,true,JSON.stringify(review.problems));
+ assert(review.outputs.some(output=>output.text.includes('Applies only to a matching condition')));
 });
 
 test('absent if leaves unsupported unconsumed then and else assertions inactive during Swagger conversion',async()=>{
@@ -187,10 +256,80 @@ test(`${format} ${targetVersion} inactive descendant reference closure retains c
 });
 
 for(const predicate of [{not:{description:'Conditional annotation'}},{anyOf:[true,{description:'Successful conditional annotation'}]}])
-test('composed constant-like predicates retain their annotation blocker',async()=>{
+test('annotation-aware constant predicates preserve selection through Swagger',async()=>{
  const root='file:///constant-annotation/api.json',text=JSON.stringify({openapi:'3.2.1',info:{title:'Annotations',version:'1'},paths:{},
   components:{schemas:{Value:{if:predicate,then:{type:'integer'},else:{type:'string'}}}}});
  const review=await planMigration({root,snapshot:'constant-annotation',resources:[{id:root,text,generation:1}],targetVersion:'2.0',destination:'file:///constant-annotation-output/'});
- assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);
- assert(review.problems.some(problem=>problem.reason==='implementation'));
+ assert.equal(review.complete,true,JSON.stringify(review.problems));
+});
+
+const conditionalVersions=['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'];
+const conditionalSamples=['null','false','0','"x"','"雪雪"','[]','{}','{"flag":true}',
+ '{"value":"snow 雪"}','{"value":false}','{"flag":true,"value":"snow 雪"}',
+ '{"flag":true,"value":9007199254740993}','{"flag":true,"value":9007199254740992}',
+ '{"flag":false,"label":"雪"}','{"flag":false,"label":0}','"prefix"'];
+for(const version of conditionalVersions)for(const format of ['yaml','json'])for(const targetVersion of ['2.0','3.0.4'])
+for(const mode of ['domain','presence','guarded-domain','guarded-presence','guarded-nonobject','inactive-array','inert-array','inactive-dependency','forced','negative','finite','if-only'])
+test(`${version} ${format} ${targetVersion} nonconstant ${mode} preserves selection, annotations and independent owners`,async()=>{
+ const root='file:///bounded-condition/api.'+format;
+ const schema=mode==='inert-array'?{if:{type:'object'},then:{prefixItems:[{type:'string',enum:['prefix'],description:'Retained prefix'}],items:{type:'integer'}}}:
+  mode==='inactive-dependency'?{if:{type:'string'},then:{type:'string',minLength:2,dependentRequired:{flag:['value']},
+   dependentSchemas:{flag:{properties:{flag:{type:'boolean',description:'Independent dependency value'}}}}}}:
+  mode==='inactive-array'?{if:{type:'object'},then:{required:['value'],properties:{value:{type:'integer',description:'Selected object value'}},prefixItems:[{type:'string'}],items:{type:'integer'}}}:
+  mode==='guarded-domain'?{if:{type:'object'},then:{type:'object',required:['value'],properties:{value:{type:'integer',minimum:'EXACT',description:'Selected object value'}}}}:
+  mode==='guarded-presence'?{if:{required:['flag']},then:{type:'object',required:['flag'],properties:{flag:{type:'boolean',description:'Present guarded flag'}}}}:
+  mode==='guarded-nonobject'?{if:{required:['flag']},then:{type:'array',items:{type:'integer'}}}:
+  mode==='domain'?{if:{type:'object'},then:{properties:{value:{type:'string',description:'Selected field'}}}}:
+  mode==='presence'?{if:{required:['flag']},then:{properties:{flag:{type:'boolean',description:'Present flag'}}}}:
+  mode==='forced'?{type:'object',required:['flag'],if:{required:['flag']},
+   then:{properties:{value:{type:'string',description:'Forced branch'}}},else:{contains:{const:'unused'}}}:
+  mode==='negative'?{if:{required:['flag']},then:false,else:{properties:{value:{type:'string',description:'Negative branch'}}}}:
+  mode==='if-only'?{if:{allOf:[{type:'integer'},{minimum:0}]}}:
+  {type:'object',properties:{flag:{type:'boolean'},value:{type:'integer'},label:{}},
+   enum:[{flag:true,value:'EXACT'},{flag:true,value:9007199254740992},{flag:true},{flag:false,label:'雪'},{flag:false,label:0},{}],
+   if:{required:['flag'],properties:{flag:{enum:[true]}}},then:{required:['value'],properties:{value:{minimum:'EXACT'}}},
+   else:{properties:{label:{type:'string'}}}};
+ const models={Value:schema,Condition:{$ref:'#/components/schemas/Value/if'}};
+ if(schema.then!==undefined&&!['inactive-array','inert-array','inactive-dependency'].includes(mode))models.Then={$ref:'#/components/schemas/Value/then'};
+ if(mode==='inert-array')models.IndependentPrefix={$ref:'#/components/schemas/Value/then/prefixItems/0'};
+ if(mode==='inactive-dependency')models.IndependentDependency={$ref:'#/components/schemas/Value/then/dependentSchemas/flag/properties/flag'};
+ if(schema.else!==undefined&&mode!=='forced')models.Else={$ref:'#/components/schemas/Value/else'};
+ const document={openapi:version,info:{title:'Bounded conditions',version:'1'},paths:{},components:{schemas:models},
+  'x-history':{predicate:schema.if,number:'EXACT',literal:{$ref:'never-fetch.json#/data'}}};
+ const text=(format==='yaml'?'# Keep conditional aliases\r\n'+YAML.stringify(document).replaceAll('\n','\r\n'):JSON.stringify(document))
+  .replace(/"?EXACT"?/g,'9007199254740993.000');
+ const input={root,snapshot:'bounded-condition-'+mode,resources:[{id:root,text,generation:4}],targetVersion,destination:'file:///bounded-condition-output/'};
+ const evaluate=async(packet,prefix)=>{
+  const runtimeInstances=Object.keys(models).flatMap(name=>conditionalSamples.map(text=>({subject:'response-body',location:name,text,
+   schema:{resource:packet.root,pointer:prefix+'/'+name}})));
+  const result=await evaluateMigrationAnnotations({...packet,runtimeInstances});
+  assert.equal(result.checked.complete,true,JSON.stringify(result.checked.findings));
+  assert(result.checked.runtimeEvaluations.every(value=>value.complete),JSON.stringify(result.checked.runtimeFindings));
+  assert.equal(result.annotations.length,runtimeInstances.length);
+  return {valid:result.checked.runtimeEvaluations.map(value=>value.valid),annotations:result.annotations};
+ };
+ const before=await evaluate(input,'/components/schemas'),review=await planMigration(input);
+ assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const output={root:review.outputRoot,snapshot:'cold-bounded-conditional',resources:review.outputs.map(output=>({...output,generation:0}))};
+ assert.deepEqual(await evaluate(output,targetVersion==='2.0'?'/definitions':'/components/schemas'),before);
+ assert.equal(createGraph(output).graph.docs.get(output.root).dataJson('/x-history'),new SourceDocument(text,root).dataJson('/x-history'));
+ assert.equal(input.resources[0].text,text);
+ const repeated=await planMigration(input);assert.deepEqual(repeated.outputs,review.outputs);
+});
+
+for(const targetVersion of ['2.0','3.0.4'])test(`${targetVersion} an annotation without branches remains conditional rather than being discarded`,async()=>{
+ const root='file:///conditional-metadata/api.json',text=JSON.stringify({openapi:'3.2.1',info:{title:'Conditional metadata',version:'1'},paths:{},
+  components:{schemas:{Value:{if:{type:'integer',description:'Only integer instances'}}}}});
+ const input={root,snapshot:'conditional-metadata',resources:[{id:root,text,generation:1}],targetVersion,destination:'file:///conditional-metadata-output/'};
+ const review=await planMigration(input);
+ if(targetVersion==='2.0'){assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);assert(review.problems.some(problem=>problem.code==='migration.schema.conditional'&&problem.reason==='target-representation'));}
+ else{
+  assert.equal(review.complete,true,JSON.stringify(review.problems));
+  const output={root:review.outputRoot,resources:review.outputs.map(output=>({...output,generation:0})),snapshot:'metadata-cold'};
+  const evaluate=packet=>evaluateMigrationAnnotations({...packet,runtimeInstances:['0','"x"','null'].map(text=>({subject:'response-body',location:text,text,
+   schema:{resource:packet.root,pointer:'/components/schemas/Value'}}))});
+  const before=await evaluate(input),after=await evaluate(output);
+  assert.equal(before.checked.complete,true);assert.equal(after.checked.complete,true);assert.deepEqual(after.annotations,before.annotations);
+  assert.equal(before.annotations[0].length,1);assert.equal(before.annotations[1].length,0);assert.equal(before.annotations[2].length,0);
+ }
 });

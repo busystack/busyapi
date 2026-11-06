@@ -20,13 +20,16 @@ for(const version of ['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const format 
  const after=await evaluate(target,'/definitions');assert.equal(after.complete,true,JSON.stringify(after.findings));assert.deepEqual(after.runtimeEvaluations.map(v=>v.valid),before.runtimeEvaluations.map(v=>v.valid));
  const doc=new SourceDocument(result.outputs.find(o=>o.id===target.root).text,target.root);
  assert.equal(doc.dataJson('/x-literal'),new SourceDocument(text,root).dataJson('/x-literal'));
- assert.equal(doc.dataNode('/definitions/'+stem+'/type').value,'boolean');assert(doc.dataNode('/definitions/'+stem+'_1'));
+ assert.equal(doc.dataNode('/definitions/'+stem+'/type').value,'boolean');
+ const graph=require('./dist/model.cjs').createGraph(target).graph,reference=graph.referenceAs(target.root,'/definitions/Tail','$ref','schema');
+ assert.equal(reference.resolution,'resolved');assert.notEqual(reference.targetPointer,'/definitions/'+stem);
+ assert.equal(graph.docs.get(reference.targetResource).dataNode(reference.targetPointer).kind,'object');
  assert.equal(input.resources[0].text,text);
 });
-test('unbounded constrained tuple tails remain an implementation queue item rather than a claimed target impossibility',async()=>{
+test('a proved unbounded order-sensitive type tail reports the actual Swagger vocabulary limitation',async()=>{
  const root='file:///approved/api.json',text=JSON.stringify({openapi:'3.1.2',info:{title:'Unbounded tail',version:'1'},paths:{},components:{schemas:{Tuple:{prefixItems:[{type:'string'}],items:{type:'integer'}}}}});
  const result=await planMigration({root,snapshot:'unbounded-tail',resources:[{id:root,text,generation:0}],targetVersion:'2.0',destination:'file:///reviewed/'});
- assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);assert(result.problems.some(p=>p.code==='migration.schema.tuple-tail'&&p.reason==='implementation'));
+ assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);assert(result.problems.some(p=>p.code==='migration.schema.tuple-tail'&&p.reason==='target-representation'));
 });
 
 for(const format of ['yaml','json'])test(`${format} constrained tails use finite same-instance composition and reference proofs`,async()=>{
@@ -101,4 +104,147 @@ test('uniform tuple proofs preserve annotations and exact nonintegral prefix val
  const review=await planMigration({root,snapshot:'uniform-negative',resources:[{id:root,text,generation:0}],targetVersion:'2.0',destination:'file:///uniform-negative-output/'});
  assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);
  assert(review.problems.some(problem=>problem.code==='migration.schema.tuple-tail'&&problem.reason==='implementation'));
+});
+
+const {evaluateMigrationAnnotations}=require('./dist/migration_annotations.cjs');
+for(const version of ['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const format of ['yaml','json'])
+for(const mode of ['bounds','integer-lattice','finite-prefix','object','factored-metadata','keyword-factor'])
+test(`${version} ${format} unbounded ${mode} tail proof preserves exact assertions, annotations and independent owners`,async()=>{
+ const root='file:///tail-proof/api.'+format;
+ const node={type:'object',required:['id'],properties:{id:{type:'integer',enum:['EXACT'],...(mode==='factored-metadata'?{readOnly:true}:{})}},description:'Node item'};
+ const prefix=mode==='integer-lattice'?{type:'number',multipleOf:1,description:'Prefix integer lattice'}:
+  mode==='bounds'?{type:'integer',minimum:8,maximum:20,multipleOf:4,description:'Prefix only'}:
+  mode==='finite-prefix'?{enum:['EXACT']}:
+  mode==='object'?{type:'object',required:['id'],properties:{id:{type:'integer',enum:['EXACT']}},additionalProperties:false,description:'Prefix object'}:
+  mode==='keyword-factor'?{...node,maxProperties:2}:
+  {allOf:[{$ref:'#/components/schemas/Node'},{required:['tag'],properties:{tag:{type:'string',enum:['prefix'],readOnly:true}}}]};
+ const tail=mode==='integer-lattice'?{type:'integer'}:
+  mode==='bounds'?{type:'number',minimum:0,maximum:20,multipleOf:2}:
+  mode==='finite-prefix'?{type:'integer',minimum:'EXACT'}:
+  mode==='object'?{type:'object',required:['id'],properties:{id:{type:'number',minimum:0}}}:{$ref:'#/components/schemas/Node'};
+ const schema={$ref:'#/components/schemas/Tuple'};
+ const document={openapi:version,info:{title:'Tail proofs',version:'1'},servers:[{url:'https://api.invalid'}],paths:{'/value':{post:{
+  requestBody:{content:{'application/json':{schema}}},responses:{200:{description:'Value',content:{'application/json':{schema}}}},
+ }}},components:{schemas:{Tuple:{type:'array',prefixItems:[prefix],items:tail},Node:node,
+  IndependentPrefix:{$ref:'#/components/schemas/Tuple/prefixItems/0'},IndependentTail:{$ref:'#/components/schemas/Tuple/items'}}},
+  'x-history':{prefixItems:[prefix],items:tail,number:'EXACT'}};
+ const text=(format==='yaml'?'# Preserve tuple aliases\r\n'+YAML.stringify(document).replaceAll('\n','\r\n'):JSON.stringify(document)).replace(/"?EXACT"?/g,'9007199254740993.00');
+ const input={root,snapshot:'tail-proof-'+mode,resources:[{id:root,text,generation:6}],targetVersion:'2.0',destination:'file:///tail-proof-output/'};
+ const samples=['null','0','[]','[8]','[8,0,2,20]','[4,2]','[8,1]','[8,22]','[0.5,0]','[0,0.5]',
+  '[9007199254740993,9007199254740994]','[9007199254740992,9007199254740993]',
+  '[{"id":9007199254740993}]','[{"id":9007199254740993},{"id":0}]',
+  '[{"id":9007199254740993,"tag":"prefix"},{"id":9007199254740993}]',
+  '[{"id":9007199254740993,"tag":"bad"},{"id":9007199254740993}]',
+  '[{"id":9007199254740993,"tag":"prefix"},{}]',
+  '[{"id":9007199254740993,"a":false,"b":false}]'];
+ const evaluate=async(packet,legacy)=>{
+  const runtimeInstances=['request-body','response-body'].flatMap(subject=>samples.map(text=>({subject,text,location:subject,
+   schema:{resource:packet.root,pointer:subject==='request-body'?(legacy?'/paths/~1value/post/parameters/0/schema':'/paths/~1value/post/requestBody/content/application~1json/schema'):
+    legacy?'/paths/~1value/post/responses/200/schema':'/paths/~1value/post/responses/200/content/application~1json/schema'}})));
+  const result=await evaluateMigrationAnnotations({...packet,runtimeInstances});
+  assert.equal(result.checked.complete,true,JSON.stringify(result.checked.findings));assert(result.checked.runtimeEvaluations.every(value=>value.complete));
+  assert.equal(result.annotations.length,runtimeInstances.length);
+  return {valid:result.checked.runtimeEvaluations.map(value=>value.valid),annotations:result.annotations};
+ };
+ const before=await evaluate(input,false),review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const output={root:review.outputRoot,snapshot:'cold-tail-proof',resources:review.outputs.map(output=>({...output,generation:0}))};
+ assert.deepEqual(await evaluate(output,true),before);
+ for(const name of ['IndependentPrefix','IndependentTail']){
+  const check=async(packet,prefix)=>{
+   const result=await evaluateSchemas({...packet,runtimeInstances:samples.map(text=>({subject:'response-body',text,location:name,
+    schema:{resource:packet.root,pointer:prefix+'/'+name}}))});
+   assert.equal(result.complete,true,JSON.stringify(result.findings));return result.runtimeEvaluations.map(value=>value.valid);
+  };
+  assert.deepEqual(await check(output,'/definitions'),await check(input,'/components/schemas'));
+ }
+ const doc=new SourceDocument(output.resources.find(resource=>resource.id===output.root).text,output.root);
+ assert.equal(doc.dataNode('/definitions/Tuple/maxItems'),undefined,'An unbounded language must not acquire a semantic cutoff');
+ assert.equal(doc.dataJson('/x-history'),new SourceDocument(text,root).dataJson('/x-history'));assert.equal(input.resources[0].text,text);
+});
+
+const restrictedTupleRoutes=[...['2.0','3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'].map(version=>[version,'3.0.4']),
+ ...['3.0.0','3.0.1','3.0.2','3.0.3'].flatMap(target=>[['3.2.1',target],['2.0',target]])];
+for(const [version,targetVersion]of restrictedTupleRoutes)for(const format of ['yaml','json'])for(const mode of ['homogeneous','finite','single','unreachable'])
+test(`${version} ${format} ${targetVersion} ${mode} positional schemas retain actual item annotations and reachable lengths`,async()=>{
+ const root='file:///restricted-tuples/api.'+format,legacy=version==='2.0',keyword=legacy?'items':'prefixItems',holder=legacy?'definitions':'components/schemas';
+ const item={type:'string',description:'Every item'};
+ const tuple=mode==='homogeneous'?{type:'array',[keyword]:[{},{}],...(legacy?{}:{items:true})}:
+  mode==='finite'?{type:'array',[keyword]:[{enum:['prefix']},{enum:['EXACT',false]}],...(legacy?{}:{items:{enum:[null]}}),maxItems:legacy?2:3}:
+  mode==='single'?{type:'array',[keyword]:[item,{type:'integer'}],...(legacy?{}:{items:false}),maxItems:1}:
+  {[keyword]:[...(legacy?[{allOf:[{type:'string'},{type:'integer'}]}]:[false]),item],...(legacy?{maxItems:0}:{items:{type:'integer'}})};
+ if(mode==='homogeneous'&&!legacy){tuple.prefixItems=[item,item];tuple.items=item;}
+ const schemas={Tuple:tuple,Prefix:{$ref:'#/'+holder+'/Tuple/'+keyword+'/0'}};
+ if(!legacy)schemas.Tail={$ref:'#/'+holder+'/Tuple/items'};
+ const document={[legacy?'swagger':'openapi']:version,info:{title:'Restricted tuples',version:'1'},paths:{},
+  ...(legacy?{definitions:schemas}:{components:{schemas}}),'x-history':{tuple,number:'EXACT'}};
+ const text=(format==='yaml'?'# Keep positional source\r\n'+YAML.stringify(document).replaceAll('\n','\r\n'):JSON.stringify(document)).replace(/"?EXACT"?/g,'9007199254740993.00');
+ const input={root,snapshot:'restricted-tuple-'+mode,resources:[{id:root,text,generation:3}],targetVersion,destination:'file:///restricted-tuple-output/'};
+ const samples=['null','false','0','[]','["snow 雪"]','["snow 雪","next"]','["prefix",9007199254740993]',
+  '["prefix",false,null]','["prefix",9007199254740992]','["prefix",false,null,null]','[0]'];
+ const evaluate=async(packet,prefix)=>{
+  const result=await evaluateMigrationAnnotations({...packet,runtimeInstances:Object.keys(schemas).flatMap(name=>samples.map(text=>({
+   subject:'response-body',text,location:name,schema:{resource:packet.root,pointer:prefix+'/'+name}})))});
+  assert.equal(result.checked.complete,true,JSON.stringify(result.checked.findings));assert(result.checked.runtimeEvaluations.every(value=>value.complete));
+  return {valid:result.checked.runtimeEvaluations.map(value=>value.valid),annotations:result.annotations};
+ };
+ const before=await evaluate(input,'/'+holder),review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const output={root:review.outputRoot,snapshot:'restricted-cold',resources:review.outputs.map(output=>({...output,generation:0}))};
+ assert.deepEqual(await evaluate(output,'/components/schemas'),before);
+ const doc=new SourceDocument(output.resources.find(resource=>resource.id===output.root).text,output.root);
+ assert.equal(doc.dataNode('/components/schemas/Tuple/items').kind,'object');assert.equal(doc.dataNode('/components/schemas/Tuple/prefixItems'),undefined);
+ assert.equal(doc.dataJson('/x-history'),new SourceDocument(text,root).dataJson('/x-history'));assert.equal(input.resources[0].text,text);
+ if(mode==='unreachable'){assert.equal(before.valid[3],true);assert.equal(before.valid[4],false);}
+});
+
+for(const format of ['yaml','json'])for(const tail of ['items','unevaluatedItems'])
+test(`${format} finite integer ${tail} retains exact bounds, source acceptance and independent item owners in 3.0`,async()=>{
+ const root='file:///finite-integer-tail/api.'+format;
+ const document={openapi:'3.2.1',info:{title:'Finite integer tails',version:'1'},paths:{},components:{schemas:{
+  Tuple:{type:'array',prefixItems:[{enum:['EXACT']},{type:'boolean'}],[tail]:{type:'integer',minimum:-0.5,exclusiveMaximum:1.5},maxItems:3},
+  Tail:{$ref:'#/components/schemas/Tuple/'+tail},Prefix:{$ref:'#/components/schemas/Tuple/prefixItems/0'},
+ }},'x-literal':{number:'EXACT',items:[false,null]}};
+ const text=(format==='yaml'?YAML.stringify(document):JSON.stringify(document)).replace(/"?EXACT"?/g,'9007199254740993.00');
+ const input={root,snapshot:'finite-integer-'+tail,resources:[{id:root,text,generation:1}],targetVersion:'3.0.4',destination:'file:///finite-integer-output/'};
+ const values=['null','[]','[9007199254740993]','[9007199254740992]','[9007199254740993,true,0]',
+  '[9007199254740993,false,1]','[9007199254740993,false,-1]','[9007199254740993,true,2]','[9007199254740993,true,0,0]',
+  '0','1','1.25','-1','9007199254740993'];
+ const evaluate=async packet=>{
+  const result=await evaluateMigrationAnnotations({...packet,runtimeInstances:['Tuple','Tail','Prefix'].flatMap(name=>values.map(text=>({
+   subject:'response-body',text,location:name,schema:{resource:packet.root,pointer:'/components/schemas/'+name}})))});
+  assert.equal(result.checked.complete,true,JSON.stringify(result.checked.findings));
+  assert(result.checked.runtimeEvaluations.every(value=>value.complete));
+  return {valid:result.checked.runtimeEvaluations.map(value=>value.valid),annotations:result.annotations};
+ };
+ const before=await evaluate(input),review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const output={root:review.outputRoot,snapshot:'finite-integer-cold',resources:review.outputs.map(value=>({...value,generation:0}))};
+ assert.deepEqual(await evaluate(output),before);assert.deepEqual(before.valid.slice(0,9),[false,true,true,false,true,true,false,false,false]);
+ assert.equal(new SourceDocument(output.resources.find(value=>value.id===output.root).text,output.root).dataJson('/x-literal'),new SourceDocument(text,root).dataJson('/x-literal'));
+ assert.equal(input.resources[0].text,text);
+});
+
+test('a finite language beyond the enumeration budget is a missing proof, not a target impossibility',async()=>{
+ const root='file:///finite-budget/api.json',text=JSON.stringify({openapi:'3.2.1',info:{title:'Proof budget',version:'1'},paths:{},components:{schemas:{
+  Tuple:{type:'array',maxItems:2,prefixItems:[{enum:['prefix']}],items:{type:'integer',minimum:0,maximum:4096}},
+ }}});
+ const input={root,snapshot:'finite-budget',resources:[{id:root,text,generation:1}],targetVersion:'3.0.4',destination:'file:///finite-budget-output/'};
+ const review=await planMigration(input);assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);
+ assert(review.problems.some(value=>value.code==='migration.schema.tuple'&&value.reason==='implementation'));
+ assert(!review.problems.some(value=>value.reason==='target-representation'));assert.equal(input.resources[0].text,text);
+});
+
+test('finite tuple source evaluation retains captured external example bytes',async()=>{
+ const root='file:///finite-example/api.json',id='file:///finite-example/payload.json',bytes=Buffer.from('[9007199254740993.00,true]');
+ const media={schema:{$ref:'#/components/schemas/Tuple'},examples:{Captured:{externalValue:'payload.json'}}};
+ const text=JSON.stringify({openapi:'3.2.1',info:{title:'Captured finite proof',version:'1'},paths:{'/echo':{post:{requestBody:{content:{'application/json':media}},
+  responses:{200:{description:'Echo',content:{'application/json':media}}}}}},components:{schemas:{Tuple:{type:'array',prefixItems:[{enum:['EXACT']}],items:{type:'boolean'},maxItems:2}}}})
+  .replace('"EXACT"','9007199254740993.00');
+ const packet=(id,bytes,aliases=[])=>({version:1,id,aliases,generation:1,state:'available',identity:createHash('sha256').update(bytes).digest('hex'),byteLength:bytes.length,base64:bytes.toString('base64')});
+ const input={root,snapshot:'captured-finite-proof',resources:[{id:root,text,generation:1}],exampleResources:[packet(id,bytes)],targetVersion:'3.0.4',destination:'file:///finite-example-output/'};
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.exampleOutputs.length,1);
+ assert.deepEqual(Buffer.from(review.exampleOutputs[0].base64,'base64'),bytes);
+ const output={root:review.outputRoot,snapshot:'cold-finite-examples',resources:review.outputs.map(value=>({...value,generation:0})),
+  exampleResources:review.exampleOutputs.map(value=>packet(value.id,Buffer.from(value.base64,'base64'),Object.entries(review.manifest.resourceMappings).filter(([,path])=>path===value.path).map(([id])=>id)))};
+ const checked=await evaluateSchemas(output);assert.equal(checked.complete,true,JSON.stringify(checked.findings));
+ assert.equal(checked.serializedEvaluations.length,2);assert(checked.serializedEvaluations.every(value=>value.valid&&value.complete));
+ assert.equal(input.resources[0].text,text);assert.deepEqual(Buffer.from(input.exampleResources[0].base64,'base64'),bytes);
 });
