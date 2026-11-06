@@ -44,7 +44,7 @@ import {securityRequirementDefinition} from './security_requirements';
 import {migrateSwaggerSecurityFlows} from './migration_security_flows';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='85';
+const migrationProducerVersion='86';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const referenceLocator=(reference:GraphReference)=>!reference.connection&&['$ref','$dynamicRef'].includes(reference.keyword)||
     reference.connection==='operationRef'&&reference.keyword==='operationRef';

@@ -18,7 +18,7 @@ export async function evaluateMigrationAnnotations(input:Parameters<typeof evalu
     try {
         const checked=await evaluateSchemas(input),count=input.runtimeInstances?.length??0;
         const annotations=(count?captures.slice(-count):[]).map((plugin,index)=>checked.runtimeEvaluations[index]?.valid!==true?[]:plugin.annotations
-            .filter(value=>/\/(description|title|default|examples)$/.test(value.keyword))
+            .filter(value=>/\/(description|title|default|examples|contentEncoding|contentMediaType|contentSchema)$/.test(value.keyword))
             .map(value=>JSON.stringify([value.keyword,new URL(value.instanceLocation).hash,value.annotation])).sort());
         return {checked,annotations};
     }finally{

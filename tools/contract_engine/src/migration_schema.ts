@@ -11,9 +11,16 @@ import {migrateInactiveSchemaAnnotations} from './migration_inactive_annotations
 import {BooleanSchemaMigration} from './migration_boolean_schema';
 import {MigrationSchemaOwners} from './migration_schema_owners';
 import {discardInactiveSchemaConditions,migrateSchemaConditions,lowerConstantSchemaApplicators,conditionalProjectionScopes} from './migration_schema_conditions';
-import {migrateSchemaTuple,discardUnreachableTupleSchemas} from './migration_schema_tuples';
-import {migrateSchemaPropertyNames} from './migration_schema_property_names';
+import {migrateSchemaTuple,discardUnreachableTupleSchemas,migrateComposedUnevaluatedTuple} from './migration_schema_tuples';
+import {migrateSchemaPropertyNames,type MigrationNameRestriction} from './migration_schema_property_names';
 import {MigrationPatternProperties} from './migration_schema_patterns';
+import {MigrationPropertyDomains} from './migration_schema_name_domains';
+import {finitePropertyNameSet} from './migration_schema_property_names';
+import {MigrationEvaluatedProperties} from './migration_schema_evaluated_properties';
+import {MigrationEvaluatedItems} from './migration_schema_evaluated_items';
+import {migrateSchemaContains} from './migration_schema_contains';
+import {discardInactiveContent} from './migration_schema_content';
+import {migrateSchemaStringComplement} from './migration_schema_string_complements';
 import {discardInactiveUnevaluated,migrateSchemaUnevaluated} from './migration_schema_unevaluated';
 import {MigrationArrayBounds,migrateConstantContains,migrateArrayAlternatives} from './migration_schema_arrays';
 import {migrationScopes,migrationReferences} from './migration_documents';
@@ -37,7 +44,21 @@ export async function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Mig
     const references=new MigrationSchemaReferences(graph,contexts);
     const owners=new MigrationSchemaOwners(graph,sources,undefined,[],contexts);
     const capturedReferences=[...migrationReferences(contexts)];
-    const patterns=new MigrationPatternProperties(graph,owners,capturedReferences,issue);
+    const nameDomains=new Map<ReferenceGraph,MigrationPropertyDomains>(),patternMappings=new Map<ReferenceGraph,MigrationPatternProperties>();
+    const nameProofs=new Map<string,MigrationNameRestriction>();
+    const evaluatedProperties=new Map<ReferenceGraph,MigrationEvaluatedProperties>();
+    const evaluatedItems=new Map<ReferenceGraph,MigrationEvaluatedItems>();
+    const namesFor=(context:ReferenceGraph)=>{
+        let proof=nameDomains.get(context);if(!proof){proof=new MigrationPropertyDomains(context);nameDomains.set(context,proof);}return proof;
+    };
+    const evaluatedFor=(context:ReferenceGraph)=>{
+        let mapping=evaluatedProperties.get(context);
+        if(!mapping){mapping=new MigrationEvaluatedProperties(context,owners,namesFor(context));evaluatedProperties.set(context,mapping);}return mapping;
+    };
+    const patternsFor=(context:ReferenceGraph)=>{
+        let mapping=patternMappings.get(context);
+        if(!mapping){mapping=new MigrationPatternProperties(context,owners,capturedReferences,issue,namesFor(context));patternMappings.set(context,mapping);}return mapping;
+    };
     const booleans=new BooleanSchemaMigration(graph,sources,to,owners,contexts);
     const requirements=new Map<ReferenceGraph,MigrationPropertyPresence>(),bounds=new Map<ReferenceGraph,MigrationArrayBounds>();
     const projections:(()=>void)[]=[];
@@ -52,6 +73,10 @@ export async function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Mig
         if(!proof){proof=new MigrationArrayBounds(context,2048,scope=>!owners.hasRootConsumer(scope,capturedReferences));bounds.set(context,proof);}
         return proof;
     };
+    const evaluatedItemsFor=(context:ReferenceGraph)=>{
+        let mapping=evaluatedItems.get(context);
+        if(!mapping){mapping=new MigrationEvaluatedItems(context,owners,boundsFor(context));evaluatedItems.set(context,mapping);}return mapping;
+    };
     // Coordinated entries own their active schemas independently. A detached
     // original schema file remains literal source history after specialization;
     // parsing its identity does not authorize converting that dormant owner.
@@ -59,6 +84,14 @@ export async function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Mig
     for(const scope of migrationScopes(contexts))if(scope.kind==='schema'&&scope.family===from)
         captured.set(JSON.stringify([scope.resource,scope.pointer]),scope);
     const scopes=[...captured.values()].sort((a,b)=>b.pointer.length-a.pointer.length);
+    if(modernFamily(from)&&!modernFamily(to))for(const scope of scopes){
+        const context=owners.contextOf(scope);if(!context)continue;
+        const name=context.docs.get(scope.resource)!.dataNode(scope.pointer+'/propertyNames');
+        if(name&&finitePropertyNameSet(name.value)===undefined){
+            const proof=await namesFor(context).restriction(scope,resources,exampleResources);
+            if(proof)nameProofs.set(JSON.stringify([scope.resource,scope.pointer]),proof);
+        }
+    }
     const flatItems=to==='2.0'?new Set(contexts.flatMap(context=>[...flatSchemaScopes(context)])):new Set<string>();
     if(modernFamily(from)&&to==='2.0')for(const scope of scopes){
         const context=owners.contextOf(scope);if(!context)continue;
@@ -73,6 +106,13 @@ export async function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Mig
             if(!context){issue(scope,'migration.schema.context','Schema conversion requires its captured entry, role and resource context','implementation');continue;}
             discardUnreachableTupleSchemas(context,scope,source,owners,capturedReferences,boundsFor(context));
             if(modernFamily(from))discardInactiveUnevaluated(context,scope,source,owners,capturedReferences);
+            if(modernFamily(from))discardInactiveContent(context,scope,source,owners,capturedReferences);
+            if(modernFamily(from)){
+                evaluatedFor(context).discardInactive(scope,source,capturedReferences);
+                evaluatedItemsFor(context).discardInactive(scope,source,capturedReferences);
+                const at=source.current(scope.pointer,scope.resource);
+                if(at!==undefined)migrateComposedUnevaluatedTuple(context,scope,source,at,to,owners,capturedReferences,boundsFor(context));
+            }
             if(modernFamily(from))for(const guarded of conditionalProjectionScopes(context,scope,to))
                 guardedBodies.add(JSON.stringify([guarded.resource,guarded.pointer]));
             const nativeDependency=to==='2.0'&&nativeSchemaDependencies(context,scope,requirementsFor(context));
@@ -90,7 +130,11 @@ export async function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Mig
             if(owners.isProjectionSource(scope)&&at!==undefined&&allOf===at+'/allOf'&&source.doc.dataNode(allOf))
                 owners.isolateApplication(scope,source,at,'allOf',['allOf'],to);
             discardInactiveUnevaluated(context,scope,source,owners,capturedReferences);
-            patterns.discardInactive(scope,source);
+            const nameProof=nameProofs.get(JSON.stringify([scope.resource,scope.pointer]));
+            const namePointer=source.current(scope.pointer,scope.resource);
+            if(nameProof!==undefined&&namePointer!==undefined)
+                migrateSchemaPropertyNames(context,scope,source,namePointer,owners,issue,capturedReferences,nameProof,to);
+            patternsFor(context).discardInactive(scope,source);
         }
     }
     for(const scope of scopes){
@@ -135,12 +179,16 @@ export async function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Mig
         if(modernFamily(from)&&!modernFamily(to)){
             references.lower(scope,source,pointer,issue);
             unevaluatedTail=migrateSchemaUnevaluated(context,scope,source,pointer,owners,capturedReferences);
+            evaluatedFor(context).lower(scope,source,pointer,to,apply=>projections.push(apply));
+            evaluatedItemsFor(context).lower(scope,source,pointer,to,apply=>projections.push(apply));
             migrateDependentRequired(context,scope,source,pointer,to,requirementsFor(context),issue,owners);
             migrateDependentSchemas(context,scope,source,pointer,to,requirementsFor(context),issue,owners,capturedReferences,sources,projection=>projections.push(projection));
             migrateSchemaConditions(context,scope,source,pointer,to,owners,issue,capturedReferences,sources,projection=>projections.push(projection));
-            migrateSchemaPropertyNames(context,scope,source,pointer,owners,issue,capturedReferences);
-            patterns.lower(scope,source,pointer,to);
+            migrateSchemaPropertyNames(context,scope,source,pointer,owners,issue,capturedReferences,nameProofs.get(JSON.stringify([scope.resource,scope.pointer])),to);
+            patternsFor(context).lower(scope,source,pointer,to);
             migrateConstantContains(context,scope,source,pointer,owners,capturedReferences);
+            migrateSchemaContains(context,scope,source,pointer,to,owners,boundsFor(context));
+            migrateSchemaStringComplement(context,scope,source,pointer,owners,to);
             if(to==='2.0')migrateArrayAlternatives(context,scope,source,pointer,owners,capturedReferences);
         }
         if(!modernFamily(to)&&Object.hasOwn(value,'$dynamicAnchor')){
@@ -148,19 +196,20 @@ export async function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Mig
             else issue(field('$dynamicAnchor'),'migration.schema.dynamic-anchor','A captured dynamic reference can select this anchor; older-family scope specialization remains required','implementation');
         }
         const pending:Readonly<Record<string,string>>={
-            patternProperties:'Pattern-selected property assertions need an equivalent target object constraint',
-            contains:'Array containment needs a target-specific witness/count mapping',
-            minContains:'The containment lower count needs an equivalent target assertion',
-            maxContains:'The containment upper count needs an equivalent target assertion',
-            unevaluatedItems:'This assertion depends on annotations from successful array applicators',
-            unevaluatedProperties:'This assertion depends on annotations from successful object applicators',
-            propertyNames:'Property-name validation needs an equivalent target object constraint',
-            contentSchema:'The decoded-content schema annotation needs an independently preserved owner',
+            patternProperties:'No captured finite name domain, universal selector or equivalent uniform value proof establishes this pattern mapping; this is not a proof of target impossibility',
+            contains:'No exact structural match-count, supported existential/complement or exhaustive finite-language certificate establishes this containment mapping',
+            minContains:'No exact matching-item lower-count certificate is available; arbitrary array lengths cannot be truncated',
+            maxContains:'No exact matching-item upper-count certificate is available; arbitrary array lengths cannot be truncated',
+            unevaluatedItems:'The captured successful-applicator graph has no supported item-selection certificate (including positional or dynamic contributions)',
+            unevaluatedProperties:'The captured successful-applicator graph has no supported name-selection certificate; referenced, recursive or dynamically selected coverage cannot be guessed',
+            propertyNames:'No annotation-free string-domain, finite regex-language or closed-property-domain certificate preserves this name assertion and its applicable annotations',
+            contentSchema:'The older Schema Object vocabulary has no decoded-content-schema annotation; retaining an independent schema does not preserve its active decoded-content binding',
             contentEncoding:'The content encoding annotation has no proved mapping at every captured occurrence',
             contentMediaType:'The decoded media annotation has no proved binding at every captured occurrence',
         };
         if(!modernFamily(to))for(const [name,message]of Object.entries(pending))
-            if(Object.hasOwn(value,name)&&source.doc.dataNode(pointer+'/'+name))issue(field(name),'migration.schema.'+name,message+' for '+to,'implementation');
+            if(Object.hasOwn(value,name)&&source.doc.dataNode(pointer+'/'+name))issue(field(name),'migration.schema.'+name,message+' for '+to,
+                name==='contentSchema'||name==='contentEncoding'&&value.contentEncoding!=='base64'?'target-representation':'implementation');
         if(!modernFamily(to)){
             migrateSchemaTuple(context,scope,source,pointer,to,owners,issue,boundsFor(context),unevaluatedTail);
         }

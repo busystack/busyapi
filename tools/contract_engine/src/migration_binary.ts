@@ -3,13 +3,14 @@ import {mediaTypes} from './media_types';
 import {FormSemantics,formContentType} from './form_semantics';
 import {runtimeMediaKind} from './runtime_media';
 import {runtimeBinaryMedia} from './runtime_binary';
-import type {GraphScope,ReferenceGraph} from './reference_graph';
+import {schemaResourceContextIdentity,type GraphScope,type ReferenceGraph} from './reference_graph';
 import type {MigrationSource} from './migration_source';
 import type {MigrationIssue} from './migration_schema';
 import {modernFamily} from './specification';
 import {ParameterSemantics} from './parameter_semantics';
 import {swaggerMedia} from './swagger_operation';
 import {migrationScopes} from './migration_documents';
+import {MigrationSchemaProofs} from './migration_schema_proofs';
 
 export type BinaryUse=Readonly<{kind:'body'|'part'|'data';mediaType?:string;source:GraphScope;schema:GraphScope;path:readonly BinaryStep[]}>;
 export type BinaryStep=Readonly<{property:string}>|'item'|'nested';
@@ -254,6 +255,19 @@ export function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<string,Mig
             continue;
         }
         if(from==='2.0'||from==='3.0')continue;
+        // Content annotations do not apply to non-strings. Their inactive
+        // values/independent schemas are retained by the vocabulary owner;
+        // they do not authorize introducing a binary runtime representation.
+        if(['contentEncoding','contentMediaType','contentSchema'].some(field=>Object.hasOwn(value,field))){
+            const context=contexts.find(context=>{
+                const captured=context.scopeAs(scope.resource,scope.pointer,'schema');
+                return captured&&context.isEntryUse(captured)&&schemaResourceContextIdentity(captured)===schemaResourceContextIdentity(scope);
+            })??graph;
+            if(!new MigrationSchemaProofs(context).domains(scope).has('string'))continue;
+        }
+        // An active decoded-schema binding belongs to the content vocabulary
+        // owner. A legacy byte/binary label cannot carry that schema binding.
+        if(Object.hasOwn(value,'contentSchema')&&Object.hasOwn(value,'contentMediaType'))continue;
         const encoded=value.contentEncoding==='base64';
         if(Object.hasOwn(value,'contentEncoding')&&!encoded)continue;
         if(!encoded&&!Object.hasOwn(value,'contentMediaType'))continue;

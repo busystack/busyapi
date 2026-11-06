@@ -17,7 +17,7 @@ import {modernFamily} from './specification';
 /** Finite domains are exhaustive supersets, never a selection of samples.
  * The original captured evaluator filters them under the source dialect.
  * Limits abandon the proof; no finite cutoff is substituted for infinity. */
-class FiniteMigrationDomain {
+export class FiniteMigrationDomain {
     private work=0;
     private readonly proofs:MigrationSchemaProofs;
     constructor(private readonly graph:ReferenceGraph){this.proofs=new MigrationSchemaProofs(graph);}
@@ -155,21 +155,26 @@ export async function migrateFiniteSchemaDomain(graph:ReferenceGraph,scope:Graph
     if(pointer===undefined||!value||typeof value!=='object'||graph.referenceObject(value,scope))return false;
     if(graph.literalContainer(scope.resource,scope.pointer)!==undefined||graph.hasOverlappingScope(scope.resource,scope.pointer))return false;
     const localTail=migrationUnevaluatedMapping(value,'unevaluatedItems')==='local';
-    if(source.doc.dataNode(pointer+'/unevaluatedProperties')||source.doc.dataNode(pointer+'/unevaluatedItems')&&!localTail)return false;
+    if(source.doc.dataNode(pointer+'/unevaluatedProperties'))return false;
     const positional=target==='3.0'||target==='2.0'&&flatItems?(modernFamily(scope.family)&&Array.isArray(value.prefixItems)?'prefixItems':scope.family==='2.0'&&Array.isArray(value.items)?'items':undefined):undefined;
     const positionalFields=positional?[positional,...(positional==='prefixItems'?(Object.hasOwn(value,'items')?['items']:localTail?['unevaluatedItems']:[]):[])]:[];
     const dependencyFields=target==='2.0'&&modernFamily(scope.family)?['if','then','else','dependentRequired','dependentSchemas'].filter(field=>Object.hasOwn(value,field)):[];
+    const containmentFields=modernFamily(scope.family)&&Object.hasOwn(value,'contains')?
+        ['contains','minContains','maxContains'].filter(field=>Object.hasOwn(value,field)):[];
+    const logicalFields=target==='2.0'?['anyOf','oneOf','not'].filter(field=>Object.hasOwn(value,field)):[];
+    const evaluatedFields=modernFamily(scope.family)&&source.doc.dataNode(pointer+'/unevaluatedItems')&&!localTail?['unevaluatedItems']:[];
+    const coveredConjunction=evaluatedFields.length&&Array.isArray(value.allOf)?['allOf']:[];
     // The exhaustive source evaluation covers their conjunction. Leaving a
     // pure conditional/dependency behind after folding positional assertions
     // would obstruct a finite language already proved by this same capture.
-    const fields=[...positionalFields.filter(field=>source.doc.dataNode(pointer+'/'+field)),...dependencyFields];
+    const fields=[...new Set([...positionalFields.filter(field=>source.doc.dataNode(pointer+'/'+field)),...dependencyFields,...containmentFields,...logicalFields,...evaluatedFields,...coveredConjunction])];
     if(!fields.length)return false;
     if(fields.some(field=>source.doc.dataNode(pointer+'/'+field)===undefined))return false;
     const proofs=new MigrationSchemaProofs(graph),names=new Set(Object.keys(value.properties??{}));
     for(const field of fields){
-        if(field==='dependentRequired')continue;
+        if(['dependentRequired','minContains','maxContains'].includes(field))continue;
         const node=doc.dataNode(scope.pointer+'/'+field)!;
-        const schemas=['dependentSchemas','prefixItems'].includes(field)||field==='items'&&node.kind==='array'?
+        const schemas=['dependentSchemas','prefixItems','allOf','anyOf','oneOf'].includes(field)||field==='items'&&node.kind==='array'?
             [...node.children.keys()].map(key=>scope.pointer+'/'+field+'/'+escape(key)):[scope.pointer+'/'+field];
         const maximum=positional?new MigrationArrayBounds(graph).maximum(scope):undefined;
         for(const original of schemas){
@@ -177,7 +182,8 @@ export async function migrateFiniteSchemaDomain(graph:ReferenceGraph,scope:Graph
                 field===positional&&Number(original.slice(original.lastIndexOf('/')+1))>=maximum||
                 field!==positional&&maximum<=value[positional].length))continue;
             const schema=graph.scopeAs(scope.resource,original,'schema');
-            if(!schema||!(positional?proofs.annotationFree(schema):proofs.annotationsCoveredByProperties(schema,names)))return false;
+            if(!schema||!(field==='allOf'?proofs.annotationsCoveredByItems(schema):
+                positional||field==='contains'||field==='unevaluatedItems'||logicalFields.includes(field)?proofs.annotationFree(schema):proofs.annotationsCoveredByProperties(schema,names)))return false;
         }
     }
     // Without an explicit tail, source coverage ends at the last prefix. The
@@ -209,15 +215,21 @@ export async function migrateFiniteSchemaDomain(graph:ReferenceGraph,scope:Graph
     }
     const retire=(original:string)=>{
         const material=source.current(original,scope.resource);if(material===undefined||!material.startsWith(pointer+'/'))return;
+        // An enclosing unevaluatedItems projection can consume the original
+        // contains predicate even when no authored $ref enters it directly.
+        // Keep that predicate in the common allocator through finite folding.
+        if(original===scope.pointer+'/contains'){
+            owners.move({resource:scope.resource,pointer:original},source,material,'finite_contains',{context:graph,layout:'array-item'});return;
+        }
         discardInactiveMigrationSchema(graph,{resource:scope.resource,pointer:original},source,owners,references);
         const current=source.current(original,scope.resource);
         if(current!==undefined)owners.move({resource:scope.resource,pointer:original},source,current,'finite_schema',{context:graph,layout:'array-item'});
     };
     for(const field of fields){
         const original=scope.pointer+'/'+field;
-        if(field==='dependentRequired'){
+        if(['dependentRequired','minContains','maxContains'].includes(field)){
             const current=source.current(original,scope.resource);if(current!==undefined)owners.retainLiteralValue({resource:scope.resource,pointer:original},source,current,'dependency_names');
-        }else if(['dependentSchemas','prefixItems'].includes(field)||field==='items'&&doc.dataNode(original)?.kind==='array'){
+        }else if(['dependentSchemas','prefixItems','allOf','anyOf','oneOf'].includes(field)||field==='items'&&doc.dataNode(original)?.kind==='array'){
             for(const key of doc.dataNode(original)!.children.keys())
                 retire(original+'/'+escape(key));
             const current=source.current(original,scope.resource);if(current!==undefined)source.remove(current,true,true,true);
@@ -228,6 +240,9 @@ export async function migrateFiniteSchemaDomain(graph:ReferenceGraph,scope:Graph
     const branch=collection+'/'+source.doc.dataNode(collection).children.size;
     if(accepted.length)source.exact(branch,'{"enum":['+accepted.join(',')+']}');
     else source.set(branch,restrictedBooleanSchema(false,target));
-    if(positional)source.set(pointer+'/items',{});
+    // A successful unevaluatedItems application finishes coverage of every
+    // present item. Scalar, annotation-free U schemas may therefore fold with
+    // the exhaustive assertion while the target retains complete coverage.
+    if(positional||evaluatedFields.length)source.set(pointer+'/items',{});
     return true;
 }

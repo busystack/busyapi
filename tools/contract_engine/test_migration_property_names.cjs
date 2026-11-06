@@ -55,3 +55,38 @@ test('a literal enum member independently used as a boolean schema retains data 
  assert.equal(analyse(output).status,'complete');
  assert.equal(input.resources[0].text,text);
 });
+
+const {assertB03}=require('./migration_b03_fixture.cjs');
+for(const version of ['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const targetVersion of ['2.0','3.0.0','3.0.4'])for(const format of ['yaml','json'])
+test(`${version} ${format} regex names use a captured closed domain in ${targetVersion}`,async()=>{
+ await assertB03({version,targetVersion,format,schema:{
+  propertyNames:{$ref:'#/components/schemas/Names'},
+  allOf:[{properties:{n:{},'n\n':{},'bad':{},next:{}},additionalProperties:false}],
+  properties:{n:{type:'integer',enum:['EXACT']},next:{$ref:'#/components/schemas/Value'}},
+ },models:{Names:{allOf:[{pattern:'^(?:n|next)$'},{minLength:1}]}},independent:'propertyNames',
+ samples:['null','[]','{}','{"n":9007199254740993.00}','{"n":"n"}','{"bad":0}','{"n\\n":0}','{"next":{"n":9007199254740993}}','{"outside":0}']});
+});
+for(const pattern of ['^(?:a|b)$','^[a-c]{1,2}$','^(?:雪|😀|a\\/b)$','^a?$','^$'])for(const targetVersion of ['2.0','3.0.4'])
+test(`finite anchored name regex retains the full language, including terminators: ${pattern} in ${targetVersion}`,async()=>{
+ await assertB03({targetVersion,schema:{propertyNames:{pattern}},independent:'propertyNames',samples:[
+  '{}','null','[]','"a"','{"":0}','{"a":0}','{"a\\n":0}','{"a\\r":0}','{"a\\r\\n":0}','{"ab":0}','{"cc":0}',
+  '{"aaa":0}','{"z":0}','{"雪":0}','{"😀":0}','{"a/b":0}',
+ ]});
+});
+test('a universal unbounded name regex does not become a closed enumeration',async()=>{
+ const {graph,output}=await assertB03({schema:{propertyNames:{pattern:'[\\s\\S]*'}},samples:['{}','{"":0}','{"arbitrarily long unrelated name\\n":false}','null']});
+ assert.equal(graph.docs.get(output.root).dataNode('/components/schemas/Value/propertyNames'),undefined);
+ assert.equal(graph.docs.get(output.root).dataNode('/components/schemas/Value/additionalProperties'),undefined);
+});
+for(const targetVersion of ['2.0','3.0.4'])for(const propertyNames of [
+ {minLength:1},{not:{enum:['bad','a/~雪']}},{not:{pattern:'^(?:bad|a\\/b)$'}},
+])test(`cofinite names preserve an unbounded allowed language and independent schemas in ${targetVersion}: ${JSON.stringify(propertyNames)}`,async()=>{
+ await assertB03({targetVersion,schema:{propertyNames,properties:{n:{type:'integer'}}},independent:'propertyNames',samples:[
+  'null','[]','{}','"bad"','"arbitrarily long unrelated name"','{"":0}','{"bad":0}','{"bad\\n":0}',
+  '{"a/b":0}','{"a/~雪":0}','{"n":1}','{"n":"bad"}','{"arbitrarily long unrelated name\\n":false}',
+ ]});
+});
+test('a closed unevaluated domain supplies name proof without treating property names as values',async()=>{
+ await assertB03({schema:{properties:{n:{type:'integer'}},propertyNames:{maxLength:1},unevaluatedProperties:false},
+  samples:['null','[]','{}','{"n":1}','{"n":"n"}','{"long":1}','{"x":1}'],expected:[true,true,true,true,false,false,false]});
+});

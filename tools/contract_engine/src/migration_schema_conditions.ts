@@ -226,7 +226,7 @@ export function discardInactiveMigrationSchema(graph:ReferenceGraph,origin:{reso
     if(!owners.hasConsumers(origin,references)&&!connected){
         for(const scope of graph.entryScopes())if(scope.kind==='schema'&&within(scope)){
             const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
-            for(const field of Object.keys(value??{}))if(['enum','default','example','examples'].includes(field)||field.startsWith('x-')){
+            for(const field of Object.keys(value??{}))if(['const','enum','default','example','examples'].includes(field)||field.startsWith('x-')){
                 const original=scope.pointer+'/'+field.replace(/~/g,'~0').replace(/\//g,'~1'),current=source.current(original,origin.resource);
                 if(current!==undefined)owners.retainLiteralValue({resource:scope.resource,pointer:original},source,current);
             }

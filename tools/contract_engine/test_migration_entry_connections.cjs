@@ -43,7 +43,7 @@ for(const format of ['json','yaml'])test(`entry-owned map connections preserve n
  };
  await inspect(input,root,'First');await inspect(input,other,'Second');
  const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
- assert.equal(review.producerVersion,'85');
+ assert.equal(review.producerVersion,'86');
  const cold={root:review.outputRoot,snapshot:'cold-entry-map-connections',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
  const firstOwner=await inspect(cold,cold.root,'First'),secondRoot=review.changes.find(change=>change.resource===other).destination;
  const secondOwner=await inspect(cold,secondRoot,'Second');

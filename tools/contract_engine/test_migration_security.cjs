@@ -76,7 +76,7 @@ test(`${format} URI security downgrades to ${target} through native planning and
  const input=fixture(format,target),before=input.resources.map(source=>source.text),configuration=input.configuration.text;
  assert.equal(analyse(input).status,'complete');
  const original=security(input),review=await planMigration(input);
- assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'85');
+ assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'86');
  assert.deepEqual(input.resources.map(source=>source.text),before);assert.equal(input.configuration.text,configuration);
  assert.equal((await planMigration(input)).identity,review.identity,'Allocation and review identity are deterministic');
  const cold=reopen(review),after=security(cold),entry=after.graph.docs.get(cold.root);

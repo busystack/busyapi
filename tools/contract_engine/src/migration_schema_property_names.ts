@@ -2,6 +2,10 @@ import type {GraphScope,ReferenceGraph,GraphReference} from './reference_graph';
 import type {MigrationSource} from './migration_source';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import type {MigrationIssue} from './migration_schema';
+import {restrictedBooleanSchema} from './migration_schema_values';
+import {discardInactiveMigrationSchema} from './migration_schema_conditions';
+
+export type MigrationNameRestriction=Readonly<{names:readonly string[]|undefined;excluded?:readonly string[]}>;
 
 /** A finite assertion on string property names; undefined names means no
  * restriction, while an absent proof means this shape has no finite mapping.
@@ -28,13 +32,15 @@ export function finitePropertyNameSet(value:unknown):Readonly<{names:readonly st
  * expresses exactly the same object assertion in both restricted families.
  * Its own allOf branch leaves existing value schemas and additionalProperties
  * in their original evaluation scope. Non-objects remain unaffected.
- * General patterns and annotated name schemas need different mappings. */
+ * Captured finite/cofinite and string-domain certificates extend this mapping;
+ * applicable annotations on names require their own representation proof. */
 export function migrateSchemaPropertyNames(graph:ReferenceGraph,scope:GraphScope,
-    source:MigrationSource,pointer:string,owners:MigrationSchemaOwners,issue:MigrationIssue,references:readonly GraphReference[]):void {
+    source:MigrationSource,pointer:string,owners:MigrationSchemaOwners,issue:MigrationIssue,references:readonly GraphReference[],
+    capturedProof?:MigrationNameRestriction,target='3.0'):void {
     const original=scope.pointer+'/propertyNames',node=graph.docs.get(scope.resource)!.dataNode(original);
-    if(!node)return;
+    if(!node||!source.doc.dataNode(pointer+'/propertyNames'))return;
     const value=node.value;
-    const proof=finitePropertyNameSet(value);if(!proof)return;
+    const proof=finitePropertyNameSet(value)??capturedProof;if(!proof)return;
     const names=proof.names;
     if(names&&names.length>2048){
         issue({...scope,pointer:original},'limit.migration.property-names','Finite property-name conversion exceeds 2048 named properties','implementation');return;
@@ -57,13 +63,15 @@ export function migrateSchemaPropertyNames(graph:ReferenceGraph,scope:GraphScope
     // owner even without an independent reference, rather than dropping data
     // provenance or altering a separately interpreted operand's consumers.
     const literalOperands=node.kind==='object'&&(node.children.has('enum')||node.children.has('const'));
-    if(referenced||literalOperands)owners.move({resource:scope.resource,pointer:original},source,at,'property_names',{context:graph});
-    else {owners.admit(source);source.remove(at,true,true,true);}
-    if(names===undefined)return;
+    if(referenced||literalOperands&&finitePropertyNameSet(value)!==undefined)
+        owners.move({resource:scope.resource,pointer:original},source,at,'property_names',{context:graph,layout:capturedProof?'array-item':undefined});
+    else discardInactiveMigrationSchema(graph,{resource:scope.resource,pointer:original},source,owners,references);
+    if(names===undefined&&!capturedProof?.excluded?.length)return;
     owners.admit(source,4);
     const collection=pointer+'/allOf';
     if(!source.doc.dataNode(collection))source.set(collection,[]);
     const branch=collection+'/'+source.doc.dataNode(collection).children.size;
-    source.set(branch,names.length?{properties:Object.fromEntries(names.map(name=>[name,{}])),additionalProperties:false}:{maxProperties:0});
+    source.set(branch,capturedProof?.excluded?{properties:Object.fromEntries(capturedProof.excluded.map(name=>[name,restrictedBooleanSchema(false,target)]))}:
+        names!.length?{properties:Object.fromEntries(names!.map(name=>[name,{}])),additionalProperties:false}:{maxProperties:0});
     source.presentationChanges.push(branch);
 }

@@ -4,6 +4,7 @@ import {migrationValueIdentity} from './migration_source';
 import {schemaResourceContextIdentity,supportedSchemaDialect,type GraphScope,type ReferenceGraph} from './reference_graph';
 import {projectSchemaReference} from './schema_reference_projection';
 import {requiredInBothDirections} from './schema_access';
+import {universalNamePatterns} from './migration_schema_regex';
 
 const resourceFields=new Set(['$id','$schema','$anchor','$dynamicAnchor']);
 const scalarAssertions=new Set(['type','const','enum','required','minimum','maximum','exclusiveMinimum','exclusiveMaximum',
@@ -98,7 +99,9 @@ export class MigrationSchemaProofs {
                 result.push(field==='not'?truth[0]===undefined?undefined:!truth[0]:field==='allOf'?truth.includes(false)?false:truth.every(value=>value===true)?true:undefined:
                     field==='anyOf'?truth.includes(true)?true:truth.every(value=>value===false)?false:undefined:
                     truth.some(value=>value===undefined)?undefined:truth.filter(Boolean).length===1);
-            }else{
+            }else if(field==='pattern'&&typeof value.pattern==='string'&&universalNamePatterns.has(value.pattern)||
+                ['minLength','minItems','minProperties'].includes(field)&&value[field]===0)result.push(true);
+            else{
                 const domain=['required','properties','additionalProperties','minProperties','maxProperties','dependentSchemas','dependentRequired'].includes(field)?'object':
                     ['items','prefixItems','contains','minContains','maxContains','minItems','maxItems','uniqueItems'].includes(field)?'array':
                     ['minLength','maxLength','pattern'].includes(field)?'string':
@@ -240,6 +243,35 @@ export class MigrationSchemaProofs {
                 const target=this.fixed(scope,field);return target&&this.annotationsCoveredByProperties(target,names,next);
             }
             return false;
+        });
+    }
+    /** Only root array-position coverage may disappear into a complete items
+     * application. Item schemas themselves must contribute no metadata or
+     * nested evaluated-location annotations. This is stricter than recursively
+     * allowing arbitrary coverage through annotationFree(scope,true). */
+    annotationsCoveredByItems(scope:GraphScope,seen=new Set<string>()):boolean {
+        if(this.annotationFree(scope))return true;
+        if(seen.has(id(scope))||seen.size>=128)return false;
+        const value=this.graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
+        if(!value||typeof value!=='object'||Array.isArray(value))return false;
+        const next=new Set(seen).add(id(scope));
+        return Object.keys(value).every(field=>{
+            if(resourceFields.has(field)||scalarAssertions.has(field)||['minContains','maxContains'].includes(field))return true;
+            if(['items','prefixItems','contains','unevaluatedItems'].includes(field)){
+                const node=this.graph.docs.get(scope.resource)!.dataNode(scope.pointer+'/'+field)!;
+                const pointers=field==='prefixItems'||field==='items'&&node.kind==='array'?
+                    [...node.children.values()].map(node=>node.pointer):[node.pointer];
+                return pointers.every(pointer=>{
+                    const child=this.graph.scopeAs(scope.resource,pointer,'schema');return child&&this.annotationFree(child);
+                });
+            }
+            if(['allOf','anyOf','oneOf'].includes(field))return value[field].every((_:unknown,index:number)=>{
+                const child=this.graph.scopeAs(scope.resource,scope.pointer+'/'+field+'/'+index,'schema');return child&&this.annotationsCoveredByItems(child,next);
+            });
+            if(['$ref','$dynamicRef'].includes(field)){
+                const child=this.fixed(scope,field);return child&&this.annotationsCoveredByItems(child,next);
+            }
+            return field==='not';
         });
     }
     /** Same-instance conjuncts only. Sibling branches, array/property children,

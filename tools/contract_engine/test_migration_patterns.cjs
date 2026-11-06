@@ -65,6 +65,38 @@ test('patterns over an unbounded property-name domain retain an explicit impleme
  assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);assert(review.problems.some(problem=>problem.code==='migration.schema.patternProperties'&&problem.reason==='implementation'));
 });
 
+const {assertB03}=require('./migration_b03_fixture.cjs');
+for(const targetVersion of ['2.0','3.0.4'])for(const format of ['yaml','json'])
+test(`${format} ${targetVersion} patterns reuse a referenced closed domain and intersect every match`,async()=>{
+ await assertB03({format,targetVersion,schema:{allOf:[{$ref:'#/components/schemas/Closed'}],
+  properties:{n:{minimum:0}},patternProperties:{'^n':{$ref:'#/components/schemas/Number'},'2$':{maximum:3}}},
+  models:{Closed:{properties:{n:{},n2:{},free:{},next:{$ref:'#/components/schemas/Value'}},additionalProperties:false},
+   Number:{allOf:[{type:'integer'},{maximum:10}],description:'Pattern value'}},independent:'patternProperties/%5En',
+  samples:['null','[]','{}','{"n":2}','{"n":-1}','{"n2":3}','{"n2":4}','{"n2":"3"}','{"free":false}','{"other":0}','{"next":{"n2":4}}']});
+});
+for(const targetVersion of ['2.0','3.0.4'])for(const format of ['yaml','json'])
+test(`${format} ${targetVersion} universal patterns preserve overlapping value metadata on unbounded names`,async()=>{
+ await assertB03({format,targetVersion,schema:{properties:{special:{minimum:1}},
+  patternProperties:{'':{type:'integer',description:'First match'},'^':{maximum:3,title:'Second match'}},
+  additionalProperties:{patternProperties:{'^unsupported':{type:'number'}}}},
+  independent:'patternProperties/',samples:['null','[]','{}','{"":2}','{"special":0}','{"special":2}','{"x\\n":2}','{"arbitrary name":4}','{"z":"2"}']});
+});
+for(const targetVersion of ['2.0','3.0.4'])test(`equivalent value schemas permit unbounded regex selection in ${targetVersion}`,async()=>{
+ await assertB03({targetVersion,schema:{properties:{n:{minimum:1}},patternProperties:{'^n':{type:'integer'},'z$':{type:'integer'}},
+  additionalProperties:{type:'integer'}},independent:'patternProperties/%5En',samples:[
+   'null','{}','{"n":0}','{"n":1}','{"n":"1"}','{"arbitrarily long name":2}','{"z":"2"}','{"nzz":2}',
+  ]});
+});
+for(const targetVersion of ['2.0','3.0.4'])for(const format of ['yaml','json'])
+test(`${format} ${targetVersion} finite regex selectors keep an unbounded additional-property language`,async()=>{
+ await assertB03({targetVersion,format,schema:{properties:{n:{minimum:0}},
+  patternProperties:{'^(?:n|m)$':{type:'integer',description:'Selected finite name'},'^n$':{maximum:3}},additionalProperties:{type:'string'}},
+  independent:'patternProperties/%5En%24',samples:[
+   'null','{}','{"n":1}','{"n":4}','{"n":-1}','{"n":"1"}','{"m":2}','{"n\\n":2}',
+   '{"arbitrarily long additional name":"雪"}','{"arbitrarily long additional name":1}','{"unbounded\\n":"雪"}',
+  ]});
+});
+
 test('foreign pattern fragments retain their actual entry namespace, passive URIs and Markdown base',async()=>{
  const root='file:///namespace-pattern/a.json',other='file:///namespace-pattern/b.json',models='file:///namespace-pattern/defs/models.yaml';
  const first={openapi:'3.2.1',info:{title:'First',version:'1'},paths:{},components:{examples:{Bridge:{$ref:'b.json#/components/examples/Bridge'}}}};

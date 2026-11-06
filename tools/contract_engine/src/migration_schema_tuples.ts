@@ -135,9 +135,8 @@ function factorTupleTail(graph:ReferenceGraph,scope:GraphScope,source:MigrationS
 /** A restricted uniform items schema is faithful when every reachable
  * position has the same assertions and annotations. A closed tail remains a
  * length bound; unreachable positions keep independent material owners. */
-function homogeneousTuple(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,pointer:string,
-    keyword:string,prefixes:readonly GraphScope[],tail:GraphScope|undefined,closed:boolean,maximum:number|undefined,
-    owners:MigrationSchemaOwners,target:string):boolean {
+function homogeneousTupleProof(graph:ReferenceGraph,prefixes:readonly GraphScope[],tail:GraphScope|undefined,closed:boolean,maximum:number|undefined):
+    Readonly<{selected:GraphScope|undefined}>|undefined {
     const count=maximum===undefined?prefixes.length:Math.min(prefixes.length,maximum);
     const tailReachable=!closed&&(maximum===undefined||maximum>prefixes.length),proofs=new MigrationSchemaProofs(graph);
     const schemas=prefixes.slice(0,count),selected=schemas[0]??(tailReachable?tail:undefined);
@@ -155,7 +154,15 @@ function homogeneousTuple(graph:ReferenceGraph,scope:GraphScope,source:Migration
             proofs.annotationFree(a)&&proofs.annotationFree(b)&&proofs.implies(a,b)&&proofs.implies(b,a);
     };
     if(selected&&(!schemas.every(schema=>equivalent(schema,selected))||tailReachable&&
-        (tail?!equivalent(tail,selected):!proofs.annotationFree(selected)||constantSchemaAssertion(graph,selected)!==true)))return false;
+        (tail?!equivalent(tail,selected):!proofs.annotationFree(selected)||constantSchemaAssertion(graph,selected)!==true)))return;
+    return {selected};
+}
+
+function homogeneousTuple(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,pointer:string,
+    keyword:string,prefixes:readonly GraphScope[],tail:GraphScope|undefined,closed:boolean,maximum:number|undefined,
+    owners:MigrationSchemaOwners,target:string):boolean {
+    const proof=homogeneousTupleProof(graph,prefixes,tail,closed,maximum);if(!proof)return false;
+    const {selected}=proof;
     const context=owners.contextOf(scope);
     let chosen:ReturnType<MigrationSchemaOwners['move']>|undefined;
     for(const schema of prefixes){
@@ -179,6 +186,41 @@ function homogeneousTuple(graph:ReferenceGraph,scope:GraphScope,source:Migration
         const limit=String(upper),existing=source.doc.dataNode(pointer+'/maxItems');
         if(!existing||compare(decimal(source.doc.dataJson(existing.pointer)),decimal(limit))>0)source.exact(pointer+'/maxItems',limit);
     }
+    return true;
+}
+
+/** An inline prefix-only conjunct and its containing unevaluated tail can be
+ * one homogeneous application. Prove equality before moving either selector.
+ * Independent roots retain their original language and cannot inherit this
+ * containing constraint. Prefix/tail descendants keep allocator identities.
+ */
+export function migrateComposedUnevaluatedTuple(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,pointer:string,target:string,
+    owners:MigrationSchemaOwners,references:readonly GraphReference[],bounds:MigrationArrayBounds):boolean {
+    if(target!=='3.0'||graph.hasOverlappingScope(scope.resource,scope.pointer)||graph.literalContainer(scope.resource,scope.pointer)!==undefined)return false;
+    const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
+    if(!Array.isArray(value?.allOf)||!Object.hasOwn(value,'unevaluatedItems')||
+        ['items','prefixItems','contains','$ref','$dynamicRef','anyOf','oneOf','if'].some(field=>Object.hasOwn(value,field)))return false;
+    const proofs=new MigrationSchemaProofs(graph);let selected:GraphScope|undefined;
+    for(let index=0;index<value.allOf.length;index++){
+        const at=graph.scopeAs(scope.resource,scope.pointer+'/allOf/'+index,'schema');if(!at)return false;
+        const child=graph.docs.get(at.resource)!.dataNode(at.pointer)?.value;
+        if(Array.isArray(child?.prefixItems)&&Object.keys(child).length===1){
+            if(selected||owners.hasRootConsumer(at,references)||graph.hasOverlappingScope(at.resource,at.pointer)||
+                graph.literalContainer(at.resource,at.pointer)!==undefined)return false;
+            selected=at;
+        }else if(!proofs.annotationFree(at))return false;
+    }
+    if(!selected)return false;
+    const child=graph.docs.get(selected.resource)!.dataNode(selected.pointer)!.value;
+    const prefixes=child.prefixItems.map((_:unknown,index:number)=>graph.scopeAs(selected!.resource,selected!.pointer+'/prefixItems/'+index,'schema'));
+    const tail=graph.scopeAs(scope.resource,scope.pointer+'/unevaluatedItems','schema');
+    const maximum=bounds.maximum(scope),closed=tail&&constantSchemaAssertion(graph,tail)===false;
+    if(!tail||prefixes.some(scope=>!scope)||!homogeneousTupleProof(graph,prefixes,tail,!!closed,maximum))return false;
+    const prefixAt=source.current(selected.pointer+'/prefixItems',selected.resource),tailAt=source.current(tail.pointer,tail.resource);
+    if(prefixAt===undefined||tailAt!==pointer+'/unevaluatedItems')return false;
+    owners.admit(source,8);source.move(prefixAt,pointer+'/prefixItems',true);source.move(tailAt,pointer+'/items',true);
+    homogeneousTuple(graph,scope,source,pointer,'prefixItems',prefixes,tail,!!closed,maximum,owners,target);
+    if(source.doc.dataNode(pointer+'/prefixItems')){owners.admit(source,4);source.remove(pointer+'/prefixItems',true,true,true);}
     return true;
 }
 
