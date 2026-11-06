@@ -1,5 +1,5 @@
 import {compare,decimal,multiple} from './exact_numbers';
-import {escape,SourceError} from './document';
+import {escape,SourceError,type SourceDocument} from './document';
 import {migrationValueIdentity} from './migration_source';
 import {schemaResourceContextIdentity,supportedSchemaDialect,type GraphScope,type ReferenceGraph} from './reference_graph';
 import {projectSchemaReference} from './schema_reference_projection';
@@ -10,6 +10,19 @@ const scalarAssertions=new Set(['type','const','enum','required','minimum','maxi
     'multipleOf','minLength','maxLength','pattern','minItems','maxItems','uniqueItems','minProperties','maxProperties']);
 const annotations=new Set(['title','description','$comment','default','examples','example','deprecated','readOnly','writeOnly','format','externalDocs','xml']);
 const id=(scope:GraphScope)=>JSON.stringify([scope.resource,scope.pointer]);
+export type SchemaGuardAssumptions=Readonly<{domains:ReadonlySet<string>;present?:(name:string)=>boolean;absent?:(name:string)=>boolean}>;
+
+/** Assertion equality is mathematical for numbers and ignores object member
+ * order. Source-fidelity checks continue to use migrationValueIdentity. */
+export function migrationExactValueIdentity(doc:SourceDocument,pointer:string,state={work:0,depth:0}):string {
+    if(++state.work>50000||state.depth>=128)throw new SourceError('limit.migration.literal','Exact literal proof exceeds 50000 nodes or 128 levels',doc.dataNode(pointer)!.range,'unsupported');
+    const node=doc.dataNode(pointer)!;
+    if(node.kind==='number'){const n=decimal(doc.dataJson(pointer));return 'n:'+n.coefficient+'e'+n.exponent;}
+    const child=(pointer:string)=>{state.depth++;try{return migrationExactValueIdentity(doc,pointer,state);}finally{state.depth--;}};
+    if(node.kind==='array')return '['+[...node.children.values()].map(node=>child(node.pointer)).join(',')+']';
+    if(node.kind==='object')return '{'+[...node.children].sort(([a],[b])=>a<b?-1:a>b?1:0).map(([name,node])=>JSON.stringify(name)+':'+child(node.pointer)).join(',')+'}';
+    return JSON.stringify(node.value);
+}
 
 /** Positive, bounded implication and annotation proofs over the canonical
  * capture. Failure to prove an implication is not a counterexample. Cycles
@@ -29,6 +42,120 @@ export class MigrationSchemaProofs {
         const reference=this.graph.referenceAs(scope.resource,scope.pointer,keyword,'schema');
         const projection=reference&&projectSchemaReference(reference);
         return projection?.state==='fixed'?this.graph.scopeAs(projection.target.resource,projection.target.pointer,'schema'):undefined;
+    }
+    /** Native child applications with universally true children impose no
+     * assertion. Their annotations still need the separate applicability
+     * certificate; this never makes them annotation-free. */
+    private trueApplication(scope:GraphScope,field:string,active=new Set<string>()):boolean {
+        if(!['properties','prefixItems','items','additionalProperties','dependentSchemas'].includes(field))return false;
+        const node=this.graph.docs.get(scope.resource)!.dataNode(scope.pointer+'/'+field);
+        if(!node)return false;
+        const collection=['properties','prefixItems','dependentSchemas'].includes(field)||field==='items'&&node.kind==='array';
+        const pointers=collection?[...node.children.values()].map(child=>child.pointer):[node.pointer];
+        return pointers.every(pointer=>{
+            const child=this.graph.scopeAs(scope.resource,pointer,'schema');
+            if(!child)return false;
+            if(field==='properties'&&this.conjuncts(child).some(part=>{
+                const value=this.graph.docs.get(part.resource)!.dataNode(part.pointer)?.value;
+                return value?.readOnly===true||value?.writeOnly===true;
+            }))return false;
+            return this.validationConstant(child,active)===true;
+        });
+    }
+    /** A positive constant certificate on whole JSON type domains. Unknown
+     * is not satisfiable/unsatisfiable evidence. Annotation applicability is
+     * deliberately checked separately by inertKeyword(). */
+    constantInDomains(scope:GraphScope,domains:ReadonlySet<string>,only?:string,active=new Set<string>()):boolean|undefined {
+        if(!domains.size)return true;
+        this.inspect(scope);const state=JSON.stringify([id(scope),only,[...domains].sort()]);
+        if(active.has(state)||active.size>=128||!supportedSchemaDialect(scope))return;
+        const doc=this.graph.docs.get(scope.resource)!,value=doc.dataNode(scope.pointer)?.value;
+        if(typeof value==='boolean')return value;
+        if(!value||typeof value!=='object'||Array.isArray(value))return;
+        const next=new Set(active).add(state),result:(boolean|undefined)[]=[];
+        const fields=only?[only]:this.graph.referenceObject(value,scope)?['$ref']:Object.keys(value);
+        for(const field of fields){
+            if(resourceFields.has(field)||annotations.has(field)||field.startsWith('x-')){result.push(true);continue;}
+            if(field==='type'){
+                const types=typeof value.type==='string'?[value.type,...(scope.family==='3.0'&&value.nullable===true?['null']:[])]:value.type;
+                if(!Array.isArray(types)||types.some(type=>!['null','boolean','object','array','number','integer','string'].includes(type))){result.push(undefined);continue;}
+                const accepts=new Set(types.flatMap(type=>type==='number'?['integer','fraction']:[type]));
+                result.push([...domains].every(type=>accepts.has(type))?true:[...domains].every(type=>!accepts.has(type))?false:undefined);
+            }else if(field==='enum'||field==='const'){
+                const pointers=field==='const'?[scope.pointer+'/const']:[...doc.dataNode(scope.pointer+'/enum')!.children.values()].map(node=>node.pointer);
+                const kinds=new Set(pointers.map(pointer=>{
+                    const node=doc.dataNode(pointer)!;if(node.kind!=='number')return node.kind;
+                    const n=decimal(doc.dataJson(pointer));return n.coefficient===0n||n.exponent>=0n?'integer':'fraction';
+                }));
+                const complete=[...domains].every(kind=>kind==='null'?pointers.some(pointer=>doc.dataNode(pointer)!.value===null):
+                    kind==='boolean'?[false,true].every(value=>pointers.some(pointer=>doc.dataNode(pointer)!.value===value)):false);
+                result.push(complete?true:[...domains].every(kind=>!kinds.has(kind))?false:undefined);
+            }else if(['$ref','$dynamicRef'].includes(field)){
+                const target=this.fixed(scope,field);result.push(target?this.constantInDomains(target,domains,undefined,next):undefined);
+            }else if(['allOf','anyOf','oneOf','not'].includes(field)){
+                const pointers=field==='not'?[scope.pointer+'/not']:value[field].map((_:unknown,index:number)=>scope.pointer+'/'+field+'/'+index);
+                const truth=pointers.map(pointer=>{const child=this.graph.scopeAs(scope.resource,pointer,'schema');return child?this.constantInDomains(child,domains,undefined,next):undefined;});
+                result.push(field==='not'?truth[0]===undefined?undefined:!truth[0]:field==='allOf'?truth.includes(false)?false:truth.every(value=>value===true)?true:undefined:
+                    field==='anyOf'?truth.includes(true)?true:truth.every(value=>value===false)?false:undefined:
+                    truth.some(value=>value===undefined)?undefined:truth.filter(Boolean).length===1);
+            }else{
+                const domain=['required','properties','additionalProperties','minProperties','maxProperties','dependentSchemas','dependentRequired'].includes(field)?'object':
+                    ['items','prefixItems','contains','minContains','maxContains','minItems','maxItems','uniqueItems'].includes(field)?'array':
+                    ['minLength','maxLength','pattern'].includes(field)?'string':
+                    ['minimum','maximum','exclusiveMinimum','exclusiveMaximum','multipleOf'].includes(field)?'number':undefined;
+                result.push(domain&&(domain==='number'?!domains.has('integer')&&!domains.has('fraction'):!domains.has(domain))||this.trueApplication(scope,field,new Set([id(scope)]))?true:undefined);
+            }
+        }
+        return result.includes(false)?false:result.every(value=>value===true)?true:undefined;
+    }
+    inertKeyword(scope:GraphScope,field:string,domains:ReadonlySet<string>):boolean {
+        if(this.constantInDomains(scope,domains,field)!==true)return false;
+        if(['enum','const','not'].includes(field))return true;
+        const value=this.graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
+        return value[field].every((_:unknown,index:number)=>{
+            const child=this.graph.scopeAs(scope.resource,scope.pointer+'/'+field+'/'+index,'schema');
+            return child&&(this.constantInDomains(child,domains)===false||this.annotationsInactiveIn(child,domains));
+        });
+    }
+    /** Combine a captured applicability guard with retained same-instance
+     * assertions. Presence facts concern objects only; required still succeeds
+     * on non-objects. This selects a branch without conflating its predicate
+     * with the outer dependency trigger. */
+    guardedTruth(scope:GraphScope,guard:SchemaGuardAssumptions,assumptions:readonly GraphScope[]=[],active=new Set<string>()):boolean|undefined {
+        this.inspect(scope);if(active.has(id(scope))||active.size>=128||!supportedSchemaDialect(scope))return;
+        const value=this.graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
+        if(typeof value==='boolean')return value;
+        if(!value||typeof value!=='object'||Array.isArray(value))return;
+        const next=new Set(active).add(id(scope)),truth:(boolean|undefined)[]=[];
+        for(const field of this.graph.referenceObject(value,scope)?['$ref']:Object.keys(value)){
+            if(resourceFields.has(field)||annotations.has(field)||field.startsWith('x-')){truth.push(true);continue;}
+            if(field==='required'){
+                const object=value.required.some((name:string)=>guard.absent?.(name))?false:value.required.every((name:string)=>guard.present?.(name))?true:undefined;
+                const values=[...guard.domains].map(kind=>kind==='object'?object:true);
+                truth.push(values.every(value=>value===true)?true:values.every(value=>value===false)?false:undefined);
+            }else if(['allOf','anyOf','oneOf','not'].includes(field)){
+                const pointers=field==='not'?[scope.pointer+'/not']:value[field].map((_:unknown,index:number)=>scope.pointer+'/'+field+'/'+index);
+                const values=pointers.map(pointer=>{const child=this.graph.scopeAs(scope.resource,pointer,'schema');return child?this.guardedTruth(child,guard,assumptions,next):undefined;});
+                truth.push(field==='not'?values[0]===undefined?undefined:!values[0]:field==='allOf'?values.includes(false)?false:values.every(value=>value===true)?true:undefined:
+                    field==='anyOf'?values.includes(true)?true:values.every(value=>value===false)?false:undefined:values.some(value=>value===undefined)?undefined:values.filter(Boolean).length===1);
+            }else if(['$ref','$dynamicRef'].includes(field)){
+                const child=this.fixed(scope,field);truth.push(child?this.guardedTruth(child,guard,assumptions,next):undefined);
+            }else truth.push(this.constantInDomains(scope,guard.domains,field)??
+                (assumptions.some(parent=>this.implies(parent,scope,new Set(),[field]))?true:undefined));
+        }
+        return truth.includes(false)?false:truth.every(value=>value===true)?true:undefined;
+    }
+    equivalentBranch(scope:GraphScope,keyword:string,guard?:SchemaGuardAssumptions,assumptions:readonly GraphScope[]=[]):GraphScope|undefined {
+        const value=this.graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
+        if(!['allOf','anyOf','oneOf'].includes(keyword)||!Array.isArray(value?.[keyword]))return;
+        const children=value[keyword].map((_:unknown,index:number)=>this.graph.scopeAs(scope.resource,scope.pointer+'/'+keyword+'/'+index,'schema'));
+        if(children.some(child=>!child))return;
+        const falseInContext=(child:GraphScope)=>this.validationConstant(child)===false||!!guard&&this.guardedTruth(child,guard,assumptions)===false;
+        if(keyword==='oneOf'){
+            const live=children.filter(child=>!falseInContext(child));return live.length===1?live[0]:undefined;
+        }
+        const implies=(a:GraphScope,b:GraphScope)=>this.implies(a,b)||!!guard&&this.guardedTruth(b,guard,[a,...assumptions])===true;
+        return children.find(candidate=>children.every(child=>keyword==='allOf'?implies(candidate,child):falseInContext(child)||implies(child,candidate)));
     }
     /** Validation truth may ignore metadata; callers must separately account
      * for its annotations. A false schema has no successful annotations. */
@@ -54,7 +181,7 @@ export class MigrationSchemaProofs {
             }else if(name==='not'){
                 const child=this.graph.scopeAs(scope.resource,scope.pointer+'/not','schema'),truth=child?this.validationConstant(child,next):undefined;
                 results.push(truth===undefined?undefined:!truth);
-            }else results.push(undefined);
+            }else results.push(this.trueApplication(scope,name,next)?true:undefined);
         }
         return results.includes(false)?false:results.every(value=>value===true)?true:undefined;
     }
@@ -167,6 +294,7 @@ export class MigrationSchemaProofs {
     annotationsInactiveIn(scope:GraphScope,domains:ReadonlySet<string>,seen=new Set<string>()):boolean {
         this.inspect(scope);if(seen.size>=128||seen.has(id(scope))||!supportedSchemaDialect(scope))return false;
         if(!domains.size)return true;
+        if(this.constantInDomains(scope,domains)===false)return true;
         const value=this.graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
         if(typeof value==='boolean')return true;
         if(!value||typeof value!=='object'||Array.isArray(value))return false;
@@ -264,7 +392,7 @@ export class MigrationSchemaProofs {
         });
         return sets(left).some(a=>sets(right).some(b=>[...a].every(type=>!b.has(type))));
     }
-    implies(left:GraphScope,right:GraphScope,active=new Set<string>()):boolean {
+    implies(left:GraphScope,right:GraphScope,active=new Set<string>(),fields?:readonly string[]):boolean {
         this.inspect(left);const pair=JSON.stringify([id(left),id(right)]);
         if(active.has(pair)||active.size>=128||!supportedSchemaDialect(left)||!supportedSchemaDialect(right))return false;
         const a=this.graph.docs.get(left.resource)!,b=this.graph.docs.get(right.resource)!;
@@ -403,7 +531,7 @@ export class MigrationSchemaProofs {
             }
             return false;
         };
-        if((this.graph.referenceObject(target,right)?['$ref']:Object.keys(target)).every(atom))return true;
+        if((fields??(this.graph.referenceObject(target,right)?['$ref']:Object.keys(target))).every(atom))return true;
         // Each alternative must imply the target; oneOf does not authorize
         // selecting whichever alternative happened to succeed for a sample.
         for(const keyword of ['anyOf','oneOf'])if(Array.isArray(source?.[keyword])&&source[keyword].length&&source[keyword].every((_:unknown,index:number)=>{

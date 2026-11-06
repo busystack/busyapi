@@ -10,7 +10,8 @@ import {modernFamily} from './specification';
 import {projectSchemaReference} from './schema_reference_projection';
 
 type SemanticOwner=Readonly<{source:GraphScope;owner:GraphScope;location:MigrationLocation}>;
-export type MigrationOwnerLayout='array-item'|'callback-path-item'|'callback-operation'|'path-item-operation'|'response-media';
+export type MigrationOwnerLayout='array-item'|'callback-path-item'|'callback-operation'|'path-item-operation'|'response-media'|'response-header';
+export type MigrationApplicationKind='condition'|'dependency'|'allOf'|'anyOf'|'oneOf';
 export type MigrationOperationSlot=Readonly<{method:string;additional:boolean}>;
 
 /** Generated schema and OpenAPI object owners share one reservation/provenance boundary. A label
@@ -305,8 +306,21 @@ export class MigrationSchemaOwners {
             return {source,location:this.allocate(source,destination.pointer,label,identity)};
         }
         const entry=this.generatedResource?.(this.sources.get(origin.resource)?.doc.format)??this.sources.get(this.graph.root)!;
-        const container=this.generatedResource?'':componentLocation('schemas',this.graph.family)!;
+        const container=this.generatedResource?'':componentLocation('schemas',this.graph.specifications.has(entry.doc.id)&&entry.doc.dataNode('/swagger')?.value==='2.0'?'2.0':this.graph.family)!;
         return {source:entry,location:this.allocate(entry,container,label,identity)};
+    }
+    reserveSchema(origin:MigrationLocation,label:string):{source:MigrationSource;location:MigrationLocation}{
+        return this.materialOwner(this.reserve(origin,label),'array-item');
+    }
+    markProjectionSource(scope:GraphScope):void {
+        this.rememberEntry('guard-source',scope,{resource:scope.resource,pointer:scope.pointer},scope,'capture');
+    }
+    isProjectionSource(scope:GraphScope):boolean{return this.entryUses.has(this.useKey('guard-source',scope,scope.kind));}
+    retireApplication(scope:GraphScope,kind:MigrationApplicationKind):void {
+        this.rememberEntry('schema-application-retired:'+kind,scope,{resource:scope.resource,pointer:scope.pointer});
+    }
+    applicationRetired(scope:GraphScope,kind:MigrationApplicationKind):boolean {
+        return this.entryUses.has(this.useKey('schema-application-retired:'+kind,scope,scope.kind));
     }
 
     materialLocations(origin:MigrationLocation):readonly {source:MigrationSource;location:MigrationLocation}[] {
@@ -326,6 +340,17 @@ export class MigrationSchemaOwners {
         if(captured.length===1)return captured[0];
         if(found.length!==1)throw new SourceError('migration.owners.source-coordinate','A projected schema or field requires one surviving captured material coordinate');
         return found[0];
+    }
+    capturedSchema(location:MigrationLocation):GraphScope|undefined {
+        let selected:GraphScope|undefined;
+        const source=this.sources.get(location.resource);if(!source)return;
+        for(const context of this.contexts)for(const scope of context.entryScopes())if(scope.kind==='schema'){
+            this.inspectUse();const pointers=scope.resource===source.original.id?source.origins.get(scope.pointer):source.foreignOrigins.get(scope.resource+'#'+scope.pointer);
+            if(!pointers?.has(location.pointer))continue;
+            if(selected&&(selected.family!==scope.family||schemaResourceContextIdentity(selected)!==schemaResourceContextIdentity(scope)))return;
+            selected=scope;
+        }
+        return selected;
     }
 
     /** All schema and object variants use this reservation boundary, including
@@ -355,12 +380,115 @@ export class MigrationSchemaOwners {
         return location.resource+pointerFragment(pointer);
     }
 
+    /** Own an in-place applicator separately from its containing assertions.
+     * Guard composition replaces this use, while ordinary/independent entries
+     * keep the original effect. Both the holder and use live in the existing
+     * semantic-owner index; field provenance follows subsequent CST moves. */
+    isolateApplication(scope:GraphScope,source:MigrationSource,pointer:string,kind:MigrationApplicationKind,
+        fields:readonly string[],target:string):{source:MigrationSource;location:MigrationLocation} {
+        const namespace='schema-application:'+kind;
+        if(this.entryUses.has(this.useKey(namespace,scope,scope.kind))){
+            const location=this.entryOwner(namespace,scope,scope.kind);
+            return {source:this.sources.get(location.resource)!,location};
+        }
+        const effect=this.reserveSchema(scope,kind+'_application');this.admit(effect.source);effect.source.set(effect.location.pointer,{});
+        for(const field of fields){
+            const at=pointer+'/'+escape(field);if(!source.doc.dataNode(at))continue;
+            this.admit(source,4);this.admit(effect.source,4);
+            const destination=effect.location.pointer+'/'+escape(field);
+            if(source===effect.source)source.move(at,destination,true);
+            else {effect.source.copy(source,at,destination,true);source.remove(at);}
+        }
+        this.admit(source,2);const collection=pointer+'/allOf';
+        if(!source.doc.dataNode(collection))source.set(collection,[]);
+        const use=collection+'/'+source.doc.dataNode(collection).children.size+'/$ref';
+        source.set(use.slice(0,-5),{$ref:this.reference(effect.location,target)});
+        // The origin is inside a newly reserved holder, so it cannot shadow
+        // an authored field whose former array index was reused by this use.
+        const origin={...effect.location,pointer:effect.location.pointer+'/use/$ref'};
+        if(origin.resource===source.original.id)source.origins.set(origin.pointer,new Set([use]));
+        else source.foreignOrigins.set(origin.resource+'#'+origin.pointer,new Set([use]));
+        this.rememberEntry(namespace,scope,effect.location);
+        this.rememberEntry(namespace+':use',scope,origin);
+        return effect;
+    }
+    applicationUse(scope:GraphScope,kind:MigrationApplicationKind):MigrationLocation|undefined {
+        const namespace='schema-application:'+kind+':use';
+        if(!this.entryUses.has(this.useKey(namespace,scope,scope.kind)))return;
+        return this.entryOwner(namespace,scope,scope.kind);
+    }
+
+    /** Resolve a converted schema use against captured fixed bindings first.
+     * Generated references have no authored locator; their absolute physical
+     * addresses use the allocator's target component spelling. No URI search
+     * through literal values or new dynamic-binding assumption is involved. */
+    materialReference(source:MigrationSource,pointer:string,targetFamily:string):MigrationLocation|undefined {
+        const destinations=new Map<string,MigrationLocation>();
+        for(const context of this.contexts)for(const reference of context.entryReferences()){
+            this.inspectUse();if(reference.kind!=='schema'||reference.connection||!['$ref','$dynamicRef'].includes(reference.keyword))continue;
+            const field=reference.pointer+'/'+escape(reference.keyword);
+            const locations=source.original.id===reference.resource?source.origins.get(field):source.foreignOrigins.get(reference.resource+'#'+field);
+            if(!locations?.has(pointer+'/$ref')&&!locations?.has(pointer+'/$dynamicRef'))continue;
+            const projected=projectSchemaReference(reference);if(projected.state!=='fixed')return;
+            const material=this.uniqueLocation(projected.target).location;
+            destinations.set(JSON.stringify([material.resource,material.pointer]),material);
+        }
+        if(destinations.size)return destinations.size===1?[...destinations.values()][0]:undefined;
+        const value=source.doc.dataNode(pointer)?.value,ref=value?.$ref;
+        if(typeof ref!=='string')return;
+        const url=new URL(ref,source.doc.id),fragment=decodeURIComponent(url.hash.slice(1));url.hash='';
+        if(fragment&&!fragment.startsWith('/'))return;
+        const material=this.sources.get(url.href);if(!material)return;
+        if(material.doc.dataNode(fragment))return {resource:url.href,pointer:fragment};
+        const prefix=targetFamily==='2.0'?'/definitions/':'/components/schemas/';
+        if(!fragment.startsWith(prefix))return;
+        const pointerAt=(targetFamily==='2.0'?'/components/schemas/':'/definitions/')+fragment.slice(prefix.length);
+        return material.doc.dataNode(pointerAt)?{resource:url.href,pointer:pointerAt}:undefined;
+    }
+
+    /** A flat declaration copies value fields, not the independent Schema
+     * Object's target identity. Preserve exact CST data/comments and retire
+     * schema-target provenance only in the new use. */
+    copyAssertionField(source:MigrationSource,pointer:string,input:MigrationSource,from:string):void {
+        const captured=input.fork();this.admit(source,4);
+        if(source.doc.dataNode(pointer))source.remove(pointer,true,true,true);
+        source.copy(captured,from,pointer,true);
+        for(const context of this.contexts)for(const scope of context.entryScopes())if(scope.kind==='schema'){
+            this.inspectUse();const locations=scope.resource===source.original.id?source.origins.get(scope.pointer):source.foreignOrigins.get(scope.resource+'#'+scope.pointer);
+            for(const at of [...locations??[]])if(at===pointer||at.startsWith(pointer+'/'))locations!.delete(at);
+        }
+    }
+
+    materializeHeaderUse(scope:GraphScope,source:MigrationSource,pointer:string,input:MigrationSource,from:string):void {
+        const captured=input.fork();
+        // Retain the authored reference object as literal history. Its ignored
+        // siblings must never acquire Header constraints during inlining.
+        this.retainLiteralValue(scope,source,pointer,'header_reference',true);
+        for(const current of this.sources.values()){
+            const roots=current.original.id===scope.resource?current.origins.get(scope.pointer):current.foreignOrigins.get(scope.resource+'#'+scope.pointer);
+            roots?.clear();
+            const locations=current.original.id===scope.resource?current.origins.get(scope.pointer+'/$ref'):
+                current.foreignOrigins.get(scope.resource+'#'+scope.pointer+'/$ref');
+            locations?.clear();
+        }
+        this.admit(source,4);source.copy(captured,from,pointer,true);
+        for(const context of this.contexts)for(const original of context.entryScopes())if(['schema','header'].includes(original.kind)){
+            this.inspectUse();const locations=original.resource===source.original.id?source.origins.get(original.pointer):source.foreignOrigins.get(original.resource+'#'+original.pointer);
+            for(const at of [...locations??[]])if(at===pointer||at.startsWith(pointer+'/'))locations!.delete(at);
+        }
+        // The use retains its own native identity. The source target's schema
+        // and Header identities stay with their independent neutral owners.
+        const locations=source.original.id===scope.resource?source.origins:source.foreignOrigins;
+        const id=source.original.id===scope.resource?scope.pointer:scope.resource+'#'+scope.pointer;
+        locations.set(id,new Set([pointer]));
+    }
+
     /** Retiring an unapplied assertion does not authorize deleting its exact
      * enum/default/extension data. Keep those values as literal annotations in
      * a neutral standard Schema Object, through the common reservation and CST
      * provenance path. Reference-looking members remain literal data. */
-    retainLiteralValue(origin:MigrationLocation,source:MigrationSource,pointer:string,label='retired_value'):MigrationLocation {
-        const owner=this.reserve(origin,label,JSON.stringify([origin.resource,origin.pointer]));
+    retainLiteralValue(origin:MigrationLocation,source:MigrationSource,pointer:string,label='retired_value',anonymous=false):MigrationLocation {
+        const owner=anonymous?this.reserveSchema(origin,label):this.reserve(origin,label,JSON.stringify([origin.resource,origin.pointer]));
         this.admit(source,4);this.admit(owner.source,4);
         owner.source.set(owner.location.pointer,{});
         const location={...owner.location,pointer:owner.location.pointer+'/x-busyapi-retained-value'};
@@ -503,12 +631,12 @@ export class MigrationSchemaOwners {
     } {
         const method=operation?.method??'get',slot=(operation?.additional?'/additionalOperations':'')+'/'+escape(method);
         const pathItem=operation?.additional?{additionalOperations:{[method]:{}}}:{[method]:{}};
-        const suffix=layout==='array-item'?'/items':layout==='callback-path-item'?'/{$url}':
+        const suffix=layout==='array-item'?'/items':layout==='response-header'?'/headers/Header':layout==='callback-path-item'?'/{$url}':
             layout==='callback-operation'?'/{$url}'+slot:layout==='path-item-operation'?slot:
                 layout==='response-media'?'/content/application~1octet-stream':'';
         if(layout){
             this.admit(reservation.source,8);reservation.source.set(reservation.location.pointer,
-                layout==='array-item'?{type:'array',items:{}}:layout==='response-media'?{description:'',content:{'application/octet-stream':{}}}:
+                layout==='array-item'?{type:'array',items:{}}:layout==='response-header'?{description:'',headers:{Header:{}}}:layout==='response-media'?{description:'',content:{'application/octet-stream':{}}}:
                     layout==='path-item-operation'?pathItem:
                     {'{$url}':layout==='callback-operation'?pathItem:{}});
         }
@@ -537,7 +665,7 @@ export class MigrationSchemaOwners {
     }
 
     move(origin:MigrationLocation,source:MigrationSource,pointer:string,label:string,
-        options:Readonly<{layout?:'array-item';context?:ReferenceGraph}>={}):MigrationLocation {
+        options:Readonly<{layout?:'array-item'|'response-header';context?:ReferenceGraph}>={}):MigrationLocation {
         const context=options.context??this.graph;
         let uris=this.documentUris.get(context);
         if(!uris){uris=[...documentUriOccurrences(context)];this.documentUris.set(context,uris);}
@@ -553,7 +681,8 @@ export class MigrationSchemaOwners {
         // A converter can retain the actual entry namespace when hoisting an
         // independently consumed fragment. The existing allocator and storage
         // layout still own its reservation and exact CST provenance.
-        const destination=options.context?{resource:context.root,pointer:componentLocation('schemas',context.family)!}:undefined;
+        const destination=options.context?{resource:context.root,pointer:componentLocation(options.layout==='response-header'?'responses':'schemas',
+            this.graph.specifications.has(context.root)&&this.sources.get(context.root)!.doc.dataNode('/swagger')?.value==='2.0'?'2.0':context.family)!}:undefined;
         const owner=this.materialOwner(this.reserve(origin,label,JSON.stringify([origin.resource,origin.pointer]),destination),options.layout);
         this.admit(source,8);
         if(owner.source!==source)this.admit(owner.source,8);
@@ -639,7 +768,10 @@ export class MigrationSchemaOwners {
         const {container,captured,layout,identity=JSON.stringify([origin.resource,origin.pointer]),retained=[]}=options;
         if(layout==='array-item'&&(origin.kind!=='schema'||!container||!['2.0','3.0','3.1','3.2'].includes(origin.family)))
             throw new SourceError('migration.owners.layout','An anonymous array-item owner requires a compatible native Schema Object container');
-        if(layout&&layout!=='array-item'&&(!container||
+        if(layout==='response-header'&&(!container||origin.kind!=='header'||
+            container.pointer!==componentLocation('responses',origin.family)||this.graph.specifications.get(container.resource)?.family!==origin.family))
+            throw new SourceError('migration.owners.layout','A Header owner requires a compatible Response component container');
+        if(layout&&layout!=='array-item'&&layout!=='response-header'&&(!container||
             (layout==='response-media'?origin.kind!=='media'||!['3.0','3.1'].includes(origin.family):
                 layout==='callback-path-item'?origin.kind!=='path-item'||!['3.0','3.1','3.2'].includes(origin.family):
                 origin.kind!=='operation'||(layout==='callback-operation'?!['3.0','3.1','3.2'].includes(origin.family):!['3.1','3.2'].includes(origin.family)))||

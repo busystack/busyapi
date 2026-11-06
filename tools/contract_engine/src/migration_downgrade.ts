@@ -6,6 +6,8 @@ import {downgradeFormBody} from './migration_form_downgrade';
 import {formBinding} from './form_semantics';
 import {isNativeFamily,modernFamily} from './specification';
 import {securityFlowOrder} from './security_requirements';
+import {MigrationSchemaOwners} from './migration_schema_owners';
+import {materializeFlatSchema} from './migration_flat_items';
 
 /** Inspect a captured Schema reference chain before a Header/parameter loses
  * its schema wrapper. A referenced object is just as unrepresentable in a
@@ -31,29 +33,57 @@ function flatSchema(graph:ReferenceGraph,owner:GraphScope):unknown {
 /** Evaluate actual target representation. A simple 3.x API can be faithfully
  * represented in Swagger; newer-only constructs receive located blockers. */
 export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,MigrationSource>,from:string,issue:MigrationIssue,
-    releaseNativeHolders?:()=>void):void {
+    releaseNativeHolders?:()=>void,owners=new MigrationSchemaOwners(graph,sources)):void {
     for(const scope of graph.scopes.values()){
         if(scope.family!==from)continue;
         const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);if(pointer===undefined)continue;
         const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)!.value;
         if(scope.kind==='parameter'||scope.kind==='header'){
-            if(typeof value?.$ref==='string')continue;
-            if(value.content||scope.kind==='parameter'&&value.in==='cookie')issue(scope,'migration.parameter.representation','This parameter representation has no implemented faithful Swagger mapping','implementation');
-            const style=value.style??(['query','cookie'].includes(value.in)?'form':'simple'),explode=value.explode??style==='form';
-            const shape=flatSchema(graph,scope) as {type?:unknown}|undefined,type=shape?.type;
-            if(type==='object'||Array.isArray(type))issue(scope,'migration.parameter.type','Swagger flat parameters cannot represent this schema type','target-representation');
+            let declaration=value,schemaOwner=scope;
+            if(typeof value?.$ref==='string'){
+                if(scope.kind==='parameter')continue;
+                const seen=new Set<string>();let target:GraphScope|undefined=scope;
+                while(target&&typeof graph.docs.get(target.resource)!.dataNode(target.pointer)?.value?.$ref==='string'){
+                    const id=target.resource+'#'+target.pointer;
+                    if(seen.has(id)||seen.size>=128){target=undefined;break;}seen.add(id);
+                    const ref=graph.referenceAs(target.resource,target.pointer,'$ref','header');
+                    target=ref?.resolution==='resolved'?graph.scopeAs(ref.targetResource!,ref.targetPointer!,'header'):undefined;
+                }
+                if(!target){issue(scope,'migration.header.reference','The captured Header chain has no bounded concrete target','source-incomplete');continue;}
+                const material=owners.uniqueLocation(target);
+                owners.materializeHeaderUse(scope,source,pointer,material.source,material.location.pointer);
+                declaration=graph.docs.get(target.resource)!.dataNode(target.pointer)!.value;schemaOwner=target;
+            }
+            if(declaration.content||scope.kind==='parameter'&&declaration.in==='cookie')issue(scope,'migration.parameter.representation','This parameter representation has no implemented faithful Swagger mapping','implementation');
+            const style=declaration.style??(['query','cookie'].includes(declaration.in)?'form':'simple'),explode=declaration.explode??style==='form';
+            const shape=flatSchema(graph,schemaOwner) as {type?:unknown}|undefined;
+            if(shape?.type==='object'||Array.isArray(shape?.type)){
+                issue(scope,'migration.parameter.type','Swagger flat parameters cannot represent this schema type','target-representation');continue;
+            }
+            const type=source.doc.dataNode(pointer+'/schema')?
+                materializeFlatSchema(graph,sources,owners,source,pointer+'/schema',scope,issue,graph.scopeAs(schemaOwner.resource,schemaOwner.pointer+'/schema','schema')):
+                source.doc.dataNode(pointer+'/type')?.value;
+            if(type===undefined){if(!declaration.content)issue(scope,'migration.parameter.schema','Swagger requires a concrete flat primitive declaration','implementation');continue;}
             if(type==='array'){
                 const format=style==='simple'?'csv':style==='form'?explode?'multi':'csv':style==='spaceDelimited'?'ssv':style==='pipeDelimited'?'pipes':undefined;
-                if(!format||format==='multi'&&!['query','formData'].includes(value.in))issue(scope,'migration.parameter.style','This style/explode combination cannot be faithfully represented by Swagger collectionFormat','target-representation');
+                if(!format||format==='multi'&&!['query','formData'].includes(declaration.in))issue(scope,'migration.parameter.style','This style/explode combination cannot be faithfully represented by Swagger collectionFormat','target-representation');
                 else source.set(pointer+'/collectionFormat',format);
             }else if(!['simple','form'].includes(style))issue(scope,'migration.parameter.style','This primitive parameter serialization is unavailable in Swagger','target-representation');
             const schema=source.doc.dataNode(pointer+'/schema');
             if(schema?.kind==='object'){
-                for(const name of [...schema.children.keys()])source.move(pointer+'/schema/'+escape(name),pointer+'/'+escape(name));
+                for(const name of [...schema.children.keys()]){
+                    const from=pointer+'/schema/'+escape(name),to=pointer+'/'+escape(name);
+                    if(source.doc.dataNode(to)){
+                        if(source.doc.dataJson(from)!==source.doc.dataJson(to)){
+                            issue(scope,'migration.parameter.annotation-collision','The Schema Object and flat declaration have different '+name+' values with no single faithful target field','target-representation');continue;
+                        }
+                        source.associate(source,from,to);source.remove(from,true,true,true);
+                    }else source.move(from,to);
+                }
                 source.remove(pointer+'/schema');
-            }else if(!value.content)issue(scope,'migration.parameter.schema','Swagger requires a concrete flat primitive declaration','implementation');
+            }else if(!declaration.content&&!source.doc.dataNode(pointer+'/type'))issue(scope,'migration.parameter.schema','Swagger requires a concrete flat primitive declaration','implementation');
             for(const name of ['style','explode'])source.remove(pointer+'/'+name);
-            for(const name of ['deprecated','allowReserved','example','examples'])if(Object.hasOwn(value,name))issue({...scope,pointer:scope.pointer+'/'+name},'migration.parameter.metadata','This authored parameter field needs an explicit Swagger mapping','implementation');
+            for(const name of ['deprecated','allowReserved','example','examples'])if(Object.hasOwn(declaration,name))issue({...schemaOwner,pointer:schemaOwner.pointer+'/'+name},'migration.parameter.metadata','This authored parameter field needs an explicit Swagger mapping','implementation');
         }
         if(scope.kind==='request-body'&&typeof value?.$ref!=='string'){
             const family=scope.family;
@@ -62,7 +92,7 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migrati
             if(!media.length){issue(scope,'migration.body.content','A Swagger body needs a schema-bearing representation','implementation');continue;}
             const shapes=media.map(name=>source.doc.dataNode(pointer+'/content/'+escape(name)+'/schema')?source.doc.dataJson(pointer+'/content/'+escape(name)+'/schema'):undefined);
             if(shapes.some(shape=>shape===undefined||shape!==shapes[0])){issue(scope,'migration.body.media-schema','Swagger has one body schema; these media representations need a common faithful schema','target-representation');continue;}
-            if(media.length===1&&formBinding(family,media[0])==='urlencoded'){downgradeFormBody(graph,source,scope,pointer,media[0],issue);continue;}
+            if(media.length===1&&formBinding(family,media[0])==='urlencoded'){downgradeFormBody(graph,source,scope,pointer,media[0],issue,owners,sources);continue;}
             if(media.some(name=>formBinding(family,name)!==undefined)){issue(scope,'migration.body.form','Form bodies need a field-preserving formData parameter mapping','implementation');continue;}
             source.move(pointer+'/content/'+escape(media[0])+'/schema',pointer+'/schema');
             if(media.some(name=>Object.keys(value.content[name]).some(field=>field!=='schema')))issue(scope,'migration.body.media-metadata','Request media annotations/examples need an explicit Swagger representation','implementation');
@@ -125,10 +155,25 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migrati
             if(value.type==='apiKey'&&!['query','header'].includes(value.in))issue(scope,'migration.security.location','Swagger API keys must be query or header parameters','target-representation');
         }
     }
+    // Swagger has no Header component map or Header Reference Object. Retain
+    // independent native owners in unused, standard Response.headers slots.
+    for(const scope of graph.scopes.values())if(scope.family===from&&scope.kind==='header'&&scope.pointer.startsWith('/components/headers/')&&
+        scope.pointer.slice('/components/headers/'.length).indexOf('/')<0){
+        const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);if(pointer===undefined||!source.doc.dataNode(pointer))continue;
+        owners.move(scope,source,pointer,'header_owner',{context:owners.contextOf(scope)??graph,layout:'response-header'});
+    }
     releaseNativeHolders?.();
     for(const [resource,specification]of graph.specifications){
         if(specification.family!==from)continue;
         const source=sources.get(resource)!,servers=source.doc.dataNode('/servers')?.value;
+        const headerMap=source.doc.dataNode('/components/headers');
+        if(headerMap){
+            for(const name of [...headerMap.children.keys()])if(name.startsWith('x-')){
+                const pointer='/components/headers/'+escape(name);
+                owners.retainLiteralValue({resource,pointer},source,pointer,'header_map_extension',true);
+            }
+            if(!source.doc.dataNode('/components/headers')?.children.size){owners.admit(source);source.remove('/components/headers',true,true,true);}
+        }
         if(servers!==undefined){
             if(!Array.isArray(servers)||servers.length!==1||servers[0].variables){issue({resource,pointer:'/servers'},'migration.servers','Swagger needs one fixed host/basePath; these Server choices cannot be collapsed faithfully','target-representation');}
             else {

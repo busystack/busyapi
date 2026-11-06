@@ -2,6 +2,8 @@ import type {GraphScope,ReferenceGraph} from './reference_graph';
 import {escape,type Node} from './document';
 import {MigrationSource} from './migration_source';
 import type {MigrationIssue} from './migration_schema';
+import type {MigrationSchemaOwners} from './migration_schema_owners';
+import {materializeFlatSchema} from './migration_flat_items';
 
 const flatFields:ReadonlySet<string>=new Set(['type','format','description','default','enum','maximum','exclusiveMaximum','minimum','exclusiveMinimum','maxLength','minLength','pattern','multipleOf']);
 const arrayFields:ReadonlySet<string>=new Set([...flatFields,'items','minItems','maxItems','uniqueItems']);
@@ -10,7 +12,8 @@ const primitiveTypes:ReadonlySet<string>=new Set(['string','number','integer','b
 
 /** OAS 3.0 §4.7.15 and Swagger 2.0 §6.4.9. Flatten only independently
  * described fields; object-wide constraints are not parameter rules. */
-export function downgradeFormBody(graph:ReferenceGraph,source:MigrationSource,scope:GraphScope,pointer:string,media:string,issue:MigrationIssue):void {
+export function downgradeFormBody(graph:ReferenceGraph,source:MigrationSource,scope:GraphScope,pointer:string,media:string,issue:MigrationIssue,
+    owners?:MigrationSchemaOwners,sources?:ReadonlyMap<string,MigrationSource>):void {
     const body=source.doc.dataNode(pointer)!;
     const at=pointer+'/content/'+escape(media),schema=source.doc.dataNode(at+'/schema');
     const origin=scope.pointer+'/content/'+escape(media)+'/schema';
@@ -40,12 +43,21 @@ export function downgradeFormBody(graph:ReferenceGraph,source:MigrationSource,sc
     if([...required].some(name=>!properties.children.has(name)))
         block(origin+'/required','migration.form.required','Every required form field needs a captured parameter definition');
     const collections=new Map<string,string>();
+    const retained=new Set<string>();
+    if(owners&&sources)for(const name of properties.children.keys()){
+        const original=origin+'/properties/'+escape(name),at=atProperty(name),captured=graph.scopeAs(scope.resource,original,'schema');
+        if(!captured){block(original,'migration.form.field-owner','The form field has no captured Schema Object owner');continue;}
+        if(materializeFlatSchema(graph,sources,owners,source,at,scope,issue,captured)===undefined)valid=false;
+        else retained.add(original);
+    }
+    function atProperty(name:string){return at+'/schema/properties/'+escape(name);}
     const flat=(property:Node,location:string,fields:ReadonlySet<string>)=>{
         if(['byte','binary'].includes(property.value.format))block(location+'/format','migration.form.binary','This binary field needs a media-aware target representation');
         for(const field of property.children.keys())if(!fields.has(field)&&!field.startsWith('x-'))
             block(location+'/'+escape(field),'migration.form.field-keyword','This Schema Object field is not a flat Swagger parameter field');
     };
-    for(const [name,property]of properties.children){
+    for(const name of properties.children.keys()){
+        const property=source.doc.dataNode(atProperty(name))!;
         const location=origin+'/properties/'+escape(name),array=property.value?.type==='array';
         if(property.kind!=='object'||!primitiveTypes.has(property.value.type)&&!array){
             block(location,'migration.form.field-type','This form field needs an additional flat Swagger representation');continue;
@@ -85,10 +97,12 @@ export function downgradeFormBody(graph:ReferenceGraph,source:MigrationSource,sc
     }
     for(const [name]of source.doc.dataNode(at+'/encoding')?.children??[])if(!properties.children.has(name))
         block(scope.pointer+'/content/'+escape(media)+'/encoding/'+escape(name),'migration.form.encoding-owner','This encoding needs a retained form property owner');
-    for(const ref of graph.references)if(ref.targetResource===scope.resource&&ref.targetPointer!==undefined&&(ref.targetPointer===origin||ref.targetPointer.startsWith(origin+'/')))
+    for(const ref of graph.references)if(ref.targetResource===scope.resource&&ref.targetPointer!==undefined&&(ref.targetPointer===origin||ref.targetPointer.startsWith(origin+'/'))&&
+        ![...retained].some(pointer=>ref.targetPointer===pointer||ref.targetPointer!.startsWith(pointer+'/')))
         block(origin,'migration.form.schema-consumer','A referenced form schema needs a retained Schema Object owner before its fields can become parameters');
     if(!valid)return;
-    for(const [name,property]of properties.children){
+    for(const name of properties.children.keys()){
+        const property=source.doc.dataNode(atProperty(name))!;
         const destination=parent+'/'+source.doc.node(parent).children.size;
         source.copy(source,at+'/schema/properties/'+escape(name),destination,true);
         source.set(destination+'/name',name);source.set(destination+'/in','formData');

@@ -58,7 +58,18 @@ function simpleUnboundedTuple(graph:ReferenceGraph,scope:GraphScope,keyword:stri
         }
         return ['null','boolean','object','array','number','integer','string'].includes(name)?name:undefined;
     };
-    const positions=value[keyword].map(type),tail=keyword==='items'||!Object.hasOwn(value,'items')?'*':type(value.items);
+    const proofs=new MigrationSchemaProofs(graph);
+    const selectedType=(pointer:string):string|undefined=>{
+        let current=graph.scopeAs(scope.resource,pointer,'schema');const seen=new Set<string>();
+        while(current){
+            const id=JSON.stringify([current.resource,current.pointer]);if(seen.has(id)||seen.size>=128)return;
+            seen.add(id);const body=graph.docs.get(current.resource)!.dataNode(current.pointer)?.value;
+            if(body&&typeof body==='object'&&Object.keys(body).length===1&&typeof body.$ref==='string')current=proofs.fixed(current,'$ref');
+            else return type(body);
+        }
+    };
+    const positions=value[keyword].map((_:unknown,index:number)=>selectedType(scope.pointer+'/'+keyword+'/'+index));
+    const tail=keyword==='items'||!Object.hasOwn(value,'items')?'*':selectedType(scope.pointer+'/items');
     return tail!==undefined&&positions.every(type=>type!==undefined)&&positions.some(type=>type!==tail);
 }
 

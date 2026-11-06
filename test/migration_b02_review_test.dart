@@ -39,7 +39,7 @@ void main() {
       });
       final directory = Directory.systemTemp.createTempSync('busyapi-b02-review-');
       final file = File('${directory.path}/api.$format'), model = File('${directory.path}/model.yaml');
-      final original = b02Api('3.2.1', format, port: 19090), modelOriginal = b02Model(mode);
+      final original = b02Api('3.2.1', format, port: 19090, mode: mode), modelOriginal = b02Model(mode);
       file.writeAsStringSync(original);model.writeAsStringSync(modelOriginal);
       final controller = WorkspaceController(EngineProcess(executable: runtimeNode, helper: runtimeHelper),
         StateLocations(config: '${directory.path}/config', state: '${directory.path}/state', cache: '${directory.path}/cache'));
@@ -106,6 +106,15 @@ void main() {
               expect((result['runtimeEvaluations'] as List).map((value) => value['valid']), [
                 for (final _ in ['request', 'response']) ...b02Instances(mode).map((value) => value.$2),
               ]);
+              if (mode == 'flat-items') {
+                final headers = await prepared.evaluateRuntime([
+                  for (final value in ['9007199254740993.00', '9007199254740992'])
+                    RuntimeSchemaInstance(subject: 'response-header', location: value, text: '',
+                      header: RuntimeHeaderTarget(resource: root, pointer: '/paths/~1echo/post/responses/200/headers/X-Values', name: 'X-Values', values: [value])),
+                ]);
+                expect(headers['complete'], true, reason: '$headers');
+                expect((headers['runtimeEvaluations'] as List).map((value) => value['valid']), [true, false]);
+              }
             } finally {prepared.close();}
           } finally {cold.close();}
         });

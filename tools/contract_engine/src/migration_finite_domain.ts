@@ -150,16 +150,19 @@ class FiniteMigrationDomain {
 }
 
 export async function migrateFiniteSchemaDomain(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,target:string,
-    owners:MigrationSchemaOwners,references:readonly GraphReference[],resources:readonly Resource[],exampleResources:readonly ExternalExampleResourcePacket[]):Promise<boolean> {
+    owners:MigrationSchemaOwners,references:readonly GraphReference[],resources:readonly Resource[],exampleResources:readonly ExternalExampleResourcePacket[],flatItems=false):Promise<boolean> {
     const doc=graph.docs.get(scope.resource)!,value=doc.dataNode(scope.pointer)?.value,pointer=source.current(scope.pointer,scope.resource);
     if(pointer===undefined||!value||typeof value!=='object'||graph.referenceObject(value,scope))return false;
     if(graph.literalContainer(scope.resource,scope.pointer)!==undefined||graph.hasOverlappingScope(scope.resource,scope.pointer))return false;
     const localTail=migrationUnevaluatedMapping(value,'unevaluatedItems')==='local';
     if(source.doc.dataNode(pointer+'/unevaluatedProperties')||source.doc.dataNode(pointer+'/unevaluatedItems')&&!localTail)return false;
-    const positional=target==='3.0'?(modernFamily(scope.family)&&Array.isArray(value.prefixItems)?'prefixItems':scope.family==='2.0'&&Array.isArray(value.items)?'items':undefined):undefined;
-    const fields=positional?[positional,...(positional==='prefixItems'?(Object.hasOwn(value,'items')?['items']:localTail?['unevaluatedItems']:[]):[])]
-        .filter(field=>source.doc.dataNode(pointer+'/'+field)):
-        target==='2.0'&&modernFamily(scope.family)?['if','then','else','dependentRequired','dependentSchemas'].filter(field=>Object.hasOwn(value,field)):[];
+    const positional=target==='3.0'||target==='2.0'&&flatItems?(modernFamily(scope.family)&&Array.isArray(value.prefixItems)?'prefixItems':scope.family==='2.0'&&Array.isArray(value.items)?'items':undefined):undefined;
+    const positionalFields=positional?[positional,...(positional==='prefixItems'?(Object.hasOwn(value,'items')?['items']:localTail?['unevaluatedItems']:[]):[])]:[];
+    const dependencyFields=target==='2.0'&&modernFamily(scope.family)?['if','then','else','dependentRequired','dependentSchemas'].filter(field=>Object.hasOwn(value,field)):[];
+    // The exhaustive source evaluation covers their conjunction. Leaving a
+    // pure conditional/dependency behind after folding positional assertions
+    // would obstruct a finite language already proved by this same capture.
+    const fields=[...positionalFields.filter(field=>source.doc.dataNode(pointer+'/'+field)),...dependencyFields];
     if(!fields.length)return false;
     if(fields.some(field=>source.doc.dataNode(pointer+'/'+field)===undefined))return false;
     const proofs=new MigrationSchemaProofs(graph),names=new Set(Object.keys(value.properties??{}));
@@ -170,7 +173,7 @@ export async function migrateFiniteSchemaDomain(graph:ReferenceGraph,scope:Graph
             [...node.children.keys()].map(key=>scope.pointer+'/'+field+'/'+escape(key)):[scope.pointer+'/'+field];
         const maximum=positional?new MigrationArrayBounds(graph).maximum(scope):undefined;
         for(const original of schemas){
-            if(positional&&maximum!==undefined&&(
+            if(positional&&positionalFields.includes(field)&&maximum!==undefined&&(
                 field===positional&&Number(original.slice(original.lastIndexOf('/')+1))>=maximum||
                 field!==positional&&maximum<=value[positional].length))continue;
             const schema=graph.scopeAs(scope.resource,original,'schema');

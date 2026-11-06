@@ -44,7 +44,7 @@ import {securityRequirementDefinition} from './security_requirements';
 import {migrateSwaggerSecurityFlows} from './migration_security_flows';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='84';
+const migrationProducerVersion='85';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const referenceLocator=(reference:GraphReference)=>!reference.connection&&['$ref','$dynamicRef'].includes(reference.keyword)||
     reference.connection==='operationRef'&&reference.keyword==='operationRef';
@@ -391,7 +391,7 @@ export async function planMigration(input:MigrationInput) {
                 const original=sourceLocation(location.resource,location.pointer);
                 presentationChanges.push({resource:original.resource,pointer:original.pointer});
             }):undefined;
-            if(after==='2.0')for(const before of stage.sources)downgradeSwagger(graph,sources,before,issue,()=>owners.releaseNativeHolders(before));
+            if(after==='2.0')for(const before of stage.sources)downgradeSwagger(graph,sources,before,issue,()=>owners.releaseNativeHolders(before),owners);
             if(problems.length)break;
             for(const [id,specification]of graph.specifications){
                 if(!stage.sources.includes(specification.family))continue;

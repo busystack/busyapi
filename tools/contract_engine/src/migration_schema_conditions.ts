@@ -1,24 +1,25 @@
 import type {GraphScope,ReferenceGraph,GraphReference} from './reference_graph';
 import {pointerFragment,schemaResourceContextIdentity,supportedSchemaDialect} from './reference_graph';
-import {SourceError} from './document';
+import {SourceError,segments} from './document';
 import {migrationValueIdentity,type MigrationSource} from './migration_source';
 import {MigrationSchemaOwners} from './migration_schema_owners';
 import type {MigrationIssue} from './migration_schema';
 import {constantSchemaAssertion} from './schema_constant_assertions';
 import {restrictedBooleanSchema} from './migration_schema_values';
-import {MigrationSchemaProofs} from './migration_schema_proofs';
+import {MigrationSchemaProofs,type SchemaGuardAssumptions} from './migration_schema_proofs';
 import {decimal} from './exact_numbers';
+import {requiredInBothDirections} from './schema_access';
 import {MigrationPropertyPresence} from './migration_property_presence';
-import {schemaGuardProjection,deferGuardProjection,type GuardProjection} from './migration_guard_projection';
+import {schemaGuardProjection,deferGuardProjection,guardProjectionScopes,type GuardProjection} from './migration_guard_projection';
 
-type ConditionPlan=Readonly<{selected?:'then'|'else'|'both';assertCondition?:boolean;complement?:Record<string,unknown>;
+export type ConditionPlan=Readonly<{selected?:'then'|'else'|'both';assertCondition?:boolean;complement?:Record<string,unknown>;
     exactComplement?:Readonly<{field:string;raw:string}>;erase?:boolean;
     projected?:readonly Readonly<{name:'then'|'else';plan:GuardProjection}>[]}>;
 
 /** Prove reductions using sibling assertions and the actual branch languages.
  * No then/else assertion becomes an unconditional assumption merely because
  * it is physically nested beneath the same Schema Object. */
-function conditionalPlan(graph:ReferenceGraph,scope:GraphScope,target:string):ConditionPlan|undefined {
+function conditionalPlan(graph:ReferenceGraph,scope:GraphScope,target:string,active=new Set<string>(),assumptions:readonly GraphScope[]=[],guard?:SchemaGuardAssumptions):ConditionPlan|undefined {
     const doc=graph.docs.get(scope.resource)!,value=doc.dataNode(scope.pointer)?.value;
     const predicate=graph.scopeAs(scope.resource,scope.pointer+'/if','schema');if(!predicate)return;
     const proofs=new MigrationSchemaProofs(graph);
@@ -26,16 +27,32 @@ function conditionalPlan(graph:ReferenceGraph,scope:GraphScope,target:string):Co
     const followed=new Set<string>();
     while(condition&&typeof condition==='object'&&!Array.isArray(condition)){
         const fields=Object.keys(condition).filter(field=>!['$id','$schema','$anchor','$dynamicAnchor'].includes(field));
-        if(fields.length!==1||!['$ref','$dynamicRef'].includes(fields[0]))break;
+        if(fields.length!==1)break;
         const id=JSON.stringify([selectedPredicate.resource,selectedPredicate.pointer]);
         if(followed.has(id)||followed.size>=128)break;followed.add(id);
-        const resolved=proofs.fixed(selectedPredicate,fields[0]);if(!resolved)break;
+        let resolved:GraphScope|undefined;
+        if(['$ref','$dynamicRef'].includes(fields[0]))resolved=proofs.fixed(selectedPredicate,fields[0]);
+        else if(['allOf','anyOf','oneOf'].includes(fields[0]))resolved=proofs.equivalentBranch(selectedPredicate,fields[0]);
+        else if(fields[0]==='not'){
+            const child=graph.scopeAs(selectedPredicate.resource,selectedPredicate.pointer+'/not','schema');
+            const body=child&&graph.docs.get(child.resource)!.dataNode(child.pointer)?.value;
+            if(body&&Object.keys(body).filter(field=>!['$id','$schema','$anchor','$dynamicAnchor'].includes(field)).every(field=>field==='not'))
+                resolved=graph.scopeAs(child.resource,child.pointer+'/not','schema');
+        }
+        if(!resolved)break;
         selectedPredicate=resolved;conditionDoc=graph.docs.get(resolved.resource)!;condition=conditionDoc.dataNode(resolved.pointer)?.value;
     }
     if(proofs.conjuncts(predicate).some(part=>part.resource===scope.resource&&part.pointer===scope.pointer))return;
     const positive=graph.scopeAs(scope.resource,scope.pointer+'/then','schema'),negative=graph.scopeAs(scope.resource,scope.pointer+'/else','schema');
-    if(proofs.implies(scope,predicate)||negative&&proofs.implies(negative,predicate))return {selected:'then',assertCondition:true};
-    if(proofs.disjoint(scope,predicate))return {selected:'else'};
+    const presence=new MigrationPropertyPresence(graph);
+    const domains=new Set([...proofs.domains(scope)].filter(kind=>assumptions.every(parent=>proofs.domains(parent).has(kind))));
+    const selection=guard??{domains,present:(name:string)=>[scope,...assumptions].some(parent=>presence.requires(parent,name)),
+        absent:(name:string)=>[scope,...assumptions].some(parent=>presence.absent(parent,name))};
+    const guarded=proofs.guardedTruth(predicate,selection,[scope,...assumptions]);
+    if(guarded===true)return {selected:'then',assertCondition:!proofs.annotationFree(predicate)&&!proofs.annotationsInactiveIn(predicate,selection.domains)};
+    if(guarded===false)return {selected:'else'};
+    if([scope,...assumptions].some(parent=>proofs.implies(parent,predicate))||negative&&proofs.implies(negative,predicate))return {selected:'then',assertCondition:true};
+    if([scope,...assumptions].some(parent=>proofs.disjoint(parent,predicate)))return {selected:'else'};
     if(target!=='2.0')return;
     const constant=(child:GraphScope|undefined)=>child?
         child===positive&&(proofs.disjoint(predicate,child)||proofs.disjoint(scope,child))?false:constantCondition(graph,child):true;
@@ -82,20 +99,87 @@ function conditionalPlan(graph:ReferenceGraph,scope:GraphScope,target:string):Co
         new Set(['null','boolean','object','array','number','string'].filter(type=>type!==condition.type))))return {selected:'else'};
     if(plainType){
         const domains=new Set<string>([condition.type]),opposite=new Set(['null','boolean','object','array','number','string'].filter(type=>type!==condition.type));
-        const then=positive?schemaGuardProjection(graph,positive,{domains},proofs):undefined;
-        const otherwise=negative?schemaGuardProjection(graph,negative,{domains:opposite},proofs):undefined;
+        const then=positive?schemaGuardProjection(graph,positive,{domains},proofs,active):undefined;
+        const otherwise=negative?schemaGuardProjection(graph,negative,{domains:opposite},proofs,active):undefined;
         if(inactive(negative)&&then)return {selected:'then',projected:[{name:'then',plan:then}]};
         if(inactive(positive)&&otherwise)return {selected:'else',projected:[{name:'else',plan:otherwise}]};
         if(then&&otherwise)return {selected:'both',projected:[{name:'then',plan:then},{name:'else',plan:otherwise}]};
     }
     if(plainPresence&&positive&&inactive(negative)){
         const explicit=new MigrationPropertyPresence(graph),plan=schemaGuardProjection(graph,positive,
-            {property:condition.required[0],conditionalPresence:true,unconditional:name=>explicit.unconditional(scope,name)},proofs);
+            {property:condition.required[0],conditionalPresence:true,unconditional:name=>explicit.unconditional(scope,name)},proofs,active);
         if(plan)return {selected:'then',projected:[{name:'then',plan}]};
     }
     if([positive,negative].every(child=>!child||
         (proofs.annotationsInactiveIn(child,proofs.domains(scope))||proofs.annotationsCoveredByProperties(child,new Set(Object.keys(value.properties??{}))))&&
             proofs.implies(scope,child)))return {erase:true};
+}
+
+/** Shared source selection certificate for ordinary lowering and outer guard
+ * composition. Unselected branches remain independent schemas; this describes
+ * only the applicator's effect on the containing instance. */
+export function capturedConditionalPlan(graph:ReferenceGraph,scope:GraphScope,target:string,active=new Set<string>(),assumptions:readonly GraphScope[]=[],guard?:SchemaGuardAssumptions):ConditionPlan|undefined {
+    const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
+    if(!Object.hasOwn(value??{},'if'))return {erase:true};
+    const predicate=graph.scopeAs(scope.resource,scope.pointer+'/if','schema');
+    const constant=predicate?constantCondition(graph,predicate):undefined;
+    if(constant!==undefined)return {selected:constant?'then':'else'};
+    return conditionalPlan(graph,scope,target,active,assumptions,guard)??(equivalentConditionBranches(graph,scope)?{selected:'then'}:undefined);
+}
+
+function conditionalAssumptions(graph:ReferenceGraph,scope:GraphScope,owners:MigrationSchemaOwners,references:readonly GraphReference[]):readonly GraphScope[]{
+    const pending=[scope],seen=new Set<string>(),parents:GraphScope[]=[];
+    while(pending.length){
+        const child=pending.pop()!,id=JSON.stringify([child.resource,child.pointer]);
+        if(seen.has(id)||owners.hasRootConsumer(child,references))continue;
+        if(seen.size>=128)break;seen.add(id);
+        for(const parent of graph.schemaParentsOf(child))if(parent.resource===child.resource&&
+            /^\/(?:allOf\/\d+|anyOf\/\d+|oneOf\/\d+|dependentSchemas\/[^/]+|if|then|else|not)$/.test(child.pointer.slice(parent.pointer.length))){
+            parents.push(parent);pending.push(parent);
+        }
+    }
+    return parents;
+}
+function conditionalEntryGuard(graph:ReferenceGraph,scope:GraphScope,owners:MigrationSchemaOwners,references:readonly GraphReference[]):SchemaGuardAssumptions|undefined {
+    const parents=conditionalAssumptions(graph,scope,owners,references),children=[scope,...parents],triggers=new Set<string>();
+    for(const child of children){
+        if(owners.hasRootConsumer(child,references))continue;
+        for(const parent of graph.schemaParentsOf(child)){
+            if(parent.resource!==child.resource)continue;
+            const path=segments(child.pointer.slice(parent.pointer.length));
+            if(path.length===2&&path[0]==='dependentSchemas')triggers.add(path[1]);
+        }
+    }
+    if(!triggers.size)return;
+    const presence=new MigrationPropertyPresence(graph,child=>!owners.hasRootConsumer(child,references));
+    return {domains:new Set(['object']),present:name=>triggers.has(name)||presence.requires(scope,name),absent:name=>presence.absent(scope,name)};
+}
+
+/** Contextual constant reduction needs facts outside the applicator being
+ * removed. Stop at the conditional/dependency boundary; using its own allOf
+ * constraints as premises would erase the cause of a contradiction. */
+function conditionalApplicatorContext(graph:ReferenceGraph,scope:GraphScope,owners:MigrationSchemaOwners,references:readonly GraphReference[]):
+    Readonly<{guard:SchemaGuardAssumptions;assumptions:readonly GraphScope[]}>|undefined {
+    const pending=[scope],seen=new Set<string>();
+    while(pending.length){
+        const child=pending.pop()!,id=JSON.stringify([child.resource,child.pointer]);
+        if(seen.has(id)||owners.hasRootConsumer(child,references))continue;
+        if(seen.size>=128)return;seen.add(id);
+        for(const parent of graph.schemaParentsOf(child)){
+            if(parent.resource!==child.resource)continue;
+            const path=segments(child.pointer.slice(parent.pointer.length));
+            if(path.length===1&&['if','then','else'].includes(path[0])||path.length===2&&path[0]==='dependentSchemas'){
+                const presence=new MigrationPropertyPresence(graph),proofs=new MigrationSchemaProofs(graph);
+                const predicate=graph.scopeAs(parent.resource,parent.pointer+'/if','schema');
+                const domains=new Set([...proofs.domains(parent)].filter(kind=>path[0]==='then'&&predicate?proofs.domains(predicate).has(kind):
+                    path[0]==='else'&&predicate?proofs.constantInDomains(predicate,new Set([kind]))!==true:true));
+                return {guard:{domains:path[0]==='dependentSchemas'?new Set(['object']):domains,
+                    present:name=>path[0]==='dependentSchemas'&&path[1]===name||presence.unconditional(parent,name)||path[0]==='then'&&!!predicate&&presence.unconditional(predicate,name),
+                    absent:name=>presence.absent(parent,name)},assumptions:[]};
+            }
+            if(/^(allOf|anyOf|oneOf|not)$/.test(path[0]??''))pending.push(parent);
+        }
+    }
 }
 
 /** Prefer an established native-applicability representation over folding a
@@ -104,20 +188,9 @@ function conditionalPlan(graph:ReferenceGraph,scope:GraphScope,target:string):Co
  * are the same plans consumed below, not another conditional proof. */
 export function conditionalProjectionScopes(graph:ReferenceGraph,scope:GraphScope,target:string):readonly GraphScope[] {
     if(target!=='2.0')return [];
-    const plan=conditionalPlan(graph,scope,target);if(!plan?.projected?.length)return [];
-    const scopes=new Map<string,GraphScope>(),proofs=new MigrationSchemaProofs(graph);
-    const add=(scope:GraphScope)=>scopes.set(JSON.stringify([scope.resource,scope.pointer]),scope);
-    add(scope);
-    const collect=(projection:GuardProjection)=>{
-        for(const part of proofs.conjuncts(projection.scope))add(part);
-        for(const field of projection.removed){
-            const parent=graph.scopeAs(projection.scope.resource,field.slice(0,field.lastIndexOf('/')),'schema');
-            if(parent)add(parent);
-        }
-        for(const reference of projection.references)collect(reference.target);
-    };
-    for(const projected of plan.projected)collect(projected.plan);
-    return [...scopes.values()];
+    if(!Object.hasOwn(graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value??{},'if'))return [];
+    const plan=capturedConditionalPlan(graph,scope,target);if(!plan)return [];
+    return [scope,...(plan.projected??[]).flatMap(projected=>guardProjectionScopes(graph,projected.plan))];
 }
 
 /** Prove only annotation-free constants, through captured fixed references.
@@ -149,7 +222,8 @@ export function discardInactiveMigrationSchema(graph:ReferenceGraph,origin:{reso
     const within=(at:{resource:string;pointer:string})=>at.resource===origin.resource&&
         (at.pointer===origin.pointer||at.pointer.startsWith(origin.pointer+'/'));
     const at=source.current(origin.pointer,origin.resource);if(at===undefined)return;
-    if(!owners.hasConsumers(origin,references)){
+    const connected=references.some(reference=>within(reference)&&(reference.connection!==undefined||reference.keyword==='$dynamicRef'));
+    if(!owners.hasConsumers(origin,references)&&!connected){
         for(const scope of graph.entryScopes())if(scope.kind==='schema'&&within(scope)){
             const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
             for(const field of Object.keys(value??{}))if(['enum','default','example','examples'].includes(field)||field.startsWith('x-')){
@@ -214,38 +288,77 @@ export function lowerConstantSchemaApplicators(graph:ReferenceGraph,scope:GraphS
     const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
     const fields=['allOf','anyOf','oneOf','not'].filter(field=>Object.hasOwn(value??{},field));
     if(!fields.length)return;
-    const conditional=conditionalContext(graph,scope),constant=conditional?constantCondition(graph,scope):constantSchemaAssertion(graph,scope);
+    const conditional=conditionalContext(graph,scope)||owners.isProjectionSource(scope),proofs=new MigrationSchemaProofs(graph);
+    const retained=proofs.conjuncts(scope),presence=new MigrationPropertyPresence(graph);
+    // These facts survive a true reduction: direct assertions, fixed references
+    // and allOf are retained. Facts established only by a removed logical
+    // choice or dependency cannot erase their own cause.
+    const contextual=conditional?(conditionalApplicatorContext(graph,scope,owners,references)??{
+        guard:{domains:proofs.domains(scope),present:(name:string)=>retained.some(part=>{
+            const body=graph.docs.get(part.resource)!.dataNode(part.pointer)?.value;
+            return !graph.referenceObject(body,part)&&body?.required?.includes(name)&&requiredInBothDirections(graph,part,name);
+        }),absent:(name:string)=>presence.absent(scope,name)},assumptions:[],
+    }):undefined;
+    const contextualTruth=contextual?proofs.guardedTruth(scope,contextual.guard,contextual.assumptions):undefined;
+    const childrenInactive=()=>fields.every(field=>field==='not'||[...graph.docs.get(scope.resource)!.dataNode(scope.pointer+'/'+field)!.children.keys()].every(index=>{
+        const child=graph.scopeAs(scope.resource,scope.pointer+'/'+field+'/'+index,'schema');
+        return child&&proofs.annotationsInactiveIn(child,contextual!.guard.domains);
+    }));
+    const constant=(conditional?constantCondition(graph,scope):constantSchemaAssertion(graph,scope))??
+        (contextualTruth===false?false:contextualTruth===true&&childrenInactive()?true:undefined);
+    const retireChild=(child:GraphScope,label:string)=>{
+        discardInactiveMigrationSchema(graph,child,source,owners,references);
+        const at=source.current(child.pointer,child.resource),parent=source.current(scope.pointer,scope.resource);
+        if(at!==undefined&&parent!==undefined&&at.startsWith(parent+'/'))
+            owners.move(child,source,at,label,{context:owners.contextOf(scope)??graph,layout:'array-item'});
+    };
     if(constant===undefined){
         if(!conditional)return;
-        const proofs=new MigrationSchemaProofs(graph);
-        for(const keyword of ['anyOf','oneOf'])if(Array.isArray(value?.[keyword])){
-            const children=value[keyword].map((_:unknown,index:number)=>graph.scopeAs(scope.resource,scope.pointer+'/'+keyword+'/'+index,'schema'));
-            const truth=children.map(child=>child?proofs.validationConstant(child):undefined);
-            if(truth.some(value=>value===undefined)||!truth.some(Boolean)||keyword==='oneOf'&&truth.filter(Boolean).length!==1)continue;
-            const collection=source.current(scope.pointer,scope.resource)+'/allOf';
-            if(!source.doc.dataNode(collection))source.set(collection,[]);
-            for(const [index,child]of children.entries()){
-                const current=source.current(child!.pointer,scope.resource);if(current===undefined)continue;
-                if(truth[index])source.move(current,collection+'/'+source.doc.dataNode(collection).children.size,true);
-                else if(owners.hasConsumers(child!,references))owners.move(child!,source,current,'constant_applicator',{context:graph,layout:'array-item'});
-                else discardInactiveMigrationSchema(graph,child!,source,owners,references);
+        for(const keyword of ['anyOf','oneOf'] as const)if(Array.isArray(value?.[keyword])){
+            const field=source.current(scope.pointer+'/'+keyword,scope.resource);
+            const parent=source.current(scope.pointer,scope.resource);
+            if(field===undefined||parent===undefined||field!==parent+'/'+keyword)continue;
+            const children:GraphScope[]=value[keyword].map((_:unknown,index:number)=>graph.scopeAs(scope.resource,scope.pointer+'/'+keyword+'/'+index,'schema'));
+            if(children.some(child=>!child))continue;
+            const falseInContext=(child:GraphScope)=>proofs.validationConstant(child)===false||
+                !!contextual&&proofs.guardedTruth(child,contextual.guard,contextual.assumptions)===false;
+            const selected=proofs.equivalentBranch(scope,keyword,contextual?.guard,contextual?.assumptions);
+            let successful:GraphScope[]|undefined;
+            if(selected&&children.every(child=>child.pointer===selected.pointer||falseInContext(child)||proofs.annotationFree(child)))
+                successful=[selected];
+            else {
+                const truth=children.map(child=>proofs.validationConstant(child)??
+                    (contextual?proofs.guardedTruth(child,contextual.guard,contextual.assumptions):undefined));
+                if(truth.every(value=>value!==undefined)&&truth.some(Boolean)&&(keyword==='anyOf'||truth.filter(Boolean).length===1))
+                    successful=children.filter((_,index)=>truth[index]);
             }
-            const current=source.current(scope.pointer+'/'+keyword,scope.resource);if(current!==undefined)source.remove(current,true,true,true);
+            if(!successful)continue;
+            const selectedOwners=successful.map(child=>{
+                const current=source.current(child.pointer,child.resource);
+                if(current===undefined)throw new SourceError('migration.schema.logical-owner','A selected logical branch lost its material schema');
+                return owners.move(child,source,current,'logical_choice',{context:owners.contextOf(scope)??graph,layout:'array-item'});
+            });
+            for(const child of children)if(!successful.includes(child))retireChild(child,'logical_original');
+            const at=source.current(scope.pointer+'/'+keyword,scope.resource);if(at!==undefined)source.remove(at,true,true,true);
+            const current=source.current(scope.pointer,scope.resource);
+            const effect=owners.isolateApplication(scope,source,current!,keyword,[],target);
+            owners.admit(effect.source);effect.source.set(effect.location.pointer,{allOf:selectedOwners.map(owner=>({$ref:owners.reference(owner,target)}))});
         }
         return;
     }
     const pointer=source.current(scope.pointer,scope.resource);if(pointer===undefined)return;
     for(const name of fields){
+        // A contextual truth certificate can depend on these retained
+        // conjuncts. Keeping allOf also preserves its successful annotations.
+        if(constant&&name==='allOf')continue;
         const children=name==='not'?[scope.pointer+'/not']:
             [...graph.docs.get(scope.resource)!.dataNode(scope.pointer+'/'+name)!.children.keys()].map(index=>scope.pointer+'/'+name+'/'+index);
         for(const original of children){
-            const at=source.current(original,scope.resource);if(at===undefined)continue;
-            if(owners.hasConsumers({resource:scope.resource,pointer:original},references))
-                owners.move({resource:scope.resource,pointer:original},source,at,'constant_applicator',{context:graph,layout:'array-item'});
-            else discardInactiveMigrationSchema(graph,{resource:scope.resource,pointer:original},source,owners,references);
+            const child=graph.scopeAs(scope.resource,original,'schema');if(child)retireChild(child,'constant_applicator');
         }
         const at=source.doc.dataNode(pointer+'/'+name)?.pointer;
         if(at!==undefined){owners.admit(source,4);source.remove(at,true,true,true);}
+        if(constant&&(name==='anyOf'||name==='oneOf'))owners.retireApplication(scope,name);
     }
     // Keep captured reference fields even when their constant target is known;
     // those independent connections still participate in publication proofs.
@@ -279,10 +392,10 @@ export function discardInactiveSchemaConditions(graph:ReferenceGraph,scope:Graph
     if(value===null||typeof value!=='object'||Array.isArray(value))return;
     const condition=graph.scopeAs(scope.resource,scope.pointer+'/if','schema');
     const constant=condition?constantCondition(graph,condition):undefined;
-    const plan=constant===undefined?conditionalPlan(graph,scope,target):undefined;
+    const plan=constant===undefined?conditionalPlan(graph,scope,target,new Set(),conditionalAssumptions(graph,scope,owners,references),conditionalEntryGuard(graph,scope,owners,references)):undefined;
     // Inactive native applications can be retired before either restricted
     // target's child conversion. The main 3.0 mapping still uses its applicators.
-    const preparation=constant===undefined&&target!=='2.0'?conditionalPlan(graph,scope,'2.0'):plan;
+    const preparation=constant===undefined&&target!=='2.0'?conditionalPlan(graph,scope,'2.0',new Set(),conditionalAssumptions(graph,scope,owners,references),conditionalEntryGuard(graph,scope,owners,references)):plan;
     for(const projected of preparation?.projected??[]){
         const root=projected.plan.scope;
         if(owners.hasRootConsumer(root,references))continue;
@@ -326,6 +439,7 @@ export function discardInactiveSchemaConditions(graph:ReferenceGraph,scope:Graph
     }
     const inactive=!Object.hasOwn(value,'if')?['then','else']:constant!==undefined?[constant?'else':'then']:
         (plan?.erase||preparation?.erase)?['if','then','else']:plan?.selected&&plan.selected!=='both'?[plan.selected==='then'?'else':'then']:[];
+    if(plan?.selected&&!plan.assertCondition&&condition&&new MigrationSchemaProofs(graph).annotationFree(condition))inactive.push('if');
     for(const name of inactive){
         const original=scope.pointer+'/'+name,pointer=source.current(original,scope.resource);
         if(pointer!==undefined)discardInactiveMigrationSchema(graph,{resource:scope.resource,pointer:original},source,owners,references);
@@ -346,6 +460,8 @@ export function migrateSchemaConditions(graph:ReferenceGraph,scope:GraphScope,so
     if(graph.literalContainer(scope.resource,scope.pointer)!==undefined||graph.hasOverlappingScope(scope.resource,scope.pointer)){
         issue(scope,'migration.schema.condition-owner','This conditional schema has an independent literal or object interpretation requiring a separate owner','implementation');return;
     }
+    const effect=owners.isolateApplication(scope,source,pointer,'condition',fields,target);
+    source=effect.source;pointer=effect.location.pointer;
     if(!Object.hasOwn(value,'if')){
         // Without if, neither keyword is evaluated, even for annotations. An
         // independently referenced subschema must retain its own target.
@@ -360,7 +476,7 @@ export function migrateSchemaConditions(graph:ReferenceGraph,scope:GraphScope,so
     }
     const conditionScope=graph.scopeAs(scope.resource,scope.pointer+'/if','schema');
     const constant=conditionScope?constantCondition(graph,conditionScope):undefined;
-    const plan=constant===undefined?conditionalPlan(graph,scope,target):undefined;
+    const plan=constant===undefined?conditionalPlan(graph,scope,target,new Set(),conditionalAssumptions(graph,scope,owners,references),conditionalEntryGuard(graph,scope,owners,references)):undefined;
     if(plan){
         const collection=pointer+'/allOf';
         const append=()=>{

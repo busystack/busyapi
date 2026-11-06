@@ -8,7 +8,25 @@ import {constantSchemaAssertion} from './schema_constant_assertions';
 import {MigrationSchemaProofs} from './migration_schema_proofs';
 import {discardInactiveMigrationSchema} from './migration_schema_conditions';
 import {restrictedBooleanSchema} from './migration_schema_values';
-import {schemaGuardProjection,deferGuardProjection} from './migration_guard_projection';
+import {schemaGuardProjection,deferGuardProjection,guardProjectionScopes} from './migration_guard_projection';
+
+function dependencyProjection(graph:ReferenceGraph,scope:GraphScope,trigger:string,requirements:MigrationPropertyPresence,
+    proofs=new MigrationSchemaProofs(graph)){
+    const schema=graph.scopeAs(scope.resource,scope.pointer+'/dependentSchemas/'+escape(trigger),'schema');
+    const context={unconditional:(name:string)=>requirements.unconditional(scope,name),
+        present:(name:string)=>name===trigger||requirements.requires(scope,name),absent:(name:string)=>requirements.absent(scope,name),assumptions:[scope]};
+    return schema?(requirements.requires(scope,trigger)?schemaGuardProjection(graph,schema,{domains:new Set(['object']),...context},proofs):undefined)??
+        schemaGuardProjection(graph,schema,{property:trigger,...context},proofs):undefined;
+}
+export function dependencyProjectionScopes(graph:ReferenceGraph,scope:GraphScope,requirements:MigrationPropertyPresence):readonly GraphScope[]{
+    const node=graph.docs.get(scope.resource)!.dataNode(scope.pointer+'/dependentSchemas');
+    if(node?.kind!=='object')return [];
+    const proofs=new MigrationSchemaProofs(graph);
+    return [...node.children.keys()].flatMap(trigger=>{
+        const projection=dependencyProjection(graph,scope,trigger,requirements,proofs);
+        return projection?guardProjectionScopes(graph,projection):[];
+    });
+}
 
 /** Prefer the native conjunction when every property dependency already has
  * a captured presence/absence proof. Whole-instance enum folding would encode
@@ -128,6 +146,8 @@ export function migrateDependentSchemas(graph:ReferenceGraph,scope:GraphScope,so
     if(node.kind!=='object'){
         issue({...scope,pointer:original},'migration.schema.dependent-schemas','Expected a captured dependentSchemas map before conversion','source-incomplete');return;
     }
+    const effect=owners.isolateApplication(scope,source,pointer,'dependency',['dependentSchemas'],target);
+    source=effect.source;pointer=effect.location.pointer;
     const proofs=new MigrationSchemaProofs(graph);
     const entries=[...node.children.keys()].map(trigger=>{
         const pointer=original+'/'+escape(trigger),schema=graph.scopeAs(scope.resource,pointer,'schema');
@@ -135,8 +155,7 @@ export function migrateDependentSchemas(graph:ReferenceGraph,scope:GraphScope,so
         const constant=existing??(schema&&proofs.validationConstant(schema)===false?false:
             schema&&proofs.annotationsCoveredByProperties(schema,new Set(Object.keys(doc.dataNode(scope.pointer)?.value?.properties??{})))&&
                 proofs.implies(scope,schema)?true:undefined);
-        const projection=schema?(requirements.requires(scope,trigger)?schemaGuardProjection(graph,schema,{domains:new Set(['object'])},proofs):undefined)??
-            schemaGuardProjection(graph,schema,{property:trigger,unconditional:name=>requirements.unconditional(scope,name)},proofs):undefined;
+        const projection=dependencyProjection(graph,scope,trigger,requirements,proofs);
         return {trigger,pointer,schema,constant,projection,forbidden:target==='2.0'&&requirements.forbidden(scope,trigger),
             absent:requirements.absent(scope,trigger)};
     });
@@ -150,7 +169,14 @@ export function migrateDependentSchemas(graph:ReferenceGraph,scope:GraphScope,so
             issue({...scope,pointer:entry.pointer},'migration.schema.dependency-owner','The dependent schema has no unique surviving planning owner','implementation');return;
         }
         if(target==='2.0'&&!entry.forbidden&&entry.constant===undefined&&!direct(entry)&&entry.projection===undefined){
-            issue({...scope,pointer:entry.pointer},'migration.schema.dependency-conditional',requirements.exhausted?'The captured property-presence proof exhausted its budget before establishing a faithful Swagger 2.0 mapping':'This dependent schema needs a proved object-only instance and required trigger before its conditional assertion can be represented in Swagger 2.0','implementation');return;
+            const identity=entry.schema&&proofs.conjuncts(entry.schema).find(part=>
+                Object.hasOwn(graph.docs.get(part.resource)!.dataNode(part.pointer)?.value??{},'discriminator'));
+            if(identity)issue({...identity,pointer:identity.pointer+'/discriminator'},'migration.proof.guard-identity',
+                'No captured identity certificate establishes that this discriminator keeps the same model relationships under a guarded assertion variant','implementation');
+            else issue({...scope,pointer:entry.pointer},'migration.schema.dependency-conditional',requirements.exhausted?
+                'The captured property-presence proof exhausted its budget before establishing a faithful Swagger 2.0 mapping':
+                'The captured presence, native-domain, guarded-composition and finite-language proofs did not establish a faithful Swagger assertion and annotation mapping for this dependency','implementation');
+            return;
         }
     }
     const applied=target==='2.0'?entries.filter(entry=>(entry.forbidden||entry.constant!==true)&&!entry.absent):entries.filter(entry=>!entry.absent);

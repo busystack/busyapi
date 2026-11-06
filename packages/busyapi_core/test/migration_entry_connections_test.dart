@@ -87,7 +87,7 @@ void main() {
     await expectLater(stale.publish(), throwsA(isA<CoreFailure>().having((failure) => failure.code, 'code', 'migration.stale')));
     final review = await source.prepareMigration(buffer.id, '${directory.path}/output', targetVersion: '3.2.1');
     addTearDown(review.close);expect(review.publishable, true, reason: '${review.result}');
-    expect(review.result['producerVersion'], '84');
+    expect(review.result['producerVersion'], '85');
     await expectLater(review.publish(cancelled: () => true), throwsA(isA<CoreFailure>()));
     expect(await Directory(review.destination).exists(), false);
     await review.publish();expect([for (final file in files) await file.readAsBytes()], originals);

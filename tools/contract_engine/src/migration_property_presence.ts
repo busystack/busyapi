@@ -1,5 +1,5 @@
 import {compare,decimal} from './exact_numbers';
-import {escape} from './document';
+import {escape,segments} from './document';
 import type {GraphScope,GraphTarget,ReferenceGraph} from './reference_graph';
 import {SchemaPropertyRequirements} from './schema_property_requirements';
 import {MigrationSchemaProofs} from './migration_schema_proofs';
@@ -20,16 +20,23 @@ export class MigrationPropertyPresence extends SchemaPropertyRequirements {
     }
     private scope(at:GraphTarget):GraphScope|undefined{return this.captured.scopeAs(at.resource,at.pointer,'schema');}
     private value(at:GraphTarget):any{return this.captured.docs.get(at.resource)!.dataNode(at.pointer)?.value;}
+    private entryRequires(scope:GraphScope,name:string):boolean {
+        return this.canInherit(scope)&&this.captured.schemaParentsOf(scope).some(parent=>{
+            if(parent.resource!==scope.resource)return false;
+            const path=segments(scope.pointer.slice(parent.pointer.length));
+            return path.length===2&&path[0]==='dependentSchemas'&&path[1]===name;
+        });
+    }
     private parents(scope:GraphScope):readonly GraphScope[]{
         if(!this.canInherit(scope))return [];
         return this.captured.schemaParentsOf(scope).filter(parent=>parent.resource===scope.resource&&scope.pointer.startsWith(parent.pointer+'/')&&
-            /^\/(?:allOf\/\d+|anyOf\/\d+|oneOf\/\d+|if|then|else|not)$/.test(scope.pointer.slice(parent.pointer.length)));
+            /^\/(?:allOf\/\d+|anyOf\/\d+|oneOf\/\d+|dependentSchemas\/[^/]+|if|then|else|not)$/.test(scope.pointer.slice(parent.pointer.length)));
     }
     unconditional(at:GraphScope,name:string):boolean {
         // Keep this proof separate from virtual requires() dispatch: a seed
         // dependency may prove a property present, but erasing that dependency
         // as a tautology would erase the very cause of its presence.
-        return this.explicit.requires(at,name)||this.parents(at).some(parent=>this.unconditional(parent,name));
+        return this.entryRequires(at,name)||this.explicit.requires(at,name)||this.parents(at).some(parent=>this.unconditional(parent,name));
     }
     objectOnly(at:GraphScope):boolean {
         return this.parents(at).some(parent=>this.objectOnly(parent))||this.proofs.conjuncts(at).some(scope=>{
@@ -113,6 +120,7 @@ export class MigrationPropertyPresence extends SchemaPropertyRequirements {
     override requires(at:GraphTarget,name:string,seen:ReadonlySet<string>=new Set()):boolean {
         if(super.requires(at,name,seen))return true;
         const root=this.scope(at);if(!root)return false;
+        if(this.entryRequires(root,name))return true;
         const key=JSON.stringify([at.resource,at.pointer]);
         if(!seen.has(key)&&this.parents(root).some(parent=>this.requires(parent,name,new Set(seen).add(key))))return true;
         const parts=this.proofs.conjuncts(root),included=new Set(parts.map(scope=>JSON.stringify([scope.resource,scope.pointer])));

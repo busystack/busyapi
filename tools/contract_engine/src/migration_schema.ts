@@ -6,7 +6,7 @@ import {escape} from './document';
 import {compare,decimal} from './exact_numbers';
 import {MigrationSchemaReferences} from './migration_schema_references';
 import {MigrationPropertyPresence} from './migration_property_presence';
-import {migrateDependentRequired,migrateDependentSchemas,discardInactiveSchemaDependencies,nativeSchemaDependencies} from './migration_schema_dependencies';
+import {migrateDependentRequired,migrateDependentSchemas,discardInactiveSchemaDependencies,nativeSchemaDependencies,dependencyProjectionScopes} from './migration_schema_dependencies';
 import {migrateInactiveSchemaAnnotations} from './migration_inactive_annotations';
 import {BooleanSchemaMigration} from './migration_boolean_schema';
 import {MigrationSchemaOwners} from './migration_schema_owners';
@@ -21,6 +21,7 @@ import {migrateFiniteSchemaDomain} from './migration_finite_domain';
 import type {Resource} from './engine';
 import {createHash} from 'node:crypto';
 import type {ExternalExampleResourcePacket} from './external_examples';
+import {flatSchemaScopes} from './migration_flat_items';
 
 export type MigrationChoice=Readonly<{value:string;label:string;target:MigrationLocation&{range:readonly number[]}}>;
 export type MigrationProblem={resource:string;pointer:string;range:number[];code:string;message:string;reason:'target-representation'|'implementation'|'source-incomplete'|'decision';choices?:string[];choiceDetails?:readonly MigrationChoice[];id?:string};
@@ -58,6 +59,12 @@ export async function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Mig
     for(const scope of migrationScopes(contexts))if(scope.kind==='schema'&&scope.family===from)
         captured.set(JSON.stringify([scope.resource,scope.pointer]),scope);
     const scopes=[...captured.values()].sort((a,b)=>b.pointer.length-a.pointer.length);
+    const flatItems=to==='2.0'?new Set(contexts.flatMap(context=>[...flatSchemaScopes(context)])):new Set<string>();
+    if(modernFamily(from)&&to==='2.0')for(const scope of scopes){
+        const context=owners.contextOf(scope);if(!context)continue;
+        for(const guarded of [...conditionalProjectionScopes(context,scope,to),...dependencyProjectionScopes(context,scope,requirementsFor(context))])
+            {guardedBodies.add(JSON.stringify([guarded.resource,guarded.pointer]));owners.markProjectionSource(guarded);}
+    }
     if(!modernFamily(to))for(const scope of [...scopes].reverse()){
         const material=owners.materialLocations(scope);if(!material.length)continue;
         const {source}=owners.uniqueLocation(scope);
@@ -70,11 +77,18 @@ export async function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Mig
                 guardedBodies.add(JSON.stringify([guarded.resource,guarded.pointer]));
             const nativeDependency=to==='2.0'&&nativeSchemaDependencies(context,scope,requirementsFor(context));
             if(!nativeDependency&&!guardedBodies.has(JSON.stringify([scope.resource,scope.pointer]))&&
-                await migrateFiniteSchemaDomain(context,scope,source,to,owners,capturedReferences,resources,exampleResources))continue;
+                await migrateFiniteSchemaDomain(context,scope,source,to,owners,capturedReferences,resources,exampleResources,flatItems.has(JSON.stringify([scope.resource,scope.pointer]))))continue;
             if(!modernFamily(from))continue;
             discardInactiveSchemaConditions(context,scope,source,owners,capturedReferences,to);
             discardInactiveSchemaDependencies(context,scope,source,requirementsFor(context),owners,capturedReferences,to);
             lowerConstantSchemaApplicators(context,scope,source,to,owners,capturedReferences);
+            // Give authored conjuncts their own application use before other
+            // lowerings append independent condition/dependency effects.
+            // Projection then composes child variants, including terminal
+            // guards, without relying on their old inline coordinates.
+            const at=source.current(scope.pointer,scope.resource),allOf=source.current(scope.pointer+'/allOf',scope.resource);
+            if(owners.isProjectionSource(scope)&&at!==undefined&&allOf===at+'/allOf'&&source.doc.dataNode(allOf))
+                owners.isolateApplication(scope,source,at,'allOf',['allOf'],to);
             discardInactiveUnevaluated(context,scope,source,owners,capturedReferences);
             patterns.discardInactive(scope,source);
         }
@@ -126,8 +140,8 @@ export async function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Mig
             migrateSchemaConditions(context,scope,source,pointer,to,owners,issue,capturedReferences,sources,projection=>projections.push(projection));
             migrateSchemaPropertyNames(context,scope,source,pointer,owners,issue,capturedReferences);
             patterns.lower(scope,source,pointer,to);
-            migrateConstantContains(graph,scope,source,pointer,owners);
-            if(to==='2.0')migrateArrayAlternatives(graph,scope,source,pointer,owners);
+            migrateConstantContains(context,scope,source,pointer,owners,capturedReferences);
+            if(to==='2.0')migrateArrayAlternatives(context,scope,source,pointer,owners,capturedReferences);
         }
         if(!modernFamily(to)&&Object.hasOwn(value,'$dynamicAnchor')){
             if(!references.requiresDynamicAnchor(scope))source.remove(pointer+'/$dynamicAnchor');

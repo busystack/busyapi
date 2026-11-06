@@ -4,6 +4,75 @@ const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
 const {SourceDocument}=require('./dist/document.cjs');
 const {createGraph}=require('./dist/model.cjs');
 const {evaluateMigrationAnnotations}=require('./dist/migration_annotations.cjs');
+for(const format of ['yaml','json'])for(const mode of ['dominated','inactive-metadata','terminal-conjunct','native-annotations'])
+test(`${format} ${mode} logical branch applications compose through their native guard`,async()=>{
+ const root='file:///logical-application/api.'+format;
+ const body=mode==='native-annotations'?{type:'object',anyOf:[{properties:{a:{description:'Present a'}}},{properties:{b:{description:'Present b'}}}]}:
+  mode==='terminal-conjunct'?{allOf:[{type:'object'}]}:{type:'array',items:{type:'integer',description:'Applied item'},
+  [mode==='inactive-metadata'?'oneOf':'anyOf']:mode==='inactive-metadata'?
+   [{type:'object',description:'Independent object branch'},{type:'array',maxItems:4}]:[{maxItems:2},{maxItems:4}]};
+ const document={openapi:'3.2.1',info:{title:'Logical application guards',version:'1'},paths:{},components:{schemas:{
+  Value:{if:{type:mode==='native-annotations'?'object':'array'},then:body},Independent:{$ref:'#/components/schemas/Value/then'},
+  ...(mode==='inactive-metadata'?{Inactive:{$ref:'#/components/schemas/Value/then/oneOf/0'}}:{}),
+ }}};
+ const text=format==='yaml'?YAML.stringify(document):JSON.stringify(document);
+ const input={root,snapshot:'logical-applications',resources:[{id:root,text,generation:1}],targetVersion:'2.0',destination:'file:///logical-application-output/'};
+ const samples=['null','false','{}','[]','[0]','[0,1,2]','[0,1,2,3,4]','[false]','{"a":false,"b":0}'];
+ const evaluate=async(packet,prefix)=>{
+  const result=await evaluateMigrationAnnotations({...packet,runtimeInstances:Object.keys(document.components.schemas).flatMap(name=>samples.map(text=>({
+   subject:'response-body',text,location:name,schema:{resource:packet.root,pointer:prefix+'/'+name}})))});
+  assert.equal(result.checked.complete,true,JSON.stringify(result.checked.findings));assert(result.checked.runtimeEvaluations.every(value=>value.complete));
+  return {valid:result.checked.runtimeEvaluations.map(value=>value.valid),annotations:result.annotations};
+ };
+ const before=await evaluate(input,'/components/schemas');
+ assert.deepEqual(before.valid.slice(0,8),mode==='native-annotations'?Array(8).fill(true):mode==='terminal-conjunct'?[true,true,true,false,false,false,false,false]:[true,true,true,true,true,true,false,false]);
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const output={root:review.outputRoot,snapshot:'cold-logical-applications',resources:review.outputs.map(value=>({...value,generation:0}))};
+ assert.deepEqual(await evaluate(output,'/definitions'),before);assert.equal(input.resources[0].text,text);
+});
+for(const format of ['yaml','json'])test(`${format} contextual logical predicates retain successful metadata and independent unused children`,async()=>{
+ const root='file:///contextual-predicate/api.'+format;
+ const document={openapi:'3.2.1',info:{title:'Contextual annotation',version:'1'},paths:{},components:{schemas:{
+  Value:{type:'object',if:{not:{type:'array',description:'Independent array'},description:'Only successful objects'}},
+  Child:{$ref:'#/components/schemas/Value/if/not'},
+ }}};
+ const text=format==='yaml'?YAML.stringify(document):JSON.stringify(document);
+ const input={root,snapshot:'contextual-predicate',resources:[{id:root,text,generation:1}],targetVersion:'2.0',destination:'file:///contextual-predicate-output/'};
+ const evaluate=async(packet,prefix)=>{
+  const result=await evaluateMigrationAnnotations({...packet,runtimeInstances:['Value','Child'].flatMap(name=>['{}','[]','null','0'].map(text=>({
+   subject:'response-body',text,location:name,schema:{resource:packet.root,pointer:prefix+'/'+name}})))});
+  assert.equal(result.checked.complete,true,JSON.stringify(result.checked.findings));assert(result.checked.runtimeEvaluations.every(value=>value.complete));
+  return {valid:result.checked.runtimeEvaluations.map(value=>value.valid),annotations:result.annotations};
+ };
+ const before=await evaluate(input,'/components/schemas');assert.deepEqual(before.valid,[true,false,false,false,false,true,false,false]);
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const output={root:review.outputRoot,snapshot:'cold-contextual',resources:review.outputs.map(value=>({...value,generation:0}))};
+ assert.deepEqual(await evaluate(output,'/definitions'),before);assert.equal(input.resources[0].text,text);
+});
+for(const selector of ['presence','not-array','one-of'])test(`an outer dependency trigger remains distinct from its ${selector} inner predicate`,async()=>{
+ const root='file:///joined-predicates/api.json';
+ const predicate=selector==='presence'?{required:['c']}:selector==='not-array'?{not:{type:'array'}}:{oneOf:[{type:'array'},{type:'object'}]};
+ const then=selector==='presence'?{properties:{c:{type:'boolean',description:'Only present c'}}}:{required:['b'],properties:{b:{type:'boolean',description:'Selected b'}}};
+ const body={type:'object',required:['a'],if:predicate,then,else:{},properties:{a:{type:'boolean'}}};
+ const text=JSON.stringify({openapi:'3.2.1',info:{title:'Separate guards',version:'1'},paths:{},components:{schemas:{
+  Value:{required:['a'],dependentSchemas:{a:body}},Independent:{$ref:'#/components/schemas/Value/dependentSchemas/a'},
+  Then:{$ref:'#/components/schemas/Value/dependentSchemas/a/then'},
+ }}});
+ const input={root,snapshot:'joined-predicates',resources:[{id:root,text,generation:1}],targetVersion:'2.0',destination:'file:///joined-predicates-output/'};
+ const samples=['null','[]','{}','{"a":false}','{"a":false,"c":false}','{"a":false,"c":0}',
+  '{"a":false,"b":true}','{"a":false,"b":0}','{"c":false}'];
+ const evaluate=async(packet,prefix)=>{
+  const result=await evaluateMigrationAnnotations({...packet,runtimeInstances:['Value','Independent','Then'].flatMap(name=>samples.map(text=>({
+   subject:'response-body',text,location:name,schema:{resource:packet.root,pointer:prefix+'/'+name}})))});
+  assert.equal(result.checked.complete,true,JSON.stringify(result.checked.findings));assert(result.checked.runtimeEvaluations.every(value=>value.complete));
+  return {valid:result.checked.runtimeEvaluations.map(value=>value.valid),annotations:result.annotations};
+ };
+ const before=await evaluate(input,'/components/schemas');
+ assert.deepEqual(before.valid.slice(0,9),selector==='presence'?[true,true,false,true,true,false,true,true,false]:[true,true,false,false,false,false,true,false,false]);
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const output={root:review.outputRoot,snapshot:'cold-joined-predicates',resources:review.outputs.map(value=>({...value,generation:0}))};
+ assert.deepEqual(await evaluate(output,'/definitions'),before);assert.equal(input.resources[0].text,text);
+});
 for(const dependency of ['dependentRequired','dependentSchemas'])for(const finite of [false,true])for(const composed of [false,true])
 test(`guarded ${dependency} retains its native object conjunction, finite=${finite}, composed=${composed}`,async()=>{
  const dependencyMap=dependency==='dependentRequired'?{a:['b']}:{a:{type:'object',required:['b']}};

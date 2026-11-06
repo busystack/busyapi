@@ -2,9 +2,29 @@ const {test}=require('node:test'),assert=require('node:assert/strict'),YAML=requ
 const {planMigration}=require('./dist/migration.cjs'),{analyse}=require('./dist/model.cjs'),{evaluateSchemas}=require('./dist/schema_evaluation.cjs'),{SourceDocument}=require('./dist/document.cjs');
 const {evaluateMigrationAnnotations}=require('./dist/migration_annotations.cjs');
 const modern=['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'],older=['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4'];
+for(const field of ['enum','const'])test(`an object-guarded ${field} retains exact Cartesian values and conditional child metadata`,async()=>{
+ const root='file:///guarded-finite/api.json',values=[{a:'EXACT',b:false},{a:'EXACT',b:true},{a:'NEXT',b:false},{a:'NEXT',b:true}];
+ const body={type:'object',required:['a'],[field]:field==='enum'?values:values[0],properties:{b:{description:'Finite b'}}};
+ const text=JSON.stringify({openapi:'3.2.1',info:{title:'Guarded finite objects',version:'1'},paths:{},components:{schemas:{
+  Value:{required:['a'],dependentSchemas:{a:{$ref:'#/components/schemas/Body'}}},Body:body,
+ }},'x-values':values}).replaceAll('"EXACT"','9007199254740993.00').replaceAll('"NEXT"','9007199254740994.0');
+ const input={root,snapshot:'guarded-finite',resources:[{id:root,text,generation:1}],targetVersion:'2.0',destination:'file:///guarded-finite-output/'};
+ const samples=['null','false','{}','{"a":9007199254740993,"b":false}','{"a":9007199254740993,"b":true}',
+  '{"a":9007199254740994,"b":true}','{"a":9007199254740993}','{"a":9007199254740992,"b":false}',
+  '{"a":9007199254740993,"b":false,"extra":0}'];
+ const evaluate=async(packet,prefix)=>{
+  const result=await evaluateMigrationAnnotations({...packet,runtimeInstances:['Value','Body'].flatMap(name=>samples.map(text=>({
+   subject:'response-body',text,location:name,schema:{resource:packet.root,pointer:prefix+'/'+name}})))});
+  assert.equal(result.checked.complete,true,JSON.stringify(result.checked.findings));assert(result.checked.runtimeEvaluations.every(value=>value.complete));
+  return {valid:result.checked.runtimeEvaluations.map(value=>value.valid),annotations:result.annotations};
+ };
+ const before=await evaluate(input,'/components/schemas');assert.deepEqual(before.valid.slice(0,9),[true,true,false,true,field==='enum',field==='enum',false,false,false]);
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const output={root:review.outputRoot,snapshot:'cold-guarded-finite',resources:review.outputs.map(value=>({...value,generation:0}))};
+ assert.deepEqual(await evaluate(output,'/definitions'),before);assert.equal(input.resources[0].text,text);
+});
 for(const dependency of ['dependentRequired','dependentSchemas','if'])
-test(`finite ${dependency} bodies retain their object guard and independent neutral owner before lowering`,
- dependency==='if'?{todo:'B02: compose a selected nested conditional with its independently owned outer dependency guard'}:{},async()=>{
+test(`finite ${dependency} bodies retain their object guard and independent neutral owner before lowering`,async()=>{
  const root='file:///remaining-dependency/api.json';
  const body={type:'object',required:['a'],properties:{a:{type:'boolean'},b:{type:'boolean'}},additionalProperties:false,
   ...(dependency==='if'?{if:{required:['a']},then:{required:['b']}}:
@@ -31,6 +51,42 @@ test(`finite ${dependency} bodies retain their object guard and independent neut
  const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
  const output={root:review.outputRoot,snapshot:'remaining-cold',resources:review.outputs.map(value=>({...value,generation:0}))};
  assert.deepEqual(await evaluate(output,'/definitions'),before);
+});
+for(const version of modern)for(const format of ['yaml','json'])for(const ownership of ['direct','referenced','composed','external'])
+test(`${version} ${format} ${ownership} nested dependency/condition ownership retains predicates, branches and annotations`,async()=>{
+ const root='file:///nested-composition/api.'+format,model='file:///nested-composition/model.yaml';
+ const condition={if:{required:['a']},then:{required:['b'],properties:{b:{type:'integer',minimum:'EXACT',description:'Selected b'}}},
+  else:{type:'string',enum:['unused'],description:'Independent inactive branch'}};
+ const body=ownership==='composed'?{type:'object',allOf:[{required:['a']},condition],properties:{a:{type:'boolean'},b:{type:'integer'},next:{$ref:'#/components/schemas/Value'}}}:
+  {type:'object',required:['a'],...condition,properties:{a:{type:'boolean'},b:{type:'integer'},next:{$ref:'#/components/schemas/Value'}}};
+ const conditionPath=ownership==='composed'?'/allOf/1':'';
+ const base=ownership==='external'?'./model.yaml#/$defs/Body':ownership==='referenced'?'#/components/schemas/Body':'#/components/schemas/Value/dependentSchemas/a';
+ if(ownership==='external')body.properties.next={$ref:'./api.'+format+'#/components/schemas/Value'};
+ const document={openapi:version,info:{title:'Nested ownership',version:'1'},paths:{},components:{schemas:{
+  Value:{required:['a'],dependentSchemas:{a:ownership==='direct'||ownership==='composed'?body:{$ref:base}}},
+  ...(ownership==='referenced'?{Body:body}:{}),Independent:{$ref:base},Predicate:{$ref:base+conditionPath+'/if'},
+  Then:{$ref:base+conditionPath+'/then'},Else:{$ref:base+conditionPath+'/else'},
+ }},'x-literal':{number:'EXACT',schema:body,literal:{$ref:'never-acquire.json'}}};
+ const text=(format==='yaml'?YAML.stringify(document):JSON.stringify(document)).replace(/"?EXACT"?/g,'9007199254740993.00');
+ const resources=[{id:root,text,generation:1}];
+ if(ownership==='external')resources.push({id:model,generation:2,text:'$schema: https://json-schema.org/draft/2020-12/schema\r\n$id: model.yaml\r\n$defs:\r\n  Body: '+JSON.stringify(body).replace('"EXACT"','9007199254740993.00')+'\r\nx-data: &literal {n: 9007199254740993.00, flag: false}\r\nx-alias: *literal\r\n'});
+ const input={root,snapshot:'nested-composition',resources,targetVersion:'2.0',destination:'file:///nested-composition-output/'};
+ const samples=['null','false','[]','{}','{"a":false}','{"a":false,"b":9007199254740993}',
+  '{"a":false,"b":9007199254740992}','{"a":false,"b":9007199254740993,"next":{"a":true}}','"unused"'];
+ const names=['Value','Independent','Predicate','Then','Else'];
+ const evaluate=async(packet,prefix)=>{
+  const result=await evaluateMigrationAnnotations({...packet,runtimeInstances:['request-body','response-body'].flatMap(subject=>names.flatMap(name=>samples.map(text=>({
+   subject,text,location:name,schema:{resource:packet.root,pointer:prefix+'/'+name}}))))});
+  assert.equal(result.checked.complete,true,JSON.stringify(result.checked.findings));assert(result.checked.runtimeEvaluations.every(value=>value.complete));
+  return {valid:result.checked.runtimeEvaluations.map(value=>value.valid),annotations:result.annotations};
+ };
+ const before=await evaluate(input,'/components/schemas');assert.deepEqual(before.valid.slice(0,9),[true,true,true,false,false,true,false,false,true]);
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const output={root:review.outputRoot,snapshot:'cold-nested',resources:review.outputs.map(value=>({...value,generation:0}))};
+ assert.deepEqual(await evaluate(output,'/definitions'),before);
+ assert.equal(new SourceDocument(output.resources.find(value=>value.id===output.root).text,output.root).dataJson('/x-literal'),new SourceDocument(text,root).dataJson('/x-literal'));
+ assert.deepEqual(input.resources,resources);assert.equal(input.resources[0].text,text);
+ if(ownership==='external')assert(review.outputs.some(value=>value.text.includes('x-alias: *literal')));
 });
 for(const format of ['yaml','json'])for(const targetVersion of ['2.0','3.0.4'])
 test(`${format} ${targetVersion} fixed referenced dependency guards retain recursive neutral targets and conditional metadata`,async()=>{
@@ -89,7 +145,7 @@ async function outcomes(input,pointer,values=samples,subject='response-body'){
 }
 async function faithful(input,targetVersion,values=samples){
  const original=input.resources.map(resource=>resource.text),result=await planMigration({...input,targetVersion});
- assert.equal(result.status,'faithfully-convertible',JSON.stringify(result.problems));assert.equal(result.complete,true);assert.equal(result.producerVersion,'84');assert(result.changes.length>0);
+ assert.equal(result.status,'faithfully-convertible',JSON.stringify(result.problems));assert.equal(result.complete,true);assert.equal(result.producerVersion,'85');assert(result.changes.length>0);
  const output=after(result),data=YAML.parse(result.outputs.find(output=>output.id===result.outputRoot).text),pointer=targetVersion==='2.0'?'/definitions/Model':'/components/schemas/Model';
  assert.equal(data.swagger??data.openapi,targetVersion);assert.equal(data.info.version,'API-1');assert.deepEqual(data['x-literal'].dependentSchemas,{trigger:false});assert(result.outputs.some(output=>output.text.includes('9007199254740993.00')));assert(!Object.hasOwn(data.swagger?data.definitions.Model:data.components.schemas.Model,'dependentSchemas'));
  assert.equal(analyse(output).status,'complete');

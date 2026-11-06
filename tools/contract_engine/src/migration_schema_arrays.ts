@@ -1,7 +1,7 @@
 import {compare,decimal} from './exact_numbers';
 import {SourceError} from './document';
 import {projectSchemaReference} from './schema_reference_projection';
-import type {GraphScope,ReferenceGraph} from './reference_graph';
+import type {GraphScope,GraphReference,ReferenceGraph} from './reference_graph';
 import type {MigrationSource} from './migration_source';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import {constantSchemaAssertion} from './schema_constant_assertions';
@@ -51,6 +51,10 @@ export class MigrationArrayBounds {
             }
             if(containsConstant===false&&(!Object.hasOwn(value,'minContains')||compare(decimal(doc.dataJson(scope.pointer+'/minContains')),decimal('0'))>0))retain(0);
             const child=(pointer:string)=>this.graph.scopeAs(scope.resource,pointer,'schema');
+            if(!Array.isArray(value.prefixItems)&&!Array.isArray(value.items)){
+                const uniform=child(scope.pointer+'/items');
+                if(uniform&&constantSchemaAssertion(this.graph,uniform)===false)retain(0);
+            }
             if(Array.isArray(value.prefixItems)){
                 const impossible=value.prefixItems.indexOf(false);
                 if(impossible>=0)retain(impossible);
@@ -91,7 +95,7 @@ export class MigrationArrayBounds {
  * bounds; absent contains makes both count keywords inactive. Other instance
  * types remain unaffected, including when no array can satisfy the counts. */
 export function migrateConstantContains(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,
-    pointer:string,owners:MigrationSchemaOwners):void {
+    pointer:string,owners:MigrationSchemaOwners,references:readonly GraphReference[]=graph.references):void {
     const doc=graph.docs.get(scope.resource)!,value=doc.dataNode(scope.pointer)?.value;
     if(!value||typeof value!=='object'||Array.isArray(value))return;
     const present=Object.hasOwn(value,'contains'),contains=graph.scopeAs(scope.resource,scope.pointer+'/contains','schema');
@@ -108,9 +112,8 @@ export function migrateConstantContains(graph:ReferenceGraph,scope:GraphScope,so
     const retire=(field:string)=>{
         const original=scope.pointer+'/'+field,at=source.current(original,scope.resource);
         if(at===undefined)return;
-        const referenced=graph.references.some(reference=>reference.kind==='schema'&&reference.resolution==='resolved'&&
-            reference.targetResource===scope.resource&&(reference.targetPointer===original||reference.targetPointer?.startsWith(original+'/')));
-        if(referenced)owners.move({resource:scope.resource,pointer:original},source,at,field);
+        const referenced=owners.hasConsumers({resource:scope.resource,pointer:original},references);
+        if(referenced)owners.move({resource:scope.resource,pointer:original},source,at,field,{context:owners.contextOf(scope)??graph,layout:'array-item'});
         else {owners.admit(source);source.remove(at,true,true,true);}
     };
     if(present){
@@ -140,9 +143,12 @@ export function migrateConstantContains(graph:ReferenceGraph,scope:GraphScope,so
  * and never apply this reduction to a branch carrying other assertions or
  * annotations. This is a finite dominance proof, not schema satisfiability. */
 export function migrateArrayAlternatives(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,
-    pointer:string,owners:MigrationSchemaOwners):void {
+    pointer:string,owners:MigrationSchemaOwners,references:readonly GraphReference[]=graph.references):void {
     const doc=graph.docs.get(scope.resource)!,value=doc.dataNode(scope.pointer)?.value;
     if(!Array.isArray(value?.anyOf)||!value.anyOf.length)return;
+    // A contextual conditional proof can already have isolated this effect.
+    // Its retained branch owners must not be interpreted as a second use.
+    if(source.current(scope.pointer+'/anyOf',scope.resource)!==pointer+'/anyOf'||!source.doc.dataNode(pointer+'/anyOf'))return;
     const choices=value.anyOf;
     if(!choices.every(choice=>typeof choice==='boolean'||choice&&typeof choice==='object'&&!Array.isArray(choice)&&
         Object.keys(choice).length===1&&Object.hasOwn(choice,'maxItems')))return;
@@ -157,9 +163,8 @@ export function migrateArrayAlternatives(graph:ReferenceGraph,scope:GraphScope,s
     for(let index=0;index<choices.length;index++){
         const original=scope.pointer+'/anyOf/'+index,at=source.current(original,scope.resource);
         if(at===undefined)throw new SourceError('migration.schema.array-choice-owner','An array bound choice has no surviving captured owner');
-        if(index===selected||graph.references.some(reference=>reference.kind==='schema'&&reference.resolution==='resolved'&&
-            reference.targetResource===scope.resource&&(reference.targetPointer===original||reference.targetPointer?.startsWith(original+'/')))){
-            const owner=owners.move({resource:scope.resource,pointer:original},source,at,'array_choice');
+        if(index===selected||owners.hasConsumers({resource:scope.resource,pointer:original},references)){
+            const owner=owners.move({resource:scope.resource,pointer:original},source,at,'array_choice',{context:owners.contextOf(scope)??graph,layout:'array-item'});
             if(index===selected)retained=owners.reference(owner,'2.0');
         }
     }

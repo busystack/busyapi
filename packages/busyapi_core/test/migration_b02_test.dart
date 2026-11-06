@@ -28,10 +28,11 @@ void main() {
           final bytes = await request.fold<List<int>>([], (all, chunk) => all..addAll(chunk));
           expect(bytes, utf8.encode(wire));
           request.response.headers.set('content-type', 'application/json');
+          if (mode == 'flat-items') request.response.headers.set('x-values', '9007199254740993.00');
           request.response.add(bytes);await request.response.close();
         });
         final file = File('${directory.path}/api.$format'), model = File('${directory.path}/model.yaml');
-        final original = b02Api(version, format, port: server.port), originalModel = b02Model(mode);
+        final original = b02Api(version, format, port: server.port, mode: mode), originalModel = b02Model(mode);
         await file.writeAsString(original);await model.writeAsString(originalModel);
         final project = await BusyProject.open(file.path, engine);addTearDown(project.close);
         final root = file.uri.toString(), buffer = await project.buffer(root), shared = await project.buffer(model.uri.toString());
@@ -57,6 +58,18 @@ void main() {
               final values = evaluations.skip(count).map((value) => value['valid'] as bool).toList();
               independent ??= values;expect(values, independent);
             }
+            if (mode == 'flat-items') {
+              final checked = await prepared.evaluateRuntime([
+                for (final value in ['9007199254740993.00', '9007199254740992']) ...[
+                  RuntimeSchemaInstance(subject: 'response-header', location: value, text: '',
+                    header: RuntimeHeaderTarget(resource: current, pointer: '/paths/~1echo/post/responses/200/headers/X-Values', name: 'X-Values', values: [value])),
+                  RuntimeSchemaInstance(subject: 'request-parameter', location: value, text: 'values=$value',
+                    parameter: RuntimeParameterTarget(resource: current, pointer: '/paths/~1echo/post/parameters/0')),
+                ],
+              ]);
+              expect(checked['complete'], true, reason: '$checked');
+              expect((checked['runtimeEvaluations'] as List).map((value) => value['valid']), [true, true, false, false]);
+            }
             final response = await const ContractRequestExecutor().execute(prepared,
               OperationRequestDraft(planIdentity: prepared.identity,
                 body: RequestBodyDraft.raw(mediaType: 'application/json', text: wire)),
@@ -67,9 +80,20 @@ void main() {
           } finally {prepared.close();}
         }
         await exercise(project, '/components/schemas');
+        if (mode == 'flat-items' && target == '2.0') {
+          project.store.replace(shared.id, capturedModel.replaceFirst('"format":"int64"', '"description":"Applicable item annotation","format":"int64"'));
+          final refused = await project.prepareMigration(root, '${directory.path}/unsupported-items', targetVersion: target);
+          addTearDown(refused.close);
+          expect(refused.publishable, false, reason: '${refused.result}');
+          expect((refused.result['problems'] as List).any((value) => value['code'] == 'migration.flat-items.keyword'), true);
+          expect(refused.result['outputs'], isEmpty);
+          await expectLater(refused.publish(), throwsA(isA<CoreFailure>()));
+          expect(await Directory(refused.destination).exists(), false);
+          project.store.undo();expect(shared.text, capturedModel);
+        }
         final review = await project.prepareMigration(root, '${directory.path}/copy', targetVersion: target);
         addTearDown(review.close);expect(review.publishable, true, reason: '${review.result}');
-        expect(review.unsaved, true);expect(review.result['producerVersion'], '84');
+        expect(review.unsaved, true);expect(review.result['producerVersion'], '85');
         final outputs = (review.result['outputs'] as List).cast<Map>();
         expect(outputs.any((value) => (value['text'] as String).contains('Unsaved B02 model')), true);
         expect(outputs.any((value) => (value['text'] as String).contains('x-alias: *literal')), true);
