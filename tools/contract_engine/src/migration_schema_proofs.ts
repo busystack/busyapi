@@ -173,6 +173,15 @@ export class MigrationSchemaProofs {
             if(resourceFields.has(name)||annotations.has(name)||name.startsWith('x-'))continue;
             if(['$ref','$dynamicRef'].includes(name)){
                 const target=this.fixed(scope,name);results.push(target?this.validationConstant(target,next):undefined);
+            }else if(name==='then'||name==='else')continue;
+            else if(name==='if'){
+                const child=this.graph.scopeAs(scope.resource,scope.pointer+'/if','schema'),truth=child?this.validationConstant(child,next):undefined;
+                const branch=(field:string)=>{
+                    const child=this.graph.scopeAs(scope.resource,scope.pointer+'/'+field,'schema');return child?this.validationConstant(child,next):true;
+                };
+                if(truth===true)results.push(branch('then'));
+                else if(truth===false)results.push(branch('else'));
+                else {const positive=branch('then'),negative=branch('else');results.push(positive===negative?positive:undefined);}
             }else if(['allOf','anyOf','oneOf'].includes(name)){
                 const choices=value[name].map((_:unknown,index:number)=>{
                     const child=this.graph.scopeAs(scope.resource,scope.pointer+'/'+name+'/'+index,'schema');

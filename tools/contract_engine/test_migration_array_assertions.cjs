@@ -77,6 +77,10 @@ for(const fixture of official.filter(value=>!value.description.includes('boolean
 test(`official nonconstant containment 3.0: ${fixture.description}`,async()=>{
  await assertB03({schema:fixture.schema,samples:fixture.tests.map(value=>JSON.stringify(value.data)),expected:fixture.tests.map(value=>value.valid)});
 });
+test('official conditional constant containment retains the Swagger count mapping',async()=>{
+ const fixture=official.find(value=>value.description==='contains with false if subschema');assert(fixture);
+ await assertB03({targetVersion:'2.0',schema:fixture.schema,samples:fixture.tests.map(value=>JSON.stringify(value.data)),expected:fixture.tests.map(value=>value.valid)});
+});
 for(const targetVersion of ['2.0','3.0.4'])test(`a forced all-match count retains exact length and predicate annotations in ${targetVersion}`,async()=>{
  await assertB03({targetVersion,schema:{maxItems:2,contains:{type:'integer',description:'Every accepted item'},minContains:2,unevaluatedItems:false},
   independent:'contains',samples:['null','[]','[1]','[1,2]','[1,"2"]','[1,2,3]'],expected:[true,false,false,true,false,false]});

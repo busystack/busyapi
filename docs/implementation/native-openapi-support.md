@@ -31,6 +31,150 @@ consume those shared results. Source-preserving transactions remain authoritativ
 Current changes require complete engine, Core, native and packaged verification;
 source inspection or a successful build is not runtime acceptance.
 
+## B03: remaining schema-vocabulary conversions
+
+**Source-complete, unverified for the established W3.06 certificate families.**
+Work started in the primary `release/v0.1.0` checkout at
+`15a653fb4697dd53e1c4219ae75950785e570e60`. The main implementation and prepared
+regressions are in `18ad1f6`; this handoff also closes conditional constant
+predicate proofs. A01–A03's allocator, resource contexts and binding proofs,
+B01's directional policy, and B02's conditional/dependency/tuple algorithms
+remain authoritative. This status describes source, not executed acceptance.
+No B04 implementation was undertaken.
+
+Name constraints now use captured finite domains from enum/const restrictions,
+closed `additionalProperties`, closed unevaluated selections, fixed references
+and conjunctions. A bounded parser proves finite supersets for fully anchored
+regex languages; the existing canonical evaluator filters complete candidate
+sets, including final line terminators. Unsupported syntax or a budget limit
+abandons the proof. There is no sampled or truncated unbounded name language.
+Finite rejection domains retain an unbounded allowed language through forbidden
+named properties: nonempty names, finite enum exclusions and finite regex
+complements are included. Name predicates continue to run on strings; their
+value consumers keep their original schemas.
+
+Pattern selection supports finite domains, finite regex selectors over open
+objects, universally matching selectors, and unbounded selectors whose value
+schemas are proved equivalent to an annotation-free additional-property schema.
+Every overlapping assertion retains its own application. Explicit properties
+and original additional-property exclusions remain distinct. Universal patterns
+retire only their inactive additional application; independent schemas remain
+material. Ordinary value-schema string complements retain independently entered
+negative name schemas in Swagger without inserting a `not` keyword.
+
+Nonconstant containment uses exact all-match/no-match implication and disjointness,
+forced all-match counts, redundant bounds proved by actual array bounds, 3.0
+existential/complement identities, native Swagger type/string complements, and
+exhaustive finite whole-array languages. Finite matching-value domains combined
+with `uniqueItems` become exact Boolean presence counts in 3.0 for arrays of
+arbitrary length. Literal identity is mathematical and generated operands retain
+their exact CST spelling. Predicate metadata applies once per successful match;
+count tests suppress their own metadata. Containment predicates survive finite
+folding through the existing allocator because enclosing unevaluated selections
+can consume them without an authored incoming reference. Conditional constant
+predicates reuse the existing truth proof and ordinary conditional conversion.
+
+Unevaluated selection compiles certificates from the captured successful-applicator
+graph. Property coverage combines local selectors, all successful anyOf branches,
+the successful oneOf branch, conditionals, dependencies, static references and
+fixed dynamic references. Guard tests run under `not` and cannot contribute value
+metadata. Item coverage similarly combines successful array guards with matching
+contains predicates; finite guard partitions do not bound array lengths or values.
+Static prefix certificates also project bounded composed tails to Swagger tuples,
+retire proved complete coverage, and permit annotation-free uniform implications.
+An inline prefix-only conjunct and an equal containing unevaluated tail reuse
+B02's homogeneous tuple proof to produce one metadata application. Finite tuple
+folding can include a scalar, annotation-free unevaluated assertion and covered
+conjunctions; its proof forbids losing nested evaluated-location annotations.
+Guard references materialize after ordinary schema owners finish conversion.
+
+Content handling follows the canonical evaluator's existing policy: these fields
+annotate strings and do not assert successful decoding or decoded conformance.
+`contentSchema` without `contentMediaType`, and content fields proved inapplicable
+to strings, retire their application while retaining exact data and independent
+schema identities. Active encoding/media mappings still use the existing media
+and binary owners. No media type or decoding policy is inferred. Keeping a
+standalone content schema is explicitly insufficient to represent its active
+decoded-content binding in an older Schema Object.
+
+**Exact remaining refusal boundaries:**
+
+- **Unavailable name proofs:** regex syntax outside the finite-language parser,
+  domains outside finite/cofinite/string-truth certificates, active name-instance
+  annotations without a faithful projection, and unbounded pattern selections
+  without a universal or equivalent-uniform value certificate. Distinct value
+  constraints on arbitrary regex-selected names have no direct older-family
+  keyword. A failed certificate is not a general target-impossibility claim.
+- **Unavailable count proofs:** nonconstant multiple-match counts outside
+  structural, forced, exhaustive-language or unique-finite-value certificates.
+  Arbitrary array lengths are never approximated. Swagger's lack of Boolean
+  applicators separately prevents using 3.0's general existential/complement
+  implementation unless a native equivalent is established.
+- **Unavailable annotation proofs:** mixed positional and conditional/matching
+  coverage outside the exact static-prefix, homogeneous, finite-language or
+  value-predicate certificates; same-instance recursive coverage without a
+  terminating certificate; and conflicting independently interpreted uses.
+  Ordinary recursion through property/item values remains supported. Independently
+  entered unbounded order-sensitive tuples retain B02's actual target-vocabulary
+  refusal. Competing dynamic bindings retain A03's binding refusal; no candidate
+  is guessed. Optional Swagger guards still need a native/finite certificate.
+- **Target content restrictions / unavailable bindings:** older Schema Objects
+  cannot carry an active decoded `contentSchema` annotation or an unsupported
+  encoding annotation. Base64 and concrete media occurrences continue to require
+  the existing documented policy and captured binding at every use. Missing or
+  incompatible media evidence remains a located proof refusal. Mixed raw/data
+  binary ownership, constrained file representation and broader binary container
+  specialization remain **B04**, not a B03 completion claim.
+- **Evidence limits:** name/domain, regex work, graph depth, exact arithmetic,
+  owner edits, finite-language and guard-partition limits reject the certificate.
+  They do not establish an infinite language or permit partial output.
+
+Implementation owners added are `migration_schema_name_domains.ts`,
+`migration_schema_regex.ts`, `migration_schema_string_complements.ts`,
+`migration_schema_contains.ts`, `migration_schema_annotation_guards.ts`,
+`migration_schema_evaluated_properties.ts`, `migration_schema_evaluated_items.ts`
+and `migration_schema_content.ts`. Integration extends `migration_schema.ts`,
+patterns/property-names/proofs/tuples/finite-domain owners and the existing inactive
+and binary boundaries. There is no second schema evaluator or ownership registry.
+The exact affected-file inventory is recorded in the B03 commits; most remaining
+existing regression-file edits only synchronize producer expectations.
+
+Prepared production regressions extend the pattern, property-name, array and
+unevaluated suites. `test_migration_content.cjs` is registered in
+`tools/build_engine.sh`. `migration_b03_fixture.cjs` compares production source
+and target outcomes, successful value/content metadata and its multiplicity,
+independent consumers, cold references, exact values and literal/alias history.
+Existing official `contains.json` and `unevaluatedProperties.json` supply
+independent expected outcomes; their retained upstream revision is unchanged.
+Formerly refused allOf object/item coverage and nonconstant containment witnesses
+are positive regressions; genuine positional/count/independent-owner refusals
+remain negative controls. Published source/target patches, YAML/JSON, open and
+closed structures, overlapping selectors, composition, recursion, references,
+fixed dynamic references and unbounded-length witnesses are prepared.
+
+Core `migration_b03_test.dart` and native `test/migration_b03_review_test.dart`
+share `b03_migration_support.dart`'s external, identified schema resources. They
+prepare request/response and independent-consumer comparisons, unsaved root/shared
+buffers, exact values and aliases, Core cancellation/stale/collision/failure
+checks, CLI review/apply/check, native review/publication, original preservation
+and cold reopening after relocation and deletion of originals. Publication and
+review transaction implementations are unchanged.
+
+Migration engine, Core admission and native preflight are **86**; current producer
+assertions are synchronized, and obsolete **85** is added alongside **84** and
+older rejection controls. Evaluator **1.18.0+58**, graph role revision **9**,
+response mock **5**, parameter mock **4** and sample **4** are unchanged.
+
+**No compiler, analyzer, test, build, code generation, CI, graphical workload,
+packaging or performance check ran.** Only source inspection and Git whitespace
+review were performed. Generated bundles remain unbuilt; old producer-85 bundles
+are intentionally rejected by current admission. Git hooks were disabled for
+local commits to preserve the hold. No third-party software, dependency version
+or Flutter SDK was changed. Snapcraft remains skipped. Source completion does
+not establish executed equivalence, runtime acceptance or overall BusyAPI
+completion. The next assignment is **B04 — Constrained and mixed binary
+representation migration**; it has not started.
+
 ## B02: conditional, dependency and constrained tuple-tail migrations
 
 **Source-complete, unverified for the bounded W3.02–W3.04 assignment.** The
@@ -39,7 +183,7 @@ this completion continues `af9ab0a26f25e7826477bda0547a0268b408bf45` in the
 primary `release/v0.1.0` checkout. The bounded completion program at
 `~/Downloads/BusyAPI-bounded-completion-program-20261104.md` remains the scope.
 A01–A03's canonical ownership allocator and B01's directional evaluation
-policy remain authoritative. B03 has not started. This is a source handoff,
+policy remain authoritative. At that B02 handoff, B03 had not started. This is a source handoff,
 not executed evidence or an overall BusyAPI completion/acceptance declaration.
 
 Conditional lowering retains the existing constant, equivalent-branch and 3.0
@@ -683,7 +827,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W3.03 Conditional assertions and inactive conditional fields; JC §10.2.2 | `migration_schema_conditions.ts`, guard projections, shared owner allocator | M E S C | conditional suite with instance/annotation comparisons, Core/native B02 journeys | Source-complete for bounded B02, unverified; existing 3.0/constant/equal-branch mappings retained; positive implication, forced branches, native-domain/presence guards, selected complements and finite reductions added; inactive native applications preserve independent descendant closures. Nested conditional/dependency/logical effects now compose through independent application uses; exact finite/inert logical applicability is captured; unproved guards retain evidence refusals | H |
 | W3.04 Property/schema dependencies with independently referenced maps; JC §10.2.2.4, JV §6.5.4 | `migration_schema_dependencies.ts`, migration presence proofs and existing allocator | M E S C | dependency/dependent-schema suites, Core/native B02 journeys | Source-complete for bounded B02, unverified; constant mappings retained; seeded transitive/cyclic presence, closed/composed/exact constraints, forbidden triggers, native/presence guards and independent owners added. Native conjunctions take priority over finite folding when proved. The independently owned nested conditional witness is now a positive production regression; outer triggers, inner predicates and neutral branches retain separate meanings | H |
 | W3.05 Static/dynamic references, anchors, identities and independent annotations; JC §§8–9 | identity/schema-reference/role owners | M E S C | static-dynamicref/identity/boolean/inactive annotation suites, pinned official dynamicRef cases, Core static/dynamic reference publication/HTTP/CLI journeys | Partially implemented; inactive anchors and dynamic applicators whose captured candidates all identify the initial target lower through one shared binding proof. Sibling constraints and recursive references remain separate allOf/static edges; resource/role provenance and cold reopening are proved. Whole-resource entry variants retain static/dynamic targets, anchors and resource boundaries; downstream dynamic dependencies require a same-resource holder. Partial modern resources and native slots now receive common resource owners; moved definitions remain anonymous and native discriminator URI targets repair before stage validation; A03 adds ordinary and foreign whole-resource holders, nested identity/dialect ownership, named dynamic retargeting, resource/anchor isomorphism and neutral native-slot frames; old-family competing-target lowering remains an explicitly unfinished representation mapping, while unsupported dialects and unavailable/ambiguous source identities stay incomplete | H |
-| W3.06 Pattern/property-name/contains/count/unevaluated/content constraints; JC §§10–11, JV §§6/8 | `migration_schema.ts`, `migration_schema_property_names.ts`, binary/reference/dependency owners | M E S C | migration/binary/dependency suites (existing), `test_migration_property_names`, Core `migration_property_names_test.dart` | Partially implemented; finite annotation-free property-name enum/const/type restrictions now lower to an isolated closed-properties branch with retained independent owners; those same finite domains now lower pattern-selected value assertions through anonymous owners, including overlapping patterns and original additional-property exclusions; constant true/false containment now maps exact counts to array bounds and retains independent contains/unevaluated boolean owners; general name schemas, unbounded pattern domains, local unevaluated property/item selections now lower through their original material schemas, and explicit all-location coverage retires inactive assertions while preserving independent identities/consumers; nonconstant containment and broader composition-dependent unevaluated/content algorithms remain missing, with individual blockers | H |
+| W3.06 Pattern/property-name/contains/count/unevaluated/content constraints; JC §§10–11, JV §§6/8 | `migration_schema.ts`, name-domain/regex/containment/annotation certificate owners, existing binary/reference/dependency owners | M E S C | pattern/property-name/array/unevaluated/content suites, official fixtures, Core/native B03 journeys | Source-complete for established B03 certificate families, unverified; finite/cofinite/closed name proofs, finite/universal/equivalent-uniform pattern selection, nonconstant structural/existential/complement/unique-finite counts, successful composed/reference annotation selection, static/homogeneous/finite positional coverage and inactive content-owner preservation are implemented. Active decoded-content annotations retain actual older-vocabulary refusals; unavailable name/count/coverage/binding certificates and B04 binary work are distinguished in the B03 handoff above | H |
 | W3.07 Raw/data/base64/byte/file/union consumers and byte constraints; family binary clauses, JV §8 | `migration_binary.ts`, Swagger flat/media owners | M E S C | migration binary, direct Swagger, native binary suites | Partially implemented; direct Swagger route now inspects actual body/response media and modernizes flat bounds/byte encodings; captured static forwarding chains now give raw-body and direct multipart property/item consumers separate common schema owners from JSON consumers, retaining neutral definitions, collisions, metadata and exact provenance. Forwarded containing-object and composition-dependent occurrence splits, constrained raw assertions and file-union ownership remain | H |
 | W3.08 Inherited media, forms/files, examples without schemas, shared operations/body meaning and reusable objects; family object clauses | Swagger media/form/downgrade/operation owners | M E S C | Swagger media/form/bodyless/ignored-body suites, Core form CLI | Partially implemented; retain existing mappings and safety decisions; same-family Swagger operations with differing inherited media use common entry owners; examples without schemas and remaining mixed-family shared operations still have implementation gaps | H |
 | W3.09 Servers/security/newer-version fields and invariant proof; family clauses, HTTP/URI | servers/security/operation/invariant owners | M E S C | default-server/security-role/entry-route suites, native-object-use publication and URI-key controls | Partially implemented; Retained 3.2 URI security bindings preserve separate role arrays through owner specialization and portable relocation, with target/name-precedence proofs and declaration/scopes invariants. Older-family URI-to-name source paths now allocate separate standard components through the shared allocator and additional typed-use provenance; external/aliased targets, name precedence, exact scope/role arrays and AND/OR order retain captured connection and request proofs. Shared URI requirements seed entry specialization even when their targets agree; source-side moves repair relative URI keys, and targets lacking Path Item component maps use common anonymous holders. Scheme Reference Object materialization retains applicable description overrides and their original Markdown bases. Captured environment aliases, exact manifest text/identity, Core stale/publication checks, native binding review and CLI output are implemented with prepared regressions; execution remains outstanding. Standard OAuth acquisition flows now specialize into one-flow Swagger schemes and ordered OR expansions without merging AND bindings or scope arrays. Compatible global environment selections project through captured effective security-array owners, intersect complete branch sets across operations, and preserve invalid-selection guards. Ignored Reference Object siblings retain full literal copies through the shared anonymous allocator; source formats/comments and exact values survive materialization. Non-OAuth roles in restricted targets, unavailable summary/discovery/device representations and flow metadata without a standard target container retain located blockers. Mixed-family ownership without compatible holders and remaining newer-field mappings remain implementation work | H |
