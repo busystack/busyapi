@@ -154,7 +154,7 @@ $_tail''').replaceAll('\n', '\r\n')}',
             MigrationStatus.faithfullyConvertible,
             reason: '${review.result}',
           );
-          expect(review.result['producerVersion'], '86');
+          expect(review.result['producerVersion'], '87');
           expect(review.unsaved, isTrue);
           expect(review.outdated, isFalse);
           expect(await Directory(review.destination).exists(), isFalse);
@@ -221,7 +221,7 @@ $_tail''').replaceAll('\n', '\r\n')}',
             reason: '${prepared.stdout}\n${prepared.stderr}',
           );
           final report = jsonDecode(prepared.stdout as String) as Map;
-          expect(report['producerVersion'], '86');
+          expect(report['producerVersion'], '87');
           expect(report['published'], false);
           expect(await Directory(cliDestination).exists(), isFalse);
           final published = await cli([
@@ -366,7 +366,7 @@ child.stdout.on('data', chunk => {
   if (pending.length < length + 4) break;
   const value = JSON.parse(pending.subarray(4, length + 4).toString('utf8'));
   pending = pending.subarray(length + 4);
-  if (value.result?.producer === 'busyapi-native-migration') value.result.producerVersion = '2';
+  if (value.result?.producer === 'busyapi-native-migration') value.result.producerVersion = '86';
   const payload = Buffer.from(JSON.stringify(value)), header = Buffer.alloc(4);
   header.writeUInt32BE(payload.length);
   process.stdout.write(header);

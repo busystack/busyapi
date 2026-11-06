@@ -48,6 +48,7 @@ let standardOas30Type:any;
 let standardRequired:any;
 let standardReadOnly:any;
 let standardProperties:any;
+let standardMaxLength:any;
 export function compare(a:Decimal,b:Decimal) {
  const sign=n=>n.coefficient<0n?-1:n.coefficient>0n?1:0;
  const as=sign(a),bs=sign(b);if(as!==bs)return as<bs?-1:1;if(!as)return 0;
@@ -173,6 +174,16 @@ const instanceFingerprint=instance=>fingerprint(Instance.value(instance),undefin
 function installExactNumericKeywords() {
  current();
  const id=name=>'https://json-schema.org/keyword/'+name;
+ // Native OAS streaming policy (3.0 §4.4.2; 3.2 §4.14.3).
+ // Only decoder-owned octets use this extension. JSON strings retain Unicode
+ // length semantics; no content annotation triggers decoding or validation.
+ const maxLength=standardMaxLength??(standardMaxLength=getKeyword(id('maxLength')));
+ addKeyword({...maxLength,compile:schema=>schemaNumber(schema),interpret:(bound:Decimal,instance)=>{
+  const bytes=binaryInstances.get(instance);
+  if(bytes!==undefined)return compare(decimal(String(bytes.length)),bound)<=0;
+  if(Instance.typeOf(instance)!=='string')return true;
+  return compare(decimal(String([...Instance.value(instance)].length)),bound)<=0;
+ }} as any);
  addKeyword(swaggerDiscriminator(schema=>{
   const source=sourceAt(canonicalUri(schema));
   return source&&referenceGraph?{graph:referenceGraph,resource:source.doc.id,pointer:source.node.pointer}:undefined;

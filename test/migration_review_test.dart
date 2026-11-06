@@ -154,7 +154,7 @@ void main() {
                   } else 'components': {
                     'schemas': {
                       'Value': {'type': 'integer'},
-                      if (sharedBinary) 'Binary': {'type': 'string', 'format': 'binary', 'description': '[Bytes](./bytes.md)'},
+                      if (sharedBinary) 'Binary': {'type': 'string', 'format': 'binary', 'nullable': true, 'minLength': 1, 'maxLength': 5, 'description': '[Bytes](./bytes.md)'},
                     },
                   },
               })}\r\n';
@@ -354,6 +354,7 @@ void main() {
           if (sharedBinary) {
             expect(comparison.after, contains('_migrated_binary_use_'));
             expect(comparison.after, contains('application/octet-stream'));
+            expect(comparison.after, contains('maxLength'));
           }
           if (uriSecurity) {
             expect(comparison.after, contains('_migrated_security_binding_'));

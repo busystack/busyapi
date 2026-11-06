@@ -17,7 +17,7 @@ const key=(at:MigrationLocation)=>JSON.stringify([at.resource,at.pointer]);
 export function specializeBinarySchemaUses(graphs:readonly ReferenceGraph[],sources:ReadonlyMap<string,MigrationSource>,
     families:readonly string[],target:string,owners:MigrationSchemaOwners):ReadonlyMap<string,readonly MigrationLocation[]> {
     const provenance=new Map<string,MigrationLocation[]>();
-    if(!families.includes('3.0')||!modernFamily(target))return provenance;
+    if(!families.some(family=>family==='3.0'&&modernFamily(target)||modernFamily(family)&&!modernFamily(target)))return provenance;
     const pristine=new Map([...sources].map(([id,source])=>[id,source.fork()]));
     const prepared=new Map<string,MigrationLocation>(),repaired=new Set<string>(),preparedContainers=new Set<string>();let work=0;
     const inspect=()=>{if(++work>2000000)throw new SourceError('limit.migration.binary','Binary use specialization exceeds its bounded graph work');};
@@ -26,9 +26,10 @@ export function specializeBinarySchemaUses(graphs:readonly ReferenceGraph[],sour
         const uses=new BinaryUses(graph,graphs),incoming=new Set(graph.entryReferences().filter(reference=>
             reference.kind==='schema'&&reference.resolution==='resolved').map(reference=>key({resource:reference.targetResource!,pointer:reference.targetPointer!})));
         for(const scope of graph.entryScopes()){
-            inspect();if(scope.kind!=='schema'||scope.family!=='3.0')continue;
+            inspect();if(scope.kind!=='schema'||!families.includes(scope.family))continue;
             const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
-            if(value?.type!=='string'||value.format!=='binary'||typeof value.$ref==='string')continue;
+            if(!value||typeof value!=='object'||typeof value.$ref==='string'&&(!modernFamily(scope.family)||Object.keys(value).length===1)||
+                !modernFamily(scope.family)&&!(['type','minLength','pattern','enum','const','contentMediaType','contentEncoding'].some(name=>Object.hasOwn(value,name))||value.format==='binary'))continue;
             const contexts=uses.inspect(scope),raw=contexts.filter(rawBinaryUse);
             if(!raw.length||raw.length===contexts.length)continue;
             const occurrenceAt=(use:(typeof contexts)[number]):GraphScope|undefined=>{
@@ -50,10 +51,10 @@ export function specializeBinarySchemaUses(graphs:readonly ReferenceGraph[],sour
             // own captured forwarding endpoint and ordinary ownership guard.
             const data=contexts.filter(use=>!rawBinaryUse(use)),neutral=raw.some(use=>{
                 const occurrence=occurrenceAt(use);return occurrence&&key(occurrence)===key(scope);
-            })&&data.every(use=>binaryUseRepresentation(use)==='data')&&raw.every(use=>uses.rawCompatible(use,'3.0'));
+            })&&data.every(use=>binaryUseRepresentation(use)==='data')&&raw.every(use=>uses.rawCompatible(use,scope.family));
             const mode=neutral?'data':'raw';
             const containingStart=containing.length;
-            for(const use of raw)if(uses.rawCompatible(use,'3.0')){
+            for(const use of raw)if(uses.rawCompatible(use,scope.family)){
                 const occurrence=occurrenceAt(use);
                 // The simple-chain path below remains the minimal owner for
                 // direct leaves. Containing/composed/targeted occurrences use
@@ -73,7 +74,7 @@ export function specializeBinarySchemaUses(graphs:readonly ReferenceGraph[],sour
                 }))containing.push({leaf:scope,use});
             }
             if(neutral&&containing.length!==containingStart){
-                for(const use of raw)if(uses.rawCompatible(use,'3.0'))containing.push({leaf:scope,use});
+                for(const use of raw)if(uses.rawCompatible(use,scope.family))containing.push({leaf:scope,use});
                 continue;
             }
             for(const use of neutral?data:raw){
@@ -82,12 +83,12 @@ export function specializeBinarySchemaUses(graphs:readonly ReferenceGraph[],sour
                 // change that consumer too. Its independent neutral owner
                 // must be established before admitting this repair.
                 if(!occurrence||key(occurrence)===key(scope)||incoming.has(key(occurrence)))continue;
-                if(!neutral&&!uses.rawCompatible(use,'3.0')||repaired.has(key(occurrence)))continue;
+                if(!neutral&&!uses.rawCompatible(use,scope.family)||repaired.has(key(occurrence)))continue;
                 const chain:GraphScope[]=[];let at=occurrence;const seen=new Set<string>();
                 for(let depth=0;depth<128;depth++){
                     inspect();if(seen.has(key(at)))break;seen.add(key(at));
                     const data=graph.docs.get(at.resource)!.dataNode(at.pointer)?.value;
-                    if(at.family!=='3.0'||!data||typeof data!=='object'||Object.keys(data).length!==1||typeof data.$ref!=='string')break;
+                    if(at.family!==scope.family||!data||typeof data!=='object'||Object.keys(data).length!==1||typeof data.$ref!=='string')break;
                     const reference=graph.referenceAs(at.resource,at.pointer,'$ref','schema');
                     const next=reference?.resolution==='resolved'&&graph.scopeAs(reference.targetResource!,reference.targetPointer!,'schema');
                     if(!next)break;

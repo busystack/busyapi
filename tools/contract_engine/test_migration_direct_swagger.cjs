@@ -19,7 +19,7 @@ for(const targetVersion of versions)for(const format of ['yaml','json'])for(cons
  const values=['[]','[9007199254740994]','[9007199254740994,"雪",false,null,{}]','[9007199254740993]','["wrong"]','[9007199254740994,0]'];
  const evaluate=(capture,pointer)=>evaluateSchemas({...capture,runtimeInstances:values.map(text=>({subject:'response-body',location:'application/json',text,schema:{resource:capture.root,pointer}}))});
  const before=await evaluate(input,'/definitions/Tuple');assert.equal(before.complete,true,JSON.stringify(before.findings));
- const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(result.producerVersion,'86');
+ const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(result.producerVersion,'87');
  assert(!result.stages.some(stage=>stage.from==='2.0'&&stage.to==='3.0'));
  const target={root:result.outputRoot,snapshot:'cold',resources:result.outputs.map(o=>({id:o.id,text:o.text,generation:0}))};
  assert.equal(analyse(target).status,'complete');
@@ -54,5 +54,14 @@ for(const targetVersion of ['3.0.4',...versions])for(const media of ['applicatio
   const original=await evaluateSchemas({...input,runtimeInstances:[{subject:'response-body',location:media,text:'/wAA/w==',mediaType:media,mediaBase64:true,schema:{resource:root,pointer:sourcePointer}}]});
   assert.equal(original.complete,true,JSON.stringify(original.findings));assert.equal(checked.complete,true,JSON.stringify(checked.findings));assert.deepEqual(checked.runtimeEvaluations.map(v=>v.valid),original.runtimeEvaluations.map(v=>v.valid));
  }
+ assert.equal(input.resources[0].text,text);
+});
+
+for(const targetVersion of ['3.0.4',...versions])for(const format of ['yaml','json'])
+test(`Swagger ${format} file is never emitted as an unrestricted union for ${targetVersion}`,async()=>{
+ const root='file:///approved/api.'+format,value={swagger:'2.0',info:{title:'Invalid file union',version:'1'},produces:['application/octet-stream','application/json'],
+  paths:{'/file':{get:{responses:{200:{description:'Reply',schema:{type:['file','object']}}}}}}};
+ const text=format==='json'?JSON.stringify(value):YAML.stringify(value),input={root,snapshot:'invalid-file-union',targetVersion,destination:'file:///reviewed/',resources:[{id:root,text,generation:1}]};
+ const result=await planMigration(input);assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);assert.deepEqual(result.changes,[]);
  assert.equal(input.resources[0].text,text);
 });

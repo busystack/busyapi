@@ -46,7 +46,7 @@ for(const targetVersion of targets)for(const format of ['yaml','json'])for(const
 test(`Swagger ${format} ${mode} -> ${targetVersion} specializes dispatch without flattening accepted values`,async()=>{
  const {input,cat,catPointer}=fixture(format,mode,targetVersion),original=input.resources.map(value=>value.text),texts=samples(cat,mode==='multi');
  const before=await evaluate(input,'/definitions/Base',texts),plan=await planMigration(input);
- assert.equal(plan.complete,true,JSON.stringify(plan.problems));assert.equal(plan.status,'faithfully-convertible');assert.equal(plan.producerVersion,'86');
+ assert.equal(plan.complete,true,JSON.stringify(plan.problems));assert.equal(plan.status,'faithfully-convertible');assert.equal(plan.producerVersion,'87');
  const output={root:plan.outputRoot,snapshot:'cold-dispatch',resources:plan.outputs.map(value=>({id:value.id,text:value.text,generation:0,aliases:Object.entries(plan.manifest.resourceMappings).filter(([,path])=>path===value.path).map(([uri])=>uri)}))};
  assert.equal(analyse(output).status,'complete',JSON.stringify(analyse(output).findings));
  assert.deepEqual(await evaluate(output,'/components/schemas/Base',texts),before);
@@ -115,7 +115,7 @@ test('bounded model selection is incomplete rather than silently omitting an inh
  const plan=await planMigration(input);assert.equal(plan.complete,false);assert.deepEqual(plan.outputs,[]);
 });
 test('model completeness identifies the current evaluator rules and excludes obsolete rules',()=>{
- assert.equal(schemaProducer.version,'1.18.0+58');
+ assert.equal(schemaProducer.version,'1.18.0+59');
  const configuration=schemaProducer.configuration.split(':');
  assert.equal(configuration.filter(value=>value==='discriminator-models-v2').length,1);
  assert(!configuration.includes('swagger-discriminator-models-v1'));

@@ -32,10 +32,12 @@ String _source(String version, String format, int port, {required bool binary}) 
 
 void main() {
   for (final representation in ['body', 'part', 'items', 'targeted',
-    'container', 'composition', 'targeted-composition', 'targeted-part']) {
+    'container', 'composition', 'targeted-composition', 'targeted-part',
+    'bounded', 'bounded-composition', 'bounded-part']) {
     test('shared $representation and JSON schemas retain distinct execution after publication and cold reopening', () async {
-      final multipart = ['part', 'items', 'container', 'composition', 'targeted-part'].contains(representation), array = representation == 'items';
+      final multipart = ['part', 'items', 'container', 'composition', 'targeted-part', 'bounded-part'].contains(representation), array = representation == 'items';
       final targeted = representation.startsWith('targeted');
+      final bounded = representation.startsWith('bounded');
       final containing = ['container', 'composition'].contains(representation);
       final rawType = multipart ? 'multipart/form-data; boundary=Shared' : 'application/octet-stream';
       final directory = await Directory.systemTemp.createTemp('busyapi-mixed-binary-');
@@ -55,6 +57,13 @@ void main() {
       final document = jsonDecode(_source('3.0.4', 'json', server.port, binary: true)) as Map<String, dynamic>;
       document['components'] = {'schemas': {'Shared': {'type': 'string', 'format': 'binary',
         'description': '[Retained](./guide.md)', 'x-number': 'EXACT'}}};
+      if (bounded) {
+        final leaf = document['components']['schemas']['Shared'] as Map;
+        leaf.addAll({'minLength': 1, 'maxLength': 5, 'nullable': true});
+        if (representation == 'bounded-composition') {
+          document['components']['schemas']['Shared'] = {'allOf': [leaf, {'type': 'string'}]};
+        }
+      }
       document['x-number'] = 'EXACT';
       if (targeted) document.remove('components');
       final operation = document['paths']['/bytes']['post'] as Map;
@@ -104,7 +113,7 @@ void main() {
           final outcomes = <(bool, bool)>[];
           for (final (type, bytes) in <(String, List<int>)>[
             (rawType, rawBytes([0, 255, 128, 195, 169])), (rawType, rawBytes([])),
-            ('application/json', jsonBytes('snow 雪')), ('application/json', jsonBytes(false)),
+            ('application/json', jsonBytes(bounded ? 'snow' : 'snow 雪')), ('application/json', jsonBytes(false)),
           ]) {
             await payload.writeAsBytes(bytes);
             final response = await const ContractRequestExecutor().execute(plan,
@@ -121,13 +130,13 @@ void main() {
         } finally { plan.close(); }
       }
       final before = await send(project);
-      expect(before, [(true, true), (true, true), (true, true), (false, false)]);
+      expect(before, [(true, true), (!bounded, !bounded), (true, true), (false, false)]);
       final cli = await Process.run('$testBundle/busyapi', ['migrate', file.path,
         '--target', '3.1.2', '--output', '${directory.path}/cli-review', '--json'],
         environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
       expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');
       final report = jsonDecode(cli.stdout as String) as Map;
-      expect(report['complete'], true); expect(report['producerVersion'], '86');
+      expect(report['complete'], true); expect(report['producerVersion'], '87');
       expect(report['published'], false);
       await review.publish();
       expect(await file.readAsString(), text); expect(buffer.text, working);
@@ -174,7 +183,7 @@ void main() {
         final review = await project.prepareMigration(root, destination, targetVersion: target);
         addTearDown(review.close);
         expect(review.status, MigrationStatus.faithfullyConvertible, reason: '${review.result}');
-        expect(review.result['producerVersion'], '86');
+        expect(review.result['producerVersion'], '87');
         expect(review.unsaved, true);
         expect(Directory(destination).existsSync(), false);
         await review.publish();
@@ -224,7 +233,7 @@ void main() {
         expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');
         final report = jsonDecode(cli.stdout as String) as Map;
         expect(report['complete'], true);
-        expect(report['producerVersion'], '86');
+        expect(report['producerVersion'], '87');
         expect(report['published'], false);
         expect(Directory('${directory.path}/cli-review').existsSync(), false);
       });

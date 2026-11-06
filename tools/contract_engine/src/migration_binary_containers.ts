@@ -3,6 +3,8 @@ import {escape,SourceError} from './document';
 import {pointerFragment,schemaResourceContextIdentity,type GraphScope,type ReferenceGraph} from './reference_graph';
 import {MigrationSource,type MigrationLocation} from './migration_source';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
+import {projectSchemaReference} from './schema_reference_projection';
+import {modernFamily} from './specification';
 import {entryComponentContainer} from './migration_schema_uses';
 import type {BinaryStep,BinaryUse} from './migration_binary';
 
@@ -10,7 +12,7 @@ const key=(at:MigrationLocation)=>JSON.stringify([at.resource,at.pointer]);
 const within=(at:MigrationLocation,parent:MigrationLocation)=>at.resource===parent.resource&&
     (at.pointer===parent.pointer||at.pointer.startsWith(parent.pointer+'/'));
 type Selection=Readonly<{target:MigrationLocation;path:readonly BinaryStep[]}>;
-type Route={scope:GraphScope;selections:readonly Selection[];edges:{field?:string;target:Route}[];relevant:boolean};
+type Route={scope:GraphScope;selections:readonly Selection[];edges:{field?:string;keyword?:string;target:Route}[];relevant:boolean};
 export type BinaryContainerUse=Readonly<{leaf:GraphScope;use:BinaryUse}>;
 
 /** A media occurrence owns one finite schema graph, including its containing
@@ -29,7 +31,7 @@ export function specializeBinaryContainers(graph:ReferenceGraph,sources:Readonly
         inspect();const id=key(use.schema),group=groups.get(id)??{scope:use.schema,selections:[]};
         group.selections.push({target:leaf,path:use.path});groups.set(id,group);
     }
-    const references=graph.entryReferences().filter(reference=>reference.kind==='schema'&&!reference.connection&&reference.resolution==='resolved');
+    const references=graph.entryReferences().filter(reference=>projectSchemaReference(reference).state==='fixed');
     const completed:MigrationLocation[]=[];
     const record=(origin:GraphScope,location:MigrationLocation,canonical:boolean)=>{
         const pending=[origin],seen=new Set<string>();
@@ -61,16 +63,16 @@ export function specializeBinaryContainers(graph:ReferenceGraph,sources:Readonly
         }
         return copied.location;
     };
-    const setReference=(at:MigrationLocation,target:MigrationLocation)=>{
+    const setReference=(at:MigrationLocation,target:MigrationLocation,keyword='$ref')=>{
         const source=sources.get(at.resource)!;owners.admit(source);
-        source.set(at.pointer+'/$ref',target.resource+pointerFragment(target.pointer));
+        source.set(at.pointer+'/'+keyword,target.resource+pointerFragment(target.pointer));
     };
     for(const group of [...groups.values()].sort((a,b)=>key(a.scope).localeCompare(key(b.scope)))){
         inspect();const root=group.scope;
         if(preparedRoots.has(key(root)))continue;
         // Existing role/entry preparation owns independently interpreted data.
         // A binary specialization must not bypass that ambiguity boundary.
-        if(root.family!=='3.0'||graph.literalContainer(root.resource,root.pointer)!==undefined||graph.hasOverlappingScope(root.resource,root.pointer))continue;
+        if(!['3.0','3.1','3.2'].includes(root.family)||graph.literalContainer(root.resource,root.pointer)!==undefined||graph.hasOverlappingScope(root.resource,root.pointer))continue;
         const routes=new Map<string,Route>();
         const selectionsKey=(selections:readonly Selection[])=>[...new Set(selections.map(selection=>
             JSON.stringify([selection.target.resource,selection.target.pointer,selection.path])))].sort();
@@ -78,28 +80,29 @@ export function specializeBinaryContainers(graph:ReferenceGraph,sources:Readonly
             inspect();const id=JSON.stringify([scope.resource,scope.pointer,selectionsKey(selections)]),known=routes.get(id);
             if(known)return known;
             if(routes.size>=2048)throw new SourceError('limit.migration.binary','Containing binary ownership exceeds 2048 route states');
-            const state:Route={scope,selections,edges:[],relevant:selections.some(selection=>!selection.path.length&&key(selection.target)===key(scope))};
+            const state:Route={scope,selections,edges:[],relevant:selections.some(selection=>!selection.path.length)};
             routes.set(id,state);pending.push(state);return state;
         };
         const pending:Route[]=[];
         const initial=route(root,group.selections);
         for(let index=0;index<pending.length;index++){
             inspect();const state=pending[index],at=state.scope,value=graph.docs.get(at.resource)!.dataNode(at.pointer)?.value;
-            if(at.family!=='3.0'||!value||typeof value!=='object'||Array.isArray(value))continue;
+            if(at.family!==root.family||!value||typeof value!=='object'||Array.isArray(value))continue;
             const child=(suffix:string,selections=state.selections)=>{
                 if(!selections.length)return;
                 const target=graph.scopeAs(at.resource,at.pointer+suffix,'schema');
                 if(target)state.edges.push({target:route(target,selections)});
             };
-            if(typeof value.$ref==='string'){
-                const edge=graph.referenceAs(at.resource,at.pointer,'$ref','schema');
-                const target=edge?.resolution==='resolved'&&graph.scopeAs(edge.targetResource!,edge.targetPointer!,'schema');
-                if(target)state.edges.push({field:at.pointer,target:route(target,state.selections)});
-                continue;
+            for(const keyword of modernFamily(at.family)?['$ref','$dynamicRef']:['$ref'])if(typeof value[keyword]==='string'){
+                const edge=graph.referenceAs(at.resource,at.pointer,keyword,'schema'),projection=edge&&projectSchemaReference(edge);
+                const target=projection?.state==='fixed'&&graph.scopeAs(projection.target.resource,projection.target.pointer,'schema');
+                if(target)state.edges.push({field:at.pointer,keyword,target:route(target,state.selections)});
             }
+            if(!modernFamily(at.family)&&typeof value.$ref==='string')continue;
             for(const name of ['allOf','anyOf','oneOf'])if(Array.isArray(value[name]))
                 for(let item=0;item<value[name].length;item++)child('/'+name+'/'+item);
-            if(Object.hasOwn(value,'not'))child('/not');
+            for(const name of ['not',...(modernFamily(at.family)?['if','then','else']:[])])
+                if(Object.hasOwn(value,name))child('/'+name);
             for(const name of Object.keys(value.properties??{})){
                 const selected=state.selections.filter(selection=>typeof selection.path[0]==='object'&&selection.path[0].property===name)
                     .map(selection=>({...selection,path:selection.path.slice(1)}));
@@ -133,7 +136,7 @@ export function specializeBinaryContainers(graph:ReferenceGraph,sources:Readonly
             inspect();if(!within({resource:reference.targetResource!,pointer:reference.targetPointer!},root)||within(reference,root)||
                 completed.some(at=>within(reference,at)))return false;
             const source=sources.get(reference.resource)!,pointer=source.current(reference.pointer);
-            return pointer!==undefined&&source.doc.dataNode(pointer+'/$ref')?.value===reference.value;
+            return pointer!==undefined&&source.doc.dataNode(pointer+'/'+reference.keyword)?.value===reference.value;
         });
         let neutral:MigrationLocation|undefined;
         if(targeted){
@@ -143,11 +146,11 @@ export function specializeBinaryContainers(graph:ReferenceGraph,sources:Readonly
                 inspect();const target={resource:reference.targetResource!,pointer:reference.targetPointer!};
                 if(!within(target,root))continue;
                 const destination={resource:neutral.resource,pointer:neutral.pointer+target.pointer.slice(root.pointer.length)};
-                if(within(reference,root))setReference({resource:neutral.resource,pointer:neutral.pointer+reference.pointer.slice(root.pointer.length)},destination);
+                if(within(reference,root))setReference({resource:neutral.resource,pointer:neutral.pointer+reference.pointer.slice(root.pointer.length)},destination,reference.keyword);
                 else if(!completed.some(at=>within(reference,at))){
                     const source=sources.get(reference.resource)!,pointer=source.current(reference.pointer);
-                    if(pointer!==undefined&&source.doc.dataNode(pointer+'/$ref')?.value===reference.value)
-                        setReference({resource:reference.resource,pointer},destination);
+                    if(pointer!==undefined&&source.doc.dataNode(pointer+'/'+reference.keyword)?.value===reference.value)
+                        setReference({resource:reference.resource,pointer},destination,reference.keyword);
                 }
             }
         }
@@ -157,7 +160,7 @@ export function specializeBinaryContainers(graph:ReferenceGraph,sources:Readonly
                 inspect();const current=states[index];if(seen.has(current))continue;seen.add(current);
                 for(const edge of current.edges){
                     inspect();if(!edge.target.relevant)continue;
-                    if(edge.field!==undefined)repairs.set(edge.field,material.get(edge.target)!);
+                    if(edge.field!==undefined)repairs.set(JSON.stringify([edge.field,edge.keyword]),material.get(edge.target)!);
                     else states.push(edge.target);
                 }
             }
@@ -165,8 +168,8 @@ export function specializeBinaryContainers(graph:ReferenceGraph,sources:Readonly
             // copy crosses a file base. Only selected route edges specialize.
             for(const reference of references){
                 inspect();if(!within(reference,state.scope))continue;
-                const target=repairs.get(reference.pointer)??{resource:reference.targetResource!,pointer:reference.targetPointer!};
-                setReference({resource:location.resource,pointer:location.pointer+reference.pointer.slice(state.scope.pointer.length)},target);
+                const target=repairs.get(JSON.stringify([reference.pointer,reference.keyword]))??{resource:reference.targetResource!,pointer:reference.targetPointer!};
+                setReference({resource:location.resource,pointer:location.pointer+reference.pointer.slice(state.scope.pointer.length)},target,reference.keyword);
             }
             record(state.scope,location,state===initial&&!neutral);
         }
@@ -176,7 +179,7 @@ export function specializeBinaryContainers(graph:ReferenceGraph,sources:Readonly
             inspect();if(!within(reference,root))continue;
             const target={resource:reference.targetResource!,pointer:reference.targetPointer!};
             setReference({resource:neutral.resource,pointer:neutral.pointer+reference.pointer.slice(root.pointer.length)},within(target,root)?
-                {resource:neutral.resource,pointer:neutral.pointer+target.pointer.slice(root.pointer.length)}:target);
+                {resource:neutral.resource,pointer:neutral.pointer+target.pointer.slice(root.pointer.length)}:target,reference.keyword);
         }
         const source=sources.get(root.resource)!,pointer=source.current(root.pointer);
         if(pointer===undefined)throw new SourceError('migration.binary.owner','The containing media schema lost its captured source owner');

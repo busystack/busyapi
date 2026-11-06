@@ -44,7 +44,7 @@ import {securityRequirementDefinition} from './security_requirements';
 import {migrateSwaggerSecurityFlows} from './migration_security_flows';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='86';
+const migrationProducerVersion='87';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const referenceLocator=(reference:GraphReference)=>!reference.connection&&['$ref','$dynamicRef'].includes(reference.keyword)||
     reference.connection==='operationRef'&&reference.keyword==='operationRef';
@@ -381,8 +381,17 @@ export async function planMigration(input:MigrationInput) {
             }
             if(problems.length)break;
             for(const before of stage.sources)migrateServerVariableDefaults(graph,sources,before,after,issue);
-            for(const before of stage.sources)migrateBinarySchemas(graph,sources,before,after,issue,contexts.map(context=>context.graph));
+            const rawBinaryScopes=new Set<string>();
+            for(const before of stage.sources)for(const id of migrateBinarySchemas(graph,sources,before,after,issue,contexts.map(context=>context.graph)))rawBinaryScopes.add(id);
             if(problems.length)break;
+            if(rawBinaryScopes.size){
+                // Binary ownership has projected selected occurrences into the
+                // legacy octet-string domain. Ordinary JSON-domain schema
+                // certificates must inspect that projection, not the original
+                // modern type predicates (which reject every raw instance).
+                const binaryInput=preparationInput(),binaryGraph=createGraph(binaryInput);
+                contexts=migrationDocumentContexts(binaryInput,binaryGraph,issue);graph=binaryGraph.graph;
+            }
             for(const before of stage.sources)await migrateSchemas(graph,sources,before,after,issue,contexts.map(context=>context.graph),resources,input.exampleResources);
             for(const before of stage.sources)migrateEncodings(graph,sources,before,after,issue,contexts.map(context=>context.graph));
             const referenceTargets=stage.sources.includes('2.0')?upgradeSwagger(graph,sources,issue,contexts.map(context=>context.graph),after):undefined;

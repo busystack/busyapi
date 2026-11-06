@@ -26,7 +26,7 @@ async function wire(input,type,bytes,form=false){
 for(const from of legacy)for(const target of ['3.1.2','3.2.1'])for(const format of ['yaml','json'])
 test(`${from} -> ${target} ${format} raw body mapping retains exact non-Unicode and empty bytes`,async()=>{
  const type='application/octet-stream',input=capture(from,format,type,{type:'string',format:'binary',description:'Keep leaf'},target),before=input.resources[0].text;
- const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));assert.equal(plan.producerVersion,'86');
+ const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));assert.equal(plan.producerVersion,'87');
  const output=cold(plan);assert.deepEqual(schema(output,type),{description:'Keep leaf'});
  for(const bytes of [Buffer.from([0,255,128,195,169]),Buffer.alloc(0)]){
   assert.deepEqual(await wire(output,type,bytes),await wire(input,type,bytes));assert((await wire(output,type,bytes)).every(value=>value.valid));
@@ -168,20 +168,15 @@ test(`${format} ${target} data references to an inline raw ${multipart?'part':'b
  assert.deepEqual(after,before);assert(after.every(value=>value.complete&&value.valid));assert.equal(input.resources[0].text,original);
 });
 
-for(const format of ['yaml','json'])for(const mode of ['constraint','ancestor','mixed','opaque','unbound'])
+for(const format of ['yaml','json'])for(const mode of ['opaque','unbound'])
 test(`${format} incomplete ${mode} binary mapping retains a located refusal without output`,async()=>{
  const type=mode==='opaque'?'application/unknown-binary':'application/octet-stream';
  let leaf={type:'string',format:'binary'};
- if(mode==='constraint')leaf.maxLength=4;
- if(mode==='ancestor')leaf={type:'string',allOf:[leaf]};
  const input=capture('3.0.4',format,type,leaf,'3.2.1');
- if(mode==='mixed'||mode==='unbound'){
+ if(mode==='unbound'){
   const doc=format==='json'?JSON.parse(input.resources[0].text):YAML.parse(input.resources[0].text);
-  doc.components={schemas:{Shared:{type:'string',format:'binary',...(mode==='mixed'?{maxLength:4}:{})}}};
-  if(mode==='unbound')doc.paths={};
-  else for(const content of [doc.paths['/bytes'].post.requestBody.content,doc.paths['/bytes'].post.responses[200].content]){
-   content[type].schema={$ref:'#/components/schemas/Shared'};content['application/json']={schema:{$ref:'#/components/schemas/Shared'}};
-  }
+  doc.components={schemas:{Shared:{type:'string',format:'binary'}}};
+  doc.paths={};
   input.resources[0].text=render(doc,format);
  }
  const before=input.resources[0].text,plan=await planMigration(input);assert.equal(plan.status,'blocked');assert.equal(plan.complete,false);assert.deepEqual(plan.outputs,[]);assert.deepEqual(plan.changes,[]);
@@ -205,23 +200,22 @@ test(`Swagger 2.0 -> ${targetVersion} ${format} opaque file response composes th
  assert.equal(input.resources[0].text,before);
 });
 
-for(const format of ['yaml','json'])for(const mode of ['decoded-media','custom-format','encoded-opaque-body'])
+for(const format of ['yaml','json'])for(const mode of ['decoded-media','encoded-opaque-body'])
 test(`${format} ${mode} does not discard an unmapped encoded representation`,async()=>{
  const type=mode==='encoded-opaque-body'?'application/octet-stream':'application/json';
  let leaf={type:'string',contentEncoding:'base64'};
  if(mode==='decoded-media')leaf={type:'object',properties:{data:{...leaf,contentMediaType:'image/png'}}};
- if(mode==='custom-format')leaf.format='uuid';
  const input=capture('3.1.2',format,type,leaf,'3.0.4'),before=input.resources[0].text,plan=await planMigration(input);
  assert.equal(plan.complete,false);assert.equal(plan.status,'blocked');assert.deepEqual(plan.outputs,[]);
  assert(plan.problems.some(value=>value.code==='migration.schema.binary-context'&&value.reason==='implementation'),JSON.stringify(plan.problems));
  assert.equal(input.resources[0].text,before);
 });
 
-for(const format of ['yaml','json'])test(`${format} raw constraints in another allOf branch remain a publication blocker`,async()=>{
- const input=capture('3.0.4',format,'application/octet-stream',{allOf:[{type:'string',format:'binary'},{maxLength:3}]},'3.2.1'),before=input.resources[0].text;
- const plan=await planMigration(input);assert.equal(plan.complete,false);assert.deepEqual(plan.outputs,[]);
- assert(plan.problems.some(value=>value.code==='migration.schema.binary-context'));
- assert.equal(input.resources[0].text,before);
+for(const format of ['yaml','json'])test(`${format} raw constraints in another allOf branch retain byte counts`,async()=>{
+ const type='application/octet-stream',input=capture('3.0.4',format,type,{allOf:[{type:'string',format:'binary'},{type:'string',minLength:1,maxLength:3}]},'3.2.1');
+ const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));
+ for(const bytes of [Buffer.alloc(0),Buffer.from([0]),Buffer.from([0,255,128]),Buffer.from([0,255,128,255])])
+  assert.deepEqual(await wire(cold(plan),type,bytes),await wire(input,type,bytes));
 });
 
 for(const format of ['yaml','json'])for(const target of ['3.1.2','3.2.1'])for(const composition of [false,true])
@@ -229,7 +223,7 @@ test(`${format} ${target} shared containing multipart schemas preserve independe
  const type='multipart/form-data; boundary=Container',models='file:///approved/contracts/models.'+format;
  const input=capture('3.0.4',format,type,{$ref:'models.'+format+'#/Alias'},target);
  const doc=format==='json'?JSON.parse(input.resources[0].text):YAML.parse(input.resources[0].text);
- const binary={$ref:'#/Binary'},container={type:'object',required:['payload','count'],properties:{payload:binary,count:{type:'integer'},nested:{type:'object',properties:{value:binary}}}};
+ const binary={$ref:'#/Binary'},container={type:'object',required:['payload','count'],properties:{payload:binary,count:{type:'integer'},nested:{type:'object',properties:{value:binary}},next:{$ref:'#/Shared'}}};
  const shared=composition?{allOf:[container,{description:'Keep composed annotation',properties:{count:{minimum:1}}}]}:container;
  for(const content of [doc.paths['/bytes'].post.requestBody.content,doc.paths['/bytes'].post.responses[200].content]){
   content[type].encoding={payload:{contentType:'application/octet-stream'}};
@@ -252,7 +246,7 @@ test(`${format} ${target} shared containing multipart schemas preserve independe
   const before=await wire(input,type,bytes,true),after=await wire(output,type,bytes,true);
   assert.deepEqual(after,before);assert(after.every(value=>value.complete&&value.valid===(count==='3')));
  }
- for(const value of [{payload:'snow 雪',count:3,nested:{value:'data'}},{payload:false,count:3},{payload:'x',count:3,nested:{value:false}}])
+ for(const value of [{payload:'snow 雪',count:3,nested:{value:'data'}},{payload:false,count:3},{payload:'x',count:3,nested:{value:false}},{payload:'x',count:3,next:{payload:'nested',count:2,next:{payload:'deep',count:1}}},{payload:'x',count:3,next:{payload:false,count:2}}])
   assert.deepEqual(await wire(output,'application/json',Buffer.from(JSON.stringify(value))),await wire(input,'application/json',Buffer.from(JSON.stringify(value))));
  assert(review.outputs.some(resource=>resource.text.includes('9007199254740993.00')));
 });
@@ -276,4 +270,114 @@ test(`${format} ${target} composed JSON consumers target an inline raw ${descend
  if(descendant)bytes=Buffer.concat([Buffer.from('--Target\r\nContent-Disposition: form-data; name="payload"\r\nContent-Type: application/octet-stream\r\n\r\n'),bytes,Buffer.from('\r\n--Target--\r\n')]);
  const after=await wire(output,type,bytes,descendant);assert.deepEqual(after,await wire(input,type,bytes,descendant));assert(after.every(value=>value.valid));
  assert.equal(input.resources[0].text,original);
+});
+
+for(const from of legacy)for(const target of modern)for(const format of ['yaml','json'])
+for(const leaf of [
+ {type:'string',format:'binary',minLength:1,maxLength:3},
+ {type:'string',format:'binary',nullable:true,minLength:0,maxLength:0},
+ {type:'string',format:'binary',enum:['']},
+ {type:'string',format:'binary',enum:[false,null,9007199254740992]},
+ {type:'string',format:'binary',pattern:'^[\\s\\S]*$',maxLength:3},
+ {type:'string',format:'binary',pattern:'^[\\s\\S]{1,3}(?![\\s\\S])'},
+ {anyOf:[{type:'string',format:'binary',maxLength:1},{type:'string',maxLength:3}]},
+ {oneOf:[{type:'string',format:'binary',maxLength:3},{type:'string',maxLength:1}]},
+ {type:'string',format:'binary',not:{type:'string',maxLength:1}},
+])test(`${from} -> ${target} ${format} constrained raw ${JSON.stringify(leaf)}`,async()=>{
+ const type='application/octet-stream',input=capture(from,format,type,leaf,target),original=input.resources[0].text;
+ const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));
+ for(const bytes of [Buffer.alloc(0),Buffer.from([255]),Buffer.from([0,255]),Buffer.from([0,255,128]),Buffer.from([0,255,128,0])])
+  assert.deepEqual(await wire(cold(plan),type,bytes),await wire(input,type,bytes));
+ assert.equal(input.resources[0].text,original);
+});
+
+for(const target of modern)for(const format of ['yaml','json'])for(const composed of [false,true,'union'])
+test(`${target} ${format} shared constrained raw and JSON occurrences composed=${composed}`,async()=>{
+ const type='application/octet-stream',input=capture('3.0.4',format,type,{$ref:'#/components/schemas/Shared'},target);
+ const doc=format==='json'?JSON.parse(input.resources[0].text):YAML.parse(input.resources[0].text);
+ const model={type:'string',format:'binary',nullable:true,minLength:1,maxLength:3};
+ doc.components={schemas:{Shared:composed==='union'?{anyOf:[model,{type:'object',required:['value'],properties:{value:{type:'integer'}}}]}:composed?{allOf:[model,{type:'string'}]}:model}};
+ for(const content of [doc.paths['/bytes'].post.requestBody.content,doc.paths['/bytes'].post.responses[200].content])
+  content['application/json']={schema:{$ref:'#/components/schemas/Shared'}};
+ input.resources[0].text=render(doc,format);const original=input.resources[0].text,plan=await planMigration(input);
+ assert.equal(plan.complete,true,JSON.stringify(plan.problems));const output=cold(plan);
+ for(const bytes of [Buffer.alloc(0),Buffer.from([0,255,128]),Buffer.from([0,255,128,255])])
+  assert.deepEqual(await wire(output,type,bytes),await wire(input,type,bytes));
+ for(const text of ['null','false','""','"雪"','"long string"','{}','{"value":2}','{"value":"wrong"}'])
+  assert.deepEqual(await wire(output,'application/json',Buffer.from(text)),await wire(input,'application/json',Buffer.from(text)));
+ assert.equal(input.resources[0].text,original);
+});
+
+for(const from of modern)for(const target of ['3.0.4','2.0'])for(const format of ['yaml','json'])
+test(`${from} -> ${target} ${format} raw JSON types remain rejecting and inactive string assertions stay inactive`,async()=>{
+ for(const leaf of [{type:'string',minLength:1},{type:['string','null']},{enum:['',null,false]},
+  {contentMediaType:'image/png',minLength:100,pattern:'never',maxLength:3}]){
+  const type='application/octet-stream',input=capture(from,format,type,leaf,target),plan=await planMigration(input);
+  assert.equal(plan.complete,true,JSON.stringify(plan.problems));
+  const output=cold(plan);
+  for(const bytes of [Buffer.alloc(0),Buffer.from([0,255,128]),Buffer.from([0,255,128,255])]){
+   const before=await wire(input,type,bytes);
+   if(target==='2.0'){
+    const result=await evaluateSchemas({...output,runtimeInstances:['request-body','response-body'].map(subject=>({subject,location:type,mediaType:type,mediaBase64:true,text:bytes.toString('base64'),schema:{resource:output.root,pointer:subject==='request-body'?'/paths/~1bytes/post/parameters/0/schema':'/paths/~1bytes/post/responses/200/schema'}}))});
+    assert.equal(result.complete,true,JSON.stringify(result.runtimeFindings));
+    assert.deepEqual(result.runtimeEvaluations.map(value=>({complete:value.complete,valid:value.valid})),before);
+   }else assert.deepEqual(await wire(output,type,bytes),before);
+  }
+ }
+});
+
+for(const format of ['yaml','json'])for(const constraint of [{pattern:'^PNG'},{enum:['abc']},{enum:['\u0000\u00ff']}])
+test(`${format} nontransferable raw ${JSON.stringify(constraint)} keeps a precise constraint blocker`,async()=>{
+ const input=capture('3.0.4',format,'application/octet-stream',{type:'string',format:'binary',...constraint},'3.2.1');
+ const plan=await planMigration(input);assert.equal(plan.complete,false);assert.deepEqual(plan.outputs,[]);
+ assert(plan.problems.some(value=>value.code==='migration.schema.binary-constraint'&&value.reason==='target-representation'),JSON.stringify(plan.problems));
+});
+
+for(const from of ['3.0.4','3.1.2','3.2.1'])for(const target of ['3.0.4','3.1.2','3.2.1'])
+if(from!==target)for(const format of ['yaml','json'])test(`${from} -> ${target} ${format} encoded opaque MIME part retains encoded-text constraints and exact bytes`,async()=>{
+ const type='multipart/form-data; boundary=Encoded',input=capture(from,format,type,
+  {type:'object',required:['payload'],properties:{payload:{type:'string',...(from==='3.0.4'?{format:'byte'}:{contentEncoding:'base64'}),minLength:4,maxLength:4}}},target);
+ const doc=format==='json'?JSON.parse(input.resources[0].text):YAML.parse(input.resources[0].text);
+ for(const content of [doc.paths['/bytes'].post.requestBody.content,doc.paths['/bytes'].post.responses[200].content])
+  content[type].encoding={payload:{contentType:'application/octet-stream'}};
+ input.resources[0].text=render(doc,format);const plan=await planMigration(input);
+ assert.equal(plan.complete,true,JSON.stringify(plan.problems));
+ for(const payload of ['AP+A','','AP+AAA==']){
+  const bytes=Buffer.from('--Encoded\r\nContent-Disposition: form-data; name="payload"\r\nContent-Type: application/octet-stream\r\nContent-Transfer-Encoding: base64\r\n\r\n'+payload+'\r\n--Encoded--\r\n');
+  assert.deepEqual(await wire(cold(plan),type,bytes,true),await wire(input,type,bytes,true));
+ }
+});
+
+for(const from of modern)for(const format of ['yaml','json'])test(`${from} ${format} coexisting format and base64 annotations retain separate conjuncts`,async()=>{
+ const input=capture(from,format,'application/json',{type:'string',format:'uuid',contentEncoding:'base64',minLength:1},'3.0.4');
+ const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));
+ const output=cold(plan);assert.equal(schema(output,'application/json').format,'byte');
+ assert.equal(schema(output,'application/json').allOf[0].format,'uuid');
+ for(const payload of ['"AP+A"','"literal text"','""','false'])
+  assert.deepEqual(await wire(output,'application/json',Buffer.from(payload)),await wire(input,'application/json',Buffer.from(payload)));
+});
+
+for(const from of modern)for(const format of ['yaml','json'])for(const dynamic of [false,true])
+test(`${from} ${format} modern shared raw predicates and JSON strings retain independent fixed ${dynamic?'dynamic':'static'} references`,async()=>{
+ const type='application/octet-stream',input=capture(from,format,type,{[dynamic?'$dynamicRef':'$ref']:'#/components/schemas/Shared'},'3.0.4');
+ const doc=format==='json'?JSON.parse(input.resources[0].text):YAML.parse(input.resources[0].text);
+ doc.components={schemas:{Shared:{type:'string',minLength:1,maxLength:3}}};
+ for(const content of [doc.paths['/bytes'].post.requestBody.content,doc.paths['/bytes'].post.responses[200].content])
+  content['application/json']={schema:{$ref:'#/components/schemas/Shared'}};
+ input.resources[0].text=render(doc,format);const plan=await planMigration(input);
+ assert.equal(plan.complete,true,JSON.stringify(plan.problems));const output=cold(plan);
+ for(const bytes of [Buffer.alloc(0),Buffer.from([0,255,128])]){
+  assert.deepEqual(await wire(output,type,bytes),await wire(input,type,bytes));
+  assert((await wire(output,type,bytes)).every(value=>!value.valid));
+ }
+ for(const text of ['""','"雪"','"too long"','false'])
+  assert.deepEqual(await wire(output,'application/json',Buffer.from(text)),await wire(input,'application/json',Buffer.from(text)));
+});
+
+for(const from of modern)for(const format of ['yaml','json'])test(`${from} ${format} raw conditional predicates lower in the projected octet domain`,async()=>{
+ const type='application/octet-stream',input=capture(from,format,type,
+  {if:{type:'string'},then:{maxLength:0},else:{maxLength:3}},'3.0.4');
+ const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));
+ for(const bytes of [Buffer.alloc(0),Buffer.from([0,255,128]),Buffer.from([0,255,128,0])])
+  assert.deepEqual(await wire(cold(plan),type,bytes),await wire(input,type,bytes));
 });

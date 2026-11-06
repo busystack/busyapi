@@ -475,7 +475,7 @@ void main() {
             environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
           expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');
           final report = jsonDecode(cli.stdout as String) as Map;
-          expect(report['producerVersion'], '86');expect(report['complete'], true);expect(report['published'], false);
+          expect(report['producerVersion'], '87');expect(report['complete'], true);expect(report['published'], false);
         });
       }
     }

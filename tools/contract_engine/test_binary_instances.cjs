@@ -99,3 +99,13 @@ for(const version of versions)test(`${version} raw binary follows dynamic resour
  input.resources[1].text=input.resources[1].text.replace('"not":{"type":"null"}','"type":"null"');input.resources[1].generation++;
  assertResult(await run(input),false);
 });
+
+for(const version of versions)for(const format of ['yaml','json'])test(`${version} ${format} native streaming maxLength counts decoder-owned bytes under applicators`,async()=>{
+ for(const subject of ['request-body','response-body'])for(const bytes of [Buffer.alloc(0),Buffer.from([255]),binary,Buffer.from([0,255,128,0])]){
+  assertResult(await run(capture(version,format,{maxLength:3}),bytes,subject),bytes.length<=3);
+  assertResult(await run(capture(version,format,{not:{maxLength:1}}),bytes,subject),bytes.length>1);
+  assertResult(await run(capture(version,format,{oneOf:[{maxLength:1},{maxLength:3}]}),bytes,subject),bytes.length>1&&bytes.length<=3);
+ }
+ // String bounds count Unicode characters, and content fields remain annotations.
+ assertResult(await run(capture(version,format,{type:'string',maxLength:1,contentEncoding:'base64'},'application/json'),Buffer.from('"雪"')),true);
+});

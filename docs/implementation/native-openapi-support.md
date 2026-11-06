@@ -31,6 +31,121 @@ consume those shared results. Source-preserving transactions remain authoritativ
 Current changes require complete engine, Core, native and packaged verification;
 source inspection or a successful build is not runtime acceptance.
 
+## B04: constrained and mixed binary representations
+
+**In progress; not source-complete. All changes and regression sources remain
+unverified.** This continuation started at
+`25daa11e7b70ee29a647e871e5989ce5f276cc95` in the primary
+`release/v0.1.0` checkout. A01–A03 and B01–B03 remain the ownership,
+dialect, CST, direction and schema-vocabulary foundations. B05 has not begun.
+
+Binary occurrence discovery now uses the canonical multipart transfer owner.
+An opaque part media type does not imply a raw instance when the schema supplies
+base64 encoding. URL-encoded values remain modeled data. Incompatible or
+conditional transfer evidence stays unknown; it is not guessed from filenames,
+extensions or HTTP Content-Encoding. Fixed dynamic references use A03's captured
+reference projection, including in containing-owner copies and reference repair.
+Competing dynamic targets retain the existing binding refusal.
+
+Containing specialization includes all same-instance assertion branches at a
+selected raw position, rather than just the formatted leaf. Other property paths
+and independently targeted roots/children keep their neutral owners. Modern
+raw/data splits now reuse the same allocator when lowering to 3.0 or Swagger.
+There is no recursive schema expansion. Raw assertion inspection uses a finite
+visited graph with an explicit work limit instead of a reference-depth cutoff.
+
+The canonical evaluator now implements the optional native streaming
+`maxLength` policy described by
+[OAS 3.2.1 §4.14.3](https://spec.openapis.org/oas/v3.2.1.html#complete-vs-streaming-content).
+Decoder-owned raw instances count bytes, including empty and non-UTF-8 values.
+JSON strings still count Unicode characters. `minLength`, `pattern` and content
+annotations do not become raw-byte assertions. No decoded-content validation is
+activated. Content annotations remain annotations under the existing policy.
+
+Legacy octet-string minimum bounds lower to the exact complement of an octet
+maximum; maximum bounds retain their exact CST lexemes. Strict anchored patterns
+consisting solely of a universal character atom and a repetition count lower to
+byte bounds. A strict end assertion is required because ECMAScript `$` can match
+before a final line terminator. Empty-byte enums and impossible octet literals
+have exact raw-domain projections. Nonempty byte equality and content-sensitive
+patterns have no direct standard raw assertion; a potentially redundant or
+impossible conjunction still requires a proof, and is not labeled target
+impossibility merely because that proof is absent.
+
+Raw occurrence type predicates, nullable applications, composition branches and
+ordinary JSON consumers keep distinct meanings. Reverse mappings project modern
+JSON type/equality predicates to assertions rejecting the legacy octet-string
+instance. Inactive string constraints retain their exact data in common neutral
+literal owners. The planner refreshes the canonical graph after these reverse
+projections before running ordinary JSON-domain schema certificates. Those
+certificates must inspect the projected predicates, rather than the original
+modern predicates that reject raw instances. Coexisting format and base64
+annotations now use separate conjuncts, retaining the authored format and the
+legacy transfer annotation. Concrete media bindings can retire redundant or
+contradicting contentMediaType annotations without inventing a decoder.
+
+**Remaining B04 implementation and coverage requirements:**
+
+- Whole-container enum/const projection when a literal actually contains a
+  selected binary value remains unimplemented. Literals omitting every selected
+  raw position are now proved unchanged. Some present-value cases, including
+  empty-byte values inside exact objects/arrays, are representable and must not
+  be called target restrictions.
+- Swagger multipart downgrades and occurrence-specific file/data media
+  alternatives still need further implementation. The existing flat form and
+  differing-media-schema refusals remain; they do not establish that every such
+  case is unrepresentable. File must remain confined to legal formData Parameter
+  and response-root positions. A Swagger type array containing file is invalid
+  source, not a missing modern union mapping.
+- General pattern redundancy, finite conjunction reduction, containing literal
+  languages and raw-specific logical lowering outside the current native
+  schema certificates still need proofs. Nonempty raw-byte equality has no
+  JSON literal spelling, but an enclosing contradictory assertion can make its
+  application irrelevant. That distinction remains explicit in refusal reasons.
+- Whole opaque bodies with encoded-string annotations still retain the existing
+  located refusal. No whole-body base64 binding is invented. Some rejecting or
+  inactive occurrence cases can be projected further and remain implementation
+  work. Active decoded-content-schema bindings and unsupported encodings retain
+  the documented older-vocabulary restrictions; keeping a disconnected schema
+  would not preserve an active binding.
+- The complete B04-specific file/union, multi-entry, alias, stale-decision,
+  publication-failure and relocated cold-reopen matrix is not yet prepared.
+  Existing A01–B03 transaction, exact-value and obsolete-producer regressions
+  remain registered. The added binary coverage does not close the whole matrix.
+
+Production changes are in `migration_binary.ts`,
+`migration_binary_constraints.ts`, `migration_binary_containers.ts`,
+`migration_binary_uses.ts`, `migration_schema.ts`, `migration.ts`,
+`exact_numbers.ts` and `schema_evaluation.ts`; Core migration/evaluator admission
+and native preflight declarations are synchronized. Core, native review and CLI
+continue to consume the shared engine and publication transactions. Ordinary
+editing does not migrate. Native multipart request generation remains C01.
+
+Prepared engine coverage extends `test_migration_binary.cjs`,
+`test_binary_instances.cjs` and `test_migration_direct_swagger.cjs`: published
+patch declarations, JSON/YAML, bounds, length-language patterns, empty/impossible
+literals, nullable and mixed data unions, sibling composition, recursive
+containers, fixed dynamic references, raw conditional predicates, encoded MIME
+parts and coexisting annotations. Assertions compare production source/target
+evaluation results and retain located no-output negatives. Core
+`migration_binary_test.dart` adds constrained shared body, composed body and
+multipart-property byte exchanges through unsaved review, CLI review,
+publication and cold reopening. Native `migration_review_test.dart` uses a
+constrained shared binary definition in coordinated review. Existing registered
+suite entries are reused; no separate verification framework was added.
+
+Migration producer **87**, evaluator **1.18.0+59**, graph role revision **9**,
+response mock **5**, parameter mock **4** and sample **4** are current. Other
+regression-file edits update current producer expectations; migration producer
+**86** is retained as an obsolete Core/preflight rejection control. Generated
+bundles have not been rebuilt and cannot authorize current publication.
+
+**Verification:** source inspection and Git whitespace review only. No compiler,
+test, analyzer, build, code generation, CI, graphical/native workload, packaging
+or performance check ran. No third-party software, dependencies or installed
+Flutter SDK were changed. Snapcraft remains skipped. The execution hold remains
+active. This is a partial B04 source handoff, not completion or acceptance.
+
 ## B03: remaining schema-vocabulary conversions
 
 **Source-complete, unverified for the established W3.06 certificate families.**
@@ -40,7 +155,7 @@ regressions are in `18ad1f6`; this handoff also closes conditional constant
 predicate proofs. A01–A03's allocator, resource contexts and binding proofs,
 B01's directional policy, and B02's conditional/dependency/tuple algorithms
 remain authoritative. This status describes source, not executed acceptance.
-No B04 implementation was undertaken.
+At the B03 handoff, no B04 implementation had been undertaken.
 
 Name constraints now use captured finite domains from enum/const restrictions,
 closed `additionalProperties`, closed unevaluated selections, fixed references
@@ -173,7 +288,7 @@ local commits to preserve the hold. No third-party software, dependency version
 or Flutter SDK was changed. Snapcraft remains skipped. Source completion does
 not establish executed equivalence, runtime acceptance or overall BusyAPI
 completion. The next assignment is **B04 — Constrained and mixed binary
-representation migration**; it has not started.
+representation migration**; its subsequent progress is recorded above.
 
 ## B02: conditional, dependency and constrained tuple-tail migrations
 
@@ -828,7 +943,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W3.04 Property/schema dependencies with independently referenced maps; JC §10.2.2.4, JV §6.5.4 | `migration_schema_dependencies.ts`, migration presence proofs and existing allocator | M E S C | dependency/dependent-schema suites, Core/native B02 journeys | Source-complete for bounded B02, unverified; constant mappings retained; seeded transitive/cyclic presence, closed/composed/exact constraints, forbidden triggers, native/presence guards and independent owners added. Native conjunctions take priority over finite folding when proved. The independently owned nested conditional witness is now a positive production regression; outer triggers, inner predicates and neutral branches retain separate meanings | H |
 | W3.05 Static/dynamic references, anchors, identities and independent annotations; JC §§8–9 | identity/schema-reference/role owners | M E S C | static-dynamicref/identity/boolean/inactive annotation suites, pinned official dynamicRef cases, Core static/dynamic reference publication/HTTP/CLI journeys | Partially implemented; inactive anchors and dynamic applicators whose captured candidates all identify the initial target lower through one shared binding proof. Sibling constraints and recursive references remain separate allOf/static edges; resource/role provenance and cold reopening are proved. Whole-resource entry variants retain static/dynamic targets, anchors and resource boundaries; downstream dynamic dependencies require a same-resource holder. Partial modern resources and native slots now receive common resource owners; moved definitions remain anonymous and native discriminator URI targets repair before stage validation; A03 adds ordinary and foreign whole-resource holders, nested identity/dialect ownership, named dynamic retargeting, resource/anchor isomorphism and neutral native-slot frames; old-family competing-target lowering remains an explicitly unfinished representation mapping, while unsupported dialects and unavailable/ambiguous source identities stay incomplete | H |
 | W3.06 Pattern/property-name/contains/count/unevaluated/content constraints; JC §§10–11, JV §§6/8 | `migration_schema.ts`, name-domain/regex/containment/annotation certificate owners, existing binary/reference/dependency owners | M E S C | pattern/property-name/array/unevaluated/content suites, official fixtures, Core/native B03 journeys | Source-complete for established B03 certificate families, unverified; finite/cofinite/closed name proofs, finite/universal/equivalent-uniform pattern selection, nonconstant structural/existential/complement/unique-finite counts, successful composed/reference annotation selection, static/homogeneous/finite positional coverage and inactive content-owner preservation are implemented. Active decoded-content annotations retain actual older-vocabulary refusals; unavailable name/count/coverage/binding certificates and B04 binary work are distinguished in the B03 handoff above | H |
-| W3.07 Raw/data/base64/byte/file/union consumers and byte constraints; family binary clauses, JV §8 | `migration_binary.ts`, Swagger flat/media owners | M E S C | migration binary, direct Swagger, native binary suites | Partially implemented; direct Swagger route now inspects actual body/response media and modernizes flat bounds/byte encodings; captured static forwarding chains now give raw-body and direct multipart property/item consumers separate common schema owners from JSON consumers, retaining neutral definitions, collisions, metadata and exact provenance. Forwarded containing-object and composition-dependent occurrence splits, constrained raw assertions and file-union ownership remain | H |
+| W3.07 Raw/data/base64/byte/file/union consumers and byte constraints; family binary clauses, JV §8 | `migration_binary.ts`, Swagger flat/media owners | M E S C | migration binary, direct Swagger, native binary suites | In progress, unverified; common owners now specialize containing/composed raw/data occurrences and fixed dynamic edges, canonical transfer discovery distinguishes encoded MIME strings, and raw octet bounds/length languages/empty equality preserve assertion behavior. Reverse predicates are projected before ordinary schema certificates. Whole-container literals, further file/media alternatives and the complete B04 transaction matrix remain implementation work; see the B04 handoff above | H |
 | W3.08 Inherited media, forms/files, examples without schemas, shared operations/body meaning and reusable objects; family object clauses | Swagger media/form/downgrade/operation owners | M E S C | Swagger media/form/bodyless/ignored-body suites, Core form CLI | Partially implemented; retain existing mappings and safety decisions; same-family Swagger operations with differing inherited media use common entry owners; examples without schemas and remaining mixed-family shared operations still have implementation gaps | H |
 | W3.09 Servers/security/newer-version fields and invariant proof; family clauses, HTTP/URI | servers/security/operation/invariant owners | M E S C | default-server/security-role/entry-route suites, native-object-use publication and URI-key controls | Partially implemented; Retained 3.2 URI security bindings preserve separate role arrays through owner specialization and portable relocation, with target/name-precedence proofs and declaration/scopes invariants. Older-family URI-to-name source paths now allocate separate standard components through the shared allocator and additional typed-use provenance; external/aliased targets, name precedence, exact scope/role arrays and AND/OR order retain captured connection and request proofs. Shared URI requirements seed entry specialization even when their targets agree; source-side moves repair relative URI keys, and targets lacking Path Item component maps use common anonymous holders. Scheme Reference Object materialization retains applicable description overrides and their original Markdown bases. Captured environment aliases, exact manifest text/identity, Core stale/publication checks, native binding review and CLI output are implemented with prepared regressions; execution remains outstanding. Standard OAuth acquisition flows now specialize into one-flow Swagger schemes and ordered OR expansions without merging AND bindings or scope arrays. Compatible global environment selections project through captured effective security-array owners, intersect complete branch sets across operations, and preserve invalid-selection guards. Ignored Reference Object siblings retain full literal copies through the shared anonymous allocator; source formats/comments and exact values survive materialization. Non-OAuth roles in restricted targets, unavailable summary/discovery/device representations and flow metadata without a standard target container retain located blockers. Mixed-family ownership without compatible holders and remaining newer-field mappings remain implementation work | H |
 | W3.10 Unsaved capture, stale review rejection, original preservation, inventories, exact external bytes, atomic publication and relocated verification; URI/TEXT, Core transaction contract | migration source/examples/invariants; Core `migration.dart` and publication owners | M S C | Core migration/derived-resource/publication suites, engine external examples | Partially implemented; existing safeguards now capture dependencies/opaque bytes for connected complete entries in their own contexts, publish all surviving native locators and retire only reviewed ignored uses; remaining restructuring proofs and current publication/cold-reopen acceptance are still required | H |

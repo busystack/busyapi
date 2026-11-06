@@ -150,7 +150,7 @@ export async function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Mig
         if(!context){issue(scope,'migration.schema.context','Schema conversion requires its captured entry, role and resource context','implementation');continue;}
         const field=(name:string)=>({...scope,pointer:scope.pointer+'/'+escape(name)});
         if(from==='2.0'&&to!=='2.0'&&Array.isArray(value.type)&&value.type.includes('file'))
-            issue(field('type'),'migration.schema.file-union','This Swagger file/data union needs occurrence-specific alternative schemas and media decoding before conversion','implementation');
+            issue(field('type'),'migration.schema.file-union','Swagger permits file only as a scalar type in formData Parameters and response-root schemas; a type array containing file is not a valid source Schema Object','source-incomplete');
         const typeComposition=(types:string[])=>{
             const branches=types.map(type=>type==='null'?{type:'string',nullable:true,enum:[null]}:type==='array'?{type,items:{}}:{type});
             source.remove(pointer+'/type');
@@ -219,7 +219,7 @@ export async function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Mig
         if(to==='2.0')for(const name of ['oneOf','anyOf','not','deprecated'])if(Object.hasOwn(value,name)&&source.doc.dataNode(pointer+'/'+name))issue(field(name),'migration.schema.keyword','This Schema Object field requires an explicit faithful Swagger mapping','implementation');
         if(!modernFamily(from)&&modernFamily(to)){
             if(from==='3.0'){
-                if(value.nullable===true&&typeof value.type==='string')source.set(pointer+'/type',[value.type,'null']);
+                if(value.nullable===true&&typeof value.type==='string'&&source.doc.dataNode(pointer+'/type'))source.set(pointer+'/type',[value.type,'null']);
                 if(Object.hasOwn(value,'nullable'))source.remove(pointer+'/nullable');
             }
             for(const [exclusive,bound]of [['exclusiveMinimum','minimum'],['exclusiveMaximum','maximum']]){
@@ -241,7 +241,7 @@ export async function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Mig
                 }
                 source.exact(pointer+'/'+bound,source.doc.dataJson(pointer+'/'+exclusive));source.set(pointer+'/'+exclusive,true);
             }
-            if(Array.isArray(value.type)&&to==='3.0'){
+            if(Array.isArray(value.type)&&to==='3.0'&&Array.isArray(source.doc.dataNode(pointer+'/type')?.value)){
                 const types=value.type.filter((type:string)=>type!=='null');
                 if(types.length===1&&value.type.includes('null')){source.set(pointer+'/type',types[0]);source.set(pointer+'/nullable',true);}
                 else typeComposition(value.type);
