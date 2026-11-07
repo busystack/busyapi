@@ -21,6 +21,7 @@ const _targets = [
 
 void main() {
   _r2FileResponses();
+  _r3EquivalentMedia();
   for (final target in _targets) {
     for (final format in ['yaml', 'json']) {
       test(
@@ -226,7 +227,7 @@ void main() {
             MigrationStatus.faithfullyConvertible,
             reason: '${review.result}',
           );
-          expect(review.result['producerVersion'], '89');
+          expect(review.result['producerVersion'], '90');
           expect(review.unsaved, isTrue);
           expect(review.changes, hasLength(5));
           expect(await Directory(review.destination).exists(), isFalse);
@@ -270,7 +271,7 @@ void main() {
           final report = jsonDecode(cliReview.stdout as String) as Map;
           expect(report['status'], 'faithfully-convertible');
           expect(report['published'], false);
-          expect(report['producerVersion'], '89');
+          expect(report['producerVersion'], '90');
           expect(await Directory(cliDestination).exists(), isFalse);
           final applied = await command([
             '--apply',
@@ -388,14 +389,16 @@ void _r2FileResponses() {
             'parameters': [{r'$ref': '#/parameters/Body'}], 'responses': {'200': {r'$ref': '#/responses/File'}},
           }}},
           'parameters': {'Body': {'name': 'payload', 'in': 'body', 'required': true, 'schema': {'type': 'string', 'format': 'binary'}}},
-          'responses': {'File': {'description': 'File bytes', 'schema': {'type': 'file'}}},
+          'responses': {'File': {'description': 'File bytes', 'schema': {'type': 'file', 'format': 'byte'}}},
         };
         final text = format == 'json' ? jsonEncode(value) : '# Keep R2 file source\r\n${value.entries.map((e) => '${jsonEncode(e.key)}: ${jsonEncode(e.value)}').join('\r\n')}\r\n';
         final file = File('${temp.path}/api.$format'); await file.writeAsString(text); final original = await file.readAsBytes();
         final project = await BusyProject.open(file.path, engine); addTearDown(project.close);
         final buffer = await project.buffer(project.roots.single.id); project.store.replace(buffer.id, buffer.text.replaceFirst('Original R2', 'Unsaved R2'));
         final review = await project.prepareMigration(buffer.id, '${temp.path}/target', targetVersion: targetVersion); addTearDown(review.close);
-        expect(review.publishable, true, reason: '${review.result}'); expect(review.unsaved, true); await review.publish();
+        expect(review.publishable, true, reason: '${review.result}'); expect(review.unsaved, true);
+        expect((review.result['outputs'] as List).any((output) => (output['text'] as String).contains('file_format')), true);
+        await review.publish();
         final target = await BusyProject.open(review.destination, engine); addTearDown(target.close);
         final payload = File('${temp.path}/wire.bin');
         for (final owner in [project, target]) {
@@ -419,5 +422,57 @@ void _r2FileResponses() {
         expect(await file.readAsBytes(), original);
       });
     }
+  }
+}
+
+void _r3EquivalentMedia() {
+  for (final format in ['yaml', 'json']) {
+    test('R3 $format exact equivalent encoded media retain wire validation after Swagger publication', () async {
+      final directory = await Directory.systemTemp.createTemp('busyapi-b04-media-'); addTearDown(() => directory.delete(recursive: true));
+      final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper); addTearDown(engine.close);
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0); addTearDown(() => server.close(force: true));
+      final observed = <(String, List<int>)>[];
+      server.listen((request) async {
+        final bytes = await request.fold<List<int>>([], (all, part) => all..addAll(part));
+        final media = request.headers.value('content-type')!; observed.add((media, bytes));
+        request.response.headers.set('content-type', media); request.response.add(bytes); await request.response.close();
+      });
+      final content = {for (final (index, media) in ['application/octet-stream', 'application/json'].indexed)
+        media: {'schema': {'type': 'string', 'format': 'byte', 'minLength': 'BOUND$index', 'maxLength': 8}}};
+      final value = {'openapi': '3.0.4', 'info': {'title': 'Original equivalent media', 'version': '1'}, 'servers': [{'url': 'http://127.0.0.1:${server.port}'}],
+        'paths': {'/bytes': {'post': {'requestBody': {'content': content}, 'responses': {'200': {'description': 'Echo', 'content': content}}}}}};
+      final original = '${format == 'yaml' ? '# Keep numeric spellings\r\n' : ''}${jsonEncode(value).replaceAll('"BOUND0"', '4.00').replaceAll('"BOUND1"', '4e0')}\r\n';
+      final file = File('${directory.path}/api.$format'); await file.writeAsString(original);
+      final project = await BusyProject.open(file.path, engine); addTearDown(project.close);
+      final buffer = await project.buffer(project.roots.single.id); project.store.replace(buffer.id, buffer.text.replaceFirst('Original', 'Unsaved'));
+      final payload = File('${directory.path}/wire.bin');
+      Future<List<(bool, bool)>> exchange(BusyProject owner) async {
+        final root = owner.roots.single.id, plan = await owner.prepareRequest(owner.roots.single.id, resource: root, pointer: '/paths/~1bytes/post');
+        try {
+          final results = <(bool, bool)>[];
+          for (final media in content.keys) for (final value in ['AP+A', '', 'too-long-for-bounds']) {
+            final bytes = utf8.encode(media == 'application/json' ? jsonEncode(value) : value); await payload.writeAsBytes(bytes);
+            final result = await const ContractRequestExecutor().execute(plan, OperationRequestDraft(planIdentity: plan.identity,
+              body: RequestBodyDraft.binaryFile(mediaType: media, file: payload.path)), resolveSecret: (_) async => null);
+            try {
+              expect(observed.last.$1, media); expect(observed.last.$2, bytes); expect(await result.response.decodedBytes(), bytes);
+              expect(result.outgoing.complete, true); expect(result.received.complete, true);
+              results.add((result.outgoing.valid, result.received.valid));
+            } finally { await result.close(); }
+          }
+          return results;
+        } finally { plan.close(); }
+      }
+      final before = await exchange(project); expect(before, [(true, true), (false, false), (false, false), (true, true), (false, false), (false, false)]);
+      final review = await project.prepareMigration(buffer.id, '${directory.path}/copy', targetVersion: '2.0'); addTearDown(review.close);
+      expect(review.publishable, true, reason: '${review.result}'); expect(review.unsaved, true);
+      final outputs = (review.result['outputs'] as List).cast<Map>();
+      expect(outputs.any((output) => (output['text'] as String).contains('4.00')), true);
+      expect(outputs.any((output) => (output['text'] as String).contains('4e0')), true);
+      await review.publish(); expect(await file.readAsString(), original); await file.delete();
+      final output = await BusyProject.open(review.destination, engine); addTearDown(output.close);
+      expect((await output.check(output.roots.single.id))['complete'], true);
+      expect(await exchange(output), before); expect(observed, hasLength(12));
+    });
   }
 }

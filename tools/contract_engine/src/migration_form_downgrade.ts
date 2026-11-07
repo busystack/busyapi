@@ -24,7 +24,7 @@ export function downgradeFormBody(graph:ReferenceGraph,source:MigrationSource,sc
     const at=pointer+'/content/'+escape(media);
     const origin=scope.pointer+'/content/'+escape(media)+'/schema';
     let valid=true;
-    const block=(pointer:string,code:string,message:string,reason:'implementation'|'target-representation'='target-representation')=>{
+    const block=(pointer:string,code:string,message:string,reason:'implementation'|'unavailable-proof'|'target-representation'='target-representation')=>{
         valid=false;issue({resource:scope.resource,pointer},code,message,reason);
     };
     const parent=pointer.slice(0,pointer.lastIndexOf('/'));
@@ -37,7 +37,7 @@ export function downgradeFormBody(graph:ReferenceGraph,source:MigrationSource,sc
     const alternatives=[...content?.children.keys()??[]];
     const identities=alternatives.map(name=>mediaSchemaIdentity(source,pointer+'/content/'+escape(name)+'/schema',sources,owners));
     if(!identities.length||identities.some(value=>value===undefined||value!==identities[0])){
-        block(scope.pointer,'migration.form.media-schema','Swagger formData has one field set; no common captured schema certificate establishes these media alternatives','implementation');return;
+        block(scope.pointer,'migration.form.media-schema','Swagger formData has one field set; no common captured schema certificate establishes these media alternatives','unavailable-proof');return;
     }
     const capturedFields=materializeFormObject(graph,sources,owners,source,at+'/schema',scope,issue,graph.scopeAs(scope.resource,origin,'schema'));
     if(!capturedFields)return;
@@ -48,7 +48,7 @@ export function downgradeFormBody(graph:ReferenceGraph,source:MigrationSource,sc
     for(const name of schema.children.keys())if(!['type','properties','required'].includes(name)&&!(name==='additionalProperties'&&schema.value.additionalProperties===true))
         block(origin+'/'+escape(name),'migration.form.object-constraint','This object-wide form constraint or annotation needs a faithful Swagger representation');
     const properties=source.doc.dataNode(at+'/schema/properties');
-    if(properties?.kind!=='object'||!properties.children.size){block(origin,'migration.form.fields','No fixed field set or body-presence certificate establishes equivalent Swagger formData bindings','implementation');return;}
+    if(properties?.kind!=='object'||!properties.children.size){block(origin,'migration.form.fields','No fixed field set or body-presence certificate establishes equivalent Swagger formData bindings','unavailable-proof');return;}
     const required=new Set<string>(schema.value.required??[]);
     if((body.value.required===true)!==(required.size>0))
         block(body.children.has('required')?scope.pointer+'/required':scope.pointer,'migration.form.presence','Independent Swagger parameters cannot preserve this conditional form-body presence','target-representation');
@@ -73,7 +73,7 @@ export function downgradeFormBody(graph:ReferenceGraph,source:MigrationSource,sc
             const unstyled=alternatives.every(alternative=>scope.family==='3.0'||!['style','explode','allowReserved'].some(field=>
                 source.doc.dataNode(pointer+'/content/'+escape(alternative)+'/encoding/'+escape(name)+'/'+field)));
             if(unstyled&&materializeSingletonFormFile(sources,owners,source,at,!tupleRaw))files.add(name);
-            else block(original,'migration.form.file-array','Swagger Items Objects forbid files and duplicate name/in Parameters are forbidden; no single-file cardinality/assertion/serialization certificate was established',tupleRaw?'implementation':'target-representation');
+            else block(original,'migration.form.file-array','Swagger Items Objects forbid files and duplicate name/in Parameters are forbidden; no single-file cardinality/assertion/serialization certificate was established','unavailable-proof');
         }else if(raw&&(!value.type||value.type==='string'&&value.format==='binary')){
             if(!materializeFormFile(sources,owners,source,at))
                 block(original,'migration.form.file-constraint','Swagger file parameters have no internal string/octet assertion model for this constrained raw field');
@@ -82,7 +82,7 @@ export function downgradeFormBody(graph:ReferenceGraph,source:MigrationSource,sc
     }
     function atProperty(name:string){return at+'/schema/properties/'+escape(name);}
     const flat=(property:Node,location:string,fields:ReadonlySet<string>)=>{
-        if(property.value.format==='binary')block(location+'/format','migration.form.binary','An octet string in a text-only form field has no proved Swagger string serialization','implementation');
+        if(property.value.format==='binary')block(location+'/format','migration.form.binary','An octet string in a text-only form field has no proved Swagger string serialization','unavailable-proof');
         for(const field of property.children.keys())if(!fields.has(field)&&!field.startsWith('x-'))
             block(location+'/'+escape(field),'migration.form.field-keyword','This Schema Object field is not a flat Swagger parameter field');
     };
@@ -136,7 +136,7 @@ export function downgradeFormBody(graph:ReferenceGraph,source:MigrationSource,sc
                     // Require a finite proof when string items can contain it.
                     if(collection!=='multi'&&items?.value.type==='string'&&
                         (!Array.isArray(items.value.enum)||items.value.enum.some((item:unknown)=>typeof item!=='string'||item.includes(separator))))
-                        block(location+'/items','migration.form.collection-boundary','No exhaustive separator-free item-language certificate establishes the RFC6570 and Swagger split boundaries','implementation');
+                        block(location+'/items','migration.form.collection-boundary','No exhaustive separator-free item-language certificate establishes the RFC6570 and Swagger split boundaries','unavailable-proof');
                 }else block(encoding?encodingLocation:location,'migration.form.array-encoding','This array encoding needs an additional serialization-preserving mapping');
             }
         }

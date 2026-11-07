@@ -34,7 +34,7 @@ export class BinaryUses {
     private readonly forms:FormSemantics;
     private readonly transfers:MultipartEncoding;
     readonly constraints:BinaryConstraintProofs;
-    constructor(private readonly graph:ReferenceGraph,contexts:readonly ReferenceGraph[]=[graph]){
+    constructor(private readonly graph:ReferenceGraph,private readonly contexts:readonly ReferenceGraph[]=[graph]){
         this.forms=new FormSemantics(graph);
         this.transfers=new MultipartEncoding(graph);
         this.constraints=new BinaryConstraintProofs(graph);
@@ -86,7 +86,10 @@ export class BinaryUses {
     }
     async prepare():Promise<void>{
         const uses:BinaryUse[]=[];
-        for(const scope of this.graph.entryScopes())if(scope.kind==='schema')uses.push(...this.inspect(scope).filter(rawBinaryUse));
+        // Conversion visits every captured entry. Private consumers of a
+        // secondary API need certificates even when the primary entry reaches
+        // only one unrelated schema in that same physical document.
+        for(const scope of migrationScopes(this.contexts))if(scope.kind==='schema')uses.push(...this.inspect(scope).filter(rawBinaryUse));
         await this.constraints.prepare(uses);
     }
     rawCompatible(use:Use,family:string):boolean {
@@ -267,32 +270,35 @@ export async function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<stri
         const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);
         if(pointer===undefined)continue;
         const field=(name:string)=>({...scope,pointer:scope.pointer+'/'+escape(name)});
-        const fail=(name:string,message:string,reason:'implementation'|'target-representation'|'source-incomplete'='implementation')=>issue(field(name),'migration.schema.binary-context',message,reason);
+        const fail=(name:string,message:string,reason:'implementation'|'unavailable-proof'|'target-representation'|'source-incomplete'='unavailable-proof')=>issue(field(name),'migration.schema.binary-context',message,reason);
         if(from==='2.0'&&to==='3.0'){
             if(value.type==='file'){
                 const contexts=uses.inspect(scope);
                 if(!contexts.length||contexts.some(use=>!rawBinaryUse(use)||!uses.rawCompatible(use,from)))
                     fail('type','Swagger file bypasses data decoding; every occurrence needs captured raw-media evidence to preserve arbitrary entity bytes',
-                        contexts.some(use=>binaryUseRepresentation(use)==='data')?'target-representation':'source-incomplete');
+                        contexts.some(use=>binaryUseRepresentation(use)==='data')?'target-representation':'unavailable-proof');
+                else if(Object.hasOwn(value,'format'))owners.retainLiteralValue(field('format'),source,pointer+'/format','file_format');
             }
             continue;
         }
         if((from==='2.0'||from==='3.0')&&modernFamily(to)){
             const contexts=uses.inspect(scope),raw=contexts.filter(rawBinaryUse);
+            if(from==='2.0'&&value.type==='file'){
+                if(!contexts.length||raw.length!==contexts.length){
+                    fail('type','Swagger file bypasses data decoding; every target occurrence needs a captured raw-media binding to preserve arbitrary entity bytes',
+                        contexts.some(use=>binaryUseRepresentation(use)==='data')?'target-representation':'unavailable-proof');continue;
+                }
+                // Swagger file has no internal data model. Its permitted fields
+                // contain metadata, not string assertions (§6.4.12). Its format
+                // cannot activate the encoded-string branch, even when byte.
+                if(Object.hasOwn(value,'format'))owners.retainLiteralValue(field('format'),source,pointer+'/format','file_format');
+                source.remove(pointer+'/type');source.remove(pointer+'/format');continue;
+            }
             if(value.format==='byte'){
                 if(contexts.some(use=>binaryUseRepresentation(use)==='unknown'||use.kind==='body'&&rawBinaryUse(use))){
                     fail('format','A whole encoded binary body needs its media-aware encoded-string interpretation before conversion');continue;
                 }
                 source.remove(pointer+'/format');source.set(pointer+'/contentEncoding','base64');continue;
-            }
-            if(from==='2.0'&&value.type==='file'){
-                if(!contexts.length||raw.length!==contexts.length){
-                    fail('type','Swagger file bypasses data decoding; every target occurrence needs a captured raw-media binding to preserve arbitrary entity bytes',
-                        contexts.some(use=>binaryUseRepresentation(use)==='data')?'target-representation':'source-incomplete');continue;
-                }
-                // Swagger file has no internal data model. Its permitted fields
-                // contain metadata, not string assertions (§6.4.12).
-                source.remove(pointer+'/type');source.remove(pointer+'/format');continue;
             }
             const sensitive=['type','minLength','pattern','enum','const'].some(name=>Object.hasOwn(value,name))||value.format==='binary';
             if(!sensitive)continue;

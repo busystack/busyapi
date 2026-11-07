@@ -315,7 +315,7 @@ export class BinaryConstraintProofs {
             for(const field of ['enum','const'] as const)if(Object.hasOwn(value??{},field)){
                 const plans=cases.map(entry=>entry.literals.find(plan=>plan.field===field));
                 if(plans.some(plan=>!plan)||new Set(plans.map(plan=>plan?.assertion)).size!==1){
-                    issue({...scope,pointer:scope.pointer+'/'+field},'migration.schema.binary-literal','The finite containing literal has no common exact projection at every captured raw occurrence','implementation');continue;
+                    issue({...scope,pointer:scope.pointer+'/'+field},'migration.schema.binary-literal','The finite containing literal has no common exact projection at every captured raw occurrence','unavailable-proof');continue;
                 }
                 if(plans.every(plan=>plan!.unchanged))continue;
                 if(plans[0]!.remaining!==undefined){

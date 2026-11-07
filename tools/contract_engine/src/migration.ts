@@ -44,7 +44,7 @@ import {securityRequirementDefinition} from './security_requirements';
 import {migrateSwaggerSecurityFlows} from './migration_security_flows';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='89';
+const migrationProducerVersion='90';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const referenceLocator=(reference:GraphReference)=>!reference.connection&&['$ref','$dynamicRef'].includes(reference.keyword)||
     reference.connection==='operationRef'&&reference.keyword==='operationRef';
@@ -123,7 +123,9 @@ export async function planMigration(input:MigrationInput) {
     };
     const refused=(error:unknown,location:MigrationLocation)=>{
         if(!(error instanceof SourceError))throw error;
-        issue(error.source??location,error.code,error.message,error.code==='migration.configuration.alternative'?'target-representation':'implementation');
+        const proofLimit=['limit.migration.binary','limit.migration.media-schema','limit.migration.form','limit.request.encoding']
+            .some(prefix=>error.code.startsWith(prefix));
+        issue(error.source??location,error.code,error.message,error.code==='migration.configuration.alternative'?'target-representation':proofLimit?'unavailable-proof':'implementation');
     };
     const validate=async(values:Resource[],root:string,phase:'source'|'target'='target',exampleResources=input.exampleResources)=>{
         const roots=[root,...values.filter(value=>value.id!==root&&specificationDeclaration(new SourceDocument(value.text,value.id).root.value).status==='supported').map(value=>value.id)];

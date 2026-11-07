@@ -47,6 +47,7 @@ void main() {
       in [
         (false, false, null, null, null),
         (true, false, null, null, null),
+        (true, false, null, '3.0.4', null),
         (false, true, null, null, null),
         (false, true, '3.0.4', null, null),
         for (final version in ['3.0.0', '3.0.4', '3.1.2', '3.2.1'])
@@ -78,6 +79,7 @@ void main() {
         final targetVersion = formVersion == null ? '3.2.1' : '2.0';
         final swagger = sourceVersion == '2.0';
         final sharedBinary = coordinatedVersion?.startsWith('3.0.') == true && sharedVersion.startsWith('3.0.');
+        final binaryConsumers = coordinatedVersion != null && !swagger;
         final coordinated = coordinatedVersion == null
             ? null
             : {
@@ -100,15 +102,15 @@ void main() {
                 'paths': {
                   if (swagger) '/download': {'get': {'produces': ['application/octet-stream', 'image/png'],
                     'responses': {'200': {'description': 'R2 file response', 'schema': {'type': 'file'}}}}},
-                  if (sharedBinary) '/encoded': {'get': {'responses': {'200': {'description': 'R2 encoded whole body',
-                    'content': {'application/octet-stream': {'schema': {'type': 'string', 'format': 'byte', 'minLength': 4}}}}}}},
-                  if (sharedBinary) '/literal': {
+                  if (binaryConsumers) '/encoded': {'get': {'responses': {'200': {'description': 'R2 encoded whole body',
+                    'content': {'application/octet-stream': {'schema': {'type': 'string', if (sourceVersion.startsWith('3.0.')) 'format': 'byte' else 'contentEncoding': 'base64', 'minLength': 4}}}}}}},
+                  if (binaryConsumers) '/literal': {
                     'get': {'responses': {'200': {'description': 'Literal and JSON', 'content': {
                       'multipart/form-data': {'schema': {r'$ref': 'shared.yaml#/components/schemas/Literal'}, 'encoding': {'payload': {'contentType': 'application/octet-stream'}}},
                       'application/json': {'schema': {r'$ref': 'shared.yaml#/components/schemas/Literal'}},
                     }}}},
                   },
-                  if (sharedBinary) '/bytes': {
+                  if (binaryConsumers) '/bytes': {
                     'get': {'responses': {'200': {'description': 'Binary and JSON', 'content': {
                       'application/octet-stream': {'schema': {r'$ref': 'shared.yaml#/components/schemas/Binary'}},
                       'application/json': {'schema': {r'$ref': 'shared.yaml#/components/schemas/Binary'}},
@@ -164,9 +166,9 @@ void main() {
                   } else 'components': {
                     'schemas': {
                       'Value': {'type': 'integer'},
-                      if (sharedBinary) 'Empty': {'type': 'string', 'format': 'binary', 'enum': ['', 'discarded'], 'maxLength': 0, 'pattern': r'^$'},
-                      if (sharedBinary) 'Literal': {'type': 'object', 'required': ['payload'], 'properties': {'payload': {r'$ref': '#/components/schemas/Empty'}}, 'enum': [{'payload': ''}]},
-                      if (sharedBinary) 'Binary': {'type': 'string', 'format': 'binary', 'nullable': true, 'minLength': 1, 'maxLength': 5, 'description': '[Bytes](./bytes.md)'},
+                      if (binaryConsumers) 'Empty': {'type': 'string', 'format': 'binary', 'enum': ['', 'discarded'], 'maxLength': 0, 'pattern': r'^$'},
+                      if (binaryConsumers) 'Literal': {'type': 'object', 'required': ['payload'], 'properties': {'payload': {r'$ref': '#/components/schemas/Empty'}}, 'enum': [{'payload': ''}]},
+                      if (binaryConsumers) 'Binary': {'type': 'string', 'format': 'binary', if (sharedVersion.startsWith('3.0.')) 'nullable': true, 'minLength': 1, 'maxLength': 5, 'description': '[Bytes](./bytes.md)'},
                     },
                   },
               })}\r\n';
@@ -408,10 +410,15 @@ void main() {
           expect(Directory(path).existsSync(), false);
           if (stale) {
             await tester.runAsync(() async {
-              c.sourceEdit(
-                c.root!,
-                c.buffer!.text.replaceFirst('Unsaved', 'Changed again'),
-              );
+              if (sharedBinary) {
+                final buffer = await c.project!.buffer(shared.uri.toString());
+                c.project!.store.replace(buffer.id, buffer.text.replaceFirst('Shared', 'Changed shared owner'));
+              } else {
+                c.sourceEdit(
+                  c.root!,
+                  c.buffer!.text.replaceFirst('Unsaved', 'Changed again'),
+                );
+              }
               await c.analyse();
             });
             await ready(

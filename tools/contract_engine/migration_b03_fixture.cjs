@@ -22,7 +22,7 @@ async function assertB03({schema,models={},samples,expected,independent,format='
  assert.equal(analyse(input).status,'complete');const before=await run(input,'/components/schemas/');
  if(expected)assert.deepEqual(before.checked.runtimeEvaluations.slice(0,samples.length).map(value=>value.valid),expected);
  const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
- assert.equal(review.producerVersion,'89');
+ assert.equal(review.producerVersion,'90');
  const output={root:review.outputRoot,snapshot:'b03-cold',resources:review.outputs.map(output=>({...output,generation:0}))};
  assert.equal(analyse(output).status,'complete',JSON.stringify(analyse(output).findings));
  const after=await run(output,targetVersion==='2.0'?'/definitions/':'/components/schemas/');

@@ -25,8 +25,8 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(MIGRATION_PRODUCER, engine_revision.group(1))
 
     def test_current_revision_is_accepted_and_previous_package_is_rejected(self):
-        verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': '89'})
-        for obsolete in ('25', '34', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45', '46', '47', '48', '49', '50', '51', '52', '53', '54', '55', '56', '57', '58', '59', '60', '61', '62', '63', '64', '65', '66', '67', '68', '69', '70', '71', '72', '73', '74', '75', '76', '77', '78', '79', '80', '81', '82', '83', '84', '85', '86', '87', '88'):
+        verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': '90'})
+        for obsolete in ('25', '34', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45', '46', '47', '48', '49', '50', '51', '52', '53', '54', '55', '56', '57', '58', '59', '60', '61', '62', '63', '64', '65', '66', '67', '68', '69', '70', '71', '72', '73', '74', '75', '76', '77', '78', '79', '80', '81', '82', '83', '84', '85', '86', '87', '88', '89'):
             with self.subTest(obsolete=obsolete):
                 with self.assertRaisesRegex(RuntimeError, 'producer differ'):
                     verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': obsolete})
@@ -54,7 +54,7 @@ class PreflightTests(unittest.TestCase):
                 'target': {'declaredVersion': '2.0'}, 'reviewIdentity': 'a' * 64, **updates}
 
     def test_obsolete_producer_is_rejected_without_publication(self):
-        for version in ['6', '23', '25', '31', '32', '33']:
+        for version in ['6', '23', '25', '31', '32', '33', '89']:
             with self.subTest(producerVersion=version):
                 binary = self.fake(self.review(producerVersion=version))
                 with self.assertRaisesRegex(RuntimeError, 'producer differ'):
@@ -122,6 +122,49 @@ class PreflightTests(unittest.TestCase):
                     self.assertFalse(report['published'])
                     self.assertFalse(report['nativeAcceptance'])
                     self.assertEqual(report['producerVersion'], MIGRATION_PRODUCER)
+                    self.assertFalse(destination.exists())
+                    self.assertEqual(source.read_bytes(), raw)
+                    self.assertEqual(fragment.read_bytes(), extra)
+
+    def test_actual_packaged_b04_previews_keep_binary_resources_private(self):
+        bundle = Path(os.environ.get('BUSYAPI_TEST_BUNDLE') or
+                      Path(__file__).resolve().parent.parent / 'build/linux/x64/release/bundle')
+        for version, target, encoded in [('2.0', '3.2.1', False),
+                                          ('3.0.4', '3.1.2', True),
+                                          ('3.1.2', '2.0', True),
+                                          ('3.2.1', '3.0.4', False)]:
+            for format in ['yaml', 'json']:
+                with self.subTest(version=version, target=target, encoded=encoded, format=format):
+                    source = self.root / ('binary-' + version + '.' + format)
+                    fragment = self.root / ('binary-model-' + version + '.json')
+                    legacy = version in ['2.0', '3.0.4']
+                    schema = ({'type': 'string', 'format': 'byte', 'minLength': 4}
+                              if encoded and legacy else
+                              {'type': 'string', 'contentEncoding': 'base64', 'minLength': 4}
+                              if encoded else {'type': 'string', 'format': 'binary'}
+                              if legacy else {'maxLength': 4})
+                    response = {'description': 'Bytes', **({'schema': {'type': 'file', 'format': 'byte'}}
+                                if version == '2.0' else {'content': {'application/octet-stream': {
+                                    'schema': {'$ref': fragment.name + '#/Bytes'}}}})}
+                    value = {'swagger' if version == '2.0' else 'openapi': version,
+                             'info': {'title': 'B04 preflight', 'version': '1'},
+                             **({'host': 'api.invalid', 'schemes': ['https'], 'produces': ['application/octet-stream']}
+                                if version == '2.0' else {'servers': [{'url': 'https://api.invalid'}]}),
+                             'paths': {'/bytes': {'get': {'responses': {'200': response}}}}}
+                    if version == '2.0':
+                        # Capture the independently addressed ordinary schema
+                        # beside the response's Swagger-only file position.
+                        value['definitions'] = {'Bytes': {'$ref': fragment.name + '#/Bytes'}}
+                    raw = (('# Keep binary source\r\n' if format == 'yaml' else '')
+                           + json.dumps(value) + '\r\n').encode()
+                    extra = (json.dumps({'Bytes': schema}) + '\r\n').encode()
+                    source.write_bytes(raw)
+                    fragment.write_bytes(extra)
+                    destination = self.root / ('binary-preview-' + version + '-' + format)
+                    report = preflight_migration(bundle / 'busyapi', source, target,
+                                                 destination, {source: raw, fragment: extra})
+                    self.assertEqual(report['producerVersion'], MIGRATION_PRODUCER)
+                    self.assertFalse(report['published'])
                     self.assertFalse(destination.exists())
                     self.assertEqual(source.read_bytes(), raw)
                     self.assertEqual(fragment.read_bytes(), extra)

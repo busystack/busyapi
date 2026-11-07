@@ -15,7 +15,9 @@ export function binaryLiteralAssertion(doc:SourceDocument,pointer:string,paths:B
         if(selected.some(path=>path.length===0)){
             if(modernSource)return '{"not":{}}';
             if(node.value==='')return '{"maxLength":0,"not":{"type":["null","boolean","object","array","number","string"]}}';
-            if(node.kind!=='string'||[...(node.value as string)].some(character=>character.codePointAt(0)! > 255))return '{"not":{}}';
+            // JSON uses string nodes; YAML uses scalar nodes. The semantic
+            // value determines the octet language in both source formats.
+            if(typeof node.value!=='string'||[...node.value].some(character=>character.codePointAt(0)! > 255))return '{"not":{}}';
             return;
         }
         if(selected.some(path=>path[0]==='nested'))return;

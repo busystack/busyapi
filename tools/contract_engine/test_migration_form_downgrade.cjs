@@ -6,10 +6,10 @@ const {createGraph,analyse}=require(base+'/dist/model.cjs');
 const {requestOperation}=require(base+'/dist/execution.cjs');
 const {evaluateSchemas}=require(base+'/dist/schema_evaluation.cjs');
 
-for(const version of ['3.0.4','3.1.2','3.2.1'])for(const format of ['yaml','json'])for(const singleton of [false,true,'tuple'])if(!(version==='3.0.4'&&singleton==='tuple'))
+for(const version of ['3.0.4','3.1.2','3.2.1'])for(const format of ['yaml','json'])for(const singleton of [false,true,'tuple','intersection'])if(!(version==='3.0.4'&&singleton==='tuple'))
 test(`R2 ${version} ${format} shared mixed form singleton=${singleton} retains file bytes and independent fields`,async()=>{
  const root='file:///approved/api.'+format,type='multipart/form-data; boundary=R2',raw=version==='3.0.4'?{type:'string',format:'binary'}:{};
- const field=singleton?{type:'array',minItems:1,maxItems:1,...(singleton==='tuple'?{prefixItems:[{$ref:'#/components/schemas/Raw'}]}:{items:{$ref:'#/components/schemas/Raw'}})}:{$ref:'#/components/schemas/Raw'};
+ const field=singleton==='intersection'?{allOf:[{type:'array',minItems:0,maxItems:4,items:{$ref:'#/components/schemas/Raw'}},{minItems:1,maxItems:1}]}:singleton?{type:'array',minItems:1,maxItems:1,...(singleton==='tuple'?{prefixItems:[{$ref:'#/components/schemas/Raw'}]}:{items:{$ref:'#/components/schemas/Raw'}})}:{$ref:'#/components/schemas/Raw'};
  const body={required:true,content:{[type]:{schema:{$ref:'#/components/schemas/Form'},encoding:{file:{contentType:'application/octet-stream'},name:{contentType:'text/plain',headers:{'Content-Type':{schema:{type:'object',required:['n'],properties:{n:{type:'integer'}}}}},'x-retained':'encoding metadata'}}}}};
  const value={openapi:version,info:{title:'R2 mixed form',version:'1'},servers:[{url:'https://api.invalid'}],paths:Object.fromEntries(['/items','/again'].map(path=>[path,{post:{requestBody:{$ref:'#/components/requestBodies/Shared'},responses:{204:{description:'Empty'}}}}])),components:{requestBodies:{Shared:body},schemas:{Raw:raw,Form:{type:'object',required:['file'],properties:{file:field,name:{$ref:'#/components/schemas/Name'},numbers:{type:'array',items:{$ref:'#/components/schemas/Number'}}}},Name:{type:'string'},Number:{type:'integer',minimum:0},Independent:{$ref:'#/components/schemas/Form/properties/name'}}}};
  value.components.schemas.IndependentHeader={$ref:'#'+encodeURI('/components/requestBodies/Shared/content/'+type.replaceAll('~','~0').replaceAll('/','~1')+'/encoding/name/headers/Content-Type/schema')};

@@ -37,12 +37,12 @@ export function rawPatternBounds(pattern:string):{minimum:bigint;maximum?:bigint
     return {minimum:BigInt(match[1]),...(match[2]===''?{}:{maximum:BigInt(match[2]??match[1])})};
 }
 
-export function rawConstraintReason(value:Record<string,any>,field:string):'implementation'|'target-representation' {
+export function rawConstraintReason(value:Record<string,any>,field:string):'unavailable-proof'|'target-representation' {
     const metadata=new Set(['type','format','nullable','description','title','externalDocs','xml','default','example','deprecated','readOnly','writeOnly']);
     // Conjuncts may make a byte-sensitive assertion redundant or impossible.
     // Without that proof, refusal is missing evidence, not target impossibility.
-    if(Object.keys(value).some(name=>name!==field&&!metadata.has(name)&&!name.startsWith('x-')))return 'implementation';
-    if(field==='pattern'&&!/^\^?[A-Za-z0-9]+\$?$/.test(value.pattern))return 'implementation';
+    if(Object.keys(value).some(name=>name!==field&&!metadata.has(name)&&!name.startsWith('x-')))return 'unavailable-proof';
+    if(field==='pattern'&&!/^\^?[A-Za-z0-9]+\$?$/.test(value.pattern))return 'unavailable-proof';
     return 'target-representation';
 }
 

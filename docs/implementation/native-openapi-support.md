@@ -31,6 +31,134 @@ consume those shared results. Source-preserving transactions remain authoritativ
 Current changes require complete engine, Core, native and packaged verification;
 source inspection or a successful build is not runtime acceptance.
 
+## B04-R3: final integration and transaction reconciliation
+
+**B04 is source-complete, unverified for W3.07.** This reconciliation started at
+`66836164ea537572eab23f9cc022a7c3791f63ea` in the primary
+`release/v0.1.0` checkout. This status supersedes the initial B04 outstanding-work
+list and the individually scoped R1/R2 handoffs below. It is a source review and
+prepared-regression conclusion; execution qualification remains outstanding.
+No known established representable B04 mapping remains intentionally deferred.
+B05 has not begun.
+
+The existing sequence remains authoritative: capture every entry and its typed
+uses; allocate independent role/resource/binary owners; prepare exact binary
+certificates; project raw/literal predicates; lower schema vocabulary and media/
+forms; repair captured connections; validate each stage; relocate and prove the
+output; review and atomically publish through Core. Native and the independent
+CLI consume that same plan. Source editing, ordinary saving and Undo/Redo never
+invoke migration. No additional semantic pipeline or resource resolver was added.
+
+Reconciliation corrected five concrete source gaps:
+
+- `migration_binary_literals.ts` used a JSON string-node test for containing
+  nonempty byte literals. YAML uses scalar CST nodes. It now tests the semantic
+  string value, so YAML cannot turn an unproved nonempty byte equality into a
+  false assertion and publish a changed language.
+- `migration_binary.ts` prepared certificates from only the primary entry's
+  scopes although conversion visits all captured entries. Preparation now uses
+  the same `migrationScopes(contexts)` closure. Private constrained consumers in
+  a secondary API receive proofs even when the primary API references only an
+  unrelated schema in that document.
+- Swagger response file `format` metadata now retains a neutral owner before
+  conversion. In particular, `format: byte` on a file cannot enter the encoded
+  string branch or silently disappear when the target introduces raw binary.
+  The direct Swagger/Core/preflight file journeys cover this case.
+- `migration_form_files.ts` now intersects exact cardinality bounds across fixed
+  references and positive conjunctions. Redundant wider bounds do not defeat a
+  proved one-item file array. Conflicting metadata cannot silently overwrite an
+  earlier value. `form_semantics.ts` supplies the corresponding intersected
+  transport hints; exact assertion truth remains with the canonical evaluator.
+- `migration_media_schema.ts` compares numeric operands using the existing exact
+  decimal coefficient/exponent representation. Equivalent numeric and escaped-string spellings, including
+  values beyond binary floating-point precision, admit a common media/form
+  schema. Both authored CST spellings and unselected owners remain preserved.
+
+R1 predicates remain in the common schema pipeline before R2 media/form
+selection. The prepared chained regression migrates one raw constraint
+certificate through modern media ownership and then Swagger media selection,
+while an independent JSON consumer retains its own literal/string predicates.
+Mixed-entry, same-instance recursion, ordinary property recursion, fixed static
+and dynamic references, independent descendants and cross-file aliases continue
+through the shared ownership and reference proofs. No recursion is expanded into
+an arbitrary finite approximation.
+
+The protocol now distinguishes `unavailable-proof` from `implementation`.
+Engine emission and Core admission/typed `MigrationProblemReason.unavailableProof`
+agree. Native review displays the shared located diagnostic and the CLI retains
+its reason in JSON. Missing a certificate does not establish general target
+impossibility. The following is the reconciled refusal register:
+
+| Cause | Exact boundary and production owner |
+| --- | --- |
+| Target restriction | Nonempty raw byte contents that require equality/pattern distinctions absent from the target raw vocabulary; `migration_binary_constraints.ts::rawConstraintReason`. A containing contradiction or redundant predicate can eliminate this requirement only with its own certificate. |
+| Unavailable proof | Containing literals without a common exact projection; nonconstant recursive, conditional or Boolean equivalence beyond the exhaustive R1 domain; direction-dependent finite results; `migration_binary_proofs.ts`, `BinaryUses.rawCompatible` and the common owner guards. Nonempty containing equality is refused when that proof is unavailable, rather than assumed false. |
+| Unavailable proof | Missing, conflicting or conditional media/encoded-string bindings, incompatible independently interpreted contexts, and unproved dynamic-target equivalence; `migration_binary.ts`, `whole_body_encoding.ts`, the canonical multipart discovery and existing reference/resource proof owners. A concrete Swagger file consumed through a JSON/text decoder instead of arbitrary raw bytes retains its target restriction. |
+| Target restriction | Swagger Items(file), file in definitions/type unions/ordinary nested Schema Object positions, duplicate name/in parameters, nested model-valued flat fields, and applicable part media/header/transfer bindings without a Swagger owner; `migration_swagger.ts`, `migration_form_downgrade.ts`, `migration_form_files.ts`. Forbidden file source positions are invalid source and stop source validation, rather than being offered a union conversion. |
+| Unavailable proof | No one-file cardinality/assertion/serialization certificate, including conditional alternatives; `materializeSingletonFormFile`. A proved one-item positive intersection is implemented. Wider file repetition has no Items(file) representation; absence of the certificate alone is reported as unavailable proof. |
+| Target restriction | Constrained files with genuinely active octet predicates absent from Swagger's file model; conditional form-body presence, object-wide/group rules without a flat owner, incompatible delimiters and active per-part metadata; `migration_form_downgrade.ts`. |
+| Unavailable proof | No common media/form schema under every captured raw/data domain, including unresolved comparisons; `commonMediaSchema` / `mediaSchemaIdentity`, `migration_downgrade.ts`. Numerically equivalent exact operands are implemented. Structural inequality alone is not a general proof of logical inequivalence. |
+| Target restriction | One Swagger schema cannot express truly incompatible media-selected assertions; operation-wide produces cannot express different nonempty response media sets by status; `migration_downgrade.ts`. |
+| Unavailable proof | No exhaustive separator-free language certificate for a separated collection, or no finite fixed form-object materialization certificate; `migration_form_downgrade.ts`, `materializeFormObject`. No unbounded language is sampled. |
+| Target restriction | Active non-base64 contentEncoding cannot become legacy byte; active decoded-content-schema bindings have no legacy vocabulary owner; `migration_schema.ts`. Raw inactive content annotations retain neutral owners and do not create a decoder. |
+| Unavailable proof | Exhausted binary route/work/literal/evaluation or media/form material/comparison budgets; `migration_binary_proofs.ts`, `migration_binary_containers.ts`, media/form owners and `migration.ts::refused`. Existing R1/R2 numerical limits are unchanged. |
+| Source/evidence prerequisite | Invalid native source, unavailable resources or unsupported dialects stop the source validation/capture gate with source-located validation/acquisition findings. They are distinct from a valid document's unsupported conversion; no result has publishable partial outputs. |
+
+`implementation` remains available for actual unfinished mappings elsewhere in
+the migration implementation, including the separately assigned B05 work. It is
+not used to disguise the bounded B04 binary/media proof refusals listed above.
+
+The complete prepared B04 matrix uses the established suites and production
+entry points; every entry below remains **unexecuted**:
+
+| Requirement | Regression sources and evidence prepared |
+| --- | --- |
+| Raw request/response bytes, exact lengths, base64 whole bodies and multipart parts, JSON-compatible values, empty/non-UTF-8 payloads | Engine `test_migration_binary.cjs`; Core `migration_binary_test.dart` compares source/target positive and negative runtime outcomes and actual HTTP request/response bytes across published YAML/JSON family directions. Encoded multipart publication/reopening now uses the same transaction loop as raw and whole encoded bodies. |
+| R1/R2 interaction, media equivalence and independent JSON consumers | Engine binary chained modern→Swagger journey, exact media/form alternative comparisons, and the existing containing/composition/dynamic/annotation-oracle controls; Core `migration_swagger_media_test.dart` adds exact equivalent encoded media, actual HTTP positive/negative comparisons and reopening after removing the original. |
+| Swagger file form parameters/responses, mixed fields, proved file arrays and array cardinality | Engine direct-Swagger, form-downgrade and form-media suites; Core form-downgrade and Swagger-media suites. Redundant-bound singleton intersections extend the existing production wire journey. Direct Swagger coverage now evaluates actual raw response instances as well as form requests. |
+| References, recursion, external resources, mixed entries and independent owners | Engine binary private-secondary-entry certificate journey plus existing binary/reference/resource/entry suites; Core binary multi-file captures with an independently consumed alias, recursive schema and private secondary API operation; native coordinated review now includes binary consumers in mixed and modern entry projects. |
+| Unsaved Source, original preservation, YAML anchors/aliases and exact values | Core binary shared multi-file transaction matrix, existing form/media HTTP publication journeys and native coordinated review. Source buffers and saved originals are compared explicitly. |
+| Determinism, review, decisions, stale approval and CLI apply | Engine repeated captures; Core repeated multi-file reviews; binary decision/review tests; installed independent CLI preview/repeat/decision/stale-approval/apply journey followed by cold runtime validation. Existing CLI form publication remains registered. |
+| Undo/Redo and stale Source | Core binary transaction matrix invalidates the old review across Undo and Redo; existing source invalidation remains. Native review adds a shared binary-resource edit that disables publication. Migration itself remains a separate-copy operation, outside the editing undo stack. |
+| Cancellation, external disk modification, destination conflict, staged failure, atomic multi-file publication | Core binary matrix uses actual `MigrationOutput.publish`, checks the absent destination after private writes, injects cancellation/conflict/failure at the existing pre-publication boundary and checks staging cleanup, all originals and foreign sentinels. Existing form/media publication-race controls remain. This covers staged failure before atomic directory commit, not a fabricated multi-file sequence of visible renames. |
+| Cold reopening and retired source resources | Core shared binary and exact encoded-media journeys remove original files before opening/checking the migrated project; the CLI-applied binary project is reopened and evaluated without its original source. Existing portable relocation/resource identity suites remain registered. |
+| Negative source/conversion/proof matrix | Engine binary adds unavailable-resource/dialect, invalid-source, competing-dynamic-target and exhausted-binary-budget captures; existing file-position, incompatible alternatives/constraints, missing binding and unsupported encoding cases assert no outputs. Core checks the new typed unavailable-proof refusal and blocks publication. |
+| Native preflight and producer admission | `tools/test_native_migration_preflight.py` adds actual packaged B04 multi-resource previews for raw, base64 and Swagger-file representations in both formats; no preview may publish or change a fixture. Producer 89 joins existing obsolete-identity controls in Core and preflight. |
+
+All five required Engine suites are already registered by
+`tools/build_engine.sh`. Core suites (including their installed CLI subprocesses)
+are discovered by the existing serial Core gate in `tools/build_linux.sh`.
+Native `migration_review_test.dart` is included by the existing standard/local
+widget gates; the preflight suite is registered in
+`.github/workflows/flutter-linux.yml`. No new test framework or execution gate
+was introduced, and none of those gates was invoked.
+
+Production changes in this continuation: Engine `form_semantics.ts`,
+`migration.ts`, `migration_binary.ts`, `migration_binary_constraints.ts`,
+`migration_binary_literals.ts`, `migration_binary_proofs.ts`,
+`migration_downgrade.ts`, `migration_form_downgrade.ts`,
+`migration_form_files.ts`, `migration_media_schema.ts`, `migration_schema.ts`;
+Core `packages/busyapi_core/lib/src/migration.dart`; native preflight
+`tools/native_migration_preflight.py`. Existing native UI and CLI production
+entry points require no duplicated binary semantic rules.
+
+Migration producer is **90**, synchronized across Engine, Core, native preflight,
+CLI-facing regression expectations and obsolete-producer controls. This bump
+covers corrected mappings and the additional diagnostic reason. Evaluator
+**1.18.0+60**, graph **9**, response mock **5**, parameter mock **4**, and sample
+producer **4** are unchanged: canonical schema assertion/byte evaluation and the
+producer protocols of those services did not change. Transport hints now reflect
+intersected bounds; they are not substitutes for exact evaluator certificates.
+
+**Actual verification:** source inspection and Git diff/whitespace review only.
+No tests, compiler, analyzer, build, generation, CI, graphical/native workload,
+packaging or performance checks were executed. Generated bundles remain unbuilt
+and are not evidence for producer 90. The execution hold remains active;
+Snapcraft stays skipped. Third-party software and the official Flutter
+installation are unchanged. B04 source completion is not runtime acceptance,
+overall BusyAPI SOURCE COMPLETE or ACCEPTED. The next bounded assignment is
+**B05 — Remaining API object and media migration**; it was not started here.
+
 ## B04-R2: Swagger file/media alternatives and encoded whole bodies
 
 **Source-complete for the established R2 mappings; unverified.** Work started
@@ -276,8 +404,8 @@ and overall completion reconciliation. This R1 status is not B04 acceptance.
 
 ## B04: constrained and mixed binary representations
 
-**In progress; not source-complete. All changes and regression sources remain
-unverified.** This continuation started at
+**Historical initial B04 handoff; current status is B04-R3 above.** All changes
+and regression sources remain unverified. This continuation started at
 `25daa11e7b70ee29a647e871e5989ce5f276cc95` in the primary
 `release/v0.1.0` checkout. A01–A03 and B01–B03 remain the ownership,
 dialect, CST, direction and schema-vocabulary foundations. B05 has not begun.
@@ -327,7 +455,7 @@ annotations now use separate conjuncts, retaining the authored format and the
 legacy transfer annotation. Concrete media bindings can retire redundant or
 contradicting contentMediaType annotations without inventing a decoder.
 
-**Remaining B04 implementation and coverage requirements:**
+**Historical initial B04 requirements (reconciled by B04-R3 above):**
 
 - Containing enum/const projection and its empty-byte/impossible-member
   certificates are now supplied by B04-R1 above. Nonempty byte-content equality
@@ -1184,7 +1312,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W3.04 Property/schema dependencies with independently referenced maps; JC §10.2.2.4, JV §6.5.4 | `migration_schema_dependencies.ts`, migration presence proofs and existing allocator | M E S C | dependency/dependent-schema suites, Core/native B02 journeys | Source-complete for bounded B02, unverified; constant mappings retained; seeded transitive/cyclic presence, closed/composed/exact constraints, forbidden triggers, native/presence guards and independent owners added. Native conjunctions take priority over finite folding when proved. The independently owned nested conditional witness is now a positive production regression; outer triggers, inner predicates and neutral branches retain separate meanings | H |
 | W3.05 Static/dynamic references, anchors, identities and independent annotations; JC §§8–9 | identity/schema-reference/role owners | M E S C | static-dynamicref/identity/boolean/inactive annotation suites, pinned official dynamicRef cases, Core static/dynamic reference publication/HTTP/CLI journeys | Partially implemented; inactive anchors and dynamic applicators whose captured candidates all identify the initial target lower through one shared binding proof. Sibling constraints and recursive references remain separate allOf/static edges; resource/role provenance and cold reopening are proved. Whole-resource entry variants retain static/dynamic targets, anchors and resource boundaries; downstream dynamic dependencies require a same-resource holder. Partial modern resources and native slots now receive common resource owners; moved definitions remain anonymous and native discriminator URI targets repair before stage validation; A03 adds ordinary and foreign whole-resource holders, nested identity/dialect ownership, named dynamic retargeting, resource/anchor isomorphism and neutral native-slot frames; old-family competing-target lowering remains an explicitly unfinished representation mapping, while unsupported dialects and unavailable/ambiguous source identities stay incomplete | H |
 | W3.06 Pattern/property-name/contains/count/unevaluated/content constraints; JC §§10–11, JV §§6/8 | `migration_schema.ts`, name-domain/regex/containment/annotation certificate owners, existing binary/reference/dependency owners | M E S C | pattern/property-name/array/unevaluated/content suites, official fixtures, Core/native B03 journeys | Source-complete for established B03 certificate families, unverified; finite/cofinite/closed name proofs, finite/universal/equivalent-uniform pattern selection, nonconstant structural/existential/complement/unique-finite counts, successful composed/reference annotation selection, static/homogeneous/finite positional coverage and inactive content-owner preservation are implemented. Active decoded-content annotations retain actual older-vocabulary refusals; unavailable name/count/coverage/binding certificates and B04 binary work are distinguished in the B03 handoff above | H |
-| W3.07 Raw/data/base64/byte/file/union consumers and byte constraints; family binary clauses, JV §8 | `migration_binary.ts`, Swagger flat/media owners | M E S C | migration binary, direct Swagger, form/media, Core and native binary suites | In progress, unverified; R1 containing-literal and bounded constraint certificates and R2 established Swagger file/media, form ownership/serialization and captured encoded whole-body mappings are source-complete, unverified. Common owners preserve independently interpreted schemas and media; normative restrictions and missing binding/equivalence certificates remain explicit. R3 final B04 integration, transaction coverage and source-completion reconciliation remain; see the scoped handoffs above | H |
+| W3.07 Raw/data/base64/byte/file/union consumers and byte constraints; family binary clauses, JV §8 | `migration_binary.ts`, Swagger flat/media owners | M E S C | migration binary, direct Swagger, form/media, Core and native binary suites | Source-complete, unverified after B04-R3 reconciliation; common entry proof capture, YAML containing literals, exact media-value comparison and intersected singleton cardinality are corrected. R1/R2 mappings share the existing ownership/schema/media pipeline; complete binary transaction/native/CLI/preflight regression sources are registered. Remaining target restrictions, unavailable proofs and source/evidence prerequisites are separately classified and source-located in the R3 register above; no known established representable B04 mapping is deferred | H |
 | W3.08 Inherited media, forms/files, examples without schemas, shared operations/body meaning and reusable objects; family object clauses | Swagger media/form/downgrade/operation owners | M E S C | Swagger media/form/bodyless/ignored-body suites, Core form CLI | Partially implemented; retain existing mappings and safety decisions; same-family Swagger operations with differing inherited media use common entry owners; examples without schemas and remaining mixed-family shared operations still have implementation gaps | H |
 | W3.09 Servers/security/newer-version fields and invariant proof; family clauses, HTTP/URI | servers/security/operation/invariant owners | M E S C | default-server/security-role/entry-route suites, native-object-use publication and URI-key controls | Partially implemented; Retained 3.2 URI security bindings preserve separate role arrays through owner specialization and portable relocation, with target/name-precedence proofs and declaration/scopes invariants. Older-family URI-to-name source paths now allocate separate standard components through the shared allocator and additional typed-use provenance; external/aliased targets, name precedence, exact scope/role arrays and AND/OR order retain captured connection and request proofs. Shared URI requirements seed entry specialization even when their targets agree; source-side moves repair relative URI keys, and targets lacking Path Item component maps use common anonymous holders. Scheme Reference Object materialization retains applicable description overrides and their original Markdown bases. Captured environment aliases, exact manifest text/identity, Core stale/publication checks, native binding review and CLI output are implemented with prepared regressions; execution remains outstanding. Standard OAuth acquisition flows now specialize into one-flow Swagger schemes and ordered OR expansions without merging AND bindings or scope arrays. Compatible global environment selections project through captured effective security-array owners, intersect complete branch sets across operations, and preserve invalid-selection guards. Ignored Reference Object siblings retain full literal copies through the shared anonymous allocator; source formats/comments and exact values survive materialization. Non-OAuth roles in restricted targets, unavailable summary/discovery/device representations and flow metadata without a standard target container retain located blockers. Mixed-family ownership without compatible holders and remaining newer-field mappings remain implementation work | H |
 | W3.10 Unsaved capture, stale review rejection, original preservation, inventories, exact external bytes, atomic publication and relocated verification; URI/TEXT, Core transaction contract | migration source/examples/invariants; Core `migration.dart` and publication owners | M S C | Core migration/derived-resource/publication suites, engine external examples | Partially implemented; existing safeguards now capture dependencies/opaque bytes for connected complete entries in their own contexts, publish all surviving native locators and retire only reviewed ignored uses; remaining restructuring proofs and current publication/cold-reopen acceptance are still required | H |
@@ -1216,7 +1344,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W7.01 Creation, editing, unsaved Reference, request/example/mock/case, migration review, documentation and CLI integration for every capability; all applicable clauses above | shared engine, Core owners and native workspace controls | A R E M S C | engine/Core/widget/native journey suites | Partially implemented; applicable existing consumers inherit shared field/codec/routing changes; complete family journeys are not accepted | H |
 | W7.02 Stale-action invalidation on declaration/dialect/root/external/approval changes; coherent reviewed transactions, Undo/Redo and no buffer loss; Core transaction contract | Core project/store/capture and native review/request controllers | A R E M S C | stale capture/cancellation/publication/widget review suites | Partially implemented; existing source for existing safeguards; new paths require current integration qualification | H |
 | W7.03 CST fidelity, no-op saves, exact values, aliases, extensions and source-only migration restructuring; TEXT | `document.ts`, graph/CST editing, Core store/transaction owners | A R M S C | source ownership/alias/exact-value/no-op suites | Partially implemented; existing source for existing boundaries; generated schema owners retain original provenance and reviewed restructuring | H |
-| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+60`, migration producer `89`, response mock producer `5`, parameter mock producer `4`, sample producer is now `4`; no dependency versions/source changed | H |
+| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+60`, migration producer `90`, response mock producer `5`, parameter mock producer `4`, sample producer is now `4`; no dependency versions/source changed | H |
 | W8.01 Explicit independent evidence input across SDK/build/CMake/CI/installed/package checks; PINS | `flutter_archive.py`, SDK verifier, `build_linux.sh`, CMake, package/native-distribution/artifact-smoke inputs | P | `tools/test_flutter_sdk.py`, source-wiring regressions | Partially implemented; existing source for archive-input propagation; same existing evidence reaches installed checks; independent member pins remain an alternative; no SDK acquisition/replacement | H; actual evidence availability/authenticity has not been qualified |
 | W8.02 Ordered gates, registration, source-version-valid fixtures and production-byte regressions; PINS and each row's authority | `tools/build_engine.sh`, Linux workflow, engine/Core/widget/native/package suites | P | new direct-Swagger/conditional/tuple-tail/constant-containment/property-name/runtime-parameter and URI-security/OAuth-flow/invariant regressions registered; existing TypeScript-before-bundle gate retained | Partially implemented; compilation and all suspended gates remain unexecuted; missing regression coverage identified in this register remains implementation work | H |
 | W8.03 Current automated/native/packaged/offline acceptance and normal Quit; all approved families and PINS | native acceptance tools, Core/package/CLI suites | A R E M S C P | existing native acceptance including historical Quit/focus failures; complete new journeys still required | Missing for accepted evidence; no driver/engine attribution established; Snapcraft remains skipped | H |

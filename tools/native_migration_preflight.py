@@ -8,7 +8,7 @@ import tempfile
 import re
 
 
-MIGRATION_PRODUCER = '89'
+MIGRATION_PRODUCER = '90'
 
 
 def verify_migration_producer(metadata):

@@ -31,7 +31,7 @@ import type {ExternalExampleResourcePacket} from './external_examples';
 import {flatSchemaScopes} from './migration_flat_items';
 
 export type MigrationChoice=Readonly<{value:string;label:string;target:MigrationLocation&{range:readonly number[]}}>;
-export type MigrationProblem={resource:string;pointer:string;range:number[];code:string;message:string;reason:'target-representation'|'implementation'|'source-incomplete'|'decision';choices?:string[];choiceDetails?:readonly MigrationChoice[];id?:string};
+export type MigrationProblem={resource:string;pointer:string;range:number[];code:string;message:string;reason:'target-representation'|'unavailable-proof'|'implementation'|'source-incomplete'|'decision';choices?:string[];choiceDetails?:readonly MigrationChoice[];id?:string};
 export type MigrationIssueLocation=MigrationLocation&{original?:MigrationLocation;decisionKey?:string};
 export type MigrationIssue=(scope:MigrationIssueLocation,code:string,message:string,reason:MigrationProblem['reason'],choices?:string[],choiceDetails?:readonly MigrationChoice[])=>boolean;
 export type MigrationChoose=(scope:MigrationIssueLocation,code:string,message:string,choices:readonly MigrationChoice[])=>string|undefined;
@@ -209,7 +209,8 @@ export async function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Mig
         };
         if(!modernFamily(to))for(const [name,message]of Object.entries(pending))
             if(Object.hasOwn(value,name)&&source.doc.dataNode(pointer+'/'+name))issue(field(name),'migration.schema.'+name,message+' for '+to,
-                name==='contentSchema'||name==='contentEncoding'&&value.contentEncoding!=='base64'?'target-representation':'implementation');
+                name==='contentSchema'||name==='contentEncoding'&&value.contentEncoding!=='base64'?'target-representation':
+                    name==='contentEncoding'||name==='contentMediaType'?'unavailable-proof':'implementation');
         if(!modernFamily(to)){
             migrateSchemaTuple(context,scope,source,pointer,to,owners,issue,boundsFor(context),unevaluatedTail);
         }

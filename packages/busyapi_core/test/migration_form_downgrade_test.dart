@@ -262,8 +262,8 @@ void main() {
 
 void _r2MixedForms() {
   for (final version in ['3.0.4', '3.1.2', '3.2.1']) {
-    for (final format in ['yaml', 'json']) {
-      test('R2 $version $format mixed file form retains reviewed HTTP bytes and failure atomicity', () async {
+    for (final format in ['yaml', 'json']) for (final singleton in [false, true]) {
+      test('R3 $version $format mixed file form singleton=$singleton retains reviewed HTTP bytes and failure atomicity', () async {
         final temp = await Directory.systemTemp.createTemp('busyapi-r2-form-');
         addTearDown(() => temp.delete(recursive: true));
         final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);
@@ -290,7 +290,7 @@ void _r2MixedForms() {
             'requestBodies': {'Form': {'required': true, 'content': {media: {'schema': {r'$ref': '#/components/schemas/Form'}}}}},
             'schemas': {
               'Form': {'type': 'object', 'required': ['file'], 'properties': {
-                'file': {r'$ref': '#/components/schemas/Raw'}, 'name': {r'$ref': '#/components/schemas/Name'},
+                'file': singleton ? {'allOf': [{'type': 'array', 'minItems': 0, 'maxItems': 4, 'items': {r'$ref': '#/components/schemas/Raw'}}, {'minItems': 1, 'maxItems': 1}]} : {r'$ref': '#/components/schemas/Raw'}, 'name': {r'$ref': '#/components/schemas/Name'},
                 'numbers': {'type': 'array', 'items': {'type': 'integer', 'minimum': 0}},
               }},
               'Raw': version == '3.0.4' ? {'type': 'string', 'format': 'binary'} : <String, Object?>{},

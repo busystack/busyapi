@@ -172,7 +172,7 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migrati
                 continue;
             }
             const selected=commonMediaSchema(graph,sources,owners,source,pointer,scope,media);
-            if(selected===undefined){issue(scope,'migration.body.media-schema','Swagger has one body schema; no common captured schema certificate establishes these representations','implementation');continue;}
+            if(selected===undefined){issue(scope,'migration.body.media-schema','Swagger has one body schema; no common captured schema certificate establishes these representations','unavailable-proof');continue;}
             retainMediaAlternatives(source,pointer,media,graph,owners,selected);
             source.move(pointer+'/content/'+escape(selected)+'/schema',pointer+'/schema');
             if(media.some(name=>Object.keys(value.content[name]).some(field=>field!=='schema')))issue(scope,'migration.body.media-metadata','Request media annotations/examples need an explicit Swagger representation','implementation');
@@ -201,7 +201,7 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migrati
         }
         if(scope.kind==='response'&&typeof value?.$ref!=='string'){
             const media=Object.keys(value.content??{}),selected=commonMediaSchema(graph,sources,owners,source,pointer,scope,media);
-            if(media.length&&selected===undefined){issue(scope,'migration.response.media-schema','Swagger has one response schema; no common captured schema certificate establishes these representations','implementation');continue;}
+            if(media.length&&selected===undefined){issue(scope,'migration.response.media-schema','Swagger has one response schema; no common captured schema certificate establishes these representations','unavailable-proof');continue;}
             if(selected!==undefined){
                 retainMediaAlternatives(source,pointer,media,graph,owners,selected);
                 source.move(pointer+'/content/'+escape(selected)+'/schema',pointer+'/schema');

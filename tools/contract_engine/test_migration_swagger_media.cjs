@@ -7,6 +7,29 @@ const {createGraph, analyse} = require('./dist/model.cjs');
 const {evaluateSchemas} = require('./dist/schema_evaluation.cjs');
 
 const publishedTargets = ['3.0.0', '3.0.1', '3.0.2', '3.0.3', '3.0.4', '3.1.0', '3.1.1', '3.1.2', '3.2.0', '3.2.1'];
+for(const format of ['yaml','json'])test(`R3 ${format} equivalent exact numeric bounds share one encoded-body schema`,async()=>{
+ const root='file:///approved/api.'+format,types=['application/octet-stream','application/json'];
+ const content=Object.fromEntries(types.map((type,index)=>[type,{schema:{type:'string',format:'byte',minLength:'MIN'+index,maxLength:8,description:'DESC'+index}}]));
+ const value={openapi:'3.0.4',info:{title:'Equivalent encoded media',version:'1'},servers:[{url:'https://api.invalid'}],paths:{'/bytes':{post:{requestBody:{content},responses:{200:{description:'Echo',content}}}}}};
+ const text=(format==='json'?JSON.stringify(value):require('yaml').stringify(value)).replaceAll(format==='json'?'"MIN0"':'MIN0','4.00').replaceAll(format==='json'?'"MIN1"':'MIN1','4e0').replaceAll(format==='json'?'"DESC0"':'DESC0',JSON.stringify('café')).replaceAll(format==='json'?'"DESC1"':'DESC1',JSON.stringify('café').replace('é','\\u00e9'));
+ const input={root,snapshot:'R3-exact-media',resources:[{id:root,text,generation:0}],targetVersion:'2.0',destination:'file:///reviewed/'};
+ const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));
+ assert.deepEqual(await planMigration(input),result,'Review output is deterministic for the same capture');
+ const output=reopened(result);assert.equal(analyse(standalone(result)).complete,true);
+ for(const type of types)for(const value of ['AP+A','','too-long-for-bounds']){
+  const bytes=Buffer.from(type==='application/json'?JSON.stringify(value):value);
+  const check=async packet=>{
+   const plan=operations(packet).find(plan=>plan.operation.path==='/bytes');
+   const media=[plan.requestBody.content.find(media=>media.mediaType===type),plan.responses[0].content.find(media=>media.mediaType===type)];
+   const checked=await evaluateSchemas({...packet,runtimeInstances:media.map((media,index)=>({subject:index?'response-body':'request-body',location:type,mediaType:type,mediaBase64:true,text:bytes.toString('base64'),media:media.definition??media.source}))});
+   assert.equal(checked.complete,true);assert.equal(checked.runtimeEvaluations.length,2);return checked.runtimeEvaluations.map(value=>({complete:value.complete,valid:value.valid}));
+  };
+  const before=await check(input);assert(before.every(result=>result.complete&&result.valid===(value==='AP+A')));
+  assert.deepEqual(await check(output),before);
+ }
+ assert(result.outputs.some(output=>output.text.includes('4.00')));assert(result.outputs.some(output=>output.text.includes('4e0')));
+ assert.equal(input.resources[0].text,text);
+});
 for(const version of ['3.1.2','3.2.1'])for(const format of ['yaml','json'])test(`R2 ${version} ${format} compatible raw/JSON media retain one Swagger wire schema and independent owners`,async()=>{
  const root='file:///approved/api.'+format,type='application/octet-stream',raw={maxLength:4},data={type:'string',maxLength:4};
  const content={[type]:{schema:raw},'application/json':{schema:{$ref:'#/components/schemas/Text'}}};

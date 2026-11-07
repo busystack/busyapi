@@ -25,6 +25,17 @@ export function namedFileShapeSelection(family:string,mediaType:string,styled:bo
 
 export type FormShape={types?:string[];literalType?:string;format?:string;contentEncoding?:string;required?:string[];minItems?:number;maxItems?:number;properties?:Record<string,FormShape>;items?:FormShape;prefixItems?:FormShape[];defaultContentType?:string};
 
+function minimumItems(local:unknown,shapes:readonly FormShape[]):number|undefined {
+    const bounds=shapes.flatMap(shape=>shape.minItems===undefined?[]:[shape.minItems]);
+    if(typeof local==='number')bounds.push(local);
+    return bounds.length?bounds.reduce((left,right)=>Math.max(left,right)):undefined;
+}
+function maximumItems(local:unknown,shapes:readonly FormShape[]):number|undefined {
+    const bounds=shapes.flatMap(shape=>shape.maxItems===undefined?[]:[shape.maxItems]);
+    if(typeof local==='number')bounds.push(local);
+    return bounds.length?bounds.reduce((left,right)=>Math.min(left,right)):undefined;
+}
+
 export const formLiteralType=(shape:FormShape):string|undefined=>{
     // Literal input remains a string when a union permits strings; exact JSON
     // data input retains its own kind instead. Null-only fields use "null".
@@ -72,8 +83,11 @@ export class FormSemantics {
             format:typeof value.format==='string'?value.format:shapes.find(shape=>shape.format)?.format,
             contentEncoding:typeof value.contentEncoding==='string'?value.contentEncoding:shapes.find(shape=>shape.contentEncoding)?.contentEncoding,
             required:[...new Set([...shapes.flatMap(shape=>shape.required??[]),...(Array.isArray(value.required)?value.required:[])])],
-            minItems:typeof value.minItems==='number'?value.minItems:shapes.find(shape=>shape.minItems!==undefined)?.minItems,
-            maxItems:typeof value.maxItems==='number'?value.maxItems:shapes.find(shape=>shape.maxItems!==undefined)?.maxItems,
+            // Transport hints must describe the whole positive conjunction,
+            // including bounds supplied by a different referenced conjunct.
+            // Exact assertion evaluation remains with the canonical schema.
+            minItems:minimumItems(value.minItems,shapes),
+            maxItems:maximumItems(value.maxItems,shapes),
             properties,
             items:value.items&&typeof value.items==='object'&&!Array.isArray(value.items)?this.shape(resource,pointer+'/items',seen,depth+1):shapes.find(shape=>shape.items)?.items,
             prefixItems:Array.isArray(value.prefixItems)?value.prefixItems.map((_:unknown,index:number)=>this.shape(resource,pointer+'/prefixItems/'+index,seen,depth+1)):shapes.find(shape=>shape.prefixItems)?.prefixItems,

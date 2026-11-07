@@ -43,7 +43,8 @@ export function materializeFormFile(sources:ReadonlyMap<string,MigrationSource>,
  * arrays cannot become Swagger Items(file), nor duplicate name/in parameters. */
 export function materializeSingletonFormFile(sources:ReadonlyMap<string,MigrationSource>,owners:MigrationSchemaOwners,source:MigrationSource,pointer:string,octetString=true):boolean {
     const items:{source:MigrationSource;pointer:string}[]=[],metadata=new Map<string,{source:MigrationSource;pointer:string}>();
-    const active=new Set<string>();let work=0,valid=true,minimum=false,maximum=false;
+    const active=new Set<string>();let work=0,valid=true;
+    let minimum=decimal('0'),maximum:ReturnType<typeof decimal>|undefined;
     const visit=(source:MigrationSource,pointer:string)=>{
         if(++work>50000)throw new SourceError('limit.migration.form-file','Singleton file materialization exceeds 50000 states');
         const id=JSON.stringify([source.doc.id,pointer]);if(active.has(id)){valid=false;return;}active.add(id);
@@ -59,15 +60,23 @@ export function materializeSingletonFormFile(sources:ReadonlyMap<string,Migratio
                 }else items.push({source:source.fork(),pointer:field.pointer});
             }
             else if(name==='minItems'||name==='maxItems'){
-                if(compare(decimal(source.doc.dataJson(field.pointer)),decimal('1'))!==0)valid=false;
-                else if(name==='minItems')minimum=true;else maximum=true;
+                // Bounds in positive conjunctions intersect. A redundant
+                // wider bound does not invalidate a singleton certificate.
+                const bound=decimal(source.doc.dataJson(field.pointer));
+                if(name==='minItems'&&compare(bound,minimum)>0)minimum=bound;
+                if(name==='maxItems'&&(maximum===undefined||compare(bound,maximum)<0))maximum=bound;
             }else if(name==='type'&&field.value==='array'||name==='uniqueItems')continue;
-            else if(name==='description'||name.startsWith('x-'))metadata.set(name,{source:source.fork(),pointer:field.pointer});
+            else if(name==='description'||name.startsWith('x-')){
+                const previous=metadata.get(name);
+                if(previous&&previous.source.doc.dataJson(previous.pointer)!==source.doc.dataJson(field.pointer))valid=false;
+                metadata.set(name,{source:source.fork(),pointer:field.pointer});
+            }
             else valid=false;
         }
         active.delete(id);
     };
-    visit(source,pointer);if(!valid||!minimum||!maximum||!items.length)return false;
+    visit(source,pointer);
+    if(!valid||compare(minimum,decimal('1'))!==0||maximum===undefined||compare(maximum,decimal('1'))!==0||!items.length)return false;
     const captured=source.fork();
     source.remove(pointer);source.set(pointer,{allOf:[]});
     for(const [index,item]of items.entries())owners.copyAssertionField(source,pointer+'/allOf/'+index,item.source,item.pointer);

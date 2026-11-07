@@ -8,6 +8,7 @@ import {runtimeMediaKind} from './runtime_media';
 import {runtimeBinaryMedia} from './runtime_binary';
 import {pointerFragment} from './reference_graph';
 import {mediaTypes} from './media_types';
+import {decimal} from './exact_numbers';
 
 type Field=Readonly<{source:MigrationSource;pointer:string}>;
 
@@ -62,7 +63,15 @@ export function mediaSchemaIdentity(source:MigrationSource,pointer:string,source
         if(node.kind==='object')return '{'+[...node.children].sort(([a],[b])=>a.localeCompare(b))
             .map(([name,child])=>JSON.stringify(name)+':'+value({source:at.source,pointer:child.pointer})).join(',')+'}';
         if(node.kind==='array')return '['+[...node.children.values()].map(child=>value({source:at.source,pointer:child.pointer})).join(',')+']';
-        return at.source.doc.dataJson(at.pointer).trim();
+        if(typeof node.value==='number'){
+            // Compare mathematical values without replacing either CST
+            // spelling or passing an exact value through IEEE-754.
+            const number=decimal(at.source.doc.dataJson(at.pointer));
+            return String(number.coefficient)+'e'+String(number.exponent);
+        }
+        // String escapes and YAML scalar styles are presentation too. The
+        // original operands remain untouched in their captured CST owners.
+        return JSON.stringify(node.value);
     };
     const visit=(at:Field,active:ReadonlySet<string>,raw=false):string[]|undefined=>{
         if(++work>50000)throw new SourceError('limit.migration.media-schema','Media schema comparison exceeds 50000 captured states');
@@ -159,7 +168,7 @@ export function materializeFormObject(graph:ReferenceGraph,sources:ReadonlyMap<s
     const collect=(at:Field)=>{
         if(++work>50000)throw new SourceError('limit.migration.form','Form object materialization exceeds 50000 states');
         const id=JSON.stringify([at.source.doc.id,at.pointer]);
-        if(active.has(id)){valid=false;issue(original,'migration.form.recursive-object','A recursive same-instance form structure has no finite captured flattening certificate','implementation');return;}
+        if(active.has(id)){valid=false;issue(original,'migration.form.recursive-object','A recursive same-instance form structure has no finite captured flattening certificate','unavailable-proof');return;}
         active.add(id);const node=at.source.doc.dataNode(at.pointer);
         if(node?.kind!=='object'){fail(at,'Swagger form fields require a concrete object structure');active.delete(id);return;}
         for(const [name,child]of node.children){

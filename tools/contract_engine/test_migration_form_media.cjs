@@ -2,6 +2,15 @@ const {test}=require('node:test'),assert=require('node:assert/strict'),YAML=requ
 const {planMigration}=require('./dist/migration.cjs'),{SourceDocument}=require('./dist/document.cjs');
 const versions=['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'];
 const mediaTypes=['application/x-www-form-urlencoded','Application/X-WWW-Form-Urlencoded','application/x-www-form-urlencoded; charset=utf-8','Application/X-WWW-Form-Urlencoded; Charset="UTF-8"'];
+for(const format of ['yaml','json'])test(`R3 ${format} equivalent exact form bounds retain each media and literal owner`,async()=>{
+ const root='file:///approved/api.'+format,content=Object.fromEntries(['application/x-www-form-urlencoded','multipart/form-data'].map((media,index)=>[media,{schema:{type:'object',required:['count'],properties:{count:{type:'integer',minimum:'BOUND'+index}}}}]));
+ const value={openapi:'3.0.4',info:{title:'Exact alternatives',version:'1'},servers:[{url:'https://api.invalid'}],paths:{'/items':{post:{requestBody:{required:true,content},responses:{204:{description:'Empty'}}}}}};
+ const text=(format==='json'?JSON.stringify(value):YAML.stringify(value)).replaceAll(format==='json'?'"BOUND0"':'BOUND0','9007199254740993.00').replaceAll(format==='json'?'"BOUND1"':'BOUND1','900719925474099300e-2');
+ const input={root,snapshot:'R3-form-media',resources:[{id:root,text,generation:0}],targetVersion:'2.0',destination:'file:///reviewed/'},result=await planMigration(input);
+ assert.equal(result.complete,true,JSON.stringify(result.problems));assert.deepEqual(await planMigration(input),result);
+ assert(result.outputs.some(output=>output.text.includes('9007199254740993.00')));assert(result.outputs.some(output=>output.text.includes('900719925474099300e-2')));
+ assert.equal(input.resources[0].text,text);
+});
 for(const version of ['3.0.4','3.1.2','3.2.1'])for(const format of ['yaml','json'])test(`R2 ${version} ${format} compatible form media retain each selection and one flat field set`,async()=>{
  const root='file:///approved/api.'+format,schema={type:'object',required:['name'],properties:{name:{type:'string'},flags:{type:'array',items:{type:'boolean'}}}};
  const types=['application/x-www-form-urlencoded','multipart/form-data'];

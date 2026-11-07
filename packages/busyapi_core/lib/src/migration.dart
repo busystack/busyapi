@@ -71,7 +71,7 @@ void _verifyMigrationReview(
   if (result['version'] != 1 ||
       result['snapshot'] != input.snapshot.identity ||
       result['producer'] != 'busyapi-native-migration' ||
-      result['producerVersion'] != '89' ||
+      result['producerVersion'] != '90' ||
       result['problems'] is! List ||
       result['outputs'] is! List ||
       result['exampleOutputs'] is! List ||
@@ -136,6 +136,7 @@ void _verifyMigrationReview(
           end > (source['text'] as String).length ||
           !const [
             'target-representation',
+            'unavailable-proof',
             'implementation',
             'source-incomplete',
             'decision',
@@ -390,6 +391,7 @@ enum MigrationStatus { faithfullyConvertible, requiresDecision, blocked }
 
 enum MigrationProblemReason {
   targetRepresentation,
+  unavailableProof,
   implementation,
   sourceIncomplete,
   decision,
@@ -420,6 +422,7 @@ class MigrationProblem {
       message = value['message'] as String,
       reason = switch (value['reason']) {
         'target-representation' => MigrationProblemReason.targetRepresentation,
+        'unavailable-proof' => MigrationProblemReason.unavailableProof,
         'implementation' => MigrationProblemReason.implementation,
         'source-incomplete' => MigrationProblemReason.sourceIncomplete,
         'decision' => MigrationProblemReason.decision,
