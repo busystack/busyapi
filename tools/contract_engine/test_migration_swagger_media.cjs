@@ -6,6 +6,19 @@ const {SourceDocument} = require('./dist/document.cjs');
 const {createGraph, analyse} = require('./dist/model.cjs');
 const {evaluateSchemas} = require('./dist/schema_evaluation.cjs');
 
+for(const location of ['whole','cookie'])test(`R3c Swagger retains the ${location} native-owner proof boundary`,async()=>{
+ const input=require('./migration_b05_r3c_fixture.cjs')('3.2.1','json','2.0');
+ if(location==='cookie'){
+  delete input.value.components.parameters.Whole;
+  delete input.value.paths['/p'].parameters;
+  input.value.paths['/shared'].get.parameters.shift();
+ }
+ input.resources[0].text=input.encode(input.value);const result=await planMigration(input);
+ assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);assert.deepEqual(result.changes,[]);
+ assert(result.problems.some(problem=>problem.code===(location==='whole'?'migration.parameter.querystring-proof':'migration.parameter.cookie-target')&&
+  problem.reason===(location==='whole'?'unavailable-proof':'target-representation')),JSON.stringify(result.problems));
+});
+
 const publishedTargets = ['3.0.0', '3.0.1', '3.0.2', '3.0.3', '3.0.4', '3.1.0', '3.1.1', '3.1.2', '3.2.0', '3.2.1'];
 for(const version of publishedTargets)for(const format of ['yaml','json'])test(`B05-R2 ${version} ${format} reusable metadata and equivalent examples retain actual consumers`,async()=>{
  const fixture=require('./migration_b05_r2_fixture.cjs'),{input}=fixture.capture(version,format),before=JSON.stringify(input);

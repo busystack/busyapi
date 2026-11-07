@@ -1,6 +1,48 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),YAML=require('yaml');
 const {planMigration}=require('./dist/migration.cjs'),{analyse}=require('./dist/model.cjs'),{evaluateSchemas}=require('./dist/schema_evaluation.cjs');
 const {SourceDocument}=require('./dist/document.cjs');
+
+for(const mutation of ['encoding','domain','required','name'])test(`R3c final parameter wire proof rejects ${mutation}`,async()=>{
+ const input=require('./migration_b05_r3c_fixture.cjs')(),result=await planMigration(input);
+ assert.equal(result.complete,true,JSON.stringify(result.problems));
+ const {createGraph}=require('./dist/model.cjs'),{proveMigrationParameterSerialization}=require('./dist/migration_invariants.cjs');
+ const before=createGraph(input).graph;
+ let resources=result.outputs.map(output=>({id:output.id,text:output.text,generation:0}));
+ const resource=resources.find(resource=>resource.id===result.outputRoot),doc=new SourceDocument(resource.text,resource.id),base='/components/parameters/Literal';
+ if(mutation==='encoding'){
+  const value=JSON.parse(doc.dataJson(base));value.schema=value.content['text/plain'].schema;delete value.content;value.style='form';value.explode=true;
+  resource.text=doc.set(base,value);
+ }
+ if(mutation==='domain')resource.text=doc.set(base+'/content/text~1plain/schema/enum',['a%20b']);
+ if(mutation==='required')resource.text=doc.set(base+'/required',true);
+ if(mutation==='name')resource.text=doc.set(base+'/name','renamed');
+ const after=createGraph({root:result.outputRoot,resources,snapshot:'r3c-mutated'}).graph,problems=[];
+ await proveMigrationParameterSerialization(before,after,at=>[{resource:result.outputRoot,pointer:at.pointer}],(at,code,message,reason)=>problems.push({at,code,message,reason}));
+ assert(problems.some(problem=>problem.code==='migration.invariant.parameter-wire'),JSON.stringify(problems));
+});
+
+for(const format of ['yaml','json'])test(`R3c ${format} saved whole-query values have exact reviewed key moves`,async()=>{
+ const input=require('./migration_b05_r3c_fixture.cjs')('3.2.1',format,'3.0.4');
+ const configuration={version:1,roots:[{name:'api',path:'api.'+format}],environments:{local:{variables:{held:'unchanged'}}},tests:[
+  {name:'saved',operation:{method:'get',path:'/p'},environment:'local',parameters:{querystring:{descriptionOnly:{q:'%20',flag:false}},cookie:{literal:'a%20b',one:['safe'],object:{left:'L'}}}},
+ ]};
+ input.configuration={id:'file:///captured/busyapi.yaml',text:JSON.stringify(configuration),generation:7};
+ const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));
+ const projection=result.configurationProjections.find(change=>change.pointer==='/tests/0/parameters');assert(projection);
+ assert.deepEqual(JSON.parse(projection.before),configuration.tests[0].parameters);
+ assert.deepEqual(JSON.parse(projection.after),{query:{descriptionOnly:{q:'%20',flag:false}},cookie:configuration.tests[0].parameters.cookie});
+ assert.deepEqual(result.manifest.tests[0].parameters,JSON.parse(projection.after));
+ assert.deepEqual(result.manifest.environments.local.variables,{held:'unchanged'});
+ for(const mutation of ['occupied','outside-domain','raw']){
+  const changed=JSON.parse(input.configuration.text);
+  if(mutation==='occupied')changed.tests[0].parameters.query={descriptionOnly:{q:'keep'}};
+  if(mutation==='outside-domain')changed.tests[0].parameters.querystring.descriptionOnly={q:'a b'};
+  if(mutation==='raw')changed.tests[0].parameters.querystring.descriptionOnly='q=%20';
+  const refused=await planMigration({...input,configuration:{...input.configuration,text:JSON.stringify(changed)}});
+  assert.equal(refused.complete,false);assert.deepEqual(refused.outputs,[]);
+  assert(refused.problems.some(problem=>problem.code.startsWith('migration.parameter.saved-')),JSON.stringify(refused.problems));
+ }
+});
 for(const format of ['yaml','json'])test(`B05-R1 ${format} cleared global media has independent request and response ownership across entries`,async()=>{
  const input=require('./migration_operation_contexts_fixture.cjs')(format,{empty:true}),before=input.resources.map(resource=>resource.text);
  const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));
@@ -70,7 +112,7 @@ for(const format of ['yaml','json'])test(`${format} a modern-only secondary oper
 for(const [path,code]of [
  [{query:{responses:{204:{description:'QUERY'}}}},'migration.operation.method'],
  [{additionalOperations:{gEt:{responses:{204:{description:'Exact case'}}}}},'migration.operation.method'],
- [{get:{parameters:[{name:'whole',in:'querystring',content:{'application/json':{schema:{type:'object'}}}}],responses:{204:{description:'Done'}}}},'migration.parameter.querystring-proof'],
+ [{get:{parameters:[{name:'whole',in:'querystring',content:{'application/json':{schema:{type:'object'}}}}],responses:{204:{description:'Done'}}}},'migration.parameter.querystring-target'],
 ])test(`B05-R3 an older route cannot acquire different request semantics: ${code}`,async()=>{
  const root='https://contracts.invalid/r3-method.json',value={openapi:'3.2.1',info:{title:'Exact requests',version:'1'},servers:[{url:'https://api.invalid'}],paths:{'/p':path}};
  const text=JSON.stringify(value),review=await planMigration({root,snapshot:'method-proof',resources:[{id:root,text,generation:1}],targetVersion:'3.1.2',destination:'file:///refused-method/'});

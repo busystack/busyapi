@@ -63,7 +63,7 @@ class _MigrationReviewState extends State<_MigrationReview> {
   _CaptureFailure? captureFailure;
   final decisions = <String, String>{};
   bool busy = false, publishing = false, published = false, cancelled = false;
-  int epoch = 0, resourceIndex = 0, problemPage = 0, bindingPage = 0, alternativePage = 0, configurationPage = 0;
+  int epoch = 0, resourceIndex = 0, problemPage = 0, bindingPage = 0, alternativePage = 0, configurationPage = 0, parameterPage = 0;
   bool get current =>
       mounted &&
       !widget.workspace.disposed &&
@@ -115,6 +115,7 @@ class _MigrationReviewState extends State<_MigrationReview> {
     bindingPage = 0;
     alternativePage = 0;
     configurationPage = 0;
+    parameterPage = 0;
     failure = null;
     captureFailure = null;
   }
@@ -409,6 +410,20 @@ class _MigrationReviewState extends State<_MigrationReview> {
             ),
           for (final change in review.configurationProjections.skip(configurationPage * 50).take(50))
             SelectableText('${change.pointer}\n${change.before ?? '∅'} → ${change.after}'),
+          if (review.parameterChanges.length > 50)
+            BusyApiReviewPages(
+              page: parameterPage,
+              pages: (review.parameterChanges.length / 50).ceil(),
+              onChanged: (page) => setState(() => parameterPage = page),
+            ),
+          for (final change in review.parameterChanges.skip(parameterPage * 50).take(50))
+            BusyApiActionRow(
+              title: '${change.name} · ${change.before} → ${change.after}',
+              subtitle: '${change.resource} ${change.pointer}',
+              onTap: busy ? null : () => Navigator.pop(context, <String, dynamic>{
+                'root': widget.root, 'resource': change.resource, 'pointer': change.pointer,
+              }),
+            ),
           if ((review.result['presentationChanges'] as List).isNotEmpty)
             Text(l.migrationPresentation),
           if (review.problems.length > 50)

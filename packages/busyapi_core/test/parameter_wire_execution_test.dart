@@ -7,6 +7,37 @@ import 'package:test/test.dart';
 import 'test_support.dart';
 
 void main() {
+  for (final version in ['3.0.4', '3.1.2', '3.2.1']) {
+    test('R3c $version cookie content sends literal percent sequences, empty and omitted values', () async {
+      final directory = await Directory.systemTemp.createTemp('busyapi-literal-cookie-');
+      addTearDown(() => directory.delete(recursive: true));
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      final seen = <String?>[];
+      server.listen((request) async {
+        seen.add(request.headers.value('cookie'));request.response.statusCode = 204;await request.response.close();
+      });
+      final file = File('${directory.path}/api.json');
+      const values = ['a%20b', '%zz', '%', 'a+b', 'a/b', 'a=b', '!', ''];
+      await file.writeAsString(jsonEncode({'openapi': version, 'info': {'title': 'Literal cookies', 'version': '1'},
+        'servers': [{'url': 'http://127.0.0.1:${server.port}'}], 'paths': {'/p': {'get': {
+          'parameters': [{'name': 'token', 'in': 'cookie', 'content': {'text/plain': {'schema': {'type': 'string', 'enum': values}}}}],
+          'responses': {'204': {'description': 'Empty'}},
+        }}}}));
+      final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);addTearDown(engine.close);
+      final project = await BusyProject.open(file.path, engine);addTearDown(project.close);
+      final root = project.roots.single.id;
+      final plan = await project.prepareRequest(root, resource: root, pointer: '/paths/~1p/get');addTearDown(plan.close);
+      for (final value in [...values, null]) {
+        final response = await const ContractRequestExecutor().execute(plan,
+          OperationRequestDraft(planIdentity: plan.identity, parameters: {
+            if (value != null) OperationRequestDraft.parameterKey('cookie', 'token'): RequestValue.text(value),
+          }), resolveSecret: (_) async => null);
+        try {expect(response.conforming, true);expect(seen.last, value == null ? null : 'token=$value');}
+        finally {await response.close();}
+      }
+    });
+  }
   for (final version in ['3.0.4', '2.0', '3.1.2', '3.2.1']) {
     test(
       '$version actual parameter bytes distinguish empty names from whole queries',

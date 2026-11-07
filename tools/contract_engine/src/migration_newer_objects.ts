@@ -51,8 +51,6 @@ export function migrateNewerObjects(graphs:readonly ReferenceGraph[],sources:Map
    if(Object.keys(value.additionalOperations).length)issue(field('additionalOperations'),'migration.operation.additional','The older target has no slot for these case-sensitive additional HTTP methods','target-representation');
    else history('additionalOperations','empty_additional_operations');
   }
-  if(scope.kind==='parameter'&&value.in==='querystring')
-   issue(field('in'),'migration.parameter.querystring-proof','Lowering an entire query string requires an exhaustive serialization and presence certificate for its media, names, escaping and ordering; none is established for this occurrence','unavailable-proof');
   if(scope.kind==='server'&&Object.hasOwn(value,'name'))issue(field('name'),'migration.server.name',
    'The older Server representation has no independently named Server choice; a description cannot preserve that label field','target-representation');
   if(scope.kind==='tag'){

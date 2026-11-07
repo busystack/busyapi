@@ -25,8 +25,8 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(MIGRATION_PRODUCER, engine_revision.group(1))
 
     def test_current_revision_is_accepted_and_previous_package_is_rejected(self):
-        verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': '95'})
-        for obsolete in ('25', '34', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45', '46', '47', '48', '49', '50', '51', '52', '53', '54', '55', '56', '57', '58', '59', '60', '61', '62', '63', '64', '65', '66', '67', '68', '69', '70', '71', '72', '73', '74', '75', '76', '77', '78', '79', '80', '81', '82', '83', '84', '85', '86', '87', '88', '89', '90', '91', '92', '93', '94'):
+        verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': '96'})
+        for obsolete in ('25', '34', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45', '46', '47', '48', '49', '50', '51', '52', '53', '54', '55', '56', '57', '58', '59', '60', '61', '62', '63', '64', '65', '66', '67', '68', '69', '70', '71', '72', '73', '74', '75', '76', '77', '78', '79', '80', '81', '82', '83', '84', '85', '86', '87', '88', '89', '90', '91', '92', '93', '94', '95'):
             with self.subTest(obsolete=obsolete):
                 with self.assertRaisesRegex(RuntimeError, 'producer differ'):
                     verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': obsolete})
@@ -51,10 +51,10 @@ class PreflightTests(unittest.TestCase):
     def review(self, **updates):
         return {'producer': 'busyapi-native-migration', 'producerVersion': MIGRATION_PRODUCER,
                 'status': 'faithfully-convertible', 'complete': True, 'published': False,
-                'target': {'declaredVersion': '2.0'}, 'reviewIdentity': 'a' * 64, 'configurationProjections': [], **updates}
+                'target': {'declaredVersion': '2.0'}, 'reviewIdentity': 'a' * 64, 'configurationProjections': [], 'parameterChanges': [], **updates}
 
     def test_obsolete_producer_is_rejected_without_publication(self):
-        for version in ['6', '23', '25', '31', '32', '33', '89', '90', '91', '92', '93', '94']:
+        for version in ['6', '23', '25', '31', '32', '33', '89', '90', '91', '92', '93', '94', '95']:
             with self.subTest(producerVersion=version):
                 binary = self.fake(self.review(producerVersion=version))
                 with self.assertRaisesRegex(RuntimeError, 'producer differ'):
@@ -169,6 +169,15 @@ class PreflightTests(unittest.TestCase):
         records = [{'pointer': '/tests/0/server', 'before': '1', 'after': '0'}]
         report = preflight_migration(self.fake(self.review(configurationProjections=records)), self.source, '2.0',
                                     self.destination, self.originals)
+        self.assertEqual(report['configurationProjections'], records)
+
+    def test_parameter_review_protocol_controls(self):
+        for changes in [None, {}, [{'resource': 'file:///a.json', 'pointer': '', 'name': 'p', 'before': 'cookie', 'after': 'form', 'range': [-1, 2]}]]:
+            with self.subTest(changes=changes), self.assertRaisesRegex(RuntimeError, 'parameter'):
+                preflight_migration(self.fake(self.review(parameterChanges=changes)), self.source, '2.0', self.destination, self.originals)
+        records = [{'pointer': '/tests/0/parameters', 'before': '{"querystring":{"p":{"q":"%20"}}}',
+                    'after': '{"query":{"p":{"q":"%20"}}}'}]
+        report = preflight_migration(self.fake(self.review(configurationProjections=records)), self.source, '2.0', self.destination, self.originals)
         self.assertEqual(report['configurationProjections'], records)
 
     def test_actual_packaged_r3a_routes_and_reviewed_server_selections(self):
@@ -313,6 +322,49 @@ class PreflightTests(unittest.TestCase):
                     self.assertEqual(source.read_bytes(), raw)
                     self.assertEqual(fragment.read_bytes(), extra)
 
+
+    def test_actual_packaged_r3c_finite_parameters_and_saved_values(self):
+        bundle = Path(os.environ.get('BUSYAPI_TEST_BUNDLE') or
+                      Path(__file__).resolve().parent.parent / 'build/linux/x64/release/bundle')
+        binary = bundle / 'busyapi'
+        self.assertTrue(binary.is_file(), 'Build the assembled CLI or set BUSYAPI_TEST_BUNDLE')
+        for version in ['3.2.0', '3.2.1']:
+            for format in ['yaml', 'json']:
+                for target in ['3.1.2', '3.0.4']:
+                    with self.subTest(version=version, format=format, target=target):
+                        source = self.root / ('r3c-' + version + '.' + format)
+                        configuration = self.root / 'busyapi.yaml'
+                        whole = {'name': 'descriptionOnly', 'in': 'querystring', 'required': True,
+                                 'content': {'application/x-www-form-urlencoded': {'schema': {
+                                     'type': 'object', 'additionalProperties': False, 'required': ['q'],
+                                     'properties': {'q': {'type': 'string', 'enum': ['', 'a+b', '%20']}}}}}}
+                        cookie = {'name': 'literal', 'in': 'cookie', 'style': 'cookie',
+                                  'schema': {'type': 'string', 'enum': ['a%20b', '']}}
+                        value = {'openapi': version, 'info': {'title': 'R3c', 'version': '1'},
+                                 'paths': {'/p': {'get': {'parameters': [whole, cookie],
+                                                       'responses': {'204': {'description': 'Empty'}}}}}}
+                        settings = {'version': 1, 'roots': [{'name': 'api', 'path': source.name}],
+                                    'environments': {'manual': {'variables': {'keep': 'unchanged'}}},
+                                    'tests': [{'name': 'saved', 'operation': {'method': 'get', 'path': '/p'},
+                                               'parameters': {'querystring': {'descriptionOnly': {'q': '%20'}},
+                                                              'cookie': {'literal': 'a%20b'}}}]}
+                        raw = (('# Keep R3c source\r\n' if format == 'yaml' else '') + json.dumps(value) + '\r\n').encode()
+                        originals = {source: raw, configuration: json.dumps(settings).encode()}
+                        for path, data in originals.items():
+                            path.write_bytes(data)
+                        destination = self.root / ('r3c-' + version + '-' + format + '-' + target)
+                        report = preflight_migration(binary, source, target, destination, originals)
+                        self.assertEqual(report['producerVersion'], MIGRATION_PRODUCER)
+                        self.assertTrue(any(change['pointer'] == '/tests/0/parameters' for change in report['configurationProjections']))
+                        self.assertFalse(destination.exists())
+                        for path, data in originals.items():
+                            self.assertEqual(path.read_bytes(), data)
+                        whole['content'] = {'application/json': {'schema': {'type': 'object', 'enum': [{'q': '%20'}]}}}
+                        raw = json.dumps(value).encode()
+                        source.write_bytes(raw)
+                        with self.assertRaisesRegex(RuntimeError, 'migration.parameter.querystring-target'):
+                            preflight_migration(binary, source, target, destination, {**originals, source: raw})
+                        self.assertFalse(destination.exists())
 
     def test_actual_packaged_r3b_owners_and_unused_target_restrictions(self):
         bundle = Path(os.environ.get('BUSYAPI_TEST_BUNDLE') or

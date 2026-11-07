@@ -1,6 +1,90 @@
 const assert=require('node:assert/strict'),{test}=require('node:test'),fs=require('node:fs');
 const {planMigration}=require('./dist/migration.cjs'),{analyse}=require('./dist/model.cjs'),{evaluateSchemas}=require('./dist/schema_evaluation.cjs');
 const {SourceDocument}=require('./dist/document.cjs');
+
+for(const media of ['text/plain','application/octet-stream','application/x-www-form-urlencoded; charset=iso-8859-1'])
+test(`R3c ${media} without a complete codec certificate remains unavailable proof`,async()=>{
+ const input=require('./migration_b05_r3c_fixture.cjs')();
+ input.value.components.parameters.Whole.content={[media]:{schema:{type:'string',enum:['']}}};
+ input.resources[0].text=input.encode(input.value);const result=await planMigration(input);
+ assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);
+ assert(result.problems.some(problem=>problem.code==='migration.parameter.querystring-media-proof'&&problem.reason==='unavailable-proof'),JSON.stringify(result.problems));
+});
+
+for(const targetVersion of ['3.1.2','3.0.4'])for(const required of [false,true])
+test(`R3c empty whole-query data languages retain JSON media and required=${required} at ${targetVersion}`,async()=>{
+ const input=require('./migration_b05_r3c_fixture.cjs')('3.2.1','json',targetVersion),whole=input.value.components.parameters.Whole;
+ whole.required=required;whole.content={'application/json':{schema:false}};
+ input.resources[0].text=input.encode(input.value);const result=await planMigration(input);
+ assert.equal(result.complete,true,JSON.stringify(result.problems));
+ const output=new SourceDocument(result.outputs.find(output=>output.id===result.outputRoot).text,result.outputRoot);
+ assert.equal(output.dataNode('/components/parameters/Whole/in').value,'query');
+ assert(output.dataNode('/components/parameters/Whole/content/application~1json/schema'));
+ assert.equal(output.dataNode('/components/parameters/Whole/required').value,required);
+});
+
+test('R3c optional empty whole form objects preserve absence without inventing a field',async()=>{
+ const input=require('./migration_b05_r3c_fixture.cjs')(),whole=input.value.components.parameters.Whole;
+ whole.required=false;whole.content={'application/x-www-form-urlencoded':{schema:{type:'object',enum:[{}]}}};
+ input.resources[0].text=input.encode(input.value);const review=await planMigration(input);
+ assert.equal(review.complete,true,JSON.stringify(review.problems));
+ assert(review.parameterChanges.some(change=>change.name==='descriptionOnly'&&change.before.startsWith('querystring')));
+ const output=new SourceDocument(review.outputs.find(output=>output.id===review.outputRoot).text,review.outputRoot);
+ assert.equal(output.dataNode('/components/parameters/Whole/name').value,'descriptionOnly');
+ assert.equal(output.dataNode('/components/parameters/Whole/required').value,false);
+});
+
+for(const version of ['3.2.0','3.2.1'])for(const format of ['yaml','json'])for(const targetVersion of ['3.1.2','3.0.4'])
+test(`R3c ${version} ${format} finite whole queries and literal cookies publish to ${targetVersion}`,async()=>{
+ const input=require('./migration_b05_r3c_fixture.cjs')(version,format,targetVersion),original=input.resources[0].text;
+ const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(result.producerVersion,'96');
+ assert.equal(input.resources[0].text,original);assert.equal(analyse(input).complete,true);
+ const resources=result.outputs.map(output=>({id:output.id,text:output.text,generation:0}));
+ const packet={root:result.outputRoot,resources,snapshot:'r3c-cold'},doc=new SourceDocument(result.outputs.find(output=>output.id===result.outputRoot).text,result.outputRoot);
+ assert.equal(analyse(packet).complete,true);
+ assert.equal(doc.dataNode('/components/parameters/Whole/in').value,'query');
+ assert.equal(doc.dataNode('/components/parameters/Whole/style').value,'form');
+ assert.equal(doc.dataNode('/components/parameters/Whole/name').value,'descriptionOnly');
+ assert.equal(doc.dataNode('/components/parameters/Whole/schema/additionalProperties').value,false);
+ assert.equal(doc.dataNode('/components/parameters/Whole/examples/Plus/value/q').value,'a+b');
+ assert(doc.dataNode('/components/parameters/Literal/content/text~1plain/schema'));
+ assert.equal(doc.dataNode('/paths/~1p/get/parameters/1/style').value,'form');
+ const values=['{"q":"a+b"}','{"q":"%20","flag":false}','{"q":""}','{}','{"q":"space here"}','{"q":"x","unknown":true}'];
+ for(const [root,resources,pointer]of [[input.root,input.resources,'/components/parameters/Whole/content/application~1x-www-form-urlencoded/schema'],
+  [packet.root,packet.resources,'/components/parameters/Whole/schema']]){
+  const evaluated=await evaluateSchemas({root,resources,snapshot:'r3c-values',runtimeInstances:values.map(text=>({subject:'request-parameter',location:'whole',text,schema:{resource:root,pointer}}))});
+  assert.equal(evaluated.complete,true,JSON.stringify(evaluated.findings));assert.deepEqual(evaluated.runtimeEvaluations.map(value=>value.valid),[true,true,true,false,false,false]);
+ }
+ if(targetVersion==='3.1.2'){
+  const composed=await planMigration({...packet,targetVersion:'3.0.4',destination:'file:///composed-r3c/'});
+  assert.equal(composed.complete,true,JSON.stringify(composed.problems));
+ }
+});
+
+for(const [kind,value,code,reason]of [
+ ['space',{q:'a b'},'migration.parameter.querystring-proof','unavailable-proof'],
+ ['array',{q:['a','a']},'migration.parameter.querystring-proof','unavailable-proof'],
+ ['nested',{q:{x:'a'}},'migration.parameter.querystring-proof','unavailable-proof'],
+ ['empty',{},'migration.parameter.querystring-proof','unavailable-proof'],
+])test(`R3c ${kind} whole-query values retain a precise unpublished boundary`,async()=>{
+ const input=require('./migration_b05_r3c_fixture.cjs')(),whole=input.value.components.parameters.Whole;
+ whole.content={'application/x-www-form-urlencoded':{schema:{type:'object',enum:[value]}}};
+ input.resources[0].text=input.encode(input.value);
+ const result=await planMigration(input);assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);
+ assert(result.problems.some(problem=>problem.code===code&&problem.reason===reason),JSON.stringify(result.problems));
+});
+
+for(const [schema,code]of [
+ [{type:'string',enum:['bad;value']},'migration.parameter.cookie-proof'],
+ [{type:'array',enum:[['a','b']]},'migration.parameter.cookie-proof'],
+ [{type:'object',enum:[{a:'x',b:'y'}]},'migration.parameter.cookie-proof'],
+ [{type:'integer',enum:[1]},'migration.parameter.cookie-proof'],
+ [{type:'string'},'migration.parameter.cookie-proof'],
+])test(`R3c cookie octets/delimiters/lexical proof refusal ${JSON.stringify(schema)}`,async()=>{
+ const input=require('./migration_b05_r3c_fixture.cjs')();input.value.components.parameters.Literal.schema=schema;
+ input.resources[0].text=input.encode(input.value);const result=await planMigration(input);
+ assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);assert(result.problems.some(problem=>problem.code===code&&problem.reason==='unavailable-proof'),JSON.stringify(result.problems));
+});
 const versions={'2.0':'2.0','3.0':'3.0.4','3.1':'3.1.2','3.2':'3.2.1'};
 for(const version of require('./migration_b05_r2_fixture.cjs').versions)for(const format of ['yaml','json'])test(`B05-R2 ${version} ${format} inactive parameter metadata and text content retain wire roles`,async()=>{
  const {render,reopened}=require('./migration_b05_r2_fixture.cjs'),root='file:///approved/parameters.'+format;

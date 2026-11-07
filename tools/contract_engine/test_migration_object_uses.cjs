@@ -60,6 +60,26 @@ for(const format of ['yaml','json'])test(`B05-R1 ${format} a foreign Swagger ope
  assert.equal(analyse(packet).complete,true,JSON.stringify(analyse(packet).findings));assert.deepEqual(input.resources.map(resource=>resource.text),before);
 });
 
+for(const format of ['yaml','json'])test(`R3c ${format} shared Media/Parameter/schema owners survive finite lowering`,async()=>{
+ const input=require('./migration_b05_r3c_fixture.cjs')('3.2.1',format,'3.0.4'),components=input.value.components;
+ const media=components.parameters.Whole.content['application/x-www-form-urlencoded'];
+ media.examples.Plus={value:{q:'a+b'}};
+ components.schemas={WholeValue:media.schema};media.schema={$ref:'#/components/schemas/WholeValue'};
+ components.mediaTypes={Form:media};components.parameters.Whole.content['application/x-www-form-urlencoded']={$ref:'#/components/mediaTypes/Form'};
+ components.parameters.Alias={$ref:'#/components/parameters/Whole'};
+ input.value.paths['/shared'].get.parameters[0]={$ref:'#/components/parameters/Alias'};
+ input.value['x-literal']={parameter:components.parameters.Whole,schema:components.schemas.WholeValue};
+ input.resources[0].text=input.encode(input.value);const captured=new SourceDocument(input.resources[0].text,input.root);
+ const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));
+ const packet={root:result.outputRoot,snapshot:'r3c-owners',resources:result.outputs.map(output=>({id:output.id,text:output.text,generation:0}))},graph=createGraph(packet).graph;
+ assert.equal(analyse(packet).complete,true);assert.equal(graph.operations().length,2);
+ const output=graph.docs.get(packet.root);assert.equal(output.dataJson('/x-literal'),captured.dataJson('/x-literal'));
+ for(const operation of graph.operations()){
+  const plan=requestOperation({...packet,resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
+  const whole=plan.parameters.find(value=>value.name==='descriptionOnly');assert.equal(whole.in,'query');
+ }
+});
+
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const ref=name=>({$ref:'#/x-data/'+name});
 const node=()=>({$ref:'#/components/schemas/Count'});
@@ -128,7 +148,7 @@ test(`${version} ${format} native objects and literal values share one specializ
  const input=fixture(version,format),original=input.resources[0].text,doc=new SourceDocument(original,input.root);
  assert.equal(analyse(input).status,'complete');await wire(input);
  const review=await planMigration(input);
- assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'95');
+ assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'96');
  assert.equal(review.exampleOutputs.length,2);assert.equal(input.resources[0].text,original);
  const output=delivered(review),{graph}=createGraph(output);
  assert.equal(analyse(output).status,'complete');await wire(output);

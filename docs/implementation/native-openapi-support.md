@@ -31,13 +31,143 @@ consume those shared results. Source-preserving transactions remain authoritativ
 Current changes require complete engine, Core, native and packaged verification;
 source inspection or a successful build is not runtime acceptance.
 
+## B05-R3c: Whole-query and finite cookie-style lowering
+
+**B05-R3c is partially implemented, unverified within W3.09. It is not
+source-complete. B05-R3 and B05 remain incomplete.** Work starts at
+`ab7fd0648756e3a56fbe42a1db39a8c15524eb81` in the primary
+`release/v0.1.0` checkout. A01–A03, B01–B04, B05-R1/R2 and R3a/R3b remain
+the baseline. R3d, general Example, XML and discriminator work was not begun.
+
+The normative basis is the versioned OpenAPI 3.2.0/3.2.1 Parameter clauses,
+including whole-query Media Type ownership, RFC6570 versus form encoding,
+literal cookie serialization and Appendix D, compared with OpenAPI
+3.1.2/3.0.4 Parameter/content representations and Swagger's flat Parameter
+categories. RFC6265 cookie name/value syntax and the installed Dart serializer
+remain relevant to actual execution. The authorities above and
+[Dart's form component encoding](https://api.dart.dev/dart-core/Uri/encodeQueryComponent.html)
+were consulted; no third-party code or SDK was modified.
+
+Implemented source paths:
+
+- Finite, scalar-field whole form objects can retain their entire schema and
+  data value in one native exploded `in: query, style: form` Parameter. The
+  declared whole-query name remains an identity/selection key and does not
+  become a wire field. Every admitted component must have identical form and
+  RFC6570 encoding. Literal plus, reserved characters, Unicode and existing
+  percent sequences retain their encoded bytes; domains containing spaces
+  have no such identity-value certificate. Property iteration order is shared
+  symbolically, rather than inferred from one enum object's ordering.
+  A proved empty data language can retain its complete native content owner
+  while changing only the location, including JSON media; no present field can
+  enter that valid request language. Requiredness is unchanged.
+- A finite cookie domain can use older form serialization when every emitted
+  name/value, delimiter and omitted/empty behavior agrees. This includes
+  applicable zero/singleton arrays and objects. Literal string domains can
+  instead retain their schema in native cookie `content: text/plain`; legal
+  `%20`, `+`, `/`, `=` and `!` octets need no invented escaping pipeline.
+  Cookie content inversion now retains literal percent sequences. Existing
+  parameter, explicit Cookie Header and authentication ownership remain the
+  execution authority, including API-key cookie collision rejection.
+- Parameter and Media Type chains use `ParameterSemantics` and
+  `capturedRuntimeMedia`. Finite candidates use `FiniteMigrationDomain` and
+  the exact captured evaluator, retaining approved retrieval aliases. Proof
+  exhaustion produces unavailable evidence, never a truncated language. The
+  publication invariant independently recomputes source/target domains,
+  compares ordered fields, multiplicity, octets and presence, and exercises
+  canonical parameter/media inversion against both original schema owners.
+  Ordinary request/security invariants still apply. The common allocator,
+  role/entry specialization, CST provenance and reference repairs own moves.
+- Schema-ready Media Type examples move to the generated Parameter where
+  their applicable selection layer is unambiguous. Original media/encoding
+  envelopes retain history; schemas and referenced Examples retain typed
+  owners. Existing broader Example refusals remain in effect.
+- Captured structured saved values receive exact reviewed `querystring` →
+  `query` location-key moves. Core admits only value-preserving key changes;
+  occupied destination keys, incompatible shared case contexts and raw inputs
+  without a decoding proof refuse publication. Captured saved inputs outside
+  the schema domain also require actual codec equality. Environments,
+  credentials, selections and unrelated fields keep existing exact checks.
+- Bounded, located parameter-change records now feed Core, paged native review
+  rows, source navigation, CLI JSON/text and publication metadata. The same
+  configuration projection records remain shared across desktop and CLI.
+  Explicit-only migration, unsaved document/configuration capture, stale and
+  cancellation checks, conflict detection and atomic publication remain in the
+  existing transaction path; these guarantees have not been re-executed here.
+
+Remaining R3c implementation/proof gaps, **not claims of impossibility**:
+
+| Boundary | Current disposition |
+| --- | --- |
+| Whole form arrays/repeated names, nested objects, field extraction or splitting, correlated cross-field languages | No complete target projection/value-mapping certificate is implemented. Finite domains alone do not supply it: `migration.parameter.querystring-proof`, unavailable proof. In particular a single property containing an exploded array can admit a named-query projection that this change does not implement. |
+| Whole-query lowering into flat Swagger Parameters | Factorization, grouping/presence, independent ownership and saved-value mappings remain unimplemented: `migration.parameter.querystring-proof`, unavailable proof. This is not a blanket Swagger impossibility. |
+| Spaces in whole form names/values, required whole forms that can emit no fields, unsupported cookie delimiters or numeric lexical languages | The implemented identity-value certificate does not establish equivalence. `%20` versus `+`, semicolon versus ampersand framing and exponent `+` spellings must not be inferred from enum representatives. Alternative finite projections still require implementation/proof. |
+| Raw saved whole-query strings or captured values whose codecs differ | `migration.parameter.saved-proof`, unavailable proof. No silent decode/re-encode or selection deletion occurs. |
+| Non-UTF-8 form media, plain text and other non-JSON media outside the empty-language mapping | `migration.parameter.querystring-media-proof`, unavailable proof. No unsupported charset or codec is declared impossible merely because the established UTF-8 scalar-form proof does not cover it. |
+| Overlapping Parameter/media example layers; independently reusable form examples outside existing older-Example certificates | Existing `querystring-example-proof`/Example unavailable-proof boundaries remain. Direct data-only examples can follow the Parameter; this does not implement general Example serialization. |
+| Non-default positional/nested/response Encoding instructions | `querystring-encoding-proof` or existing Encoding findings; R3d remains separately assigned. |
+| Nonempty whole-query JSON framing; native cookie Parameters in Swagger | Located target restrictions (`querystring-target`, `cookie-target`). Adding a named field changes whole JSON framing; an ordinary Header does not establish a native Swagger cookie owner. Proved empty native data languages have the separate content-preserving mapping above. |
+| Unbounded domains, missing effective schemas, incomplete native inversion or exhausted proof budgets | Unavailable evidence; no successful conversion or partial publication is claimed. |
+
+Prepared regressions, **not executed**:
+
+- Engine: the existing registered `test_migration.cjs`,
+  `test_migration_entry_routes.cjs`, `test_migration_object_uses.cjs`,
+  `test_migration_swagger_media.cjs` and
+  `test_runtime_parameter_serialization.cjs` cover both 3.2 patches, YAML/JSON,
+  direct/composed native downgrades, finite constraints, aliases/shared Media
+  and Parameter owners, escaping, empty/absent values, cookie arrays/objects,
+  literal percent sequences, exact saved moves, final invariant mutations and
+  unpublished refusals. Fixture: `migration_b05_r3c_fixture.cjs`.
+- Core: discovery includes `migration_parameter_serialization_test.dart` and
+  the extended `parameter_wire_execution_test.dart`; shared fixture is
+  `migration_r3c_fixture.dart`. Prepared actual HTTP/Cookie assertions include
+  exact numeric tokens, saved cases/environments, authentication collisions,
+  unsaved sources, repeat review identity, cancellation, stale configuration,
+  destination races, controlled publication failure, CLI preview/apply,
+  source deletion and relocated cold reopening.
+- Native: discovery includes
+  `migration_parameter_serialization_review_test.dart`, with parameter and
+  configuration review, original preservation, unsupported/stale controls
+  and cold opening. Preflight has packaged finite parameter/saved-value
+  fixtures and bounded-record controls. Core/preflight reject producer 95;
+  mock readiness rejects the previous cookie codec/evaluator identities.
+
+Production files: Engine new `migration_parameter_serialization.ts` and
+`migration_parameter_configuration.ts`; modified `migration.ts`,
+`migration_newer_objects.ts`, `migration_invariants.ts`,
+`migration_server_configuration.ts`, `security_configuration.ts`,
+`mock_request_parameters.ts`, `mock_native_validation.ts`,
+`schema_evaluation.ts`; Core `migration.dart`, `mock.dart`, `project.dart`;
+native `lib/src/workspace/migration_review.dart`; CLI
+`packages/busyapi_core/bin/busyapi.dart`; preflight
+`tools/native_migration_preflight.py`. Other regression edits synchronize
+producer assertions while retaining obsolete-producer controls.
+
+Migration producer/admission/preflight **96**; evaluator **1.18.0+61** with
+`literal-cookie-content-v1`; parameter mock **5**, configuration
+`parameter-wire-v5`. Migration 95, evaluator `1.18.0+60` and parameter mock 4
+are obsolete. Graph **9**, schema-example projection **3**, response mock **5**
+and sample producer **4** are unchanged. Bundles have not been rebuilt.
+
+**Actual verification:** specification and manual source/registration review,
+Git state inspection and `git diff --check` only. No tests, compilers,
+analyzers, builds, code generation, CI, graphical workloads, packaging or
+performance checks ran. The execution hold remains active; Snapcraft remains
+skipped. No push or remote fetch was performed. This partial implementation
+does not meet the R3c source-completion criteria or complete B05-R3/B05.
+
+**Next assigned work: B05-R3d — Advanced Encoding conversions, including
+positional, nested and response Encoding Objects.** It has not begun; the R3c
+gaps above remain explicitly open for reconciliation.
+
 ## B05-R3b: Reusable Path Item and Media Type ownership
 
 **B05-R3b is source-complete, unverified within W3.09. B05-R3 remains
 partially implemented, unverified; B05 is incomplete.** This bounded assignment
 starts at `3ce4f31b1d00d77882a7eb18da9b2526d3c0ce78` in the primary
 `release/v0.1.0` checkout. A01–A03, B01–B04, B05-R1/R2 and R3a remain the
-baseline. R3c and B05-R4 have not begun.
+baseline. Partial R3c work is recorded above; B05-R4 has not begun.
 
 The normative basis is Swagger 2.0 §§6.4.1, 6.4.5–6 (endpoint keys and Path
 Item references), 6.4.12/15 (Response schemas and MIME-keyed examples),
@@ -340,10 +470,10 @@ Known remaining R3 implementation/proof gaps:
 | Saved Server selections and environment coupling | Reviewed projections are implemented in B05-R3a above. Incompatible shared selectors/factors and unproved lowered execution-environment interpolation retain the exact boundaries recorded there. |
 | Independently unused reusable Path Items targeting Swagger | R3b above establishes `migration.path-item.unused-owner` as a final-target restriction from the available standard native ownership positions. Referenced uses and foreign-only consumers retain common fragment ownership. |
 | Reusable Media Type categories targeting Swagger | R3b above completes established occurrence/child-owner conversion; independently unbound definitions retain the precise `migration.media.unbound-owner` final-target restriction. |
-| Whole-query parameters | `migration.parameter.querystring-proof`: no whole-query lowering certificate is implemented, including finite cases that may admit exact older serialization. |
+| Whole-query parameters | R3c above implements finite scalar-object identity mappings into native query Parameters. Arrays, splitting/factorization, raw saved-value projections and other exact gaps remain open; `migration.parameter.querystring-proof` retains unavailable-proof classification. |
 | Positional/nested multipart and response part instructions | Non-default instructions still need complete shape-specific conversion, including any equivalent older Schema annotations; current unavailable-proof/target boundaries do not establish that every such source is impossible. |
 | General newer Example serialization | Other parameter/Header serializations, non-JSON/plain-text codecs and unbound reusable examples still lack the required equality/ownership certificates. Simple string Header, JSON and plain-text conversions do not close this matrix. |
-| Other newer parameter/XML/fallback specializations | Finite cookie-style lowering, mixed XML domains/reference-forwarding cases, and fallback relationships outside the established required finite-string certificate remain unreconciled. |
+| Other newer parameter/XML/fallback specializations | R3c above implements bounded finite form/literal-content cookie certificates; other cookie projections, mixed XML domains/reference-forwarding cases and fallback relationships outside the established required finite-string certificate remain unreconciled. |
 | Combined R3 regression coverage | New coverage is prepared below, but the complete requested Engine/Core/native/CLI and transaction matrix is not yet prepared for every remaining conversion. |
 
 Established target restrictions include distinct authorities that one Swagger

@@ -61,7 +61,7 @@ void main() {
         throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'mock.stale')));
       await payload.writeAsBytes(payloadBytes);
       final mock = await mockPlan.start(nodeExecutable: runtimeNode, helper: '$testBundle/libexec/busyapi/mock-server.cjs');addTearDown(mock.stop);
-      expect(mock.nativeResponseValidation.version, '5');expect(mock.nativeParameterValidation.version, '4');
+      expect(mock.nativeResponseValidation.version, '5');expect(mock.nativeParameterValidation.version, '5');
       final client = HttpClient();addTearDown(() => client.close(force: true));
       for (final name in ['Bytes', 'Empty']) {
         final request = await client.postUrl(mock.baseUri.resolve('/echo'));

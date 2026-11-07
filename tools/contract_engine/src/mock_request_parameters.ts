@@ -17,7 +17,7 @@ const maximumCandidates=256,maximumInstances=2048;
 const decimal=/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$/;
 const unsupported=(message:string):never=>{throw new SourceError('runtime.request.parameter.unchecked',message,[0,0],'unsupported');};
 const malformed=(message:string):never=>{throw new SourceError('runtime.request.parameter.serialization',message);};
-export const mockParameterProducer=Object.freeze({name:'busyapi-native-parameters',version:'4'});
+export const mockParameterProducer=Object.freeze({name:'busyapi-native-parameters',version:'5'});
 
 function decode(value:string,form=false):string {
     try{return decodeURIComponent(form?value.replace(/\+/g,' '):value);}
@@ -201,7 +201,7 @@ export async function validateMockParameters(graph:ReferenceGraph,plan:unknown,t
                 values=[...httpFieldLines(name,values)];
                 if(values.length>1)unsupported('This request Header parameter has no separate Set-Cookie field-line representation');
             }else if(parameter.in==='cookie'){
-                const cookie=parameter.style==='cookie';
+                const cookie=parameter.style==='cookie'||parameter.content.length>0;
                 const segments=pairs(headers.cookie??'',';',false).map(([name,value])=>[name.trim(),value] as Pair);
                 // Split RFC6570 delimiters before percent-decoding data. In
                 // particular %2C inside one item cannot become a list comma.

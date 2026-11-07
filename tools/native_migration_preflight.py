@@ -8,7 +8,7 @@ import tempfile
 import re
 
 
-MIGRATION_PRODUCER = '95'
+MIGRATION_PRODUCER = '96'
 
 
 def verify_migration_producer(metadata):
@@ -23,7 +23,7 @@ def verify_configuration_projections(report):
     if not isinstance(records, list) or len(records) > 4096:
         raise RuntimeError('Migration review omitted bounded configuration projections')
     seen = set()
-    pattern = r'/(?:environments/[^/]+/(?:servers/[^/]+|baseUrl)|tests/[0-9]+/(?:operation|server|servers/[^/]+))'
+    pattern = r'/(?:environments/[^/]+/(?:servers/[^/]+|baseUrl)|tests/[0-9]+/(?:operation|parameters|server|servers/[^/]+))'
     for record in records:
         if (not isinstance(record, dict) or not isinstance(record.get('pointer'), str)
                 or not re.fullmatch(pattern, record['pointer']) or record['pointer'] in seen
@@ -38,6 +38,23 @@ def verify_configuration_projections(report):
                 json.loads(record['before'])
         except (ValueError, TypeError) as error:
             raise RuntimeError('Migration returned malformed exact configuration values') from error
+    parameters = report.get('parameterChanges')
+    if not isinstance(parameters, list) or len(parameters) > 4096:
+        raise RuntimeError('Migration review omitted bounded parameter changes')
+    seen_parameters = set()
+    for change in parameters:
+        if (not isinstance(change, dict) or any(not isinstance(change.get(key), str)
+                for key in ('resource', 'pointer', 'name', 'before', 'after'))
+                or not isinstance(change.get('range'), list) or len(change['range']) != 2
+                or any(type(value) is not int for value in change['range'])
+                or change['range'][0] < 0 or change['range'][1] < change['range'][0]):
+            raise RuntimeError('Migration returned malformed parameter change locations')
+        identity = tuple(change[key] for key in ('resource', 'pointer', 'before', 'after'))
+        if (identity in seen_parameters or any(len(change[key]) > 65536 for key in ('pointer', 'name', 'before', 'after'))
+                or change['pointer'] and not change['pointer'].startswith('/')
+                or re.search(r'~(?![01])', change['pointer'])):
+            raise RuntimeError('Migration returned malformed parameter change locations')
+        seen_parameters.add(identity)
 
 
 def preflight_migration(binary, source, target, destination, originals):
@@ -77,7 +94,7 @@ def preflight_migration(binary, source, target, destination, originals):
     return {'producerVersion': report['producerVersion'], 'target': target,
             'reviewIdentity': report['reviewIdentity'], 'sourceIdentities': before,
             'published': False, 'nativeAcceptance': False,
-            'configurationProjections': report['configurationProjections']}
+            'configurationProjections': report['configurationProjections'], 'parameterChanges': report['parameterChanges']}
 
 
 def main():

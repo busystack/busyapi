@@ -30,6 +30,8 @@ void main() {
     'response-previous-field-lines',
     'response-previous-external-bytes',
     'parameter-previous-field-lines',
+    'parameter-previous-cookie-content',
+    'schema-previous-cookie-content',
     'response-version',
     'response-configuration',
     'parameter-version',
@@ -67,7 +69,7 @@ void main() {
       addTearDown(plan.close);
       final schema = <String, String>{
         'name': 'hyperjump+busyapi-exact',
-        'version': '1.18.0+60',
+        'version': '1.18.0+61',
         'configuration': 'fixture-runtime',
       };
       final response = <String, String>{
@@ -77,8 +79,8 @@ void main() {
       };
       final parameter = <String, String>{
         'name': 'busyapi-native-parameters',
-        'version': '4',
-        'configuration': 'parameter-wire-v4:fixture-runtime',
+        'version': '5',
+        'configuration': 'parameter-wire-v5:fixture-runtime',
       };
       final security = <String, String>{
         'name': 'busyapi-native-security',
@@ -96,6 +98,10 @@ void main() {
         'configuration': 'method-wire-v1:fixture-runtime',
       };
       switch (mutation) {
+        case 'parameter-previous-cookie-content':
+          parameter['version'] = '4';
+        case 'schema-previous-cookie-content':
+          schema['version'] = '1.18.0+60';
         case 'schema-version':
           schema['version'] = 'obsolete';
         case 'schema-previous':

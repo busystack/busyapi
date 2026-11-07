@@ -69,7 +69,7 @@ bool _sameMigrationSelectorTypes(Object? before, Object? after) {
   return true;
 }
 
-/// Apply only the reviewed canonical selection leaves to the exact capture.
+/// Apply only reviewed canonical selection and parameter leaves to the capture.
 /// Authentication and TLS are checked separately by their existing protocol.
 void _verifyMigrationConfigurationProjections(
   Object? configuration, Object? records,
@@ -87,7 +87,8 @@ void _verifyMigrationConfigurationProjections(
     final baseUrl = parts.length == 3 && parts[0] == 'environments' && parts[2] == 'baseUrl';
     final test = parts.length >= 3 && parts[0] == 'tests' && int.tryParse(parts[1]) != null;
     final operation = test && parts.length == 3 && parts[2] == 'operation';
-    if (!environment && !baseUrl && !operation && !(test &&
+    final parameters = test && parts.length == 3 && parts[2] == 'parameters';
+    if (!environment && !baseUrl && !operation && !parameters && !(test &&
         (parts.length == 3 && parts[2] == 'server' || parts.length == 4 && parts[2] == 'servers'))) invalid();
     Object? owner = configuration;
     for (final part in parts.take(parts.length - 1)) {
@@ -122,6 +123,29 @@ void _verifyMigrationConfigurationProjections(
           (after['method'] is! String || (after['method'] as String).isEmpty || after['path'] is! String || !(after['path'] as String).startsWith('/')) ||
           after.containsKey('occurrence') && after['occurrence'] is! String ||
           after.containsKey('entry') && after['entry'] is! String) invalid();
+    } else if (parameters) {
+      if (before == null || expected is! Map || after is! Map) invalid();
+      // Admit only exact value-preserving querystring -> query key moves.
+      // No other saved value, representation, or selection may change.
+      final planned = exactConfiguration(before as String);
+      if (planned is! Map || planned['querystring'] is! Map ||
+          planned['query'] != null && planned['query'] is! Map ||
+          after['query'] is! Map ||
+          after['querystring'] != null && after['querystring'] is! Map) invalid();
+      final whole = planned['querystring'] as Map;
+      final query = planned['query'] as Map? ?? <String, Object?>{};
+      var moved = 0;
+      for (final name in whole.keys.toList()) {
+        if ((after['querystring'] as Map?)?.containsKey(name) == true) continue;
+        if (query.containsKey(name) || !(after['query'] as Map).containsKey(name) ||
+            !sameExactConfiguration(whole[name], (after['query'] as Map)[name])) invalid();
+        query[name] = whole.remove(name);
+        moved++;
+      }
+      if (moved == 0) invalid();
+      planned['query'] = query;
+      if (whole.isEmpty) planned.remove('querystring');
+      if (!sameExactConfiguration(planned, after)) invalid();
     } else if (baseUrl) {
       final original = owner[key];
       if (original is! String || after is! String) invalid();
@@ -149,13 +173,15 @@ void _verifyMigrationReview(
   if (result['version'] != 1 ||
       result['snapshot'] != input.snapshot.identity ||
       result['producer'] != 'busyapi-native-migration' ||
-      result['producerVersion'] != '95' ||
+      result['producerVersion'] != '96' ||
       result['problems'] is! List ||
       result['outputs'] is! List ||
       result['exampleOutputs'] is! List ||
       result['affectedExampleResources'] is! List ||
       result['changes'] is! List ||
       result['presentationChanges'] is! List ||
+      result['parameterChanges'] is! List ||
+      (result['parameterChanges'] as List).length > 4096 ||
       result['affectedResources'] is! List ||
       result['entryRoutes'] is! List)
     invalid();
@@ -174,6 +200,17 @@ void _verifyMigrationReview(
     for (final resource in input.snapshot.resources)
       resource['id'] as String: resource,
   };
+  final parameterRecords = <String>{};
+  for (final value in result['parameterChanges'] as List) {
+    if (value case {'resource': String resource, 'pointer': String pointer,
+        'range': [int start, int end], 'name': String name, 'before': String before, 'after': String after}) {
+      final source = resources[resource];
+      if (source == null || start < 0 || end < start || end > (source['text'] as String).length ||
+          pointer.length > 65536 || pointer.isNotEmpty && !pointer.startsWith('/') ||
+          RegExp(r'~(?![01])').hasMatch(pointer) || name.length > 65536 || before.length > 65536 || after.length > 65536 ||
+          !parameterRecords.add(jsonEncode([resource, pointer, before, after]))) invalid();
+    } else { invalid(); }
+  }
   final configuration = input.snapshot.configuration;
   final expectedConfiguration = configuration.isEmpty ? null : {
     'resource': configuration.single['id'],
@@ -584,6 +621,15 @@ class MigrationConfigurationProjection {
   final String? before;
 }
 
+class MigrationParameterChange {
+  MigrationParameterChange._(Map value)
+    : resource = value['resource'] as String, pointer = value['pointer'] as String,
+      name = value['name'] as String, before = value['before'] as String, after = value['after'] as String,
+      range = SourceRange((value['range'] as List)[0] as int, (value['range'] as List)[1] as int);
+  final String resource, pointer, name, before, after;
+  final SourceRange range;
+}
+
 /// An exact opaque copy in the reviewed output; no payload interpretation or
 /// source mutation is performed by this publication record.
 class MigrationExampleCopy {
@@ -642,6 +688,9 @@ class MigrationOutput extends BundleOutput {
       configurationProjections = List.unmodifiable(
         (result['configurationProjections'] as List? ?? const []).cast<Map>().map(MigrationConfigurationProjection._),
       ),
+      parameterChanges = List.unmodifiable(
+        (result['parameterChanges'] as List).cast<Map>().map(MigrationParameterChange._),
+      ),
       target = SpecificationContext.fromJson(result['target']),
       entryRoutes = List.unmodifiable(
         (result['entryRoutes'] as List).cast<Map>().map(MigrationEntryRoute._),
@@ -664,6 +713,7 @@ class MigrationOutput extends BundleOutput {
   final List<MigrationSecurityBinding> securityBindings;
   final List<MigrationAuthenticationAlternative> authenticationAlternatives;
   final List<MigrationConfigurationProjection> configurationProjections;
+  final List<MigrationParameterChange> parameterChanges;
   final SpecificationContext target;
   final List<MigrationEntryRoute> entryRoutes;
   bool get publishable =>
@@ -808,6 +858,7 @@ extension ContractMigration on BusyProject {
         'configurationBindings': result['configurationBindings'],
         'configurationAlternatives': result['configurationAlternatives'],
         'configurationProjections': result['configurationProjections'],
+        'parameterChanges': result['parameterChanges'],
         'manifestIdentity': result['manifestIdentity'],
         'exampleCopies': [
           for (final copy in (result['exampleOutputs'] as List).cast<Map>())

@@ -124,7 +124,7 @@ export function migrationSecurityConfiguration(value:unknown,bindings:readonly S
     for(const action of copies?.actions??[])source.exact(action.pointer,action.raw);
     for(const change of configurationProjections){
         const before=source.doc.dataNode(change.pointer)?source.doc.dataJson(change.pointer):null;
-        if(before!==change.before)fail(change.pointer,'A reviewed Server configuration edit does not match its captured value');
+        if(before!==change.before)fail(change.pointer,'A reviewed configuration edit does not match its captured value');
         source.exact(change.pointer,change.after);
     }
     const environments=source.doc.dataNode('/environments');

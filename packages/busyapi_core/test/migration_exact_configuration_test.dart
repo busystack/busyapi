@@ -38,6 +38,8 @@ void main() {
   for (final scenario in [
     (name: 'missing configuration projections', from: 'projection:missing', to: '', accepted: false),
     (name: 'unrelated configuration projection', from: 'projection:unrelated', to: '', accepted: false),
+    (name: 'missing parameter review', from: 'parameter-review:missing', to: '', accepted: false),
+    (name: 'foreign parameter review source', from: 'parameter-review:foreign', to: '', accepted: false),
     (name: 'untouched', from: '', to: '', accepted: true),
     (name: 'obsolete holder producer', from: 'producer:79', to: '', accepted: false),
     (name: 'obsolete container producer', from: 'producer:80', to: '', accepted: false),
@@ -49,6 +51,7 @@ void main() {
     (name: 'obsolete B04 handoff producer', from: 'producer:90', to: '', accepted: false),
     (name: 'obsolete B05-R1 producer', from: 'producer:91', to: '', accepted: false),
     (name: 'obsolete B05-R3a producer', from: 'producer:94', to: '', accepted: false),
+    (name: 'obsolete B05-R3b producer', from: 'producer:95', to: '', accepted: false),
     (name: 'obsolete partial B05-R3 producer', from: 'producer:93', to: '', accepted: false),
     (name: 'obsolete B05-R2 producer', from: 'producer:92', to: '', accepted: false),
     (name: 'equivalent decimals', from: '9007199254740993.00', to: '900719925474099300e-2', accepted: true),
@@ -85,6 +88,8 @@ child.stdout.on('data', chunk => {
   if (result?.producer === 'busyapi-native-migration' && result.complete && from) {
    if (from === 'projection:missing') delete result.configurationProjections;
    else if (from === 'projection:unrelated') result.configurationProjections = [{pointer:'/environments/manual/authentication',before:null,after:'{}'}];
+   else if (from === 'parameter-review:missing') delete result.parameterChanges;
+   else if (from === 'parameter-review:foreign') result.parameterChanges = [{resource:'file:///uncaptured.json',pointer:'',range:[0,1],name:'p',before:'cookie',after:'form'}];
    else if (from.startsWith('producer:')) result.producerVersion = from.slice('producer:'.length);
    else {
     if (!result.manifestText.includes(from)) throw Error('Mutation did not reach its production field');

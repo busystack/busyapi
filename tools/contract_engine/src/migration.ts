@@ -48,9 +48,11 @@ import {proveMigrationConfiguredOperationSelections,type MigrationConfigurationP
 import {migrationSecurityConfiguration,securityConfigurationNames,type SecurityBindingChange} from './security_configuration';
 import {securityRequirementDefinition} from './security_requirements';
 import {migrateSwaggerSecurityFlows} from './migration_security_flows';
+import {migrateParameterSerialization,proveMigrationParameterSerialization,type MigrationParameterChange} from './migration_parameter_serialization';
+import {projectMigrationParameterConfiguration} from './migration_parameter_configuration';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='95';
+const migrationProducerVersion='96';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const referenceLocator=(reference:GraphReference)=>!reference.connection&&['$ref','$dynamicRef'].includes(reference.keyword)||
     reference.connection==='operationRef'&&reference.keyword==='operationRef';
@@ -89,6 +91,7 @@ export async function planMigration(input:MigrationInput) {
         targetVersion:input.targetVersion,resources:documentOwnership,examples:exampleOwnership,configuration:input.configuration}));
     const decisionChoices=new Map<string,string[]>();
     const problems:MigrationProblem[]=[],accepted=new Set<string>(),stages:{from:string;to:string}[]=[],presentationChanges:{resource:string;pointer:string}[]=[];
+    const parameterChanges=new Map<string,MigrationParameterChange>();
     const ignoredBodyOmissions:MigrationLocation[]=[];
     const omittedMarkdownOwners=new Set<string>();
     const retiredExampleLocators=new Set<string>();
@@ -129,7 +132,7 @@ export async function planMigration(input:MigrationInput) {
     };
     const refused=(error:unknown,location:MigrationLocation)=>{
         if(!(error instanceof SourceError))throw error;
-        const proofLimit=['limit.migration.binary','limit.migration.media-schema','limit.migration.media-objects','limit.migration.example-versions','limit.migration.servers','limit.migration.form','limit.migration.examples','limit.migration.literal','limit.request.encoding']
+        const proofLimit=['limit.migration.parameters','limit.migration.binary','limit.migration.media-schema','limit.migration.media-objects','limit.migration.example-versions','limit.migration.servers','limit.migration.form','limit.migration.examples','limit.migration.literal','limit.request.encoding']
             .some(prefix=>error.code.startsWith(prefix));
         issue(error.source??location,error.code,error.message,error.code==='migration.configuration.alternative'?'target-representation':proofLimit?'unavailable-proof':'implementation');
     };
@@ -334,6 +337,11 @@ export async function planMigration(input:MigrationInput) {
                 contexts=migrationDocumentContexts(mediaInput,mediaGraph,issue);graph=mediaGraph.graph;
             }
             if(problems.length)break;
+            if(await migrateParameterSerialization(contexts.map(context=>context.graph),sources,stage.sources,after,owners,issue,input.exampleResources)){
+                const parameterInput=preparationInput(),parameterGraph=createGraph(parameterInput);
+                contexts=migrationDocumentContexts(parameterInput,parameterGraph,issue);graph=parameterGraph.graph;
+            }
+            if(problems.length)break;
             if(migrateExampleVersions(contexts.map(context=>context.graph),sources,stage.sources,after,owners,issue,
                 (location,namespace)=>externalExamples!.inlineCapture(sourceLocation(location.resource,location.pointer),namespace))){
                 const examplesInput=preparationInput(),examplesGraph=createGraph(examplesInput);
@@ -529,7 +537,7 @@ export async function planMigration(input:MigrationInput) {
             if(!decisionChoices.has(id))throw new SourceError('migration.decisions.stale','A supplied decision does not belong to this captured migration graph and target');
             if(!decisionChoices.get(id)!.includes(String(choice)))throw new SourceError('migration.decisions.choice','Choose a listed migration decision');
         }
-        return ({version:1,snapshot:input.snapshot,producer:'busyapi-native-migration',producerVersion:migrationProducerVersion,from,target,stages,entryRoutes:entryMigrationRoutes(initial.graph.specifications,target),status:status(),complete:!problems.length,problems,acceptedDecisions:[...accepted],presentationChanges,
+        return ({version:1,snapshot:input.snapshot,producer:'busyapi-native-migration',producerVersion:migrationProducerVersion,from,target,stages,entryRoutes:entryMigrationRoutes(initial.graph.specifications,target),status:status(),complete:!problems.length,problems,acceptedDecisions:[...accepted],presentationChanges,parameterChanges:[...parameterChanges.values()],
         affectedResources:input.resources.map(resource=>({resource:resource.id,generation:resource.generation,identity:resource.identity})),
         affectedConfiguration:input.configuration?{resource:input.configuration.id,generation:input.configuration.generation,identity:input.configuration.identity}:null,
         affectedExampleResources:exampleOwnership,exampleOutputs:[],coverage:{source:'captured-native-graph',target:'native-structure-and-schema-evaluation',externalConsumers:'Only captured resources and their established connections are known'}});
@@ -762,12 +770,17 @@ export async function planMigration(input:MigrationInput) {
             const ownerGraph=independentOwners.size?createGraph({...input,root:output,resources:outputResources,
                 occurrences:[...independentOwners.values()]}).graph:targetGraph;
             const operationPairs=migrationOperationPairs(context.graph,targetGraph,mapped,issue);
-            const beforeProfiles=migrationRequestProfiles(context.graph,input.resources),afterProfiles=migrationRequestProfiles(targetGraph,outputResources);
+            const parameterProfiles=await proveMigrationParameterSerialization(context.graph,ownerGraph,mapped,issue,input.exampleResources,outputExampleResources);
+            for(const change of parameterProfiles.changes){
+                if(parameterChanges.size>=4096)throw new SourceError('limit.migration.parameters','Parameter review exceeds 4096 captured occurrences');
+                parameterChanges.set(JSON.stringify(change),change);
+            }
+            const beforeProfiles=migrationRequestProfiles(context.graph,input.resources,parameterProfiles.before),afterProfiles=migrationRequestProfiles(targetGraph,outputResources,parameterProfiles.after);
             for(const {before,after}of operationPairs)if(before.role==='operation'&&
                 beforeProfiles.get(before.occurrence)!==afterProfiles.get(after.occurrence))
                 issue(before.source,'migration.invariant.request','The captured operation changed effective URLs, serialization, authentication, request media or responses','implementation');
             proveMigrationOperationMedia(context.graph,ownerGraph,mapped,issue);
-            proveMigrationObjectMetadata(context.graph,ownerGraph,mapped,issue);
+            proveMigrationObjectMetadata(context.graph,ownerGraph,mapped,issue,parameterProfiles);
             serverContexts.push({source:context.graph,target:targetGraph,pairs:operationPairs,targetEntryName:root===input.root?'migrated':'resource_'+digest(root).slice(0,24)});
             proveMigrationConnections(context.graph,ownerGraph,mapped,issue);
             if(modernFamily(target.family))proveMigrationSchemaResources(context.graph,targetGraph,mapped,issue);
@@ -855,6 +868,7 @@ export async function planMigration(input:MigrationInput) {
             else serverConfiguration.set(change.pointer,required??change);
         }
         configurationProjections=[...serverConfiguration.values()].filter(change=>change.required).map(({pointer,before,after})=>({pointer,before,after}));
+        configurationProjections.push(...projectMigrationParameterConfiguration(serverContexts,configurationDoc,issue));
         proveMigrationConfiguredOperationSelections(serverContexts,configurationDoc,configurationProjections,issue);
     }catch(error){refused(error,{resource:configurationDoc?.id??input.root,pointer:''});}
     if(problems.length)return {...common(),changes:[],outputs:[]};

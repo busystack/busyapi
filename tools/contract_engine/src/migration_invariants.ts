@@ -18,6 +18,7 @@ import {isNativeFamily} from './specification';
 import {migrationExampleBytes} from './migration_examples';
 import {runtimeMediaKind} from './runtime_media';
 import {inactiveMigrationHeader} from './migration_media_schema';
+import type {ParameterWireProfiles} from './migration_parameter_serialization';
 
 export type MigrationOperationPair=Readonly<{before:ReturnType<ReferenceGraph['operations']>[number];after:ReturnType<ReferenceGraph['operations']>[number]}>;
 /** Executable identity follows both captured operation and containing use.
@@ -52,15 +53,19 @@ export function migrationOperationPairs(source:ReferenceGraph,target:ReferenceGr
 
 /** The reviewed selector projection uses this invariant's captured bijection. */
 export {projectMigrationServerSelections as proveMigrationServerSelections} from './migration_server_configuration';
+export {proveMigrationParameterSerialization} from './migration_parameter_serialization';
 
 /** Independently reusable Parameters and Headers need the same metadata proof
  * as executable occurrences. Literal history is not an active target owner. */
 export function proveMigrationObjectMetadata(source:ReferenceGraph,target:ReferenceGraph,
-    mapped:(location:MigrationLocation,scope:GraphScope)=>readonly MigrationLocation[],issue:MigrationIssue):void {
+    mapped:(location:MigrationLocation,scope:GraphScope)=>readonly MigrationLocation[],issue:MigrationIssue,
+    wire?:Readonly<{before:ParameterWireProfiles;after:ParameterWireProfiles}>):void {
     const headerTargets=new Set(source.entryReferences().filter(edge=>edge.kind==='header'&&edge.resolution==='resolved')
         .map(edge=>JSON.stringify([edge.targetResource,edge.targetPointer])));
     const parameters=new ParameterSemantics(source);
     const profile=(graph:ReferenceGraph,scope:GraphScope):string=>{
+        const proved=(graph===source?wire?.before:wire?.after)?.get(JSON.stringify([scope.resource,scope.pointer]));
+        if(proved!==undefined)return proved;
         const seen=new Set<string>();
         while(true){
             const id=JSON.stringify([scope.resource,scope.pointer]);
@@ -249,13 +254,15 @@ function effectiveUrl(value:string,path:string):string {
 
 /** Representation-sensitive checks supplement native target validation. The
  * signature contains API declarations, never environments or credentials. */
-export function migrationRequestProfiles(graph:ReferenceGraph,resources:Resource[]):ReadonlyMap<string,string> {
+export function migrationRequestProfiles(graph:ReferenceGraph,resources:Resource[],wire?:ParameterWireProfiles):ReadonlyMap<string,string> {
     const securityBindings=new Map(graph.references.filter(reference=>reference.connection==='security').map(reference=>[
         JSON.stringify([reference.resource,reference.pointer,reference.keyword]),reference]));
     return new Map(graph.operations().filter(operation=>operation.role==='operation').map(operation=>{
         const plan=requestOperation({root:graph.root,resources,snapshot:'migration-invariant',resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
         const normalize=(value:any):any=>Array.isArray(value)?value.map(normalize):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).filter(name=>!['source','definition','base','origin','sources'].includes(name)).sort().map(name=>[name,normalize(value[name])])):value;
         const parameters=plan.parameters.map((parameter:any)=>{
+            const proved=wire?.get(JSON.stringify([parameter.definition.resource,parameter.definition.pointer]));
+            if(proved!==undefined)return {wire:proved};
             const definition=graph.scopeAs(parameter.definition.resource,parameter.definition.pointer,'parameter');
             const schema=definition&&graph.scopeAs(definition.resource,definition.pointer+'/schema','schema');
             const domains=schema?new MigrationSchemaProofs(graph).domains(schema):new Set([parameter.type]);

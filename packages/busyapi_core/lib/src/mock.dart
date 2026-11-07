@@ -429,9 +429,9 @@ class MockRun {
         nativeResponseValidation.version != '5' ||
         nativeResponseValidation.configuration !=
             'response-wire-v5:${nativeValidation.configuration}' ||
-        nativeParameterValidation.version != '4' ||
+        nativeParameterValidation.version != '5' ||
         nativeParameterValidation.configuration !=
-            'parameter-wire-v4:${nativeValidation.configuration}' ||
+            'parameter-wire-v5:${nativeValidation.configuration}' ||
         nativeSecurityValidation.version != '1' ||
         nativeGeneration.version != '4' ||
         nativeGeneration.configuration !=

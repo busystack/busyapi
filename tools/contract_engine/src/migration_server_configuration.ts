@@ -18,6 +18,20 @@ function configurationEntryName(configuration:SourceDocument,graph:ReferenceGrap
  return (Array.isArray(roots)?roots.find((entry:any)=>typeof entry?.path==='string'&&new URL(entry.path,configuration.id).href===graph.root)?.name:undefined)??graph.root;
 }
 
+/** The saved-case selector used by every reviewed configuration projection. */
+export function migrationConfiguredOperations(configuration:SourceDocument,graph:ReferenceGraph,selector:any,
+ entryName=configurationEntryName(configuration,graph)) {
+ if(!selector||selector.entry!==undefined&&selector.entry!==entryName)return [];
+ for(const name of ['occurrence','method','path','entry'])if(Object.hasOwn(selector,name)&&
+  (typeof selector[name]!=='string'||!selector[name]||name==='path'&&!selector[name].startsWith('/')))return [];
+ const operations=graph.operations().filter(operation=>operation.role==='operation');
+ if(typeof selector.occurrence==='string')return operations.filter(operation=>operation.occurrence===selector.occurrence);
+ const candidates=operations.filter(operation=>operation.path===selector.path);
+ const wire=(operation:typeof operations[number])=>operation.customMethod?operation.method:operation.method.toUpperCase();
+ const exact=candidates.filter(operation=>wire(operation)===selector.method);
+ return exact.length?exact:candidates.filter(operation=>!operation.customMethod&&typeof selector.method==='string'&&wire(operation)===selector.method.toUpperCase());
+}
+
 export function projectMigrationServerSelections(source:ReferenceGraph,target:ReferenceGraph,resources:Resource[],delivered:Resource[],
  configuration:SourceDocument|undefined,issue:MigrationIssue,pairs:readonly MigrationOperationPair[],targetEntryName:string,allEntries:readonly MigrationServerSelectionContext[]):MigrationConfigurationProjection[] {
  if(!configuration)return [];
@@ -193,20 +207,9 @@ export function proveMigrationConfiguredOperationSelections(entries:readonly Mig
  if(!configuration)return;
  const projected=new MigrationSource(configuration);
  for(const change of projections)projected.exact(change.pointer,change.after);
- const resolve=(graph:ReferenceGraph,selector:any,entryName:string)=>{
-  if(!selector||selector.entry!==undefined&&selector.entry!==entryName)return [];
-  for(const name of ['occurrence','method','path','entry'])if(Object.hasOwn(selector,name)&&
-   (typeof selector[name]!=='string'||!selector[name]||name==='path'&&!selector[name].startsWith('/')))return [];
-  const operations=graph.operations().filter(operation=>operation.role==='operation');
-  if(typeof selector.occurrence==='string')return operations.filter(operation=>operation.occurrence===selector.occurrence);
-  const candidates=operations.filter(operation=>operation.path===selector.path);
-  const wire=(operation:typeof operations[number])=>operation.customMethod?operation.method:operation.method.toUpperCase();
-  const exact=candidates.filter(operation=>wire(operation)===selector.method);
-  return exact.length?exact:candidates.filter(operation=>!operation.customMethod&&typeof selector.method==='string'&&wire(operation)===selector.method.toUpperCase());
- };
  for(const entry of entries)for(const node of configuration.dataNode('/tests')?.children.values()??[]){
-  const before=resolve(entry.source,node.value?.operation,configurationEntryName(configuration,entry.source));
-  const after=resolve(entry.target,projected.doc.dataNode(node.pointer)?.value?.operation,entry.targetEntryName);
+  const before=migrationConfiguredOperations(configuration,entry.source,node.value?.operation);
+  const after=migrationConfiguredOperations(configuration,entry.target,projected.doc.dataNode(node.pointer)?.value?.operation,entry.targetEntryName);
   if((before.length===1)!==(after.length===1)||before.length===1&&after.length===1&&
       !entry.pairs.some(pair=>pair.before.occurrence===before[0].occurrence&&pair.after.occurrence===after[0].occurrence))
    issue({resource:configuration.id,pointer:node.pointer+'/operation'},'migration.server.case-identity',
