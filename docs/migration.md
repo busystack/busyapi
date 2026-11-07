@@ -228,3 +228,22 @@ For a 3.x document with an absent or empty root `servers` array, migration
 materializes the original effective `/` server in the reviewed copy. This
 retains the API origin when the contract moves to another directory or URI;
 the original declaration stays unchanged.
+
+When lowering compatible OpenAPI Servers to Swagger, a reviewed operation may
+move to a different path key while retaining its full effective request URL and
+method. Review the moved routes and any saved Server or operation selector
+changes before publication. Equivalent Servers can collapse to a new ordinal;
+the review projects the saved choice by its meaning. Unrepresentable route
+collisions or incompatible shared settings block publication.
+
+Saved cases and environment settings remain in `busyapi.yaml`. An environment's
+`servers` mapping can select defaults by a JSON tuple key containing the named
+entry, exact wire method and route, for example
+`'["migrated","GET","/v1/items"]': 1`. A saved case's optional `servers` mapping
+selects an index by environment name, ahead of its ordinary `server` setting.
+Omitting a case Server setting uses the environment's operation default and then
+Server zero. An `operation.entry` selector scopes a saved case to a named entry;
+it remains valid after moving the delivered directory. Reviewed occurrence
+repairs use that scope with the captured method/path. These settings use the
+existing configuration capture, exact-value review and atomic publication.
+Authentication, credentials and TLS retain their existing owners.

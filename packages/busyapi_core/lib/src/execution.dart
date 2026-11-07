@@ -43,6 +43,23 @@ class ExecutionConfiguration {
   final Map<String, Object?> mock, comparison;
   final Map<String, Object?>? source;
 
+  /// Named entry identity survives copying the delivered project directory.
+  String? entryName(String root) {
+    if (source == null) return null;
+    final data = loadYaml(source!['text'] as String);
+    if (data is! YamlMap || data['roots'] is! YamlList) return null;
+    for (final entry in data['roots'] as YamlList) {
+      if (entry is YamlMap && entry['name'] is String && entry['path'] is String &&
+          Uri.parse(source!['id'] as String).resolve(entry['path'] as String).toString() == root) {
+        return entry['name'] as String;
+      }
+    }
+    return null;
+  }
+
+  String operationServerKey(String root, Map operation) =>
+      jsonEncode([entryName(root) ?? root, operation['method'], operation['path']]);
+
   static ExecutionConfiguration parse(
     Map<String, Object?>? source,
     String boundary,
@@ -172,9 +189,11 @@ class ExecutionEnvironment {
     required this.authentication,
     required this.tls,
     this.baseUrl,
+    this.servers = const {},
   });
   final String name;
   final String? baseUrl;
+  final Map<String, int> servers;
   final Map<String, String> variables, headers;
   final Map<String, Object?> authentication, tls;
 
@@ -221,10 +240,10 @@ class ExecutionEnvironment {
       return Map.unmodifiable(output);
     }
 
-    Map<String, Object?> objects(String key) {
+    Map<String, Object?> objects(String key, {int maximum = 512}) {
       final item = value[key];
       if (item == null) return const {};
-      if (item is! Map<String, Object?> || item.length > 512) {
+      if (item is! Map<String, Object?> || item.length > maximum) {
         throw CoreFailure(
           'environment.value',
           'Environment $name $key must be a bounded mapping',
@@ -246,6 +265,10 @@ class ExecutionEnvironment {
         );
       }
     }
+    final serverSettings = objects('servers', maximum: 2048);
+    if (serverSettings.values.any((value) => value is! int || value < -1 || value > 2048)) {
+      throw CoreFailure('environment.server', 'Operation Server selections must be bounded integers');
+    }
     final tls = objects('tls');
     for (final key in ['caFile', 'clientCertificateFile', 'clientKeyFile']) {
       final path = tls[key];
@@ -262,6 +285,7 @@ class ExecutionEnvironment {
     return ExecutionEnvironment(
       name: name,
       baseUrl: baseUrl,
+      servers: Map.unmodifiable(serverSettings.cast<String, int>()),
       variables: strings('variables'),
       headers: strings('headers'),
       authentication: objects('authentication'),

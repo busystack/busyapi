@@ -59,6 +59,84 @@ void _verifyMigrationExampleCopies(
   }
 }
 
+bool _sameMigrationSelectorTypes(Object? before, Object? after) {
+  if (before is ExactConfigurationNumber && after is ExactConfigurationNumber) {
+    return before.nativeInteger == after.nativeInteger;
+  }
+  if (before is Map && after is Map) {
+    return before.keys.every((key) => _sameMigrationSelectorTypes(before[key], after[key]));
+  }
+  return true;
+}
+
+/// Apply only the reviewed canonical selection leaves to the exact capture.
+/// Authentication and TLS are checked separately by their existing protocol.
+void _verifyMigrationConfigurationProjections(
+  Object? configuration, Object? records,
+) {
+  Never invalid() => throw CoreFailure('migration.protocol', 'Migration returned an unrelated configuration projection');
+  if (records is! List || records.length > 4096) invalid();
+  final seen = <String>{};
+  for (final record in records) {
+    if (record is! Map || record['pointer'] is! String ||
+        record['before'] != null && record['before'] is! String || record['after'] is! String) invalid();
+    final pointer = record['pointer'] as String;
+    if (!seen.add(pointer) || pointer.length > 65536 || configuration is! Map) invalid();
+    final parts = pointer.split('/').skip(1).map((part) => part.replaceAll('~1', '/').replaceAll('~0', '~')).toList();
+    final environment = parts.length == 4 && parts[0] == 'environments' && parts[2] == 'servers';
+    final baseUrl = parts.length == 3 && parts[0] == 'environments' && parts[2] == 'baseUrl';
+    final test = parts.length >= 3 && parts[0] == 'tests' && int.tryParse(parts[1]) != null;
+    final operation = test && parts.length == 3 && parts[2] == 'operation';
+    if (!environment && !baseUrl && !operation && !(test &&
+        (parts.length == 3 && parts[2] == 'server' || parts.length == 4 && parts[2] == 'servers'))) invalid();
+    Object? owner = configuration;
+    for (final part in parts.take(parts.length - 1)) {
+      if (owner is List) {
+        final index = int.tryParse(part);
+        if (index == null || index < 0 || index >= owner.length) invalid();
+        owner = owner[index];
+      } else if (owner is Map) {
+        if (!owner.containsKey(part)) {
+          if (part != 'servers') invalid();
+          owner[part] = <String, Object?>{};
+        }
+        owner = owner[part];
+      } else { invalid(); }
+    }
+    if (owner is! Map) invalid();
+    final key = parts.last, before = record['before'];
+    Object? expected, after;
+    try {
+      expected = before == null ? null : exactConfiguration(before as String);
+      after = exactConfiguration(record['after'] as String);
+    } on Object { invalid(); }
+    if ((before != null) != owner.containsKey(key) || !sameExactConfiguration(owner[key], expected)) invalid();
+    if (operation) {
+      final original = owner[key];
+      if (original is! Map || after is! Map || original['occurrence'] is! String && original['method'] != null && after['method'] != original['method'] ||
+          after.keys.any((key) => !original.containsKey(key) && !const ['occurrence', 'entry', 'method', 'path'].contains(key))) invalid();
+      for (final field in original.keys.where((key) => key != 'path' && key != 'occurrence' && key != 'entry' && key != 'method')) {
+        if (!sameExactConfiguration(original[field], after[field])) invalid();
+      }
+      if (after['occurrence'] is! String &&
+          (after['method'] is! String || (after['method'] as String).isEmpty || after['path'] is! String || !(after['path'] as String).startsWith('/')) ||
+          after.containsKey('occurrence') && after['occurrence'] is! String ||
+          after.containsKey('entry') && after['entry'] is! String) invalid();
+    } else if (baseUrl) {
+      final original = owner[key];
+      if (original is! String || after is! String) invalid();
+      final authority = RegExp(r'^[A-Za-z][A-Za-z0-9+.-]*://[^/?#]*');
+      final suffix = RegExp(r'[?#].*$');
+      if (authority.stringMatch(original) != authority.stringMatch(after) ||
+          suffix.stringMatch(original) != suffix.stringMatch(after)) invalid();
+    } else {
+      if (expected != null && (expected is! ExactConfigurationNumber || expected.nativeInteger == null)) invalid();
+      if (after is! ExactConfigurationNumber || after.nativeInteger == null || after.nativeInteger! < -1 || after.nativeInteger! > 2048) invalid();
+    }
+    owner[key] = after;
+  }
+}
+
 void _verifyMigrationReview(
   Map<String, dynamic> result,
   _OutputInput input,
@@ -71,7 +149,7 @@ void _verifyMigrationReview(
   if (result['version'] != 1 ||
       result['snapshot'] != input.snapshot.identity ||
       result['producer'] != 'busyapi-native-migration' ||
-      result['producerVersion'] != '93' ||
+      result['producerVersion'] != '94' ||
       result['problems'] is! List ||
       result['outputs'] is! List ||
       result['exampleOutputs'] is! List ||
@@ -205,7 +283,8 @@ void _verifyMigrationReview(
   Object? manifest;
   try { manifest = jsonDecode(manifestText); } on Object { invalid(); }
   if (manifest is! Map || manifest['version'] != 1 ||
-      manifest.keys.any((key) => !const ['version', 'roots', 'resourceMappings', 'environments'].contains(key))) invalid();
+      manifest.keys.any((key) => !const ['version', 'roots', 'resourceMappings'].contains(key) &&
+          !(configuration.isNotEmpty && (exactConfiguration(configuration.single['text'] as String) as Map).containsKey(key)))) invalid();
   for (final key in ['version', 'roots', 'resourceMappings']) {
     if (jsonEncode(manifest[key]) != jsonEncode((result['manifest'] as Map?)?[key])) invalid();
   }
@@ -216,6 +295,21 @@ void _verifyMigrationReview(
     exactManifest = exactConfiguration(manifestText);
   } on Object { invalid(); }
   if (exactManifest is! Map) invalid();
+  _verifyMigrationConfigurationProjections(sourceConfiguration, result['configurationProjections']);
+  if (sourceConfiguration is Map) {
+    for (final key in sourceConfiguration.keys.where((key) => !const ['version', 'roots', 'resourceMappings', 'environments'].contains(key))) {
+      if (!exactManifest.containsKey(key) || !sameExactConfiguration(sourceConfiguration[key], exactManifest[key])) invalid();
+      if (key == 'tests' && sourceConfiguration[key] is List && exactManifest[key] is List) {
+        final originalCases = sourceConfiguration[key] as List, cases = exactManifest[key] as List;
+        for (var index = 0; index < originalCases.length; index++) {
+          final original = originalCases[index], delivered = cases[index];
+          if (original is Map && delivered is Map &&
+              (!_sameMigrationSelectorTypes(original['server'], delivered['server']) ||
+               !_sameMigrationSelectorTypes(original['servers'], delivered['servers']))) invalid();
+        }
+      }
+    }
+  }
   final deliveredEnvironments = exactManifest['environments'];
   bool sameConfiguration(Object? a, Object? b) {
     try { return sameExactConfiguration(a, b); } on Object { invalid(); }
@@ -263,7 +357,8 @@ void _verifyMigrationReview(
       if (original is! Map || environment is! Map || environment.length != original.length ||
           environment.keys.any((key) => !original.containsKey(key))) invalid();
       for (final field in original.keys.where((key) => key != 'authentication' && key != 'tls')) {
-        if (!sameConfiguration(original[field], environment[field])) invalid();
+        if (!sameConfiguration(original[field], environment[field]) ||
+            field == 'servers' && !_sameMigrationSelectorTypes(original[field], environment[field])) invalid();
       }
       final before = original['authentication'], after = environment['authentication'];
       if (before is Map) {
@@ -481,6 +576,14 @@ class MigrationAuthenticationAlternative {
   final int before, after;
 }
 
+class MigrationConfigurationProjection {
+  MigrationConfigurationProjection._(Map value)
+    : pointer = value['pointer'] as String,
+      before = value['before'] as String?, after = value['after'] as String;
+  final String pointer, after;
+  final String? before;
+}
+
 /// An exact opaque copy in the reviewed output; no payload interpretation or
 /// source mutation is performed by this publication record.
 class MigrationExampleCopy {
@@ -536,6 +639,9 @@ class MigrationOutput extends BundleOutput {
       authenticationAlternatives = List.unmodifiable(
         (result['configurationAlternatives'] as List? ?? const []).cast<Map>().map(MigrationAuthenticationAlternative._),
       ),
+      configurationProjections = List.unmodifiable(
+        (result['configurationProjections'] as List? ?? const []).cast<Map>().map(MigrationConfigurationProjection._),
+      ),
       target = SpecificationContext.fromJson(result['target']),
       entryRoutes = List.unmodifiable(
         (result['entryRoutes'] as List).cast<Map>().map(MigrationEntryRoute._),
@@ -557,6 +663,7 @@ class MigrationOutput extends BundleOutput {
   final List<MigrationExampleCopy> exampleCopies;
   final List<MigrationSecurityBinding> securityBindings;
   final List<MigrationAuthenticationAlternative> authenticationAlternatives;
+  final List<MigrationConfigurationProjection> configurationProjections;
   final SpecificationContext target;
   final List<MigrationEntryRoute> entryRoutes;
   bool get publishable =>
@@ -700,6 +807,7 @@ extension ContractMigration on BusyProject {
         'invariants': result['invariants'],
         'configurationBindings': result['configurationBindings'],
         'configurationAlternatives': result['configurationAlternatives'],
+        'configurationProjections': result['configurationProjections'],
         'manifestIdentity': result['manifestIdentity'],
         'exampleCopies': [
           for (final copy in (result['exampleOutputs'] as List).cast<Map>())

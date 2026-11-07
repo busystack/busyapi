@@ -76,3 +76,54 @@ for(const [path,code]of [
  const text=JSON.stringify(value),review=await planMigration({root,snapshot:'method-proof',resources:[{id:root,text,generation:1}],targetVersion:'3.1.2',destination:'file:///refused-method/'});
  assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);assert(review.problems.some(problem=>problem.code===code),JSON.stringify(review.problems));
 });
+
+for(const format of ['yaml','json'])test(`R3a ${format} retrieval aliases and mixed entries retain independent relocated routes`,async()=>{
+ const root='file:///captured/a.'+format,second='file:///captured/b.'+format,shared='file:///captured/shared.'+format;
+ const response={204:{description:'Empty'}},entry=(version,title,path)=>({openapi:version,info:{title,version:'1'},paths:{[path]:{$ref:'./shared.'+format+'#/Item'}}});
+ const values=[entry('3.0.4','A','/a'),entry('3.2.1','B','/b'),{Item:{servers:[{url:'../get'}],get:{responses:response},post:{servers:[{url:'https://api.invalid/post'}],responses:response}}}];
+ const resources=values.map((value,index)=>({id:[root,second,shared][index],aliases:['https://api.invalid/capture/'+['a','b','shared'][index]+'.'+format],generation:index+1,
+  text:format==='yaml'?'# Keep aliases and external ownership\n'+YAML.stringify(value):JSON.stringify(value)}));
+ const before=resources.map(resource=>resource.text),result=await planMigration({root,resources,snapshot:'r3a-mixed',targetVersion:'2.0',destination:'file:///mixed-r3a/'});
+ assert.equal(result.complete,true,JSON.stringify(result.problems));assert.deepEqual(resources.map(resource=>resource.text),before);
+ const delivered=result.outputs.map(output=>({id:output.id,text:output.text,generation:0,aliases:Object.entries(result.manifest.resourceMappings).filter(([,path])=>path===output.path).map(([uri])=>uri)}));
+ const {createGraph}=require('./dist/model.cjs');
+ for(const [title,suffix]of [['A','/a'],['B','/b']]){
+  const output=result.outputs.find(output=>new SourceDocument(output.text,output.id).dataNode('/info/title')?.value===title);
+  const packet={root:output.id,snapshot:'cold-mixed',resources:delivered};assert.equal(analyse(packet).complete,true);
+  assert.deepEqual(createGraph(packet).graph.operations().map(operation=>[operation.method,operation.path]).sort(),[['get','/get'+suffix],['post','/post'+suffix]].sort());
+ }
+});
+
+for(const mutation of ['lost','extra','method','path','operationId','url','body'])test(`R3a semantic identity invariant rejects ${mutation}`,()=>{
+ const {createGraph}=require('./dist/model.cjs'),{migrationOperationPairs,migrationRequestSignatures}=require('./dist/migration_invariants.cjs');
+ const root='https://api.invalid/source.json',target='https://api.invalid/target.json',response={204:{description:'Empty'}};
+ const operation={operationId:'kept',requestBody:{required:true,content:{'application/json':{schema:{type:'boolean'}}}},responses:response};
+ const a={root,snapshot:'before',resources:[{id:root,generation:1,text:JSON.stringify({openapi:'3.1.2',info:{title:'Invariant',version:'1'},servers:[{url:'https://api.invalid/base'}],paths:{'/p':{post:operation}}})}]};
+ const body={name:'body',in:'body',required:mutation!=='body',schema:{type:'boolean'}};
+ const native={operationId:mutation==='operationId'?'changed':'kept',consumes:['application/json'],parameters:[body],responses:response};
+ const paths=mutation==='lost'?{}:{[mutation==='path'?'/wrong':'/base/p']:{[mutation==='method'?'put':'post']:native}};
+ if(mutation==='extra')paths['/extra']={post:{...native,operationId:'extra'}};
+ const b={root:target,snapshot:'after',resources:[{id:target,generation:1,text:JSON.stringify({swagger:'2.0',info:{title:'Invariant',version:'1'},host:mutation==='url'?'other.invalid':'api.invalid',basePath:'/',schemes:['https'],paths})}]};
+ const source=createGraph(a).graph,output=createGraph(b).graph,issues=[];
+ const pairs=migrationOperationPairs(source,output,location=>[{resource:target,pointer:location.pointer.replace('/paths/~1p','/paths/~1base~1p')}],(_location,code)=>issues.push(code));
+ if(['url','body'].includes(mutation)){
+  assert.equal(issues.length,0);assert.equal(pairs.length,1);
+  assert.notDeepEqual(migrationRequestSignatures(source,a.resources),migrationRequestSignatures(output,b.resources));
+ }else assert(issues.some(code=>code.startsWith('migration.invariant.operation')),JSON.stringify(issues));
+});
+
+for(const sharedSelector of [false,true])test(`R3a mixed-entry saved selectors ${sharedSelector?'refuse incompatible paths':'retain their captured occurrence owner'}`,async()=>{
+ const root='file:///source/a.json',other='file:///source/b.json',response={204:{description:'Empty'}};
+ const entry=(title,prefix)=>({openapi:'3.1.2',info:{title,version:'1'},servers:[{url:'https://api.invalid/root'}],paths:{
+  '/p':{get:{servers:[{url:'https://api.invalid/'+prefix},{url:'https://api.invalid/'+prefix}],responses:response}},'/anchor':{get:{responses:response}}}});
+ const configuration={id:'file:///source/busyapi.yaml',generation:3,identity:'mixed-cases',text:JSON.stringify({version:1,roots:[{name:'A',path:'a.json'},{name:'B',path:'b.json'}],
+  tests:[{name:'held',operation:sharedSelector?{method:'get',path:'/p'}:{occurrence:root+'#/paths/~1p/get',method:'post',path:'/ignored','x-exact':'EXACT'},server:1}]})
+  .replace('"EXACT"','9007199254740993.00')};
+ const result=await planMigration({root,snapshot:'mixed-cases-'+sharedSelector,configuration,resources:[{id:root,text:JSON.stringify(entry('A','a')),generation:1},
+  {id:other,text:JSON.stringify(entry('B','b')),generation:2}],targetVersion:'2.0',destination:'file:///mixed-cases/'});
+ if(sharedSelector){assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);assert(result.problems.some(problem=>
+  ['migration.server.configured-selection','migration.server.case-identity'].includes(problem.code)&&problem.reason==='target-representation'),JSON.stringify(result.problems));}
+ else {assert.equal(result.complete,true,JSON.stringify(result.problems));const saved=JSON.parse(result.manifestText).tests[0];
+  assert.equal(saved.operation.entry,'migrated');assert.equal(saved.operation.method,'GET');assert.equal(saved.operation.path,'/a/p');assert.equal(saved.operation.occurrence,undefined);
+  assert.equal(saved.server,0);assert(result.manifestText.includes('9007199254740993.00'));}
+});

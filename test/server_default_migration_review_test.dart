@@ -69,7 +69,8 @@ void main() {
             final temp = Directory.systemTemp.createTempSync(
               'busyapi-default-review-',
             );
-            final source = serverVariableDefaultsSource(
+            final relocation = target == '2.0' && options.isNotEmpty;
+            var source = serverVariableDefaultsSource(
               '3.0.4',
               format,
               1,
@@ -77,6 +78,16 @@ void main() {
               options,
               serverUrl: target == '2.0' ? 'http://[::1]:1/v{suffix}/../base' : null,
             );
+            if (relocation) {
+              final servers = jsonEncode([{'url': 'http://[::1]:1/other'}, {'url': 'http://[::1]:1/other'}]);
+              source = format == 'json'
+                  ? source.replaceFirst('"get": {', '"post": {"servers": $servers, "responses": {"204": {"description": "No body"}}}, "get": {')
+                  : source.replaceFirst('get: {', 'post: {servers: $servers, responses: {"204": {description: "No body"}}}, get: {');
+              File('${temp.path}/busyapi.yaml').writeAsStringSync(jsonEncode({
+                'version': 1, 'roots': [{'name': 'api', 'path': 'api.$format'}],
+                'tests': [{'name': 'held', 'operation': {'method': 'post', 'path': '/items'}, 'server': 1}],
+              }));
+            }
             final original = [0xef, 0xbb, 0xbf, ...utf8.encode(source)];
             final file = File('${temp.path}/api.$format')
               ..writeAsBytesSync(original);
@@ -106,7 +117,7 @@ void main() {
             try {
               await runWidgetIo(tester, () async {
                 await c.initialize();
-                await c.open(file.path);
+                await c.open(relocation ? temp.path : file.path);
                 c.sourceEdit(
                   c.root!,
                   c.buffer!.text.replaceFirst('"saved"', '"雪"'),
@@ -176,13 +187,13 @@ void main() {
                   'root': id,
                   'resource': id,
                   'snapshot': 'reviewed-output',
-                  'pointer': '/paths/~1items/get',
+                  'pointer': relocation ? '/paths/~1base~1items/get' : '/paths/~1items/get',
                   'resources': [
                     {'id': id, 'text': comparison.after, 'generation': 0},
                   ],
                 });
                 if (target == '2.0') {
-                  expect(planned['servers'][0]['url'], 'http://[::1]:1/base');
+                  expect(planned['servers'][0]['url'], relocation ? 'http://[::1]:1/' : 'http://[::1]:1/base');
                   expect(planned['servers'][0]['variables'], isEmpty);
                 } else {
                   final variable = planned['servers'][0]['variables']['suffix'];
@@ -190,6 +201,7 @@ void main() {
                   expect(variable['enum'], [...options, '雪']);
                 }
               });
+              if (relocation) expect(find.textContaining('/tests/0/server'), findsOneWidget);
               expect(comparison.after, contains(target));
               expect(comparison.after, contains('9007199254740993.00'));
               expect(c.buffer!.text, working);
@@ -218,7 +230,12 @@ void main() {
               );
               expect(output.readAsStringSync(), comparison.after);
               await runWidgetIo(tester, () async {
-                final copy = await BusyProject.open(output.path, c.engine);
+                final copy = await BusyProject.open(relocation ? '${temp.path}/busyapi-migrated' : output.path, c.engine);
+                if (relocation) {
+                  final configuration = jsonDecode(File('${temp.path}/busyapi-migrated/busyapi.yaml').readAsStringSync()) as Map;
+                  expect(configuration['tests'][0]['server'], 0);
+                  expect(configuration['tests'][0]['operation']['path'], '/other/items');
+                }
                 try {
                   expect(
                     (await copy.check(copy.roots.single.id))['status'],

@@ -101,7 +101,7 @@ test(`${version} ${format} native objects and literal values share one specializ
  const input=fixture(version,format),original=input.resources[0].text,doc=new SourceDocument(original,input.root);
  assert.equal(analyse(input).status,'complete');await wire(input);
  const review=await planMigration(input);
- assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'93');
+ assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'94');
  assert.equal(review.exampleOutputs.length,2);assert.equal(input.resources[0].text,original);
  const output=delivered(review),{graph}=createGraph(output);
  assert.equal(analyse(output).status,'complete');await wire(output);
@@ -334,4 +334,26 @@ for(const [extra,code]of [
  const root='https://contracts.invalid/newer.json',value={openapi:'3.2.1',info:{title:'Newer semantics',version:'1'},servers:[{url:'https://api.invalid'}],paths:{},...extra};
  const review=await planMigration({root,snapshot:'newer-restriction',resources:[{id:root,text:JSON.stringify(value),generation:1}],targetVersion:'3.0.4',destination:'file:///newer-restriction/'});
  assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);assert(review.problems.some(problem=>problem.code===code&&problem.reason==='target-representation'),JSON.stringify(review.problems));
+});
+
+for(const format of ['yaml','json'])test(`R3a ${format} references follow a body schema through conversion and split-route ownership`,async()=>{
+ const root='https://api.invalid/owners.'+format,body='/paths/~1p/post/requestBody/content/application~1json/schema';
+ const value={openapi:'3.1.2',info:{title:'Terminal owners',version:'1'},servers:[{url:'https://api.invalid/root'}],paths:{'/p':{
+  servers:[{url:'https://api.invalid/read'}],get:{responses:{204:{description:'Empty'}}},post:{operationId:'write',servers:[{url:'https://api.invalid/write'}],
+   requestBody:{required:true,content:{'application/json':{schema:{type:'boolean',enum:[false]}}}},responses:{200:{$ref:'#/components/responses/Reply'}}}}},
+  components:{schemas:{Flag:{$ref:'#'+body}},responses:{Reply:{description:'Same flag',content:{'application/json':{schema:{$ref:'#/components/schemas/Flag'}}}}}}};
+ const text=format==='yaml'?'# Keep reference owners\n'+YAML.stringify(value):JSON.stringify(value),input={root,snapshot:'r3a-terminal',resources:[{id:root,text,generation:1}]};
+ const result=await planMigration({...input,targetVersion:'2.0',destination:'file:///terminal-r3a/'});assert.equal(result.complete,true,JSON.stringify(result.problems));
+ const {createGraph}=require('./dist/model.cjs'),{requestOperation}=require('./dist/execution.cjs');
+ const packet={root:result.outputRoot,snapshot:'cold-terminal',resources:result.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
+ assert.equal(analyse(packet).complete,true);const graph=createGraph(packet).graph;
+ const edge=graph.entryReferences().find(edge=>edge.resource===packet.root&&edge.pointer==='/definitions/Flag'&&edge.keyword==='$ref');
+ assert.equal(edge.resolution,'resolved');assert(graph.scopeAs(edge.targetResource,edge.targetPointer,'schema'));
+ const operation=graph.operations().find(operation=>operation.method==='post');assert.equal(operation.path,'/write/p');
+ const plan=requestOperation({...packet,resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
+ assert.equal(plan.requestBody.required,true);assert.equal(plan.operation.method,'POST');
+ const checked=await evaluateSchemas({...packet,runtimeInstances:['false','true'].map(text=>({subject:'response-body',location:'application/json',text,
+  schema:{resource:edge.targetResource,pointer:edge.targetPointer}}))});
+ assert.equal(checked.complete,true);assert.deepEqual(checked.runtimeEvaluations.map(result=>result.valid),[true,false]);
+ assert.equal(input.resources[0].text,text);
 });

@@ -36,6 +36,8 @@ void main() {
   // The proxy changes only the delivered manifest and recomputes its byte hash;
   // successful rejection therefore requires the independent semantic proof.
   for (final scenario in [
+    (name: 'missing configuration projections', from: 'projection:missing', to: '', accepted: false),
+    (name: 'unrelated configuration projection', from: 'projection:unrelated', to: '', accepted: false),
     (name: 'untouched', from: '', to: '', accepted: true),
     (name: 'obsolete holder producer', from: 'producer:79', to: '', accepted: false),
     (name: 'obsolete container producer', from: 'producer:80', to: '', accepted: false),
@@ -46,6 +48,7 @@ void main() {
     (name: 'obsolete B04-R1 producer', from: 'producer:88', to: '', accepted: false),
     (name: 'obsolete B04 handoff producer', from: 'producer:90', to: '', accepted: false),
     (name: 'obsolete B05-R1 producer', from: 'producer:91', to: '', accepted: false),
+    (name: 'obsolete partial B05-R3 producer', from: 'producer:93', to: '', accepted: false),
     (name: 'obsolete B05-R2 producer', from: 'producer:92', to: '', accepted: false),
     (name: 'equivalent decimals', from: '9007199254740993.00', to: '900719925474099300e-2', accepted: true),
     (name: 'equivalent positive exponent', from: '1e99999', to: '10e99998', accepted: true),
@@ -56,6 +59,7 @@ void main() {
     (name: 'negative zero fidelity', from: '-0.00e5', to: '0.00e5', accepted: false),
     (name: 'array ordering', from: '[1,2,3]', to: '[3,2,1]', accepted: false),
     (name: 'credential binding', from: '11111111-1111-4111-8111-111111111111', to: '22222222-2222-4222-8222-222222222222', accepted: false),
+    (name: 'saved Server selector activation', from: '"server":2.0', to: '"server":2', accepted: false),
     (name: 'authentication selector activation', from: '"alternative":2.0', to: '"alternative":2', accepted: false),
   ]) {
     test('Core exact configuration ${scenario.name}', () async {
@@ -78,7 +82,9 @@ child.stdout.on('data', chunk => {
   pending = pending.subarray(length+4);
   const result = value.result;
   if (result?.producer === 'busyapi-native-migration' && result.complete && from) {
-   if (from.startsWith('producer:')) result.producerVersion = from.slice('producer:'.length);
+   if (from === 'projection:missing') delete result.configurationProjections;
+   else if (from === 'projection:unrelated') result.configurationProjections = [{pointer:'/environments/manual/authentication',before:null,after:'{}'}];
+   else if (from.startsWith('producer:')) result.producerVersion = from.slice('producer:'.length);
    else {
     if (!result.manifestText.includes(from)) throw Error('Mutation did not reach its production field');
     result.manifestText = result.manifestText.replaceAll(from,to);
@@ -104,7 +110,8 @@ child.once('exit', code => {process.exitCode = code ?? 1;});
           '  manual:\n    x-nested: {huge: 1e99999, tiny: 1e-99999, signed: -0.00e5, array: [1,2,3]}\n'
           '    authentication:\n      alternative: 2.0\n      schemes:\n'
           '        "#/components/securitySchemes/Key": {secretRef: 11111111-1111-4111-8111-111111111111, '
-          'x-exact: {number: 9007199254740993.00, integer: 123456789012345678901234567890}}\n';
+          'x-exact: {number: 9007199254740993.00, integer: 123456789012345678901234567890}}\n'
+          'tests: [{name: held, operation: {method: get, path: /missing}, server: 2.0}]\n';
       await configuration.writeAsString(text);
       final project = await BusyProject.open(directory.path, engine);
       addTearDown(project.close);

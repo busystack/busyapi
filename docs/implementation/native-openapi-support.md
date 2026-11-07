@@ -31,6 +31,129 @@ consume those shared results. Source-preserving transactions remain authoritativ
 Current changes require complete engine, Core, native and packaged verification;
 source inspection or a successful build is not runtime acceptance.
 
+## B05-R3a: Operation paths and saved Server selections
+
+**B05-R3a is source-complete, unverified within W3.09. B05-R3 remains
+partially implemented, unverified.** This bounded continuation starts at
+`ad9d4381e89d505285269d3d5e911127f73f0c94` in the primary
+`release/v0.1.0` checkout. It preserves the earlier implementation baseline;
+B05-R3b and B05-R4 have not begun.
+
+The normative Swagger 2.0 Paths/host/basePath/schemes clauses and OpenAPI
+3.0.4, 3.1.2 and 3.2.1 Server inheritance, relative URL and Path Templating
+clauses govern this conversion. Paths append to expanded Server paths; they
+are never resolved as relative URI references or replaced by text search.
+
+Implemented source changes:
+
+- Server lowering captures each effective operation context before conversion.
+  It proves a common authority, including protocol-default ports, and chooses
+  one shared Swagger base. Root Servers overridden everywhere retain their
+  authored history without constraining unrelated effective targets. A common
+  effective base keeps authored routes; otherwise its path becomes an opaque
+  prefix in each route under `/`. Operation schemes retain the exact supported
+  alternatives and their initial default, without a host/path cross product.
+- Whole Path Items use CST key relocation where possible. Split and merged
+  routes bind only visible, unoverridden inherited parameters locally before
+  operations meet. Existing allocator reservations retain referenced Path Items
+  or referenced descendants in neutral material fragments. Terminal repairs
+  use converted child coordinates, including bodies already moved to Swagger
+  parameters. They do not infer targets from old pointer suffixes. Template
+  names, encoded segments, methods, operationIds, bodies, security, exact
+  examples/extensions, aliases and independent literal owners retain their
+  existing graph/CST relations. Comments from split containers are retained.
+- Route planning checks method collisions, equivalent template hierarchies,
+  encoded spellings and crossing template patterns, including partial-segment
+  templates. Target incompatibilities are located refusals before publication.
+  Existing active Link/Callback target restrictions remain in force; relocation
+  does not invent their missing Swagger representation.
+- Operation invariants now require a bijection through both captured Operation
+  and Path Item ownership. They reject lost, additional, duplicated or replaced
+  occurrences and changed methods/operationIds. Request profiles compare each
+  paired operation's exhaustive effective URL choices and default, serialization,
+  body/media, responses and security. Unbounded native templates retain their
+  existing template/domain proof. Sorting equal-looking operations cannot
+  authorize exchanging their identities.
+- Saved Server ordinals are projected by effective request URL and captured
+  operation identity. Equivalent choices may collapse; invalid ordinals and
+  substitutions retain invalid execution guards. Unchanged native variable
+  contexts keep their original invalid selection syntax. Integer-only saved
+  selector behavior is checked independently of exact mathematical-number
+  equality, so decimal/exponent settings cannot become active integers.
+- The existing captured configuration and exact manifest publication now retain
+  saved cases and unrelated top-level configuration, as well as environments.
+  Environment defaults use portable named-entry/method/path keys. Case Server
+  overrides can select an index by environment. Occurrence selectors become
+  portable entry-scoped selectors; ignored method/path hints cannot replace the
+  originally selected operation. Unique case owners are scoped to the delivered
+  entry, and a final shared proof checks resolved and unresolved case selection
+  in every captured entry. No credential values enter API descriptions.
+- Explicit environment base URLs remain unchanged when their appended route
+  remains equivalent. A literal suffix may be factored into a reviewed base-URL
+  change only when captured substitutions prove the same full effective URL
+  and authority/query/fragment remain unchanged. Authentication bindings, TLS,
+  environment identities and unrelated fields use the existing exact comparison
+  and publication checks. Every changed configuration leaf has an exact
+  before/after projection record in Core, native review, CLI JSON/text and
+  publication metadata. Preflight requires bounded projection records too.
+
+Exact R3a refusals retained:
+
+| Boundary | Classification |
+| --- | --- |
+| Effective authorities that cannot share one Swagger host, or alternatives of one operation requiring different route keys | Target representation; no alternative or method is silently discarded. |
+| Colliding path/methods, conflicting template names, ambiguous crossing route ownership or incompatible Path Item extensions on a merged route | Target representation. |
+| One shared saved case requiring incompatible target paths/indexes across entries, or a shared environment base URL requiring incompatible factors | Target configuration representation; the final identity/selection proof refuses the whole review. |
+| An explicit override for which no append-only factor preserves the captured target | Target representation; an unproved substitution/factor is distinguished as unavailable evidence. |
+| Unbounded Server-variable domains, execution-environment interpolation inside a lowered Server URL, unavailable material/retrieval ownership, or bounded-proof exhaustion | Unavailable proof; these are not claims that every such source is impossible. |
+
+Prepared regressions, **not executed**:
+
+| Layer | Registered coverage |
+| --- | --- |
+| Engine `test_migration_default_servers.cjs` | Published patch versions in YAML/JSON; root/Path Item/operation inheritance; method splitting and merging; templates/encoded segments; schemes, bodies and Basic security; default/ordinal/variable projections; invalid selection/entry controls; override factoring and exact target refusals. |
+| Engine `test_migration_entry_routes.cjs` | Mixed entries, captured retrieval aliases and external Path Items; negative identity, method, URL, body, loss and duplication controls. |
+| Engine `test_migration_object_uses.cjs` | A reference follows a body schema through body conversion, neutral owner allocation and route splitting; cold graph/request/schema evaluation controls. |
+| Core `migration_default_server_test.dart` | Actual HTTP methods, encoded URLs, bodies and Basic credentials; saved cases, secure environment defaults, exact configuration; unsaved input, repeat identity, cancellation, destination races, controlled publication failure, stale configuration, source deletion, directory relocation and CLI credential refusal. |
+| Core `migration_object_uses_test.dart` | Actual HTTP through external/aliased Path Items before and after split-route publication and cold reopening. |
+| Core `migration_exact_configuration_test.dart` | Missing/unrelated projection rejection, saved integer-selector activation and obsolete producer 93, alongside existing exact-number/authentication/TLS controls. |
+| Native `server_default_migration_review_test.dart` | Reviewed method splitting and ordinal projection, separate publication, unchanged originals and cold opening. |
+| CLI/preflight | Existing CLI consumers expose the shared records; packaged preview fixtures include saved Server selections and different method base paths. Missing/malformed/unrelated records and producer 93 remain negative controls. |
+
+Existing Engine gate registrations and Core/native test discovery include these
+extensions; no parallel test system is introduced. Other regression edits only
+synchronize current producer assertions.
+
+Migration producer/admission/preflight are **94**; producer **93** is obsolete.
+Schema-example projection **3**, evaluator **1.18.0+60**, graph **9**, response
+mock **5**, parameter mock **4** and sample producer **4** are unchanged. Bundles
+remain unbuilt and do not qualify producer 94.
+
+Production files changed:
+
+- Engine: `migration.ts`, `migration_servers.ts`, new
+  `migration_server_routes.ts` and `migration_server_configuration.ts`,
+  `migration_downgrade.ts`, `migration_invariants.ts`,
+  `migration_schema_owners.ts`, `security_configuration.ts`.
+- Core: `lib/src/migration.dart`, `lib/src/execution.dart`,
+  `lib/src/request.dart`, `lib/src/contract_test.dart`.
+- Native: `lib/src/workspace/migration_review.dart`,
+  `lib/src/workspace/request_run.dart`; CLI: Core `bin/busyapi.dart`;
+  preflight: `tools/native_migration_preflight.py`.
+
+**Actual verification:** normative specification consultation, manual source
+inspection, Git state and diff/whitespace review only. Tests, compilers,
+analyzers, builds, code generation, CI, graphical workloads, packaging and
+performance checks were not run. The execution hold remains active; Snapcraft
+remains skipped. The official installed Flutter SDK, dependencies and third-party
+software were not modified. Source completion does not establish runtime
+acceptance or complete B05-R3.
+
+**Next bounded assignment: B05-R3b — Reusable Path Item and Media Type ownership,
+including unused resources targeting Swagger.** Subsequent R3 work must address
+querystring/cookie serialization, advanced Encoding, Example, XML and
+discriminator cases before B05-R4 reconciliation. None was begun here.
+
 ## B05-R3: Server, security and newer-version object migration
 
 **B05-R3 is partially implemented, unverified. It is not source-complete.**
@@ -110,8 +233,8 @@ Known remaining R3 implementation/proof gaps:
 
 | Gap | Current boundary |
 | --- | --- |
-| Different operation base paths under one compatible authority | `migration.server.operation-path`: operation/path relocation is not implemented. This is an implementation gap, not a universal Swagger limitation. |
-| Saved Server selections and environment coupling | `migration.server.configured-selection`: a changed saved ordinal, configured variable default or invalid-selection activation needs a reviewed configuration projection. Existing selectors are checked against captured operation contexts; the unchanged configuration cannot silently select another URL. Execution-environment interpolation inside a lowered Server URL retains an unavailable-proof refusal. |
+| Different operation base paths under one compatible authority | Implemented in B05-R3a above. Multiple paths within one operation's alternatives still retain a target restriction. |
+| Saved Server selections and environment coupling | Reviewed projections are implemented in B05-R3a above. Incompatible shared selectors/factors and unproved lowered execution-environment interpolation retain the exact boundaries recorded there. |
 | Independently unused reusable Path Items targeting Swagger | `migration.path-item.unused-owner`: the remaining independently typed fragment/owner case is not implemented. |
 | Reusable Media Type categories targeting Swagger | `migration.components.mediaTypes`: occurrence materialization exists, but neutral reusable envelopes and their independently consumed children still need complete Swagger ownership conversion. |
 | Whole-query parameters | `migration.parameter.querystring-proof`: no whole-query lowering certificate is implemented, including finite cases that may admit exact older serialization. |
@@ -176,10 +299,7 @@ Git state and diff/whitespace review only. No compiler, analyzer, test, build,
 generation, CI, graphical/native workload, packaging or performance check ran.
 The official Flutter SDK and third-party software were not modified. The
 execution hold remains active; Snapcraft remains skipped. Local implementation
-commits do not establish source completion or runtime acceptance. The named next
-assignment remains **B05-R4 — Combined B05 integration, invariant verification
-and source-completion reconciliation**; this incomplete R3 record does not
-authorize starting it or moving R3 implementation gaps into a completed bucket.
+commits do not establish source completion or runtime acceptance. This historical R3 baseline does not authorize R4 or move remaining R3 gaps into a completed bucket; the current bounded handoff is recorded in B05-R3a above.
 
 ## B05-R2: parameter, body, response, example and reusable-object conversion
 

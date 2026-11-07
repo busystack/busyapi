@@ -1,5 +1,5 @@
 import type {GraphScope,ReferenceGraph} from './reference_graph';
-import {MigrationSource} from './migration_source';
+import {MigrationSource,type MigrationLocation} from './migration_source';
 import type {MigrationIssue} from './migration_schema';
 import {escape,SourceError} from './document';
 import {downgradeFormBody} from './migration_form_downgrade';
@@ -13,6 +13,7 @@ import {SwaggerObjectMetadata,type MigrationInlineExamples} from './migration_ob
 import {migrationScopes,migrationReferences} from './migration_documents';
 import {migrationOperationUses} from './migration_operation_contexts';
 import {downgradeServers} from './migration_servers';
+import {relocateMigrationServerRoutes} from './migration_server_routes';
 
 /** Inspect a captured Schema reference chain before a Header/parameter loses
  * its schema wrapper. A referenced object is just as unrepresentable in a
@@ -65,9 +66,9 @@ function retainFormBodyHistory(source:MigrationSource,pointer:string,scope:Graph
 /** Evaluate actual target representation. A simple 3.x API can be faithfully
  * represented in Swagger; newer-only constructs receive located blockers. */
 export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,MigrationSource>,from:string,issue:MigrationIssue,
-    releaseNativeHolders?:()=>void,owners=new MigrationSchemaOwners(graph,sources),contexts:readonly ReferenceGraph[]=[graph],external?:MigrationInlineExamples):void {
+    releaseNativeHolders?:()=>void,owners=new MigrationSchemaOwners(graph,sources),contexts:readonly ReferenceGraph[]=[graph],external?:MigrationInlineExamples):Map<string,MigrationLocation> {
     const scopes=[...migrationScopes(contexts)];
-    downgradeServers(graph,sources,from,issue,owners,contexts);
+    const serverRoutes=downgradeServers(graph,sources,from,issue,owners,contexts);
     const headerTargets=new Set([...migrationReferences(contexts)].filter(edge=>edge.kind==='header'&&edge.resolution==='resolved')
         .map(edge=>JSON.stringify([edge.targetResource,edge.targetPointer])));
     const primary=graph;
@@ -364,4 +365,5 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migrati
         if(source.doc.nodes.has('/webhooks'))issue({resource,pointer:'/webhooks'},'migration.webhooks','Swagger has no independent Webhook invocation category','target-representation');
         source.remove('/openapi');source.set('/swagger','2.0');
     }
+    return relocateMigrationServerRoutes(serverRoutes,sources,owners,issue,contexts);
 }

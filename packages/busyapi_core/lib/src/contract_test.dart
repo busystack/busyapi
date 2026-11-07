@@ -175,7 +175,8 @@ class ContractTestRunner {
       final definition = definitions[name]!;
       Map? selected;
       final operation = definition['operation'];
-      if (operation is Map) {
+      if (operation is Map &&
+          (operation['entry'] == null || operation['entry'] == configuration.entryName(root))) {
         if (operation['occurrence'] is String) {
           selected = operations
               .where(
@@ -389,7 +390,7 @@ class ContractTestRunner {
                 operation['path'] is String &&
                 (operation['path'] as String).startsWith('/')))
       invalid('operation', 'Choose an occurrence or method/path.');
-    for (final field in ['occurrence', 'method', 'path']) {
+    for (final field in ['occurrence', 'method', 'path', 'entry']) {
       if (operation.containsKey(field) &&
           (operation[field] is! String ||
               (operation[field] as String).isEmpty ||
@@ -405,6 +406,11 @@ class ContractTestRunner {
       if (value.containsKey(key) &&
           (value[key] is! String || (value[key] as String).isEmpty))
         invalid(key, 'Expected a non-empty string.');
+    }
+    final servers = value['servers'];
+    if (servers != null && (servers is! Map || servers.length > 2048 ||
+        servers.entries.any((entry) => entry.key is! String || entry.value is! int || (entry.value as int) < -1 || (entry.value as int) > 2048))) {
+      invalid('servers', 'Expected bounded environment Server selections.');
     }
     for (final key in ['server', 'securityAlternative']) {
       if (value.containsKey(key) &&
@@ -699,7 +705,9 @@ class ContractTestRunner {
     return OperationRequestDraft(
       planIdentity: plan.identity,
       environment: environmentOverride ?? definition['environment'] as String?,
-      server: definition['server'] is int ? definition['server'] as int : 0,
+      server: definition['servers'] is Map && (definition['servers'] as Map)[environmentOverride ?? definition['environment']] is int
+          ? (definition['servers'] as Map)[environmentOverride ?? definition['environment']] as int
+          : definition['server'] is int ? definition['server'] as int : null,
       securityAlternative: definition['securityAlternative'] as int?,
       parameters: Map.unmodifiable(parameters),
       headers: List.unmodifiable(headers),

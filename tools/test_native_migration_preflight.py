@@ -25,8 +25,8 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(MIGRATION_PRODUCER, engine_revision.group(1))
 
     def test_current_revision_is_accepted_and_previous_package_is_rejected(self):
-        verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': '93'})
-        for obsolete in ('25', '34', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45', '46', '47', '48', '49', '50', '51', '52', '53', '54', '55', '56', '57', '58', '59', '60', '61', '62', '63', '64', '65', '66', '67', '68', '69', '70', '71', '72', '73', '74', '75', '76', '77', '78', '79', '80', '81', '82', '83', '84', '85', '86', '87', '88', '89', '90', '91', '92'):
+        verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': '94'})
+        for obsolete in ('25', '34', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45', '46', '47', '48', '49', '50', '51', '52', '53', '54', '55', '56', '57', '58', '59', '60', '61', '62', '63', '64', '65', '66', '67', '68', '69', '70', '71', '72', '73', '74', '75', '76', '77', '78', '79', '80', '81', '82', '83', '84', '85', '86', '87', '88', '89', '90', '91', '92', '93'):
             with self.subTest(obsolete=obsolete):
                 with self.assertRaisesRegex(RuntimeError, 'producer differ'):
                     verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': obsolete})
@@ -51,10 +51,10 @@ class PreflightTests(unittest.TestCase):
     def review(self, **updates):
         return {'producer': 'busyapi-native-migration', 'producerVersion': MIGRATION_PRODUCER,
                 'status': 'faithfully-convertible', 'complete': True, 'published': False,
-                'target': {'declaredVersion': '2.0'}, 'reviewIdentity': 'a' * 64, **updates}
+                'target': {'declaredVersion': '2.0'}, 'reviewIdentity': 'a' * 64, 'configurationProjections': [], **updates}
 
     def test_obsolete_producer_is_rejected_without_publication(self):
-        for version in ['6', '23', '25', '31', '32', '33', '89', '90', '91', '92']:
+        for version in ['6', '23', '25', '31', '32', '33', '89', '90', '91', '92', '93']:
             with self.subTest(producerVersion=version):
                 binary = self.fake(self.review(producerVersion=version))
                 with self.assertRaisesRegex(RuntimeError, 'producer differ'):
@@ -159,6 +159,41 @@ class PreflightTests(unittest.TestCase):
                 self.assertFalse(destination.exists())
                 self.assertEqual(source.read_bytes(), raw)
                 self.assertEqual(shared.read_bytes(), extra)
+
+    def test_configuration_projection_controls(self):
+        for records in [None, {}, [{'pointer': '/environments/manual/authentication', 'before': None, 'after': '{}'}],
+                        [{'pointer': '/tests/0/server', 'before': '1', 'after': 'invalid-json'}]]:
+            with self.subTest(records=records), self.assertRaisesRegex(RuntimeError, 'configuration'):
+                preflight_migration(self.fake(self.review(configurationProjections=records)), self.source, '2.0',
+                                    self.destination, self.originals)
+        records = [{'pointer': '/tests/0/server', 'before': '1', 'after': '0'}]
+        report = preflight_migration(self.fake(self.review(configurationProjections=records)), self.source, '2.0',
+                                    self.destination, self.originals)
+        self.assertEqual(report['configurationProjections'], records)
+
+    def test_actual_packaged_r3a_routes_and_reviewed_server_selections(self):
+        bundle = Path(os.environ.get('BUSYAPI_TEST_BUNDLE') or
+                      Path(__file__).resolve().parent.parent / 'build/linux/x64/release/bundle')
+        for version in ['3.0.4', '3.1.2', '3.2.1']:
+            source = self.root / ('r3a-' + version + '.json')
+            configuration = self.root / 'busyapi.yaml'
+            operation = {'responses': {'204': {'description': 'Empty'}}}
+            choices = [{'url': 'https://api.invalid/write'}, {'url': 'https://api.invalid/write'}]
+            value = {'openapi': version, 'info': {'title': 'R3a relocation', 'version': '1'},
+                     'servers': [{'url': 'https://api.invalid/root'}],
+                     'paths': {'/shared': {'get': operation, 'post': {**operation, 'servers': choices}}}}
+            raw = json.dumps(value).encode()
+            config = json.dumps({'version': 1, 'roots': [{'name': 'api', 'path': source.name}],
+                                 'tests': [{'name': 'held', 'operation': {'method': 'post', 'path': '/shared'}, 'server': 1}]}).encode()
+            source.write_bytes(raw)
+            configuration.write_bytes(config)
+            destination = self.root / ('r3a-preview-' + version)
+            report = preflight_migration(bundle / 'busyapi', self.root, '2.0', destination,
+                                         {source: raw, configuration: config})
+            self.assertEqual(report['producerVersion'], MIGRATION_PRODUCER)
+            self.assertFalse(report['published'])
+            self.assertTrue(any(change['pointer'] == '/tests/0/server' for change in report['configurationProjections']))
+            self.assertFalse(destination.exists())
 
     def test_actual_packaged_b05_r2_metadata_examples_and_refusals(self):
         bundle = Path(os.environ.get('BUSYAPI_TEST_BUNDLE') or

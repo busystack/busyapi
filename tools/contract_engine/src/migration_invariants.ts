@@ -1,9 +1,10 @@
 import {migrationServerSignature} from './migration_servers';
+import {migrationJoinedPath} from './migration_server_routes';
 import {requestOperation} from './execution';
 import type {ReferenceGraph,GraphScope} from './reference_graph';
 import type {Resource} from './engine';
-import {escape,SourceError,type SourceDocument} from './document';
-import {finiteServerUrls,finiteServerVariableValues,serverTemplateParts} from './server_semantics';
+import {escape,SourceError} from './document';
+import {finiteServerUrls} from './server_semantics';
 import {securityFlowOrder,securityRequirementAlternatives,type SecurityAlternativeProjection} from './security_requirements';
 import type {MigrationLocation} from './migration_source';
 import type {MigrationIssue} from './migration_schema';
@@ -18,58 +19,39 @@ import {migrationExampleBytes} from './migration_examples';
 import {runtimeMediaKind} from './runtime_media';
 import {inactiveMigrationHeader} from './migration_media_schema';
 
-/** Saved case ordinals and environment variables select particular Servers,
- * rather than just the set of available URLs. Keep existing configuration
- * immutable unless the selected URL (or invalid selection) is preserved.
- * Changed selectors need a future reviewed configuration projection. */
-export function proveMigrationServerSelections(source:ReferenceGraph,target:ReferenceGraph,resources:Resource[],delivered:Resource[],
- configuration:SourceDocument|undefined,issue:MigrationIssue):void {
- if(!configuration)return;
- const environmentMap=configuration.dataNode('/environments')?.value??{},environments=Object.entries(environmentMap);
- const configured:{name:string;value:Record<string,unknown>}[]=[{name:'',value:{}},...environments.map(([name,value])=>({name,value:value as Record<string,unknown>}))];
- const cases=[{pointer:'/environments',value:{} as Record<string,any>},
-  ...[...configuration.dataNode('/tests')?.children.values()??[]].map(node=>({pointer:node.pointer,value:node.value as Record<string,any>}))];
- const wire=(operation:ReturnType<ReferenceGraph['operations']>[number])=>operation.customMethod?operation.method:operation.method.toUpperCase();
- const operations=target.operations().filter(operation=>operation.role==='operation');let work=0;
- const selected=(server:any,variables:Record<string,unknown>):string|undefined=>{
-  if(!server)return;
-  const definitions={...server.variables};
-  for(const name of new Set(serverTemplateParts(server.url).names)){
-   const definition=definitions[name],value=Object.hasOwn(variables,name)?variables[name]:definition?.default;
-   if(typeof value!=='string')return;
-   const choices=finiteServerVariableValues(definition);
-   if(Array.isArray(definition?.enum)&&!choices?.includes(value))return;
-   definitions[name]={...definition,default:value,enum:[value]};
+export type MigrationOperationPair=Readonly<{before:ReturnType<ReferenceGraph['operations']>[number];after:ReturnType<ReferenceGraph['operations']>[number]}>;
+/** Executable identity follows both captured operation and containing use.
+ * Matching values or operationIds cannot authorize replacing one occurrence
+ * with another. The bijection rejects lost, duplicated and extra operations. */
+export function migrationOperationPairs(source:ReferenceGraph,target:ReferenceGraph,
+ mapped:(location:MigrationLocation,scope:GraphScope|undefined)=>readonly MigrationLocation[],issue:MigrationIssue):MigrationOperationPair[] {
+ const result:MigrationOperationPair[]=[],claimed=new Set<string>(),operations=target.operations();
+ const wire=(operation:typeof operations[number])=>operation.customMethod?operation.method:operation.method.toUpperCase();
+ const key=(operation:typeof operations[number],at:MigrationLocation)=>JSON.stringify([at.resource,at.pointer,wire(operation),operation.role]);
+ const index=new Map<string,typeof operations[number][]>();let work=0;
+ for(const operation of operations){const id=key(operation,operation.source),values=index.get(id)??[];values.push(operation);index.set(id,values);}
+ for(const before of source.operations()){
+  const owners=mapped(before.source,source.scopeAs(before.source.resource,before.source.pointer,'operation'));
+  const items=new Set(mapped(before.pathItem,source.scopeAs(before.pathItem.resource,before.pathItem.pointer,'path-item')).map(at=>JSON.stringify([at.resource,at.pointer])));
+  const candidates=new Map<string,typeof operations[number]>();
+  for(const at of owners)for(const after of index.get(key(before,at))??[]){
+   if(++work>2000000)throw new SourceError('limit.migration.operations','Operation identity proof exceeds 2000000 owner states');
+   if(items.has(JSON.stringify([after.pathItem.resource,after.pathItem.pointer])))candidates.set(after.occurrence,after);
   }
-  const value=finiteServerUrls({...server,variables:definitions},server.base)?.[0];
-  if(value!==undefined){const url=new URL(value);url.hash='';return url.href;}
- };
- for(const operation of source.operations().filter(operation=>operation.role==='operation')){
-  const matches=operations.filter(candidate=>candidate.path===operation.path&&wire(candidate)===wire(operation));
-  if(matches.length!==1)continue; // The independent operation invariant reports this.
-  const before=requestOperation({root:source.root,resources,snapshot:'migration-server-selection',resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
-  const after=requestOperation({root:target.root,resources:delivered,snapshot:'migration-server-selection',resource:matches[0].source.resource,pointer:matches[0].source.pointer,occurrence:matches[0].occurrence});
-  for(const entry of cases){
-   const selector=entry.value.operation;
-   if(selector&&(selector.occurrence?selector.occurrence!==operation.occurrence:
-       selector.path!==operation.path||selector.method!==wire(operation)&&(operation.customMethod||typeof selector.method!=='string'||selector.method.toUpperCase()!==wire(operation))))continue;
-   const index=entry.value.server??0;if(!Number.isInteger(index)||index<0)continue;
-   for(const environment of configured){
-    if(++work>200000)throw new SourceError('limit.migration.servers','Configured Server selection proof exceeds 200000 captured choices');
-    const first=before.servers[index],last=after.servers[index];
-    if(!first&&!last)continue;
-    const variables={...(environment.value.variables as Record<string,unknown>|undefined),...entry.value.variables};
-    const override=typeof environment.value.baseUrl==='string'&&environment.value.baseUrl.length>0;
-    const same=Boolean(first)===Boolean(last)&&(override||selected(first,variables)===selected(last,variables));
-    if(!same){
-     const pointer=entry.pointer==='/environments'?'/environments/'+escape(environment.name):entry.pointer;
-     issue({resource:configuration.id,pointer},'migration.server.configured-selection',
-      'A saved Server ordinal or environment variable would select a different URL or activate an invalid selection; its reviewed configuration projection is not implemented','implementation');
-    }
-   }
+  const matches=[...candidates.values()];
+  if(matches.length!==1||claimed.has(matches[0]?.occurrence)){
+   issue(before.source,'migration.invariant.operations','A captured operation has no unique target occurrence with its original method, role and semantic owners','implementation');continue;
   }
+  const id=(graph:ReferenceGraph,operation:typeof operations[number])=>graph.docs.get(operation.source.resource)!.dataNode(operation.source.pointer)?.value?.operationId;
+  if(id(source,before)!==id(target,matches[0]))issue(before.source,'migration.invariant.operation-id','A captured operation changed its operationId','implementation');
+  claimed.add(matches[0].occurrence);result.push({before,after:matches[0]});
  }
+ if(claimed.size!==operations.length)issue({resource:source.root,pointer:''},'migration.invariant.operations','The target contains an unclaimed or duplicated executable operation','implementation');
+ return result;
 }
+
+/** The reviewed selector projection uses this invariant's captured bijection. */
+export {projectMigrationServerSelections as proveMigrationServerSelections} from './migration_server_configuration';
 
 /** Independently reusable Parameters and Headers need the same metadata proof
  * as executable occurrences. Literal history is not an active target owner. */
@@ -259,12 +241,18 @@ function formSignatures(media:any):unknown {
     }).sort((a:any,b:any)=>a.name.localeCompare(b.name));
 }
 
+function effectiveUrl(value:string,path:string):string {
+ const url=new URL(value);url.hash='';
+ // Preserve template names and encoded segments as opaque route tokens.
+ return url.href.slice(0,url.href.length-url.pathname.length-url.search.length)+migrationJoinedPath(url.pathname,path)+url.search;
+}
+
 /** Representation-sensitive checks supplement native target validation. The
  * signature contains API declarations, never environments or credentials. */
-export function migrationRequestSignatures(graph:ReferenceGraph,resources:Resource[]):string[] {
+export function migrationRequestProfiles(graph:ReferenceGraph,resources:Resource[]):ReadonlyMap<string,string> {
     const securityBindings=new Map(graph.references.filter(reference=>reference.connection==='security').map(reference=>[
         JSON.stringify([reference.resource,reference.pointer,reference.keyword]),reference]));
-    return graph.operations().filter(operation=>operation.role==='operation').map(operation=>{
+    return new Map(graph.operations().filter(operation=>operation.role==='operation').map(operation=>{
         const plan=requestOperation({root:graph.root,resources,snapshot:'migration-invariant',resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
         const normalize=(value:any):any=>Array.isArray(value)?value.map(normalize):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).filter(name=>!['source','definition','base','origin','sources'].includes(name)).sort().map(name=>[name,normalize(value[name])])):value;
         const parameters=plan.parameters.map((parameter:any)=>{
@@ -307,9 +295,19 @@ export function migrationRequestSignatures(graph:ReferenceGraph,resources:Resour
             });
             return securityRequirementAlternatives(choices).map(schemes=>({schemes}));
         })};
-        return JSON.stringify(normalize({method:plan.operation.method,path:plan.operation.path,
-            servers:migrationServerSignature(plan.servers),
+        const finite=plan.servers.map(server=>finiteServerUrls(server,server.base));
+        const effective=finite.every((values):values is readonly string[]=>values!==undefined)?{
+            default:finite[0]?.[0]&&effectiveUrl(finite[0][0],operation.path),
+            urls:[...new Set(finite.flat().map(url=>effectiveUrl(url,operation.path)))].sort(),
+        }:{path:operation.path,servers:migrationServerSignature(plan.servers)};
+        return [operation.occurrence,JSON.stringify(normalize({method:plan.operation.method,effective,
             parameters,security,body:plan.requestBody?{required:plan.requestBody.required,media:media(plan.requestBody.content),examples:examples(plan.requestBody.content,true),forms:plan.requestBody.content.map((value:any)=>({mediaType:value.mediaType,fields:formSignatures(value)})).sort((a:any,b:any)=>a.mediaType.localeCompare(b.mediaType))}:undefined,
-            responses:plan.responses.map((response:any)=>({status:response.status,headers:response.headers.map((header:any)=>({name:header.name,required:header.required})),bodyAllowed:response.bodyAllowed??response.content.length>0,media:response.bodyAllowed===false?[]:media(response.content),examples:response.bodyAllowed===false?[]:examples(response.content,true)}))}));
-    }).sort();
+            responses:plan.responses.map((response:any)=>({status:response.status,headers:response.headers.map((header:any)=>({name:header.name,required:header.required})),bodyAllowed:response.bodyAllowed??response.content.length>0,media:response.bodyAllowed===false?[]:media(response.content),examples:response.bodyAllowed===false?[]:examples(response.content,true)}))}))] as const;
+    }));
+}
+
+/** Stable aggregate used by independent regression controls. Production pairs
+ * compare these same profiles by captured identity rather than by sort order. */
+export function migrationRequestSignatures(graph:ReferenceGraph,resources:Resource[]):string[] {
+ return [...migrationRequestProfiles(graph,resources).values()].sort();
 }

@@ -10,6 +10,7 @@ import 'migration_mixed_holder_fixture.dart';
 void main() {
   mixedLegacyObjectUses();
   r3ObjectUses();
+  r3aReferencedRoutes();
   for (final format in ['yaml', 'json']) {
     test('$format native literal owners retain examples, actual HTTP and CLI behavior after publication', () async {
       final directory = await Directory.systemTemp.createTemp('busyapi-object-uses-');
@@ -125,7 +126,7 @@ void main() {
       final review = await project.prepareMigration(root, '${directory.path}/converted', targetVersion: '3.2.1');
       addTearDown(review.close);
       expect(review.publishable, true, reason: '${review.result}');
-      expect(review.result['producerVersion'], '93');
+      expect(review.result['producerVersion'], '94');
       expect(review.unsaved, true);
       expect(review.exampleCopies.map((copy) => copy.bytes), containsAll([utf8.encode(count), utf8.encode(query)]));
       await review.publish();
@@ -211,7 +212,7 @@ void mixedLegacyObjectUses() {
       final cli = await Process.run('$testBundle/busyapi', ['migrate', moved.path, '--root', 'migrated', '--target', target, '--output', '${directory.path}/cli-preview', '--json'],
         environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
       expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');
-      final report = jsonDecode(cli.stdout as String) as Map;expect(report['producerVersion'], '93');expect(report['complete'], true);expect(report['published'], false);
+      final report = jsonDecode(cli.stdout as String) as Map;expect(report['producerVersion'], '94');expect(report['complete'], true);expect(report['published'], false);
       expect(Directory('${directory.path}/cli-preview').existsSync(), false);
     });
   }
@@ -288,7 +289,7 @@ void r3ObjectUses() {
         final review = await project.prepareMigration(root, '${directory.path}/target', targetVersion: target);
         addTearDown(review.close);
         expect(review.publishable, true, reason: '${review.result}');
-        expect(review.unsaved, true);expect(review.result['producerVersion'], '93');
+        expect(review.unsaved, true);expect(review.result['producerVersion'], '94');
         if (format == 'json' && target == '3.1.2') {
           final repeat = await project.prepareMigration(root, review.destination, targetVersion: target);
           addTearDown(repeat.close);expect(repeat.identity, review.identity);
@@ -320,4 +321,55 @@ void r3ObjectUses() {
       });
     }
   }
+}
+
+void r3aReferencedRoutes() {
+  test('R3a aliased referenced Path Items retain method, body and effective targets after cold publication', () async {
+    final directory = await Directory.systemTemp.createTemp('busyapi-r3a-reference-');
+    addTearDown(() => directory.delete(recursive: true));
+    final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);
+    addTearDown(engine.close);
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    final seen = <(String, String, String)>[];
+    server.listen((request) async {
+      seen.add((request.method, request.uri.toString(), utf8.decode(await request.fold<List<int>>([], (all, bytes) => all..addAll(bytes)))));
+      request.response.statusCode = 204;await request.response.close();
+    });
+    final entry = File('${directory.path}/api.yaml'), shared = File('${directory.path}/shared.yaml');
+    final original = 'openapi: 3.1.2\ninfo: {title: References, version: "1"}\n'
+        'servers: [{url: "http://127.0.0.1:${server.port}/root"}]\npaths:\n'
+        '  /first: {\$ref: "./shared.yaml#/Item"}\n  /second: {\$ref: "./shared.yaml#/Alias"}\n';
+    final extra = 'Item: &item\n  servers: [{url: "http://127.0.0.1:${server.port}/read"}]\n'
+        '  get: {responses: {"204": {description: Empty}}}\n'
+        '  post:\n    servers: [{url: "http://127.0.0.1:${server.port}/write"}]\n'
+        '    requestBody: {required: true, content: {application/json: {schema: {type: boolean}}}}\n'
+        '    responses: {"204": {description: Empty}}\nAlias: *item\nx-kept: 9007199254740993.00\n';
+    await entry.writeAsString(original);await shared.writeAsString(extra);
+    final project = await BusyProject.open(entry.path, engine);addTearDown(project.close);
+    Future<void> send(BusyProject owner) async {
+      final root = owner.roots.single.id, checked = await owner.check(owner.roots.single.id);
+      expect(checked['complete'], true, reason: '$checked');
+      for (final operation in (checked['projection']['operations'] as List).cast<Map>()) {
+        final method = operation['method'].toString().toUpperCase(), suffix = operation['path'].toString().endsWith('/first') ? '/first' : '/second';
+        final plan = await owner.prepareRequest(root, resource: operation['resource'], pointer: operation['pointer'], occurrence: operation['occurrence']);
+        try {
+          final result = await const ContractRequestExecutor().execute(plan,
+              OperationRequestDraft(planIdentity: plan.identity, body: method == 'POST'
+                  ? const RequestBodyDraft.raw(mediaType: 'application/json', text: 'false') : const RequestBodyDraft.none()),
+              resolveSecret: (_) async => null);
+          try { expect(result.conforming, true);expect(seen.last, (method, '${method == 'POST' ? '/write' : '/read'}$suffix', method == 'POST' ? 'false' : '')); }
+          finally { await result.close(); }
+        } finally { plan.close(); }
+      }
+    }
+    await send(project);
+    final review = await project.prepareMigration(project.roots.single.id, '${directory.path}/output', targetVersion: '2.0');
+    addTearDown(review.close);expect(review.publishable, true, reason: '${review.result}');
+    await review.publish();expect(await entry.readAsString(), original);expect(await shared.readAsString(), extra);
+    project.close();await entry.delete();await shared.delete();
+    final moved = await Directory(review.destination).rename('${directory.path}/cold');
+    final cold = await BusyProject.open(moved.path, engine);addTearDown(cold.close);await send(cold);
+    expect(seen, hasLength(8));
+  });
 }

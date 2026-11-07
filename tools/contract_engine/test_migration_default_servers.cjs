@@ -94,10 +94,113 @@ for(const url of [undefined,'../api'])test(`B05-R3 local retrieval retains unres
  assert.equal(review.complete,true,JSON.stringify(review.problems));const target=YAML.parse(review.outputs.find(output=>output.id===review.outputRoot).text);
  assert.equal(target.host,undefined);assert.equal(target.schemes,undefined);assert.equal(target.basePath,url?'/approved/api':'/');
 });
-for(const mode of ['ordinal','variable'])test(`B05-R3 changed configured Server ${mode} cannot silently select another target`,async()=>{
+for(const mode of ['ordinal','variable'])test(`B05-R3 changed configured Server ${mode} receives an explicit reviewed projection`,async()=>{
  const root='https://contracts.invalid/configured.json',value={openapi:'3.2.1',info:{title:'Configured Servers',version:'1'},servers:[{url:'{scheme}://api.invalid/base',variables:{scheme:{default:'https',enum:['https','http']}}},{url:'https://api.invalid/base'}],paths:{'/p':{get:{responses:{204:{description:'Done'}}}}}};
  const configuration={id:'file:///captured/busyapi.yaml',generation:1,identity:'configured-selector',text:JSON.stringify({version:1,
   ...(mode==='variable'?{environments:{manual:{variables:{scheme:'http'}}}}:{}),tests:[{name:'selected',operation:{method:'get',path:'/p'},server:mode==='ordinal'?1:0}]})};
  const review=await planMigration({root,snapshot:'configured-selector',resources:[{id:root,text:JSON.stringify(value),generation:1}],configuration,targetVersion:'2.0',destination:'file:///configured-servers/'});
- assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);assert(review.problems.some(problem=>problem.code==='migration.server.configured-selection'&&problem.resource===configuration.id),JSON.stringify(review.problems));
+ assert.equal(review.complete,true,JSON.stringify(review.problems));assert(review.configurationProjections.length>0);
+ const manifest=JSON.parse(review.manifestText);
+ if(mode==='ordinal')assert.equal(manifest.tests[0].server,0);
+ else {assert.equal(manifest.tests[0].servers.manual,1);assert.equal(Object.values(manifest.environments.manual.servers)[0],1);}
+ assert.equal(configuration.identity,'configured-selector');
+});
+
+const {migrationRequestSignatures}=require(dist+'/migration_invariants.cjs');
+const {createGraph}=require(dist+'/model.cjs');
+for(const version of ['3.0.0','3.0.4','3.1.0','3.1.2','3.2.0','3.2.1'])for(const format of ['yaml','json'])
+test(`B05-R3a ${version} ${format} splits methods with opaque segments, inherited parameters, bodies and authentication`,async()=>{
+ const root='https://api.invalid/source/api.'+format,empty={description:'No body'};
+ const value={openapi:version,info:{title:'Server relocation',version:'1'},servers:[{url:'https://api.invalid/root'},{url:'http://api.invalid/root'}],
+  security:[{Basic:[]}],components:{securitySchemes:{Basic:{type:'http',scheme:'basic'}}},paths:{
+   '/items/{id}':{servers:[{url:'../one%2Fv'},{url:'https://api.invalid/one%2Fv'}],parameters:[{name:'id',in:'path',required:true,schema:{type:'string'}}],
+    'x-held':{exact:'EXACT'},get:{operationId:'read',responses:{204:empty}},
+    post:{operationId:'write',servers:[{url:'http://api.invalid/two'}],requestBody:{required:true,content:{'application/json':{schema:{type:'boolean'},example:false}}},responses:{204:empty}}},
+   '/inherited':{get:{operationId:'inherited',responses:{204:empty}}}},'x-untouched':{reference:{$ref:'literal-only'},exact:'EXACT'}};
+ const text=(format==='yaml'?'# Keep relocation and aliases\n'+YAML.stringify(value):JSON.stringify(value)).replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const resources=[{id:root,text,generation:11}],input={root,resources,snapshot:'r3a-split'};
+ const result=await planMigration({...input,targetVersion:'2.0',destination:'file:///new/r3a/'});
+ assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(resources[0].text,text);
+ const cold={root:result.outputRoot,snapshot:'r3a-cold',resources:result.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
+ assert.equal(analyse(cold).complete,true,JSON.stringify(analyse(cold).findings));
+ const sourceGraph=createGraph(input).graph,graph=createGraph(cold).graph;
+ assert.deepEqual(migrationRequestSignatures(sourceGraph,resources),migrationRequestSignatures(graph,cold.resources));
+ assert.deepEqual(graph.operations().map(operation=>[operation.method,operation.path]).sort(),[
+  ['get','/one%2Fv/items/{id}'],['get','/root/inherited'],['post','/two/items/{id}']].sort());
+ for(const operation of graph.operations()){
+  const plan=requestOperation({...cold,resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
+  assert.equal(plan.security.schemes.Basic.type,'http');assert.equal(plan.security.schemes.Basic.scheme,'basic');
+  if(operation.path.includes('{id}'))assert(plan.parameters.some(parameter=>parameter.name==='id'&&parameter.in==='path'&&parameter.required));
+  if(operation.method==='post'){assert(plan.requestBody.required);assert.deepEqual(plan.requestBody.content.map(media=>media.mediaType),['application/json']);assert.deepEqual(plan.servers.map(server=>server.url),['http://api.invalid/']);}
+ }
+ const output=result.outputs.find(output=>output.id===result.outputRoot);assert(output.text.includes('9007199254740993.00'));
+ if(format==='yaml')assert(output.text.includes('# Keep relocation and aliases'));
+});
+for(const mode of ['collision','template','alternatives','authority'])test(`B05-R3a ${mode} retains a precise target restriction`,async()=>{
+ const responses={204:{description:'No body'}},operation={responses},paths=mode==='template'?{
+  '/a/{id}':{servers:[{url:'https://api.invalid/v'}],get:{...operation,parameters:[{name:'id',in:'path',required:true,schema:{type:'string'}}]}},
+  '/v/a/{name}':{get:{...operation,parameters:[{name:'name',in:'path',required:true,schema:{type:'string'}}]}}}:
+  mode==='collision'?{'/a':{servers:[{url:'https://api.invalid/v'}],get:operation},'/v/a':{get:operation}}:
+  {'/a':{get:{...operation,servers:mode==='alternatives'?[{url:'https://api.invalid/v1'},{url:'https://api.invalid/v2'}]:[{url:'https://other.invalid/v'}]}},...(mode==='authority'?{'/root':{get:operation}}:{})};
+ const root='https://api.invalid/source.json',text=JSON.stringify({openapi:'3.2.1',info:{title:'Restrictions',version:'1'},servers:[{url:'https://api.invalid/'}],paths});
+ const result=await planMigration({root,resources:[{id:root,text,generation:1}],snapshot:mode,targetVersion:'2.0',destination:'file:///refused/'+mode+'/'});
+ assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);assert(result.problems.some(problem=>problem.reason==='target-representation'&&
+  problem.code===(mode==='alternatives'?'migration.server.operation-path':mode==='authority'?'migration.server.targets':'migration.server.route-collision')),JSON.stringify(result.problems));
+});
+test('B05-R3a disjoint methods may meet without inheriting another route\'s query parameter',async()=>{
+ const root='https://api.invalid/api.json',parameter=name=>({name,in:'query',schema:{type:'string'}}),responses={204:{description:'Empty'}};
+ const input={root,snapshot:'meet',resources:[{id:root,generation:1,text:JSON.stringify({openapi:'3.1.2',info:{title:'Meet',version:'1'},servers:[{url:'https://api.invalid/'}],paths:{
+  '/a':{servers:[{url:'https://api.invalid/v'}],parameters:[parameter('first')],get:{responses}},'/v/a':{parameters:[parameter('second')],post:{responses}}}})}]};
+ const result=await planMigration({...input,targetVersion:'2.0',destination:'file:///meet/'});assert.equal(result.complete,true,JSON.stringify(result.problems));
+ const packet={root:result.outputRoot,snapshot:'cold',resources:result.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
+ for(const method of ['get','post']){
+  const plan=requestOperation({...packet,resource:packet.root,pointer:'/paths/~1v~1a/'+method});
+  assert.deepEqual(plan.parameters.map(parameter=>parameter.name),[method==='get'?'first':'second']);
+ }
+});
+for(const environment of [{variables:{scheme:'http'}},{variables:{scheme:'invalid'}},{baseUrl:'https://override.invalid/base',variables:{scheme:'invalid'}}])
+test(`B05-R3a saved defaults, ordinal collapse and invalid variables ${JSON.stringify(environment)}`,async()=>{
+ const root='https://api.invalid/api.json',value={openapi:'3.1.2',info:{title:'Saved',version:'1'},servers:[{url:'{scheme}://api.invalid/base',variables:{scheme:{default:'https',enum:['https','http']}}},{url:'https://api.invalid/base'}],paths:{'/a':{get:{responses:{204:{description:'Empty'}}}}}};
+ const configuration={id:'file:///source/busyapi.yaml',identity:'exact-config',generation:9,text:JSON.stringify({version:1,environments:{manual:{...environment,tls:{verify:true},authentication:{schemes:{}},'x-exact':'EXACT'}},tests:[
+  {name:'default',operation:{path:'/a',method:'get'}},{name:'collapsed',operation:{path:'/a',method:'get'},server:1},{name:'invalid',operation:{path:'/a',method:'get'},server:99}],'x-kept':'EXACT'}).replaceAll('"EXACT"','9007199254740993.00')};
+ const input={root,snapshot:'saved-selections',resources:[{id:root,text:JSON.stringify(value),generation:1}],configuration};
+ const result=await planMigration({...input,targetVersion:'2.0',destination:'file:///saved/'});assert.equal(result.complete,true,JSON.stringify(result.problems));
+ const saved=JSON.parse(result.manifestText);assert.equal(saved.tests[1].server,0);assert.equal(saved.tests[2].server,99);
+ assert(result.manifestText.includes('9007199254740993.00'));assert.deepEqual(saved.environments.manual.tls,environment.tls??{verify:true});
+ if(!environment.baseUrl){const expected=environment.variables.scheme==='http'?1:2;assert.equal(Object.values(saved.environments.manual.servers)[0],expected);assert.equal(saved.tests[0].servers,undefined);}
+ else {assert.equal(saved.environments.manual.baseUrl,environment.baseUrl);assert.equal(saved.tests[0].servers,undefined);}
+ const repeat=await planMigration({...input,targetVersion:'2.0',destination:'file:///saved/'});assert.equal(repeat.identity,result.identity);
+});
+
+test('R3a an overridden unused root Server does not invent an authority or path restriction',async()=>{
+ const root='https://contracts.invalid/source.json',configuration={id:'file:///source/busyapi.yaml',generation:1,identity:'override',text:JSON.stringify({version:1,
+  environments:{manual:{baseUrl:'https://override.invalid/manual',variables:{unused:'kept'},tls:{'x-exact':'literal'}}},
+  tests:[{name:'held',operation:{method:'get',path:'/p'}}]})};
+ const value={openapi:'3.2.1',info:{title:'Unused root',version:'1'},servers:[{url:'https://unused.invalid/root'}],paths:{'/p':{get:{servers:[{url:'https://api.invalid/base'}],responses:{204:{description:'Empty'}}}}}};
+ const result=await planMigration({root,snapshot:'unused-root',resources:[{id:root,text:JSON.stringify(value),generation:1}],configuration,targetVersion:'2.0',destination:'file:///unused-root/'});
+ assert.equal(result.complete,true,JSON.stringify(result.problems));const output=YAML.parse(result.outputs.find(output=>output.id===result.outputRoot).text);
+ assert.equal(output.host,'api.invalid');assert.equal(output.basePath,'/base');assert.deepEqual(JSON.parse(result.manifestText).environments,JSON.parse(configuration.text).environments);
+ assert(result.configurationProjections.every(change=>change.pointer==='/tests/0/operation'));
+});
+
+for(const compatible of [true,false])test(`R3a explicit environment interpolation has ${compatible?'a reviewed factor':'a precise path restriction'}`,async()=>{
+ const root='https://api.invalid/source.json',value={openapi:'3.1.2',info:{title:'Override factoring',version:'1'},servers:[{url:'https://api.invalid/root'}],paths:{
+  '/p':{get:{servers:[{url:'https://api.invalid/one'}],responses:{204:{description:'Empty'}}}},
+  '/q':{get:{servers:[{url:'https://api.invalid/'+(compatible?'one':'two')}],responses:{204:{description:'Empty'}}}}}};
+ value.paths['/root']={get:{responses:{204:{description:'Empty'}},servers:[{url:'https://api.invalid/one'}]}};
+ // A trailing slash is a distinct Server spelling with equivalent request
+ // appending. It requires the same factored override for the third operation.
+ value.paths['/root'].get.servers=[{url:'https://api.invalid/one/'}];
+ const configuration={id:'file:///source/busyapi.yaml',generation:1,identity:'factored',text:JSON.stringify({version:1,
+  environments:{manual:{baseUrl:'https://override.invalid/${prefix}/one',variables:{prefix:'captured'},authentication:{schemes:{}},tls:{'x-kept':true}}}})};
+ const result=await planMigration({root,resources:[{id:root,text:JSON.stringify(value),generation:1}],configuration,snapshot:'factor-'+compatible,targetVersion:'2.0',destination:'file:///factor/'});
+ if(compatible){assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(JSON.parse(result.manifestText).environments.manual.baseUrl,'https://override.invalid/${prefix}');assert(result.configurationProjections.some(change=>change.pointer==='/environments/manual/baseUrl'));}
+ else {assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);assert(result.problems.some(problem=>problem.code==='migration.server.override-path'&&problem.reason==='target-representation'));}
+});
+
+test('R3a a saved invalid entry selector cannot activate when delivered entry names change',async()=>{
+ const root='file:///source/api.json',value={openapi:'3.1.2',info:{title:'Invalid entry',version:'1'},servers:[{url:'https://api.invalid/base'}],paths:{'/p':{get:{responses:{204:{description:'Empty'}}}}}};
+ const configuration={id:'file:///source/busyapi.yaml',generation:1,identity:'invalid-entry',text:JSON.stringify({version:1,roots:[{name:'api',path:'api.json'}],tests:[{name:'invalid',operation:{entry:'migrated',method:'get',path:'/p'}}]})};
+ const result=await planMigration({root,snapshot:'invalid-entry',resources:[{id:root,text:JSON.stringify(value),generation:1}],configuration,targetVersion:'2.0',destination:'file:///invalid-entry/'});
+ assert.equal(result.complete,true,JSON.stringify(result.problems));assert(JSON.parse(result.manifestText).tests[0].operation.occurrence.startsWith('busyapi-invalid-operation:'));
 });

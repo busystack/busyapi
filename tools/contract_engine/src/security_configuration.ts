@@ -6,6 +6,7 @@ import type {GraphReference} from './reference_graph';
 import {MigrationSource} from './migration_source';
 import {dirname,isAbsolute,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import type {MigrationConfigurationProjection} from './migration_server_configuration';
 import type {SecurityAlternativeProjection} from './security_requirements';
 
 export type SecurityBindingChange={root:string;before:GraphReference;after:GraphReference};
@@ -105,7 +106,7 @@ export function securityConfigurationCopies(value:unknown,bindings:readonly Secu
  * TLS file bytes are never acquired. The manifest has its own exact text:
  * projecting arbitrary configuration numbers through JS would round them. */
 export function migrationSecurityConfiguration(value:unknown,bindings:readonly SecurityBindingChange[],manifest:object,
-    credentialHeaders:ReadonlySet<string>=new Set(),projection:SecurityAlternativeProjection={choices:new Map(),bounds:[]}):{
+    credentialHeaders:ReadonlySet<string>=new Set(),projection:SecurityAlternativeProjection={choices:new Map(),bounds:[]},configurationProjections:readonly MigrationConfigurationProjection[]=[]):{
     manifest:object;manifestText:string;alternatives:readonly {environment:string;before:number;after:number}[];
 } {
     if(value===undefined||value===null){
@@ -121,16 +122,21 @@ export function migrationSecurityConfiguration(value:unknown,bindings:readonly S
     if(doc.issues.length||doc.root.value?.version!==1)fail('','Repair the captured project configuration before migrating its environment bindings');
     const copies=securityConfigurationCopies(value,bindings),source=new MigrationSource(doc);
     for(const action of copies?.actions??[])source.exact(action.pointer,action.raw);
+    for(const change of configurationProjections){
+        const before=source.doc.dataNode(change.pointer)?source.doc.dataJson(change.pointer):null;
+        if(before!==change.before)fail(change.pointer,'A reviewed Server configuration edit does not match its captured value');
+        source.exact(change.pointer,change.after);
+    }
     const environments=source.doc.dataNode('/environments');
-    if(!environments)return migrationSecurityConfiguration(undefined,[],manifest);
-    if(environments.kind!=='object')fail('/environments','Environments must be a mapping');
+    if(environments&&environments.kind!=='object')fail('/environments','Environments must be a mapping');
     const secretReference=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
     const settings=new Set(['secretRef','tokenRef','passwordRef','clientSecretRef','accessTokenRef','username','clientId','clientAuthentication','scopes']);
     const sensitiveHeaders=new Set(['authorization','proxy-authorization','cookie',...credentialHeaders]);
     const alternatives:{environment:string;before:number;after:number}[]=[];
-    for(const [name,environment]of environments.children){
+    for(const [name,environment]of environments?.children??[]){
         const at='/environments/'+escape(name);
         if(environment.kind!=='object')fail(at,'An environment must be a mapping');
+        if((source.doc.dataNode(at+'/servers')?.children.size??0)>2048)fail(at+'/servers','Operation Server settings exceed 2048 entries','limit.migration.configuration');
         const alternativePointer=at+'/authentication/alternative',alternative=source.doc.dataNode(alternativePointer);
         // Core selects only integer settings. Retain an ignored authored
         // decimal/exponent value as data rather than activating it here.
@@ -170,7 +176,8 @@ export function migrationSecurityConfiguration(value:unknown,bindings:readonly S
         }
     }
     const output=new MigrationSource(new SourceDocument(JSON.stringify(manifest)+'\n',captured.id));
-    output.exact('/environments',source.doc.dataJson('/environments'));
+    for(const name of source.doc.root.children.keys())if(!['version','roots','resourceMappings'].includes(name))
+        output.exact('/'+escape(name),source.doc.dataJson('/'+escape(name)));
     if(Buffer.byteLength(output.doc.text)>65536)fail('/environments','The migrated configuration exceeds its 64 KiB bound');
     return {manifest:output.doc.root.value,manifestText:output.doc.text,alternatives};
 }

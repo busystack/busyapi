@@ -6,6 +6,7 @@ import type {MigrationIssue} from './migration_schema';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import {migrationOperationUses} from './migration_operation_contexts';
 import {serverTemplate} from './derived_bundle';
+import {migrationJoinedPath,type MigrationServerRoute} from './migration_server_routes';
 
 /** 3.0 §4.7.6 sends the declared default even outside its recommended enum.
  * Modern families require membership. Appending only that already permitted
@@ -52,7 +53,8 @@ export function migrationServerSignature(servers:readonly {url:string;base:strin
  * shares one host/basePath. Prove every substitution and inherited occurrence
  * before writing that representation. Descriptions keep standard doc owners. */
 export function downgradeServers(graph:ReferenceGraph,sources:Map<string,MigrationSource>,from:string,
- issue:MigrationIssue,owners:MigrationSchemaOwners,contexts:readonly ReferenceGraph[]):void {
+ issue:MigrationIssue,owners:MigrationSchemaOwners,contexts:readonly ReferenceGraph[]):MigrationServerRoute[] {
+ const routes:MigrationServerRoute[]=[];
  const retired=new Set<string>(),operations=new Map<string,string>();
  for(const [resource,specification]of graph.specifications){
   if(specification.family!==from)continue;
@@ -86,31 +88,45 @@ export function downgradeServers(graph:ReferenceGraph,sources:Map<string,Migrati
    return urls;
   };
   const rootField=context.docs.get(resource)!.dataNode('/servers')?{resource,pointer:'/servers'}:undefined;
-  const root=choices(rootField);if(!root?.length)continue;
-  const fixed=root[0],same=(url:URL,host:string)=>url.pathname===fixed.pathname&&new URL(url.protocol+'//'+host+fixed.pathname).href===url.href;
-  let host=root.map(url=>url.host).find(host=>root.every(url=>same(url,host)));
-  if(host===undefined){
-   issue({resource,pointer:'/servers'},'migration.server.targets','These Servers select distinct hosts or base paths; Swagger shares one host/basePath','target-representation');continue;
-  }
-  const schemes=(urls:readonly URL[])=>[...new Set(urls.filter(url=>url.protocol!=='file:').map(url=>url.protocol.slice(0,-1)))];
-  const represented=[...root];
-  source.set('/basePath',fixed.pathname);
-  if(schemes(root).length)source.set('/schemes',schemes(root));else source.remove('/schemes');
-  for(const use of migrationOperationUses(context)){
-   const scope=use.source;if(scope.family!==from)continue;
-   const declaration=context.docs.get(scope.resource)!.dataNode(scope.pointer)!;
+  const sameAuthority=(url:URL,host:string)=>{
+   try{return new URL(url.protocol+'//'+host+url.pathname).href===url.href;}catch{return false;}
+  };
+  const uses=[...migrationOperationUses(context)].filter(use=>use.source.family===from).map(use=>{
+   const declaration=context.docs.get(use.source.resource)!.dataNode(use.source.pointer)!;
    const path=use.pathItem&&context.pathItem(use.pathItem);
-   const field=declaration.children.has('servers')?{resource:scope.resource,pointer:scope.pointer+'/servers'}:path?.fields.get('servers')??rootField;
-   const urls=choices(field);if(!urls?.length)continue;
-   const compatible=[host,...urls.map(url=>url.host)].find(candidate=>[...represented,...urls].every(url=>same(url,candidate)));
-   if(compatible===undefined){
-    const authority=[host,...urls.map(url=>url.host)].some(candidate=>[...represented,...urls].every(url=>
-     new URL(url.protocol+'//'+candidate+url.pathname).href===url.href));
-    issue(field??scope,authority?'migration.server.operation-path':'migration.server.operation-target',authority?
-     'This operation needs path relocation before its distinct base path can share the Swagger basePath; that conversion is not implemented':
-     'This operation selects an authority different from the shared Swagger host',authority?'implementation':'target-representation');continue;
+   const field=declaration.children.has('servers')?{resource:use.source.resource,pointer:use.source.pointer+'/servers'}:path?.fields.get('servers')??rootField;
+   return {use,field};
+  });
+  const rootUsed=uses.some(entry=>entry.field?.resource===rootField?.resource&&entry.field?.pointer===rootField?.pointer);
+  const root=rootUsed||!uses.length?choices(rootField):undefined;
+  if((rootUsed||!uses.length)&&!root?.length)continue;
+  const effective=uses.map(entry=>({...entry,urls:entry.field?.resource===rootField?.resource&&entry.field?.pointer===rootField?.pointer?root:choices(entry.field)}));
+  const defaults=rootUsed?root:effective.find(entry=>entry.urls?.length)?.urls??root;
+  if(!defaults?.length)continue;
+  const fixed=defaults[0],all=effective.length?effective.flatMap(entry=>entry.urls??[]):[...root];
+  let host=all.map(url=>url.host).find(host=>all.every(url=>sameAuthority(url,host)));
+  if(host===undefined){
+   issue({resource,pointer:'/servers'},'migration.server.targets','These Servers select distinct authorities; Swagger shares one host','target-representation');continue;
+  }
+  if(rootUsed&&root.some(url=>url.pathname!==root[0].pathname)){
+   issue({resource,pointer:'/servers'},'migration.server.targets','These root Server alternatives select distinct paths; Swagger cannot retain those choices in one route','target-representation');continue;
+  }
+  // Retain the original shared base when possible. Otherwise '/' permits the
+  // exact Server path to become a literal prefix of each target route.
+  const basePath=all.every(url=>url.pathname===fixed.pathname)?fixed.pathname:'/';
+  const schemes=(urls:readonly URL[])=>[...new Set(urls.filter(url=>url.protocol!=='file:').map(url=>url.protocol.slice(0,-1)))];
+  source.set('/basePath',basePath);
+  if(schemes(defaults).length)source.set('/schemes',schemes(defaults));else source.remove('/schemes');
+  for(const {use,field,urls}of effective){
+   const scope=use.source;if(!urls?.length)continue;
+   if(urls.some(url=>url.pathname!==urls[0].pathname)){
+    issue(field??scope,'migration.server.operation-path','This operation has Server alternatives requiring different Swagger route keys','target-representation');continue;
    }
-   host=compatible;represented.push(...urls);
+   for(const operation of context.operations().filter(operation=>operation.role==='operation'&&operation.source.resource===scope.resource&&operation.source.pointer===scope.pointer&&
+    operation.method===use.method&&operation.pathItem.resource===use.pathItem?.resource&&operation.pathItem.pointer===use.pathItem?.pointer)){
+    const path=basePath===urls[0].pathname?operation.path:migrationJoinedPath(urls[0].pathname,operation.path);
+    routes.push({context,operation,path});
+   }
    const signature=JSON.stringify(schemes(urls)),id=scope.resource+'#'+scope.pointer,previous=operations.get(id);
    if(previous!==undefined&&previous!==signature){issue(scope,'migration.server.operation-context','Independent inherited Server choices still require separate operation owners','unavailable-proof');continue;}
    operations.set(id,signature);
@@ -124,6 +140,7 @@ export function downgradeServers(graph:ReferenceGraph,sources:Map<string,Migrati
    if(pointer!==undefined&&output.doc.dataNode(pointer))owners.retainNativeHistory(scope,output,pointer,'server_choices',context);
   }
  }
+ return routes;
 }
 
 /** Omitted/empty root Servers mean '/' relative to the API retrieval URI.

@@ -8,7 +8,7 @@ import tempfile
 import re
 
 
-MIGRATION_PRODUCER = '93'
+MIGRATION_PRODUCER = '94'
 
 
 def verify_migration_producer(metadata):
@@ -16,6 +16,28 @@ def verify_migration_producer(metadata):
             or metadata.get('producer') != 'busyapi-native-migration'
             or metadata.get('producerVersion') != MIGRATION_PRODUCER):
         raise RuntimeError('Native migration fixture and packaged migration producer differ')
+
+
+def verify_configuration_projections(report):
+    records = report.get('configurationProjections')
+    if not isinstance(records, list) or len(records) > 4096:
+        raise RuntimeError('Migration review omitted bounded configuration projections')
+    seen = set()
+    pattern = r'/(?:environments/[^/]+/(?:servers/[^/]+|baseUrl)|tests/[0-9]+/(?:operation|server|servers/[^/]+))'
+    for record in records:
+        if (not isinstance(record, dict) or not isinstance(record.get('pointer'), str)
+                or not re.fullmatch(pattern, record['pointer']) or record['pointer'] in seen
+                or len(record['pointer']) > 65536
+                or record.get('before') is not None and not isinstance(record['before'], str)
+                or not isinstance(record.get('after'), str)):
+            raise RuntimeError('Migration returned unrelated configuration projection records')
+        seen.add(record['pointer'])
+        try:
+            json.loads(record['after'])
+            if record.get('before') is not None:
+                json.loads(record['before'])
+        except (ValueError, TypeError) as error:
+            raise RuntimeError('Migration returned malformed exact configuration values') from error
 
 
 def preflight_migration(binary, source, target, destination, originals):
@@ -39,6 +61,7 @@ def preflight_migration(binary, source, target, destination, originals):
     except json.JSONDecodeError as error:
         raise RuntimeError('Packaged migration returned malformed preflight JSON') from error
     verify_migration_producer(report)
+    verify_configuration_projections(report)
     selected = report.get('target')
     identity = report.get('reviewIdentity')
     if (report.get('status') != 'faithfully-convertible'
@@ -53,7 +76,8 @@ def preflight_migration(binary, source, target, destination, originals):
         raise RuntimeError('Migration preflight changed its original fixture')
     return {'producerVersion': report['producerVersion'], 'target': target,
             'reviewIdentity': report['reviewIdentity'], 'sourceIdentities': before,
-            'published': False, 'nativeAcceptance': False}
+            'published': False, 'nativeAcceptance': False,
+            'configurationProjections': report['configurationProjections']}
 
 
 def main():

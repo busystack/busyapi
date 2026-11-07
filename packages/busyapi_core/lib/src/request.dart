@@ -250,7 +250,7 @@ class OperationRequestDraft {
   const OperationRequestDraft({
     required this.planIdentity,
     this.environment,
-    this.server = 0,
+    int? server,
     this.securityAlternative,
     this.parameters = const {},
     this.headers = const [],
@@ -260,10 +260,11 @@ class OperationRequestDraft {
     this.connectTimeout = const Duration(seconds: 15),
     this.overallTimeout = const Duration(seconds: 60),
     this.inactivityTimeout = const Duration(seconds: 15),
-  });
+  }) : _selectedServer = server;
   final String planIdentity;
   final String? environment;
-  final int server;
+  final int? _selectedServer;
+  int get server => _selectedServer ?? 0;
   final int? securityAlternative;
   final Map<String, RequestValue> parameters;
   final List<RequestHeaderValue> headers;
@@ -380,10 +381,11 @@ class ContractRequestBuilder {
       ...draft.variables,
     };
     final servers = (plan.result['servers'] as List).cast<Map>();
-    if (draft.server < 0 || draft.server >= servers.length) {
+    final selectedServer = draft._selectedServer ?? environment?.servers[plan.configuration.operationServerKey(plan.snapshot.root, plan.operation)] ?? 0;
+    if (selectedServer < 0 || selectedServer >= servers.length) {
       throw CoreFailure('request.server', 'Select a current operation server');
     }
-    final server = servers[draft.server];
+    final server = servers[selectedServer];
     String substitute(String value) {
       const escaped = '\u0000busyapi-dollar-open\u0000';
       value = value.replaceAll(r'$${', escaped);

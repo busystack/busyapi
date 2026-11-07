@@ -511,6 +511,11 @@ class RequestRunController extends ChangeNotifier {
 
   void _initializeFreshDraft() {
     _resetValues();
+    final captured = plan;
+    if (captured != null) {
+      server = captured.configuration.environments[environment]?.servers[
+          captured.configuration.operationServerKey(captured.snapshot.root, captured.operation)] ?? 0;
+    }
     _environmentAuthentication();
     final body = plan?.result['requestBody'];
     if (body is Map && body['content'] is List) {
