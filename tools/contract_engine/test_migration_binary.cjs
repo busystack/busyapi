@@ -6,6 +6,7 @@ const {planMigration}=require('./dist/migration.cjs');
 const {createGraph}=require('./dist/model.cjs');
 const {SourceDocument}=require('./dist/document.cjs');
 const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
+const {requestOperation}=require('./dist/execution.cjs');
 const escape=value=>value.replaceAll('~','~0').replaceAll('/','~1');
 const legacy=['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4'];
 const modern=['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'];
@@ -16,6 +17,57 @@ function capture(version,format,type,schema,targetVersion){
  return {root,snapshot:'binary-migration',targetVersion,destination:'file:///reviewed/copy/',resources:[{id:root,text:render(document,format).replace(/"?EXACT"?/g,'9007199254740993.00'),generation:4}]};
 }
 function cold(result){return {root:result.outputRoot,snapshot:'cold',resources:result.outputs.map(value=>({id:value.id,text:value.text,generation:0}))};}
+async function bodyWire(input,type,bytes){
+ const {graph}=createGraph(input),operation=graph.operations().find(value=>value.path==='/bytes');
+ const plan=requestOperation({...input,resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
+ const content=[plan.requestBody.content.find(value=>value.mediaType===type),plan.responses.find(value=>value.status==='200').content.find(value=>value.mediaType===type)];
+ const checked=await evaluateSchemas({...input,runtimeInstances:content.map((value,index)=>({subject:index?'response-body':'request-body',location:type,text:bytes.toString('base64'),mediaBase64:true,mediaType:type,media:value.definition??value.source}))});
+ assert.equal(checked.complete,true,JSON.stringify(checked.runtimeFindings));return checked.runtimeEvaluations.map(value=>({complete:value.complete,valid:value.valid}));
+}
+
+for(const from of ['3.0.4','3.1.2','3.2.1'])for(const target of ['2.0','3.0.4','3.1.2','3.2.1'])if(from!==target)
+for(const format of ['yaml','json'])for(const type of ['application/octet-stream','text/plain','application/json'])
+test(`R2 ${from} -> ${target} ${format} established encoded whole body ${type} preserves actual wire strings`,async()=>{
+ const input=capture(from,format,type,{type:'string',...(from==='3.0.4'?{format:'byte'}:{contentEncoding:'base64'}),minLength:4,maxLength:8},target);
+ const original=input.resources[0].text,result=await planMigration(input);
+ assert.equal(result.complete,true,JSON.stringify(result.problems));const after=cold(result);
+ for(const value of ['AP+A','', 'too-long-a-value']){
+  const bytes=Buffer.from(type==='application/json'?JSON.stringify(value):value);
+  const before=await bodyWire(input,type,bytes);assert.deepEqual(await bodyWire(after,type,bytes),before);
+  assert(before.every(item=>item.valid===(value==='AP+A')));
+ }
+ if(type!=='application/json')assert.deepEqual(await bodyWire(after,type,Buffer.from([255,128])),await bodyWire(input,type,Buffer.from([255,128])));
+ assert.equal(input.resources[0].text,original);
+});
+
+for(const version of ['3.1.2','3.2.1'])for(const format of ['yaml','json'])for(const rejecting of [false,true])
+test(`R2 ${version} ${format} raw whole-body content annotations stay inactive rejecting=${rejecting}`,async()=>{
+ const type='application/octet-stream',leaf={...(rejecting?{type:'integer'}:{}),contentEncoding:'base64url',contentMediaType:'text/plain',contentSchema:{type:'integer'},minLength:100};
+ const input=capture(version,format,type,leaf,'3.0.4'),result=await planMigration(input);
+ assert.equal(result.complete,true,JSON.stringify(result.problems));const after=cold(result);
+ for(const bytes of [Buffer.alloc(0),Buffer.from([0,255,128])]){
+  assert.deepEqual(await bodyWire(after,type,bytes),await bodyWire(input,type,bytes));
+  assert((await bodyWire(after,type,bytes)).every(value=>value.valid===!rejecting));
+ }
+});
+
+for(const encoding of ['base64url','quoted-printable'])test(`R2 ${encoding} whole-body strings never acquire a false base64 label`,async()=>{
+ const input=capture('3.2.1','yaml','application/octet-stream',{type:'string',contentEncoding:encoding},'3.0.4');
+ const result=await planMigration(input);assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);
+ assert(result.problems.some(problem=>problem.code==='migration.schema.contentEncoding'&&problem.reason==='target-representation'));
+});
+
+for(const targetVersion of ['3.0.4','3.1.2','3.2.1'])for(const format of ['yaml','json'])test(`R2 Swagger ${format} inherited base64 whole-body media -> ${targetVersion}`,async()=>{
+ const root='file:///approved/api.'+format,schema={type:'string',format:'byte',minLength:4,maxLength:8};
+ const value={swagger:'2.0',info:{title:'Encoded body',version:'1'},host:'api.invalid',schemes:['https'],consumes:['application/octet-stream','application/json'],produces:['application/octet-stream','application/json'],paths:{'/bytes':{post:{parameters:[{$ref:'#/parameters/Body'}],responses:{200:{$ref:'#/responses/Encoded'}}}}},parameters:{Body:{name:'payload',in:'body',schema}},responses:{Encoded:{description:'Encoded response',schema}}};
+ const text=render(value,format),input={root,snapshot:'R2-byte',resources:[{id:root,text,generation:2}],targetVersion,destination:'file:///reviewed/'};
+ const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));const after=cold(result);
+ for(const type of value.consumes)for(const text of ['AP+A','','too-long-for-bounds']){
+  const bytes=Buffer.from(type==='application/json'?JSON.stringify(text):text);
+  assert.deepEqual(await bodyWire(after,type,bytes),await bodyWire(input,type,bytes));
+ }
+ assert.equal(input.resources[0].text,text);
+});
 function schema(input,type){return createGraph(input).graph.docs.get(input.root).dataNode('/paths/~1bytes/post/requestBody/content/'+escape(type)+'/schema').value;}
 async function wire(input,type,bytes,form=false){
  const request='/paths/~1bytes/post/requestBody/content/'+escape(type),response='/paths/~1bytes/post/responses/200/content/'+escape(type);
@@ -26,7 +78,7 @@ async function wire(input,type,bytes,form=false){
 for(const from of legacy)for(const target of ['3.1.2','3.2.1'])for(const format of ['yaml','json'])
 test(`${from} -> ${target} ${format} raw body mapping retains exact non-Unicode and empty bytes`,async()=>{
  const type='application/octet-stream',input=capture(from,format,type,{type:'string',format:'binary',description:'Keep leaf'},target),before=input.resources[0].text;
- const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));assert.equal(plan.producerVersion,'88');
+ const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));assert.equal(plan.producerVersion,'89');
  const output=cold(plan);assert.deepEqual(schema(output,type),{description:'Keep leaf'});
  for(const bytes of [Buffer.from([0,255,128,195,169]),Buffer.alloc(0)]){
   assert.deepEqual(await wire(output,type,bytes),await wire(input,type,bytes));assert((await wire(output,type,bytes)).every(value=>value.valid));
@@ -200,11 +252,9 @@ test(`Swagger 2.0 -> ${targetVersion} ${format} opaque file response composes th
  assert.equal(input.resources[0].text,before);
 });
 
-for(const format of ['yaml','json'])for(const mode of ['decoded-media','encoded-opaque-body'])
-test(`${format} ${mode} does not discard an unmapped encoded representation`,async()=>{
- const type=mode==='encoded-opaque-body'?'application/octet-stream':'application/json';
- let leaf={type:'string',contentEncoding:'base64'};
- if(mode==='decoded-media')leaf={type:'object',properties:{data:{...leaf,contentMediaType:'image/png'}}};
+for(const format of ['yaml','json'])
+test(`${format} an active nested decoded media annotation keeps its binding refusal`,async()=>{
+ const type='application/json',leaf={type:'object',properties:{data:{type:'string',contentEncoding:'base64',contentMediaType:'image/png'}}};
  const input=capture('3.1.2',format,type,leaf,'3.0.4'),before=input.resources[0].text,plan=await planMigration(input);
  assert.equal(plan.complete,false);assert.equal(plan.status,'blocked');assert.deepEqual(plan.outputs,[]);
  assert(plan.problems.some(value=>value.code==='migration.schema.binary-context'&&value.reason==='implementation'),JSON.stringify(plan.problems));

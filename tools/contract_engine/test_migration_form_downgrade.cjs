@@ -2,6 +2,53 @@ const assert=require('node:assert/strict'),{test}=require('node:test');
 const base=process.env.BUSYAPI_FORM_DOWNGRADE_BASELINE||__dirname;
 const {planMigration}=require(base+'/dist/migration.cjs');
 const {SourceDocument}=require(base+'/dist/document.cjs');
+const {createGraph,analyse}=require(base+'/dist/model.cjs');
+const {requestOperation}=require(base+'/dist/execution.cjs');
+const {evaluateSchemas}=require(base+'/dist/schema_evaluation.cjs');
+
+for(const version of ['3.0.4','3.1.2','3.2.1'])for(const format of ['yaml','json'])for(const singleton of [false,true,'tuple'])if(!(version==='3.0.4'&&singleton==='tuple'))
+test(`R2 ${version} ${format} shared mixed form singleton=${singleton} retains file bytes and independent fields`,async()=>{
+ const root='file:///approved/api.'+format,type='multipart/form-data; boundary=R2',raw=version==='3.0.4'?{type:'string',format:'binary'}:{};
+ const field=singleton?{type:'array',minItems:1,maxItems:1,...(singleton==='tuple'?{prefixItems:[{$ref:'#/components/schemas/Raw'}]}:{items:{$ref:'#/components/schemas/Raw'}})}:{$ref:'#/components/schemas/Raw'};
+ const body={required:true,content:{[type]:{schema:{$ref:'#/components/schemas/Form'},encoding:{file:{contentType:'application/octet-stream'},name:{contentType:'text/plain',headers:{'Content-Type':{schema:{type:'object',required:['n'],properties:{n:{type:'integer'}}}}},'x-retained':'encoding metadata'}}}}};
+ const value={openapi:version,info:{title:'R2 mixed form',version:'1'},servers:[{url:'https://api.invalid'}],paths:Object.fromEntries(['/items','/again'].map(path=>[path,{post:{requestBody:{$ref:'#/components/requestBodies/Shared'},responses:{204:{description:'Empty'}}}}])),components:{requestBodies:{Shared:body},schemas:{Raw:raw,Form:{type:'object',required:['file'],properties:{file:field,name:{$ref:'#/components/schemas/Name'},numbers:{type:'array',items:{$ref:'#/components/schemas/Number'}}}},Name:{type:'string'},Number:{type:'integer',minimum:0},Independent:{$ref:'#/components/schemas/Form/properties/name'}}}};
+ value.components.schemas.IndependentHeader={$ref:'#'+encodeURI('/components/requestBodies/Shared/content/'+type.replaceAll('~','~0').replaceAll('/','~1')+'/encoding/name/headers/Content-Type/schema')};
+ const text=format==='json'?JSON.stringify(value):require(base+'/node_modules/yaml').stringify(value),input={root,snapshot:'R2-mixed-form',resources:[{id:root,text,generation:8}],targetVersion:'2.0',destination:'file:///reviewed/'};
+ const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(input.resources[0].text,text);
+ const after={root:result.outputRoot,snapshot:'cold-R2-form',resources:result.outputs.map(value=>({id:value.id,text:value.text,generation:0}))};
+ assert.equal(analyse(after).complete,true);
+ const doc=new SourceDocument(result.outputs.find(value=>value.id===after.root).text,after.root);
+ for(const path of ['~1items','~1again']){
+  const parameters=doc.dataNode('/paths/'+path+'/post/parameters').value;
+  assert.deepEqual(parameters.map(value=>[value.name,value.type,value.required===true]),[['file','file',true],['name','string',false],['numbers','array',false]]);
+  assert.equal(parameters[2].collectionFormat,'multi');assert.deepEqual({...parameters[2].items},{type:'integer',minimum:0});
+ }
+ const multipart=(bytes,extra='',omit=false)=>Buffer.concat([Buffer.from(omit?'':'--R2\r\nContent-Disposition: form-data; name="file"\r\nContent-Type: application/octet-stream\r\n\r\n'),omit?Buffer.alloc(0):bytes,Buffer.from((omit?'':'\r\n')+'--R2\r\nContent-Disposition: form-data; name="name"\r\n\r\n\r\n'+extra+'--R2--\r\n')]);
+ async function check(input,bytes){
+  const {graph}=createGraph(input),op=graph.operations().find(value=>value.path==='/items'),plan=requestOperation({...input,resource:op.source.resource,pointer:op.source.pointer,occurrence:op.occurrence}),media=plan.requestBody.content[0];
+  const result=await evaluateSchemas({...input,runtimeInstances:[{subject:'request-body',location:type,text:bytes.toString('base64'),mediaBase64:true,mediaType:type,form:media.swaggerForm?{resource:op.source.resource,pointer:op.source.pointer,occurrence:op.occurrence}:media.definition??media.source}]});
+  assert.equal(result.complete,true,JSON.stringify(result.runtimeFindings));return result.runtimeEvaluations.every(value=>value.complete&&value.valid)&&!result.runtimeFindings.some(value=>value.severity==='error');
+ }
+ for(const bytes of [multipart(Buffer.alloc(0)),multipart(Buffer.from([0,255,128,195,169])),multipart(Buffer.from([0]),'--R2\r\nContent-Disposition: form-data; name="numbers"\r\n\r\n-1\r\n'),multipart(Buffer.alloc(0),'',true)])
+  assert.equal(await check(after,bytes),await check(input,bytes));
+ const schemas=await evaluateSchemas({...after,runtimeInstances:[{subject:'response-body',location:'independent',text:'""',schema:{resource:after.root,pointer:'/definitions/Independent'}}]});
+ assert.equal(schemas.complete,true);assert(schemas.runtimeEvaluations.every(value=>value.valid));
+ const header=await evaluateSchemas({...after,runtimeInstances:[{subject:'response-body',location:'independent-header',text:'{"n":7}',schema:{resource:after.root,pointer:'/definitions/IndependentHeader'}}]});
+ assert.equal(header.complete,true);assert(header.runtimeEvaluations.every(value=>value.valid));
+});
+
+for(const variant of ['many-files','file-bounds','part-media','part-header','missing-binding'])test(`R2 ${variant} retains a precise no-output form refusal`,async()=>{
+ const root='file:///approved/api.yaml',type='multipart/form-data',field={},encoding={};
+ if(variant==='many-files')Object.assign(field,{type:'array',items:{}});
+ if(variant==='file-bounds')field.maxLength=4;
+ if(variant==='part-media')encoding.contentType='image/png';
+ if(variant==='part-header')encoding.headers={'Content-Transfer-Encoding':{schema:{type:'string',enum:['base64']}}};
+ if(variant==='missing-binding')field.$ref='./missing.yaml';
+ const value={openapi:'3.2.1',info:{title:'Refusal',version:'1'},paths:{'/items':{post:{requestBody:{required:true,content:{[type]:{schema:{type:'object',required:['file'],properties:{file:field}},encoding:{file:encoding}}}},responses:{204:{description:'Empty'}}}}}};
+ const text=require(base+'/node_modules/yaml').stringify(value),result=await planMigration({root,snapshot:'R2-refusal',resources:[{id:root,text,generation:0}],targetVersion:'2.0',destination:'file:///reviewed/'});
+ assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);assert(result.problems.some(value=>value.range[1]>value.range[0]));
+ if(variant!=='missing-binding')assert(result.problems.some(value=>value.reason==='target-representation'),JSON.stringify(result.problems));
+});
 for(const version of ['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const format of ['yaml','json'])for(const style of format==='yaml'?['block','flow']:['json'])for(const query of [true,false]){
  test(`${version} ${format} ${style} query=${query} primitive URL-encoded form downgrade retains source values and native request invariants`,async()=>{
   const root='file:///approved/api.'+format;
@@ -24,7 +71,7 @@ for(const version of ['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3
   if(format==='yaml')assert(output.text.startsWith('# Keep form source\r\n'));
  });
 }
-for(const format of ['yaml','json'])for(const variant of ['closed','body-description','object-field','binary-field','optional-required','missing-required-flag','schema-consumer']){
+for(const format of ['yaml','json'])for(const variant of ['closed','body-description','object-field','binary-field','optional-required','missing-required-flag']){
  test(`${format} ${variant} form mapping reports an exact blocker and never publishes a partial result`,async()=>{
   const root='file:///approved/api.'+format,media='application/x-www-form-urlencoded';
   const schema={type:'object',required:['name'],properties:{name:{type:'string'}}};
@@ -37,7 +84,6 @@ for(const format of ['yaml','json'])for(const variant of ['closed','body-descrip
   if(variant==='binary-field'){schema.properties.name.format='binary';code='migration.form.binary';}
   if(variant==='optional-required'){body.required=false;code='migration.form.presence';}
   if(variant==='missing-required-flag'){delete body.required;code='migration.form.presence';}
-  if(variant==='schema-consumer'){document.components={schemas:{Use:{$ref:'#/paths/~1items/post/requestBody/content/application~1x-www-form-urlencoded/schema'}}};code='migration.form.schema-consumer';}
   const YAML=require(base+'/node_modules/yaml'),text=format==='json'?JSON.stringify(document):YAML.stringify(document),resources=[{id:root,text,generation:1}];
   const result=await planMigration({root,snapshot:'refusal',resources,targetVersion:'2.0',destination:'file:///output/review/'});
   assert.equal(result.complete,false);assert.equal(result.status,'blocked');assert.deepEqual(result.outputs,[]);
@@ -61,7 +107,7 @@ for(const version of ['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3
   for(const parameter of parameters){assert.equal(parameter.allowEmptyValue,true);assert.equal(parameter.minItems,1);assert.equal(parameter.maxItems,4);assert.equal(parameter.uniqueItems,true);assert.deepEqual({...parameter.items},properties.multi.items);}
  });
 }
-for(const variant of ['nested-content','reserved','exploded-delimited','nested','item-description','item-reference','encoding-extension','content-encoding','separator-in-item','unbounded-separated'])test(`array form ${variant} never claims faithful conversion`,async()=>{
+for(const variant of ['nested-content','reserved','exploded-delimited','nested','item-description','content-encoding','separator-in-item','unbounded-separated'])test(`array form ${variant} never claims faithful conversion`,async()=>{
  const root='file:///approved/api.yaml',media='application/x-www-form-urlencoded',property={type:'array',items:{type:'string'}},rule={style:'form'};
  const content={schema:{type:'object',required:['values'],properties:{values:property}},encoding:{values:rule}};
  const document={openapi:variant==='nested-content'?'3.2.1':'3.0.4',info:{title:'Arrays',version:'1'},servers:[{url:'https://api.invalid'}],paths:{'/items':{post:{requestBody:{required:true,content:{[media]:content}},responses:{204:{description:'No body'}}}}}};
@@ -70,8 +116,6 @@ for(const variant of ['nested-content','reserved','exploded-delimited','nested',
  if(variant==='exploded-delimited'){rule.style='spaceDelimited';rule.explode=true;}
  if(variant==='nested')property.items={type:'array',items:{type:'string'}};
  if(variant==='item-description')property.items.description='Do not drop';
- if(variant==='item-reference'){document.components={schemas:{Value:{type:'string'}}};property.items={$ref:'#/components/schemas/Value'};}
- if(variant==='encoding-extension')rule['x-keep']='metadata';
  if(variant==='content-encoding')content.encoding.values={contentType:'application/json'};
  if(variant==='separator-in-item'){rule.explode=false;property.items.enum=['one,two'];}
  if(variant==='unbounded-separated')rule.explode=false;

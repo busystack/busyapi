@@ -23,7 +23,7 @@ export function namedFileShapeSelection(family:string,mediaType:string,styled:bo
     return isNativeFamily(family)&&family!=='2.0'&&!styled&&formBinding(family,mediaType)==='multipart-named';
 }
 
-export type FormShape={types?:string[];literalType?:string;format?:string;contentEncoding?:string;properties?:Record<string,FormShape>;items?:FormShape;prefixItems?:FormShape[];defaultContentType?:string};
+export type FormShape={types?:string[];literalType?:string;format?:string;contentEncoding?:string;required?:string[];minItems?:number;maxItems?:number;properties?:Record<string,FormShape>;items?:FormShape;prefixItems?:FormShape[];defaultContentType?:string};
 
 export const formLiteralType=(shape:FormShape):string|undefined=>{
     // Literal input remains a string when a union permits strings; exact JSON
@@ -71,6 +71,9 @@ export class FormSemantics {
             types:types??shapes.find(shape=>shape.types)?.types,
             format:typeof value.format==='string'?value.format:shapes.find(shape=>shape.format)?.format,
             contentEncoding:typeof value.contentEncoding==='string'?value.contentEncoding:shapes.find(shape=>shape.contentEncoding)?.contentEncoding,
+            required:[...new Set([...shapes.flatMap(shape=>shape.required??[]),...(Array.isArray(value.required)?value.required:[])])],
+            minItems:typeof value.minItems==='number'?value.minItems:shapes.find(shape=>shape.minItems!==undefined)?.minItems,
+            maxItems:typeof value.maxItems==='number'?value.maxItems:shapes.find(shape=>shape.maxItems!==undefined)?.maxItems,
             properties,
             items:value.items&&typeof value.items==='object'&&!Array.isArray(value.items)?this.shape(resource,pointer+'/items',seen,depth+1):shapes.find(shape=>shape.items)?.items,
             prefixItems:Array.isArray(value.prefixItems)?value.prefixItems.map((_:unknown,index:number)=>this.shape(resource,pointer+'/prefixItems/'+index,seen,depth+1)):shapes.find(shape=>shape.prefixItems)?.prefixItems,

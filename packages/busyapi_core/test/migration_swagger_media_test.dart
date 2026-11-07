@@ -20,6 +20,7 @@ const _targets = [
 ];
 
 void main() {
+  _r2FileResponses();
   for (final target in _targets) {
     for (final format in ['yaml', 'json']) {
       test(
@@ -225,7 +226,7 @@ void main() {
             MigrationStatus.faithfullyConvertible,
             reason: '${review.result}',
           );
-          expect(review.result['producerVersion'], '88');
+          expect(review.result['producerVersion'], '89');
           expect(review.unsaved, isTrue);
           expect(review.changes, hasLength(5));
           expect(await Directory(review.destination).exists(), isFalse);
@@ -269,7 +270,7 @@ void main() {
           final report = jsonDecode(cliReview.stdout as String) as Map;
           expect(report['status'], 'faithfully-convertible');
           expect(report['published'], false);
-          expect(report['producerVersion'], '88');
+          expect(report['producerVersion'], '89');
           expect(await Directory(cliDestination).exists(), isFalse);
           final applied = await command([
             '--apply',
@@ -361,6 +362,62 @@ void main() {
           );
         },
       );
+    }
+  }
+}
+
+void _r2FileResponses() {
+  for (final targetVersion in ['3.0.4', '3.1.2', '3.2.1']) {
+    for (final format in ['yaml', 'json']) {
+      test('R2 Swagger $format file responses retain inherited media and arbitrary bytes in $targetVersion', () async {
+        final temp = await Directory.systemTemp.createTemp('busyapi-r2-response-');
+        addTearDown(() => temp.delete(recursive: true));
+        final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper); addTearDown(engine.close);
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0); addTearDown(() => server.close(force: true));
+        final seen = <(String, String, List<int>)>[];
+        server.listen((request) async {
+          final media = request.headers.value('content-type')!, bytes = await request.fold<List<int>>([], (all, next) => all..addAll(next));
+          seen.add((request.uri.path, media, bytes)); request.response.headers.set('content-type', media); request.response.add(bytes); await request.response.close();
+        });
+        final value = {
+          'swagger': '2.0', 'info': {'title': 'Original R2', 'version': '1'},
+          'host': '127.0.0.1:${server.port}', 'schemes': ['http'],
+          'consumes': ['application/octet-stream'], 'produces': ['application/octet-stream'],
+          'paths': {for (final path in ['/raw', '/png']) path: {'post': {
+            if (path == '/png') 'consumes': ['image/png'], if (path == '/png') 'produces': ['image/png'],
+            'parameters': [{r'$ref': '#/parameters/Body'}], 'responses': {'200': {r'$ref': '#/responses/File'}},
+          }}},
+          'parameters': {'Body': {'name': 'payload', 'in': 'body', 'required': true, 'schema': {'type': 'string', 'format': 'binary'}}},
+          'responses': {'File': {'description': 'File bytes', 'schema': {'type': 'file'}}},
+        };
+        final text = format == 'json' ? jsonEncode(value) : '# Keep R2 file source\r\n${value.entries.map((e) => '${jsonEncode(e.key)}: ${jsonEncode(e.value)}').join('\r\n')}\r\n';
+        final file = File('${temp.path}/api.$format'); await file.writeAsString(text); final original = await file.readAsBytes();
+        final project = await BusyProject.open(file.path, engine); addTearDown(project.close);
+        final buffer = await project.buffer(project.roots.single.id); project.store.replace(buffer.id, buffer.text.replaceFirst('Original R2', 'Unsaved R2'));
+        final review = await project.prepareMigration(buffer.id, '${temp.path}/target', targetVersion: targetVersion); addTearDown(review.close);
+        expect(review.publishable, true, reason: '${review.result}'); expect(review.unsaved, true); await review.publish();
+        final target = await BusyProject.open(review.destination, engine); addTearDown(target.close);
+        final payload = File('${temp.path}/wire.bin');
+        for (final owner in [project, target]) {
+          final root = owner.roots.single.id; expect((await owner.check(root))['complete'], true);
+          for (final (path, media) in [('/raw', 'application/octet-stream'), ('/png', 'image/png')]) {
+            final plan = await owner.prepareRequest(root, resource: root, pointer: '/paths/${path.replaceAll('/', '~1')}/post'); addTearDown(plan.close);
+            for (final bytes in <List<int>>[[], [0, 255, 128, 195, 169]]) {
+              await payload.writeAsBytes(bytes);
+              final result = await const ContractRequestExecutor().execute(plan, OperationRequestDraft(planIdentity: plan.identity,
+                body: RequestBodyDraft.binaryFile(mediaType: media, file: payload.path)), resolveSecret: (_) async => null); addTearDown(result.close);
+              expect(result.outgoing.complete, true, reason: '${result.outgoing.findings}'); expect(result.outgoing.valid, true);
+              expect(result.received.complete, true, reason: '${result.received.findings}'); expect(result.received.valid, true);
+              expect(seen.last.$1, path); expect(seen.last.$2, media); expect(seen.last.$3, bytes);
+              expect(await result.response.decodedBytes(), bytes);
+            }
+          }
+        }
+        for (var index = 0; index < 4; index++) {
+          expect(seen[index].$1, seen[index + 4].$1); expect(seen[index].$2, seen[index + 4].$2); expect(seen[index].$3, seen[index + 4].$3);
+        }
+        expect(await file.readAsBytes(), original);
+      });
     }
   }
 }

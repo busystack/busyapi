@@ -7,6 +7,7 @@ import 'package:test/test.dart';
 import 'test_support.dart';
 
 void main() {
+  _r2MixedForms();
   for (final media in [
     'application/x-www-form-urlencoded',
     'Application/X-WWW-Form-Urlencoded',
@@ -255,6 +256,99 @@ void main() {
           );
         }
       }
+    }
+  }
+}
+
+void _r2MixedForms() {
+  for (final version in ['3.0.4', '3.1.2', '3.2.1']) {
+    for (final format in ['yaml', 'json']) {
+      test('R2 $version $format mixed file form retains reviewed HTTP bytes and failure atomicity', () async {
+        final temp = await Directory.systemTemp.createTemp('busyapi-r2-form-');
+        addTearDown(() => temp.delete(recursive: true));
+        final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);
+        addTearDown(engine.close);
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        addTearDown(() => server.close(force: true));
+        final observed = <List<int>>[];
+        const media = 'multipart/form-data; boundary=R2';
+        server.listen((request) async {
+          expect(request.method, 'POST'); expect(request.uri.path, '/items');
+          expect(request.headers.value('content-type'), media);
+          final bytes = await request.fold<List<int>>([], (all, part) => all..addAll(part));
+          observed.add(bytes); request.response.headers.set('content-type', 'application/octet-stream');
+          request.response.add(bytes); await request.response.close();
+        });
+        final value = {
+          'openapi': version, 'info': {'title': 'Original R2', 'version': '1'},
+          'servers': [{'url': 'http://127.0.0.1:${server.port}'}],
+          'paths': {'/items': {'post': {
+            'requestBody': {r'$ref': '#/components/requestBodies/Form'},
+            'responses': {'200': {'description': 'Echo', 'content': {'application/octet-stream': {'schema': version == '3.0.4' ? {'type': 'string', 'format': 'binary'} : <String, Object?>{}}}}},
+          }}},
+          'components': {
+            'requestBodies': {'Form': {'required': true, 'content': {media: {'schema': {r'$ref': '#/components/schemas/Form'}}}}},
+            'schemas': {
+              'Form': {'type': 'object', 'required': ['file'], 'properties': {
+                'file': {r'$ref': '#/components/schemas/Raw'}, 'name': {r'$ref': '#/components/schemas/Name'},
+                'numbers': {'type': 'array', 'items': {'type': 'integer', 'minimum': 0}},
+              }},
+              'Raw': version == '3.0.4' ? {'type': 'string', 'format': 'binary'} : <String, Object?>{},
+              'Name': {'type': 'string'}, 'Independent': {r'$ref': '#/components/schemas/Form/properties/name'},
+            },
+          },
+        };
+        final text = format == 'json' ? jsonEncode(value) : '# Keep R2 source\r\n${value.entries.map((e) => '${jsonEncode(e.key)}: ${jsonEncode(e.value)}').join('\r\n')}\r\n';
+        final file = File('${temp.path}/api.$format'); await file.writeAsString('\ufeff$text');
+        final original = await file.readAsBytes();
+        final project = await BusyProject.open(file.path, engine); addTearDown(project.close);
+        final root = project.roots.single.id, buffer = await project.buffer(project.roots.single.id);
+        project.store.replace(root, buffer.text.replaceFirst('Original R2', 'Unsaved R2'));
+        final working = buffer.bytes();
+        final review = await project.prepareMigration(root, '${temp.path}/target', targetVersion: '2.0');
+        addTearDown(review.close);
+        expect(review.publishable, true, reason: '${review.result}'); expect(review.unsaved, true);
+        await expectLater(review.publish(cancelled: () => true), throwsA(isA<CoreFailure>().having((e) => e.code, 'code', 'cancelled')));
+        expect(await Directory(review.destination).exists(), false);
+        final race = await project.prepareMigration(root, '${temp.path}/race', targetVersion: '2.0'); addTearDown(race.close);
+        await expectLater(race.publish(beforePublish: () async {
+          await Directory(race.destination).create(); await File('${race.destination}/foreign').writeAsString('Keep');
+        }), throwsA(anything));
+        expect(await File('${race.destination}/foreign').readAsString(), 'Keep');
+        expect(await File('${race.destination}/openapi.$format').exists(), false);
+        await review.publish();
+        final target = await BusyProject.open(review.destination, engine); addTearDown(target.close);
+        final payload = File('${temp.path}/wire.bin');
+        final outcomes = <List<bool>>[];
+        for (final owner in [project, target]) {
+          final activeRoot = owner.roots.single.id;
+          expect((await owner.check(activeRoot))['complete'], true);
+          final plan = await owner.prepareRequest(activeRoot, resource: activeRoot, pointer: '/paths/~1items/post'); addTearDown(plan.close);
+          final results = <bool>[];
+          for (final bytes in <List<int>>[[], [0, 255, 128, 195, 169]]) {
+            final wire = <int>[...utf8.encode('--R2\r\nContent-Disposition: form-data; name="file"\r\nContent-Type: application/octet-stream\r\n\r\n'), ...bytes,
+              ...utf8.encode('\r\n--R2\r\nContent-Disposition: form-data; name="name"\r\n\r\n\r\n--R2--\r\n')];
+            await payload.writeAsBytes(wire);
+            final result = await const ContractRequestExecutor().execute(plan,
+              OperationRequestDraft(planIdentity: plan.identity, body: RequestBodyDraft.binaryFile(mediaType: media, file: payload.path)), resolveSecret: (_) async => null);
+            addTearDown(result.close);
+            expect(result.outgoing.complete, true, reason: '${result.outgoing.findings}');
+            expect(result.received.complete, true, reason: '${result.received.findings}');
+            expect(observed.last, wire); expect(await result.response.decodedBytes(), wire);
+            results.add(result.outgoing.valid && result.received.valid);
+          }
+          outcomes.add(results);
+        }
+        expect(outcomes, [[true, true], [true, true]]); expect(observed.take(2), observed.skip(2));
+        final cli = await Process.run('$testBundle/busyapi', ['migrate', file.path, '--target', '2.0', '--output', '${temp.path}/cli', '--json'],
+          environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
+        expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}'); expect((jsonDecode(cli.stdout as String) as Map)['complete'], true);
+        final stale = await project.prepareMigration(root, '${temp.path}/stale', targetVersion: '2.0'); addTearDown(stale.close);
+        project.store.replace(root, buffer.text.replaceFirst('Unsaved R2', 'Changed R2'));
+        await expectLater(stale.publish(), throwsA(isA<CoreFailure>().having((e) => e.code, 'code', 'migration.stale')));
+        expect(await Directory(stale.destination).exists(), false); expect(await file.readAsBytes(), original);
+        expect(working, isNot(original));
+      });
     }
   }
 }

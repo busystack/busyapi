@@ -17,6 +17,8 @@ import {capturedRuntimeHeaders,type RuntimeHeaderTarget} from './runtime_headers
 import {capturedRuntimeMedia,type RuntimeMediaTarget} from './runtime_media_owner';
 import {swaggerFileSchemas} from './swagger_file';
 import {parameterSerializationEvaluator,type ParameterSerializationCheck} from './serialized_parameter_examples';
+import {wholeBodyEncoding} from './whole_body_encoding';
+import {runtimeMediaKind} from './runtime_media';
 
 type SchemaLocation={resource:string;pointer:string};
 type RuntimeInstance={text:string;subject:string;location:string;schema?:SchemaLocation;itemSchema?:SchemaLocation;parameter?:SchemaLocation;media?:RuntimeMediaTarget;mediaType?:string;mediaBase64?:boolean;unicodeSerialization?:boolean;textSerialization?:TextSerialization;form?:RuntimeFormTarget;alternatives?:string[];swaggerHeader?:SwaggerHeaderTarget;header?:RuntimeHeaderTarget};
@@ -107,6 +109,11 @@ async function evaluateRuntimeValues(runtime:unknown,owner:Owner,diagnostics?:{o
    // Its captured schema takes precedence over the media type's usual codec.
    const textSerialization=supplied.unicodeSerialization===true?supplied.textSerialization??'unicode':undefined;
    if(supplied.form&&!fileSchema){form=decodeRuntimeForm(supplied.text,'urn:busyapi:runtime:'+identity,supplied.mediaType!,supplied.mediaBase64===true,supplied.form,supplied.subject,owner.graph,textSerialization);decoded=form;}
+   else if(!fileSchema&&scope&&supplied.mediaType&&runtimeMediaKind(supplied.mediaType)==='opaque'&&wholeBodyEncoding(owner.graph,scope)!==undefined)
+    // Encoded whole bodies contain the encoded string itself. No HTTP or MIME
+    // transfer header exists to decode here. UTF-8/ASCII wire text, including
+    // the empty string, remains subject to the original string assertions.
+    decoded=decodeRuntimeMedia(supplied.text,'urn:busyapi:runtime:'+identity,'text/plain; charset=utf-8',supplied.mediaBase64,'unsupported',textSerialization);
    else decoded=decodeRuntimeMedia(supplied.text,'urn:busyapi:runtime:'+identity,supplied.mediaType,supplied.mediaBase64,fileSchema?'file':octets?'octets':family==='2.0'||family==='3.0'?'legacy-octets':family==='3.1'||family==='3.2'?'binary':'unsupported',textSerialization);
    // Strict form decoding proves each leaf's wire representation, including
    // ASCII MIME transfer formats. Other opaque instances supply no Unicode proof.

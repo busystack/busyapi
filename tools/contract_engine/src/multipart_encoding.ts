@@ -62,7 +62,9 @@ export class MultipartEncoding {
         return this.failure('request.form.content-type.unsupported','The selected file items have competing or nested default media representations; select an explicit captured contentType',schema);
     }
 
-    schemaPathEncoding(schema:GraphTarget,path:MultipartSchemaStep[],instanceKind?:'string'|'other',explicitShape=false):MultipartTransfer {
+    // Swagger byte can establish an explicitly modeled whole-body string;
+    // that evidence does not invent a Swagger MIME part transfer binding.
+    schemaPathEncoding(schema:GraphTarget,path:MultipartSchemaStep[],instanceKind?:'string'|'other',explicitShape=false,swaggerWholeBody=false):MultipartTransfer {
         // Content annotations and the legacy binary/byte formats only describe
         // string instances. They cannot change an object's MIME representation.
         if(instanceKind==='other')return {schemaEncoded:false};
@@ -88,7 +90,7 @@ export class MultipartEncoding {
                 if(projection.state==='dynamic')this.failure('request.multipart.encoding.unsupported','Dynamic part annotations require evaluation before serialization',target);
                 if(projection.state!=='fixed')this.failure('request.reference','A multipart schema reference is unresolved',target);
                 visit(projection.target,path,active,conditional);
-                if(scope.family==='3.0')return;
+                if(scope.family==='2.0'||scope.family==='3.0')return;
             }
             for(const [index]of (Array.isArray(value.allOf)?value.allOf:[]).entries())
                 visit({...target,pointer:target.pointer+'/allOf/'+index},path,active,conditional);
@@ -110,14 +112,15 @@ export class MultipartEncoding {
                 }else if(Object.hasOwn(value.properties??{},field.property))visit({...target,pointer:target.pointer+'/properties/'+escape(field.property)},rest,active,conditional);
                 return;
             }
-            const encoding=scope.family==='3.0'?value.format==='byte'?'base64':undefined:typeof value.contentEncoding==='string'?value.contentEncoding:undefined;
+            const legacy=scope.family==='3.0'||swaggerWholeBody&&scope.family==='2.0';
+            const encoding=legacy?value.format==='byte'?'base64':undefined:modernFamily(scope.family)&&typeof value.contentEncoding==='string'?value.contentEncoding:undefined;
             if(scope.family==='3.0'&&value.format==='binary'){
                 if(conditional)this.failure('request.multipart.encoding.unsupported','Conditional binary part representations need an explicit part-shape selection',target);
                 binary={...target,pointer:target.pointer+'/format'};
             }
             if(encoding!==undefined){
                 if(conditional)this.failure('request.multipart.encoding.unsupported','Conditional part encodings need an explicit serialized representation',target);
-                values.set(encoding,{...target,pointer:target.pointer+(scope.family==='3.0'?'/format':'/contentEncoding')});
+                values.set(encoding,{...target,pointer:target.pointer+(legacy?'/format':'/contentEncoding')});
             }
         };
         visit(schema,path,new Set());

@@ -98,6 +98,10 @@ void main() {
                     {'url': 'https://a.example.invalid'},
                   ],
                 'paths': {
+                  if (swagger) '/download': {'get': {'produces': ['application/octet-stream', 'image/png'],
+                    'responses': {'200': {'description': 'R2 file response', 'schema': {'type': 'file'}}}}},
+                  if (sharedBinary) '/encoded': {'get': {'responses': {'200': {'description': 'R2 encoded whole body',
+                    'content': {'application/octet-stream': {'schema': {'type': 'string', 'format': 'byte', 'minLength': 4}}}}}}},
                   if (sharedBinary) '/literal': {
                     'get': {'responses': {'200': {'description': 'Literal and JSON', 'content': {
                       'multipart/form-data': {'schema': {r'$ref': 'shared.yaml#/components/schemas/Literal'}, 'encoding': {'payload': {'contentType': 'application/octet-stream'}}},
@@ -177,6 +181,7 @@ void main() {
                   '      requestBody:\n        required: true\n        content:\n'
                   '          application/x-www-form-urlencoded:\n            schema: {type: object, required: [name], properties: {name: {type: string}, values: {type: array, items: {type: integer}}}}\n'
                   '            encoding: {values: {style: form}}\n'
+                  '          multipart/form-data:\n            schema: {type: object, required: [name], properties: {name: {type: string}, values: {type: array, items: {type: integer}}}}\n'
                   '      responses: {"200": {description: Empty}}\n'
             : ignoredBody
             ? base.replaceFirst(

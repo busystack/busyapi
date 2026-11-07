@@ -25,7 +25,7 @@ async function migrate(input){
  const before=input.resources.map(resource=>resource.text);
  const review=await planMigration(input);
  assert.equal(review.complete,true,JSON.stringify(review.problems));
- assert.equal(review.producerVersion,'88');
+ assert.equal(review.producerVersion,'89');
  const output=delivered(review);
  assert.equal(analyse(output).status,'complete');
  assert.deepEqual(input.resources.map(resource=>resource.text),before);

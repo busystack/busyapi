@@ -16,6 +16,7 @@ import {MultipartEncoding,type MultipartSchemaStep} from './multipart_encoding';
 import {projectSchemaReference} from './schema_reference_projection';
 import {rawConstraintBlocker,projectRawConstraints,rawContainerLiteralUnchanged,rawConstraintReason} from './migration_binary_constraints';
 import {BinaryConstraintProofs} from './migration_binary_proofs';
+import {wholeBodyEncoding} from './whole_body_encoding';
 
 export type BinaryUse=Readonly<{kind:'body'|'part'|'data';representation?:'data'|'unknown';mediaType?:string;source:GraphScope;schema:GraphScope;path:readonly BinaryStep[]}>;
 export type BinaryStep=Readonly<{property:string}>|'item'|'nested';
@@ -146,7 +147,7 @@ export class BinaryUses {
             const owner=this.graph.scopes.get(resource+'#'+parent);
             if(last==='schema'&&owner?.family==='2.0'&&['response','parameter'].includes(owner.kind)){
                 for(const use of this.swaggerUses.get(identity(owner))??[])
-                    uses.push({...use,kind:path.length?'data':'body',schema:at,path});
+                    uses.push({...use,kind:path.length?'data':'body',representation:path.length?undefined:this.bodyRepresentation(at,use.mediaType),schema:at,path});
                 continue;
             }
             if(last==='schema'&&owner?.kind==='media'){
@@ -190,7 +191,7 @@ export class BinaryUses {
                         }
                         uses.push({kind:'part',representation,mediaType:contentType,source:owner,schema:at,path});
                     }else uses.push({kind:'data',source:owner,schema:at,path});
-                }else uses.push({kind:path.length?'data':'body',mediaType,source:owner,schema:at,path});
+                }else uses.push({kind:path.length?'data':'body',representation:path.length?undefined:this.bodyRepresentation(at,mediaType),mediaType,source:owner,schema:at,path});
                 continue;
             }
             if(last==='schema'&&owner&&['parameter','header'].includes(owner.kind)){
@@ -218,6 +219,17 @@ export class BinaryUses {
             }
         }
         return uses;
+    }
+    private bodyRepresentation(schema:GraphScope,mediaType:string|undefined):'data'|'unknown'|undefined {
+        try{
+            if(mediaType===undefined)return 'unknown';
+            if(runtimeMediaKind(mediaType)!=='opaque')return;
+            return wholeBodyEncoding(this.graph,schema)!==undefined?'data':undefined;
+        }
+        catch(error){
+            if(!(error instanceof SourceError)||error.code.startsWith('limit.'))throw error;
+            return 'unknown';
+        }
     }
 }
 
@@ -255,12 +267,13 @@ export async function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<stri
         const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);
         if(pointer===undefined)continue;
         const field=(name:string)=>({...scope,pointer:scope.pointer+'/'+escape(name)});
-        const fail=(name:string,message:string)=>issue(field(name),'migration.schema.binary-context',message,'implementation');
+        const fail=(name:string,message:string,reason:'implementation'|'target-representation'|'source-incomplete'='implementation')=>issue(field(name),'migration.schema.binary-context',message,reason);
         if(from==='2.0'&&to==='3.0'){
             if(value.type==='file'){
                 const contexts=uses.inspect(scope);
                 if(!contexts.length||contexts.some(use=>!rawBinaryUse(use)||!uses.rawCompatible(use,from)))
-                    fail('type','This file needs a proved raw occurrence and assertion mapping before it can become a legacy binary string');
+                    fail('type','Swagger file bypasses data decoding; every occurrence needs captured raw-media evidence to preserve arbitrary entity bytes',
+                        contexts.some(use=>binaryUseRepresentation(use)==='data')?'target-representation':'source-incomplete');
             }
             continue;
         }
@@ -274,7 +287,8 @@ export async function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<stri
             }
             if(from==='2.0'&&value.type==='file'){
                 if(!contexts.length||raw.length!==contexts.length){
-                    fail('type','A Swagger file needs captured raw-media occurrences; its entity-byte semantics cannot be replaced by a JSON decoder');continue;
+                    fail('type','Swagger file bypasses data decoding; every target occurrence needs a captured raw-media binding to preserve arbitrary entity bytes',
+                        contexts.some(use=>binaryUseRepresentation(use)==='data')?'target-representation':'source-incomplete');continue;
                 }
                 // Swagger file has no internal data model. Its permitted fields
                 // contain metadata, not string assertions (§6.4.12).
@@ -306,7 +320,7 @@ export async function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<stri
         if(from==='2.0'||from==='3.0')continue;
         const capturedUses=uses.inspect(scope),rawUses=capturedUses.filter(rawBinaryUse);
         if(rawUses.length&&rawUses.length===capturedUses.length)rawScopes.add(JSON.stringify([scope.resource,scope.pointer]));
-        const rawSensitive=rawUses.some(use=>use.kind==='part')||['type','minLength','pattern','enum','const','contentMediaType','contentEncoding'].some(name=>Object.hasOwn(value,name));
+        const rawSensitive=rawUses.some(use=>use.kind==='part')||['type','format','minLength','pattern','enum','const','contentMediaType','contentEncoding'].some(name=>Object.hasOwn(value,name));
         if(rawUses.length&&rawSensitive){
             if(rawUses.length!==capturedUses.length){
                 fail('type','Modern raw and JSON consumers still need independent schema owners before lowering');continue;
@@ -314,10 +328,17 @@ export async function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<stri
             if(!rawUses.every(use=>uses.rawCompatible(use,from))){
                 fail('type','Containing literal equality needs a complete raw/data projection before lowering');continue;
             }
-            if(Object.hasOwn(value,'contentEncoding')){
-                fail('contentEncoding','An encoded string annotation at a raw occurrence does not establish an encoded whole-body wire representation');continue;
+            if(Object.hasOwn(value,'contentEncoding'))
+                // This occurrence was proved raw, rather than an explicitly
+                // modeled encoded string. Content annotations cannot apply to
+                // it, including when a JSON type assertion rejects the body.
+                owners.retainLiteralValue(field('contentEncoding'),source,pointer+'/contentEncoding','raw_inactive_encoding');
+            if(Object.hasOwn(value,'contentSchema')){
+                const schema={...scope,pointer:scope.pointer+'/contentSchema'};
+                owners.move(schema,source,pointer+'/contentSchema','raw_inactive_content',{context:owners.contextOf(scope)??graph,layout:'array-item'});
             }
-            if(Object.hasOwn(value,'contentSchema')&&Object.hasOwn(value,'contentMediaType'))continue;
+            if(Object.hasOwn(value,'format')&&value.format!=='binary')
+                owners.retainLiteralValue(field('format'),source,pointer+'/format','raw_inactive_format');
             for(const name of ['minLength','pattern'])if(source.doc.dataNode(pointer+'/'+name))
                 owners.retainLiteralValue({...scope,pointer:scope.pointer+'/'+name},source,pointer+'/'+name,'raw_inactive_constraint');
             if(Object.hasOwn(value,'type')||Object.hasOwn(value,'enum')||Object.hasOwn(value,'const')){
@@ -353,6 +374,9 @@ export async function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<stri
         if(!encoded&&!Object.hasOwn(value,'contentMediaType'))continue;
         const contexts=uses.inspect(scope);
         if(encoded){
+            if(value.format==='binary'){
+                fail('format','The legacy binary format would activate an octet transfer alongside base64; no single faithful encoding binds both annotations','target-representation');continue;
+            }
             if(typeof value.format==='string'&&value.format!=='byte'){
                 // Both annotations apply to the same string. The legacy byte
                 // annotation owns transfer/default media selection; retain the

@@ -71,7 +71,7 @@ void _verifyMigrationReview(
   if (result['version'] != 1 ||
       result['snapshot'] != input.snapshot.identity ||
       result['producer'] != 'busyapi-native-migration' ||
-      result['producerVersion'] != '88' ||
+      result['producerVersion'] != '89' ||
       result['problems'] is! List ||
       result['outputs'] is! List ||
       result['exampleOutputs'] is! List ||

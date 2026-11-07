@@ -8,6 +8,7 @@ import {isNativeFamily,modernFamily} from './specification';
 import {securityFlowOrder} from './security_requirements';
 import {MigrationSchemaOwners} from './migration_schema_owners';
 import {materializeFlatSchema} from './migration_flat_items';
+import {commonMediaSchema,retainFormHeaderOwners} from './migration_media_schema';
 
 /** Inspect a captured Schema reference chain before a Header/parameter loses
  * its schema wrapper. A referenced object is just as unrepresentable in a
@@ -30,10 +31,64 @@ function flatSchema(graph:ReferenceGraph,owner:GraphScope):unknown {
     }
 }
 
+function retainMediaAlternatives(source:MigrationSource,pointer:string,media:readonly string[],graph:ReferenceGraph,owners:MigrationSchemaOwners,selected:string):void {
+    for(const name of media.filter(name=>name!==selected)){
+        const at=pointer+'/content/'+escape(name)+'/schema';
+        const captured=owners.capturedSchema({resource:source.doc.id,pointer:at});
+        if(captured)owners.move(captured,source,at,'media_alternative',{context:owners.contextOf(captured)??graph,layout:'array-item'});
+    }
+}
+
+function retireFormBody(source:MigrationSource,pointer:string):void {
+    if(pointer)source.remove(pointer);
+    else {
+        source.set('',{});
+        for(const locations of source.originSets())locations.clear();
+    }
+}
+
+function retainFormBodyHistory(source:MigrationSource,pointer:string,scope:GraphScope,owners:MigrationSchemaOwners):void {
+    if(pointer){owners.retainLiteralValue(scope,source,pointer,'form_body',true);return;}
+    const retained=owners.reserveSchema(scope,'form_body');
+    retained.source.copy(source,'',retained.location.pointer+'/x-busyapi-retained-value',true);
+    retireFormBody(source,'');
+}
+
 /** Evaluate actual target representation. A simple 3.x API can be faithfully
  * represented in Swagger; newer-only constructs receive located blockers. */
 export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,MigrationSource>,from:string,issue:MigrationIssue,
     releaseNativeHolders?:()=>void,owners=new MigrationSchemaOwners(graph,sources)):void {
+    // Capture and relocate every operation's body before processing reusable
+    // definitions. A form Request Body reference expands to several Parameters;
+    // it cannot survive as a reference to one misleading body Parameter.
+    const formUses=new Map<string,{source:MigrationSource;pointer:string}[]>(),preparedOperations=new Set<string>();
+    for(const operation of graph.operations()){
+        const scope=graph.scope(operation.source.resource,operation.source.pointer);if(scope.family!==from)continue;
+        const id=scope.resource+'#'+scope.pointer;if(preparedOperations.has(id))continue;preparedOperations.add(id);
+        const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer),body=source.current(scope.pointer+'/requestBody');
+        if(pointer===undefined||body===undefined)continue;
+        if(!source.doc.dataNode(pointer+'/parameters'))source.set(pointer+'/parameters',[]);
+        const destination=pointer+'/parameters/'+source.doc.node(pointer+'/parameters').children.size;
+        source.move(body,destination);
+        let request=graph.scopeAs(scope.resource,scope.pointer+'/requestBody','request-body');const seen=new Set<string>();
+        while(request){
+            const id=request.resource+'#'+request.pointer;
+            if(seen.has(id)||seen.size>=128){issue(request,'migration.body.reference','The body reference chain has no bounded concrete owner','source-incomplete');request=undefined;break;}
+            seen.add(id);const value=graph.docs.get(request.resource)!.dataNode(request.pointer)?.value;
+            if(typeof value?.$ref!=='string')break;
+            const ref=graph.referenceAs(request.resource,request.pointer,'$ref','request-body');
+            request=ref?.resolution==='resolved'?graph.scopeAs(ref.targetResource!,ref.targetPointer!,'request-body'):undefined;
+        }
+        if(!request)continue;
+        const value=graph.docs.get(request.resource)!.dataNode(request.pointer)!.value;
+        if(value?.content)source.set(pointer+'/consumes',Object.keys(value.content));
+        if(Object.keys(value?.content??{}).some(media=>formBinding(scope.family as '3.0'|'3.1'|'3.2',media)!==undefined)){
+            const id=request.resource+'#'+request.pointer,uses=formUses.get(id)??[];
+            if(!uses.some(use=>use.source===source&&use.pointer===destination))uses.push({source,pointer:destination});
+            formUses.set(id,uses);
+        }
+    }
+    const expandedForms=new Set<string>();
     for(const scope of graph.scopes.values()){
         if(scope.family!==from)continue;
         const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);if(pointer===undefined)continue;
@@ -90,44 +145,67 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migrati
             if(!isNativeFamily(family)){issue(scope,'migration.body.family','This request body has no supported owning specification family','source-incomplete');continue;}
             const content=source.doc.dataNode(pointer+'/content'),media=[...content?.children.keys()??[]];
             if(!media.length){issue(scope,'migration.body.content','A Swagger body needs a schema-bearing representation','implementation');continue;}
-            const shapes=media.map(name=>source.doc.dataNode(pointer+'/content/'+escape(name)+'/schema')?source.doc.dataJson(pointer+'/content/'+escape(name)+'/schema'):undefined);
-            if(shapes.some(shape=>shape===undefined||shape!==shapes[0])){issue(scope,'migration.body.media-schema','Swagger has one body schema; these media representations need a common faithful schema','target-representation');continue;}
-            if(media.length===1&&formBinding(family,media[0])==='urlencoded'){downgradeFormBody(graph,source,scope,pointer,media[0],issue,owners,sources);continue;}
-            if(media.some(name=>formBinding(family,name)!==undefined)){issue(scope,'migration.body.form','Form bodies need a field-preserving formData parameter mapping','implementation');continue;}
-            source.move(pointer+'/content/'+escape(media[0])+'/schema',pointer+'/schema');
+            if(media.some(name=>formBinding(family,name)!==undefined)){
+                if(media.some(name=>!['application/x-www-form-urlencoded','multipart/form-data'].includes(name.split(';')[0].trim().toLowerCase()))){issue(scope,'migration.body.form-media','Swagger cannot combine a body parameter and formData parameters or describe generic multipart field framing','target-representation');continue;}
+                const uses=formUses.get(scope.resource+'#'+scope.pointer)??[];
+                expandedForms.add(scope.resource+'#'+scope.pointer);
+                const inline=uses.some(use=>use.source===source&&use.pointer===pointer);
+                if(inline){downgradeFormBody(graph,source,scope,pointer,media[0],issue,owners,sources);continue;}
+                retainFormHeaderOwners(graph,owners,source,scope,pointer);
+                for(const name of media){
+                    const at=pointer+'/content/'+escape(name)+'/schema',schema=owners.capturedSchema({resource:scope.resource,pointer:at});
+                    if(schema){
+                        const retained=owners.move(schema,source,at,'reusable_form_schema',{context:owners.contextOf(schema)??graph,layout:'array-item'});
+                        // This generated edge has no authored locator. Keep
+                        // the old $ref's provenance on its neutral schema and
+                        // use the allocator's final target-family spelling.
+                        source.set(at,{$ref:owners.reference(retained,'2.0')});
+                    }
+                }
+                const captured=source.fork();
+                for(const use of uses){
+                    use.source.remove(use.pointer);
+                    use.source.copy(captured,pointer,use.pointer,true);
+                    downgradeFormBody(graph,use.source,scope,use.pointer,media[0],issue,owners,sources);
+                }
+                retainFormBodyHistory(source,pointer,scope,owners);
+                continue;
+            }
+            const selected=commonMediaSchema(graph,sources,owners,source,pointer,scope,media);
+            if(selected===undefined){issue(scope,'migration.body.media-schema','Swagger has one body schema; no common captured schema certificate establishes these representations','implementation');continue;}
+            retainMediaAlternatives(source,pointer,media,graph,owners,selected);
+            source.move(pointer+'/content/'+escape(selected)+'/schema',pointer+'/schema');
             if(media.some(name=>Object.keys(value.content[name]).some(field=>field!=='schema')))issue(scope,'migration.body.media-metadata','Request media annotations/examples need an explicit Swagger representation','implementation');
             source.remove(pointer+'/content');source.set(pointer+'/name','body');source.set(pointer+'/in','body');
         }
         if(scope.kind==='operation'){
             const represented:string[][]=[];
             for(const name of Object.keys(value.responses??{}).filter(name=>!name.startsWith('x-'))){
-                let response=value.responses[name];
-                if(typeof response?.$ref==='string'){
-                    const reference=graph.resolveReference(response.$ref,graph.scope(scope.resource,scope.pointer+'/responses/'+escape(name)));
-                    if(reference.resolution==='resolved')response=graph.docs.get(reference.targetResource!)!.dataNode(reference.targetPointer!)!.value;
+                let response=value.responses[name],at={resource:scope.resource,pointer:scope.pointer+'/responses/'+escape(name)};
+                const seen=new Set<string>();
+                while(typeof response?.$ref==='string'){
+                    const id=at.resource+'#'+at.pointer;
+                    if(seen.has(id)||seen.size>=128){issue(at,'migration.response.reference','The response media has no bounded concrete owner','source-incomplete');break;}
+                    seen.add(id);const reference=graph.referenceAs(at.resource,at.pointer,'$ref','response');
+                    if(reference?.resolution!=='resolved'){issue(at,'migration.response.reference','The response media binding was not captured','source-incomplete');break;}
+                    at={resource:reference.targetResource!,pointer:reference.targetPointer!};response=graph.docs.get(at.resource)!.dataNode(at.pointer)!.value;
                 }
-                represented.push(Object.keys(response?.content??{}).sort());
+                const media=Object.keys(response?.content??{}).sort();
+                // A bodyless status has no schema in Swagger and therefore
+                // does not acquire a body from operation-wide produces.
+                if(media.length)represented.push(media);
             }
             if(represented.some(media=>JSON.stringify(media)!==JSON.stringify(represented[0])))issue(scope,'migration.response.media-context','Different response media sets need a status-specific Swagger representation that its global produces field cannot supply','target-representation');
             else if(represented[0]?.length)source.set(pointer+'/produces',represented[0]);
-            const body=source.current(scope.pointer+'/requestBody');
-            if(body!==undefined){
-                if(!source.doc.nodes.has(pointer+'/parameters'))source.set(pointer+'/parameters',[]);
-                const index=source.doc.node(pointer+'/parameters').children.size;
-                source.move(body,pointer+'/parameters/'+index);
-                let request=value.requestBody;
-                if(typeof request?.$ref==='string'){
-                    const ref=graph.resolveReference(request.$ref,graph.scope(scope.resource,scope.pointer+'/requestBody'));
-                    if(ref.resolution==='resolved')request=graph.docs.get(ref.targetResource!)!.dataNode(ref.targetPointer!)!.value;
-                }
-                if(request?.content)source.set(pointer+'/consumes',Object.keys(request.content));
-            }
             if(value.callbacks)issue({...scope,pointer:scope.pointer+'/callbacks'},'migration.callbacks','Swagger has no standard Callback Object representation','target-representation');
         }
         if(scope.kind==='response'&&typeof value?.$ref!=='string'){
-            const media=Object.keys(value.content??{}),schemas=media.map(name=>graph.docs.get(scope.resource)!.dataNode(scope.pointer+'/content/'+escape(name)+'/schema')?graph.docs.get(scope.resource)!.dataJson(scope.pointer+'/content/'+escape(name)+'/schema'):undefined);
-            if(schemas.some(schema=>schema!==schemas[0]))issue(scope,'migration.response.media-schema','Swagger has one response schema; these representations differ','target-representation');
-            if(schemas[0]!==undefined)source.move(pointer+'/content/'+escape(media[0])+'/schema',pointer+'/schema');
+            const media=Object.keys(value.content??{}),selected=commonMediaSchema(graph,sources,owners,source,pointer,scope,media);
+            if(media.length&&selected===undefined){issue(scope,'migration.response.media-schema','Swagger has one response schema; no common captured schema certificate establishes these representations','implementation');continue;}
+            if(selected!==undefined){
+                retainMediaAlternatives(source,pointer,media,graph,owners,selected);
+                source.move(pointer+'/content/'+escape(selected)+'/schema',pointer+'/schema');
+            }
             for(const name of media){
                 const at=pointer+'/content/'+escape(name),value=source.doc.dataNode(at)?.value;
                 if(Object.hasOwn(value??{},'example'))source.move(at+'/example',pointer+'/examples/'+escape(name));
@@ -153,6 +231,21 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migrati
                 source.remove(pointer+'/flows');
             }else if(value.type!=='apiKey')issue(scope,'migration.security.type','Swagger has no equivalent standard security scheme for this authentication type','target-representation');
             if(value.type==='apiKey'&&!['query','header'].includes(value.in))issue(scope,'migration.security.location','Swagger API keys must be query or header parameters','target-representation');
+        }
+    }
+    // All occurrences of form reference chains now own flat parameters. Their
+    // intermediate Request Body wrappers have no Swagger Parameter equivalent.
+    for(const scope of graph.scopes.values())if(scope.family===from&&scope.kind==='request-body'){
+        let target:GraphScope|undefined=scope;const seen=new Set<string>();
+        while(target){
+            const id=target.resource+'#'+target.pointer;if(seen.has(id)||seen.size>=128)break;seen.add(id);
+            if(expandedForms.has(id)){
+                const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);
+                if(pointer!==undefined&&source.doc.dataNode(pointer)&&typeof source.doc.dataNode(pointer)!.value?.$ref==='string')retireFormBody(source,pointer);
+                break;
+            }
+            const ref=graph.referenceAs(target.resource,target.pointer,'$ref','request-body');
+            target=ref?.resolution==='resolved'?graph.scopeAs(ref.targetResource!,ref.targetPointer!,'request-body'):undefined;
         }
     }
     // Swagger has no Header component map or Header Reference Object. Retain

@@ -2,6 +2,15 @@ const {test}=require('node:test'),assert=require('node:assert/strict'),YAML=requ
 const {planMigration}=require('./dist/migration.cjs'),{SourceDocument}=require('./dist/document.cjs');
 const versions=['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'];
 const mediaTypes=['application/x-www-form-urlencoded','Application/X-WWW-Form-Urlencoded','application/x-www-form-urlencoded; charset=utf-8','Application/X-WWW-Form-Urlencoded; Charset="UTF-8"'];
+for(const version of ['3.0.4','3.1.2','3.2.1'])for(const format of ['yaml','json'])test(`R2 ${version} ${format} compatible form media retain each selection and one flat field set`,async()=>{
+ const root='file:///approved/api.'+format,schema={type:'object',required:['name'],properties:{name:{type:'string'},flags:{type:'array',items:{type:'boolean'}}}};
+ const types=['application/x-www-form-urlencoded','multipart/form-data'];
+ const content=Object.fromEntries(types.map(type=>[type,{schema,encoding:{name:{contentType:'text/plain','x-kept':{empty:'',zero:0}},flags:{contentType:'text/plain'}}}]));
+ const value={openapi:version,info:{title:'R2 alternatives',version:'1'},servers:[{url:'https://api.invalid'}],paths:{'/items':{post:{requestBody:{required:true,content},responses:{204:{description:'Empty'}}}}}};
+ const text=format==='json'?JSON.stringify(value):YAML.stringify(value),result=await planMigration({root,snapshot:'R2-form-media',resources:[{id:root,text,generation:2}],targetVersion:'2.0',destination:'file:///reviewed/'});
+ assert.equal(result.complete,true,JSON.stringify(result.problems));const doc=new SourceDocument(result.outputs.find(value=>value.id===result.outputRoot).text,result.outputRoot);
+ assert.deepEqual(doc.dataNode('/paths/~1items/post/consumes').value,types);assert.deepEqual(doc.dataNode('/paths/~1items/post/parameters').value.map(value=>[value.name,value.type,value.collectionFormat]),[['name','string',undefined],['flags','array','multi']]);
+});
 for(const version of versions)for(const format of ['yaml','json'])for(const media of mediaTypes)test(`${version} ${format} ${media} keeps its authored media declaration through form conversion`,async()=>{
  const root='file:///approved/api.'+format;
  const schema={type:'object',required:['name'],properties:{name:{type:'string'},flags:{type:'array',items:{type:'boolean'}}}};

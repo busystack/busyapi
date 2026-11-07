@@ -43,6 +43,7 @@ void main() {
     (name: 'obsolete B01 producer', from: 'producer:82', to: '', accepted: false),
     (name: 'obsolete B01 handoff producer', from: 'producer:83', to: '', accepted: false),
     (name: 'obsolete incomplete B02 producer', from: 'producer:84', to: '', accepted: false),
+    (name: 'obsolete B04-R1 producer', from: 'producer:88', to: '', accepted: false),
     (name: 'equivalent decimals', from: '9007199254740993.00', to: '900719925474099300e-2', accepted: true),
     (name: 'equivalent positive exponent', from: '1e99999', to: '10e99998', accepted: true),
     (name: 'equivalent negative exponent', from: '1e-99999', to: '10e-100000', accepted: true),

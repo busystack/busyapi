@@ -148,6 +148,7 @@ case "$(uname -m)" in x86_64) esbuild_bin="$engine_dir/node_modules/@esbuild/lin
 "$node_bin" "$engine_dir/test_migration_unevaluated.cjs"
 "$node_bin" "$engine_dir/test_migration_content.cjs"
 "$node_bin" --disable-proto=throw "$engine_dir/test_migration_property_names.cjs"
+# B04-R1/R2 certificates, whole-body strings and exact captured wire regressions.
 "$node_bin" "$engine_dir/test_migration_binary.cjs"
 "$node_bin" --disable-proto=throw "$engine_dir/test_migration_default_servers.cjs"
 "$node_bin" "$engine_dir/test_migration_static_dynamicref.cjs"

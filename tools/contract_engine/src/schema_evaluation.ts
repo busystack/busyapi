@@ -36,9 +36,11 @@ import {externalExampleRevision} from './external_examples';
 import {exampleRepresentation,mediaExampleRepresentations,type ExampleValueField} from './example_representation';
 import {embeddedMimeTextRevision} from './embedded_mime_text';
 
-export const schemaProducer={name:'hyperjump+busyapi-exact',version:'1.18.0+59',configuration:[
+export const schemaProducer={name:'hyperjump+busyapi-exact',version:'1.18.0+60',configuration:[
  `external-example-bytes-v${externalExampleRevision}`,
  'parameter-runtime-serialization-v1',
+ 'whole-body-encoded-string-v1',
+ 'swagger-form-empty-values-v1',
  'http-field-lines-v1',
  `discriminator-models-v${discriminatorModelsRevision}`,
  `swagger-schema-rules-v${swaggerSchemaRulesRevision}`,

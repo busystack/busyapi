@@ -65,10 +65,15 @@ function formSignatures(media:any):unknown {
     if(!multipart&&type!=='application/x-www-form-urlencoded')return;
     const content=(shape:any)=>shape?.defaultContentType??'text/plain';
     const signature=(name:string,shape:any,rule:any,styled:boolean)=>{
-        const types=shape?.types??[],array=types.includes('array'),object=types.includes('object');
+        const types=shape?.types??[],item=shape?.items??(shape?.prefixItems?.length===1?shape.prefixItems[0]:undefined);
+        const singletonFile=multipart&&types.includes('array')&&shape.minItems===1&&shape.maxItems===1&&
+            (!item?.types?.length||item?.types?.includes('string')&&item?.format==='binary')&&
+            item?.contentEncoding===undefined&&content(item)==='application/octet-stream';
+        const array=types.includes('array')&&!singletonFile,object=types.includes('object');
         const style=rule?.style??'form',explode=rule?.explode??(style==='form');
         if(styled&&(array||object))return {name,mode:'style',style,explode,allowReserved:multipart?false:rule?.allowReserved===true};
-        const contentType=styled?'text/plain':rule?.contentType??content(array?shape.items:shape);
+        const encoded=!multipart&&(shape?.contentEncoding!==undefined||shape?.format==='byte');
+        const contentType=styled||encoded?'text/plain':rule?.contentType??content(array||singletonFile?item:shape);
         // Text-based array contents are repeated primitive fields. JSON
         // contents keep their media representation instead of becoming style.
         if(!multipart&&array&&contentType==='text/plain')return {name,mode:'style',style:'form',explode:true,allowReserved:false};
@@ -77,15 +82,16 @@ function formSignatures(media:any):unknown {
     if(media.swaggerForm)return media.swaggerForm.map((parameter:any)=>{
         const array=parameter.type==='array',format=parameter.collectionFormat??'csv';
         const shape={types:[parameter.type],defaultContentType:parameter.type==='file'?'application/octet-stream':'text/plain',items:{defaultContentType:'text/plain'}};
-        if(array&&!(multipart&&format==='multi'))return signature(parameter.name,shape,{style:format==='ssv'?'spaceDelimited':format==='pipes'?'pipeDelimited':'form',explode:format==='multi'},true);
-        return signature(parameter.name,shape,undefined,false);
+        if(array&&!(multipart&&format==='multi'))return {...signature(parameter.name,shape,{style:format==='ssv'?'spaceDelimited':format==='pipes'?'pipeDelimited':'form',explode:format==='multi'},true),required:parameter.required===true};
+        return {...signature(parameter.name,shape,undefined,false),required:parameter.required===true};
     }).sort((a:any,b:any)=>a.name.localeCompare(b.name));
     return Object.entries(media.form?.shape?.properties??{}).map(([name,shape])=>{
         const rule=media.encoding?.[name],styled=(!multipart||media.form.multipartStyle)&&['style','explode','allowReserved'].some(field=>Object.hasOwn(rule??{},field));
         // Repeated primitive form fields have the same decoded values as
         // content-based parts; the remaining style cases retain separators.
-        if(multipart&&styled&&(rule.style??'form')==='form'&&(rule.explode??true)===true)return signature(name,shape,{contentType:'text/plain'},false);
-        return signature(name,shape,rule,styled);
+        const required=(media.form?.shape?.required??[]).includes(name);
+        if(multipart&&styled&&(rule.style??'form')==='form'&&(rule.explode??true)===true)return {...signature(name,shape,{contentType:'text/plain'},false),required};
+        return {...signature(name,shape,rule,styled),required};
     }).sort((a:any,b:any)=>a.name.localeCompare(b.name));
 }
 

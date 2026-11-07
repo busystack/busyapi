@@ -1,9 +1,9 @@
-import {createHash} from 'node:crypto';
 import {escape} from './document';
 import {pointerFragment,type ReferenceGraph,type GraphTarget} from './reference_graph';
 import {MigrationSource,type MigrationLocation} from './migration_source';
 import type {MigrationIssue} from './migration_schema';
 import {swaggerMedia} from './swagger_operation';
+import {MigrationSchemaOwners} from './migration_schema_owners';
 
 type MediaOwner=MigrationLocation&{schema?:MigrationLocation;media:readonly string[]};
 const key=(location:MigrationLocation)=>location.resource+'#'+location.pointer;
@@ -14,15 +14,12 @@ const mediaKey=(media:readonly string[])=>JSON.stringify([...new Set(media)].sor
  * Parameter/Response definition. OAS 3.0 §§4.7.13/4.7.17 instead put content on
  * that definition. Preserve one schema owner and specialize the media wrapper.
  * All copies are CST planning copies, with original payload provenance. */
-export function swaggerMediaMigration(graph:ReferenceGraph,sources:Map<string,MigrationSource>,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph]) {
+export function swaggerMediaMigration(graph:ReferenceGraph,sources:Map<string,MigrationSource>,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph],owners=new MigrationSchemaOwners(graph,sources,undefined,[],contexts)) {
     const entry=sources.get(graph.root)!;
     const bodies=new Map<string,MediaOwner>(),variants=new Map<string,MigrationLocation>();
     const edges=new Map(graph.references.filter(edge=>edge.keyword==='$ref').map(edge=>[key(edge),edge]));
     const component=(group:'schemas'|'requestBodies'|'responses',scope:MigrationLocation,variant='')=>{
-        const stem='_migrated_'+createHash('sha256').update(JSON.stringify([scope.resource,scope.pointer,variant])).digest('hex').slice(0,24);
-        let name=stem,index=0;
-        while(entry.doc.nodes.has('/components/'+group+'/'+name)||group==='schemas'&&entry.doc.nodes.has('/definitions/'+name))name=stem+'_'+(++index);
-        return {resource:graph.root,pointer:'/components/'+group+'/'+name};
+        return owners.allocate(entry,'/components/'+group,'media_'+group,JSON.stringify([scope.resource,scope.pointer,variant]));
     };
     const schemaOwner=(scope:MigrationLocation,pointer:string,resource=scope.resource):MigrationLocation|undefined=>{
         const source=sources.get(resource)!;

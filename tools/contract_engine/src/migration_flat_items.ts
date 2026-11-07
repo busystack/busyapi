@@ -97,7 +97,7 @@ export function materializeFlatSchema(graph:ReferenceGraph,sources:ReadonlyMap<s
             if(typeof next!=='string'||!types.has(next))fail(field,'migration.flat-items.type','Swagger flat item types exclude objects, null, files and type unions','target-representation');
             if(type&&type!==next){
                 if([type,next].every(type=>type==='number'||type==='integer'))type='integer';
-                else fail(field,'migration.flat-items.type-intersection','The captured type intersection has no established concrete item representation');
+                else return impossible();
             }else type=next;
         }
         const enumFields=constraints.get('enum')??[];
@@ -116,7 +116,7 @@ export function materializeFlatSchema(graph:ReferenceGraph,sources:ReadonlyMap<s
             });
             type=kinds.every(kind=>kind==='integer'||kind==='number')?kinds.includes('number')?'number':'integer':kinds.every(kind=>kind===kinds[0])?kinds[0]:undefined;
         }
-        if(!type||!types.has(type))fail(evidence,'migration.flat-items.domain','An unconstrained or mixed item domain has no concrete Swagger primitive/array type','target-representation');
+        if(!type||!types.has(type))fail(evidence,'migration.flat-items.domain','No captured concrete primitive/array domain certificate establishes this flat Swagger declaration');
         for(const {field,atom}of unsupported){
             // These native object applications never run for a concrete flat
             // primitive/array. Their independent schemas remain in the neutral

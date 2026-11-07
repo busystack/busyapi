@@ -9,12 +9,13 @@ import {ParameterSemantics} from './parameter_semantics';
 import {swaggerMedia,swaggerServers} from './swagger_operation';
 import {swaggerMediaMigration} from './migration_swagger_media';
 import {modernFamily} from './specification';
+import {MigrationSchemaOwners} from './migration_schema_owners';
 
 const schemaFields=['type','format','items','default','maximum','exclusiveMaximum','minimum','exclusiveMinimum','maxLength','minLength','pattern','maxItems','minItems','uniqueItems','enum','multipleOf'];
 
 /** Structural mappings use native graph occurrences and effective parameters,
  * including inherited body/form parameters. No guessed traversal of payloads. */
-export function upgradeSwagger(graph:ReferenceGraph,sources:Map<string,MigrationSource>,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph],targetFamily='3.0') {
+export function upgradeSwagger(graph:ReferenceGraph,sources:Map<string,MigrationSource>,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph],targetFamily='3.0',owners=new MigrationSchemaOwners(graph,sources,undefined,[],contexts)) {
     // Swagger Info text becomes a URL in 3.0 (§4.7.2). A URI-looking
     // string does not itself establish the author's intent to activate a link.
     for(const scope of graph.scopes.values())if(scope.kind==='info'&&scope.family==='2.0'){
@@ -43,7 +44,7 @@ export function upgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migration
             source.rename(pointer,next);
         }
     }
-    const parameters=new ParameterSemantics(graph),media=swaggerMediaMigration(graph,sources,issue,contexts);
+    const parameters=new ParameterSemantics(graph),media=swaggerMediaMigration(graph,sources,issue,contexts,owners);
     const path=(scope:GraphScope)=>sources.get(scope.resource)!.current(scope.pointer);
     const style=(scope:Pick<GraphScope,'resource'|'pointer'>,value:any)=>{
         const format=value.collectionFormat??'csv';
@@ -110,7 +111,8 @@ export function upgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migration
             source.set(pointer+'/requestBody',{required:form.some(parameter=>graph.docs.get(parameter.definition!.resource)!.dataNode(parameter.definition!.pointer)!.value.required===true),content:{}});
             for(const media of consumes){
                 const at=pointer+'/requestBody/content/'+escape(media);
-                if(!['application/x-www-form-urlencoded','multipart/form-data'].includes(media))issue(operation.source,'migration.form.media','Native formData requires a concrete form media representation for migration','source-incomplete');
+                const essence=media.split(';')[0].trim().toLowerCase();
+                if(!['application/x-www-form-urlencoded','multipart/form-data'].includes(essence))issue(operation.source,'migration.form.media','Native formData requires a concrete form media representation for migration','source-incomplete');
                 source.set(at,{schema:{type:'object',properties:{}}});const required:string[]=[];
                 for(const parameter of form){
                     const definition=parameter.definition!,owner=sources.get(definition.resource)!,from=owner.current(definition.pointer);if(from===undefined)continue;
@@ -119,20 +121,39 @@ export function upgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migration
                     for(const field of [...schemaFields,'description'])if(owner.doc.nodes.has(from+'/'+field))source.copy(owner,from+'/'+field,target+'/'+field);
                     for(const field of Object.keys(value).filter(name=>name.startsWith('x-')))source.copy(owner,from+'/'+escape(field),target+'/'+escape(field));
                     if(value.type==='file'){
+                        if(essence!=='multipart/form-data')issue(definition,'migration.form.file-media','Swagger file formData requires multipart/form-data','source-incomplete');
+                        // File parameters have no internal primitive/array
+                        // model. Inactive flat fields must not become active
+                        // raw maxLength, equality or transfer annotations.
+                        for(const field of schemaFields.filter(field=>field!=='type'))if(source.doc.dataNode(target+'/'+field))
+                            owners.retainLiteralValue({...definition,pointer:definition.pointer+'/'+field},source,target+'/'+field,'file_parameter_field',true);
                         if(modernFamily(targetFamily)){
                             source.remove(target+'/type');
                             source.set(at+'/encoding/'+escape(parameter.name!)+'/contentType','application/octet-stream');
                         }else {source.set(target+'/type','string');source.set(target+'/format','binary');}
                     }else modernFlatSchema(source,target);
                     if(value.required===true)required.push(parameter.name!);
-                    if(value.allowEmptyValue===true)issue({...definition,pointer:definition.pointer+'/allowEmptyValue'},'migration.form.empty','This form empty-value rule needs an explicit equivalent encoding policy','implementation');
+                    // A present empty form value is an ordinary empty string
+                    // (or repeated field) in 3.x. Omitting a field remains
+                    // distinct and is governed by the required property list.
+                    if(value.allowEmptyValue!==true&&value.type==='string'&&(!Object.hasOwn(value,'minLength')||value.minLength===0))source.set(target+'/minLength',1);
                     if(value.type==='array'){
                         if(value.items?.type==='array')issue({...definition,pointer:definition.pointer+'/items'},'migration.form.nested-collection','This nested Swagger form collection cannot retain its delimiter hierarchy in OpenAPI 3.0','target-representation');
                         const format=value.collectionFormat??'csv';
-                        if(media==='multipart/form-data'){
+                        if(essence==='multipart/form-data'&&targetFamily==='3.0'){
                             if(format!=='multi')issue({...definition,pointer:definition.pointer+'/collectionFormat'},'migration.form.collection','OpenAPI 3.0 multipart arrays use repeated parts and cannot preserve this Swagger collection separator','target-representation');
-                        }else if(format==='tsv')issue({...definition,pointer:definition.pointer+'/collectionFormat'},'migration.form.collection','OpenAPI 3.0 has no tabDelimited form encoding','target-representation');
+                        }else if(format==='tsv')issue({...definition,pointer:definition.pointer+'/collectionFormat'},'migration.form.collection','OpenAPI has no tabDelimited form encoding','target-representation');
                         else source.set(at+'/encoding/'+escape(parameter.name!),style(definition,value));
+                        if(format!=='multi'&&value.items?.type==='string'){
+                            const separator=format==='ssv'?' ':format==='pipes'?'|':',';
+                            if(!Array.isArray(value.items.enum)||value.items.enum.some((item:unknown)=>typeof item!=='string'||item.includes(separator)))
+                                issue({...definition,pointer:definition.pointer+'/items'},'migration.form.collection-boundary','Separated string items need an exhaustive separator-free language certificate before RFC6570 expansion can preserve Swagger split boundaries','implementation');
+                        }
+                        if(value.allowEmptyValue!==true&&value.items?.type==='string'){
+                            if(format==='multi'){
+                                if(!Object.hasOwn(value.items,'minLength')||value.items.minLength===0)source.set(target+'/items/minLength',1);
+                            }else source.set(target+'/not',{minItems:1,maxItems:1,items:{type:'string',enum:['']}});
+                        }
                     }
                 }
                 if(required.length)source.set(at+'/schema/required',required);

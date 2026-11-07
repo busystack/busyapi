@@ -151,7 +151,7 @@ export function decodeRuntimeForm(text:string,id:string,contentType:string,base6
                 if(value.serialization)decodeRuntimeMedia(value.bytes.toString('base64'),id+'/file',mimePartDecodingType(singleton(values[0].headers,'content-type')??'application/octet-stream',true),true,'unsupported',value.serialization);
                 checks.push({document:document('null','file/'+checks.length),prefix:'/'+escape(name),file:true});continue;
             }
-            if(value.allowEmptyValue!==true&&values.some(part=>part.bytes.length===0))issue('runtime.request.form.empty','This parameter does not allow an empty wire value',name,definition);
+            if(value.allowEmptyValue!==true&&values.some(part=>payload(part).bytes.length===0))issue('runtime.request.form.empty','This parameter does not allow an empty decoded field value',name,definition);
             const tokens=values.map(part=>{
                 const value=payload(part);return bytesText(value.bytes,mimePartDecodingType(singleton(part.headers,'content-type')??'text/plain; charset=utf-8',mediaTypes(contentType,false)[0].subtype==='form-data'),value.serialization);
             });

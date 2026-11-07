@@ -7,6 +7,28 @@ const {createGraph, analyse} = require('./dist/model.cjs');
 const {evaluateSchemas} = require('./dist/schema_evaluation.cjs');
 
 const publishedTargets = ['3.0.0', '3.0.1', '3.0.2', '3.0.3', '3.0.4', '3.1.0', '3.1.1', '3.1.2', '3.2.0', '3.2.1'];
+for(const version of ['3.1.2','3.2.1'])for(const format of ['yaml','json'])test(`R2 ${version} ${format} compatible raw/JSON media retain one Swagger wire schema and independent owners`,async()=>{
+ const root='file:///approved/api.'+format,type='application/octet-stream',raw={maxLength:4},data={type:'string',maxLength:4};
+ const content={[type]:{schema:raw},'application/json':{schema:{$ref:'#/components/schemas/Text'}}};
+ const value={openapi:version,info:{title:'R2 media',version:'1'},servers:[{url:'https://api.invalid'}],paths:{'/bytes':{post:{requestBody:{content},responses:{200:{description:'Reply',content}}}}},components:{schemas:{Text:data,Independent:{$ref:'#/paths/~1bytes/post/requestBody/content/application~1octet-stream/schema'}}}};
+ const text=format==='json'?JSON.stringify(value):require('yaml').stringify(value),input={root,snapshot:'R2-media',resources:[{id:root,text,generation:6}],targetVersion:'2.0',destination:'file:///reviewed/'};
+ const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(input.resources[0].text,text);
+ const after=reopened(result);assert.equal(analyse(after).complete,true);assert.equal(analyse(standalone(result)).complete,true);
+ assert.deepEqual(operations(after).map(plan=>[plan.requestBody.content.map(value=>value.mediaType).sort(),plan.responses[0].content.map(value=>value.mediaType).sort()]),[[['application/json',type],['application/json',type]]]);
+ const checked=await evaluateSchemas({...after,runtimeInstances:[{subject:'response-body',location:'independent',text:'false',schema:{resource:after.root,pointer:'/definitions/Independent'}}]});
+ assert.equal(checked.complete,true);assert(checked.runtimeEvaluations.every(value=>value.valid));
+ const beforeProof=await evaluateSchemas({...input,runtimeInstances:[{subject:'response-body',location:'independent',text:'false',schema:{resource:root,pointer:'/components/schemas/Independent'}}]});
+ assert.deepEqual(checked.runtimeEvaluations.map(value=>value.valid),beforeProof.runtimeEvaluations.map(value=>value.valid));
+});
+
+for(const format of ['yaml','json'])for(const compatible of [true,false])test(`R2 ${format} fixed referenced media schemas compatible=${compatible} do not become a union`,async()=>{
+ const root='file:///approved/api.'+format,content={'application/json':{schema:{$ref:'#/components/schemas/A'}},'application/vnd.busy+json':{schema:{$ref:'#/components/schemas/B'}}};
+ const value={openapi:'3.0.4',info:{title:'R2 alternatives',version:'1'},servers:[{url:'https://api.invalid'}],paths:{'/items':{post:{requestBody:{content},responses:{200:{description:'Reply',content}}}}},components:{schemas:{A:{type:'string'},B:{type:compatible?'string':'integer'}}}};
+ const text=format==='json'?JSON.stringify(value):require('yaml').stringify(value),result=await planMigration({root,snapshot:'media-schema',resources:[{id:root,text,generation:1}],targetVersion:'2.0',destination:'file:///reviewed/'});
+ assert.equal(result.complete,compatible,JSON.stringify(result.problems));
+ if(!compatible){assert.deepEqual(result.outputs,[]);assert(result.problems.some(value=>value.code==='migration.body.media-schema'||value.code==='migration.response.media-schema'));}
+ else assert.equal(analyse(reopened(result)).complete,true);
+});
 function capture(body, extras = [], format = 'yaml') {
   const root = 'file:///approved/api.' + format;
   const resources = [{id: root, generation: 3, text: `# Original API\nswagger: '2.0'\ninfo: {title: Media, version: '1'}\nhost: api.invalid\nschemes: [https]\nbasePath: /v1\nconsumes: [application/json]\nproduces: [application/json]\n${body}`}, ...extras];

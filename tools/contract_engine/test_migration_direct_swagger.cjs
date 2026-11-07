@@ -4,6 +4,25 @@ const {analyse}=require('./dist/model.cjs');
 const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
 const {SourceDocument}=require('./dist/document.cjs');
 const versions=['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'];
+for(const targetVersion of ['3.0.4','3.1.2','3.2.1'])for(const format of ['yaml','json'])test(`R2 Swagger ${format} inherited mixed forms and reusable file responses -> ${targetVersion}`,async()=>{
+ const root='file:///approved/api.'+format;
+ const response={$ref:'#/responses/File'},value={swagger:'2.0',info:{title:'Mixed R2',version:'1'},host:'api.invalid',schemes:['https'],consumes:['multipart/form-data'],produces:['application/octet-stream','image/png'],paths:{'/items':{parameters:[{name:'file',in:'formData',type:'file',required:true,maxLength:0},{name:'name',in:'formData',type:'string',allowEmptyValue:true},{name:'numbers',in:'formData',type:'array',collectionFormat:'multi',allowEmptyValue:true,items:{type:'integer',minimum:0}}],post:{responses:{200:response}}},'/file':{get:{produces:['image/png'],responses:{200:response}}}},responses:{File:{description:'Shared file',schema:{type:'file'}}}};
+ const text=format==='json'?JSON.stringify(value):YAML.stringify(value),input={root,snapshot:'R2-swagger',resources:[{id:root,text,generation:4}],targetVersion,destination:'file:///reviewed/'};
+ const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(input.resources[0].text,text);
+ const after={root:result.outputRoot,snapshot:'R2-cold',resources:result.outputs.map(value=>({id:value.id,text:value.text,generation:0}))};
+ assert.equal(analyse(after).complete,true);
+ const {createGraph}=require('./dist/model.cjs'),{requestOperation}=require('./dist/execution.cjs');
+ for(const captured of [input,after]){
+  const {graph}=createGraph(captured),operation=graph.operations().find(value=>value.path==='/items'),plan=requestOperation({...captured,resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
+  assert.deepEqual(plan.responses[0].content.map(value=>value.mediaType).sort(),['application/octet-stream','image/png']);
+  const type='multipart/form-data; boundary=R2';
+  for(const raw of [Buffer.alloc(0),Buffer.from([0,255,128])]){
+   const bytes=Buffer.concat([Buffer.from('--R2\r\nContent-Disposition: form-data; name="file"\r\nContent-Type: application/octet-stream\r\n\r\n'),raw,Buffer.from('\r\n--R2\r\nContent-Disposition: form-data; name="name"\r\n\r\n\r\n--R2\r\nContent-Disposition: form-data; name="numbers"\r\n\r\n0\r\n--R2--\r\n')]);
+   const media=plan.requestBody.content[0],checked=await evaluateSchemas({...captured,runtimeInstances:[{subject:'request-body',location:type,text:bytes.toString('base64'),mediaType:type,mediaBase64:true,form:media.swaggerForm?{resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence}:media.definition??media.source}]});
+   assert.equal(checked.complete,true,JSON.stringify(checked.runtimeFindings));assert(checked.runtimeEvaluations.every(value=>value.valid));assert(!checked.runtimeFindings.some(value=>value.severity==='error'));
+  }
+ }
+});
 function fixture(format,external=false){
  const root='file:///approved/api.'+format,model='file:///approved/model.'+format;
  const tuple={type:'array',items:[{type:'integer',minimum:'EXACT',exclusiveMinimum:true},{type:'string'}]};
@@ -19,7 +38,7 @@ for(const targetVersion of versions)for(const format of ['yaml','json'])for(cons
  const values=['[]','[9007199254740994]','[9007199254740994,"雪",false,null,{}]','[9007199254740993]','["wrong"]','[9007199254740994,0]'];
  const evaluate=(capture,pointer)=>evaluateSchemas({...capture,runtimeInstances:values.map(text=>({subject:'response-body',location:'application/json',text,schema:{resource:capture.root,pointer}}))});
  const before=await evaluate(input,'/definitions/Tuple');assert.equal(before.complete,true,JSON.stringify(before.findings));
- const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(result.producerVersion,'88');
+ const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(result.producerVersion,'89');
  assert(!result.stages.some(stage=>stage.from==='2.0'&&stage.to==='3.0'));
  const target={root:result.outputRoot,snapshot:'cold',resources:result.outputs.map(o=>({id:o.id,text:o.text,generation:0}))};
  assert.equal(analyse(target).status,'complete');
@@ -45,7 +64,7 @@ for(const targetVersion of ['3.0.4',...versions])for(const media of ['applicatio
  const input={root,snapshot:'file-response',resources:[{id:root,text,generation:0}],targetVersion,destination:'file:///reviewed/'},result=await planMigration(input);
  assert.equal(analyse(input).status,'complete');
  if(media==='application/json'){
-  assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);assert(result.problems.some(p=>p.code==='migration.schema.binary-context'&&p.reason==='implementation'));
+  assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);assert(result.problems.some(p=>p.code==='migration.schema.binary-context'&&p.reason==='target-representation'));
  }else{
   assert.equal(result.complete,true,JSON.stringify(result.problems));
   const after={root:result.outputRoot,snapshot:'raw-file-cold',resources:result.outputs.map(o=>({id:o.id,text:o.text,generation:0}))},operation='/paths/~1file/get/responses/200';

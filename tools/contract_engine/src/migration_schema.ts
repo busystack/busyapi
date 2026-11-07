@@ -204,7 +204,7 @@ export async function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Mig
             unevaluatedProperties:'The captured successful-applicator graph has no supported name-selection certificate; referenced, recursive or dynamically selected coverage cannot be guessed',
             propertyNames:'No annotation-free string-domain, finite regex-language or closed-property-domain certificate preserves this name assertion and its applicable annotations',
             contentSchema:'The older Schema Object vocabulary has no decoded-content-schema annotation; retaining an independent schema does not preserve its active decoded-content binding',
-            contentEncoding:'The content encoding annotation has no proved mapping at every captured occurrence',
+            contentEncoding:'The captured encoding has no standard legacy annotation with the same string and wire representation (base64url and other encodings cannot be relabeled as base64)',
             contentMediaType:'The decoded media annotation has no proved binding at every captured occurrence',
         };
         if(!modernFamily(to))for(const [name,message]of Object.entries(pending))

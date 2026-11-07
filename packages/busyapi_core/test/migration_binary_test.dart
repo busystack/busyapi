@@ -6,9 +6,9 @@ import 'package:test/test.dart';
 
 import 'test_support.dart';
 
-String _source(String version, String format, int port, {required bool binary, bool r1 = false}) {
+String _source(String version, String format, int port, {required bool binary, bool r1 = false, bool opaqueEncoded = false}) {
   final legacy = version.startsWith('3.0.');
-  final type = binary ? 'application/octet-stream' : 'application/json';
+  final type = binary || opaqueEncoded ? 'application/octet-stream' : 'application/json';
   final schema = binary
       ? legacy ? {'type': 'string', 'format': 'binary', if (r1) ...{'enum': ['', 'discarded'], 'maxLength': 0, 'pattern': r'^$'}}
           : {'contentMediaType': 'application/octet-stream'}
@@ -144,7 +144,7 @@ void main() {
         environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
       expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');
       final report = jsonDecode(cli.stdout as String) as Map;
-      expect(report['complete'], true); expect(report['producerVersion'], '88');
+      expect(report['complete'], true); expect(report['producerVersion'], '89');
       expect(report['published'], false);
       await review.publish();
       expect(await file.readAsString(), text); expect(buffer.text, working);
@@ -157,13 +157,14 @@ void main() {
   }
   for (final version in ['3.0.0', '3.0.1', '3.0.2', '3.0.3', '3.0.4',
     '3.1.0', '3.1.1', '3.1.2', '3.2.0', '3.2.1']) {
-    for (final format in ['yaml', 'json']) for (final binary in [true, false]) {
-      test('$version $format ${binary ? 'raw' : 'base64'} migration retains HTTP bytes and unsaved source', () async {
+    for (final format in ['yaml', 'json']) for (final representation in ['raw', 'base64-json', 'base64-opaque']) {
+      final binary = representation == 'raw', opaqueEncoded = representation == 'base64-opaque';
+      test('$version $format $representation migration retains HTTP bytes and unsaved source', () async {
         final directory = await Directory.systemTemp.createTemp('busyapi-migrate-binary-');
         addTearDown(() => directory.delete(recursive: true));
         final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
         addTearDown(() => server.close(force: true));
-        final type = binary ? 'application/octet-stream' : 'application/json';
+        final type = binary || opaqueEncoded ? 'application/octet-stream' : 'application/json';
         final observed = <List<int>>[];
         server.listen((request) async {
           expect(request.method, 'POST');
@@ -176,7 +177,7 @@ void main() {
           request.response.add(bytes);
           await request.response.close();
         });
-        final original = _source(version, format, server.port, binary: binary);
+        final original = _source(version, format, server.port, binary: binary, opaqueEncoded: opaqueEncoded);
         final file = File('${directory.path}/api.$format')..writeAsStringSync('\ufeff$original');
         final originalBytes = file.readAsBytesSync();
         final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);
@@ -191,7 +192,7 @@ void main() {
         final review = await project.prepareMigration(root, destination, targetVersion: target);
         addTearDown(review.close);
         expect(review.status, MigrationStatus.faithfullyConvertible, reason: '${review.result}');
-        expect(review.result['producerVersion'], '88');
+        expect(review.result['producerVersion'], '89');
         expect(review.unsaved, true);
         expect(Directory(destination).existsSync(), false);
         await review.publish();
@@ -203,6 +204,7 @@ void main() {
         addTearDown(migrated.close);
         final payload = File('${directory.path}/payload.bin');
         final wires = binary ? <List<int>>[[0, 255, 128, 195, 169], []]
+            : opaqueEncoded ? <List<int>>[utf8.encode('AP+A'), [], utf8.encode('too-long-for-bounds'), [255, 128]]
             : <List<int>>[utf8.encode('"AP+A"'), utf8.encode('""'), utf8.encode('false')];
         final outcomes = <List<(bool, bool)>>[];
         for (final active in [project, migrated]) {
@@ -241,18 +243,19 @@ void main() {
         expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');
         final report = jsonDecode(cli.stdout as String) as Map;
         expect(report['complete'], true);
-        expect(report['producerVersion'], '88');
+        expect(report['producerVersion'], '89');
         expect(report['published'], false);
         expect(Directory('${directory.path}/cli-review').existsSync(), false);
       });
     }
   }
-  for (final format in ['yaml', 'json']) for (final r1 in [false, true]) {
-    test('$format R1=$r1 binary migration cancellation and stale review leave both destinations absent', () async {
+  for (final format in ['yaml', 'json']) for (final representation in ['raw', 'r1', 'r2']) {
+    final r1 = representation == 'r1', r2 = representation == 'r2';
+    test('$format $representation binary migration cancellation and stale review leave both destinations absent', () async {
       final directory = await Directory.systemTemp.createTemp('busyapi-binary-stale-');
       addTearDown(() => directory.delete(recursive: true));
       final file = File('${directory.path}/api.$format')
-        ..writeAsStringSync(_source('3.0.4', format, 12345, binary: true, r1: r1));
+        ..writeAsStringSync(_source('3.0.4', format, 12345, binary: !r2, r1: r1, opaqueEncoded: r2));
       final original = file.readAsBytesSync();
       final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);
       addTearDown(engine.close);
@@ -265,7 +268,7 @@ void main() {
       await expectLater(review.publish(cancelled: () => true), throwsA(isA<CoreFailure>()
           .having((e) => e.code, 'code', 'cancelled')));
       expect(Directory(destination).existsSync(), false);
-      if (r1) {
+      if (r1 || r2) {
         final refused = await project.prepareMigration(root, '${directory.path}/refused', targetVersion: '3.2.1');
         addTearDown(refused.close);
         await expectLater(refused.publish(beforePublish: () async {

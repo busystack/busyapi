@@ -44,7 +44,7 @@ import {securityRequirementDefinition} from './security_requirements';
 import {migrateSwaggerSecurityFlows} from './migration_security_flows';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='88';
+const migrationProducerVersion='89';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const referenceLocator=(reference:GraphReference)=>!reference.connection&&['$ref','$dynamicRef'].includes(reference.keyword)||
     reference.connection==='operationRef'&&reference.keyword==='operationRef';
@@ -394,7 +394,7 @@ export async function planMigration(input:MigrationInput) {
             }
             for(const before of stage.sources)await migrateSchemas(graph,sources,before,after,issue,contexts.map(context=>context.graph),resources,input.exampleResources);
             for(const before of stage.sources)migrateEncodings(graph,sources,before,after,issue,contexts.map(context=>context.graph));
-            const referenceTargets=stage.sources.includes('2.0')?upgradeSwagger(graph,sources,issue,contexts.map(context=>context.graph),after):undefined;
+            const referenceTargets=stage.sources.includes('2.0')?upgradeSwagger(graph,sources,issue,contexts.map(context=>context.graph),after,owners):undefined;
             if(problems.length)break;
             const discriminator=stage.sources.includes('2.0')?migrateSwaggerDiscriminators(graph,sources,issue,contexts.map(context=>context.graph),location=>{
                 const original=sourceLocation(location.resource,location.pointer);
