@@ -31,6 +31,156 @@ consume those shared results. Source-preserving transactions remain authoritativ
 Current changes require complete engine, Core, native and packaged verification;
 source inspection or a successful build is not runtime acceptance.
 
+## B05-R3: Server, security and newer-version object migration
+
+**B05-R3 is partially implemented, unverified. It is not source-complete.**
+Work started at `cad713af880763d88bf247f971c3a193d45c7c09` in the primary
+`release/v0.1.0` checkout. This section supersedes historical statements that
+R3 has not begun. A01–A03, B01–B04 and B05-R1/R2 remain the implementation
+baseline. B05 remains incomplete. **B05-R4 has not begun.** The implementation
+gaps below must not be treated as target impossibilities or closed by the
+execution hold.
+
+The versioned normative authorities in this register govern the changes,
+particularly Server, Path Item, Security Scheme, OAuth Flows, Security
+Requirement, Components, Media Type, Encoding, Example, Tag, XML and
+Discriminator clauses. Swagger has protocol alternatives and operation-level
+schemes; it has neither independent operation hosts nor the modern authentication
+and invocation categories listed under target restrictions below.
+
+Implemented source changes:
+
+- Exhaustive Server-variable substitution reuses `finiteServerVariableValues`,
+  retains 3.0 defaults outside the recommended enum, binds repeated variable
+  names once and treats enum strings as opaque substitutions. Defaults are
+  considered first. Equivalent choices collapse to one Swagger host/basePath
+  with all protocol alternatives; inherited operation protocols become local
+  schemes. Common-authority proof handles protocol-default port elision.
+  Relative URLs resolve against their captured retrieval URI, independently
+  of `$self`. Local-file retrievals retain the equivalent absent-host/schemes
+  representation; they do not become invented HTTP origins. Server and variable
+  descriptions retain standard rendered documentation owners and authored
+  history through the common allocator.
+- Shared-operation ownership now captures effective Server context, including
+  root inheritance and the implicit default. Moved native operation holders
+  retain that context. Server default-enum repairs visit all captured entries
+  and surviving native variable owners. Request invariants compare exhaustive
+  effective URL sets and their initial default, while unbounded templates keep
+  their template/variable proof. Ordered security invariants are unchanged.
+- Existing URI/component security binding, configuration, role and multi-flow
+  specialization mechanisms remain shared. Inactive 3.2 security deprecation
+  retains authored history; active deprecation, metadata discovery and device
+  grants receive located target restrictions. Mutual TLS lowering to 3.0 is
+  rejected explicitly. API-key, Basic, OAuth and applicable modern security
+  representations continue through their established conversions; no weaker
+  scheme substitutes for unsupported authentication.
+- The general newer-field refusal is replaced by version-specific handling.
+  Empty additional-operation, Webhook, Link and Callback maps retain inactive
+  history. Required empty Paths maps are materialized for component-only roots
+  targeting older families. Redundant Tag/Info summaries retain authored values
+  without renaming identities. XML element/attribute and array wrapping node
+  types lower when their modeled domains establish equivalence; inactive XML
+  instructions retain history. Finite required string discriminants can lower
+  fallback dispatch to explicit mappings without adding validation assertions.
+  Component-name precedence is checked across captured entries; the fallback
+  connection survives in an unreachable ordinary mapping entry and through the
+  discriminator/container role transition on subsequent stages.
+- Known sequential media `itemSchema` constraints become whole-content array
+  item constraints. Existing whole-content constraints retain independent
+  owners. Empty/default and proved inapplicable positional/nested encoding
+  instructions retain history, with Header/schema owners preserved separately.
+  Active unproved part instructions are never treated as ignored metadata.
+- Older Media Type slots materialize referenced envelopes while retaining
+  independent references to schemas, named Examples and Headers. Reusable Media
+  Types use unused standard Response content holders in 3.1/3.0; reusable Path
+  Items use unused Callback holders in 3.0. Used Path Items can retain native
+  Swagger fragment owners through the existing allocator. These placements
+  add no executable route or callback invocation. Link operation connections,
+  runtime expressions and actual Callback declarations continue unchanged
+  where their target family supports them.
+- JSON/plain-text `dataValue` and `serializedValue` representations lower to
+  older Example values when all captured consumers agree. Paired values require
+  exact data and byte agreement; external bytes use the existing approved
+  capture. Simple ASCII string Header examples have an explicit equality
+  certificate. Original serialized strings retain literal owners. Later native
+  conversions recognize allocator-owned retained values instead of mutating
+  historical payloads as though their old roles remained active.
+
+Known remaining R3 implementation/proof gaps:
+
+| Gap | Current boundary |
+| --- | --- |
+| Different operation base paths under one compatible authority | `migration.server.operation-path`: operation/path relocation is not implemented. This is an implementation gap, not a universal Swagger limitation. |
+| Saved Server selections and environment coupling | `migration.server.configured-selection`: a changed saved ordinal, configured variable default or invalid-selection activation needs a reviewed configuration projection. Existing selectors are checked against captured operation contexts; the unchanged configuration cannot silently select another URL. Execution-environment interpolation inside a lowered Server URL retains an unavailable-proof refusal. |
+| Independently unused reusable Path Items targeting Swagger | `migration.path-item.unused-owner`: the remaining independently typed fragment/owner case is not implemented. |
+| Reusable Media Type categories targeting Swagger | `migration.components.mediaTypes`: occurrence materialization exists, but neutral reusable envelopes and their independently consumed children still need complete Swagger ownership conversion. |
+| Whole-query parameters | `migration.parameter.querystring-proof`: no whole-query lowering certificate is implemented, including finite cases that may admit exact older serialization. |
+| Positional/nested multipart and response part instructions | Non-default instructions still need complete shape-specific conversion, including any equivalent older Schema annotations; current unavailable-proof/target boundaries do not establish that every such source is impossible. |
+| General newer Example serialization | Other parameter/Header serializations, non-JSON/plain-text codecs and unbound reusable examples still lack the required equality/ownership certificates. Simple string Header, JSON and plain-text conversions do not close this matrix. |
+| Other newer parameter/XML/fallback specializations | Finite cookie-style lowering, mixed XML domains/reference-forwarding cases, and fallback relationships outside the established required finite-string certificate remain unreconciled. |
+| Combined R3 regression coverage | New coverage is prepared below, but the complete requested Engine/Core/native/CLI and transaction matrix is not yet prepared for every remaining conversion. |
+
+Established target restrictions include distinct authorities that one Swagger
+host cannot preserve; distinct Server alternatives that cannot retain one
+operation's choices in the target; unsupported HTTP methods with exact authored
+capitalization; non-OAuth roles in restricted families; cookie API keys and
+non-Basic HTTP/OpenID Connect/mutual TLS authentication in Swagger; distinct
+OAuth refresh endpoints; unsupported discovery/device grants; active newer
+deprecation or independently named Server labels without a target field; active
+Tag kind/parent/display-summary relationships without an equivalent older
+field; distinct XML text/CDATA nodes; and active Links, Callbacks and Webhooks
+where the target has no corresponding invocation/connection representation.
+No proprietary extension implements one of these missing categories.
+
+Unavailable evidence remains distinct: exhaustive variable domains or bounded
+choice proofs, actual media/part shapes, schema-ready versus wire example
+equality, approved external bytes, finite discriminator domains and consistent
+implicit namespaces, and an established license URL for a newer SPDX identifier.
+Preserved source fields are not evidence that their target behavior is equivalent.
+
+Prepared regressions, all **unexecuted**:
+
+| Concern | Existing registered suites extended |
+| --- | --- |
+| Published declarations, YAML/JSON, multiple schemes, defaults, inheritance, equivalent choices, default ports, relative/local retrievals and distinct/unbounded negative controls | Engine `test_migration_default_servers.cjs`; Core `migration_default_server_test.dart`; native `server_default_migration_review_test.dart` |
+| Cross-file media/Path Item ownership, Links, actual Callback reachability, runtime expressions, Tag/XML/fallback metadata, examples, item constraints and source/cold runtime validation | Engine `test_migration_object_uses.cjs` |
+| Core request method, URL, content type, body and response bytes; unsaved inputs, repeat review, cancellation, stale review, destination races, controlled publication failure, deletion of originals, relocation and installed CLI checking | Core `migration_object_uses_test.dart` |
+| Ordered AND/OR/anonymous and duplicate security requirements, inactive deprecation, target authentication/grant restrictions and credential behavior | Engine `test_migration_security.cjs`; Core `migration_security_test.dart`; native `migration_review_test.dart` |
+| Exact unsupported methods and querystring proof boundaries | Engine `test_migration_entry_routes.cjs`, `test_migration.cjs` |
+| Packaged positive Server/media preview, distinct-target refusal and obsolete producer rejection | `tools/test_native_migration_preflight.py`, Core `migration_exact_configuration_test.dart` |
+
+The existing engine gate already registers the extended suites. Core/native
+discovery and packaged-preflight registration remain unchanged. Other touched
+regression sources synchronize their producer assertions; those edits alone
+do not supply new behavioral coverage.
+
+Migration producer is **93**, synchronized across Engine, Core admission,
+preflight, native fixture and CLI-facing expectations. Producer 92 is retained
+as an obsolete negative control. Schema-example projection **3**, evaluator
+**1.18.0+60**, graph **9** and the existing mock/sample producers are unchanged.
+Bundles remain unbuilt and do not qualify producer 93.
+
+Production files: Engine `migration.ts`, `migration_documents.ts`,
+`migration_downgrade.ts`, `migration_servers.ts`, `server_semantics.ts`,
+`migration_security.ts`, `migration_operation.ts`,
+`migration_operation_contexts.ts`, `migration_invariants.ts`,
+`migration_schema_owners.ts`, `migration_schema_uses.ts`, and new
+`migration_newer_objects.ts`, `migration_media_objects.ts`,
+`migration_example_versions.ts`; Core `lib/src/migration.dart`; and
+`tools/native_migration_preflight.py`. Native and CLI production consumers
+continue to use the shared review/publication protocol.
+
+**Actual verification:** official specification consultation, manual source
+inspection (including the installed Dart URI path-normalization implementation),
+Git state and diff/whitespace review only. No compiler, analyzer, test, build,
+generation, CI, graphical/native workload, packaging or performance check ran.
+The official Flutter SDK and third-party software were not modified. The
+execution hold remains active; Snapcraft remains skipped. Local implementation
+commits do not establish source completion or runtime acceptance. The named next
+assignment remains **B05-R4 — Combined B05 integration, invariant verification
+and source-completion reconciliation**; this incomplete R3 record does not
+authorize starting it or moving R3 implementation gaps into a completed bucket.
+
 ## B05-R2: parameter, body, response, example and reusable-object conversion
 
 **B05-R2 is source-complete, unverified within W3.08.** Work started at
@@ -1588,8 +1738,8 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W3.05 Static/dynamic references, anchors, identities and independent annotations; JC §§8–9 | identity/schema-reference/role owners | M E S C | static-dynamicref/identity/boolean/inactive annotation suites, pinned official dynamicRef cases, Core static/dynamic reference publication/HTTP/CLI journeys | Partially implemented; inactive anchors and dynamic applicators whose captured candidates all identify the initial target lower through one shared binding proof. Sibling constraints and recursive references remain separate allOf/static edges; resource/role provenance and cold reopening are proved. Whole-resource entry variants retain static/dynamic targets, anchors and resource boundaries; downstream dynamic dependencies require a same-resource holder. Partial modern resources and native slots now receive common resource owners; moved definitions remain anonymous and native discriminator URI targets repair before stage validation; A03 adds ordinary and foreign whole-resource holders, nested identity/dialect ownership, named dynamic retargeting, resource/anchor isomorphism and neutral native-slot frames; old-family competing-target lowering remains an explicitly unfinished representation mapping, while unsupported dialects and unavailable/ambiguous source identities stay incomplete | H |
 | W3.06 Pattern/property-name/contains/count/unevaluated/content constraints; JC §§10–11, JV §§6/8 | `migration_schema.ts`, name-domain/regex/containment/annotation certificate owners, existing binary/reference/dependency owners | M E S C | pattern/property-name/array/unevaluated/content suites, official fixtures, Core/native B03 journeys | Source-complete for established B03 certificate families, unverified; finite/cofinite/closed name proofs, finite/universal/equivalent-uniform pattern selection, nonconstant structural/existential/complement/unique-finite counts, successful composed/reference annotation selection, static/homogeneous/finite positional coverage and inactive content-owner preservation are implemented. Active decoded-content annotations retain actual older-vocabulary refusals; unavailable name/count/coverage/binding certificates and B04 binary work are distinguished in the B03 handoff above | H |
 | W3.07 Raw/data/base64/byte/file/union consumers and byte constraints; family binary clauses, JV §8 | `migration_binary.ts`, Swagger flat/media owners | M E S C | migration binary, direct Swagger, form/media, Core and native binary suites | Source-complete, unverified after B04-R3 reconciliation; common entry proof capture, YAML containing literals, exact media-value comparison and intersected singleton cardinality are corrected. R1/R2 mappings share the existing ownership/schema/media pipeline; complete binary transaction/native/CLI/preflight regression sources are registered. Remaining target restrictions, unavailable proofs and source/evidence prerequisites are separately classified and source-located in the R3 register above; no known established representable B04 mapping is deferred | H |
-| W3.08 Inherited media, forms/files, examples without schemas, shared operations/body meaning and reusable objects; family object clauses | Swagger media/form/downgrade/operation owners | M E S C | Swagger media/form/bodyless/ignored-body suites, Core form CLI | R1 and R2 source-complete, unverified; inherited media use entry owners, representable parameter/body/response/example/reusable conversions are implemented, bodyless legacy examples retain a precise standard-target restriction, and remaining proof/target boundaries are registered above; general newer-object conversion remains B05-R3 | H |
-| W3.09 Servers/security/newer-version fields and invariant proof; family clauses, HTTP/URI | servers/security/operation/invariant owners | M E S C | default-server/security-role/entry-route suites, native-object-use publication and URI-key controls | Partially implemented; Retained 3.2 URI security bindings preserve separate role arrays through owner specialization and portable relocation, with target/name-precedence proofs and declaration/scopes invariants. Older-family URI-to-name source paths now allocate separate standard components through the shared allocator and additional typed-use provenance; external/aliased targets, name precedence, exact scope/role arrays and AND/OR order retain captured connection and request proofs. Shared URI requirements seed entry specialization even when their targets agree; source-side moves repair relative URI keys, and targets lacking Path Item component maps use common anonymous holders. Scheme Reference Object materialization retains applicable description overrides and their original Markdown bases. Captured environment aliases, exact manifest text/identity, Core stale/publication checks, native binding review and CLI output are implemented with prepared regressions; execution remains outstanding. Standard OAuth acquisition flows now specialize into one-flow Swagger schemes and ordered OR expansions without merging AND bindings or scope arrays. Compatible global environment selections project through captured effective security-array owners, intersect complete branch sets across operations, and preserve invalid-selection guards. Ignored Reference Object siblings retain full literal copies through the shared anonymous allocator; source formats/comments and exact values survive materialization. Non-OAuth roles in restricted targets, unavailable summary/discovery/device representations and flow metadata without a standard target container retain located blockers. Mixed-family ownership without compatible holders and remaining newer-field mappings remain implementation work | H |
+| W3.08 Inherited media, forms/files, examples without schemas, shared operations/body meaning and reusable objects; family object clauses | Swagger media/form/downgrade/operation owners | M E S C | Swagger media/form/bodyless/ignored-body suites, Core form CLI | R1 and R2 source-complete, unverified; inherited media use entry owners, representable parameter/body/response/example/reusable conversions are implemented, bodyless legacy examples retain a precise standard-target restriction, and remaining proof/target boundaries are registered above; B05-R3 adds the newer-object conversions and prepared coverage recorded above but remains partially implemented, unverified | H |
+| W3.09 Servers/security/newer-version fields and invariant proof; family clauses, HTTP/URI | servers/security/operation/invariant owners | M E S C | default-server/security-role/entry-route suites, native-object-use publication and URI-key controls | Partially implemented; Retained 3.2 URI security bindings preserve separate role arrays through owner specialization and portable relocation, with target/name-precedence proofs and declaration/scopes invariants. Older-family URI-to-name source paths now allocate separate standard components through the shared allocator and additional typed-use provenance; external/aliased targets, name precedence, exact scope/role arrays and AND/OR order retain captured connection and request proofs. Shared URI requirements seed entry specialization even when their targets agree; source-side moves repair relative URI keys, and targets lacking Path Item component maps use common anonymous holders. Scheme Reference Object materialization retains applicable description overrides and their original Markdown bases. Captured environment aliases, exact manifest text/identity, Core stale/publication checks, native binding review and CLI output are implemented with prepared regressions; execution remains outstanding. Standard OAuth acquisition flows now specialize into one-flow Swagger schemes and ordered OR expansions without merging AND bindings or scope arrays. Compatible global environment selections project through captured effective security-array owners, intersect complete branch sets across operations, and preserve invalid-selection guards. Ignored Reference Object siblings retain full literal copies through the shared anonymous allocator; source formats/comments and exact values survive materialization. Non-OAuth roles in restricted targets, unavailable summary/discovery/device representations and flow metadata without a standard target container retain located blockers. The B05-R3 section above records finite Server conversion, newer-object/metadata handling, prepared coverage and exact remaining implementation/proof gaps; R3 is not source-complete and mixed-family/newer-field completion remains open | H |
 | W3.10 Unsaved capture, stale review rejection, original preservation, inventories, exact external bytes, atomic publication and relocated verification; URI/TEXT, Core transaction contract | migration source/examples/invariants; Core `migration.dart` and publication owners | M S C | Core migration/derived-resource/publication suites, engine external examples | R2 source integration is complete and unverified; captured bytes use surviving native locators or proved standard literals, with per-entry ownership, exact payload and cold proofs, immutable review and atomic publication; current runtime/publication acceptance remains required | H |
 
 ### W4–W5: wire representations and execution

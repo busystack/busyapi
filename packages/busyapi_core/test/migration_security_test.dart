@@ -9,7 +9,7 @@ import 'test_support.dart';
 
 void main() {
   for (final location in ['header', 'query', 'cookie']) {
-    for (final target in location == 'cookie' ? ['3.2.1', '3.1.2'] : ['3.2.1', '3.1.2', '2.0']) {
+    for (final target in location == 'cookie' ? ['3.2.1', '3.1.2', '3.0.4'] : ['3.2.1', '3.1.2', '3.0.4', '2.0']) {
       test('$location $target independent AND bindings share only a proved generated credential', () async {
         final directory = await Directory.systemTemp.createTemp('busyapi-and-security-');
         addTearDown(() => directory.delete(recursive: true));
@@ -30,12 +30,12 @@ void main() {
         final file = File('${directory.path}/api.json'), configuration = File('${directory.path}/busyapi.yaml');
         const relative = '#/components/securitySchemes/Key', secret = '11111111-1111-4111-8111-111111111111';
         final absolute = '${file.uri}#/components/securitySchemes/Key';
-        final roles = target != '2.0';
+        final roles = target == '3.1.2' || target == '3.2.1';
         final text = jsonEncode({
           'openapi': '3.2.1', 'info': {'title': 'AND', 'version': '1'},
           'servers': [{'url': 'http://127.0.0.1:${server.port}'}],
           'paths': {'/p': {'get': {'responses': {'204': {'description': 'Done'}}}}},
-          'components': {'securitySchemes': {'Key': {'type': 'apiKey', 'in': location, 'name': 'X-Key'}}},
+          'components': {'securitySchemes': {'Key': {'type': 'apiKey', 'in': location, 'name': 'X-Key', 'deprecated': false}}},
           'security': [{relative: roles ? ['reader'] : <String>[], absolute: roles ? ['writer'] : <String>[]}],
         });
         final config = 'version: 1\nroots: [{name: api, path: api.json}]\nenvironments:\n  manual:\n'

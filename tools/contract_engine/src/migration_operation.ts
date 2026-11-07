@@ -11,10 +11,13 @@ import {ParameterSemantics} from './parameter_semantics';
 /** Swagger 2.0 Path Item fixed fields cannot retain TRACE or additional
  * methods. Refuse at the operation before offering body-only decisions. */
 export function checkOperationTarget(graph:ReferenceGraph,target:string,issue:MigrationIssue):void {
-    if(target!=='2.0')return;
+    if(target==='3.2')return;
     for(const operation of migrationOperationUses(graph)) {
-        if(operation.method&&!standardOperationMethods(target).includes(operation.method))
-            issue(operation.source,'migration.operation.method','Swagger 2.0 cannot represent this operation method','target-representation');
+        const parent=operation.source.pointer.slice(0,operation.source.pointer.lastIndexOf('/'));
+        const additional=graph.scopeAs(operation.source.resource,parent,'operation-map')!==undefined;
+        const wire=additional?operation.method:operation.method?.toUpperCase();
+        if(wire&&!standardOperationMethods(target).some(method=>method.toUpperCase()===wire))
+            issue(operation.source,'migration.operation.method','The selected target has no operation slot for the exact HTTP method '+wire,'target-representation');
     }
 }
 

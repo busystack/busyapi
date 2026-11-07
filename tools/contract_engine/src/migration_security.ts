@@ -174,6 +174,9 @@ export function migrateSecurityBindings(graphs:readonly ReferenceGraph[],sources
  * non-OAuth requirements (3.1.2 §4.8.30; 3.0.4 §4.7.30; 2.0 §6.4.26).
  * Check original graph connections before target validation can obscure them. */
 export function checkSecurityRequirementTarget(graph:ReferenceGraph,target:SpecificationFamily,issue:MigrationIssue):void {
+    if(target==='3.0')for(const scope of graph.entryScopes())if(scope.kind==='security'&&
+        graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value?.type==='mutualTLS')
+        issue(scope,'migration.security.mutual-tls','OpenAPI 3.0 has no mutual TLS Security Scheme representation','target-representation');
     if(target==='2.0'||target==='3.0')for(const scope of graph.entryScopes())if(scope.kind==='security'){
         const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
         if(graph.referenceObject(value,scope)&&modernFamily(scope.family)&&Object.hasOwn(value,'summary'))

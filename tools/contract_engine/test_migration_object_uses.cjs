@@ -101,7 +101,7 @@ test(`${version} ${format} native objects and literal values share one specializ
  const input=fixture(version,format),original=input.resources[0].text,doc=new SourceDocument(original,input.root);
  assert.equal(analyse(input).status,'complete');await wire(input);
  const review=await planMigration(input);
- assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'92');
+ assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'93');
  assert.equal(review.exampleOutputs.length,2);assert.equal(input.resources[0].text,original);
  const output=delivered(review),{graph}=createGraph(output);
  assert.equal(analyse(output).status,'complete');await wire(output);
@@ -276,4 +276,62 @@ for(const format of ['yaml','json'])test(`B05-R2 ${format} mixed entry consumers
  }
  const reversed=await planMigration({...input,resources:[...input.resources].reverse()});assert.equal(reversed.complete,true,JSON.stringify(reversed.problems));
  assert.deepEqual([...reversed.outputs].sort((a,b)=>a.path.localeCompare(b.path)),[...review.outputs].sort((a,b)=>a.path.localeCompare(b.path)));assert.equal(JSON.stringify(input),before);
+});
+
+for(const format of ['yaml','json'])for(const targetVersion of ['3.1.2','3.0.4'])
+test(`B05-R3 ${format} reusable media, Path Items, Links and Callbacks retain independent native owners in ${targetVersion}`,async()=>{
+ const root='https://retrieval.invalid/r3/api.'+format,objects='https://retrieval.invalid/r3/objects.'+format;
+ const response={description:'Boolean payload',content:{'application/json':{$ref:'#/components/mediaTypes/Payload'}},links:{Next:{$ref:'#/components/links/Next'}}};
+ const library={openapi:'3.2.1',info:{title:'Reusable library',version:'1'},servers:[{url:'https://api.invalid/base'}],paths:{},components:{
+  mediaTypes:{Payload:{schema:{type:'boolean'},examples:{False:{$ref:'#/components/examples/False'}}}},examples:{False:{dataValue:false,serializedValue:'false'}},
+  pathItems:{Item:{get:{operationId:'items',tags:['items'],responses:{200:response},callbacks:{Notify:{$ref:'#/components/callbacks/Notify'}}}}},
+  links:{Next:{operationId:'items',parameters:{id:'$response.body#/id'},description:'Retain runtime expressions'}},
+  callbacks:{Notify:{'https://callback.invalid/':{post:{responses:{204:{description:'Acknowledged'}}}}}},
+  schemas:{XmlList:{type:'array',xml:{nodeType:'element',name:'values'},items:{type:'string',xml:{name:'value'}}},
+   Choice:{type:'object',required:['kind'],properties:{kind:{type:'string',enum:['one','other']}},oneOf:[{$ref:'#/components/schemas/One'},{$ref:'#/components/schemas/Other'}],discriminator:{propertyName:'kind',mapping:{one:'#/components/schemas/One'},defaultMapping:'#/components/schemas/Other'}},
+   One:{type:'object',required:['kind'],properties:{kind:{const:'one'}}},Other:{type:'object',required:['kind'],properties:{kind:{const:'other'}}}}},tags:[{name:'items',summary:'items',description:'Keep tag documentation'}]};
+ const entry={openapi:'3.2.1',$self:'https://identity.invalid/r3/api.'+format,info:{title:'R3 objects',version:'1'},servers:[{url:'https://api.invalid/base'}],paths:{'/items':{$ref:objects+'#/components/pathItems/Item'}}};
+ const encode=value=>format==='yaml'?'# Preserve object owners\n'+YAML.stringify(value):JSON.stringify(value);
+ const input={root,snapshot:'r3-objects',resources:[entry,library].map((value,index)=>({id:[root,objects][index],text:encode(value),generation:index+2}))},before=input.resources.map(resource=>resource.text);
+ const review=await planMigration({...input,targetVersion,destination:'file:///delivered/r3-objects/'});
+ assert.equal(review.complete,true,JSON.stringify(review.problems));assert.deepEqual(input.resources.map(resource=>resource.text),before);
+ const cold={root:review.outputRoot,snapshot:'cold-r3-objects',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0,aliases:Object.entries(review.manifest.resourceMappings).filter(([,path])=>path===output.path).map(([uri])=>uri)}))};
+ assert.equal(analyse(cold).complete,true,JSON.stringify(analyse(cold).findings));
+ const graph=createGraph(cold).graph,operation=graph.operations().find(operation=>operation.path==='/items'&&operation.role==='operation');assert(operation);
+ const plan=requestOperation({...cold,resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
+ assert.equal(plan.operation.method,'GET');assert.equal(plan.responses[0].content[0].examples[0].raw,'false');
+ assert.equal(graph.operations().filter(operation=>operation.role==='callback').length,1);
+ assert(graph.entryReferences().some(reference=>reference.connection==='operationId'||reference.connection==='operationRef'));
+ assert(graph.entryScopes().some(scope=>scope.kind==='link'&&graph.docs.get(scope.resource).dataNode(scope.pointer+'/parameters/id')?.value==='$response.body#/id'));
+ for(const scope of graph.entryScopes())if(scope.kind==='xml')assert.equal(graph.docs.get(scope.resource).dataNode(scope.pointer+'/nodeType'),undefined);
+ const checked=await evaluateSchemas({...cold,runtimeInstances:[{subject:'response-body',location:'good',text:'false',media:plan.responses[0].content[0].source,mediaType:'application/json'},{subject:'response-body',location:'bad',text:'42',media:plan.responses[0].content[0].source,mediaType:'application/json'}]});
+ assert.equal(checked.complete,true,JSON.stringify(checked.findings));assert.deepEqual(checked.runtimeEvaluations.map(value=>value.valid),[true,false]);
+});
+for(const format of ['yaml','json'])test(`B05-R3 ${format} itemSchema becomes a whole sequential-content array constraint`,async()=>{
+ const root='https://contracts.invalid/sequence.'+format,media={itemSchema:{type:'integer',minimum:2}};
+ const value={openapi:'3.2.1',info:{title:'Sequential constraint',version:'1'},servers:[{url:'https://api.invalid'}],paths:{'/log':{get:{responses:{200:{description:'Log',content:{'application/x-ndjson':media}}}}}}};
+ const input={root,snapshot:'r3-sequence',resources:[{id:root,text:format==='yaml'?YAML.stringify(value):JSON.stringify(value),generation:1}]};
+ const review=await planMigration({...input,targetVersion:'3.1.2',destination:'file:///sequence/'});assert.equal(review.complete,true,JSON.stringify(review.problems));
+ for(const packet of [input,{root:review.outputRoot,snapshot:'cold-sequence',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))}]){
+  const checked=await evaluateSchemas({...packet,runtimeInstances:['2\n3\n','1\n3\n'].map((text,index)=>({subject:'response-body',location:String(index),text,media:{resource:packet.root,pointer:'/paths/~1log/get/responses/200/content/application~1x-ndjson'},mediaType:'application/x-ndjson'}))});
+  assert.equal(checked.complete,true,JSON.stringify(checked.findings));
+  assert(checked.runtimeEvaluations.filter(value=>value.location==='0').every(value=>value.valid));assert(checked.runtimeEvaluations.some(value=>value.location==='1'&&!value.valid));
+ }
+});
+
+test('B05-R3 simple ASCII Header data and serialization retain one older example',async()=>{
+ const root='https://contracts.invalid/header.json',value={openapi:'3.2.1',info:{title:'Header example',version:'1'},servers:[{url:'https://api.invalid'}],paths:{'/p':{get:{responses:{200:{description:'Header',headers:{'X-Mode':{schema:{type:'string'},examples:{Ready:{dataValue:'ready',serializedValue:'ready'}}}}}}}}}};
+ const review=await planMigration({root,snapshot:'header-example',resources:[{id:root,text:JSON.stringify(value),generation:1}],targetVersion:'3.1.2',destination:'file:///header-example/'});
+ assert.equal(review.complete,true,JSON.stringify(review.problems));const target=YAML.parse(review.outputs.find(output=>output.id===review.outputRoot).text);
+ assert.equal(target.paths['/p'].get.responses[200].headers['X-Mode'].examples.Ready.value,'ready');
+});
+for(const [extra,code]of [
+ [{tags:[{name:'child',parent:'parent'},{name:'parent'}]},'migration.tag.parent'],
+ [{tags:[{name:'items',kind:'audience'}]},'migration.tag.kind'],
+ [{components:{schemas:{Text:{type:'string',xml:{nodeType:'cdata'}}}}},'migration.xml.node-type'],
+ [{webhooks:{event:{post:{responses:{204:{description:'Accepted'}}}}}},'migration.webhooks'],
+])test(`B05-R3 active ${code} keeps its target restriction`,async()=>{
+ const root='https://contracts.invalid/newer.json',value={openapi:'3.2.1',info:{title:'Newer semantics',version:'1'},servers:[{url:'https://api.invalid'}],paths:{},...extra};
+ const review=await planMigration({root,snapshot:'newer-restriction',resources:[{id:root,text:JSON.stringify(value),generation:1}],targetVersion:'3.0.4',destination:'file:///newer-restriction/'});
+ assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);assert(review.problems.some(problem=>problem.code===code&&problem.reason==='target-representation'),JSON.stringify(review.problems));
 });

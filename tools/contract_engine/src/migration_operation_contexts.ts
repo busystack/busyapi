@@ -7,6 +7,14 @@ export type MigrationOperationUse=Readonly<{
     source:GraphScope;pathItem?:GraphTarget;method?:string;
 }>;
 
+/** The same containing-document retrieval rule used by request preparation. */
+export function migrationOperationServerField(graph:ReferenceGraph,use:MigrationOperationUse):GraphTarget|undefined {
+ const scope=use.source,value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)!;
+ if(value.children.has('servers'))return {...scope,pointer:scope.pointer+'/servers',kind:'server-array'};
+ const inherited=use.pathItem&&graph.pathItem(use.pathItem).fields.get('servers');if(inherited)return inherited;
+ if(graph.docs.get(graph.root)!.dataNode('/servers'))return {resource:graph.root,pointer:'/servers',kind:'server-array'};
+}
+
 function declaredMethod(graph:ReferenceGraph,scope:GraphScope):string|undefined {
     const method=segments(scope.pointer).at(-1),parent=scope.pointer.slice(0,scope.pointer.lastIndexOf('/'));
     return method&&(standardOperationMethods(scope.family).includes(method)||

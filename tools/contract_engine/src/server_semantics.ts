@@ -190,6 +190,26 @@ export function finiteServerVariableValues(variable:unknown):readonly string[]|u
  return [...new Set([...values.filter((value):value is string=>typeof value==='string'),variable.default])];
 }
 
+/** Exhaustive URL substitution, never default-only sampling. Repeated names
+ * share one substitution; enum values are opaque and are not templates. */
+export function finiteServerUrls(server:unknown,base:string):readonly string[]|undefined {
+ if(server===null||typeof server!=='object'||!('url' in server)||typeof server.url!=='string')return;
+ const template=server.url,names=[...new Set(serverTemplateParts(template).names)];
+ const variables='variables' in server&&server.variables!==null&&typeof server.variables==='object'?server.variables:undefined;
+ let choices:ReadonlyMap<string,string>[]=[new Map()];
+ for(const name of names){
+  const variable=variables&&Object.hasOwn(variables,name)?Reflect.get(variables,name):undefined;
+  const domain=finiteServerVariableValues(variable);
+  const values=domain&&[...new Set([variable.default,...domain])];
+  if(!values?.length)return;
+  if(choices.length*values.length>256)throw new SourceError('limit.migration.servers','Server substitution exceeds 256 exhaustive combinations');
+  choices=choices.flatMap(choice=>values.map(value=>new Map([...choice,[name,value]])));
+ }
+ const urls=choices.map(choice=>template.replace(/\{([^{}]+)\}/gu,(_match,name)=>choice.get(name)!));
+ if(urls.some(url=>serverUrlValidity(url,base)!=='valid'))return;
+ return [...new Set(urls.map(url=>resolveServerUrl(url,base).href))];
+}
+
 /** A 3.0 declared default SHALL be used without an alternate substitution,
  * even when it violates the enum recommendation (§4.7.6). Keep that exception
  * in the captured semantics; consumers do not reinterpret version strings. */

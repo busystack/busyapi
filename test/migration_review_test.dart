@@ -204,7 +204,7 @@ void main() {
             : base;
         final uriSecurity = sourceVersion == '3.2.1' && formVersion != null && !ignoredBody;
         final original = uriSecurity
-            ? '${originalBase}components:\n  securitySchemes:\n    Key: {type: apiKey, in: header, name: X-Key}\n'
+            ? '${originalBase}components:\n  securitySchemes:\n    Key: {type: apiKey, in: header, name: X-Key, deprecated: false}\n'
                 '    OAuth: {type: oauth2, flows: {implicit: {authorizationUrl: https://auth.invalid/authorize, scopes: {}}, '
                 'clientCredentials: {tokenUrl: https://auth.invalid/token, scopes: {}}}}\n'
                 '  schemas:\n    Equal: {if: {type: integer}, then: {type: string}, else: {type: string}}\n'

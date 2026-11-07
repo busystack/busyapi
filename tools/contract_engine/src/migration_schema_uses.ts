@@ -75,7 +75,8 @@ function operationHolderSlot(graph:ReferenceGraph,scope:GraphScope):MigrationOpe
     const parent=graph.scopeAs(scope.resource,pointer,'path-item');
     if(!parent)return standardOperationMethods(scope.family).includes(method)?{method,additional}:undefined;
     const view=graph.pathItem(parent),value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)!.value;
-    const parameters=view.fields.get('parameters'),servers=!Object.hasOwn(value,'servers')?view.fields.get('servers'):undefined;
+    const parameters=view.fields.get('parameters'),servers=!Object.hasOwn(value,'servers')?view.fields.get('servers')??
+        (graph.docs.get(graph.root)!.dataNode('/servers')?{resource:graph.root,pointer:'/servers'}:undefined):undefined;
     // Refer to inherited Parameter owners instead of duplicating their schemas
     // or identifiers. Operation-local overrides remain local to the copied
     // Operation; canonical name/in inheritance still decides applicability.
@@ -90,8 +91,10 @@ function operationHolderSlot(graph:ReferenceGraph,scope:GraphScope):MigrationOpe
             return serverTemplate(node.value.url,documentUriBase(graph,scope),node.value.variables,
                 {resource:servers.resource,pointer:pointer+'/url',range:source.doc.dataNode(pointer+'/url')!.range});
         });
-        inheritedServers={source,pointer:servers.pointer,urls};
+        inheritedServers=servers.pointer==='/servers'&&!urls.length?
+            {urls:[resolveUri('/',graph.retrievals.get(graph.root)!).href]}:{source,pointer:servers.pointer,urls};
     }
+    else if(scope.family!=='2.0'&&!Object.hasOwn(value,'servers'))inheritedServers={urls:[resolveUri('/',graph.retrievals.get(graph.root)!).href]};
     return {method,additional,parameters:inherited,servers:inheritedServers};
 }
 export function entryComponentContainer(graph:ReferenceGraph,scope:GraphScope,namespace:string,owners:MigrationSchemaOwners,

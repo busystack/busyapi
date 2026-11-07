@@ -9,6 +9,7 @@ import 'migration_mixed_holder_fixture.dart';
 
 void main() {
   mixedLegacyObjectUses();
+  r3ObjectUses();
   for (final format in ['yaml', 'json']) {
     test('$format native literal owners retain examples, actual HTTP and CLI behavior after publication', () async {
       final directory = await Directory.systemTemp.createTemp('busyapi-object-uses-');
@@ -124,7 +125,7 @@ void main() {
       final review = await project.prepareMigration(root, '${directory.path}/converted', targetVersion: '3.2.1');
       addTearDown(review.close);
       expect(review.publishable, true, reason: '${review.result}');
-      expect(review.result['producerVersion'], '92');
+      expect(review.result['producerVersion'], '93');
       expect(review.unsaved, true);
       expect(review.exampleCopies.map((copy) => copy.bytes), containsAll([utf8.encode(count), utf8.encode(query)]));
       await review.publish();
@@ -210,8 +211,113 @@ void mixedLegacyObjectUses() {
       final cli = await Process.run('$testBundle/busyapi', ['migrate', moved.path, '--root', 'migrated', '--target', target, '--output', '${directory.path}/cli-preview', '--json'],
         environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
       expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');
-      final report = jsonDecode(cli.stdout as String) as Map;expect(report['producerVersion'], '92');expect(report['complete'], true);expect(report['published'], false);
+      final report = jsonDecode(cli.stdout as String) as Map;expect(report['producerVersion'], '93');expect(report['complete'], true);expect(report['published'], false);
       expect(Directory('${directory.path}/cli-preview').existsSync(), false);
     });
+  }
+}
+
+void r3ObjectUses() {
+  for (final format in ['yaml', 'json']) {
+    for (final target in ['3.1.2', '3.0.4']) {
+      test('B05-R3 $format reusable objects retain HTTP and transactions in $target', () async {
+        final directory = await Directory.systemTemp.createTemp('busyapi-r3-objects-');
+        addTearDown(() => directory.delete(recursive: true));
+        final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);
+        addTearDown(engine.close);
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        addTearDown(() => server.close(force: true));
+        final observed = <(String, String, String?, List<int>)>[];
+        server.listen((request) async {
+          observed.add((request.method, request.uri.toString(), request.headers.contentType?.mimeType,
+            await request.fold<List<int>>([], (all, part) => all..addAll(part))));
+          request.response.headers.contentType = ContentType.json;
+          request.response.headers.set('X-Result', 'kept');
+          request.response.write('false');
+          await request.response.close();
+        });
+        Map<String, Object?> ref(String kind, String name) => {r'$ref': '#/components/$kind/$name'};
+        final media = {'schema': ref('schemas', 'Flag'), 'examples': {'False': ref('examples', 'False')}};
+        final value = {
+          'openapi': '3.2.1', 'info': {'title': 'Saved R3', 'version': '1'},
+          'servers': [{'url': 'http://127.0.0.1:${server.port}/{tenant}/..',
+            'variables': {'tenant': {'default': 'one', 'enum': ['one', 'two']}}}],
+          'paths': {'/echo': ref('pathItems', 'Shared')},
+          'components': {
+            'pathItems': {'Shared': {'post': {'operationId': 'echo',
+              'requestBody': {'required': true, 'content': {'application/json': ref('mediaTypes', 'Payload')}},
+              'responses': {'200': {'description': 'Boolean reply',
+                'headers': {'X-Result': {'schema': {'type': 'string'}}},
+                'content': {'application/json': ref('mediaTypes', 'Payload')},
+                'links': {'Again': ref('links', 'Again')}}},
+              'callbacks': {'Ack': ref('callbacks', 'Ack')}}}},
+            'mediaTypes': {'Payload': media}, 'schemas': {'Flag': {'type': 'boolean'}},
+            'examples': {'False': {'dataValue': false, 'serializedValue': 'false'}},
+            'links': {'Again': {'operationId': 'echo', 'parameters': {'value': r'$request.body#/value'}}},
+            'callbacks': {'Ack': {'https://callback.invalid/': {'post': {'responses': {'204': {'description': 'Acknowledged'}}}}}},
+          },
+          'x-literal': {'dataValue': false, r'$ref': 'not-a-contract', 'exact': 'EXACT'},
+        };
+        final original = (format == 'yaml'
+          ? '# Keep R3 source 雪\r\n${value.entries.map((entry) => '${jsonEncode(entry.key)}: ${jsonEncode(entry.value)}').join('\r\n')}\r\n'
+          : jsonEncode(value)).replaceAll('"EXACT"', '9007199254740993.00');
+        final file = File('${directory.path}/api.$format');
+        await file.writeAsString(original);
+        final project = await BusyProject.open(file.path, engine);
+        addTearDown(project.close);
+        final root = project.roots.single.id, buffer = await project.buffer(project.roots.single.id);
+        project.store.replace(root, buffer.text.replaceFirst('Saved R3', 'Unsaved R3'));
+        Future<void> send(BusyProject owner) async {
+          final entry = owner.roots.single.id, checked = await owner.check(owner.roots.single.id);
+          expect(checked['complete'], true, reason: '$checked');
+          final operation = (checked['projection']['operations'] as List).cast<Map>().singleWhere((operation) => operation['path'] == '/echo');
+          final plan = await owner.prepareRequest(entry, resource: operation['resource'], pointer: operation['pointer'], occurrence: operation['occurrence']);
+          try {
+            final result = await const ContractRequestExecutor().execute(plan,
+              OperationRequestDraft(planIdentity: plan.identity, body: const RequestBodyDraft.raw(mediaType: 'application/json', text: 'false')),
+              resolveSecret: (_) async => null);
+            try {
+              expect(result.conforming, true, reason: '${result.outgoing.findings} ${result.received.findings}');
+              expect(observed.last, ('POST', '/echo', 'application/json', utf8.encode('false')));
+              expect(await result.response.bytes(), utf8.encode('false'));
+              expect(result.response.headers, contains(('x-result', 'kept')));
+            } finally { await result.close(); }
+          } finally { plan.close(); }
+        }
+        await send(project);
+        final review = await project.prepareMigration(root, '${directory.path}/target', targetVersion: target);
+        addTearDown(review.close);
+        expect(review.publishable, true, reason: '${review.result}');
+        expect(review.unsaved, true);expect(review.result['producerVersion'], '93');
+        if (format == 'json' && target == '3.1.2') {
+          final repeat = await project.prepareMigration(root, review.destination, targetVersion: target);
+          addTearDown(repeat.close);expect(repeat.identity, review.identity);
+          for (final failure in ['cancel', 'race', 'failure']) {
+            final rejected = await project.prepareMigration(root, '${directory.path}/$failure', targetVersion: target);
+            addTearDown(rejected.close);var cancelled = false;
+            await expectLater(rejected.publish(cancelled: () => cancelled, beforePublish: () async {
+              if (failure == 'cancel') cancelled = true;
+              if (failure == 'race') { await Directory(rejected.destination).create();await File('${rejected.destination}/foreign').writeAsString('Keep'); }
+              if (failure == 'failure') throw const FileSystemException('Controlled R3 publication failure');
+            }), throwsA(anything));
+            if (failure == 'race') expect(await File('${rejected.destination}/foreign').readAsString(), 'Keep');
+            else expect(await Directory(rejected.destination).exists(), false);
+          }
+          final stale = await project.prepareMigration(root, '${directory.path}/stale', targetVersion: target);
+          addTearDown(stale.close);project.store.replace(root, buffer.text.replaceFirst('Unsaved R3', 'Changed R3'));
+          await expectLater(stale.publish(), throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'migration.stale')));
+          project.store.undo();
+        }
+        await review.publish();expect(await file.readAsString(), original);
+        project.close();await file.delete();
+        final moved = await Directory(review.destination).rename('${directory.path}/cold 雪');
+        final cold = await BusyProject.open(moved.path, engine);addTearDown(cold.close);
+        await send(cold);
+        final cli = await Process.run('$testBundle/busyapi', ['check', moved.path, '--json'],
+          environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
+        expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');
+        expect((jsonDecode(cli.stdout as String) as Map)['complete'], true);
+      });
+    }
   }
 }

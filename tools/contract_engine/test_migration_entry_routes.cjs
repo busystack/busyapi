@@ -64,5 +64,15 @@ for(const format of ['yaml','json'])test(`${format} a modern-only secondary oper
  const input=fixture('3.0.4','3.2.1',format,'3.0.4'),resource=input.resources[1],doc=new SourceDocument(resource.text,resource.id);
  resource.text=doc.set('/paths/~1secondary/query',{responses:{204:{description:'Query'}}});const before=input.resources.map(r=>r.text),result=await planMigration(input);
  assert.equal(result.complete,false);assert.equal(result.status,'blocked');assert.deepEqual(result.outputs,[]);assert.deepEqual(result.changes,[]);
- const issue=result.problems.find(p=>p.code==='migration.feature.newer');assert(issue,JSON.stringify(result.problems));assert.equal(issue.resource,resource.id);assert.equal(issue.pointer,'/paths/~1secondary/query');assert(issue.range[1]>issue.range[0]);assert.deepEqual(input.resources.map(r=>r.text),before);
+ const issue=result.problems.find(p=>p.code==='migration.operation.method');assert(issue,JSON.stringify(result.problems));assert.equal(issue.resource,resource.id);assert.equal(issue.pointer,'/paths/~1secondary/query');assert(issue.range[1]>issue.range[0]);assert.deepEqual(input.resources.map(r=>r.text),before);
+});
+
+for(const [path,code]of [
+ [{query:{responses:{204:{description:'QUERY'}}}},'migration.operation.method'],
+ [{additionalOperations:{gEt:{responses:{204:{description:'Exact case'}}}}},'migration.operation.method'],
+ [{get:{parameters:[{name:'whole',in:'querystring',content:{'application/json':{schema:{type:'object'}}}}],responses:{204:{description:'Done'}}}},'migration.parameter.querystring-proof'],
+])test(`B05-R3 an older route cannot acquire different request semantics: ${code}`,async()=>{
+ const root='https://contracts.invalid/r3-method.json',value={openapi:'3.2.1',info:{title:'Exact requests',version:'1'},servers:[{url:'https://api.invalid'}],paths:{'/p':path}};
+ const text=JSON.stringify(value),review=await planMigration({root,snapshot:'method-proof',resources:[{id:root,text,generation:1}],targetVersion:'3.1.2',destination:'file:///refused-method/'});
+ assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);assert(review.problems.some(problem=>problem.code===code),JSON.stringify(review.problems));
 });

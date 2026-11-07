@@ -309,7 +309,7 @@ Future<void> exercise() async {
       await File('${destination.path}/migration.json').readAsString(),
     );
     nativeCheck(
-      metadata is Map && metadata['producerVersion'] == '92',
+      metadata is Map && metadata['producerVersion'] == '93',
       'migration-runtime-revision',
     );
     final copy = await BusyProject.open(destination.path, project.engine);

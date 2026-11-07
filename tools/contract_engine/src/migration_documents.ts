@@ -7,7 +7,9 @@ import {modernFamily} from './specification';
 import {projectSchemaReference} from './schema_reference_projection';
 import {DiscriminatorModels} from './discriminator_models';
 import {swaggerMedia} from './swagger_operation';
-import {migrationBodyApplicability,migrationOperationUses} from './migration_operation_contexts';
+import {migrationBodyApplicability,migrationOperationUses,migrationOperationServerField} from './migration_operation_contexts';
+import {migrationServerSignature} from './migration_servers';
+import {swaggerServers} from './swagger_servers';
 
 type Context=ReturnType<typeof createGraph>;
 export type MigrationUse=Readonly<{
@@ -257,6 +259,12 @@ export function migrationContextDifferences(contexts:readonly Pick<DocumentConte
         }
         for(const operation of migrationOperationUses(graph)){
             inspect();const scope=operation.source;
+            const field=migrationOperationServerField(graph,operation);
+            const declared=field?graph.docs.get(field.resource)!.dataNode(field.pointer)?.value:undefined;
+            const servers=scope.family==='2.0'?swaggerServers(graph,scope.resource,scope.pointer,()=>({resource:graph.root,pointer:'',generation:0,range:[0,0]})):
+                declared?.length?declared.map((server:any)=>({...server,variables:server.variables??{},base:graph.retrievals.get(field!.resource)!})):
+                !field||field.pointer==='/servers'?[{url:'/',variables:{},base:graph.retrievals.get(graph.root)!}]:[];
+            binding(scope,'operation-servers',JSON.stringify(migrationServerSignature(servers)));
             if(scope?.family==='2.0')binding(scope,'operation-media',JSON.stringify([
                 swaggerMedia(graph,scope.resource,scope.pointer,'consumes'),swaggerMedia(graph,scope.resource,scope.pointer,'produces'),
             ]));

@@ -12,6 +12,7 @@ import {commonMediaSchema,retainFormHeaderOwners,inactiveMigrationHeader} from '
 import {SwaggerObjectMetadata,type MigrationInlineExamples} from './migration_object_metadata';
 import {migrationScopes,migrationReferences} from './migration_documents';
 import {migrationOperationUses} from './migration_operation_contexts';
+import {downgradeServers} from './migration_servers';
 
 /** Inspect a captured Schema reference chain before a Header/parameter loses
  * its schema wrapper. A referenced object is just as unrepresentable in a
@@ -66,6 +67,7 @@ function retainFormBodyHistory(source:MigrationSource,pointer:string,scope:Graph
 export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,MigrationSource>,from:string,issue:MigrationIssue,
     releaseNativeHolders?:()=>void,owners=new MigrationSchemaOwners(graph,sources),contexts:readonly ReferenceGraph[]=[graph],external?:MigrationInlineExamples):void {
     const scopes=[...migrationScopes(contexts)];
+    downgradeServers(graph,sources,from,issue,owners,contexts);
     const headerTargets=new Set([...migrationReferences(contexts)].filter(edge=>edge.kind==='header'&&edge.resolution==='resolved')
         .map(edge=>JSON.stringify([edge.targetResource,edge.targetPointer])));
     const primary=graph;
@@ -109,10 +111,19 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migrati
     const expandedForms=new Set<string>();
     for(const scope of scopes){
         if(scope.family!==from)continue;
-        const context=owners.contextOf(scope)??contexts.find(context=>context.scopeAs(scope.resource,scope.pointer,scope.kind)?.family===from)??primary;
+        const context=contexts.find(context=>{
+            const captured=context.scopeAs(scope.resource,scope.pointer,scope.kind);
+            return captured?.family===from&&captured.base===scope.base&&captured.schemaParent===scope.schemaParent;
+        })??owners.contextOf(scope)??primary;
         const graph=context;
         const annotations=forContext(context);
-        const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);if(pointer===undefined)continue;
+        const materials=owners.materialLocations(scope).filter(material=>material.source.doc.dataNode(material.location.pointer)&&!owners.retainedValue(material.location));
+        const material=materials.find(material=>material.location.resource===scope.resource&&material.location.pointer===scope.pointer)??(materials.length===1?materials[0]:undefined);
+        if(!material){
+            if(materials.length)issue(scope,'migration.object.material-owner','This native object has multiple surviving material owners without a selected occurrence','unavailable-proof');
+            continue;
+        }
+        const {source,location:{pointer}}=material;
         const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)!.value;
         if(scope.kind==='parameter'||scope.kind==='header'){
             if(scope.kind==='header'&&inactiveMigrationHeader(graph,scope)&&!headerTargets.has(JSON.stringify([scope.resource,scope.pointer]))){
@@ -236,7 +247,10 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migrati
             }
             if(represented.some(media=>JSON.stringify(media)!==JSON.stringify(represented[0])))issue(scope,'migration.response.media-context','Different response media sets need a status-specific Swagger representation that its global produces field cannot supply','target-representation');
             else if(represented[0]?.length)source.set(pointer+'/produces',represented[0]);
-            if(value.callbacks)issue({...scope,pointer:scope.pointer+'/callbacks'},'migration.callbacks','Swagger has no standard Callback Object representation','target-representation');
+            if(value.callbacks){
+                if(Object.keys(value.callbacks).length)issue({...scope,pointer:scope.pointer+'/callbacks'},'migration.callbacks','Swagger has no standard Callback Object representation','target-representation');
+                else owners.retainNativeHistory({...scope,pointer:scope.pointer+'/callbacks'},source,pointer+'/callbacks','empty_callbacks',context);
+            }
         }
         if(scope.kind==='response'&&typeof value?.$ref!=='string'){
             annotations.media(scope,source,pointer,false);
@@ -247,7 +261,10 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migrati
                 source.move(pointer+'/content/'+escape(selected)+'/schema',pointer+'/schema');
             }
             annotations.retainMediaEnvelope(scope,source,pointer);
-            if(value.links)issue({...scope,pointer:scope.pointer+'/links'},'migration.links','Swagger has no standard Link Object representation','target-representation');
+            if(value.links){
+                if(Object.keys(value.links).length)issue({...scope,pointer:scope.pointer+'/links'},'migration.links','Swagger has no standard Link Object representation','target-representation');
+                else owners.retainNativeHistory({...scope,pointer:scope.pointer+'/links'},source,pointer+'/links','empty_links',context);
+            }
         }
         if(scope.kind==='security'){
             if(value.type==='http'&&value.scheme?.toLowerCase()==='basic'){source.set(pointer+'/type','basic');source.remove(pointer+'/scheme');}
@@ -266,6 +283,14 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migrati
                 source.remove(pointer+'/flows');
             }else if(value.type!=='apiKey')issue(scope,'migration.security.type','Swagger has no equivalent standard security scheme for this authentication type','target-representation');
             if(value.type==='apiKey'&&!['query','header'].includes(value.in))issue(scope,'migration.security.location','Swagger API keys must be query or header parameters','target-representation');
+        }
+        if(scope.kind==='path-item'&&['summary','description'].some(name=>source.doc.dataNode(pointer+'/'+name))){
+            const documentation=owners.reserveDocumentation(scope,context,'path_item_documentation');
+            owners.admit(documentation.source,4);documentation.source.set(documentation.location.pointer,{});
+            for(const [name,field]of [['summary','title'],['description','description']])if(source.doc.dataNode(pointer+'/'+name)){
+                documentation.source.copy(source,pointer+'/'+name,documentation.location.pointer+'/'+field,true);
+                source.remove(pointer+'/'+name);
+            }
         }
     }
     // All occurrences of form reference chains now own flat parameters. Their
@@ -291,10 +316,19 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migrati
         const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);if(pointer===undefined||!source.doc.dataNode(pointer))continue;
         owners.move(scope,source,pointer,'header_owner',{context:owners.contextOf(scope)??graph,layout:'response-header'});
     }
+    // Swagger Path Item references may address a native captured fragment.
+    // The common allocator can retain a used reusable Path Item there without
+    // adding a public route or a proprietary component category.
+    for(const scope of scopes)if(scope.family===from&&scope.kind==='path-item'&&/^\/components\/pathItems\/[^/]+$/.test(scope.pointer)){
+        const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);if(pointer===undefined||!source.doc.dataNode(pointer))continue;
+        const incoming=[...migrationReferences(contexts)].some(edge=>edge.kind==='path-item'&&edge.resolution==='resolved'&&edge.targetResource===scope.resource&&edge.targetPointer===scope.pointer);
+        if(incoming)owners.move(scope,source,pointer,'path_item');
+        else issue(scope,'migration.path-item.unused-owner','An independently reusable Path Item without a captured incoming use still needs a typed Swagger fragment owner','implementation');
+    }
     releaseNativeHolders?.();
     for(const [resource,specification]of graph.specifications){
         if(specification.family!==from)continue;
-        const source=sources.get(resource)!,servers=source.doc.dataNode('/servers')?.value;
+        const source=sources.get(resource)!;
         const headerMap=source.doc.dataNode('/components/headers');
         if(headerMap){
             for(const name of [...headerMap.children.keys()])if(name.startsWith('x-')){
@@ -302,14 +336,6 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migrati
                 owners.retainLiteralValue({resource,pointer},source,pointer,'header_map_extension',true);
             }
             if(!source.doc.dataNode('/components/headers')?.children.size){owners.admit(source);source.remove('/components/headers',true,true,true);}
-        }
-        if(servers!==undefined){
-            if(!Array.isArray(servers)||servers.length!==1||servers[0].variables){issue({resource,pointer:'/servers'},'migration.servers','Swagger needs one fixed host/basePath; these Server choices cannot be collapsed faithfully','target-representation');}
-            else {
-                const url=new URL(servers[0].url,graph.retrievals.get(resource));
-                if(!['http:','https:','ws:','wss:'].includes(url.protocol)||!url.host||url.search||url.hash||url.username||url.password)issue({resource,pointer:'/servers/0/url'},'migration.server.url','This Server URL cannot be expressed by Swagger host/basePath/schemes','target-representation');
-                else {source.set('/host',url.host);source.set('/basePath',url.pathname);source.set('/schemes',[url.protocol.slice(0,-1)]);source.remove('/servers');}
-            }
         }
         if(source.doc.dataNode('/components/examples'))forContext(contexts.find(context=>context.root===resource)??graph)
             .reusableExamples({resource,pointer:'/components/examples'},source,'/components/examples');
@@ -327,10 +353,15 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migrati
         const components=source.doc.dataNode('/components');
         if(components?.children.size)for(const name of components.children.keys()){
             if(name.startsWith('x-'))owners.retainNativeHistory({resource,pointer:'/components/'+escape(name)},source,'/components/'+escape(name),'components_metadata');
-            else issue({resource,pointer:'/components/'+escape(name)},'migration.components','This reusable '+name+' family belongs to the separately assigned B05-R3 conversion','implementation');
+            else if(!source.doc.dataNode('/components/'+escape(name))?.children.size)
+                owners.retainNativeHistory({resource,pointer:'/components/'+escape(name)},source,'/components/'+escape(name),'empty_component_category');
+            else issue({resource,pointer:'/components/'+escape(name)},'migration.components.'+name,
+                ['links','callbacks'].includes(name)?'Swagger has no standard reusable '+name+' category or equivalent invocation/connection semantics':
+                'This reusable '+name+' category still needs a faithful independently typed Swagger owner',
+                ['links','callbacks'].includes(name)?'target-representation':'implementation');
         }
         if(!source.doc.dataNode('/components')?.children.size)source.remove('/components');
-        for(const name of ['webhooks','$self'])if(source.doc.nodes.has('/'+name))issue({resource,pointer:'/'+name},'migration.root.field','This document feature needs a faithful Swagger mapping','implementation');
+        if(source.doc.nodes.has('/webhooks'))issue({resource,pointer:'/webhooks'},'migration.webhooks','Swagger has no independent Webhook invocation category','target-representation');
         source.remove('/openapi');source.set('/swagger','2.0');
     }
 }

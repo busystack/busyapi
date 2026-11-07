@@ -21,7 +21,7 @@ test(`${format} ${restrictedVersion}/3.1 entries independently own overlapping n
  assert.equal(analyse(input).status,'complete',JSON.stringify(analyse(input).findings));
  assert.equal(analyse({...input,root:modern}).status,'complete');
  const original=new SourceDocument(before[1],modern);
- const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'92');
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'93');
  const output=cold(review),root=review.changes.find(change=>change.resource===modern).destination;
  for(const entry of [output.root,root])assert.equal(analyse({...output,root:entry}).status,'complete');
  const example=roleTarget(output,root,'/components/examples/Dictionary','example');

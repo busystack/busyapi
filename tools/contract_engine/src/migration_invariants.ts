@@ -1,9 +1,9 @@
-import {finiteServerVariableValues} from './server_semantics';
+import {migrationServerSignature} from './migration_servers';
 import {requestOperation} from './execution';
 import type {ReferenceGraph,GraphScope} from './reference_graph';
 import type {Resource} from './engine';
-import {serverTemplate} from './derived_bundle';
-import {escape,SourceError} from './document';
+import {escape,SourceError,type SourceDocument} from './document';
+import {finiteServerUrls,finiteServerVariableValues,serverTemplateParts} from './server_semantics';
 import {securityFlowOrder,securityRequirementAlternatives,type SecurityAlternativeProjection} from './security_requirements';
 import type {MigrationLocation} from './migration_source';
 import type {MigrationIssue} from './migration_schema';
@@ -17,6 +17,59 @@ import {isNativeFamily} from './specification';
 import {migrationExampleBytes} from './migration_examples';
 import {runtimeMediaKind} from './runtime_media';
 import {inactiveMigrationHeader} from './migration_media_schema';
+
+/** Saved case ordinals and environment variables select particular Servers,
+ * rather than just the set of available URLs. Keep existing configuration
+ * immutable unless the selected URL (or invalid selection) is preserved.
+ * Changed selectors need a future reviewed configuration projection. */
+export function proveMigrationServerSelections(source:ReferenceGraph,target:ReferenceGraph,resources:Resource[],delivered:Resource[],
+ configuration:SourceDocument|undefined,issue:MigrationIssue):void {
+ if(!configuration)return;
+ const environmentMap=configuration.dataNode('/environments')?.value??{},environments=Object.entries(environmentMap);
+ const configured:{name:string;value:Record<string,unknown>}[]=[{name:'',value:{}},...environments.map(([name,value])=>({name,value:value as Record<string,unknown>}))];
+ const cases=[{pointer:'/environments',value:{} as Record<string,any>},
+  ...[...configuration.dataNode('/tests')?.children.values()??[]].map(node=>({pointer:node.pointer,value:node.value as Record<string,any>}))];
+ const wire=(operation:ReturnType<ReferenceGraph['operations']>[number])=>operation.customMethod?operation.method:operation.method.toUpperCase();
+ const operations=target.operations().filter(operation=>operation.role==='operation');let work=0;
+ const selected=(server:any,variables:Record<string,unknown>):string|undefined=>{
+  if(!server)return;
+  const definitions={...server.variables};
+  for(const name of new Set(serverTemplateParts(server.url).names)){
+   const definition=definitions[name],value=Object.hasOwn(variables,name)?variables[name]:definition?.default;
+   if(typeof value!=='string')return;
+   const choices=finiteServerVariableValues(definition);
+   if(Array.isArray(definition?.enum)&&!choices?.includes(value))return;
+   definitions[name]={...definition,default:value,enum:[value]};
+  }
+  const value=finiteServerUrls({...server,variables:definitions},server.base)?.[0];
+  if(value!==undefined){const url=new URL(value);url.hash='';return url.href;}
+ };
+ for(const operation of source.operations().filter(operation=>operation.role==='operation')){
+  const matches=operations.filter(candidate=>candidate.path===operation.path&&wire(candidate)===wire(operation));
+  if(matches.length!==1)continue; // The independent operation invariant reports this.
+  const before=requestOperation({root:source.root,resources,snapshot:'migration-server-selection',resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
+  const after=requestOperation({root:target.root,resources:delivered,snapshot:'migration-server-selection',resource:matches[0].source.resource,pointer:matches[0].source.pointer,occurrence:matches[0].occurrence});
+  for(const entry of cases){
+   const selector=entry.value.operation;
+   if(selector&&(selector.occurrence?selector.occurrence!==operation.occurrence:
+       selector.path!==operation.path||selector.method!==wire(operation)&&(operation.customMethod||typeof selector.method!=='string'||selector.method.toUpperCase()!==wire(operation))))continue;
+   const index=entry.value.server??0;if(!Number.isInteger(index)||index<0)continue;
+   for(const environment of configured){
+    if(++work>200000)throw new SourceError('limit.migration.servers','Configured Server selection proof exceeds 200000 captured choices');
+    const first=before.servers[index],last=after.servers[index];
+    if(!first&&!last)continue;
+    const variables={...(environment.value.variables as Record<string,unknown>|undefined),...entry.value.variables};
+    const override=typeof environment.value.baseUrl==='string'&&environment.value.baseUrl.length>0;
+    const same=Boolean(first)===Boolean(last)&&(override||selected(first,variables)===selected(last,variables));
+    if(!same){
+     const pointer=entry.pointer==='/environments'?'/environments/'+escape(environment.name):entry.pointer;
+     issue({resource:configuration.id,pointer},'migration.server.configured-selection',
+      'A saved Server ordinal or environment variable would select a different URL or activate an invalid selection; its reviewed configuration projection is not implemented','implementation');
+    }
+   }
+  }
+ }
+}
 
 /** Independently reusable Parameters and Headers need the same metadata proof
  * as executable occurrences. Literal history is not an active target owner. */
@@ -255,15 +308,7 @@ export function migrationRequestSignatures(graph:ReferenceGraph,resources:Resour
             return securityRequirementAlternatives(choices).map(schemes=>({schemes}));
         })};
         return JSON.stringify(normalize({method:plan.operation.method,path:plan.operation.path,
-            servers:plan.servers.map((server:any)=>{
-                const source=server.urlSource??server.source;
-                const variables=Object.fromEntries(Object.entries(server.variables).map(([name,definition])=>{
-                    if(definition===null||typeof definition!=='object'||Array.isArray(definition))throw new Error('Expected captured Server variable semantics');
-                    const choices=finiteServerVariableValues(definition);
-                    return [name,{...Object.fromEntries(Object.entries(definition).filter(([field])=>field!=='enum'&&field!=='defaultOutsideEnumAllowed')),...(choices?{enum:[...choices].sort()}: {})}];
-                }));
-                return {url:serverTemplate(server.url,server.base,server.variables,source),variables:Object.entries(variables).sort(([a],[b])=>a<b?-1:a>b?1:0)};
-            }),
+            servers:migrationServerSignature(plan.servers),
             parameters,security,body:plan.requestBody?{required:plan.requestBody.required,media:media(plan.requestBody.content),examples:examples(plan.requestBody.content,true),forms:plan.requestBody.content.map((value:any)=>({mediaType:value.mediaType,fields:formSignatures(value)})).sort((a:any,b:any)=>a.mediaType.localeCompare(b.mediaType))}:undefined,
             responses:plan.responses.map((response:any)=>({status:response.status,headers:response.headers.map((header:any)=>({name:header.name,required:header.required})),bodyAllowed:response.bodyAllowed??response.content.length>0,media:response.bodyAllowed===false?[]:media(response.content),examples:response.bodyAllowed===false?[]:examples(response.content,true)}))}));
     }).sort();

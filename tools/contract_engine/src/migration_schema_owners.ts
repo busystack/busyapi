@@ -15,7 +15,7 @@ export type MigrationApplicationKind='condition'|'dependency'|'allOf'|'anyOf'|'o
 export type MigrationOperationSlot=Readonly<{
     method:string;additional:boolean;
     parameters?:readonly MigrationLocation[];
-    servers?:Readonly<{source:MigrationSource;pointer:string;urls:readonly string[]}>;
+    servers?:Readonly<{source?:MigrationSource;pointer?:string;urls:readonly string[]}>;
 }>;
 
 /** Generated schema and OpenAPI object owners share one reservation/provenance boundary. A label
@@ -322,6 +322,19 @@ export class MigrationSchemaOwners {
         this.edits+=edits;this.work+=source.doc.text.length*edits*2;
         if(this.edits>4096||this.work>128*1024*1024)
             throw new SourceError('limit.migration.owners','Schema specialization exceeds its bounded CST edit work');
+    }
+
+    /** Retired native fields are exact literal values under an allocator-owned
+     * Schema annotation. Later converters must not reinterpret their old CST
+     * provenance as a surviving native role. Reuse the common reservations. */
+    retainedValue(location:MigrationLocation):boolean {
+        const parts=segments(location.pointer);
+        for(let index=0;index<parts.length;index++)if(parts[index]==='x-busyapi-retained-value'){
+            const owner='/'+parts.slice(0,index).map(escape).join('/');
+            if(this.reserved.has(JSON.stringify([location.resource,owner]))||owner.endsWith('/items')&&
+                this.reserved.has(JSON.stringify([location.resource,owner.slice(0,-6)])))return true;
+        }
+        return false;
     }
 
     reserve(origin:MigrationLocation,label:string,identity=JSON.stringify([origin.resource,origin.pointer]),destination?:MigrationLocation):{source:MigrationSource;location:MigrationLocation} {
@@ -712,7 +725,9 @@ export class MigrationSchemaOwners {
             const path=reservation.location.pointer+(layout==='callback-operation'?'/{$url}':layout==='parameter-operation'?'/schema/items/x-migrated-native':'');
             if(operation.servers){
                 this.admit(reservation.source,4);
-                reservation.source.copy(operation.servers.source,operation.servers.pointer,path+'/servers');
+                if(operation.servers.source&&operation.servers.pointer!==undefined)
+                    reservation.source.copy(operation.servers.source,operation.servers.pointer,path+'/servers');
+                else reservation.source.set(path+'/servers',operation.servers.urls.map(url=>({url})));
                 for(const [index,url]of operation.servers.urls.entries())reservation.source.set(path+'/servers/'+index+'/url',url);
             }
         }
@@ -1018,7 +1033,14 @@ export class MigrationSemanticOrigins {
             for(const location of record.locations){
                 this.inspect();let scope:GraphScope|undefined;
                 if(record.field==='target')scope=graph.scopeAs(location.resource,location.pointer,record.kind);
-                else if(record.field==='reference')scope=fields.get(this.key(record.namespace,location,record.kind));
+                else if(record.field==='reference'){
+                    scope=fields.get(this.key(record.namespace,location,record.kind));
+                    // A proved finite 3.2 defaultMapping lowers into ordinary
+                    // discriminator mapping entries. Both are schema dispatch
+                    // connections; retain the exact field/target proof through
+                    // the native container-role transition on later stages.
+                    if(!scope&&record.kind==='discriminator')scope=fields.get(this.key(record.namespace,location,'discriminator-map'));
+                }
                 else{
                     const candidates=values.get(valueKey(record.namespace,location,record.field))??[];
                     const matching=candidates.filter(scope=>{this.inspect();return scope.kind===record.kind;});

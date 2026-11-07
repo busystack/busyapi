@@ -8,9 +8,10 @@ import 'test_support.dart';
 
 void main() {
   for (final format in ['yaml', 'json']) {
-    for (final empty in [false, true]) {
+    for (final mode in ['absent', 'empty', 'finite']) {
+      final empty = mode == 'empty', finite = mode == 'finite';
       test(
-        '3.0 $format implicit Server empty=$empty retains its actual origin after migration',
+        '3.0 $format Server mode=$mode retains its actual origin after migration',
         () async {
           final temp = await Directory.systemTemp.createTemp(
             'busyapi-default-origin-',
@@ -38,6 +39,10 @@ void main() {
                   'openapi': '3.0.4',
                   'info': {'title': 'Saved default 雪', 'version': 'API-1'},
                   if (empty) 'servers': [],
+                  if (finite) 'servers': [
+                    {'url': 'http://127.0.0.1:${server.port}/{suffix}/..',
+                     'variables': {'suffix': {'default': 'one', 'enum': ['one', 'two']}}},
+                  ],
                   'paths': {
                     '/items': {
                       'get': {
@@ -52,6 +57,7 @@ void main() {
               : '# Keep implicit Server\r\nopenapi: "3.0.4"\r\n'
                     'info: {title: "Saved default 雪", version: "API-1"}\r\n'
                     '${empty ? 'servers: [] # Keep empty choice\r\n' : ''}'
+                    '${finite ? 'servers: [{url: "http://127.0.0.1:${server.port}/{suffix}/..", variables: {suffix: {default: one, enum: [one, two]}}}]\r\n' : ''}'
                     'paths: {/items: {get: {responses: {"204": {description: "No body"}}}}}\r\n'
                     'x-exact: 9007199254740993.00\r\n';
           final original = [0xef, 0xbb, 0xbf, ...utf8.encode(source)];
@@ -127,7 +133,7 @@ void main() {
           );
           expect(cli.exitCode, 0, reason: '${cli.stdout}\n${cli.stderr}');
           expect((jsonDecode(cli.stdout as String) as Map)['complete'], true);
-          for (final target in ['3.0.4', '3.1.2', '3.2.1']) {
+          for (final target in ['2.0', '3.0.4', '3.1.2', '3.2.1']) {
             final review = await project.prepareMigration(
               root,
               '${temp.path}/migrated-$target',
@@ -140,7 +146,7 @@ void main() {
               reason: '${review.result}',
             );
             expect(review.unsaved, true);
-            expect(review.result['producerVersion'], '92');
+            expect(review.result['producerVersion'], '93');
             await review.publish();
             final copy = await BusyProject.open(review.destination, engine);
             addTearDown(copy.close);
@@ -155,7 +161,7 @@ void main() {
             );
             await send(copy);
           }
-          expect(received, List.filled(5, '/items'));
+          expect(received, List.filled(6, '/items'));
           expect(file.readAsBytesSync(), original);
           expect(manifest.readAsBytesSync(), manifestBytes);
           expect(buffer.text, working);

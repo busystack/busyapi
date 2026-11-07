@@ -76,7 +76,7 @@ test(`${format} URI security downgrades to ${target} through native planning and
  const input=fixture(format,target),before=input.resources.map(source=>source.text),configuration=input.configuration.text;
  assert.equal(analyse(input).status,'complete');
  const original=security(input),review=await planMigration(input);
- assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'92');
+ assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'93');
  assert.deepEqual(input.resources.map(source=>source.text),before);assert.equal(input.configuration.text,configuration);
  assert.equal((await planMigration(input)).identity,review.identity,'Allocation and review identity are deterministic');
  const cold=reopen(review),after=security(cold),entry=after.graph.docs.get(cold.root);
@@ -385,4 +385,30 @@ test('request invariants retain Server variable names that resemble projection m
  document.text=new SourceDocument(document.text,document.id).set('/servers/0/variables/source/default','changed');
  assert.equal(analyse(cold).status,'complete');
  assert.notDeepEqual(migrationRequestSignatures(createGraph(cold).graph,cold.resources),expected);
+});
+
+for(const format of ['yaml','json'])test(`B05-R3 ${format} inactive deprecation retains ordered independent authentication requirements`,async()=>{
+ const root='https://contracts.invalid/r3-security.'+format,value={openapi:'3.2.1',info:{title:'R3 security',version:'1'},servers:[{url:'https://api.invalid'}],
+  components:{securitySchemes:{Key:{type:'apiKey',in:'header',name:'X-Key',deprecated:false},Basic:{type:'http',scheme:'Basic',deprecated:false}}},
+  security:[{Key:[],Basic:[]},{Key:[]},{Key:[]},{}],paths:{'/p':{get:{responses:{204:{description:'Done'}}}}}};
+ const input={root,snapshot:'r3-security',resources:[{id:root,text:encode(value,format),generation:3}],targetVersion:'2.0',destination:'file:///r3-security/'};
+ const before=security(input),review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const cold=reopen(review),after=security(cold);
+ assert.deepEqual(after.plan.requirements.map(row=>row.schemes),[['Key','Basic'],['Key'],['Key'],[]]);
+ assert.deepEqual(migrationRequestSignatures(before.graph,input.resources),migrationRequestSignatures(after.graph,cold.resources));
+ assert(review.outputs.some(output=>output.text.includes('false')),'Original false annotations retain authored owners');
+});
+for(const [scheme,targetVersion,code]of [
+ [{type:'mutualTLS'},'3.0.4','migration.security.mutual-tls'],
+ [{type:'openIdConnect',openIdConnectUrl:'https://auth.invalid/.well-known/openid-configuration'},'2.0','migration.security.type'],
+ [{type:'http',scheme:'bearer'},'2.0','migration.security.type'],
+ [{type:'apiKey',in:'header',name:'X-Key',deprecated:true},'3.1.2','migration.security.deprecated'],
+ [{type:'oauth2',oauth2MetadataUrl:'https://auth.invalid/.well-known/oauth-authorization-server',flows:{clientCredentials:{tokenUrl:'https://auth.invalid/token',scopes:{read:'Read'}}}},'3.1.2','migration.security.metadata'],
+ [{type:'oauth2',flows:{clientCredentials:{tokenUrl:'https://auth.invalid/token',refreshUrl:'https://auth.invalid/refresh',scopes:{read:'Read'}}}},'2.0','migration.security.refresh'],
+ [{type:'oauth2',flows:{deviceAuthorization:{deviceAuthorizationUrl:'https://auth.invalid/device',tokenUrl:'https://auth.invalid/token',scopes:{read:'Read'}}}},'3.1.2','migration.security.device-authorization'],
+])test(`B05-R3 active ${code} is a located target restriction in ${targetVersion}`,async()=>{
+ const root='https://contracts.invalid/restricted-security.json',value={openapi:'3.2.1',info:{title:'Active authentication',version:'1'},servers:[{url:'https://api.invalid'}],components:{securitySchemes:{Auth:scheme}},security:[{Auth:[]}],paths:{'/p':{get:{responses:{204:{description:'Done'}}}}}};
+ const input={root,snapshot:'security-restriction',resources:[{id:root,text:JSON.stringify(value),generation:1}],targetVersion,destination:'file:///restricted-security/'};
+ const review=await planMigration(input);assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);
+ assert(review.problems.some(problem=>problem.code===code&&problem.reason==='target-representation'&&problem.pointer.startsWith('/components/securitySchemes/Auth')),JSON.stringify(review.problems));
 });

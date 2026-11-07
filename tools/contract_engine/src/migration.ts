@@ -9,6 +9,9 @@ import {MigrationSource,MigrationLocation,migrationValueIdentity,migrationLocati
 import {migrateSchemas,MigrationProblem,MigrationIssue,type MigrationChoose,type MigrationIssueLocation} from './migration_schema';
 import {upgradeSwagger} from './migration_swagger';
 import {downgradeSwagger} from './migration_downgrade';
+import {migrateNewerObjects,relocatePathItemComponents} from './migration_newer_objects';
+import {materializeMediaReferences,relocateMediaComponents} from './migration_media_objects';
+import {migrateExampleVersions} from './migration_example_versions';
 import {inactiveMigrationHeader} from './migration_media_schema';
 import {evaluateSchemas} from './schema_evaluation';
 import {referenceValue} from './reference_choices';
@@ -17,7 +20,7 @@ import {documentUriBase,resolveUri,pointerFragment as fragment,schemaDialectIden
 import {documentUriOccurrences} from './document_uris';
 import {serverTemplate} from './derived_bundle';
 import {captureMigrationMarkdown,rewriteMigrationMarkdown,proveMigrationMarkdown} from './migration_markdown';
-import {migrationRequestSignatures,migrationSecurityAlternativeProjection,proveMigrationOperationMedia,proveMigrationObjectMetadata} from './migration_invariants';
+import {migrationRequestSignatures,migrationSecurityAlternativeProjection,proveMigrationOperationMedia,proveMigrationObjectMetadata,proveMigrationServerSelections} from './migration_invariants';
 import {migrateEncodings} from './migration_encoding';
 import {migrateBinarySchemas} from './migration_binary';
 import {specializeBinarySchemaUses} from './migration_binary_uses';
@@ -45,7 +48,7 @@ import {securityRequirementDefinition} from './security_requirements';
 import {migrateSwaggerSecurityFlows} from './migration_security_flows';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='92';
+const migrationProducerVersion='93';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const referenceLocator=(reference:GraphReference)=>!reference.connection&&['$ref','$dynamicRef'].includes(reference.keyword)||
     reference.connection==='operationRef'&&reference.keyword==='operationRef';
@@ -124,7 +127,7 @@ export async function planMigration(input:MigrationInput) {
     };
     const refused=(error:unknown,location:MigrationLocation)=>{
         if(!(error instanceof SourceError))throw error;
-        const proofLimit=['limit.migration.binary','limit.migration.media-schema','limit.migration.form','limit.migration.examples','limit.migration.literal','limit.request.encoding']
+        const proofLimit=['limit.migration.binary','limit.migration.media-schema','limit.migration.media-objects','limit.migration.example-versions','limit.migration.servers','limit.migration.form','limit.migration.examples','limit.migration.literal','limit.request.encoding']
             .some(prefix=>error.code.startsWith(prefix));
         issue(error.source??location,error.code,error.message,error.code==='migration.configuration.alternative'?'target-representation':proofLimit?'unavailable-proof':'implementation');
     };
@@ -322,6 +325,17 @@ export async function planMigration(input:MigrationInput) {
             if(problems.length)break;
             if(after==='2.0')retainNativeCopies(migrateSwaggerSecurityFlows(contexts.map(context=>context.graph),sources,stage.sources,owners,issue,configuredNames));
             if(problems.length)break;
+            if(materializeMediaReferences(contexts.map(context=>context.graph),sources,stage.sources,after,owners,issue)){
+                const mediaInput=preparationInput(),mediaGraph=createGraph(mediaInput);
+                contexts=migrationDocumentContexts(mediaInput,mediaGraph,issue);graph=mediaGraph.graph;
+            }
+            if(problems.length)break;
+            if(migrateExampleVersions(contexts.map(context=>context.graph),sources,stage.sources,after,owners,issue,
+                (location,namespace)=>externalExamples!.inlineCapture(sourceLocation(location.resource,location.pointer),namespace))){
+                const examplesInput=preparationInput(),examplesGraph=createGraph(examplesInput);
+                contexts=migrationDocumentContexts(examplesInput,examplesGraph,issue);graph=examplesGraph.graph;
+            }
+            if(problems.length)break;
             retainNativeCopies(await specializeBinarySchemaUses(contexts.map(context=>context.graph),sources,stage.sources,after,owners));
             if(problems.length)break;
             for(const context of contexts)context.graph.assertReferenceEditsSupported();
@@ -376,14 +390,8 @@ export async function planMigration(input:MigrationInput) {
                 }
                 const directionalUpgrade=before==='2.0'&&after!=='2.0'||before==='3.0'&&modernFamily(after);
                 if(scope.kind==='schema'&&!directionalUpgrade&&!access.preserves(scope,before,after))issue(scope,'migration.schema.direction','Access annotations need a direction-specific schema mapping to preserve their captured property and required-list semantics in the target family','implementation');
-                if(before==='3.2'&&after!=='3.2'){
-                    const newer:Record<string,string[]>={'path-item':['query','additionalOperations'],media:['itemSchema','prefixEncoding','itemEncoding'],encoding:['prefixEncoding','itemEncoding'],tag:['summary','kind','parent'],xml:['nodeType'],discriminator:['defaultMapping']};
-                    for(const name of newer[scope.kind]??[])if(Object.hasOwn(value??{},name))issue({...scope,pointer:scope.pointer+'/'+escape(name)},'migration.feature.newer','This 3.2 construct has no implemented faithful mapping to the selected older family','implementation');
-                }
-                if(before==='3.1'&&after==='3.0'&&scope.kind==='root'){
-                    for(const name of ['webhooks'])if(Object.hasOwn(value??{},name))issue({...scope,pointer:'/'+name},'migration.root.newer','This root construct needs an explicit faithful 3.0 mapping','implementation');
-                }
             }
+            migrateNewerObjects(contexts.map(context=>context.graph),sources,stage.sources,after,owners,issue);
             if(problems.length)break;
             if(stage.sources.includes('3.2')){
                 const identities=migrateDocumentIdentities(graph,sources,after,issue);
@@ -391,7 +399,7 @@ export async function planMigration(input:MigrationInput) {
                     {...resource,aliases:[...new Set([...identities.get(resource.id)!,...(resource.aliases??[])])]}:resource);
             }
             if(problems.length)break;
-            for(const before of stage.sources)migrateServerVariableDefaults(graph,sources,before,after,issue);
+            for(const before of stage.sources)for(const context of contexts)migrateServerVariableDefaults(context.graph,sources,before,after,issue);
             const rawBinaryScopes=new Set<string>();
             for(const before of stage.sources)for(const id of await migrateBinarySchemas(graph,sources,before,after,issue,contexts.map(context=>context.graph)))rawBinaryScopes.add(id);
             if(problems.length)break;
@@ -421,6 +429,10 @@ export async function planMigration(input:MigrationInput) {
                 },
             });
             if(problems.length)break;
+            relocatePathItemComponents(contexts.map(context=>context.graph),sources,stage.sources,after,owners);
+            relocateMediaComponents(contexts.map(context=>context.graph),sources,stage.sources,after,owners);
+            for(const [id]of createdResources)if(!resources.some(resource=>resource.id===id))
+                resources.push({id,text:sources.get(id)!.doc.text,generation:0,identity:digest(sources.get(id)!.doc.text)});
             for(const [id,specification]of graph.specifications){
                 if(!stage.sources.includes(specification.family))continue;
                 const source=sources.get(id)!;
@@ -721,7 +733,8 @@ export async function planMigration(input:MigrationInput) {
     const securityBindings:SecurityBindingChange[]=[];
     const credentialHeaders=new Set<string>();
     const alternativeChoices=new Map<number,ReadonlySet<number>>(),alternativeBounds:{before:number;after:number}[]=[];
-    const operationKeys=(graph:typeof initial.graph)=>graph.operations().map(operation=>JSON.stringify([operation.role,operation.method,operation.customMethod===true,operation.path])).sort();
+    const operationKeys=(graph:typeof initial.graph)=>graph.operations().map(operation=>JSON.stringify([
+        operation.role,operation.customMethod?operation.method:operation.method.toUpperCase(),operation.path])).sort();
     try {
         for(const context of initialContexts){
             const root=context.graph.root,output=identifiers.get(root)!,targetGraph=root===input.root?finalContext.graph:createGraph({...input,root:output,resources:outputResources}).graph;
@@ -731,6 +744,7 @@ export async function planMigration(input:MigrationInput) {
                 .map(location=>({resource:identifiers.get(location.resource)!,pointer:location.pointer}));
             proveMigrationOperationMedia(context.graph,targetGraph,mapped,issue);
             proveMigrationObjectMetadata(context.graph,targetGraph,mapped,issue);
+            proveMigrationServerSelections(context.graph,targetGraph,input.resources,outputResources,configurationDoc,issue);
             proveMigrationConnections(context.graph,targetGraph,mapped,issue);
             if(modernFamily(target.family))proveMigrationSchemaResources(context.graph,targetGraph,mapped,issue);
             const alternatives=migrationSecurityAlternativeProjection(context.graph,targetGraph,input.resources,mapped);

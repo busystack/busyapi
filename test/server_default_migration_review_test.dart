@@ -18,7 +18,7 @@ import 'widget_io.dart';
 
 void main() {
   for (final format in ['yaml', 'json']) {
-    for (final target in ['3.1.2', '3.2.1']) {
+    for (final target in ['2.0', '3.1.2', '3.2.1']) {
       for (final options in [
         <String>[],
         ['known'],
@@ -75,6 +75,7 @@ void main() {
               1,
               'saved',
               options,
+              serverUrl: target == '2.0' ? 'http://[::1]:1/v{suffix}/../base' : null,
             );
             final original = [0xef, 0xbb, 0xbf, ...utf8.encode(source)];
             final file = File('${temp.path}/api.$format')
@@ -180,9 +181,14 @@ void main() {
                     {'id': id, 'text': comparison.after, 'generation': 0},
                   ],
                 });
-                final variable = planned['servers'][0]['variables']['suffix'];
-                expect(variable['default'], '雪');
-                expect(variable['enum'], [...options, '雪']);
+                if (target == '2.0') {
+                  expect(planned['servers'][0]['url'], 'http://[::1]:1/base');
+                  expect(planned['servers'][0]['variables'], isEmpty);
+                } else {
+                  final variable = planned['servers'][0]['variables']['suffix'];
+                  expect(variable['default'], '雪');
+                  expect(variable['enum'], [...options, '雪']);
+                }
               });
               expect(comparison.after, contains(target));
               expect(comparison.after, contains('9007199254740993.00'));
