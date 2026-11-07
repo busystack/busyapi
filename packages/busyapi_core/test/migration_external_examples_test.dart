@@ -5,6 +5,7 @@ import 'package:busyapi_core/busyapi_core.dart';
 import 'package:test/test.dart';
 
 import 'test_support.dart';
+import 'migration_r3b_fixture.dart';
 
 String _render(Map<String, Object?> value, String format) => format == 'yaml'
     ? '# Keep original source 雪\r\n${value.entries.map((entry) => '${jsonEncode(entry.key)}: ${jsonEncode(entry.value)}').join('\r\n')}\r\n'
@@ -65,6 +66,7 @@ class _ChangedEntryDiscovery extends EngineProcess {
 }
 
 void main() {
+  _r3bReusableExamples();
   _b05R2InlineExamples();
   for (final defect in ['missing', 'revision', 'references']) {
     test('migration rejects $defect entry discovery before publication', () async {
@@ -244,7 +246,7 @@ void main() {
         environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
       final review = await run(['--json']);expect(review.exitCode, 0, reason: '${review.stdout} ${review.stderr}');
       final report = jsonDecode(review.stdout as String) as Map;
-      expect(report['published'], false);expect(report['producerVersion'], '94');
+      expect(report['published'], false);expect(report['producerVersion'], '95');
       final copy = (report['exampleOutputs'] as List).single as Map;
       expect(base64Decode(copy['base64'] as String), bytes);expect(await Directory(destination).exists(), false);
       final textReview = await run([]);expect(textReview.exitCode, 0, reason: textReview.stderr as String);
@@ -368,5 +370,76 @@ void _b05R2InlineExamples() {
         final cold = await BusyProject.open(path, engine);addTearDown(cold.close);await exchange(cold);
       }
     });
+  }
+}
+
+void _r3bReusableExamples() {
+  for (final format in ['yaml', 'json']) {
+    for (final failure in ['cancel', 'race', 'failure', 'stale-source', 'stale-example']) {
+      test('R3b $format reusable owner publication rejects $failure atomically', () async {
+        final directory = await Directory.systemTemp.createTemp('busyapi-r3b-publication-');
+        addTearDown(() => directory.delete(recursive: true));
+        final originals = r3bSources(format);
+        for (final entry in originals.entries) await File('${directory.path}/${entry.key}').writeAsString(entry.value);
+        final file = File('${directory.path}/api.$format'), library = File('${directory.path}/library.$format');
+        final payload = File('${directory.path}/count.bin');
+        final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);addTearDown(engine.close);
+        final project = await BusyProject.open(file.path, engine);addTearDown(project.close);
+        final review = await project.prepareMigration(file.uri.toString(), '${directory.path}/converted', targetVersion: '2.0');
+        addTearDown(review.close);expect(review.publishable, true, reason: '${review.result}');
+        var cancelled = false;
+        await expectLater(review.publish(cancelled: () => cancelled, beforePublish: () async {
+          if (failure == 'cancel') cancelled = true;
+          if (failure == 'race') {await Directory(review.destination).create();await File('${review.destination}/foreign').writeAsString('Keep');}
+          if (failure == 'failure') throw const FileSystemException('Controlled R3b publication failure');
+          if (failure == 'stale-source') {
+            final buffer = await project.buffer(library.uri.toString());project.store.replace(buffer.id, buffer.text.replaceFirst('Original R3b', 'Changed R3b'));
+          }
+          if (failure == 'stale-example') await payload.writeAsString('0');
+        }), throwsA(anything));
+        expect(await file.readAsString(), originals['api.$format']);expect(await library.readAsString(), originals['library.$format']);
+        expect(await payload.readAsString(), failure == 'stale-example' ? '0' : r3bCount);
+        if (failure == 'race') {
+          expect(await File('${review.destination}/foreign').readAsString(), 'Keep');
+          expect(await File('${review.destination}/openapi.$format').exists(), false);
+        } else {expect(await Directory(review.destination).exists(), false);}
+      });
+    }
+    for (final unused in [null, 'path-item', 'media']) {
+      test('R3b $format CLI ${unused ?? 'bound'} reusable owners preserve source and precise review disposition', () async {
+        final directory = await Directory.systemTemp.createTemp('busyapi-r3b-cli-');addTearDown(() => directory.delete(recursive: true));
+        final originals = r3bSources(format, unused: unused);
+        for (final entry in originals.entries) await File('${directory.path}/${entry.key}').writeAsString(entry.value);
+        final file = File('${directory.path}/api.$format'), destination = '${directory.path}/cli';
+        Future<ProcessResult> cli(List<String> extra) => Process.run('$testBundle/busyapi',
+          ['migrate', file.path, '--target', '2.0', '--output', destination, '--json', ...extra],
+          environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
+        final preview = await cli([]);expect(preview.exitCode, unused == null ? 0 : 2, reason: '${preview.stdout} ${preview.stderr}');
+        final report = jsonDecode(preview.stdout as String) as Map;
+        expect(report['published'], false);expect(await Directory(destination).exists(), false);
+        if (unused == null) {
+          expect(report['complete'], true);expect(report['exampleOutputs'], isEmpty);
+          final applied = await cli(['--apply', report['reviewIdentity'] as String]);expect(applied.exitCode, 0, reason: '${applied.stdout} ${applied.stderr}');
+          for (final entry in originals.entries) expect(await File('${directory.path}/${entry.key}').readAsString(), entry.value);
+          final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);addTearDown(engine.close);
+          for (final name in originals.keys) await File('${directory.path}/$name').delete();
+          final cold = await BusyProject.open(destination, engine);addTearDown(cold.close);
+          final root = File('$destination/${report['entry']}').uri.toString(), checked = await cold.check(root);
+          expect(checked['complete'], true, reason: '$checked');expect(checked['projection']['operations'], hasLength(2));
+        } else {
+          final code = unused == 'path-item' ? 'migration.path-item.unused-owner' : 'migration.media.unbound-owner';
+          final problems = (report['problems'] as List).cast<Map>();
+          expect(problems.any((problem) => problem['code'] == code && problem['reason'] == 'target-representation'), true, reason: '$problems');
+          expect(report['outputs'], isEmpty);
+          final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);addTearDown(engine.close);
+          final project = await BusyProject.open(file.path, engine);addTearDown(project.close);
+          final blocked = await project.prepareMigration(file.uri.toString(), '${directory.path}/blocked-core', targetVersion: '2.0');
+          addTearDown(blocked.close);expect(blocked.publishable, false);
+          await expectLater(blocked.publish(), throwsA(isA<CoreFailure>()));
+          expect(await Directory(blocked.destination).exists(), false);
+          for (final entry in originals.entries) expect(await File('${directory.path}/${entry.key}').readAsString(), entry.value);
+        }
+      });
+    }
   }
 }

@@ -9,6 +9,33 @@ const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
 const {SourceDocument}=require('./dist/document.cjs');
 const {resolveUri}=require('./dist/reference_graph.cjs');
 
+for(const format of ['yaml','json'])for(const version of ['3.2.0','3.2.1'])for(const targetVersion of ['2.0','3.0.4','3.1.2'])
+test(`R3b ${version} ${format} reusable parents retain occurrences and independent children in ${targetVersion}`,async()=>{
+ const fixture=require('./migration_b05_r3b_fixture.cjs'),{input}=fixture.capture(format,version),before=JSON.stringify(input);
+ const {migrationRequestSignatures}=require('./dist/migration_invariants.cjs');
+ const review=await planMigration({...input,targetVersion});assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const cold=fixture.reopened(review),source=createGraph(input).graph,target=createGraph(cold).graph;
+ assert.equal(analyse(cold).complete,true,JSON.stringify(analyse(cold).findings));
+ assert.deepEqual(migrationRequestSignatures(target,cold.resources),migrationRequestSignatures(source,input.resources));
+ assert.deepEqual(target.operations().map(op=>[op.method,op.path]).sort(),[['post','/first'],['post','/second']]);
+ for(const op of target.operations()){
+  const plan=requestOperation({...cold,resource:op.source.resource,pointer:op.source.pointer,occurrence:op.occurrence});
+  assert.deepEqual(plan.requestBody.content.map(media=>[media.mediaType,media.examples[0].raw]),[['application/json','9007199254740993.00']]);
+  assert.deepEqual(plan.responses[0].content.map(media=>[media.mediaType,media.examples[0].raw]),[['application/vnd.count+json','9007199254740993.00']]);
+  assert.equal(plan.responses[1].content.length,0);
+ }
+ const library=review.changes.find(change=>change.resource===input.resources[1].id),path=review.outputs.find(output=>output.id===library.destination).path;
+ const libraryRoot=new URL(path,'file:///cold/r3b/').href,packet={...cold,root:libraryRoot};
+ assert.equal(createGraph(packet).graph.operations().length,0,'The library adds no endpoint or callback');
+ const pointer=targetVersion==='2.0'?'/definitions/Independent':'/components/schemas/Independent';
+ const check=await evaluateSchemas({...packet,runtimeInstances:['9007199254740993.00','0'].map(text=>({subject:'response-body',location:text,text,schema:{resource:libraryRoot,pointer}}))});
+ assert.equal(check.complete,true,JSON.stringify(check.findings));assert.deepEqual(check.runtimeEvaluations.map(value=>value.valid),[true,false]);
+ const original=new SourceDocument(input.resources[1].text,input.resources[1].id),output=target.docs.get(libraryRoot);
+ for(const field of ['/x-exact','/x-alias'])assert.equal(output.dataJson(field),original.dataJson(field));
+ assert(target.entryReferences().filter(edge=>edge.keyword==='$ref').every(edge=>edge.resolution==='resolved'));
+ assert.equal(JSON.stringify(input),before);assert.equal((await planMigration({...input,targetVersion})).identity,review.identity);
+});
+
 for(const format of ['yaml','json'])test(`B05-R1 ${format} a foreign Swagger operationRef retains a private media owner without a new route`,async()=>{
  const root=`file:///foreign-operations/modern.${format}`,legacy=`file:///foreign-operations/legacy.${format}`;
  const modern={openapi:'3.1.2',info:{title:'Modern',version:'1'},paths:{},components:{links:{Use:{operationRef:`legacy.${format}#/paths/~1payload/post`}},securitySchemes:{Key:{type:'apiKey',in:'header',name:'X-modern'}}}};
@@ -101,7 +128,7 @@ test(`${version} ${format} native objects and literal values share one specializ
  const input=fixture(version,format),original=input.resources[0].text,doc=new SourceDocument(original,input.root);
  assert.equal(analyse(input).status,'complete');await wire(input);
  const review=await planMigration(input);
- assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'94');
+ assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'95');
  assert.equal(review.exampleOutputs.length,2);assert.equal(input.resources[0].text,original);
  const output=delivered(review),{graph}=createGraph(output);
  assert.equal(analyse(output).status,'complete');await wire(output);
@@ -356,4 +383,39 @@ for(const format of ['yaml','json'])test(`R3a ${format} references follow a body
   schema:{resource:edge.targetResource,pointer:edge.targetPointer}}))});
  assert.equal(checked.complete,true);assert.deepEqual(checked.runtimeEvaluations.map(result=>result.valid),[true,false]);
  assert.equal(input.resources[0].text,text);
+});
+
+for(const format of ['yaml','json'])for(const targetVersion of ['3.1.2','3.0.4'])
+test(`R3b ${format} independently referenced Operations retain parent parameters and operation connections in ${targetVersion}`,async()=>{
+ const fixture=require('./migration_b05_r3b_fixture.cjs'),{input,entry,objects}=fixture.capture(format);
+ delete entry.paths['/second'];objects.components.pathItems.Item.post.operationId='write';
+ entry.components={links:{Operation:{operationRef:'library.'+format+'#/components/pathItems/Item/post'}}};
+ input.resources[0].text=fixture.render(entry,format);input.resources[1].text=fixture.render(objects,format);
+ const result=await planMigration({...input,targetVersion});assert.equal(result.complete,true,JSON.stringify(result.problems));
+ const cold=fixture.reopened(result),graph=createGraph(cold).graph;
+ assert.equal(graph.operations().length,1);assert.equal(graph.operations()[0].path,'/first');
+ const edge=graph.referenceAs(cold.root,'/components/links/Operation','operationRef','operation');assert.equal(edge.resolution,'resolved');
+ assert.equal(graph.docs.get(edge.targetResource).dataNode(edge.targetPointer+'/operationId').value,'write');
+ assert(graph.scopeAs(edge.targetResource,edge.targetPointer,'operation'));
+});
+
+for(const format of ['yaml','json'])for(const targetVersion of ['3.1.2','2.0'])
+test(`R3b ${format} reusable itemSchema keeps both sequential media occurrences and child schema owners in ${targetVersion}`,async()=>{
+ const fixture=require('./migration_b05_r3b_fixture.cjs'),{input,objects}=fixture.capture(format);
+ objects.components.mediaTypes.Payload={schema:{type:'array'},itemSchema:{type:'integer',minimum:2}};
+ delete objects.components.headers;
+ const operation=objects.components.pathItems.Item.post;
+ operation.requestBody.content={'application/x-ndjson':{$ref:'#/components/mediaTypes/Alias'}};
+ operation.responses[200].content={'application/json-seq':{$ref:'#/components/mediaTypes/Payload'}};
+ input.resources[1].text=fixture.render(objects,format);
+ const result=await planMigration({...input,targetVersion});assert.equal(result.complete,true,JSON.stringify(result.problems));
+ for(const packet of [input,fixture.reopened(result)]){
+  const graph=createGraph(packet).graph,op=graph.operations()[0];
+  const plan=requestOperation({...packet,resource:op.source.resource,pointer:op.source.pointer,occurrence:op.occurrence});
+  const media=plan.requestBody.content[0];
+  const checked=await evaluateSchemas({...packet,runtimeInstances:['2\n3\n','1\n3\n'].map((text,index)=>({subject:'request-body',location:String(index),text,media:media.source,mediaType:media.mediaType}))});
+  assert.equal(checked.complete,true,JSON.stringify(checked.findings));
+  assert(checked.runtimeEvaluations.filter(value=>value.location==='0').every(value=>value.valid));
+  assert(checked.runtimeEvaluations.some(value=>value.location==='1'&&!value.valid));
+ }
 });

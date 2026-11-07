@@ -31,13 +31,117 @@ consume those shared results. Source-preserving transactions remain authoritativ
 Current changes require complete engine, Core, native and packaged verification;
 source inspection or a successful build is not runtime acceptance.
 
+## B05-R3b: Reusable Path Item and Media Type ownership
+
+**B05-R3b is source-complete, unverified within W3.09. B05-R3 remains
+partially implemented, unverified; B05 is incomplete.** This bounded assignment
+starts at `3ce4f31b1d00d77882a7eb18da9b2526d3c0ce78` in the primary
+`release/v0.1.0` checkout. A01–A03, B01–B04, B05-R1/R2 and R3a remain the
+baseline. R3c and B05-R4 have not begun.
+
+The normative basis is Swagger 2.0 §§6.4.1, 6.4.5–6 (endpoint keys and Path
+Item references), 6.4.12/15 (Response schemas and MIME-keyed examples),
+6.4.18 and 6.4.20–23 (the available reusable categories), together with the
+OpenAPI 3.0.4/3.1.2/3.2.1 Components, Path Item, Callback, Media Type,
+Encoding and Reference clauses. These are the versioned authorities linked
+above. Components have no API effect without an actual invocation/route use.
+A fragment entered by a typed reference differs from unattached data in a file.
+
+Implemented source changes:
+
+- The final Swagger target is checked against captured Paths reachability
+  before constructing any intermediate holder. Chained Path Item aliases and
+  consumers in other captured documents count; references only to children and
+  cycles/chains among otherwise unused definitions do not create an endpoint.
+  Used Path Items retain the existing common fragment allocator, terminal
+  reference repair, route planning, parameter inheritance and operation
+  identity bijection. No route or HTTP method is synthesized for storage.
+- Media context capture now includes every alias in a resolved chain. Each
+  real content occurrence keeps its exact key and request/response/Parameter/
+  Header context. Materialization shares child schema, named Example and
+  nested Encoding Header targets instead of cloning their identities. The
+  established itemSchema, default/inapplicable Encoding, form and metadata
+  conversions remain authoritative for representable fields.
+- On direct Swagger lowering, independently owned converted schemas and
+  Headers leave the reusable media envelope through the common Schema and
+  inactive Response.headers layouts. Existing Example materialization and
+  literal history retain names, exact payloads and approved external bytes.
+  The remaining envelope retires through existing CST history; it does not
+  become a new Swagger component or an active media declaration.
+- Bound media definitions in inactive 3.1/3.0 Response holders retain all their
+  actual captured MIME keys. Additional envelopes refer to canonical children;
+  identified resources are not duplicated. An unbound object's octet-stream
+  placeholder remains inactive storage syntax and supplies no codec evidence.
+  The Callback holders used by 3.0 likewise add no invocation or public route.
+- A library's original independent Path Item and media-child interpretations
+  are proved even when only another delivered entry enters their owners. This uses
+  the existing graph maintenance-occurrence facility, and admits only owners
+  already reached by ordinary delivered graph closure. Executable bijections,
+  request signatures, final validation and cold reopening remain unseeded.
+  Native connections and Header/operation metadata retain their captured
+  namespace. There is no new resolver, ownership registry or sidecar contract.
+
+Exact R3b boundaries:
+
+| Source/route | Disposition and reason |
+| --- | --- |
+| Reusable Path Item reached from captured Paths, including several routes and foreign-only consumers | Representable contents use native referenced fragments and the existing route/owner conversions. Child-only references do not establish a parent route use. |
+| Independently unused Path Item targeting Swagger | `migration.path-item.unused-owner`, **target representation**. Swagger's only Path Item positions are endpoint keys and their reference targets. Its reusable categories have no inactive Path Item slot. An unattached fragment loses the native role; a Schema annotation loses field interpretation; a new route/Callback invents API semantics. The source remains intact and no output is published. |
+| Reusable Media Type with captured content-key occurrences | Occurrences lower independently through established conversions; neutral schema/Header owners and Example/literal history remain separate. `migration.components.mediaTypes` is no longer the occurrence-materialization implementation gap. |
+| Independently unbound reusable Media Type targeting Swagger | `migration.media.unbound-owner`, **target representation**. Swagger has neither a Media Type Object nor its reference slots. Response examples require actual MIME keys; a schema alone cannot retain the independent media envelope or Encoding applicability. A placeholder cannot establish authored media semantics. The source remains intact and no output is published. |
+| 3.2 → 3.1 → 3.0, or 3.1 → 3.0 | Standard inactive holders retain typed children and add no executable operations or negotiation choices. All actual bound media keys survive. |
+| A separately delivered 3.0 Callback holder subsequently reviewed for Swagger | The input now declares an independent standard Callback, for which Swagger has no representation: `migration.components.callbacks`, **target representation**. A later review has no hidden provenance contract authorizing deletion of that authored wrapper. This does not block the direct representable Path Item route to Swagger; generated temporary native holders in one review still use the existing release mechanism. |
+| Missing captures, unresolved resources or no established codec/part-shape certificate | Existing source-incomplete/unavailable-proof findings remain distinct from the target restrictions above. General named Example/serialization, advanced Encoding, XML and discriminator work remains in later bounded R3 assignments. |
+
+Prepared regressions, **not executed**:
+
+| Layer | Coverage |
+| --- | --- |
+| Engine `test_migration_object_uses.cjs` | Published 3.2 patches in YAML/JSON; several routes, direct/chained media and Path Item references, independent Operation connections, itemSchema, exact examples, source/target request signatures and cold schema behavior. |
+| Engine `test_migration_document_owners.cjs`, `test_migration_overlapping_containers.cjs` | Foreign-only consumers; operationId identity; identified/anchored schemas, independent literal/schema consumers and no duplicated schema resources. |
+| Engine `test_migration_entry_routes.cjs` | Mixed 3.0/3.1/3.2 entries; unused owners, unused alias chains and child-only consumers; precise located restrictions and empty publication outputs. |
+| Engine `test_migration_swagger_media.cjs`, `test_migration_external_examples.cjs` | Distinct request/response/Parameter/Header contexts; chained 3.x holders; inactive placeholder controls; captured external bytes, missing bytes, exact-byte refusal and independent child references. |
+| Core `migration_object_uses_test.dart`, `migration_external_examples_test.dart` | Actual HTTP before/after publication, cross-file definitions, unsaved buffers, YAML aliases, repeated review identity, cancellation, source/example staleness, destination races, injected publication failure, deletion of originals, relocated cold opening, CLI review/apply/check and unused-owner refusals. |
+| Native `migration_external_examples_review_test.dart` | Reusable 3.2 parents through the actual review/publication flow, captured external bytes, unsaved/stale inputs, and unused owner findings with publication disabled. |
+| CLI/preflight and producer admission | Existing shared consumers expose the precise findings. Packaged preflight fixtures cover bound/unused reusable owners, external bytes and unpublished outcomes. Producer 94 joins the obsolete-package controls in Core and preflight. |
+
+The six engine suites remain registered in `tools/build_engine.sh`; existing
+Core/native test discovery and the preflight suite include these extensions.
+Shared fixtures are `migration_b05_r3b_fixture.cjs` and
+`packages/busyapi_core/test/migration_r3b_fixture.dart`.
+
+Production files changed: Engine `migration.ts`, `migration_downgrade.ts`,
+`migration_media_objects.ts`, new `migration_reusable_targets.ts`; Core
+`packages/busyapi_core/lib/src/migration.dart`; preflight
+`tools/native_migration_preflight.py`. Native review and CLI continue to consume
+the shared production result; no parallel conversion implementation was added.
+Other test edits synchronize positive producer assertions without removing
+existing regression or obsolete-producer protections.
+
+Migration producer/admission/preflight are **95**; **94** is obsolete.
+Schema-example projection **3**, evaluator **1.18.0+60**, graph **9**, response
+mock **5**, parameter mock **4** and sample producer **4** are unchanged.
+Bundles remain unbuilt and do not qualify producer 95.
+
+**Actual verification:** normative specification consultation, manual source and
+registration inspection, Git state and diff/whitespace review only. No tests,
+compilers, analyzers, builds, code generation, CI, graphical workloads,
+packaging or performance checks were run. The execution hold remains active;
+Snapcraft remains skipped. The installed official Flutter SDK, dependencies
+and third-party software were not changed. Source completion is not runtime
+acceptance and does not complete B05-R3 or B05.
+
+**Next assignment: B05-R3c — Whole-query and finite cookie-style parameter
+lowering.** Advanced Encoding and broader Example/XML/discriminator work remain
+for subsequent bounded R3 assignments before B05-R4 reconciliation.
+
 ## B05-R3a: Operation paths and saved Server selections
 
 **B05-R3a is source-complete, unverified within W3.09. B05-R3 remains
 partially implemented, unverified.** This bounded continuation starts at
 `ad9d4381e89d505285269d3d5e911127f73f0c94` in the primary
 `release/v0.1.0` checkout. It preserves the earlier implementation baseline;
-B05-R3b and B05-R4 have not begun.
+B05-R3b is now recorded above; B05-R4 has not begun.
 
 The normative Swagger 2.0 Paths/host/basePath/schemes clauses and OpenAPI
 3.0.4, 3.1.2 and 3.2.1 Server inheritance, relative URL and Path Templating
@@ -149,8 +253,7 @@ remains skipped. The official installed Flutter SDK, dependencies and third-part
 software were not modified. Source completion does not establish runtime
 acceptance or complete B05-R3.
 
-**Next bounded assignment: B05-R3b — Reusable Path Item and Media Type ownership,
-including unused resources targeting Swagger.** Subsequent R3 work must address
+**Historical next assignment: B05-R3b**, now recorded above. Subsequent R3 work must address
 querystring/cookie serialization, advanced Encoding, Example, XML and
 discriminator cases before B05-R4 reconciliation. None was begun here.
 
@@ -235,8 +338,8 @@ Known remaining R3 implementation/proof gaps:
 | --- | --- |
 | Different operation base paths under one compatible authority | Implemented in B05-R3a above. Multiple paths within one operation's alternatives still retain a target restriction. |
 | Saved Server selections and environment coupling | Reviewed projections are implemented in B05-R3a above. Incompatible shared selectors/factors and unproved lowered execution-environment interpolation retain the exact boundaries recorded there. |
-| Independently unused reusable Path Items targeting Swagger | `migration.path-item.unused-owner`: the remaining independently typed fragment/owner case is not implemented. |
-| Reusable Media Type categories targeting Swagger | `migration.components.mediaTypes`: occurrence materialization exists, but neutral reusable envelopes and their independently consumed children still need complete Swagger ownership conversion. |
+| Independently unused reusable Path Items targeting Swagger | R3b above establishes `migration.path-item.unused-owner` as a final-target restriction from the available standard native ownership positions. Referenced uses and foreign-only consumers retain common fragment ownership. |
+| Reusable Media Type categories targeting Swagger | R3b above completes established occurrence/child-owner conversion; independently unbound definitions retain the precise `migration.media.unbound-owner` final-target restriction. |
 | Whole-query parameters | `migration.parameter.querystring-proof`: no whole-query lowering certificate is implemented, including finite cases that may admit exact older serialization. |
 | Positional/nested multipart and response part instructions | Non-default instructions still need complete shape-specific conversion, including any equivalent older Schema annotations; current unavailable-proof/target boundaries do not establish that every such source is impossible. |
 | General newer Example serialization | Other parameter/Header serializations, non-JSON/plain-text codecs and unbound reusable examples still lack the required equality/ownership certificates. Simple string Header, JSON and plain-text conversions do not close this matrix. |
@@ -299,7 +402,7 @@ Git state and diff/whitespace review only. No compiler, analyzer, test, build,
 generation, CI, graphical/native workload, packaging or performance check ran.
 The official Flutter SDK and third-party software were not modified. The
 execution hold remains active; Snapcraft remains skipped. Local implementation
-commits do not establish source completion or runtime acceptance. This historical R3 baseline does not authorize R4 or move remaining R3 gaps into a completed bucket; the current bounded handoff is recorded in B05-R3a above.
+commits do not establish source completion or runtime acceptance. This historical R3 baseline does not authorize R4 or move remaining R3 gaps into a completed bucket; the current bounded handoff is recorded in B05-R3b above.
 
 ## B05-R2: parameter, body, response, example and reusable-object conversion
 
@@ -1859,7 +1962,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W3.06 Pattern/property-name/contains/count/unevaluated/content constraints; JC §§10–11, JV §§6/8 | `migration_schema.ts`, name-domain/regex/containment/annotation certificate owners, existing binary/reference/dependency owners | M E S C | pattern/property-name/array/unevaluated/content suites, official fixtures, Core/native B03 journeys | Source-complete for established B03 certificate families, unverified; finite/cofinite/closed name proofs, finite/universal/equivalent-uniform pattern selection, nonconstant structural/existential/complement/unique-finite counts, successful composed/reference annotation selection, static/homogeneous/finite positional coverage and inactive content-owner preservation are implemented. Active decoded-content annotations retain actual older-vocabulary refusals; unavailable name/count/coverage/binding certificates and B04 binary work are distinguished in the B03 handoff above | H |
 | W3.07 Raw/data/base64/byte/file/union consumers and byte constraints; family binary clauses, JV §8 | `migration_binary.ts`, Swagger flat/media owners | M E S C | migration binary, direct Swagger, form/media, Core and native binary suites | Source-complete, unverified after B04-R3 reconciliation; common entry proof capture, YAML containing literals, exact media-value comparison and intersected singleton cardinality are corrected. R1/R2 mappings share the existing ownership/schema/media pipeline; complete binary transaction/native/CLI/preflight regression sources are registered. Remaining target restrictions, unavailable proofs and source/evidence prerequisites are separately classified and source-located in the R3 register above; no known established representable B04 mapping is deferred | H |
 | W3.08 Inherited media, forms/files, examples without schemas, shared operations/body meaning and reusable objects; family object clauses | Swagger media/form/downgrade/operation owners | M E S C | Swagger media/form/bodyless/ignored-body suites, Core form CLI | R1 and R2 source-complete, unverified; inherited media use entry owners, representable parameter/body/response/example/reusable conversions are implemented, bodyless legacy examples retain a precise standard-target restriction, and remaining proof/target boundaries are registered above; B05-R3 adds the newer-object conversions and prepared coverage recorded above but remains partially implemented, unverified | H |
-| W3.09 Servers/security/newer-version fields and invariant proof; family clauses, HTTP/URI | servers/security/operation/invariant owners | M E S C | default-server/security-role/entry-route suites, native-object-use publication and URI-key controls | Partially implemented; Retained 3.2 URI security bindings preserve separate role arrays through owner specialization and portable relocation, with target/name-precedence proofs and declaration/scopes invariants. Older-family URI-to-name source paths now allocate separate standard components through the shared allocator and additional typed-use provenance; external/aliased targets, name precedence, exact scope/role arrays and AND/OR order retain captured connection and request proofs. Shared URI requirements seed entry specialization even when their targets agree; source-side moves repair relative URI keys, and targets lacking Path Item component maps use common anonymous holders. Scheme Reference Object materialization retains applicable description overrides and their original Markdown bases. Captured environment aliases, exact manifest text/identity, Core stale/publication checks, native binding review and CLI output are implemented with prepared regressions; execution remains outstanding. Standard OAuth acquisition flows now specialize into one-flow Swagger schemes and ordered OR expansions without merging AND bindings or scope arrays. Compatible global environment selections project through captured effective security-array owners, intersect complete branch sets across operations, and preserve invalid-selection guards. Ignored Reference Object siblings retain full literal copies through the shared anonymous allocator; source formats/comments and exact values survive materialization. Non-OAuth roles in restricted targets, unavailable summary/discovery/device representations and flow metadata without a standard target container retain located blockers. The B05-R3 section above records finite Server conversion, newer-object/metadata handling, prepared coverage and exact remaining implementation/proof gaps; R3 is not source-complete and mixed-family/newer-field completion remains open | H |
+| W3.09 Servers/security/newer-version fields and invariant proof; family clauses, HTTP/URI | servers/security/operation/invariant owners | M E S C | default-server/security-role/entry-route suites, native-object-use publication and URI-key controls | Partially implemented; Retained 3.2 URI security bindings preserve separate role arrays through owner specialization and portable relocation, with target/name-precedence proofs and declaration/scopes invariants. Older-family URI-to-name source paths now allocate separate standard components through the shared allocator and additional typed-use provenance; external/aliased targets, name precedence, exact scope/role arrays and AND/OR order retain captured connection and request proofs. Shared URI requirements seed entry specialization even when their targets agree; source-side moves repair relative URI keys, and targets lacking Path Item component maps use common anonymous holders. Scheme Reference Object materialization retains applicable description overrides and their original Markdown bases. Captured environment aliases, exact manifest text/identity, Core stale/publication checks, native binding review and CLI output are implemented with prepared regressions; execution remains outstanding. Standard OAuth acquisition flows now specialize into one-flow Swagger schemes and ordered OR expansions without merging AND bindings or scope arrays. Compatible global environment selections project through captured effective security-array owners, intersect complete branch sets across operations, and preserve invalid-selection guards. Ignored Reference Object siblings retain full literal copies through the shared anonymous allocator; source formats/comments and exact values survive materialization. Non-OAuth roles in restricted targets, unavailable summary/discovery/device representations and flow metadata without a standard target container retain located blockers. B05-R3a and B05-R3b above are source-complete, unverified: route/configuration projection and established reusable parent/child ownership are implemented, with normative unused-owner target restrictions and prepared regression coverage. The B05-R3 section records the other exact implementation/proof gaps; R3 is not source-complete, R3c and later bounded newer-field work remain open, and B05-R4 has not begun | H |
 | W3.10 Unsaved capture, stale review rejection, original preservation, inventories, exact external bytes, atomic publication and relocated verification; URI/TEXT, Core transaction contract | migration source/examples/invariants; Core `migration.dart` and publication owners | M S C | Core migration/derived-resource/publication suites, engine external examples | R2 source integration is complete and unverified; captured bytes use surviving native locators or proved standard literals, with per-entry ownership, exact payload and cold proofs, immutable review and atomic publication; current runtime/publication acceptance remains required | H |
 
 ### W4–W5: wire representations and execution
@@ -1889,7 +1992,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W7.01 Creation, editing, unsaved Reference, request/example/mock/case, migration review, documentation and CLI integration for every capability; all applicable clauses above | shared engine, Core owners and native workspace controls | A R E M S C | engine/Core/widget/native journey suites | Partially implemented; applicable existing consumers inherit shared field/codec/routing changes; complete family journeys are not accepted | H |
 | W7.02 Stale-action invalidation on declaration/dialect/root/external/approval changes; coherent reviewed transactions, Undo/Redo and no buffer loss; Core transaction contract | Core project/store/capture and native review/request controllers | A R E M S C | stale capture/cancellation/publication/widget review suites | Partially implemented; existing source for existing safeguards; new paths require current integration qualification | H |
 | W7.03 CST fidelity, no-op saves, exact values, aliases, extensions and source-only migration restructuring; TEXT | `document.ts`, graph/CST editing, Core store/transaction owners | A R M S C | source ownership/alias/exact-value/no-op suites | Partially implemented; existing source for existing boundaries; generated schema owners retain original provenance and reviewed restructuring | H |
-| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+60`, migration producer `90`, response mock producer `5`, parameter mock producer `4`, sample producer is now `4`; no dependency versions/source changed | H |
+| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+60`, migration producer `95`, response mock producer `5`, parameter mock producer `4`, sample producer is now `4`; no dependency versions/source changed | H |
 | W8.01 Explicit independent evidence input across SDK/build/CMake/CI/installed/package checks; PINS | `flutter_archive.py`, SDK verifier, `build_linux.sh`, CMake, package/native-distribution/artifact-smoke inputs | P | `tools/test_flutter_sdk.py`, source-wiring regressions | Partially implemented; existing source for archive-input propagation; same existing evidence reaches installed checks; independent member pins remain an alternative; no SDK acquisition/replacement | H; actual evidence availability/authenticity has not been qualified |
 | W8.02 Ordered gates, registration, source-version-valid fixtures and production-byte regressions; PINS and each row's authority | `tools/build_engine.sh`, Linux workflow, engine/Core/widget/native/package suites | P | new direct-Swagger/conditional/tuple-tail/constant-containment/property-name/runtime-parameter and URI-security/OAuth-flow/invariant regressions registered; existing TypeScript-before-bundle gate retained | Partially implemented; compilation and all suspended gates remain unexecuted; missing regression coverage identified in this register remains implementation work | H |
 | W8.03 Current automated/native/packaged/offline acceptance and normal Quit; all approved families and PINS | native acceptance tools, Core/package/CLI suites | A R E M S C P | existing native acceptance including historical Quit/focus failures; complete new journeys still required | Missing for accepted evidence; no driver/engine attribution established; Snapcraft remains skipped | H |

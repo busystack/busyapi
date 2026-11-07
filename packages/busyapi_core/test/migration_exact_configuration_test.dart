@@ -48,6 +48,7 @@ void main() {
     (name: 'obsolete B04-R1 producer', from: 'producer:88', to: '', accepted: false),
     (name: 'obsolete B04 handoff producer', from: 'producer:90', to: '', accepted: false),
     (name: 'obsolete B05-R1 producer', from: 'producer:91', to: '', accepted: false),
+    (name: 'obsolete B05-R3a producer', from: 'producer:94', to: '', accepted: false),
     (name: 'obsolete partial B05-R3 producer', from: 'producer:93', to: '', accepted: false),
     (name: 'obsolete B05-R2 producer', from: 'producer:92', to: '', accepted: false),
     (name: 'equivalent decimals', from: '9007199254740993.00', to: '900719925474099300e-2', accepted: true),

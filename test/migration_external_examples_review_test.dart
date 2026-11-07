@@ -25,8 +25,10 @@ void main() {
     final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     for (final channel in ['yaru_window', 'yaru_window/events']) messenger.setMockMethodCallHandler(MethodChannel(channel), null);
   });
-  for (final format in ['yaml', 'json']) for (final targetVersion in ['3.2.1', '2.0']) for (final stale in [false, true]) {
-    testWidgets('$format $targetVersion native example review ${stale ? 'rejects stale source' : 'publishes exact bytes'}', (tester) async {
+  _r3bUnusedReviews();
+  for (final format in ['yaml', 'json']) for (final targetVersion in ['3.2.1', '2.0']) for (final stale in [false, true])
+  for (final reusable in targetVersion == '2.0' ? [false, true] : [false]) {
+    testWidgets('$format $targetVersion ${reusable ? 'R3b reusable' : 'ordinary'} native example review ${stale ? 'rejects stale source' : 'publishes exact bytes'}', (tester) async {
       tester.view.physicalSize = const Size(1400, 1200);tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);
       final directory = Directory.systemTemp.createTempSync('busyapi-example-review-');
@@ -60,6 +62,19 @@ void main() {
         final media = ((((operation['responses'] as Map)['200'] as Map)['content'] as Map)[type] as Map);
         value['components'] = {'examples': {'Bytes': {'externalValue': './payload.bin'}, 'Alias': {r'$ref': '#/components/examples/Bytes'}}};
         media['examples'] = {'First': {r'$ref': '#/components/examples/Alias'}, 'Same': {r'$ref': '#/components/examples/Bytes'}};
+        // Exercise R3b through the actual native review/publication path.
+        // The same external byte owner now sits under a reusable Media Type
+        // and a reusable Path Item, reached only by this Paths occurrence.
+        if (reusable) {
+          value['openapi'] = '3.2.1';
+          final components = value['components'] as Map;
+          components['mediaTypes'] = {'Payload': Map<String, Object?>.from(media)};
+          (((operation['responses'] as Map)['200'] as Map)['content'] as Map)[type] =
+              {r'$ref': '#/components/mediaTypes/Payload'};
+          final paths = value['paths'] as Map;
+          components['pathItems'] = {'Item': paths['/']};
+          paths['/'] = {r'$ref': '#/components/pathItems/Item'};
+        }
       }
       final original = (format == 'yaml' ? '# Keep original\r\n' : '') + jsonEncode(value) + '\r\n';
       file.writeAsStringSync(original);payload.writeAsBytesSync(bytes);
@@ -138,6 +153,69 @@ void main() {
         expect(file.readAsStringSync(), original);expect(payload.readAsBytesSync(), bytes);
         final close = find.widgetWithText(BusyApiDialogButton, 'Close');
         await ready(() => close.evaluate().isNotEmpty);await tester.runAsync(() => tester.tap(close));
+        await tester.pumpAndSettle();await tester.runAsync(() => dialog!);
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());await tester.runAsync(controller.shutdown);
+        controller.dispose();directory.deleteSync(recursive: true);
+      }
+    });
+  }
+}
+
+void _r3bUnusedReviews() {
+  for (final kind in ['path-item', 'media']) {
+    testWidgets('R3b unused $kind reports a located target restriction and disables native publication', (tester) async {
+      tester.view.physicalSize = const Size(1400, 1200);tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);
+      final directory = Directory.systemTemp.createTempSync('busyapi-r3b-unused-review-');
+      final file = File('${directory.path}/api.json');
+      final original = jsonEncode({'openapi': '3.2.1', 'info': {'title': 'Unused R3b', 'version': '1'}, 'paths': {},
+        'components': {kind == 'path-item' ? 'pathItems' : 'mediaTypes': {'Unused': kind == 'path-item'
+            ? {'get': {'responses': {'204': {'description': 'Inactive'}}}} : {'schema': {'type': 'boolean'}, 'example': false}}}});
+      file.writeAsStringSync(original);
+      final controller = WorkspaceController(EngineProcess(executable: runtimeNode, helper: runtimeHelper),
+          StateLocations(config: '${directory.path}/config', state: '${directory.path}/state', cache: '${directory.path}/cache'));
+      Future<void>? dialog;
+      Future<void> ready(bool Function() condition) async {
+        final watch = Stopwatch()..start();await tester.pump();
+        while (!condition() && watch.elapsed < const Duration(seconds: 20)) {
+          await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+          await tester.pump(const Duration(milliseconds: 20));
+        }
+        expect(condition(), true, reason: '${controller.error}');await tester.pumpAndSettle();
+      }
+      try {
+        String? message;
+        await tester.runAsync(() async {
+          await controller.initialize();await controller.open(file.path);await controller.analyse();
+          final preview = await controller.project!.prepareMigration(file.uri.toString(), '${directory.path}/preview', targetVersion: '2.0');
+          try {
+            expect(preview.publishable, false);message = preview.problems.single.message;
+            expect((preview.result['problems'] as List).single['reason'], 'target-representation');
+          } finally {preview.close();}
+        });
+        await tester.pumpWidget(MaterialApp(
+          theme: buildBusyApiTheme(brightness: Brightness.light, accentColor: Colors.blue),
+          localizationsDelegates: AppLocalizations.localizationsDelegates, supportedLocales: AppLocalizations.supportedLocales,
+          home: Builder(builder: (context) => Scaffold(body: TextButton(
+            onPressed: () => dialog = showMigrationReview(context, controller, reveal: (_) async {}), child: const Text('Migrate')))),
+        ));
+        await tester.runAsync(() => tester.tap(find.text('Migrate')));
+        final review = find.widgetWithText(BusyApiDialogButton, 'Review migration');await ready(() => review.evaluate().isNotEmpty);
+        const channel = MethodChannel('busyapi/native_menus');
+        final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        messenger.setMockMethodCallHandler(channel, (call) async => call.method == 'show'
+            ? ((call.arguments as Map)['entries'] as List).indexWhere((entry) => entry['label'] == '2.0') : null);
+        addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+        await tester.tap(find.byWidgetPredicate((widget) => widget is BusyApiComboRow<String> && widget.title == 'Target specification'));
+        await tester.pumpAndSettle();await tester.runAsync(() => tester.tap(review));
+        final destination = find.widgetWithText(BusyApiDialogButton, 'Review output');await ready(() => destination.evaluate().isNotEmpty);
+        await tester.runAsync(() => tester.tap(destination));
+        await ready(() => find.widgetWithText(BusyApiActionRow, message!).evaluate().isNotEmpty);
+        final publish = find.widgetWithText(BusyApiDialogButton, 'Create migrated copy');
+        expect(tester.widget<BusyApiDialogButton>(publish).onPressed, isNull);
+        expect(Directory('${directory.path}/busyapi-migrated').existsSync(), false);expect(file.readAsStringSync(), original);
+        await tester.runAsync(() => tester.tap(find.widgetWithText(BusyApiDialogButton, 'Close')));
         await tester.pumpAndSettle();await tester.runAsync(() => dialog!);
       } finally {
         await tester.pumpWidget(const SizedBox.shrink());await tester.runAsync(controller.shutdown);

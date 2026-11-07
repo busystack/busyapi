@@ -392,3 +392,57 @@ ${external ? '' : 'parameters:\n  Body: ' + JSON.stringify(body)}
     assert(problem.range[1] > problem.range[0]);
   });
 }
+for(const format of ['yaml','json'])test(`R3b ${format} media specialize request, response, Parameter and Header occurrences independently`,async()=>{
+ const fixture=require('./migration_b05_r3b_fixture.cjs'),{input}=fixture.capture(format,'3.2.1',{scalarContexts:true}),before=JSON.stringify(input);
+ const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));const cold=fixture.reopened(result);
+ for(const packet of [input,cold]){
+  const graph=createGraph(packet).graph;assert.equal(graph.operations().length,2);
+  for(const operation of graph.operations()){
+   const plan=requestOperation({...packet,resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
+   assert.deepEqual(plan.parameters.map(parameter=>[parameter.name,parameter.in,parameter.required]),[['n','query',true]]);
+   assert.equal(plan.responses[0].headers[0].name,'X-Count');
+   assert.deepEqual(plan.requestBody.content.map(media=>media.mediaType),['application/json']);
+   assert.deepEqual(plan.responses[0].content.map(media=>media.mediaType),['application/vnd.count+json']);
+  }
+ }
+ assert.equal(JSON.stringify(input),before);
+});
+for(const format of ['yaml','json'])for(const intermediate of ['3.1.2','3.0.4'])
+test(`R3b ${format} inactive ${intermediate} holders stay inactive on a subsequent Swagger review`,async()=>{
+ const fixture=require('./migration_b05_r3b_fixture.cjs'),{input}=fixture.capture(format),first=await planMigration({...input,targetVersion:intermediate});
+ assert.equal(first.complete,true,JSON.stringify(first.problems));const middle=fixture.reopened(first),graph=createGraph(middle).graph;
+ assert.equal(graph.operations().length,2);assert(!graph.operations().some(op=>op.role==='callback'));
+ const contentKeys=[...graph.entryScopes()].filter(scope=>scope.kind==='media'&&scope.pointer.startsWith('/components/responses/')).map(scope=>scope.pointer.split('/').at(-1));
+ assert(contentKeys.includes('application~1json'));assert(contentKeys.includes('application~1vnd.count+json'));
+ assert(!contentKeys.includes('application~1octet-stream'),'A bound object retains actual media contexts');
+ const last=await planMigration({...middle,targetVersion:'2.0',destination:'file:///r3b-composed/'});
+ if(intermediate==='3.0.4'){
+  // Once delivered as a native Callback definition, its independent callback
+  // category is authored input to the next review. No hidden sidecar contract
+  // authorizes treating it as disposable or inventing an invocation.
+  assert.equal(last.complete,false);assert.deepEqual(last.outputs,[]);
+  assert(last.problems.some(p=>p.code==='migration.components.callbacks'&&p.reason==='target-representation'),JSON.stringify(last.problems));
+ }else{
+  assert.equal(last.complete,true,JSON.stringify(last.problems));const cold=fixture.reopened(last);
+  const {migrationRequestSignatures}=require('./dist/migration_invariants.cjs');
+  assert.deepEqual(migrationRequestSignatures(createGraph(cold).graph,cold.resources),migrationRequestSignatures(createGraph(input).graph,input.resources));
+ }
+});
+
+for(const format of ['yaml','json'])for(const targetVersion of ['3.1.2','3.0.4'])
+test(`R3b ${format} an unbound ${targetVersion} Response holder supplies no executable media`,async()=>{
+ const fixture=require('./migration_b05_r3b_fixture.cjs'),{input,objects}=fixture.capture(format);
+ objects.components.mediaTypes.Unused={schema:{type:'boolean'},example:false};
+ input.resources[1].text=fixture.render(objects,format);
+ const result=await planMigration({...input,targetVersion});assert.equal(result.complete,true,JSON.stringify(result.problems));
+ const cold=fixture.reopened(result),{migrationRequestSignatures}=require('./dist/migration_invariants.cjs');
+ assert.deepEqual(migrationRequestSignatures(createGraph(cold).graph,cold.resources),migrationRequestSignatures(createGraph(input).graph,input.resources));
+ const graph=createGraph(cold).graph;
+ assert.equal(graph.operations().length,2);
+ const library=result.outputs.find(output=>output.text.includes('R3b library'));
+ assert(library.text.includes('application/octet-stream'),'The unbound object uses inactive storage syntax only');
+ for(const operation of graph.operations()){
+  const plan=requestOperation({...cold,resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
+  assert(![...plan.requestBody.content,...plan.responses.flatMap(response=>response.content)].some(media=>media.mediaType==='application/octet-stream'));
+ }
+});

@@ -127,3 +127,45 @@ for(const sharedSelector of [false,true])test(`R3a mixed-entry saved selectors $
   assert.equal(saved.operation.entry,'migrated');assert.equal(saved.operation.method,'GET');assert.equal(saved.operation.path,'/a/p');assert.equal(saved.operation.occurrence,undefined);
   assert.equal(saved.server,0);assert(result.manifestText.includes('9007199254740993.00'));}
 });
+for(const kind of ['path-item','media'])
+for(const version of kind==='media'?['3.2.0','3.2.1']:['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const format of ['yaml','json'])
+test(`R3b ${version} ${format} unused ${kind} has a final Swagger restriction without output`,async()=>{
+ const root='file:///unused/r3b.'+format,object=kind==='path-item'?{get:{operationId:'inactive',responses:{204:{description:'Empty'}}}}:{schema:{type:'boolean'},example:false};
+ const group=kind==='path-item'?'pathItems':'mediaTypes',value={openapi:version,info:{title:'Unused owner',version:'1'},paths:{},components:{[group]:{Unused:object}}};
+ const text=format==='yaml'?YAML.stringify(value):JSON.stringify(value),input={root,snapshot:'r3b-unused',resources:[{id:root,text,generation:9}],targetVersion:'2.0',destination:'file:///unused-output/'};
+ const result=await planMigration(input);assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);assert.deepEqual(result.changes,[]);
+ const code=kind==='path-item'?'migration.path-item.unused-owner':'migration.media.unbound-owner',problem=result.problems.find(problem=>problem.code===code);
+ assert(problem,JSON.stringify(result.problems));assert.equal(problem.reason,'target-representation');assert.equal(problem.pointer,'/components/'+group+'/Unused');
+ assert(problem.range[1]>problem.range[0]);assert.equal(input.resources[0].text,text);
+});
+for(const format of ['yaml','json'])test(`R3b ${format} a chain among unused Path Items does not establish an executable consumer`,async()=>{
+ const root='file:///unused/chain.'+format,value={openapi:'3.2.1',info:{title:'Unused chain',version:'1'},paths:{},components:{pathItems:{A:{$ref:'#/components/pathItems/B'},B:{get:{responses:{204:{description:'Empty'}}}}}}};
+ const text=format==='yaml'?YAML.stringify(value):JSON.stringify(value),review=await planMigration({root,snapshot:'unused-chain',resources:[{id:root,text,generation:1}],targetVersion:'2.0',destination:'file:///unused-chain/'});
+ assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);
+ const problems=review.problems.filter(p=>p.code==='migration.path-item.unused-owner');assert.equal(problems.length,2);
+ assert(problems.every(p=>p.reason==='target-representation'));
+});
+
+
+
+for(const format of ['yaml','json'])for(const version of ['3.0.0','3.0.4','3.1.0','3.1.2'])
+test(`R3b ${format} ${version} Paths and 3.2 reusable definitions retain one coordinated Swagger route`,async()=>{
+ const fixture=require('./migration_b05_r3b_fixture.cjs'),{input,entry}=fixture.capture(format);
+ entry.openapi=version;input.resources[0].text=fixture.render(entry,format);
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const cold=fixture.reopened(review),{createGraph}=require('./dist/model.cjs');
+ const {migrationRequestSignatures}=require('./dist/migration_invariants.cjs');
+ assert.deepEqual(migrationRequestSignatures(createGraph(cold).graph,cold.resources),migrationRequestSignatures(createGraph(input).graph,input.resources));
+ assert.equal(createGraph(cold).graph.operations().length,2);
+});
+
+for(const format of ['yaml','json'])test(`R3b ${format} a separately referenced child schema cannot activate its unused Path Item`,async()=>{
+ const root='file:///unused/child.'+format,child='/components/pathItems/Unused/get/responses/200/content/application~1json/schema';
+ const value={openapi:'3.2.1',info:{title:'Independent child',version:'1'},paths:{},components:{
+  pathItems:{Unused:{get:{responses:{200:{description:'Boolean',content:{'application/json':{schema:{type:'boolean'},example:false}}}}}}},
+  schemas:{Child:{$ref:'#'+child}}}};
+ const text=format==='yaml'?YAML.stringify(value):JSON.stringify(value),input={root,snapshot:'unused-child',resources:[{id:root,text,generation:1}],targetVersion:'2.0',destination:'file:///unused-child/'};
+ const result=await planMigration(input);assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);
+ assert(result.problems.some(problem=>problem.code==='migration.path-item.unused-owner'&&problem.reason==='target-representation'),JSON.stringify(result.problems));
+ assert.equal(input.resources[0].text,text);
+});

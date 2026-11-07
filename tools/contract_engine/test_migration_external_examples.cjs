@@ -102,7 +102,7 @@ async function assertPortable(f, input = f.input) {
   const original = JSON.stringify(input);
   const plan = await planMigration(input);
   assert.equal(plan.complete, true, JSON.stringify(plan.problems));
-  assert.equal(plan.producerVersion, '94');
+  assert.equal(plan.producerVersion, '95');
   assert.equal(plan.exampleOutputs.length, 1);
   const copy = plan.exampleOutputs[0];
   if(input.resources[0].id.endsWith('.yaml'))assert(plan.outputs.find(value => value.id === plan.outputRoot).text.includes('# Keep Unicode 雪'));
@@ -301,4 +301,22 @@ test('example routes retain the established 256-mapping publication bound', asyn
   const plan = await planMigration(f.input);
   assert.equal(plan.complete, false);assert.deepEqual(plan.outputs, []);assert.deepEqual(plan.exampleOutputs, []);
   assert(plan.problems.some(value => value.code === 'limit.migration.mappings'), JSON.stringify(plan.problems));
+});
+for(const format of ['yaml','json'])test(`R3b ${format} reusable media retain approved external example bytes through Swagger ownership`,async()=>{
+ const fixture=require('./migration_b05_r3b_fixture.cjs'),{input}=fixture.capture(format,'3.2.1',{external:true}),before=JSON.stringify(input);
+ const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));assert.deepEqual(result.exampleOutputs,[]);
+ const cold=fixture.reopened(result),graph=createGraph(cold).graph;assert.equal(analyse(cold).complete,true,JSON.stringify(analyse(cold).findings));
+ for(const operation of graph.operations()){
+  const plan=requestOperation({...cold,resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
+  for(const media of [plan.requestBody.content[0],plan.responses[0].content[0]])
+   assert.deepEqual(Buffer.from(media.examples[0].raw),Buffer.from(input.exampleResources[0].base64,'base64'));
+ }
+ assert.equal(JSON.stringify(input),before);
+ const padded=Buffer.from(' 9007199254740993.00');
+ for(const exampleResources of [[],input.exampleResources.map(value=>({...value,base64:padded.toString('base64'),
+  byteLength:padded.length,identity:hash(padded)}))]){
+  const refused=await planMigration({...input,exampleResources});assert.equal(refused.complete,false);assert.deepEqual(refused.outputs,[]);assert.deepEqual(refused.exampleOutputs,[]);
+  assert(refused.problems.some(problem=>exampleResources.length?problem.code==='migration.example.wire-bytes'&&problem.reason==='target-representation':
+   problem.code.startsWith('migration.validation.')),JSON.stringify(refused.problems));
+ }
 });

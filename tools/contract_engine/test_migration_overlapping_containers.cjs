@@ -21,7 +21,7 @@ test(`${format} ${restrictedVersion}/3.1 entries independently own overlapping n
  assert.equal(analyse(input).status,'complete',JSON.stringify(analyse(input).findings));
  assert.equal(analyse({...input,root:modern}).status,'complete');
  const original=new SourceDocument(before[1],modern);
- const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'94');
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'95');
  const output=cold(review),root=review.changes.find(change=>change.resource===modern).destination;
  for(const entry of [output.root,root])assert.equal(analyse({...output,root:entry}).status,'complete');
  const example=roleTarget(output,root,'/components/examples/Dictionary','example');
@@ -113,4 +113,19 @@ test('native container copies forward to one published identified Schema resourc
  const edge=graph.referenceAs(slot.resource,slot.pointer,'$ref','schema');assert.equal(edge.resolution,'resolved');assert.equal(edge.targetPointer,native.pointer);
  assert.deepEqual(await values(output,output.root,native.pointer,['[]','[[]]','[0]','null']),[true,true,false,false]);
  assert.equal(input.resources[0].text,before);
+});
+for(const format of ['yaml','json'])test(`R3b ${format} literal and identified schema consumers inside reusable media keep separate owners`,async()=>{
+ const fixture=require('./migration_b05_r3b_fixture.cjs'),{input,objects}=fixture.capture(format);
+ const payload=objects.components.mediaTypes.Payload;
+ payload.schema={$id:'https://schemas.invalid/r3b-count',$anchor:'count',type:'integer',enum:['EXACT']};
+ objects.components.schemas.Anchored={$ref:'https://schemas.invalid/r3b-count#count'};
+ objects['x-schema']={type:'integer',enum:['EXACT']};
+ objects.components.schemas.LiteralAsSchema={$ref:'#/x-schema'};
+ input.resources[1].text=fixture.render(objects,format);const before=JSON.stringify(input);
+ const review=await planMigration({...input,targetVersion:'3.1.2'});assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const cold=fixture.reopened(review),graph=createGraph(cold).graph;
+ const identified=[...graph.entryScopes()].filter(scope=>scope.kind==='schema'&&graph.docs.get(scope.resource).dataNode(scope.pointer+'/$id')?.value==='https://schemas.invalid/r3b-count');
+ assert.equal(identified.length,1,'Materialized envelopes do not clone identified resources');
+ assert(graph.entryReferences().some(edge=>edge.kind==='schema'&&edge.resolution==='resolved'&&edge.targetPointer===identified[0].pointer));
+ assert.equal(JSON.stringify(input),before);
 });

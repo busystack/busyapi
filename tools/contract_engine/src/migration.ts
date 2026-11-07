@@ -11,6 +11,7 @@ import {upgradeSwagger} from './migration_swagger';
 import {downgradeSwagger} from './migration_downgrade';
 import {migrateNewerObjects,relocatePathItemComponents} from './migration_newer_objects';
 import {materializeMediaReferences,relocateMediaComponents} from './migration_media_objects';
+import {checkReusableSwaggerTargets} from './migration_reusable_targets';
 import {migrateExampleVersions} from './migration_example_versions';
 import {inactiveMigrationHeader} from './migration_media_schema';
 import {evaluateSchemas} from './schema_evaluation';
@@ -49,7 +50,7 @@ import {securityRequirementDefinition} from './security_requirements';
 import {migrateSwaggerSecurityFlows} from './migration_security_flows';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='94';
+const migrationProducerVersion='95';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const referenceLocator=(reference:GraphReference)=>!reference.connection&&['$ref','$dynamicRef'].includes(reference.keyword)||
     reference.connection==='operationRef'&&reference.keyword==='operationRef';
@@ -146,6 +147,8 @@ export async function planMigration(input:MigrationInput) {
     const initialContexts=migrationDocumentContexts(input,initial,issue,true);
     let semanticOrigins:MigrationSemanticOrigins|undefined;
     await validate(resources,input.root,'source');
+    if(!problems.length)try{checkReusableSwaggerTargets(initialContexts.map(context=>context.graph),target.family,issue);}
+    catch(error){refused(error,{resource:input.root,pointer:''});}
     if(!problems.length)try{semanticOrigins=new MigrationSemanticOrigins(initialContexts.map(context=>context.graph));}
     catch(error){refused(error,{resource:input.root,pointer:''});}
     let externalExamples:MigrationExamples|undefined;
@@ -731,6 +734,9 @@ export async function planMigration(input:MigrationInput) {
     if(problems.length)return {...common(),changes:[],outputs:[]};
     await validate(outputResources,outputRoot,'target',outputExampleResources);
     const finalContext=createGraph({...input,root:outputRoot,resources:outputResources});
+    const finalOwnerContexts=migrationDocumentContexts({...input,root:outputRoot,resources:outputResources},finalContext,issue);
+    const ownerKey=(at:{resource:string;pointer:string;kind:string})=>JSON.stringify([at.resource,at.pointer,at.kind]);
+    const deliveredOwners=new Set([...migrationScopes(finalOwnerContexts.map(context=>context.graph))].map(ownerKey));
     const securityBindings:SecurityBindingChange[]=[];
     const credentialHeaders=new Set<string>();
     const serverConfiguration=new Map<string,MigrationConfigurationProjection>();
@@ -741,15 +747,29 @@ export async function planMigration(input:MigrationInput) {
             const root=context.graph.root,output=identifiers.get(root)!,targetGraph=root===input.root?finalContext.graph:createGraph({...input,root:output,resources:outputResources}).graph;
             const mapped=(location:MigrationLocation,scope:GraphScope|undefined)=>(semanticOrigins?.locations(root,location,scope)??[])
                 .map(location=>({resource:identifiers.get(location.resource)!,pointer:location.pointer}));
+            // A library's Path Item or media child can now live in an owner entered only
+            // by another delivered entry. Prove its original namespace's
+            // independent native interpretation too. Admit only material
+            // native roles already reached by ordinary delivered graph closure;
+            // these maintenance occurrences never authorize an output owner
+            // or an executable route. Final validation/cold reopening remain
+            // unseeded and the operation bijection uses the ordinary graph.
+            const independentOwners=new Map<string,MigrationLocation&{kind:string}>();
+            if(target.family==='2.0')for(const scope of context.graph.entryScopes())for(const at of mapped(scope,scope)){
+                const occurrence={...at,kind:scope.kind},id=ownerKey(occurrence);
+                if(!targetGraph.isEntryUse(occurrence)&&deliveredOwners.has(id))independentOwners.set(id,occurrence);
+            }
+            const ownerGraph=independentOwners.size?createGraph({...input,root:output,resources:outputResources,
+                occurrences:[...independentOwners.values()]}).graph:targetGraph;
             const operationPairs=migrationOperationPairs(context.graph,targetGraph,mapped,issue);
             const beforeProfiles=migrationRequestProfiles(context.graph,input.resources),afterProfiles=migrationRequestProfiles(targetGraph,outputResources);
             for(const {before,after}of operationPairs)if(before.role==='operation'&&
                 beforeProfiles.get(before.occurrence)!==afterProfiles.get(after.occurrence))
                 issue(before.source,'migration.invariant.request','The captured operation changed effective URLs, serialization, authentication, request media or responses','implementation');
-            proveMigrationOperationMedia(context.graph,targetGraph,mapped,issue);
-            proveMigrationObjectMetadata(context.graph,targetGraph,mapped,issue);
+            proveMigrationOperationMedia(context.graph,ownerGraph,mapped,issue);
+            proveMigrationObjectMetadata(context.graph,ownerGraph,mapped,issue);
             serverContexts.push({source:context.graph,target:targetGraph,pairs:operationPairs,targetEntryName:root===input.root?'migrated':'resource_'+digest(root).slice(0,24)});
-            proveMigrationConnections(context.graph,targetGraph,mapped,issue);
+            proveMigrationConnections(context.graph,ownerGraph,mapped,issue);
             if(modernFamily(target.family))proveMigrationSchemaResources(context.graph,targetGraph,mapped,issue);
             const alternatives=migrationSecurityAlternativeProjection(context.graph,targetGraph,input.resources,mapped);
             alternativeBounds.push(...alternatives.bounds);
@@ -757,7 +777,7 @@ export async function planMigration(input:MigrationInput) {
                 const previous=alternativeChoices.get(index);
                 alternativeChoices.set(index,previous?new Set([...previous].filter(index=>choices.has(index))):choices);
             }
-            const bindings=new Map(targetGraph.entryReferences().filter(reference=>reference.connection==='security').map(reference=>[
+            const bindings=new Map(ownerGraph.entryReferences().filter(reference=>reference.connection==='security').map(reference=>[
                 key(reference.resource,reference.pointer+'/'+escape(reference.keyword)),reference]));
             for(const before of context.graph.entryReferences())if(before.connection==='security'){
                 if(before.resolution==='resolved'){

@@ -317,6 +317,29 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migrati
         const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);if(pointer===undefined||!source.doc.dataNode(pointer))continue;
         owners.move(scope,source,pointer,'header_owner',{context:owners.contextOf(scope)??graph,layout:'response-header'});
     }
+    // Materialized media occurrences now own their context-specific older
+    // representations. Keep the definition's children as separate native
+    // owners before retiring its envelope, never as children of literal history.
+    // No Response content key or operation-wide media declaration is invented.
+    const mediaHeaders=new Map<string,GraphScope[]>();
+    for(const header of scopes)if(header.kind==='header'){
+        const parent=/^(\/components\/mediaTypes\/[^/]+)\//.exec(header.pointer)?.[1];if(!parent)continue;
+        const id=JSON.stringify([header.resource,parent]),values=mediaHeaders.get(id)??[];values.push(header);mediaHeaders.set(id,values);
+    }
+    for(const scope of scopes)if(scope.family===from&&scope.kind==='media'&&/^\/components\/mediaTypes\/[^/]+$/.test(scope.pointer)){
+        const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);if(pointer===undefined||!source.doc.dataNode(pointer))continue;
+        const context=owners.contextOf(scope)??contexts.find(context=>context.scopeAs(scope.resource,scope.pointer,'media')?.family===from)??graph;
+        const schema=pointer+'/schema';
+        if(source.doc.dataNode(schema))owners.move({...scope,pointer:scope.pointer+'/schema'},source,schema,'media_schema',{context,layout:'array-item'});
+        for(const header of mediaHeaders.get(JSON.stringify([scope.resource,scope.pointer]))??[]){
+            const at=source.current(header.pointer);
+            if(at!==undefined&&at.startsWith(pointer+'/')&&source.doc.dataNode(at)&&!owners.retainedValue({resource:source.doc.id,pointer:at}))
+                owners.move(header,source,at,'media_header',{context:owners.contextOf(header)??context,layout:'response-header'});
+        }
+        if(source.doc.dataNode(pointer+'/examples'))forContext(context).reusableExamples(
+            {...scope,pointer:scope.pointer+'/examples'},source,pointer+'/examples');
+        owners.retainNativeHistory(scope,source,pointer,'media_type_envelope',context);
+    }
     // Swagger Path Item references may address a native captured fragment.
     // The common allocator can retain a used reusable Path Item there without
     // adding a public route or a proprietary component category.
@@ -324,7 +347,7 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migrati
         const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);if(pointer===undefined||!source.doc.dataNode(pointer))continue;
         const incoming=[...migrationReferences(contexts)].some(edge=>edge.kind==='path-item'&&edge.resolution==='resolved'&&edge.targetResource===scope.resource&&edge.targetPointer===scope.pointer);
         if(incoming)owners.move(scope,source,pointer,'path_item');
-        else issue(scope,'migration.path-item.unused-owner','An independently reusable Path Item without a captured incoming use still needs a typed Swagger fragment owner','implementation');
+        else issue(scope,'migration.path-item.unused-owner','Swagger has no standard inactive reusable Path Item container or captured typed entering reference for this definition','target-representation');
     }
     releaseNativeHolders?.();
     for(const [resource,specification]of graph.specifications){

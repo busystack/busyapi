@@ -25,8 +25,8 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(MIGRATION_PRODUCER, engine_revision.group(1))
 
     def test_current_revision_is_accepted_and_previous_package_is_rejected(self):
-        verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': '94'})
-        for obsolete in ('25', '34', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45', '46', '47', '48', '49', '50', '51', '52', '53', '54', '55', '56', '57', '58', '59', '60', '61', '62', '63', '64', '65', '66', '67', '68', '69', '70', '71', '72', '73', '74', '75', '76', '77', '78', '79', '80', '81', '82', '83', '84', '85', '86', '87', '88', '89', '90', '91', '92', '93'):
+        verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': '95'})
+        for obsolete in ('25', '34', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45', '46', '47', '48', '49', '50', '51', '52', '53', '54', '55', '56', '57', '58', '59', '60', '61', '62', '63', '64', '65', '66', '67', '68', '69', '70', '71', '72', '73', '74', '75', '76', '77', '78', '79', '80', '81', '82', '83', '84', '85', '86', '87', '88', '89', '90', '91', '92', '93', '94'):
             with self.subTest(obsolete=obsolete):
                 with self.assertRaisesRegex(RuntimeError, 'producer differ'):
                     verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': obsolete})
@@ -54,7 +54,7 @@ class PreflightTests(unittest.TestCase):
                 'target': {'declaredVersion': '2.0'}, 'reviewIdentity': 'a' * 64, 'configurationProjections': [], **updates}
 
     def test_obsolete_producer_is_rejected_without_publication(self):
-        for version in ['6', '23', '25', '31', '32', '33', '89', '90', '91', '92', '93']:
+        for version in ['6', '23', '25', '31', '32', '33', '89', '90', '91', '92', '93', '94']:
             with self.subTest(producerVersion=version):
                 binary = self.fake(self.review(producerVersion=version))
                 with self.assertRaisesRegex(RuntimeError, 'producer differ'):
@@ -312,6 +312,53 @@ class PreflightTests(unittest.TestCase):
                     self.assertFalse(destination.exists())
                     self.assertEqual(source.read_bytes(), raw)
                     self.assertEqual(fragment.read_bytes(), extra)
+
+
+    def test_actual_packaged_r3b_owners_and_unused_target_restrictions(self):
+        bundle = Path(os.environ.get('BUSYAPI_TEST_BUNDLE') or
+                      Path(__file__).resolve().parent.parent / 'build/linux/x64/release/bundle')
+        binary = bundle / 'busyapi'
+        self.assertTrue(binary.is_file(), 'Build the assembled CLI or set BUSYAPI_TEST_BUNDLE')
+        for format in ['yaml', 'json']:
+            for unused in [None, 'path-item', 'media']:
+                with self.subTest(format=format, unused=unused):
+                    source = self.root / ('r3b-' + str(unused) + '.' + format)
+                    library = self.root / ('r3b-library-' + str(unused) + '.' + format)
+                    payload = self.root / 'r3b-count.bin'
+                    media_ref = {'$ref': '#/components/mediaTypes/Alias'}
+                    item = {'post': {'requestBody': {'required': True, 'content': {'application/json': media_ref}},
+                                     'responses': {'200': {'description': 'Count', 'content': {'application/vnd.count+json': media_ref}}}}}
+                    components = {'pathItems': {'Item': item},
+                                  'mediaTypes': {'Alias': {'$ref': '#/components/mediaTypes/Payload'},
+                                                 'Payload': {'schema': {'type': 'integer'},
+                                                             'examples': {'Count': {'externalValue': payload.name}}}}}
+                    if unused == 'path-item':
+                        components['pathItems']['Unused'] = {'get': {'responses': {'204': {'description': 'Inactive'}}}}
+                    if unused == 'media':
+                        components['mediaTypes']['Unused'] = {'schema': {'type': 'boolean'}, 'example': False}
+                    entry = {'openapi': '3.2.1', 'info': {'title': 'R3b preflight', 'version': '1'},
+                             'servers': [{'url': 'https://api.invalid'}],
+                             'paths': {name: {'$ref': library.name + '#/components/pathItems/Item'} for name in ['/first', '/second']}}
+                    objects = {'openapi': '3.2.1', 'info': {'title': 'R3b library', 'version': '1'},
+                               'servers': [{'url': 'https://api.invalid'}], 'paths': {}, 'components': components}
+                    def render(value):
+                        return (('# Keep R3b source 雪\r\n' if format == 'yaml' else '')
+                                + json.dumps(value, ensure_ascii=False) + '\r\n').encode()
+                    originals = {source: render(entry), library: render(objects), payload: b'9007199254740993.00'}
+                    for path, raw in originals.items():
+                        path.write_bytes(raw)
+                    destination = self.root / ('r3b-preview-' + str(unused) + '-' + format)
+                    if unused is None:
+                        report = preflight_migration(binary, source, '2.0', destination, originals)
+                        self.assertEqual(report['producerVersion'], MIGRATION_PRODUCER)
+                        self.assertFalse(report['published'])
+                    else:
+                        code = 'migration.path-item.unused-owner' if unused == 'path-item' else 'migration.media.unbound-owner'
+                        with self.assertRaisesRegex(RuntimeError, code):
+                            preflight_migration(binary, source, '2.0', destination, originals)
+                    self.assertFalse(destination.exists())
+                    for path, raw in originals.items():
+                        self.assertEqual(path.read_bytes(), raw)
 
 
 if __name__ == '__main__':

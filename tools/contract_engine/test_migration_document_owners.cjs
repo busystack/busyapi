@@ -189,3 +189,14 @@ test(`Swagger ${format} ${bodyMode} body owners survive coordinated upgrade to $
  }
  assert.deepEqual(input.resources.map(r=>r.text),before);
 });
+for(const format of ['yaml','json'])test(`R3b ${format} only foreign Paths consumers keep reusable Path Item aliases native in Swagger`,async()=>{
+ const fixture=require('./migration_b05_r3b_fixture.cjs'),{input,entry,objects}=fixture.capture(format);
+ delete entry.paths['/second'];objects.components.pathItems.Item.post.operationId='originalIdentity';
+ input.resources[0].text=fixture.render(entry,format);input.resources[1].text=fixture.render(objects,format);
+ const before=JSON.stringify(input),review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const cold=fixture.reopened(review),graph=createGraph(cold).graph;
+ assert.equal(graph.operations().length,1);const operation=graph.operations()[0];
+ assert.equal(operation.path,'/first');assert.equal(graph.docs.get(operation.source.resource).dataNode(operation.source.pointer+'/operationId').value,'originalIdentity');
+ assert.notEqual(operation.source.resource,cold.root,'The native fragment remains independent of the route entry');
+ assert.equal(JSON.stringify(input),before);
+});
