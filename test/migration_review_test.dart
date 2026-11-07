@@ -48,6 +48,7 @@ void main() {
         (false, false, null, null, null),
         (true, false, null, null, null),
         (true, false, null, '3.0.4', null),
+        (true, false, null, '2.0', null),
         (false, true, null, null, null),
         (false, true, '3.0.4', null, null),
         for (final version in ['3.0.0', '3.0.4', '3.1.2', '3.2.1'])
@@ -95,11 +96,14 @@ void main() {
                 if (swagger) ...{
                   'host': 'a.example.invalid',
                   'schemes': ['https'],
+                  'consumes': ['application/json'],
+                  'produces': ['application/vnd.reply-a+json'],
                 } else
                   'servers': [
                     {'url': 'https://a.example.invalid'},
                   ],
                 'paths': {
+                  if (swagger) '/context': {r'$ref': 'shared.yaml#/paths/~1other'},
                   if (swagger) '/download': {'get': {'produces': ['application/octet-stream', 'image/png'],
                     'responses': {'200': {'description': 'R2 file response', 'schema': {'type': 'file'}}}}},
                   if (binaryConsumers) '/encoded': {'get': {'responses': {'200': {'description': 'R2 encoded whole body',
@@ -149,11 +153,18 @@ void main() {
                 if (swagger) ...{
                   'host': 'b.example.invalid',
                   'schemes': ['https'],
+                  'consumes': ['application/vnd.request-b+json'],
+                  'produces': ['application/json'],
                 } else 'servers': [
                     {'url': 'https://b.example.invalid'},
                   ],
                 'paths': {
                   '/other': {
+                    if (swagger) 'post': {
+                      'operationId': 'sharedOperation',
+                      'parameters': [{'name': 'payload', 'in': 'body', 'required': true, 'schema': {'type': 'integer'}}],
+                      'responses': {'200': {'description': 'Shared media response', 'schema': {'type': 'integer'}}},
+                    },
                     'get': {
                       'responses': {
                         '204': {'description': 'None'},
@@ -372,6 +383,12 @@ void main() {
             expect(comparison.after, contains('maxLength'));
             expect(comparison.after, contains('binary_container_literal'));
           }
+          if (swagger && coordinatedVersion != null) {
+            expect(comparison.after, contains('_migrated_entry_use_'));
+            expect(comparison.after, contains('application/json'));
+            final resources = tester.widget<BusyApiComboRow<int>>(find.byWidgetPredicate((widget) => widget is BusyApiComboRow<int>));
+            expect(resources.values.length, greaterThan(2));
+          }
           if (uriSecurity) {
             expect(comparison.after, contains('_migrated_security_binding_'));
             expect(comparison.after, contains('_migrated_oauth_flow_'));
@@ -410,7 +427,7 @@ void main() {
           expect(Directory(path).existsSync(), false);
           if (stale) {
             await tester.runAsync(() async {
-              if (sharedBinary) {
+              if (sharedBinary || swagger && coordinatedVersion != null) {
                 final buffer = await c.project!.buffer(shared.uri.toString());
                 c.project!.store.replace(buffer.id, buffer.text.replaceFirst('Shared', 'Changed shared owner'));
               } else {

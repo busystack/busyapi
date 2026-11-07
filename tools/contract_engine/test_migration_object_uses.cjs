@@ -9,6 +9,30 @@ const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
 const {SourceDocument}=require('./dist/document.cjs');
 const {resolveUri}=require('./dist/reference_graph.cjs');
 
+for(const format of ['yaml','json'])test(`B05-R1 ${format} a foreign Swagger operationRef retains a private media owner without a new route`,async()=>{
+ const root=`file:///foreign-operations/modern.${format}`,legacy=`file:///foreign-operations/legacy.${format}`;
+ const modern={openapi:'3.1.2',info:{title:'Modern',version:'1'},paths:{},components:{links:{Use:{operationRef:`legacy.${format}#/paths/~1payload/post`}},securitySchemes:{Key:{type:'apiKey',in:'header',name:'X-modern'}}}};
+ const swagger={swagger:'2.0',info:{title:'Swagger',version:'1'},consumes:['application/json'],produces:['application/vnd.reply+json'],securityDefinitions:{Key:{type:'apiKey',in:'header',name:'X-legacy'}},paths:{'/payload':{parameters:[{name:'n',in:'query',type:'integer'}],post:{operationId:'payload',security:[{Key:[]}],parameters:[{in:'body',name:'body',schema:{}}],responses:{200:{description:'Reply',schema:{}}}}}},'x-kept':{exact:'EXACT',flag:false}};
+ const encode=value=>(format==='yaml'?YAML.stringify(value):JSON.stringify(value)).replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const input={root,snapshot:'foreign-operation',targetVersion:'3.2.1',destination:'file:///reviewed/foreign/',resources:[modern,swagger].map((value,index)=>({id:[root,legacy][index],text:encode(value),generation:index+1}))};
+ const before=input.resources.map(resource=>resource.text),review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const resources=review.outputs.map(output=>({id:output.id,text:output.text,generation:0})),packet={root:review.outputRoot,snapshot:'cold-foreign-operation',resources};
+ const graph=createGraph(packet).graph,link=graph.referenceAs(packet.root,'/components/links/Use','operationRef','operation');
+ assert.equal(link.resolution,'resolved');assert.equal(graph.operations().length,0);
+ const body=graph.referenceAs(link.targetResource,link.targetPointer+'/requestBody','$ref','request-body');assert.equal(body.resolution,'resolved');
+ assert.deepEqual([...graph.docs.get(body.targetResource).dataNode(body.targetPointer+'/content').children.keys()],['*/*']);
+ const inherited=graph.referenceAs(link.targetResource,link.targetPointer+'/parameters/0','$ref','parameter');assert.equal(inherited.resolution,'resolved');
+ assert.equal(graph.docs.get(inherited.targetResource).dataNode(inherited.targetPointer+'/name').value,'n');
+ const requirement=graph.entryReferences().find(reference=>reference.connection==='security'&&reference.resource===link.targetResource&&reference.pointer===link.targetPointer+'/security/0');
+ assert.equal(requirement.resolution,'resolved');assert.equal(graph.docs.get(requirement.targetResource).dataNode(requirement.targetPointer+'/name').value,'X-modern');
+ const legacyRoot=review.changes.find(change=>change.resource===legacy).destination,legacyPacket={...packet,root:legacyRoot};
+ const operation=createGraph(legacyPacket).graph.operations().find(operation=>operation.path==='/payload');
+ assert.notDeepEqual([operation.source.resource,operation.source.pointer],[link.targetResource,link.targetPointer]);
+ const plan=requestOperation({...legacyPacket,resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
+ assert.deepEqual(plan.requestBody.content.map(media=>media.mediaType),['application/json']);assert.deepEqual(plan.responses[0].content.map(media=>media.mediaType),['application/vnd.reply+json']);
+ assert.equal(analyse(packet).complete,true,JSON.stringify(analyse(packet).findings));assert.deepEqual(input.resources.map(resource=>resource.text),before);
+});
+
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const ref=name=>({$ref:'#/x-data/'+name});
 const node=()=>({$ref:'#/components/schemas/Count'});
@@ -77,7 +101,7 @@ test(`${version} ${format} native objects and literal values share one specializ
  const input=fixture(version,format),original=input.resources[0].text,doc=new SourceDocument(original,input.root);
  assert.equal(analyse(input).status,'complete');await wire(input);
  const review=await planMigration(input);
- assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'90');
+ assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'91');
  assert.equal(review.exampleOutputs.length,2);assert.equal(input.resources[0].text,original);
  const output=delivered(review),{graph}=createGraph(output);
  assert.equal(analyse(output).status,'complete');await wire(output);

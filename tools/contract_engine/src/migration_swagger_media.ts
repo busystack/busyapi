@@ -4,6 +4,8 @@ import {MigrationSource,type MigrationLocation} from './migration_source';
 import type {MigrationIssue} from './migration_schema';
 import {swaggerMedia} from './swagger_operation';
 import {MigrationSchemaOwners} from './migration_schema_owners';
+import {migrationOperationUses} from './migration_operation_contexts';
+import {migrationScopes,migrationReferences} from './migration_documents';
 
 type MediaOwner=MigrationLocation&{schema?:MigrationLocation;media:readonly string[]};
 const key=(location:MigrationLocation)=>location.resource+'#'+location.pointer;
@@ -16,14 +18,17 @@ const mediaKey=(media:readonly string[])=>JSON.stringify([...new Set(media)].sor
  * All copies are CST planning copies, with original payload provenance. */
 export function swaggerMediaMigration(graph:ReferenceGraph,sources:Map<string,MigrationSource>,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph],owners=new MigrationSchemaOwners(graph,sources,undefined,[],contexts)) {
     const entry=sources.get(graph.root)!;
+    const scopes=[...migrationScopes(contexts)].sort((a,b)=>a.resource.localeCompare(b.resource)||a.pointer.localeCompare(b.pointer));
+    const parameterArrays=new Set(scopes.filter(scope=>scope.kind==='parameter-array').map(key));
+    const references=[...migrationReferences(contexts)];
     const bodies=new Map<string,MediaOwner>(),variants=new Map<string,MigrationLocation>();
-    const edges=new Map(graph.references.filter(edge=>edge.keyword==='$ref').map(edge=>[key(edge),edge]));
+    const edges=new Map(references.filter(edge=>edge.keyword==='$ref'&&edge.kind==='response').map(edge=>[key(edge),edge]));
     const component=(group:'schemas'|'requestBodies'|'responses',scope:MigrationLocation,variant='')=>{
         return owners.allocate(entry,'/components/'+group,'media_'+group,JSON.stringify([scope.resource,scope.pointer,variant]));
     };
     const schemaOwner=(scope:MigrationLocation,pointer:string,resource=scope.resource):MigrationLocation|undefined=>{
         const source=sources.get(resource)!;
-        if(!source.doc.nodes.has(pointer+'/schema'))return;
+        if(!source.doc.dataNode(pointer+'/schema'))return;
         const destination=component('schemas',{resource:scope.resource,pointer:scope.pointer+'/schema'});
         if(source===entry)entry.move(pointer+'/schema',destination.pointer);
         else {entry.copy(source,pointer+'/schema',destination.pointer);source.remove(pointer+'/schema');}
@@ -60,7 +65,7 @@ export function swaggerMediaMigration(graph:ReferenceGraph,sources:Map<string,Mi
             // complete Swagger document's reusable map also changes kind.
             // Give those bodies a surviving Request Body owner first.
             const parent=definition.pointer.slice(0,definition.pointer.lastIndexOf('/'));
-            const hoist=source===entry||graph.specifications.has(definition.resource)||graph.scopes.get(definition.resource+'#'+parent)?.kind==='parameter-array';
+            const hoist=source===entry||graph.specifications.has(definition.resource)||parameterArrays.has(key({resource:definition.resource,pointer:parent}));
             const destination=hoist?component('requestBodies',definition):{resource:definition.resource,pointer};
             if(hoist){
                 if(source===entry)source.move(pointer,destination.pointer);
@@ -74,7 +79,7 @@ export function swaggerMediaMigration(graph:ReferenceGraph,sources:Map<string,Mi
         return variant(owner,'requestBodies',media);
     };
     const unusedBodies=()=>{
-        for(const scope of graph.scopes.values())if(scope.family==='2.0'&&scope.kind==='parameter'){
+        for(const scope of scopes)if(scope.family==='2.0'&&scope.kind==='parameter'){
             const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)!.value;
             const context=contexts.find(context=>context.root===scope.resource)??graph;
             if(value?.in==='body'&&typeof value.$ref!=='string'&&!bodies.has(key(scope)))body(scope,swaggerMedia(context,context.root,'','consumes'));
@@ -83,7 +88,8 @@ export function swaggerMediaMigration(graph:ReferenceGraph,sources:Map<string,Mi
     const responses=():ReadonlyMap<string,MigrationLocation>=>{
         const uses=new Map<string,{occurrence:GraphTarget;media:string[]}[]>(),retargets=new Map<string,MigrationLocation>();
         const primary=new Map<string,MigrationLocation>(bodies);
-        for(const context of contexts)for(const operation of context.operations()){
+        for(const context of [...contexts].sort((a,b)=>a.root.localeCompare(b.root)))for(const operation of migrationOperationUses(context)){
+            if(operation.source.family!=='2.0')continue;
             const declarations=graph.docs.get(operation.source.resource)!.dataNode(operation.source.pointer+'/responses');
             for(const name of declarations?.children.keys()??[]){
                 if(name.startsWith('x-'))continue;
@@ -107,7 +113,7 @@ export function swaggerMediaMigration(graph:ReferenceGraph,sources:Map<string,Mi
                 }
             }
         }
-        for(const scope of graph.scopes.values())if(scope.family==='2.0'&&scope.kind==='response'){
+        for(const scope of scopes)if(scope.family==='2.0'&&scope.kind==='response'){
             const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);
             if(pointer===undefined||typeof graph.docs.get(scope.resource)!.dataNode(scope.pointer)!.value?.$ref==='string')continue;
             const context=contexts.find(context=>context.root===scope.resource)??graph;
@@ -130,7 +136,7 @@ export function swaggerMediaMigration(graph:ReferenceGraph,sources:Map<string,Mi
         // Wrapper duplication has one retained primary declaration. Repair
         // intermediate chains to it; only concrete operation occurrences select
         // a media-specialized wrapper. Schema targets have one separate owner.
-        for(const edge of graph.references)if(edge.keyword==='$ref'&&edge.resolution==='resolved'&&!retargets.has(key(edge))){
+        for(const edge of references)if(edge.keyword==='$ref'&&edge.resolution==='resolved'&&!retargets.has(key(edge))){
             const destination=primary.get(key({resource:edge.targetResource!,pointer:edge.targetPointer!}));
             if(destination)retargets.set(key(edge),destination);
         }

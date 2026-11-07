@@ -25,8 +25,8 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(MIGRATION_PRODUCER, engine_revision.group(1))
 
     def test_current_revision_is_accepted_and_previous_package_is_rejected(self):
-        verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': '90'})
-        for obsolete in ('25', '34', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45', '46', '47', '48', '49', '50', '51', '52', '53', '54', '55', '56', '57', '58', '59', '60', '61', '62', '63', '64', '65', '66', '67', '68', '69', '70', '71', '72', '73', '74', '75', '76', '77', '78', '79', '80', '81', '82', '83', '84', '85', '86', '87', '88', '89'):
+        verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': '91'})
+        for obsolete in ('25', '34', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45', '46', '47', '48', '49', '50', '51', '52', '53', '54', '55', '56', '57', '58', '59', '60', '61', '62', '63', '64', '65', '66', '67', '68', '69', '70', '71', '72', '73', '74', '75', '76', '77', '78', '79', '80', '81', '82', '83', '84', '85', '86', '87', '88', '89', '90'):
             with self.subTest(obsolete=obsolete):
                 with self.assertRaisesRegex(RuntimeError, 'producer differ'):
                     verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': obsolete})
@@ -54,7 +54,7 @@ class PreflightTests(unittest.TestCase):
                 'target': {'declaredVersion': '2.0'}, 'reviewIdentity': 'a' * 64, **updates}
 
     def test_obsolete_producer_is_rejected_without_publication(self):
-        for version in ['6', '23', '25', '31', '32', '33', '89']:
+        for version in ['6', '23', '25', '31', '32', '33', '89', '90']:
             with self.subTest(producerVersion=version):
                 binary = self.fake(self.review(producerVersion=version))
                 with self.assertRaisesRegex(RuntimeError, 'producer differ'):
@@ -125,6 +125,40 @@ class PreflightTests(unittest.TestCase):
                     self.assertFalse(destination.exists())
                     self.assertEqual(source.read_bytes(), raw)
                     self.assertEqual(fragment.read_bytes(), extra)
+
+    def test_actual_packaged_b05_previews_keep_shared_operation_media_private(self):
+        bundle = Path(os.environ.get('BUSYAPI_TEST_BUNDLE') or
+                      Path(__file__).resolve().parent.parent / 'build/linux/x64/release/bundle')
+        binary = bundle / 'busyapi'
+        self.assertTrue(binary.is_file(), 'Build the assembled CLI or set BUSYAPI_TEST_BUNDLE')
+        for format in ['yaml', 'json']:
+            with self.subTest(format=format):
+                source = self.root / ('entry.' + format)
+                shared = self.root / ('shared.' + format)
+                def api(name, consumes, produces, path):
+                    return {'swagger': '2.0', 'info': {'title': name, 'version': '1'},
+                            'host': 'api.invalid', 'schemes': ['https'],
+                            'consumes': [consumes], 'produces': [produces], 'paths': {'/payload': path}}
+                entry = api('First', 'application/json', 'application/vnd.reply-a+json',
+                            {'$ref': shared.name + '#/paths/~1payload'})
+                other = api('Second', 'application/vnd.request-b+json', 'application/json',
+                            {'post': {'operationId': 'shared', 'parameters': [
+                                {'in': 'body', 'name': 'payload', 'schema': {'type': 'integer'}}],
+                                'responses': {'200': {'description': 'Reply', 'schema': {'type': 'integer'}}}}})
+                def encode(value):
+                    return (('# Keep contexts 雪\r\n' if format == 'yaml' else '')
+                            + json.dumps(value, ensure_ascii=False) + '\r\n').encode()
+                raw, extra = encode(entry), encode(other)
+                source.write_bytes(raw)
+                shared.write_bytes(extra)
+                destination = self.root / ('b05-preview-' + format)
+                report = preflight_migration(binary, source, '3.2.1', destination, {source: raw, shared: extra})
+                self.assertEqual(report['producerVersion'], MIGRATION_PRODUCER)
+                self.assertFalse(report['published'])
+                self.assertFalse(report['nativeAcceptance'])
+                self.assertFalse(destination.exists())
+                self.assertEqual(source.read_bytes(), raw)
+                self.assertEqual(shared.read_bytes(), extra)
 
     def test_actual_packaged_b04_previews_keep_binary_resources_private(self):
         bundle = Path(os.environ.get('BUSYAPI_TEST_BUNDLE') or

@@ -1,6 +1,20 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),YAML=require('yaml');
 const {planMigration}=require('./dist/migration.cjs'),{analyse}=require('./dist/model.cjs'),{evaluateSchemas}=require('./dist/schema_evaluation.cjs');
 const {SourceDocument}=require('./dist/document.cjs');
+for(const format of ['yaml','json'])test(`B05-R1 ${format} cleared global media has independent request and response ownership across entries`,async()=>{
+ const input=require('./migration_operation_contexts_fixture.cjs')(format,{empty:true}),before=input.resources.map(resource=>resource.text);
+ const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));
+ const {createGraph}=require('./dist/model.cjs'),{requestOperation}=require('./dist/execution.cjs');
+ const resources=result.outputs.map(output=>({id:output.id,text:output.text,generation:0}));
+ for(const [index,resource]of input.resources.slice(0,2).entries()){
+  const root=result.changes.find(change=>change.resource===resource.id).destination,packet={root,resources,snapshot:'cold-cleared-media'};
+  const operation=createGraph(packet).graph.operations().find(operation=>operation.path==='/inherited');
+  const plan=requestOperation({...packet,resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
+  assert.deepEqual(plan.requestBody.content.map(media=>media.mediaType),index?['*/*']:['application/json']);
+  assert.deepEqual(plan.responses[0].content.map(media=>media.mediaType),index?['application/json']:['application/vnd.reply-a+json']);
+ }
+ assert.deepEqual(input.resources.map(resource=>resource.text),before);
+});
 const versions=['2.0','3.0.4','3.1.2','3.2.1'];
 function document(version,name){
  const defs=version==='2.0'?'/definitions':'/components/schemas',schema={$ref:'#'+defs+'/Model'};

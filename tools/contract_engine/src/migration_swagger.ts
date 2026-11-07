@@ -10,15 +10,18 @@ import {swaggerMedia,swaggerServers} from './swagger_operation';
 import {swaggerMediaMigration} from './migration_swagger_media';
 import {modernFamily} from './specification';
 import {MigrationSchemaOwners} from './migration_schema_owners';
+import {migrationOperationUses} from './migration_operation_contexts';
+import {migrationScopes} from './migration_documents';
 
 const schemaFields=['type','format','items','default','maximum','exclusiveMaximum','minimum','exclusiveMinimum','maxLength','minLength','pattern','maxItems','minItems','uniqueItems','enum','multipleOf'];
 
 /** Structural mappings use native graph occurrences and effective parameters,
  * including inherited body/form parameters. No guessed traversal of payloads. */
 export function upgradeSwagger(graph:ReferenceGraph,sources:Map<string,MigrationSource>,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph],targetFamily='3.0',owners=new MigrationSchemaOwners(graph,sources,undefined,[],contexts)) {
+    const scopes=[...migrationScopes(contexts)].sort((a,b)=>a.resource.localeCompare(b.resource)||a.pointer.localeCompare(b.pointer));
     // Swagger Info text becomes a URL in 3.0 (§4.7.2). A URI-looking
     // string does not itself establish the author's intent to activate a link.
-    for(const scope of graph.scopes.values())if(scope.kind==='info'&&scope.family==='2.0'){
+    for(const scope of scopes)if(scope.kind==='info'&&scope.family==='2.0'){
         const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value?.termsOfService;
         if(typeof value!=='string')continue;
         const location={...scope,pointer:scope.pointer+'/termsOfService'},validity=documentUriValidity(value);
@@ -44,7 +47,7 @@ export function upgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migration
             source.rename(pointer,next);
         }
     }
-    const parameters=new ParameterSemantics(graph),media=swaggerMediaMigration(graph,sources,issue,contexts,owners);
+    const media=swaggerMediaMigration(graph,sources,issue,contexts,owners);
     const path=(scope:GraphScope)=>sources.get(scope.resource)!.current(scope.pointer);
     const style=(scope:Pick<GraphScope,'resource'|'pointer'>,value:any)=>{
         const format=value.collectionFormat??'csv';
@@ -78,7 +81,7 @@ export function upgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migration
         for(const name of schemaFields)if(source.doc.nodes.has(pointer+'/'+name))source.move(pointer+'/'+name,pointer+'/schema/'+name);
         modernFlatSchema(source,pointer+'/schema');
     };
-    for(const scope of graph.scopes.values())if(scope.family==='2.0'&&scope.kind==='parameter'){
+    for(const scope of scopes)if(scope.family==='2.0'&&scope.kind==='parameter'){
         const source=sources.get(scope.resource)!,pointer=path(scope);if(pointer===undefined)continue;
         const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)!.value;
         if(typeof value?.$ref==='string')continue;
@@ -89,9 +92,11 @@ export function upgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migration
         }
     }
     const represented=new Map<string,string>();
-    for(const context of contexts)for(const operation of context.operations()){
+    const contextParameters=new Map(contexts.map(context=>[context,new ParameterSemantics(context)]));
+    for(const context of [...contexts].sort((a,b)=>a.root.localeCompare(b.root)))for(const operation of migrationOperationUses(context)){
         const graph=context;
-        if(graph.scope(operation.source.resource,operation.source.pointer).family!=='2.0')continue;
+        if(operation.source.family!=='2.0')continue;
+        const parameters=contextParameters.get(graph)!;
         const identity=operation.source.resource+'#'+operation.source.pointer;
         const signature=JSON.stringify([swaggerMedia(graph,operation.source.resource,operation.source.pointer,'consumes'),swaggerMedia(graph,operation.source.resource,operation.source.pointer,'produces')]);
         if(represented.has(identity)){
@@ -169,7 +174,8 @@ export function upgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migration
     media.unusedBodies();
     // Remove body/form declarations from Parameters arrays only after effective
     // inheritance has been captured for every physical operation occurrence.
-    for(const scope of [...graph.scopes.values()].filter(scope=>scope.family==='2.0'&&scope.kind==='parameter-array')){
+    const parameters=new ParameterSemantics(graph);
+    for(const scope of scopes.filter(scope=>scope.family==='2.0'&&scope.kind==='parameter-array')){
         const source=sources.get(scope.resource)!,pointer=path(scope);if(pointer===undefined)continue;
         const original=graph.docs.get(scope.resource)!.dataNode(scope.pointer)!;
         for(const index of [...original.children.keys()].reverse()){
@@ -179,14 +185,14 @@ export function upgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migration
             }
         }
     }
-    for(const scope of graph.scopes.values())if(scope.family==='2.0'&&scope.kind==='header'){
+    for(const scope of scopes)if(scope.family==='2.0'&&scope.kind==='header'){
         const source=sources.get(scope.resource)!,pointer=path(scope);if(pointer===undefined)continue;
         const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)!.value;
         if(value.items?.type==='array')issue({...scope,pointer:scope.pointer+'/items'},'migration.header.nested-collection','OpenAPI 3.0 Header Objects cannot retain a nested Swagger delimiter hierarchy','target-representation');
         if(value.collectionFormat&&value.collectionFormat!=='csv')issue({...scope,pointer:scope.pointer+'/collectionFormat'},'migration.header.collection','OpenAPI 3.0 Header Objects cannot express this Swagger collection separator','target-representation');
         flatSchema(source,pointer,value);source.remove(pointer+'/collectionFormat');
     }
-    for(const scope of graph.scopes.values())if(scope.family==='2.0'&&scope.kind==='security'){
+    for(const scope of scopes)if(scope.family==='2.0'&&scope.kind==='security'){
         const source=sources.get(scope.resource)!,pointer=path(scope);if(pointer===undefined)continue;
         const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)!.value;
         if(value.type==='basic'){source.set(pointer+'/type','http');source.set(pointer+'/scheme','basic');}

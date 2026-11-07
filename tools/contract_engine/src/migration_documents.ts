@@ -7,6 +7,7 @@ import {modernFamily} from './specification';
 import {projectSchemaReference} from './schema_reference_projection';
 import {DiscriminatorModels} from './discriminator_models';
 import {swaggerMedia} from './swagger_operation';
+import {migrationBodyApplicability,migrationOperationUses} from './migration_operation_contexts';
 
 type Context=ReturnType<typeof createGraph>;
 export type MigrationUse=Readonly<{
@@ -149,7 +150,7 @@ export function securityConnectionTarget(graph:ReferenceGraph,at:MigrationLocati
 
 const nativeSecurityProfiles=new WeakMap<ReferenceGraph,Map<string,string|undefined>>();
 /** These concrete declarations have identical field meaning in the supported
- * OAS 3.x families. Reference overrides and richer authentication
+ * native families (including Swagger apiKey). Reference overrides and richer authentication
  * objects need their own representation proofs. Extensions stay exact data;
  * no URI, rendered annotation or family-dependent OAuth field is inferred. */
 export function sharedNativeSecurityDefinition(graph:ReferenceGraph,scope:GraphScope,inspect:()=>void):string|undefined {
@@ -157,7 +158,7 @@ export function sharedNativeSecurityDefinition(graph:ReferenceGraph,scope:GraphS
     let profiles=nativeSecurityProfiles.get(graph);if(!profiles){profiles=new Map();nativeSecurityProfiles.set(graph,profiles);}
     if(profiles.has(id))return profiles.get(id);
     profiles.set(id,undefined);
-    if(!['3.0','3.1','3.2'].includes(scope.family))return;
+    if(!['2.0','3.0','3.1','3.2'].includes(scope.family))return;
     const node=graph.docs.get(scope.resource)?.dataNode(scope.pointer),value=node?.value;
     // Without link/HTML delimiters, CommonMark cannot introduce a relative
     // target. Plain descriptions retain identical rendering in both holders.
@@ -183,7 +184,7 @@ export function migrationDocumentContexts(input:{root:string;resources:Resource[
         return {...context,uses};
     };
     const contexts=[capture(primary)];
-    for(const [root]of primary.graph.specifications){
+    for(const root of [...primary.graph.specifications.keys()].sort()){
         if(root===input.root)continue;
         contexts.push(capture(createGraph({...input,root})));
     }
@@ -254,11 +255,13 @@ export function migrationContextDifferences(contexts:readonly Pick<DocumentConte
                 reference.dynamic?.anchor,reference.dynamic?.candidates.map(candidate=>[candidate.resource,candidate.pointer]).sort(),
             ]));
         }
-        for(const operation of graph.operations()){
-            inspect();const scope=graph.scopeAs(operation.source.resource,operation.source.pointer,'operation');
+        for(const operation of migrationOperationUses(graph)){
+            inspect();const scope=operation.source;
             if(scope?.family==='2.0')binding(scope,'operation-media',JSON.stringify([
                 swaggerMedia(graph,scope.resource,scope.pointer,'consumes'),swaggerMedia(graph,scope.resource,scope.pointer,'produces'),
             ]));
+            if(graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.children.has('requestBody'))
+                binding(scope,'operation-body',JSON.stringify(migrationBodyApplicability(graph,scope)));
         }
     }
     return new Map(contexts.map(({graph})=>[graph.root,new Map([...graph.entryScopes()]

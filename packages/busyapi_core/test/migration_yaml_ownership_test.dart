@@ -154,7 +154,7 @@ $_tail''').replaceAll('\n', '\r\n')}',
             MigrationStatus.faithfullyConvertible,
             reason: '${review.result}',
           );
-          expect(review.result['producerVersion'], '90');
+          expect(review.result['producerVersion'], '91');
           expect(review.unsaved, isTrue);
           expect(review.outdated, isFalse);
           expect(await Directory(review.destination).exists(), isFalse);
@@ -221,7 +221,7 @@ $_tail''').replaceAll('\n', '\r\n')}',
             reason: '${prepared.stdout}\n${prepared.stderr}',
           );
           final report = jsonDecode(prepared.stdout as String) as Map;
-          expect(report['producerVersion'], '90');
+          expect(report['producerVersion'], '91');
           expect(report['published'], false);
           expect(await Directory(cliDestination).exists(), isFalse);
           final published = await cli([
@@ -345,7 +345,7 @@ $_tail''').replaceAll('\n', '\r\n')}',
     },
   );
 
-  for (final obsolete in ['86', '87', '88', '89']) test('migration producer $obsolete cannot authorize publication', () async {
+  for (final obsolete in ['86', '87', '88', '89', '90']) test('migration producer $obsolete cannot authorize publication', () async {
     final directory = await Directory.systemTemp.createTemp(
       'busyapi-migration-previous-',
     );

@@ -1,5 +1,5 @@
 import {componentFamily,componentLocation} from './authoring';
-import {children,referenceKinds} from './contexts';
+import {children,referenceKinds,standardOperationMethods} from './contexts';
 import {escape,segments,SourceError} from './document';
 import {documentUriOccurrences} from './document_uris';
 import {serverTemplate} from './derived_bundle';
@@ -10,6 +10,8 @@ import {defaultSchemaDialect,modernFamily,type SpecificationFamily} from './spec
 import {MigrationSource,type MigrationLocation} from './migration_source';
 import type {MigrationIssue} from './migration_schema';
 import {capturedSchemaResources} from './migration_schema_resource_contexts';
+import {swaggerMedia} from './swagger_operation';
+import {ParameterSemantics} from './parameter_semantics';
 
 const key=(at:MigrationLocation)=>JSON.stringify([at.resource,at.pointer]);
 const inside=(pointer:string,parent:string)=>pointer===parent||pointer.startsWith(parent+'/');
@@ -40,12 +42,20 @@ function entryComponentLocation(graph:ReferenceGraph,scope:GraphScope,namespace:
 
 /** Operations, pre-3.1 Path Items and pre-3.2 Media have no component map.
  * Unused standard reusable objects provide typed containment without adding a
- * public route, model name or literal/unknown-keyword interpretation. The
- * containing document keeps the captured family, independently of entry names. */
-function entryHolder(scope:GraphScope,target?:SpecificationFamily,entryFamily?:string):{scope:GraphScope;layout?:MigrationOwnerLayout} {
+ * public route or model name. Swagger's generated parameter annotation has no
+ * authored literal consumer; the allocator admits only its native containment.
+ * The containing document keeps the captured family and URI context. */
+function entryHolder(scope:GraphScope,target?:SpecificationFamily,entryFamily?:string,inheritsOperation=false):{scope:GraphScope;layout?:MigrationOwnerLayout} {
     if(modernFamily(scope.family)&&target==='3.0'&&['path-item','operation'].includes(scope.kind))
         return {scope:{...scope,kind:'callback'},layout:scope.kind==='operation'?'callback-operation':'callback-path-item'};
+    if(inheritsOperation&&scope.kind==='operation'){
+        if(scope.family==='2.0')return {scope:{...scope,kind:'parameter'},layout:'parameter-operation'};
+        if(scope.family==='3.0')return {scope:{...scope,kind:'callback'},layout:'callback-operation'};
+        return {scope:{...scope,kind:'path-item'},layout:'path-item-operation'};
+    }
     if(scope.family===entryFamily)return {scope};
+    if(scope.family==='2.0'&&(scope.kind==='path-item'||scope.kind==='operation'))
+        return {scope:{...scope,kind:'parameter'},layout:scope.kind==='operation'?'parameter-operation':'parameter-path-item'};
     if(scope.kind==='media'&&['3.0','3.1'].includes(scope.family))
         return {scope:{...scope,kind:'response'},layout:'response-media'};
     if(scope.family==='3.0'&&(scope.kind==='path-item'||scope.kind==='operation'))
@@ -62,16 +72,27 @@ function operationHolderSlot(graph:ReferenceGraph,scope:GraphScope):MigrationOpe
         if(parts.pop()!=='additionalOperations')return;
         pointer=parts.length?'/'+parts.map(escape).join('/'):'',additional=true;
     }
-    const parent=graph.scopeAs(scope.resource,pointer,'path-item');if(!parent)return;
+    const parent=graph.scopeAs(scope.resource,pointer,'path-item');
+    if(!parent)return standardOperationMethods(scope.family).includes(method)?{method,additional}:undefined;
     const view=graph.pathItem(parent),value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)!.value;
-    const parameters=view.fields.get('parameters');
-    if(view.fields.has('servers')&&!Object.hasOwn(value,'servers')||parameters&&
-        (graph.docs.get(parameters.resource)!.dataNode(parameters.pointer)?.children.size??0)>0){
-        const range=graph.docs.get(scope.resource)!.dataNode(scope.pointer)!.range;
-        throw new SourceError('migration.owners.operation-context','This independent Operation needs a preserving Path Item inheritance mapping before native placement',
-            range,'unsupported',{resource:scope.resource,pointer:scope.pointer,range});
+    const parameters=view.fields.get('parameters'),servers=!Object.hasOwn(value,'servers')?view.fields.get('servers'):undefined;
+    // Refer to inherited Parameter owners instead of duplicating their schemas
+    // or identifiers. Operation-local overrides remain local to the copied
+    // Operation; canonical name/in inheritance still decides applicability.
+    const inherited=parameters?new ParameterSemantics(graph).operation(scope.resource,scope.pointer,parent).visible
+        .filter(parameter=>parameter.inherited).map(parameter=>parameter.source):undefined;
+    let inheritedServers:MigrationOperationSlot['servers'];
+    if(servers){
+        const source=new MigrationSource(graph.docs.get(servers.resource)!);
+        const urls=[...source.doc.dataNode(servers.pointer)!.children.keys()].map(name=>{
+            const pointer=servers.pointer+'/'+escape(name),node=source.doc.dataNode(pointer)!;
+            const scope=graph.scopeAs(servers.resource,pointer,'server')!;
+            return serverTemplate(node.value.url,documentUriBase(graph,scope),node.value.variables,
+                {resource:servers.resource,pointer:pointer+'/url',range:source.doc.dataNode(pointer+'/url')!.range});
+        });
+        inheritedServers={source,pointer:servers.pointer,urls};
     }
-    return {method,additional};
+    return {method,additional,parameters:inherited,servers:inheritedServers};
 }
 export function entryComponentContainer(graph:ReferenceGraph,scope:GraphScope,namespace:string,owners:MigrationSchemaOwners,
     prepared?:(scope:GraphScope)=>boolean):MigrationLocation|undefined {
@@ -303,6 +324,7 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
     const schemaScopes=graph.scopesFor('schema');
     const candidates=entry?entry.scopes.filter(scope=>referenceKinds.has(scope.kind)||scope.kind==='operation'):
         [...(selection?.scopes??graph.entryScopes())].filter(scope=>(referenceKinds.has(scope.kind)||scope.kind==='operation')&&
+        !owners.isPrivateNativeAnnotation(scope)&&
         // This inactive boolean annotation already has a faithful owner in
         // migrateInactiveSchemaAnnotations; retain that established mapping.
         !(/\/(?:writeOnly|deprecated)$/.test(scope.pointer)&&graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value===false)&&(
@@ -521,8 +543,11 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
         // views below cannot join an existing discriminator's namespace.
         let container:MigrationLocation|undefined=selection?.mode==='role'?selection.containers?.get(useKey(scope)):undefined;
         let nativeLayout:MigrationOwnerLayout|undefined;
+        const operationSlot=scope.kind==='operation'?operationHolderSlot(graph,scope):undefined;
+        const inheritsOperation=Boolean(operationSlot?.parameters?.length||operationSlot?.servers||
+            scope.kind==='operation'&&scope.family==='3.0'&&graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.children.has('requestBody'));
         if(!entry&&!container){
-            const holder=entryHolder(scope,selection?.targetFamily,graph.family);
+            const holder=entryHolder(scope,selection?.targetFamily,graph.family,inheritsOperation);
             if(holder.layout){container=componentContainer(holder.scope,scope.resource);nativeLayout=holder.layout;}
         }
         container??=nativeContainer?{resource:scope.resource,pointer:nativeContainer}:undefined;
@@ -570,8 +595,8 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
         }
         if(entry){
             const entryFamily=graph.specifications.get(entry.entryNamespace)?.family;
-            const holder=entryHolder(scope,entry.targetFamily,entryFamily);
-            const entryContainer=entry.targetFamily==='2.0'&&entryFamily===scope.family&&['path-item','operation'].includes(scope.kind)?undefined:
+            const holder=entryHolder(scope,entry.targetFamily,entryFamily,inheritsOperation);
+            const entryContainer=entry.targetFamily==='2.0'&&entryFamily===scope.family&&['path-item','operation'].includes(scope.kind)&&!holder.layout?undefined:
                 componentContainer(holder.scope,entry.entryNamespace);
             // A same-family anonymous fragment remains an ordinary owner.
             // Foreign uses instead need typed native containment until their
@@ -702,7 +727,7 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
             container,captured:pristine.get(scope.resource),retained:retainedMaterials,
             layout:nativeLayout??(container&&scope.kind==='schema'&&!modernFamily(scope.family)&&
                 (scope.family==='2.0'||scope.family!==graph.family||!nativeSchemaHolderScope(graph,scope,inspect))?'array-item':undefined),
-            operationSlot:nativeLayout&&scope.kind==='operation'?operationHolderSlot(graph,scope):undefined,
+            operationSlot:nativeLayout&&scope.kind==='operation'?operationSlot:undefined,
             identity:JSON.stringify([entry?.entryNamespace??'',interpretationKey(scope)]),
             releaseNativeHolder:selection?.targetFamily==='2.0'&&container!==undefined&&['path-item','operation'].includes(scope.kind),
             schemaIdentity:intrinsicSchemas.some(schema=>{
@@ -732,6 +757,17 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
         const destination=mapped(captured,owner);
         owners.rememberEntry(entry?.entryNamespace??graph.root,captured,destination,owner.scope);
         if(!entry)owners.rememberRole(captured,destination,owner.scope);
+        // A private Swagger owner can also be reached from its containing
+        // document's entry. Bind inherited media on the copy before recapture;
+        // otherwise that second entry would reinterpret it using its globals.
+        // Authored overrides, including [], retain their exact CST values.
+        if(entry&&kind==='operation'&&captured.family==='2.0'){
+            const source=sources.get(destination.resource)!;
+            for(const field of ['consumes','produces'] as const)
+                if(!graph.docs.get(captured.resource)!.dataNode(captured.pointer)!.children.has(field)){
+                    owners.admit(source);source.set(destination.pointer+'/'+field,swaggerMedia(graph,captured.resource,captured.pointer,field));
+                }
+        }
         const expectedBase=kind==='schema'?resourceVariants.get(schemaResourceContextIdentity(captured)):undefined;
         preserveContext(captured,destination,kind==='schema'&&(owner.resourceSensitive||expectedBase!==undefined),expectedBase,entry?.entryNamespace??graph.root);
         if(kind!=='schema'||!nativeSlots.has(key(captured))||owner===placement)continue;
@@ -774,7 +810,7 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
         const origin=graph.scopeAs(reference.targetResource!,reference.targetPointer!,'security')!;
         let legacy=false;
         for(const [namespace,specification]of graph.specifications){
-            inspect();if(specification.family==='2.0')continue;
+            inspect();if(specification.family==='2.0')legacy=true;
             if(specification.family!==origin.family&&(!modernFamily(specification.family)||!modernFamily(origin.family)))legacy=true;
             const container=componentContainer({...reference,kind:'security',family:specification.family},namespace);
             if(!container)throw new SourceError('migration.owners.connection-name','A captured entry has no native Security Scheme alias container');

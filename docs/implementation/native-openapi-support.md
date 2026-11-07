@@ -31,6 +31,134 @@ consume those shared results. Source-preserving transactions remain authoritativ
 Current changes require complete engine, Core, native and packaged verification;
 source inspection or a successful build is not runtime acceptance.
 
+## B05-R1: inherited media and shared-operation migration
+
+**B05-R1 is source-complete, unverified within W3.08.** Work started at
+`7aa4080e4166733f7c74590e7470c919693b408d` in the primary
+`release/v0.1.0` checkout. This section supersedes the older statements that B05
+has not begun. It does not complete B05, establish runtime acceptance, or begin
+**B05-R2 — Remaining parameter, request/response, example and reusable-object
+conversions**. No known established representable R1 mapping is intentionally
+left without an implementation; all prepared regressions remain unexecuted.
+
+The A01–A03 ownership preparation and terminal reference repair remain the
+implementation boundary. `migration_operation_contexts.ts` enumerates actual
+canonical operation occurrences and independently reached native Operations,
+including reusable Path Items and Link operationRef targets. It retains logical
+alias pointers and known native method slots. Entry-context differences now
+include those operations' media and body applicability, rather than considering
+only operations executable from Paths.
+
+Each specialized Swagger Operation binds inherited consumes and produces on
+its planning copy before graph recapture. Authored operation overrides, including
+explicit empty arrays, retain their CST values until structural conversion.
+Request and response media remain independent. Thus a later entry cannot
+reinterpret a private operation using another description's global media.
+Captured entries and media consumers are processed in stable order. Original
+shared operations, unrelated literal consumers and ordinary editor buffers do
+not receive these specialized fields.
+
+The common allocator also supplies foreign Swagger native holders through an
+unused reusable body Parameter's generated schema annotation. It introduces no
+route or schema model name. Only the new holder's actual native containment can
+skip redundant literal-role separation; original authored annotations and
+independent Schema Object interpretations retain their existing guards. This
+lets a modern entry reference a media-specialized foreign Swagger Operation
+while its containing Swagger description keeps its own operation and media.
+Simple apiKey definitions can use the existing concrete security-alias mapping
+in both directions across that boundary. Richer schemes keep their existing
+family-specific conversions and refusals.
+
+Copied 3.0 Operations with request bodies retain native method holders even
+when their original consumers are only Links or literal aliases. Independently
+copied Operations retain effective unoverridden Path Item parameters through
+references to the existing Parameter owners; schemas and their identifiers are
+not duplicated. Applicable inherited Server declarations retain captured URL
+bases through the existing server-template projection. Operation-local overrides
+continue to take precedence.
+
+Ignored-body omission still requires the existing explicit
+`omit-ignored-body` decision. Omission applies to that logical native occurrence,
+including independently referenced operations with known methods; it does not
+remove an active alias or another entry's active request body. The original-family
+check still prevents composed Swagger conversions from omitting an originally
+active Swagger body. A detached 3.0 body without a captured method has an
+`unavailable-proof` refusal before holder placement, so a generated holder cannot
+invent the decision about its applicability. An inconsistent method binding
+after specialization also stops rather than removing an active use.
+
+Swagger media conversion and B04 binary discovery now use the same captured
+operation inventory. Structural Parameter, Response and Header conversion uses
+all captured entry scopes, including private secondary owners. Reusable body
+and response wrappers continue to share separate schema owners. Response
+reference chains select only their consumer's media variant; bodyless responses
+remain bodyless. Alias-backed schema fields are recognized through semantic CST
+lookup. No new binary or form transformation, media registry, resolver or
+automatic migration path was introduced.
+
+`MigrationSemanticOrigins` now tracks every Operation through the existing
+entry/role relation. The added operation invariant compares request-body
+applicability, requiredness, request media and response status/media at all typed
+operations, including non-executable references, callbacks and webhooks. Existing
+request signatures still prove executable methods, paths, URLs, serialization
+and security; static/dynamic connections, schema resources, exact payloads,
+discriminators and cold-resource relocation keep their existing proofs.
+
+Core captures unsaved inputs and admits the shared Engine result. Native review
+and the independent CLI present those same affected resources and changes;
+neither duplicates the operation conversion. Existing decision, cancellation,
+stale-review and atomic publication boundaries remain authoritative. Producer
+admission is updated in Core and native preflight.
+
+Prepared production-path coverage (all **unexecuted**):
+
+| Concern | Regression source and prepared evidence |
+| --- | --- |
+| Global media, operation overrides, explicit empty overrides, distinct request/response requirements, shared recursive body/response schemas, exact values, per-entry security and deterministic discovery | `test_migration_swagger_media.cjs`, with `migration_operation_contexts_fixture.cjs`; all published target 3.x patch declarations in YAML/JSON. Source and target execution plans and positive/negative schema outcomes are compared. |
+| Empty global media versus a named response media set | `test_migration_entry_routes.cjs`; separate assertions for each entry's request and response media. |
+| Shared body applicability across 3.0/3.1 entries and GET/POST aliases, reusable bodies, ignored-body decisions and known-method referenced literal Operations | `test_migration_ignored_swagger_body.cjs`; Swagger and modern targets, preserved literal data, distinct operation identities, reversed discovery, explicit 3.0 target restriction and a located unavailable-method proof refusal. Existing stale-decision, unsupported-method and missing-resource negative controls remain. |
+| Foreign Swagger operationRef, inherited parameters, named security and independent entry media without adding an executable route | `test_migration_object_uses.cjs`; independently retained legacy operation, private referenced target, repaired request-body/parameter references and concrete cross-family apiKey bindings. |
+| Different inherited response media without activating content | `test_migration_bodyless_responses.cjs`; shared reusable schema-less responses and bodyless status definitions. Existing examples-without-schema refusal remains. |
+| Core and installed CLI behavior and transactions | `migration_swagger_media_test.dart`; YAML/JSON media and mixed-family applicability journeys compare actual HTTP methods, URLs, selected media, absent/active request bodies and exact numeric entity/response bytes. Both entries are captured, with an unsaved shared buffer; repeat review, explicit decisions, cancellation, publication-boundary destination conflict, stale buffer refusal, original preservation and cold reopening after original resources are removed are prepared. |
+| Native review of specialized operations and generated resources | Existing `migration_review_test.dart` coordinated Swagger cases now share an operation with different inherited request/response media, inspect the affected-resource selector and retain a shared-resource stale-review control. Existing ignored-body decision, mixed-entry and binary review cases remain registered. |
+| Packaged preview and obsolete producer rejection | `tools/test_native_migration_preflight.py` adds actual two-entry Swagger media previews without publication; producer 90 joins the previous rejection matrix and Core's YAML-ownership/exact-configuration admission controls. |
+
+The five Engine suites were already registered by `tools/build_engine.sh`.
+The changed Core suite (including installed CLI subprocesses), native widget
+suite and packaged preflight suite retain their existing serial/native/CI
+registrations. No execution gate was invoked or replaced. Existing A01–A03 and
+B01–B04 recursion, resource/dialect, independent-schema, binary/form, literal,
+transaction and negative controls remain in place.
+
+Remaining R1 refusals describe concrete boundaries: an active source body cannot
+become a body ignored by a 3.0 target; Swagger cannot acquire unsupported HTTP
+method slots; missing source resources or invalid source stop capture; absent or
+inconsistent method evidence stops applicability proof. Existing B04 media,
+binary, encoding and schema-equivalence restrictions remain precise. These are
+not permission to omit active bodies, change methods, activate ignored bodies or
+relax source validation. B05-R2 conversions remain outside this assignment.
+
+Migration producer is **91**, synchronized across Engine, Core, native preflight
+and CLI-facing expectations. Evaluator **1.18.0+60**, graph **9**, response mock
+**5**, parameter mock **4**, and sample producer **4** are unchanged.
+
+Production source changes are in Engine `migration.ts`, `migration_documents.ts`,
+`migration_operation_contexts.ts`, `migration_operation.ts`,
+`migration_schema_uses.ts`, `migration_schema_owners.ts`,
+`migration_swagger.ts`, `migration_swagger_media.ts`, `migration_binary.ts`,
+`migration_invariants.ts`; Core `packages/busyapi_core/lib/src/migration.dart`;
+and `tools/native_migration_preflight.py`. Existing owner-reference repair,
+source/CST editing, native UI and CLI consumers remain the shared integration
+paths. Other changed migration suites synchronize their producer expectation.
+
+**Actual verification:** normative specification consultation, manual source
+inspection and Git diff/whitespace review only. No tests, compilers, analyzers,
+builds, generation, CI, graphical workloads, packaging or performance checks
+were run. Generated bundles remain unbuilt and do not qualify producer 91.
+The execution hold remains active; Snapcraft stays skipped. No third-party
+software or official Flutter installation was modified. Source completion is
+not runtime verification or completion of the entire B05 work package.
+
 ## B04-R3: final integration and transaction reconciliation
 
 **B04 is source-complete, unverified for W3.07.** This reconciliation started at

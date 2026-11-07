@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';
-import {standardOperationMethods} from './contexts';
+import {children,standardOperationMethods} from './contexts';
 import {componentLocation,richTextField} from './authoring';
 import {escape,segments,SourceError,type Range,type SourceDocument} from './document';
 import {documentUriOccurrences,type DocumentUriOccurrence} from './document_uris';
@@ -10,9 +10,13 @@ import {modernFamily} from './specification';
 import {projectSchemaReference} from './schema_reference_projection';
 
 type SemanticOwner=Readonly<{source:GraphScope;owner:GraphScope;location:MigrationLocation}>;
-export type MigrationOwnerLayout='array-item'|'callback-path-item'|'callback-operation'|'path-item-operation'|'response-media'|'response-header';
+export type MigrationOwnerLayout='array-item'|'callback-path-item'|'callback-operation'|'path-item-operation'|'response-media'|'response-header'|'parameter-path-item'|'parameter-operation';
 export type MigrationApplicationKind='condition'|'dependency'|'allOf'|'anyOf'|'oneOf';
-export type MigrationOperationSlot=Readonly<{method:string;additional:boolean}>;
+export type MigrationOperationSlot=Readonly<{
+    method:string;additional:boolean;
+    parameters?:readonly MigrationLocation[];
+    servers?:Readonly<{source:MigrationSource;pointer:string;urls:readonly string[]}>;
+}>;
 
 /** Generated schema and OpenAPI object owners share one reservation/provenance boundary. A label
  * describes the reviewed restructuring; identity comes from the captured use,
@@ -30,7 +34,7 @@ export class MigrationSchemaOwners {
     private readonly connectionAliases=new Map<string,string>();
     private readonly nativeReleases:{family:string;source:MigrationSource;material:MigrationLocation;retirement:MigrationLocation;
         container:string;destination:{source:MigrationSource;location:MigrationLocation}}[]=[];
-    private readonly copiedOwners=new Map<string,{location:MigrationLocation;retirement:MigrationLocation;schemaIdentity:boolean}>();
+    private readonly copiedOwners=new Map<string,{location:MigrationLocation;retirement:MigrationLocation;schemaIdentity:boolean;nativeAnnotation?:string}>();
     private readonly resourceReferences:{slot:MigrationLocation;scope:GraphScope;
         parent:{scope:GraphScope;location:MigrationLocation}}[]=[];
     private readonly documentUris=new WeakMap<ReferenceGraph,readonly DocumentUriOccurrence[]>();
@@ -149,6 +153,26 @@ export class MigrationSchemaOwners {
     }
     roleOwners(scope:GraphScope):readonly SemanticOwner[] {
         this.inspectUse();return this.roleUses.get(this.roleKey(scope))??[];
+    }
+
+    /** A generated Swagger parameter can retain an otherwise unplaceable
+     * foreign native owner in a new schema annotation. That annotation has no
+     * authored literal consumer. Only its captured typed containment is exempt
+     * from another role copy; original payloads and independent schema roles
+     * still require the ordinary separation proofs. */
+    isPrivateNativeAnnotation(scope:GraphScope):boolean {
+        for(const owner of this.copiedOwners.values()){
+            this.inspectUse();if(!owner.nativeAnnotation||owner.location.resource!==scope.resource||
+                scope.pointer!==owner.location.pointer&&!scope.pointer.startsWith(owner.location.pointer+'/'))continue;
+            let pointer=owner.location.pointer,kind=owner.nativeAnnotation;
+            const doc=this.sources.get(scope.resource)!.doc;
+            for(const name of segments(scope.pointer.slice(pointer.length))){
+                this.inspectUse();const child=children(doc.dataNode(pointer)?.value,kind,scope.family).find(([field])=>field===name);
+                if(!child){kind='';break;}kind=child[2];pointer+='/'+escape(name);
+            }
+            if(kind===scope.kind)return true;
+        }
+        return false;
     }
 
     contextOf(scope:GraphScope):ReferenceGraph|undefined {
@@ -633,12 +657,22 @@ export class MigrationSchemaOwners {
         const pathItem=operation?.additional?{additionalOperations:{[method]:{}}}:{[method]:{}};
         const suffix=layout==='array-item'?'/items':layout==='response-header'?'/headers/Header':layout==='callback-path-item'?'/{$url}':
             layout==='callback-operation'?'/{$url}'+slot:layout==='path-item-operation'?slot:
+                layout==='parameter-path-item'?'/schema/items/x-migrated-native':layout==='parameter-operation'?'/schema/items/x-migrated-native'+slot:
                 layout==='response-media'?'/content/application~1octet-stream':'';
         if(layout){
             this.admit(reservation.source,8);reservation.source.set(reservation.location.pointer,
+                layout==='parameter-path-item'||layout==='parameter-operation'?{in:'body',name:'_migrated_native',schema:{type:'array',items:{'x-migrated-native':layout==='parameter-operation'?pathItem:{}}}}:
                 layout==='array-item'?{type:'array',items:{}}:layout==='response-header'?{description:'',headers:{Header:{}}}:layout==='response-media'?{description:'',content:{'application/octet-stream':{}}}:
                     layout==='path-item-operation'?pathItem:
                     {'{$url}':layout==='callback-operation'?pathItem:{}});
+        }
+        if(operation){
+            const path=reservation.location.pointer+(layout==='callback-operation'?'/{$url}':layout==='parameter-operation'?'/schema/items/x-migrated-native':'');
+            if(operation.servers){
+                this.admit(reservation.source,4);
+                reservation.source.copy(operation.servers.source,operation.servers.pointer,path+'/servers');
+                for(const [index,url]of operation.servers.urls.entries())reservation.source.set(path+'/servers/'+index+'/url',url);
+            }
         }
         return {...reservation,retirement:reservation.location,
             location:{...reservation.location,pointer:reservation.location.pointer+suffix}};
@@ -771,14 +805,19 @@ export class MigrationSchemaOwners {
         if(layout==='response-header'&&(!container||origin.kind!=='header'||
             container.pointer!==componentLocation('responses',origin.family)||this.graph.specifications.get(container.resource)?.family!==origin.family))
             throw new SourceError('migration.owners.layout','A Header owner requires a compatible Response component container');
-        if(layout&&layout!=='array-item'&&layout!=='response-header'&&(!container||
+        const parameterLayout=layout==='parameter-path-item'||layout==='parameter-operation';
+        if(parameterLayout&&(!container||origin.family!=='2.0'||
+            origin.kind!==(layout==='parameter-operation'?'operation':'path-item')||container.pointer!=='/parameters'||
+            this.graph.specifications.get(container.resource)?.family!=='2.0'))
+            throw new SourceError('migration.owners.layout','A foreign Swagger native owner requires an unused body Parameter holder');
+        if(layout&&layout!=='array-item'&&layout!=='response-header'&&!parameterLayout&&(!container||
             (layout==='response-media'?origin.kind!=='media'||!['3.0','3.1'].includes(origin.family):
                 layout==='callback-path-item'?origin.kind!=='path-item'||!['3.0','3.1','3.2'].includes(origin.family):
                 origin.kind!=='operation'||(layout==='callback-operation'?!['3.0','3.1','3.2'].includes(origin.family):!['3.1','3.2'].includes(origin.family)))||
             container.pointer!==componentLocation(layout==='response-media'?'responses':layout==='path-item-operation'?'pathItems':'callbacks',origin.family)||
             this.graph.specifications.get(container.resource)?.family!==origin.family))
             throw new SourceError('migration.owners.layout','This native owner layout does not support the captured object kind and family');
-        if(options.operationSlot&&(!['callback-operation','path-item-operation'].includes(layout??'')||
+        if(options.operationSlot&&(!['callback-operation','path-item-operation','parameter-operation'].includes(layout??'')||
             (options.operationSlot.additional?origin.family!=='3.2'||
                 options.operationSlot.method.match(/^[-!#$%&'*+.^_`|~0-9A-Za-z]+$/)?.[0]!==options.operationSlot.method:
                 !standardOperationMethods(origin.family).includes(options.operationSlot.method))))
@@ -799,9 +838,21 @@ export class MigrationSchemaOwners {
                 container:container.pointer,destination:this.reserve(origin,label+'_converted',identity)});
         }
         this.copiedOwners.set(JSON.stringify([owner.location.resource,owner.location.pointer]),{
-            location:owner.location,retirement:reservation.location,schemaIdentity:options.schemaIdentity===true});
+            location:owner.location,retirement:reservation.location,schemaIdentity:options.schemaIdentity===true,
+            ...(parameterLayout?{nativeAnnotation:origin.kind}:{})});
         this.admit(input,8);if(owner.source!==input)this.admit(owner.source,8);
         owner.source.copy(input,origin.pointer,owner.location.pointer,true);
+        if(options.operationSlot?.parameters?.length){
+            // A directly referenced Operation need not admit its lexical Path
+            // Item to the graph. Bind only unoverridden inherited parameters
+            // locally, through references to their existing material owners.
+            const parameters=owner.location.pointer+'/parameters';
+            if(!owner.source.doc.dataNode(parameters))owner.source.set(parameters,[]);
+            for(const parameter of options.operationSlot.parameters){
+                this.admit(owner.source);owner.source.set(parameters+'/'+owner.source.doc.dataNode(parameters)!.children.size,
+                    {$ref:parameter.resource+pointerFragment(parameter.pointer)});
+            }
+        }
         const retainedPointers:string[]=[];
         for(const material of retained){
             this.inspectUse();
@@ -856,11 +907,11 @@ export class MigrationSemanticOrigins {
             add(graph,{resource:reference.targetResource!,pointer:reference.targetPointer!},reference.kind,'target');
             for(const candidate of reference.dynamic?.candidates??[])add(graph,candidate,'schema','target');
         }
-        // Resource proofs need every captured member, including an anchor in
-        // an otherwise unreferenced reserved definition. Typed provenance is
-        // retained through the same entry/role relation as reference targets.
+        // Resource and operation-media proofs need every captured member,
+        // including unused definitions and operations without incoming Links.
+        // Typed provenance uses the same relation as reference targets.
         for(const graph of graphs)for(const scope of graph.entryScopes())
-            if(scope.kind==='schema')add(graph,scope,'schema','target');
+            if(scope.kind==='schema'||scope.kind==='operation')add(graph,scope,scope.kind,'target');
         for(const graph of graphs)for(const scope of graph.entryScopes())
             if(scope.kind==='security-array'||scope.kind==='security-requirement')add(graph,scope,scope.kind,'target');
         for(const graph of graphs)for(const {location,scope,field}of this.valueFields(graph)){

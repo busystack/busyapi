@@ -17,6 +17,7 @@ import {projectSchemaReference} from './schema_reference_projection';
 import {rawConstraintBlocker,projectRawConstraints,rawContainerLiteralUnchanged,rawConstraintReason} from './migration_binary_constraints';
 import {BinaryConstraintProofs} from './migration_binary_proofs';
 import {wholeBodyEncoding} from './whole_body_encoding';
+import {migrationOperationUses} from './migration_operation_contexts';
 
 export type BinaryUse=Readonly<{kind:'body'|'part'|'data';representation?:'data'|'unknown';mediaType?:string;source:GraphScope;schema:GraphScope;path:readonly BinaryStep[]}>;
 export type BinaryStep=Readonly<{property:string}>|'item'|'nested';
@@ -60,7 +61,7 @@ export class BinaryUses {
         };
         for(const context of contexts){
             const parameters=new ParameterSemantics(context);
-            for(const operation of context.operations()){
+            for(const operation of migrationOperationUses(context)){
                 inspect();
                 const source=graph.scope(operation.source.resource,operation.source.pointer);
                 if(source.family!=='2.0')continue;

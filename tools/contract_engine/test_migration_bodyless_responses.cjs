@@ -3,6 +3,18 @@ const base=process.env.BUSYAPI_FORM_DOWNGRADE_BASELINE||__dirname;
 const {planMigration}=require(base+'/dist/migration.cjs');
 const {requestOperation}=require(base+'/dist/execution.cjs');
 const YAML=require(base+'/node_modules/yaml');
+for(const format of ['yaml','json'])test(`B05-R1 ${format} shared operation response media do not activate bodyless reusable responses`,async()=>{
+ const input=require('./migration_operation_contexts_fixture.cjs')(format,{bodyless:true}),before=input.resources.map(resource=>resource.text);
+ const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));
+ const {createGraph}=require(base+'/dist/model.cjs'),resources=plan.outputs.map(output=>({id:output.id,text:output.text,generation:0}));
+ for(const source of input.resources.slice(0,2)){
+  const root=plan.changes.find(change=>change.resource===source.id).destination,packet={root,resources,snapshot:'cold-bodyless-contexts'};
+  const operation=createGraph(packet).graph.operations().find(operation=>operation.path==='/inherited');
+  const request=requestOperation({...packet,resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
+  assert(request.responses.every(response=>response.content.length===0));
+ }
+ assert.deepEqual(input.resources.map(resource=>resource.text),before);
+});
 for(const format of ['yaml','json'])for(const target of ['3.0.4','3.1.2','3.2.1'])for(const referenced of [false,true]){
  test(`bodyless Swagger ${format} → ${target} referenced=${referenced} cannot activate a response body`,async()=>{
   const root='file:///approved/api.'+format;

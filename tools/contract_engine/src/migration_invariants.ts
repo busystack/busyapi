@@ -3,9 +3,72 @@ import {requestOperation} from './execution';
 import type {ReferenceGraph,GraphScope} from './reference_graph';
 import type {Resource} from './engine';
 import {serverTemplate} from './derived_bundle';
-import {SourceError} from './document';
+import {escape,SourceError} from './document';
 import {securityFlowOrder,securityRequirementAlternatives,type SecurityAlternativeProjection} from './security_requirements';
 import type {MigrationLocation} from './migration_source';
+import type {MigrationIssue} from './migration_schema';
+import {migrationOperationUses} from './migration_operation_contexts';
+import {ParameterSemantics} from './parameter_semantics';
+import {ignoresRequestBody} from './operation_semantics';
+import {swaggerMedia} from './swagger_operation';
+
+/** Supplement executable request signatures with the same media/applicability
+ * rules at independently referenced Operations, reusable Path Items, callbacks
+ * and webhooks. Static connections and schema/resource proofs remain separate;
+ * a detached operation is never made executable just to obtain a request plan. */
+export function proveMigrationOperationMedia(source:ReferenceGraph,target:ReferenceGraph,
+    mapped:(location:MigrationLocation,scope:GraphScope)=>readonly MigrationLocation[],issue:MigrationIssue):void {
+    let work=0;
+    const profiles=(graph:ReferenceGraph)=>{
+        const result=new Map<string,Set<string>>(),parameters=new ParameterSemantics(graph);
+        const terminal=(at:MigrationLocation,kind:string):any=>{
+            const seen=new Set<string>();
+            for(let depth=0;depth<128;depth++){
+                if(++work>2000000)throw new SourceError('limit.migration.owners','Operation media proof exceeds its bounded work');
+                const id=JSON.stringify([at.resource,at.pointer]);
+                if(seen.has(id))break;seen.add(id);
+                const value=graph.docs.get(at.resource)?.dataNode(at.pointer)?.value;
+                const edge=graph.referenceAs(at.resource,at.pointer,'$ref',kind);
+                if(!edge)return value;
+                if(edge.resolution!=='resolved')break;
+                at={resource:edge.targetResource!,pointer:edge.targetPointer!};
+            }
+            throw new SourceError('migration.invariant.operation-reference','An operation media proof has no captured concrete owner');
+        };
+        const media=(values:readonly string[])=>[...new Set(values)].sort();
+        for(const use of migrationOperationUses(graph)){
+            const scope=use.source,value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)!.value;
+            let body:unknown;
+            if(scope.family==='2.0'){
+                const entries=parameters.operation(scope.resource,scope.pointer,use.pathItem).visible;
+                const declared=entries.find(parameter=>parameter.location==='body');
+                const forms=entries.filter(parameter=>parameter.location==='formData');
+                if(declared||forms.length)body={required:declared?terminal(declared.source,'parameter')?.required===true:
+                    forms.some(parameter=>terminal(parameter.source,'parameter')?.required===true),media:media(swaggerMedia(graph,scope.resource,scope.pointer,'consumes'))};
+            }else if(Object.hasOwn(value,'requestBody')&&!(use.method&&ignoresRequestBody(scope.family,use.method.toUpperCase()))){
+                const declared=terminal({...scope,pointer:scope.pointer+'/requestBody'},'request-body');
+                body={required:declared?.required===true,media:media(Object.keys(declared?.content??{}))};
+            }
+            const responses=Object.keys(value.responses??{}).filter(name=>!name.startsWith('x-')).sort().map(status=>{
+                const declared=terminal({...scope,pointer:scope.pointer+'/responses/'+escape(status)},'response');
+                const names=scope.family==='2.0'?Object.hasOwn(declared??{},'schema')?
+                    [...swaggerMedia(graph,scope.resource,scope.pointer,'produces'),...Object.keys(declared.examples??{})]:[]:
+                    Object.keys(declared?.content??{});
+                return {status,media:media(names)};
+            });
+            const id=JSON.stringify([scope.resource,scope.pointer]),values=result.get(id)??new Set<string>();
+            values.add(JSON.stringify({body,responses}));result.set(id,values);
+        }
+        return result;
+    };
+    const before=profiles(source),after=profiles(target);
+    for(const scope of source.entryScopes())if(scope.kind==='operation'){
+        const expected=before.get(JSON.stringify([scope.resource,scope.pointer]));
+        const actual=new Set(mapped(scope,scope).flatMap(location=>[...after.get(JSON.stringify([location.resource,location.pointer]))??[]]));
+        if(JSON.stringify([...expected??[]].sort())!==JSON.stringify([...actual].sort()))
+            issue(scope,'migration.invariant.operation-media','The migrated operation changed captured request-body applicability, requiredness or request/response media','implementation');
+    }
+}
 
 /** Project configured alternative indices through the same captured effective
  * request-operation owner. Intersect permissible target branches across uses;

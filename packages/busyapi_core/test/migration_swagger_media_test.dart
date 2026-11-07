@@ -20,6 +20,7 @@ const _targets = [
 ];
 
 void main() {
+  _b05OperationContexts();
   _r2FileResponses();
   _r3EquivalentMedia();
   for (final target in _targets) {
@@ -227,7 +228,7 @@ void main() {
             MigrationStatus.faithfullyConvertible,
             reason: '${review.result}',
           );
-          expect(review.result['producerVersion'], '90');
+          expect(review.result['producerVersion'], '91');
           expect(review.unsaved, isTrue);
           expect(review.changes, hasLength(5));
           expect(await Directory(review.destination).exists(), isFalse);
@@ -271,7 +272,7 @@ void main() {
           final report = jsonDecode(cliReview.stdout as String) as Map;
           expect(report['status'], 'faithfully-convertible');
           expect(report['published'], false);
-          expect(report['producerVersion'], '90');
+          expect(report['producerVersion'], '91');
           expect(await Directory(cliDestination).exists(), isFalse);
           final applied = await command([
             '--apply',
@@ -364,6 +365,131 @@ void main() {
         },
       );
     }
+  }
+}
+
+void _b05OperationContexts() {
+  for (final format in ['yaml', 'json']) for (final bodyApplicability in [false, true]) {
+    test('B05-R1 $format shared operations preserve ${bodyApplicability ? 'body applicability' : 'entry media'} through Core and CLI publication', () async {
+      final directory = await Directory.systemTemp.createTemp('busyapi-b05-operation-');
+      addTearDown(() => directory.delete(recursive: true));
+      final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper); addTearDown(engine.close);
+      const exact = '9007199254740993.00';
+      final observed = <(String, String, String?, List<int>)>[];
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0); addTearDown(() => server.close(force: true));
+      server.listen((request) async {
+        final bytes = await request.fold<List<int>>([], (all, part) => all..addAll(part));
+        final media = request.headers.value('content-type');
+        observed.add((request.method, request.uri.toString(), media, bytes));
+        if (bodyApplicability) { request.response.statusCode = 204; }
+        else {
+          request.response.headers.set('content-type', media == 'application/json' ? 'application/vnd.reply-a+json' : 'application/json');
+          request.response.add(bytes);
+        }
+        await request.response.close();
+      });
+      Map<String, Object?> api(bool first) => {
+        if (bodyApplicability) 'openapi': first ? '3.0.4' : '3.1.2' else 'swagger': '2.0',
+        'info': {'title': first ? 'First' : 'Second', 'version': 'business'},
+        if (bodyApplicability) 'servers': [{'url': 'http://127.0.0.1:${server.port}/v1'}]
+        else ...{'host': '127.0.0.1:${server.port}', 'schemes': ['http'], 'basePath': '/v1',
+          'consumes': [first ? 'application/json' : 'application/vnd.request-b+json'],
+          'produces': [first ? 'application/vnd.reply-a+json' : 'application/json']},
+        'paths': {'/payload': {r'$ref': 'shared.$format#/Path'}},
+        'x-kept': {'exact': 'EXACT', 'flag': false, 'empty': '', r'$ref': 'literal'},
+      };
+      final schema = {'type': 'integer', 'enum': ['EXACT']};
+      final operation = {
+        if (bodyApplicability) 'requestBody': {r'$ref': '#/Body'}
+        else 'parameters': [{r'$ref': '#/Body'}],
+        'security': [],
+        'responses': {bodyApplicability ? '204' : '200': bodyApplicability ? {'description': 'Empty'} : {r'$ref': '#/Reply'}},
+      };
+      final fragment = {
+        'Path': {if (bodyApplicability) 'get': operation, 'post': operation},
+        'Body': bodyApplicability ? {'description': 'Original body', 'required': true, 'content': {'application/json': {'schema': schema}}}
+            : {'description': 'Original body', 'in': 'body', 'name': 'payload', 'required': true, 'schema': schema},
+        if (!bodyApplicability) 'Reply': {'description': 'Reply', 'schema': schema},
+      };
+      String encode(Object value) => '${format == 'yaml' ? '# Keep contexts 雪\r\n' : ''}${jsonEncode(value).replaceAll('"EXACT"', exact)}\r\n';
+      final originals = <String, String>{'a.$format': encode(api(true)), 'b.$format': encode(api(false)), 'shared.$format': encode(fragment)};
+      if (format == 'yaml') originals['shared.$format'] = '# Keep alias consumers\r\n${fragment.entries.map((entry) => '${entry.key}: ${jsonEncode(entry.value).replaceAll('"EXACT"', exact)}').join('\r\n')}\r\nLiteral: &literal {exact: $exact, flag: false}\r\nLiteralAlias: *literal\r\n';
+      for (final entry in originals.entries) { await File('${directory.path}/${entry.key}').writeAsString(entry.value); }
+      final configuration = File('${directory.path}/busyapi.yaml');
+      await configuration.writeAsString('version: 1\nroots: [{name: first, path: a.$format}, {name: second, path: b.$format}]\n');
+      final project = await BusyProject.open(directory.path, engine); addTearDown(project.close);
+      final roots = [File('${directory.path}/a.$format').uri.toString(), File('${directory.path}/b.$format').uri.toString()];
+      final shared = await project.buffer(File('${directory.path}/shared.$format').uri.toString());
+      project.store.replace(shared.id, shared.text.replaceFirst('Original body', 'Unsaved body'));
+      final target = bodyApplicability ? '2.0' : '3.2.1', destination = '${directory.path}/copy';
+      Future<List<(String, String, String?, String)>> exchange(BusyProject owner, List<String> entries) async {
+        final start = observed.length;
+        for (final (index, root) in entries.indexed) {
+          final checked = await owner.check(root); expect(checked['complete'], true, reason: '$checked');
+          for (final operation in (checked['projection']['operations'] as List).cast<Map>()) {
+            final plan = await owner.prepareRequest(root, resource: operation['resource'] as String, pointer: operation['pointer'] as String, occurrence: operation['occurrence'] as String);
+            try {
+              final active = !bodyApplicability || index == 1 || operation['method'] == 'post';
+              expect(plan.result['requestBody'] != null, active);
+              final media = bodyApplicability || index == 0 ? 'application/json' : 'application/vnd.request-b+json';
+              if (active) expect((((plan.result['requestBody'] as Map)['content']) as List).cast<Map>().map((entry) => entry['mediaType']), [media]);
+              if (!bodyApplicability) expect((((plan.result['responses'] as List).first as Map)['content'] as List).cast<Map>().map((entry) => entry['mediaType']),
+                [index == 0 ? 'application/vnd.reply-a+json' : 'application/json']);
+              final result = await const ContractRequestExecutor().execute(plan, OperationRequestDraft(planIdentity: plan.identity,
+                body: active ? RequestBodyDraft.raw(mediaType: media, text: exact) : const RequestBodyDraft.none()), resolveSecret: (_) async => null);
+              try {
+                expect(result.outgoing.complete, true); expect(result.outgoing.valid, true, reason: '${result.outgoing.findings}');
+                expect(result.received.complete, true); expect(result.received.valid, true, reason: '${result.received.findings}');
+                expect(observed.last.$1, (operation['method'] as String).toUpperCase()); expect(observed.last.$2, '/v1/payload');
+                expect(observed.last.$4, active ? utf8.encode(exact) : <int>[]);
+                if (active) expect(observed.last.$3, media);
+                expect(await result.response.bytes(), bodyApplicability ? <int>[] : utf8.encode(exact));
+              } finally { await result.close(); }
+            } finally { plan.close(); }
+          }
+        }
+        return observed.sublist(start).map((request) => (request.$1, request.$2, request.$3, base64Encode(request.$4))).toList();
+      }
+      final behavior = await exchange(project, roots);
+      final first = await project.prepareMigration(roots.first, destination, targetVersion: target); addTearDown(first.close);
+      final decisions = {for (final problem in first.problems.where((problem) => problem.code == 'migration.body.ignored-activation')) problem.id: 'omit-ignored-body'};
+      expect(decisions.length, bodyApplicability ? 1 : 0);
+      final review = decisions.isEmpty ? first : await project.prepareMigration(roots.first, destination, targetVersion: target, decisions: decisions);
+      addTearDown(review.close); expect(review.publishable, true, reason: '${review.result}'); expect(review.unsaved, true); expect(review.entryRoutes, hasLength(2));
+      final repeat = await project.prepareMigration(roots.first, destination, targetVersion: target, decisions: decisions); addTearDown(repeat.close); expect(repeat.identity, review.identity);
+      await expectLater(review.publish(cancelled: () => true), throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'cancelled')));
+      expect(await Directory(destination).exists(), false);
+      final conflict = await project.prepareMigration(roots.first, '${directory.path}/conflict', targetVersion: target, decisions: decisions); addTearDown(conflict.close);
+      await expectLater(conflict.publish(beforePublish: () async {
+        await Directory(conflict.destination).create(); await File('${conflict.destination}/foreign').writeAsString('Keep');
+      }), throwsA(anything));
+      expect(await File('${conflict.destination}/foreign').readAsString(), 'Keep'); expect(await File('${conflict.destination}/migration.json').exists(), false);
+      await review.publish(); expect(shared.dirty, true);
+      final stale = await project.prepareMigration(roots.first, '${directory.path}/stale', targetVersion: target, decisions: decisions); addTearDown(stale.close);
+      project.store.replace(shared.id, shared.text.replaceFirst('Unsaved body', 'Later body'));
+      await expectLater(stale.publish(), throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'migration.stale')));
+      expect(await Directory(stale.destination).exists(), false);
+      final cliDestination = '${directory.path}/cli';
+      Future<ProcessResult> cli(List<String> extra) => Process.run('$testBundle/busyapi', ['migrate', directory.path, '--root', 'first', '--target', target, '--output', cliDestination, '--json', ...extra],
+        environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
+      final preview = await cli([]); expect(preview.exitCode, bodyApplicability ? 2 : 0, reason: '${preview.stdout}\n${preview.stderr}');
+      final report = jsonDecode(preview.stdout as String) as Map; expect(report['producerVersion'], '91'); expect(report['published'], false);
+      final cliDecisions = [for (final problem in (report['problems'] as List).cast<Map>().where((problem) => problem['code'] == 'migration.body.ignored-activation')) ...['--decision', '${problem['id']}=omit-ignored-body']];
+      final approved = cliDecisions.isEmpty ? preview : await cli(cliDecisions); expect(approved.exitCode, 0, reason: '${approved.stdout}\n${approved.stderr}');
+      final approvedReport = jsonDecode(approved.stdout as String) as Map;
+      final applied = await cli([...cliDecisions, '--apply', approvedReport['reviewIdentity'] as String]); expect(applied.exitCode, 0, reason: '${applied.stdout}\n${applied.stderr}');
+      expect((jsonDecode(applied.stdout as String) as Map)['published'], true);
+      for (final entry in originals.entries) { final file = File('${directory.path}/${entry.key}'); expect(await file.readAsString(), entry.value); await file.delete(); }
+      for (final outputPath in [destination, cliDestination]) {
+        final output = await BusyProject.open(outputPath, engine); addTearDown(output.close);
+        final entries = [for (final original in roots) review.changes.singleWhere((change) => change.resource == original).destination];
+        if (outputPath == cliDestination) {
+          for (var index = 0; index < entries.length; index++) { entries[index] = entries[index].replaceFirst(Uri.directory(destination).toString(), Uri.directory(cliDestination).toString()); }
+        }
+        expect(await exchange(output, entries), behavior);
+        if (format == 'yaml') expect((await output.buffer(output.roots.first.id)).text, contains('# Keep contexts 雪'));
+      }
+    });
   }
 }
 

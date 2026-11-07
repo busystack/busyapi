@@ -17,6 +17,68 @@ function capture(version,method,format,referenced=false) {
 function outputs(result){return result.outputs.map(output=>({id:output.id,text:output.text,generation:0,aliases:Object.entries(result.manifest.resourceMappings).filter(([,path])=>path===output.path).map(([uri])=>uri)}));}
 function operation(input){const found=analyse(input).operations[0];return requestOperation({...input,resource:found.resource,pointer:found.pointer,occurrence:found.occurrence});}
 
+for(const format of ['yaml','json'])test(`B05-R1 ${format} referenced literal operations retain their declared method slots and body decisions`,async()=>{
+ const root=`file:///referenced-applicability/api.${format}`,body={required:true,content:{'application/json':{schema:{type:'integer'}}}},op={requestBody:body,responses:{204:{description:'Empty'}}};
+ const value={openapi:'3.0.4',info:{title:'Referenced bodies',version:'1'},paths:{},components:{links:{Ignored:{operationRef:'#/x-data/get'},Active:{operationRef:'#/x-data/post'}}},'x-data':{get:op,post:op,exact:'EXACT'}};
+ const text=(format==='yaml'?YAML.stringify(value):JSON.stringify(value)).replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const input={root,snapshot:'referenced-applicability',resources:[{id:root,text,generation:1}],targetVersion:'3.2.1',destination:'file:///reviewed/referenced/'},review=await planMigration(input);
+ assert.equal(review.status,'requires-decision',JSON.stringify(review.problems));
+ const choices=review.problems.filter(problem=>problem.code==='migration.body.ignored-activation');assert.equal(choices.length,1);assert.equal(choices[0].pointer,'/x-data/get/requestBody');
+ const result=await planMigration({...input,decisions:{[choices[0].id]:'omit-ignored-body'}});assert.equal(result.complete,true,JSON.stringify(result.problems));
+ const packet={root:result.outputRoot,snapshot:'cold-referenced-bodies',resources:outputs(result)},{graph}=require('./dist/model.cjs').createGraph(packet);
+ assert.equal(graph.operations().length,0);
+ for(const [name,active]of [['Ignored',false],['Active',true]]){
+  const link=graph.referenceAs(packet.root,'/components/links/'+name,'operationRef','operation');assert.equal(link.resolution,'resolved');
+  assert.equal(!!graph.docs.get(link.targetResource).dataNode(link.targetPointer+'/requestBody'),active);
+  assert.equal(link.targetPointer.split('/').at(-1),active?'post':'get');
+ }
+ const original=new SourceDocument(text,root),target=new SourceDocument(result.outputs.find(output=>output.id===packet.root).text,packet.root);
+ assert.equal(target.dataJson('/x-data'),original.dataJson('/x-data'));assert.equal(input.resources[0].text,text);
+});
+
+test('B05-R1 a detached 3.0 body without a captured method retains a located proof refusal',async()=>{
+ const root='file:///unknown-method/api.json',value={openapi:'3.0.4',info:{title:'Unknown method',version:'1'},paths:{},components:{links:{Use:{operationRef:'#/x-data/Operation'}}},'x-data':{Operation:{requestBody:{content:{'application/json':{schema:{type:'string'}}}},responses:{204:{description:'Empty'}}}}};
+ const text=JSON.stringify(value),result=await planMigration({root,snapshot:'unknown-method',resources:[{id:root,text,generation:1}],targetVersion:'3.2.1',destination:'file:///reviewed/unknown/'});
+ assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);const problem=result.problems.find(problem=>problem.code==='migration.body.method-context');assert(problem,JSON.stringify(result.problems));
+ assert.equal(problem.reason,'unavailable-proof');assert.equal(problem.pointer,'/x-data/Operation/requestBody');assert(problem.range[1]>problem.range[0]);
+});
+
+for(const format of ['yaml','json'])for(const targetVersion of ['2.0','3.0.4','3.1.2','3.2.1'])test(`B05-R1 ${format} shared 3.0/3.1 operation and body owners preserve active and ignored uses in ${targetVersion}`,async()=>{
+ const root=`file:///shared-applicability/ignored.${format}`,other=`file:///shared-applicability/active.${format}`,shared=`file:///shared-applicability/shared.${format}`;
+ const api=version=>({openapi:version,info:{title:version,version:'business'},servers:[{url:'https://api.invalid/v1'}],paths:{'/payload':{$ref:`shared.${format}#/Path`}}});
+ const body={required:true,content:{'application/json':{schema:{type:'object',properties:{n:{type:'integer',enum:['EXACT']},next:{$ref:'#/Body/content/application~1json/schema'}}}}}};
+ const op={requestBody:{$ref:'#/Body'},parameters:[{name:'q',in:'query',schema:{type:'integer'}}],security:[],responses:{204:{description:'Empty'}}};
+ const value={Path:{get:op,post:op},Body:body,Literal:{empty:'',flag:false,exact:'EXACT',$ref:'untouched'}};
+ const encode=value=>(format==='yaml'?'# Keep applicability 雪\r\n'+YAML.stringify(value).replaceAll('\n','\r\n'):JSON.stringify(value)).replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const input={root,snapshot:'shared-applicability',targetVersion,destination:'file:///reviewed/applicability/',resources:[api('3.0.4'),api('3.1.2'),value].map((value,index)=>({id:[root,other,shared][index],text:encode(value),generation:index+1}))};
+ const before=input.resources.map(resource=>resource.text),review=await planMigration(input);
+ if(targetVersion==='3.0.4'){
+  assert.equal(review.status,'blocked');assert.deepEqual(review.outputs,[]);
+  const problem=review.problems.find(problem=>problem.code==='migration.body.target-ignored');assert(problem,JSON.stringify(review.problems));
+  assert.equal(problem.reason,'target-representation');assert.equal(problem.pointer,'/Path/get/requestBody');
+  assert(!review.problems.some(problem=>problem.reason==='decision'));assert.deepEqual(input.resources.map(resource=>resource.text),before);return;
+ }
+ assert.equal(review.status,'requires-decision',JSON.stringify(review.problems));assert.deepEqual(review.outputs,[]);
+ const decisions=Object.fromEntries(review.problems.filter(problem=>problem.code==='migration.body.ignored-activation').map(problem=>[problem.id,'omit-ignored-body']));
+ assert.equal(Object.keys(decisions).length,1);assert(review.problems.every(problem=>problem.reason==='decision'),JSON.stringify(review.problems));
+ const result=await planMigration({...input,decisions});assert.equal(result.complete,true,JSON.stringify(result.problems));
+ const resources=outputs(result),identities=[];
+ for(const original of [root,other]){
+  const destination=result.changes.find(change=>change.resource===original).destination,packet={root:destination,snapshot:'cold-applicability',resources};
+  const analysis=analyse(packet);assert.equal(analysis.complete,true,JSON.stringify(analysis.findings));
+  for(const occurrence of analysis.operations){
+   const plan=requestOperation({...packet,resource:occurrence.resource,pointer:occurrence.pointer,occurrence:occurrence.occurrence});
+   const active=original===other||plan.operation.method==='POST';
+   assert.equal(!!plan.requestBody,active);assert.equal(plan.operation.path,'/payload');assert.equal(plan.parameters[0].name,'q');assert.equal(plan.responses[0].status,'204');
+   if(plan.operation.method==='GET')identities.push([occurrence.resource,occurrence.pointer]);
+   if(active){assert.equal(plan.requestBody.required,true);assert.deepEqual(plan.requestBody.content.map(media=>media.mediaType),['application/json']);}
+  }
+ }
+ assert.notDeepEqual(identities[0],identities[1]);assert.deepEqual(input.resources.map(resource=>resource.text),before);
+ const reversed=await planMigration({...input,resources:[...input.resources].reverse(),decisions});assert.equal(reversed.complete,true,JSON.stringify(reversed.problems));
+ assert.deepEqual([...reversed.outputs].sort((a,b)=>a.path.localeCompare(b.path)),[...result.outputs].sort((a,b)=>a.path.localeCompare(b.path)));
+});
+
 for(const format of ['yaml','json'])test(`${format} reviewed ignored-body omission retires examples and leaves detached schema data unchanged`,async()=>{
  const input=capture('3.0.4','get',format,true);input.targetVersion='3.1.2';
  const source=new SourceDocument(input.resources[1].text,input.resources[1].id);

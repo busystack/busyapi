@@ -7,6 +7,40 @@ const {createGraph, analyse} = require('./dist/model.cjs');
 const {evaluateSchemas} = require('./dist/schema_evaluation.cjs');
 
 const publishedTargets = ['3.0.0', '3.0.1', '3.0.2', '3.0.3', '3.0.4', '3.1.0', '3.1.1', '3.1.2', '3.2.0', '3.2.1'];
+for(const targetVersion of publishedTargets)for(const format of ['yaml','json'])test(`B05-R1 ${format} inherited operation media and overrides have independent owners in ${targetVersion}`,async()=>{
+ const input={...require('./migration_operation_contexts_fixture.cjs')(format),targetVersion},before=input.resources.map(resource=>resource.text);
+ assert.equal(analyse(input).complete,true,JSON.stringify(analyse(input).findings));
+ const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));
+ const after=reopened(result),owners=[];
+ for(const original of input.resources.slice(0,2)){
+  const source={...input,root:original.id},root=result.changes.find(change=>change.resource===original.id).destination,packet={...after,root};
+  assert.equal(analyse(packet).complete,true,JSON.stringify(analyse(packet).findings));
+  const signature=packet=>operations(packet).map(plan=>[plan.operation.method,plan.operation.path,plan.servers.map(server=>server.url),
+   plan.parameters.map(parameter=>[parameter.name,parameter.in]),plan.requestBody.required,plan.requestBody.content.map(value=>value.mediaType).sort(),
+   plan.responses.map(response=>[response.status,response.bodyAllowed===false?[]:response.content.map(value=>value.mediaType).sort()])]);
+  assert.deepEqual(signature(packet),signature(source));
+  const graph=createGraph(packet).graph,operation=graph.operations().find(operation=>operation.path==='/inherited');
+  assert.equal(graph.docs.get(operation.source.resource).dataNode(operation.source.pointer+'/operationId').value,'shared');
+  owners.push([operation.source.resource,operation.source.pointer]);
+  const plan=operations(packet).find(plan=>plan.operation.path==='/inherited');
+  assert.equal(Object.values(plan.security.schemes)[0].parameterName,original===input.resources[0]?'X-First':'X-Second');
+  for(const sample of ['{"n":9007199254740993,"next":{"n":9007199254740993}}','{"n":9007199254740992}']){
+   const check=async(packet,plan)=>{
+    const checked=await evaluateSchemas({...packet,runtimeInstances:[plan.requestBody.content[0].schema,plan.responses[0].content[0].schema].map(schema=>({subject:'request-body',location:sample,text:sample,schema}))});
+    assert.equal(checked.complete,true,JSON.stringify(checked.findings));return checked.runtimeEvaluations.map(value=>value.valid);
+   };
+   const original=await check(source,operations(source).find(plan=>plan.operation.path==='/inherited'));
+   assert.deepEqual(original,sample.includes('9007199254740992')?[false,false]:[true,true]);
+   assert.deepEqual(await check(packet,plan),original);
+   const independent=await evaluateSchemas({...packet,runtimeInstances:[{subject:'request-body',location:sample,text:sample,
+    schema:{resource:root,pointer:'/components/schemas/Independent'}}]});
+   assert.equal(independent.complete,true,JSON.stringify(independent.findings));assert.deepEqual(independent.runtimeEvaluations.map(value=>value.valid),[original[0]]);
+  }
+ }
+ assert.notDeepEqual(owners[0],owners[1]);assert.deepEqual(input.resources.map(resource=>resource.text),before);
+ const repeated=await planMigration({...input,resources:[...input.resources].reverse()});assert.equal(repeated.complete,true,JSON.stringify(repeated.problems));
+ assert.deepEqual([...repeated.outputs].sort((a,b)=>a.path.localeCompare(b.path)),[...result.outputs].sort((a,b)=>a.path.localeCompare(b.path)));
+});
 for(const format of ['yaml','json'])test(`R3 ${format} equivalent exact numeric bounds share one encoded-body schema`,async()=>{
  const root='file:///approved/api.'+format,types=['application/octet-stream','application/json'];
  const content=Object.fromEntries(types.map((type,index)=>[type,{schema:{type:'string',format:'byte',minLength:'MIN'+index,maxLength:8,description:'DESC'+index}}]));
