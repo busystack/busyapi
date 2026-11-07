@@ -2,6 +2,39 @@ const assert=require('node:assert/strict'),{test}=require('node:test'),fs=requir
 const {planMigration}=require('./dist/migration.cjs'),{analyse}=require('./dist/model.cjs'),{evaluateSchemas}=require('./dist/schema_evaluation.cjs');
 const {SourceDocument}=require('./dist/document.cjs');
 const versions={'2.0':'2.0','3.0':'3.0.4','3.1':'3.1.2','3.2':'3.2.1'};
+for(const version of require('./migration_b05_r2_fixture.cjs').versions)for(const format of ['yaml','json'])test(`B05-R2 ${version} ${format} inactive parameter metadata and text content retain wire roles`,async()=>{
+ const {render,reopened}=require('./migration_b05_r2_fixture.cjs'),root='file:///approved/parameters.'+format;
+ const value={openapi:version,info:{title:'Parameter metadata',version:'1'},servers:[{url:'https://api.invalid'}],paths:{'/items':{get:{parameters:[
+  {$ref:'#/components/parameters/Alias'},{name:'text',in:'query',content:{'text/plain':{schema:{type:'string',enum:['one','two']}}}},
+  {name:'jsonFlag',in:'query',content:{'application/json':{schema:{type:'boolean'}}}}
+ ],responses:{204:{description:'Empty',headers:{'X-Values':{$ref:'#/components/headers/Values'}}}}}}},components:{parameters:{
+  Alias:{$ref:'#/components/parameters/Flag'},Flag:{name:'flag',in:'query',required:true,deprecated:false,allowReserved:true,examples:{},schema:{type:'boolean',example:false}}
+ },headers:{Values:{deprecated:false,required:false,style:'simple',explode:true,schema:{type:'array',items:{type:'integer'}}}}}};
+ const text=render(value,format),input={root,resources:[{id:root,text,generation:1}],snapshot:'R2-parameters',targetVersion:'2.0',destination:'file:///review/parameters/'};
+ const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));
+ const target=reopened(plan),doc=new SourceDocument(plan.outputs.find(o=>o.id===plan.outputRoot).text,plan.outputRoot);
+ assert.equal(analyse(target).complete,true);const flat=doc.dataNode('/parameters/Flag').value;
+ assert.equal(flat.in,'query');assert.equal(flat.required,true);assert.equal(flat.type,'boolean');
+ for(const field of ['deprecated','allowReserved','examples','schema','content','style','explode'])assert.equal(Object.hasOwn(flat,field),false,field);
+ const {requestOperation}=require('./dist/execution.cjs'),after=requestOperation({...target,resource:target.root,pointer:'/paths/~1items/get'});
+ assert.deepEqual(after.parameters.map(p=>[p.name,p.in,p.required]),[['flag','query',true],['text','query',false],['jsonFlag','query',false]]);
+ assert.equal(after.responses[0].headers[0].required,false);assert.equal(input.resources[0].text,text);
+});
+for(const format of ['yaml','json'])for(const kind of ['deprecated','reserved','example','named','required-header','json-content'])test(`B05-R2 ${format} active ${kind} retains a located precise refusal`,async()=>{
+ const {render}=require('./migration_b05_r2_fixture.cjs'),root='file:///approved/refusal.'+format;
+ const parameter={name:'q',in:'query',schema:{type:'string'}},header={schema:{type:'string'}};
+ let code,reason='target-representation';
+ if(kind==='deprecated'){parameter.deprecated=true;code='migration.parameter.deprecated';}
+ if(kind==='reserved'){parameter.allowReserved=true;code='migration.parameter.allowReserved';}
+ if(kind==='example'){parameter.example='';code='migration.parameter.examples';}
+ if(kind==='named'){parameter.examples={Zero:{value:'0'},Other:{value:'1'}};code='migration.parameter.examples';}
+ if(kind==='required-header'){header.required=true;code='migration.parameter.required';}
+ if(kind==='json-content'){delete parameter.schema;parameter.content={'application/json':{schema:{type:'string'}}};code='migration.parameter.content-domain';}
+ const value={openapi:'3.0.4',info:{title:'Active metadata',version:'1'},paths:{'/items':{get:{parameters:[parameter],responses:{204:{description:'Empty',headers:{'X-Value':header}}}}}}};
+ const text=render(value,format),input={root,resources:[{id:root,text,generation:1}],snapshot:kind,targetVersion:'2.0',destination:'file:///review/refused/'};
+ const result=await planMigration(input);assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);
+ const problem=result.problems.find(p=>p.code===code);assert(problem,JSON.stringify(result.problems));assert.equal(problem.reason,reason);assert(problem.range[1]>problem.range[0]);assert.equal(input.resources[0].text,text);
+});
 function capture(text,format='yaml',extras=[]){const root='file:///approved/api.'+format;return{root,snapshot:'migration',targetVersion:'3.2.1',destination:'file:///output/review/',resources:[{id:root,text,generation:1,identity:'source'},...extras]};}
 for(const family of Object.keys(versions))for(const format of ['yaml','json'])for(const targetVersion of Object.values(versions))test(`migration ${family} ${format} → ${targetVersion} uses native target rules and preserves source`,async()=>{
  const text=fs.readFileSync(`${__dirname}/fixtures/native-families/${family}-valid.${format}`,'utf8'),input={...capture(text,format),targetVersion},result=await planMigration(input);

@@ -45,7 +45,7 @@ void main() {
       addTearDown(review.close);
       expect(review.publishable, true, reason: '${review.result}');
       expect(review.unsaved, true);
-      expect(review.result['producerVersion'], '91');
+      expect(review.result['producerVersion'], '92');
       expect(review.result['acceptedDecisions'], isEmpty);
       if (format == 'yaml') {
         expect((review.result['presentationChanges'] as List).whereType<Map>().any(

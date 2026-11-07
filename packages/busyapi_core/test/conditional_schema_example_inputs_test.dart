@@ -192,7 +192,7 @@ void main() {
             expect(
               (captured.result['representationRevisions']
                   as Map)['schemaExamples'],
-              '2',
+              '3',
             );
             final media =
                 ((captured.result['requestBody'] as Map)['content'] as List)

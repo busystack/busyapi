@@ -37,6 +37,14 @@ for(const format of ['yaml','json'])test(`Swagger ${format} schema-less examples
  const text=format==='json'?JSON.stringify(document):YAML.stringify(document),resources=[{id:root,text,generation:1}];
  const plan=await planMigration({root,resources,snapshot:'examples',targetVersion:'3.0.4',destination:'file:///output/review/'});
  assert.equal(plan.complete,false);assert.equal(plan.status,'blocked');assert.deepEqual(plan.outputs,[]);
- assert(plan.problems.some(p=>p.code==='migration.response.examples-without-schema'&&p.pointer==='/paths/~1items/get/responses/200/examples'));
+ assert(plan.problems.some(p=>p.code==='migration.response.examples-without-schema'&&p.pointer==='/paths/~1items/get/responses/200/examples'&&p.reason==='target-representation'));
  assert.equal(resources[0].text,text);
+});
+for(const format of ['yaml','json'])for(const targetVersion of ['3.0.4','3.1.2','3.2.1'])test(`B05-R2 ${format} empty example maps keep reusable response chains bodyless in ${targetVersion}`,async()=>{
+ const root='file:///approved/empty.'+format,document={swagger:'2.0',info:{title:'Empty examples',version:'1'},host:'api.invalid',schemes:['https'],produces:['application/json'],
+  paths:{'/empty':{get:{responses:Object.fromEntries(['200','204','304','default'].map(status=>[status,{$ref:'#/responses/Alias'}]))}}},responses:{Alias:{$ref:'#/responses/Empty'},Empty:{description:'Empty',examples:{}}}};
+ const text=format==='json'?JSON.stringify(document):YAML.stringify(document),input={root,resources:[{id:root,text,generation:0}],snapshot:'empty-map',targetVersion,destination:'file:///review/empty/'};
+ const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));
+ const resources=result.outputs.map(output=>({id:output.id,text:output.text,generation:0})),plan=requestOperation({root:result.outputRoot,resources,snapshot:'cold-empty',resource:result.outputRoot,pointer:'/paths/~1empty/get'});
+ assert.deepEqual(plan.responses.map(response=>response.status),['200','204','304','default']);assert(plan.responses.every(response=>response.content.length===0));assert.equal(input.resources[0].text,text);
 });

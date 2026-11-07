@@ -12,6 +12,26 @@ import {decimal} from './exact_numbers';
 
 type Field=Readonly<{source:MigrationSource;pointer:string}>;
 
+/** OAS 3.0/3.1 apply Encoding only to request bodies. OAS 3.2 extends
+ * applicable multipart encoding to other media occurrences. Content-Type in
+ * Encoding.headers is ignored in every family. */
+export function inactiveEncodingHeader(graph:ReferenceGraph,header:GraphScope):boolean {
+    const marker=header.pointer.lastIndexOf('/content/');if(marker<0)return false;
+    const suffix=header.pointer.slice(marker+'/content/'.length),match=/^([^/]+)\/encoding\/[^/]+\/headers\/([^/]+)$/.exec(suffix);
+    if(!match)return false;
+    const media=match[1].replaceAll('~1','/').replaceAll('~0','~').split(';')[0].trim().toLowerCase();
+    const name=match[2].replaceAll('~1','/').replaceAll('~0','~').toLowerCase();
+    const request=graph.scopeAs(header.resource,header.pointer.slice(0,marker),'request-body');
+    return name==='content-type'||!media.startsWith('multipart/')||!request&&header.family!=='3.2';
+}
+
+export function inactiveMigrationHeader(graph:ReferenceGraph,header:GraphScope):boolean {
+    const marker=header.pointer.lastIndexOf('/headers/');
+    if(marker>=0&&header.pointer.slice(marker+9).replaceAll('~1','/').replaceAll('~0','~').toLowerCase()==='content-type'&&
+        graph.scopeAs(header.resource,header.pointer.slice(0,marker),'response'))return true;
+    return inactiveEncodingHeader(graph,header);
+}
+
 /** Ignored part Headers need no flat Header representation. Retain their
  * independent schemas directly; a separately referenced native Header instead
  * keeps a standard Response.headers owner and the existing B02 flat-item path. */
@@ -22,9 +42,7 @@ export function retainFormHeaderOwners(graph:ReferenceGraph,owners:MigrationSche
         inspect();if(header.kind!=='header'||header.resource!==scope.resource||!header.pointer.startsWith(scope.pointer+'/content/'))continue;
         const suffix=header.pointer.slice(scope.pointer.length),marker=suffix.indexOf('/encoding/');
         if(marker<0||!/^\/encoding\/[^/]+\/headers\/[^/]+$/.test(suffix.slice(marker)))continue;
-        const media=suffix.slice('/content/'.length,marker).replaceAll('~1','/').replaceAll('~0','~');
-        const name=suffix.slice(suffix.lastIndexOf('/')+1).replaceAll('~1','/').replaceAll('~0','~');
-        if(media.split(';')[0].trim().toLowerCase()==='multipart/form-data'&&name.toLowerCase()!=='content-type')continue;
+        if(!inactiveEncodingHeader(graph,header))continue;
         selected.push(header);
     }
     for(const header of selected){
@@ -187,7 +205,12 @@ export function materializeFormObject(graph:ReferenceGraph,sources:ReadonlyMap<s
     collect({source,pointer});if(!valid)return;
     const schemas=new Map<string,GraphScope>();
     for(const [name,values]of properties){
-        const first=values[0],captured=owners.capturedSchema({resource:first.source.doc.id,pointer:first.pointer})??graph.scopeAs(first.source.doc.id,first.pointer,'schema');
+        const first=values[0];
+        let captured=owners.capturedSchema({resource:first.source.doc.id,pointer:first.pointer})??graph.scopeAs(first.source.doc.id,first.pointer,'schema');
+        if(!captured&&typeof first.source.doc.dataNode(first.pointer)?.value?.$ref==='string'){
+            const fixed=owners.materialReference(first.source,first.pointer,'2.0');
+            if(fixed)captured=owners.capturedSchema(fixed)??graph.scopeAs(fixed.resource,fixed.pointer,'schema');
+        }
         if(!captured){issue(original,'migration.form.field-owner','The form field has no captured Schema Object owner','source-incomplete');return;}
         schemas.set(name,captured);
     }

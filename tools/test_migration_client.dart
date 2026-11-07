@@ -60,15 +60,16 @@ Future<void> exercise() async {
     'enum': [0, 9007199254740993],
   };
   final body = {
+    'description': 'Original body',
     'required': true,
     'content': {
-      'application/json': {'schema': schema},
+      'application/json': {'schema': schema, 'example': 0},
     },
   };
   const response = {
     'description': 'Shared response',
     'content': {
-      'application/json': {'schema': schema},
+      'application/json': {'schema': schema, 'examples': {'First': {'value': 0}, 'Same': {'value': 0}}},
     },
   };
   final document = <String, Object?>{
@@ -308,7 +309,7 @@ Future<void> exercise() async {
       await File('${destination.path}/migration.json').readAsString(),
     );
     nativeCheck(
-      metadata is Map && metadata['producerVersion'] == '82',
+      metadata is Map && metadata['producerVersion'] == '92',
       'migration-runtime-revision',
     );
     final copy = await BusyProject.open(destination.path, project.engine);

@@ -7,6 +7,24 @@ import 'package:test/test.dart';
 import 'test_support.dart';
 
 void main() {
+  for (final format in ['yaml', 'json']) test('B05-R2 $format schema-less Swagger examples retain a standard target restriction', () async {
+    final directory = await Directory.systemTemp.createTemp('busyapi-bodyless-example-refusal-');addTearDown(() => directory.delete(recursive: true));
+    final file = File('${directory.path}/api.$format');
+    final original = (format == 'yaml' ? '# Bodyless example metadata\n' : '') + jsonEncode({
+      'swagger': '2.0', 'info': {'title': 'No content', 'version': '1'}, 'paths': {'/empty': {'get': {'responses': {'200': {r'$ref': '#/responses/Empty'}}}}},
+      'responses': {'Empty': {'description': 'No content', 'examples': {'application/json': false}}},
+    });
+    await file.writeAsString(original);
+    final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);addTearDown(engine.close);
+    final project = await BusyProject.open(file.path, engine);addTearDown(project.close);
+    for (final target in ['3.0.4', '3.1.2', '3.2.1']) {
+      final review = await project.prepareMigration(file.uri.toString(), '${directory.path}/$target', targetVersion: target);addTearDown(review.close);
+      expect(review.publishable, false);expect(review.result['outputs'], isEmpty);
+      expect((review.result['problems'] as List).cast<Map>().any((problem) => problem['code'] == 'migration.response.examples-without-schema' && problem['reason'] == 'target-representation'), true);
+      expect(await Directory(review.destination).exists(), false);
+    }
+    expect(await file.readAsString(), original);
+  });
   for (final targetVersion in ['3.0.4', '3.1.2', '3.2.1']) {
     for (final format in ['yaml', 'json']) {
       test(
@@ -55,7 +73,7 @@ void main() {
               },
             },
             'responses': {
-              'Empty': {'description': 'No payload'},
+              'Empty': {'description': 'No payload', 'examples': <String, Object?>{}},
             },
           };
           final text =

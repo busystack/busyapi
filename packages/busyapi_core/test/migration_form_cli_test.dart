@@ -43,6 +43,7 @@ void main() {
               '/items': {
                 'post': {
                   'requestBody': {
+                    'description': '[Form group](./form.md)',
                     'required': true,
                     'content': {'application/x-www-form-urlencoded': media},
                   },

@@ -65,6 +65,7 @@ class _ChangedEntryDiscovery extends EngineProcess {
 }
 
 void main() {
+  _b05R2InlineExamples();
   for (final defect in ['missing', 'revision', 'references']) {
     test('migration rejects $defect entry discovery before publication', () async {
       final directory = await Directory.systemTemp.createTemp('busyapi-entry-discovery-');addTearDown(() => directory.delete(recursive: true));
@@ -243,7 +244,7 @@ void main() {
         environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
       final review = await run(['--json']);expect(review.exitCode, 0, reason: '${review.stdout} ${review.stderr}');
       final report = jsonDecode(review.stdout as String) as Map;
-      expect(report['published'], false);expect(report['producerVersion'], '91');
+      expect(report['published'], false);expect(report['producerVersion'], '92');
       final copy = (report['exampleOutputs'] as List).single as Map;
       expect(base64Decode(copy['base64'] as String), bytes);expect(await Directory(destination).exists(), false);
       final textReview = await run([]);expect(textReview.exitCode, 0, reason: textReview.stderr as String);
@@ -254,8 +255,8 @@ void main() {
       expect(await File('$destination/${copy['path']}').readAsBytes(), bytes);
       expect(await file.readAsString(), original);expect(await payload.readAsBytes(), bytes);
     });
-    for (final failure in ['cancel', 'race', 'failure', 'stale']) {
-      test('$format byte-copy publication $failure leaves originals and no partial result', () async {
+    for (final targetVersion in ['3.2.1', '2.0']) for (final failure in ['cancel', 'race', 'failure', 'stale']) {
+      test('$format $targetVersion captured-example publication $failure leaves originals and no partial result', () async {
         final directory = await Directory.systemTemp.createTemp('busyapi-example-failure-');
         addTearDown(() => directory.delete(recursive: true));
         final file = File('${directory.path}/api.$format'), payload = File('${directory.path}/payload.bin');
@@ -264,7 +265,7 @@ void main() {
         final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);addTearDown(engine.close);
         final project = await BusyProject.open(file.path, engine);addTearDown(project.close);
         final destination = '${directory.path}/target';
-        final review = await project.prepareMigration(file.uri.toString(), destination, targetVersion: '3.2.1');addTearDown(review.close);
+        final review = await project.prepareMigration(file.uri.toString(), destination, targetVersion: targetVersion);addTearDown(review.close);
         expect(review.publishable, true, reason: '${review.result}');
         var cancelled = false;
         await expectLater(review.publish(cancelled: () => cancelled, beforePublish: () async {
@@ -279,7 +280,7 @@ void main() {
         else {expect(await Directory(destination).exists(), false);}
       });
     }
-    test('$format unsaved payload bytes are captured without changing saved originals', () async {
+    for (final targetVersion in ['3.1.2', '2.0']) test('$format $targetVersion unsaved payload bytes are captured without changing saved originals', () async {
       final directory = await Directory.systemTemp.createTemp('busyapi-example-working-');addTearDown(() => directory.delete(recursive: true));
       final file = File('${directory.path}/api.$format'), payload = File('${directory.path}/payload.bin');
       await file.writeAsString(_source('3.0.4', format, 'json'));await payload.writeAsBytes(_payload('json').bytes);
@@ -287,10 +288,17 @@ void main() {
       final project = await BusyProject.open(file.path, engine);addTearDown(project.close);
       final buffer = await project.buffer(payload.uri.toString());const working = '{"n":9007199254740994.00}';
       project.store.replace(buffer.id, working);
-      final review = await project.prepareMigration(file.uri.toString(), '${directory.path}/copy', targetVersion: '3.1.2');addTearDown(review.close);
-      expect(review.publishable, true, reason: '${review.result}');expect(review.exampleCopies.single.bytes, utf8.encode(working));
+      final review = await project.prepareMigration(file.uri.toString(), '${directory.path}/copy', targetVersion: targetVersion);addTearDown(review.close);
+      expect(review.publishable, true, reason: '${review.result}');expect(review.snapshot.exampleResources.single.bytes, utf8.encode(working));
+      if (targetVersion == '2.0') expect(review.exampleCopies, isEmpty);
+      else expect(review.exampleCopies.single.bytes, utf8.encode(working));
       await review.publish();expect(await payload.readAsBytes(), _payload('json').bytes);expect(buffer.text, working);
-      expect(await File('${review.destination}/${review.exampleCopies.single.path}').readAsBytes(), utf8.encode(working));
+      if (targetVersion == '2.0') {
+        final cold = await BusyProject.open(review.destination, engine);addTearDown(cold.close);
+        final root = cold.roots.single.id, plan = await cold.prepareRequest(cold.roots.single.id, resource: cold.roots.single.id, pointer: '/paths/~1echo/post');addTearDown(plan.close);
+        final content = ((plan.result['requestBody'] as Map)['content'] as List).single as Map;
+        expect(((content['examples'] as List).single as Map)['raw'], working);expect((await cold.check(root))['complete'], true);
+      } else expect(await File('${review.destination}/${review.exampleCopies.single.path}').readAsBytes(), utf8.encode(working));
       project.store.undo();expect(review.outdated, true);project.store.redo();expect(buffer.text, working);
     });
     for (final defect in ['base64', 'identity', 'path', 'owner', 'producer']) {
@@ -314,5 +322,51 @@ void main() {
         expect(await Directory('${directory.path}/copy').exists(), false);expect(await payload.readAsBytes(), _payload('json').bytes);
       });
     }
+  }
+}
+
+void _b05R2InlineExamples() {
+  for (final format in ['yaml', 'json']) for (final kind in ['json', 'latin1', 'empty']) {
+    test('B05-R2 $format $kind exact captured examples materialize and cold reopen through Core and CLI', () async {
+      final directory = await Directory.systemTemp.createTemp('busyapi-inline-examples-');addTearDown(() => directory.delete(recursive: true));
+      final payload = _payload(kind), observed = <List<int>>[];
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);addTearDown(() => server.close(force: true));
+      server.listen((request) async {
+        final bytes = await request.fold<List<int>>([], (all, next) => all..addAll(next));observed.add(bytes);
+        request.response.headers.set('content-type', payload.mediaType);request.response.add(bytes);await request.response.close();
+      });
+      final file = File('${directory.path}/api.$format'), external = File('${directory.path}/payload.bin');
+      final original = _source('3.0.4', format, kind, port: server.port);
+      await file.writeAsString(original);await external.writeAsBytes(payload.bytes);
+      final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);addTearDown(engine.close);
+      final source = await BusyProject.open(file.path, engine);addTearDown(source.close);
+      final review = await source.prepareMigration(file.uri.toString(), '${directory.path}/target', targetVersion: '2.0');addTearDown(review.close);
+      expect(review.publishable, true, reason: '${review.result}');expect(review.exampleCopies, isEmpty);
+      expect(review.snapshot.exampleResources.single.bytes, payload.bytes);
+      await review.publish();
+      final arguments = ['migrate', file.path, '--target', '2.0', '--output', '${directory.path}/cli', '--json'];
+      Future<ProcessResult> cli(List<String> extra) => Process.run('$testBundle/busyapi', [...arguments, ...extra],
+        environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
+      final preview = await cli([]);expect(preview.exitCode, 0, reason: '${preview.stdout} ${preview.stderr}');
+      final report = jsonDecode(preview.stdout as String) as Map;expect(report['exampleOutputs'], isEmpty);expect(report['published'], false);
+      final applied = await cli(['--apply', report['reviewIdentity'] as String]);expect(applied.exitCode, 0, reason: '${applied.stdout} ${applied.stderr}');
+      Future<void> exchange(BusyProject owner, {bool captured = false}) async {
+        final root = owner.roots.single.id, plan = await owner.prepareRequest(owner.roots.single.id, resource: owner.roots.single.id, pointer: '/paths/~1echo/post');
+        addTearDown(plan.close);
+        final media = (((plan.result['requestBody'] as Map)['content'] as List).single as Map), example = (media['examples'] as List).single as Map;
+        final result = await const ContractRequestExecutor().execute(plan, OperationRequestDraft(planIdentity: plan.identity,
+          body: captured ? RequestBodyDraft.example(plan.captureBodyExample(payload.mediaType, name: 'External')) :
+            RequestBodyDraft.raw(mediaType: payload.mediaType, text: example['raw'] as String)), resolveSecret: (_) async => null);
+        addTearDown(result.close);expect(result.conforming, true, reason: '${result.outgoing.findings} ${result.received.findings}');
+        expect(observed.last, payload.bytes);expect(await result.response.decodedBytes(), payload.bytes);
+        expect((await owner.check(root))['complete'], true);
+      }
+      await exchange(source, captured: true);
+      expect(await file.readAsString(), original);expect(await external.readAsBytes(), payload.bytes);
+      final moved = await Directory(review.destination).rename('${directory.path}/cold');await file.delete();await external.delete();
+      for (final path in [moved.path, '${directory.path}/cli']) {
+        final cold = await BusyProject.open(path, engine);addTearDown(cold.close);await exchange(cold);
+      }
+    });
   }
 }

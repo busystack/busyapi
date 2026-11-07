@@ -148,11 +148,11 @@ for(const format of ['yaml','json'])for(const metadata of ['schema','example','r
  if(metadata==='relative-description')fragment.text=new SourceDocument(fragment.text,fragment.id).set('/description','[Guide](guide.md)');
  const before=input.resources.map(r=>r.text),review=await planMigration(input);assert.equal(review.status,'requires-decision',JSON.stringify(review.problems));const problem=review.problems.find(p=>p.code==='migration.body.ignored-activation');assert(problem);
  const result=await planMigration({...input,decisions:{[problem.id]:'omit-ignored-body'}});
- if(metadata==='schema'){
+ if(metadata==='schema'||metadata==='example'){
   assert.equal(result.complete,true,JSON.stringify(result.problems));const resources=outputs(result),analysis=analyse({root:result.outputRoot,snapshot:'shared-swagger',resources});assert.equal(analysis.status,'complete');
-  for(const op of analysis.operations){const plan=requestOperation({root:result.outputRoot,snapshot:'shared-swagger',resources,resource:op.resource,pointer:op.pointer,occurrence:op.occurrence});assert.equal(!!plan.requestBody,op.method==='post');}
+  for(const op of analysis.operations){const plan=requestOperation({root:result.outputRoot,snapshot:'shared-swagger',resources,resource:op.resource,pointer:op.pointer,occurrence:op.occurrence});assert.equal(!!plan.requestBody,op.method==='post');if(metadata==='example'&&plan.requestBody)assert.equal(plan.requestBody.content[0].examples[0].raw,'"snow 雪"');}
  }else{
-  assert.equal(result.status,'blocked');assert.deepEqual(result.outputs,[]);assert(result.problems.some(p=>p.code===(metadata==='example'?'migration.body.media-metadata':'migration.description.relative-links')),JSON.stringify(result.problems));
+  assert.equal(result.status,'blocked');assert.deepEqual(result.outputs,[]);assert(result.problems.some(p=>p.code==='migration.description.relative-links'),JSON.stringify(result.problems));
  }
  assert.deepEqual(input.resources.map(r=>r.text),before);
 });

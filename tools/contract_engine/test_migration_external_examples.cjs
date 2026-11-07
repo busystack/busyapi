@@ -13,6 +13,43 @@ const formats = ['yaml', 'json'];
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const render = (value, format) => (format === 'yaml' ? '# Keep Unicode 雪\r\n' + YAML.stringify(value).replaceAll('\n', '\r\n') : JSON.stringify(value)) + '\r\n';
 const packet = (id, bytes, aliases = []) => ({version: 1, id, generation: 3, aliases, state: 'available', identity: hash(bytes), base64: bytes.toString('base64'), byteLength: bytes.length});
+for(const format of formats)for(const kind of ['json','latin1','empty'])test(`B05-R2 ${format} captured ${kind} response examples materialize exact bytes through reusable chains`,async()=>{
+ const f=fixture('3.0.4',format,kind);delete f.value.paths['/echo'].post.requestBody;
+ const original=f.value.paths['/echo'].post.responses[200].content[f.mediaType];
+ original.examples={First:{$ref:'#/components/examples/Alias'},Same:{$ref:'#/components/examples/Bytes'}};
+ f.value.components={examples:{Alias:{$ref:'#/components/examples/Bytes'},Bytes:{externalValue:'./data/example.bin'}},responses:{Reply:f.value.paths['/echo'].post.responses[200]}};
+ f.value.paths['/echo'].post.responses[200]={$ref:'#/components/responses/Reply'};
+ f.input.resources[0].text=render(f.value,format);f.input.targetVersion='2.0';
+ const before=JSON.stringify(f.input),plan=await planMigration(f.input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));
+ assert.deepEqual(plan.exampleOutputs,[],'The standard literal owns these bytes without a second loader or external target');
+ const cold=delivered(plan),op=requestOperation({...cold,resource:cold.root,pointer:'/paths/~1echo/post'}),example=op.responses[0].content[0].examples[0];
+ const bytes=kind==='latin1'?Buffer.from(example.raw,'latin1'):Buffer.from(example.raw,'utf8');assert.deepEqual(bytes,f.bytes);
+ const evaluated=await evaluateSchemas(cold);assert.equal(evaluated.complete,true,JSON.stringify(evaluated.findings));
+ assert.equal(JSON.stringify(f.input),before);assert.equal((await planMigration(f.input)).identity,plan.identity);
+});
+for(const format of formats)test(`B05-R2 ${format} JSON request and response use exact captured examples without changing independent schemas`,async()=>{
+ const f=fixture('3.0.4',format),before=JSON.stringify(f.input);f.input.targetVersion='2.0';
+ const plan=await planMigration(f.input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));assert.deepEqual(plan.exampleOutputs,[]);
+ const cold=delivered(plan),operation=requestOperation({...cold,resource:cold.root,pointer:'/paths/~1echo/post'});
+ for(const media of [operation.requestBody.content[0],operation.responses[0].content[0]])assert.equal(media.examples[0].raw,f.bytes.toString('utf8'));
+ assert.equal(JSON.stringify({...f.input,targetVersion:JSON.parse(before).targetVersion}),before);
+});
+for(const format of formats)test(`B05-R2 ${format} distinct captured JSON/text bytes share one proved data example`,async()=>{
+ const root='file:///approved/mixed.'+format,jsonId='file:///approved/json.bin',textId='file:///approved/text.bin',text='café 雪';
+ const content={'application/json':{schema:{type:'string'},examples:{Wire:{externalValue:'json.bin'}}},
+  'text/plain; charset=utf-8':{schema:{type:'string'},examples:{Wire:{externalValue:'text.bin'}}}};
+ const value={openapi:'3.0.4',info:{title:'Media bytes',version:'1'},servers:[{url:'https://api.invalid'}],paths:{'/echo':{post:{requestBody:{content},responses:{204:{description:'Empty'}}}}}};
+ const input={root,resources:[{id:root,text:render(value,format),generation:0}],exampleResources:[packet(jsonId,Buffer.from(JSON.stringify(text))),packet(textId,Buffer.from(text))],snapshot:'mixed-wire-bytes',targetVersion:'2.0',destination:'file:///review/mixed-wire/'};
+ const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));assert.deepEqual(plan.exampleOutputs,[]);
+ const cold=delivered(plan),body=requestOperation({...cold,resource:cold.root,pointer:'/paths/~1echo/post'}).requestBody;
+ assert.deepEqual(body.content.map(media=>[media.mediaType,media.examples[0].raw]),[['application/json',JSON.stringify(text)],['text/plain; charset=utf-8',text]]);
+});
+for(const format of formats)test(`B05-R2 ${format} captured JSON whitespace and unavailable captures cannot silently change bytes`,async()=>{
+ const f=fixture('3.0.4',format);f.input.targetVersion='2.0';f.input.exampleResources=[packet(f.id,Buffer.from('  {"n":9007199254740993.00}\r\n'))];
+ const plan=await planMigration(f.input);assert.equal(plan.complete,false);assert.deepEqual(plan.outputs,[]);assert.deepEqual(plan.exampleOutputs,[]);
+ assert(plan.problems.some(p=>p.code==='migration.example.wire-bytes'&&p.reason==='target-representation'),JSON.stringify(plan.problems));
+ const missing=await planMigration({...f.input,exampleResources:[]});assert.equal(missing.complete,false);assert(missing.problems.some(p=>p.code.startsWith('migration.validation.')));
+});
 
 for(const format of formats)test(`${format} migration publishes examples and schemas used only by a connected secondary entry`,async()=>{
  const root='file:///approved/a.'+format,other='file:///approved/b.'+format,model='file:///approved/model.'+format,id='file:///approved/b.bin';
@@ -65,7 +102,7 @@ async function assertPortable(f, input = f.input) {
   const original = JSON.stringify(input);
   const plan = await planMigration(input);
   assert.equal(plan.complete, true, JSON.stringify(plan.problems));
-  assert.equal(plan.producerVersion, '91');
+  assert.equal(plan.producerVersion, '92');
   assert.equal(plan.exampleOutputs.length, 1);
   const copy = plan.exampleOutputs[0];
   if(input.resources[0].id.endsWith('.yaml'))assert(plan.outputs.find(value => value.id === plan.outputRoot).text.includes('# Keep Unicode 雪'));

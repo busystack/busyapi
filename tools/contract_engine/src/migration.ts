@@ -9,6 +9,7 @@ import {MigrationSource,MigrationLocation,migrationValueIdentity,migrationLocati
 import {migrateSchemas,MigrationProblem,MigrationIssue,type MigrationChoose,type MigrationIssueLocation} from './migration_schema';
 import {upgradeSwagger} from './migration_swagger';
 import {downgradeSwagger} from './migration_downgrade';
+import {inactiveMigrationHeader} from './migration_media_schema';
 import {evaluateSchemas} from './schema_evaluation';
 import {referenceValue} from './reference_choices';
 import {coldGraph} from './reference_selection';
@@ -16,7 +17,7 @@ import {documentUriBase,resolveUri,pointerFragment as fragment,schemaDialectIden
 import {documentUriOccurrences} from './document_uris';
 import {serverTemplate} from './derived_bundle';
 import {captureMigrationMarkdown,rewriteMigrationMarkdown,proveMigrationMarkdown} from './migration_markdown';
-import {migrationRequestSignatures,migrationSecurityAlternativeProjection,proveMigrationOperationMedia} from './migration_invariants';
+import {migrationRequestSignatures,migrationSecurityAlternativeProjection,proveMigrationOperationMedia,proveMigrationObjectMetadata} from './migration_invariants';
 import {migrateEncodings} from './migration_encoding';
 import {migrateBinarySchemas} from './migration_binary';
 import {specializeBinarySchemaUses} from './migration_binary_uses';
@@ -30,7 +31,7 @@ import {migrateDiscriminatorDefaults} from './migration_discriminator_defaults';
 import {migrateDocumentIdentities} from './migration_identity';
 import {migrateRequiredPresence} from './migration_required_presence';
 import {migrateSwaggerDiscriminators} from './migration_discriminator';
-import {MigrationExamples,proveMigrationExamples,type MigrationExampleCopy} from './migration_examples';
+import {MigrationExamples,proveMigrationExamples,proveInlinedMigrationExamples,type MigrationExampleCopy,type MigrationInlineExampleProof} from './migration_examples';
 import {migrateTerms} from './migration_terms';
 import {migrateServerVariableDefaults,retainDefaultServers} from './migration_servers';
 import {migrationLogicalPointers} from './migration_yaml_ownership';
@@ -44,7 +45,7 @@ import {securityRequirementDefinition} from './security_requirements';
 import {migrateSwaggerSecurityFlows} from './migration_security_flows';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='91';
+const migrationProducerVersion='92';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const referenceLocator=(reference:GraphReference)=>!reference.connection&&['$ref','$dynamicRef'].includes(reference.keyword)||
     reference.connection==='operationRef'&&reference.keyword==='operationRef';
@@ -123,7 +124,7 @@ export async function planMigration(input:MigrationInput) {
     };
     const refused=(error:unknown,location:MigrationLocation)=>{
         if(!(error instanceof SourceError))throw error;
-        const proofLimit=['limit.migration.binary','limit.migration.media-schema','limit.migration.form','limit.request.encoding']
+        const proofLimit=['limit.migration.binary','limit.migration.media-schema','limit.migration.form','limit.migration.examples','limit.migration.literal','limit.request.encoding']
             .some(prefix=>error.code.startsWith(prefix));
         issue(error.source??location,error.code,error.message,error.code==='migration.configuration.alternative'?'target-representation':proofLimit?'unavailable-proof':'implementation');
     };
@@ -356,12 +357,20 @@ export async function planMigration(input:MigrationInput) {
             const presence=new Set<string>();
             for(const before of stage.sources)for(const id of migrateRequiredPresence(graph,sources,before,after,contexts.map(context=>context.graph)))presence.add(id);
             const access=new MigrationAccess(graph,presence);
+            const referencedHeaders=new Set([...migrationReferences(contexts.map(context=>context.graph))].filter(edge=>edge.kind==='header'&&edge.resolution==='resolved')
+                .map(edge=>key(edge.targetResource!,edge.targetPointer!)));
             for(const scope of migrationScopes(contexts.map(context=>context.graph))){
                 const doc=graph.docs.get(scope.resource)!,value=doc.dataNode(scope.pointer)?.value,source=sources.get(scope.resource)!;
                 const before=scope.family;
                 if(!stage.sources.some(family=>family===before)||source.current(scope.pointer)===undefined)continue;
                 if(graph.referenceObject(value,scope)&&scope.kind!=='path-item'){
                     const siblings=Object.keys(value).filter(name=>name!=='$ref');
+                    const ownerContext=owners.contextOf(scope)??graph;
+                    if(siblings.length&&!modernFamily(after)&&scope.kind==='header'&&inactiveMigrationHeader(ownerContext,scope)&&!referencedHeaders.has(key(scope.resource,scope.pointer))){
+                        const at=source.current(scope.pointer);
+                        if(at!==undefined)owners.retainNativeHistory(scope,source,at,'ignored_header_reference',ownerContext);
+                        continue;
+                    }
                     if(siblings.length&&modernFamily(after)&&!modernFamily(before)&&issue(scope,'migration.reference.ignored-siblings','The target would activate ignored Reference Object siblings; explicitly discard those preserved values or revise the source','decision',['discard-ignored-siblings']))for(const name of siblings)source.remove(scope.pointer+'/'+escape(name));
                     if(siblings.length&&!modernFamily(after)&&modernFamily(before)&&scope.kind!=='schema')issue(scope,'migration.reference.annotations','The target cannot retain these Reference Object annotation overrides','target-representation');
                 }
@@ -395,14 +404,22 @@ export async function planMigration(input:MigrationInput) {
                 contexts=migrationDocumentContexts(binaryInput,binaryGraph,issue);graph=binaryGraph.graph;
             }
             for(const before of stage.sources)await migrateSchemas(graph,sources,before,after,issue,contexts.map(context=>context.graph),resources,input.exampleResources);
-            for(const before of stage.sources)migrateEncodings(graph,sources,before,after,issue,contexts.map(context=>context.graph));
+            for(const before of stage.sources)migrateEncodings(graph,sources,before,after,issue,contexts.map(context=>context.graph),owners);
             const referenceTargets=stage.sources.includes('2.0')?upgradeSwagger(graph,sources,issue,contexts.map(context=>context.graph),after,owners):undefined;
             if(problems.length)break;
             const discriminator=stage.sources.includes('2.0')?migrateSwaggerDiscriminators(graph,sources,issue,contexts.map(context=>context.graph),location=>{
                 const original=sourceLocation(location.resource,location.pointer);
                 presentationChanges.push({resource:original.resource,pointer:original.pointer});
             }):undefined;
-            if(after==='2.0')for(const before of stage.sources)downgradeSwagger(graph,sources,before,issue,()=>owners.releaseNativeHolders(before),owners);
+            if(after==='2.0')for(const before of stage.sources)downgradeSwagger(graph,sources,before,issue,()=>owners.releaseNativeHolders(before),owners,contexts.map(context=>context.graph),{
+                read:(location,namespace)=>externalExamples!.inlineCapture(sourceLocation(location.resource,location.pointer),namespace),
+                materialized:(location,namespace,media)=>externalExamples!.materialized(sourceLocation(location.resource,location.pointer),namespace,media),
+                represented:(location,namespace)=>externalExamples!.hasMaterialization(sourceLocation(location.resource,location.pointer),namespace),
+                literal:location=>{
+                    const origin=sourceLocation(location.resource,location.pointer),doc=original.get(origin.resource);
+                    return doc?.dataNode(origin.pointer)?doc.dataJson(origin.pointer):undefined;
+                },
+            });
             if(problems.length)break;
             for(const [id,specification]of graph.specifications){
                 if(!stage.sources.includes(specification.family))continue;
@@ -681,6 +698,7 @@ export async function planMigration(input:MigrationInput) {
     }catch(error){refused(error,{resource:input.root,pointer:''});}
     if(problems.length)return {...common(),changes:[],outputs:[]};
     let exampleOutputs:readonly MigrationExampleCopy[]=[],outputExampleResources:readonly ExternalExampleResourcePacket[]=[];
+    let inlineExampleProofs:readonly MigrationInlineExampleProof[]=[];
     try{
         const capture={...input,root:outputRoot,resources:outputResources},primary=createGraph(capture),graph=primary.graph;
         const ownerContexts=migrationDocumentContexts(capture,primary,issue).map(context=>context.graph);
@@ -695,7 +713,7 @@ export async function planMigration(input:MigrationInput) {
         }
         if(mappings.size>256)throw new SourceError('limit.migration.mappings','The migrated identity map exceeds the configured 256 URI mappings');
         for(const resource of outputResources){const changed=copied.sources.get(resource.id);if(changed)resource.text=changed.doc.text;}
-        exampleOutputs=copied.outputs;outputExampleResources=copied.resources;
+        exampleOutputs=copied.outputs;outputExampleResources=copied.resources;inlineExampleProofs=copied.inlined;
     }catch(error){refused(error,{resource:input.root,pointer:''});}
     if(problems.length)return {...common(),changes:[],outputs:[]};
     await validate(outputResources,outputRoot,'target',outputExampleResources);
@@ -712,6 +730,7 @@ export async function planMigration(input:MigrationInput) {
             const mapped=(location:MigrationLocation,scope:GraphScope|undefined)=>(semanticOrigins?.locations(root,location,scope)??[])
                 .map(location=>({resource:identifiers.get(location.resource)!,pointer:location.pointer}));
             proveMigrationOperationMedia(context.graph,targetGraph,mapped,issue);
+            proveMigrationObjectMetadata(context.graph,targetGraph,mapped,issue);
             proveMigrationConnections(context.graph,targetGraph,mapped,issue);
             if(modernFamily(target.family))proveMigrationSchemaResources(context.graph,targetGraph,mapped,issue);
             const alternatives=migrationSecurityAlternativeProjection(context.graph,targetGraph,input.resources,mapped);
@@ -773,7 +792,7 @@ export async function planMigration(input:MigrationInput) {
     for(const context of initialContexts){
         const root=context.graph.root,reopened=coldGraph(identifiers.get(root)!,coldResources());
         if(reopened.issues.length)issue({resource:root,pointer:''},'migration.reference.cold-reopen','The copied files and root identity mappings cannot reopen every captured dependency; a nested-resource relocation needs an additional mapping','implementation');
-        try{proveMigrationExamples(reopened,exampleOutputs,outputExampleResources);}
+        try{proveMigrationExamples(reopened,exampleOutputs,outputExampleResources);proveInlinedMigrationExamples(reopened,inlineExampleProofs);}
         catch(error){refused(error,{resource:root,pointer:''});}
     }
     if(problems.length)return {...common(),changes:[],outputs:[]};

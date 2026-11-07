@@ -20,6 +20,7 @@ const _targets = [
 ];
 
 void main() {
+  _b05R2Metadata();
   _b05OperationContexts();
   _r2FileResponses();
   _r3EquivalentMedia();
@@ -228,7 +229,7 @@ void main() {
             MigrationStatus.faithfullyConvertible,
             reason: '${review.result}',
           );
-          expect(review.result['producerVersion'], '91');
+          expect(review.result['producerVersion'], '92');
           expect(review.unsaved, isTrue);
           expect(review.changes, hasLength(5));
           expect(await Directory(review.destination).exists(), isFalse);
@@ -272,7 +273,7 @@ void main() {
           final report = jsonDecode(cliReview.stdout as String) as Map;
           expect(report['status'], 'faithfully-convertible');
           expect(report['published'], false);
-          expect(report['producerVersion'], '91');
+          expect(report['producerVersion'], '92');
           expect(await Directory(cliDestination).exists(), isFalse);
           final applied = await command([
             '--apply',
@@ -365,6 +366,102 @@ void main() {
         },
       );
     }
+  }
+}
+
+void _b05R2Metadata() {
+  for (final version in _targets) for (final format in ['yaml', 'json']) {
+    test('B05-R2 $version $format reusable metadata, examples and CLI preserve HTTP behavior', () async {
+      final directory = await Directory.systemTemp.createTemp('busyapi-b05-r2-');
+      addTearDown(() => directory.delete(recursive: true));
+      final observed = <(String, String, String, List<int>)>[];
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      server.listen((request) async {
+        final bytes = await request.fold<List<int>>([], (all, next) => all..addAll(next));
+        observed.add((request.method, request.uri.toString(), request.headers.value('content-type') ?? '', bytes));
+        request.response.headers.contentType = ContentType.json;
+        request.response.headers.set('X-Count', '9007199254740993.00');
+        request.response.add(bytes);await request.response.close();
+      });
+      final file = File('${directory.path}/api.$format');
+      Map<String, Object> reference(String kind, String name) => {r'$ref': '#/components/$kind/$name'};
+      final schema = {'type': 'integer', 'enum': ['EXACT', 0]};
+      final media = {'schema': schema, 'examples': {'First': reference('examples', 'Payload'), 'Same': reference('examples', 'Payload')}};
+      final value = {
+        'openapi': version, 'info': {'title': 'Saved R2', 'version': '1'},
+        'servers': [{'url': 'http://127.0.0.1:${server.port}'}],
+        'paths': {'/echo': {'post': {
+          'parameters': [reference('parameters', 'Shared')], 'requestBody': reference('requestBodies', 'Shared'),
+          'responses': {'200': reference('responses', 'Alias'), '204': {'description': 'No content'}},
+        }}},
+        'components': {
+          'parameters': {'Shared': {'name': 'n', 'in': 'query', 'required': true, 'deprecated': false, 'allowReserved': false, 'schema': schema}},
+          'requestBodies': {'Shared': {'description': '[Request](./request.md)', 'required': true, 'content': {'application/json': media}}},
+          'responses': {'Alias': reference('responses', 'Reply'), 'Reply': {'description': 'Reply', 'headers': {'X-Count': reference('headers', 'Count')}, 'content': {'application/json': media}}},
+          'headers': {'Count': {'required': false, 'deprecated': false, 'schema': schema}},
+          'examples': {'Payload': {'summary': 'Keep name', 'value': 'EXACT'}},
+          'schemas': {'Independent': {r'$ref': '#/components/requestBodies/Shared/content/application~1json/schema'}},
+        },
+      };
+      final original = (format == 'yaml' ? '# Keep R2 source 雪\r\n' : '') + jsonEncode(value).replaceAll('"EXACT"', '9007199254740993.00');
+      await file.writeAsString(original);
+      final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);addTearDown(engine.close);
+      final project = await BusyProject.open(file.path, engine);addTearDown(project.close);
+      final root = file.uri.toString(), buffer = await project.buffer(file.uri.toString());
+      project.store.replace(root, buffer.text.replaceFirst('Saved R2', 'Unsaved R2'));
+      final review = await project.prepareMigration(root, '${directory.path}/target', targetVersion: '2.0');addTearDown(review.close);
+      expect(review.publishable, true, reason: '${review.result}');expect(review.unsaved, true);expect(review.result['producerVersion'], '92');
+      final repeat = await project.prepareMigration(root, review.destination, targetVersion: '2.0');addTearDown(repeat.close);
+      expect(repeat.identity, review.identity);
+      for (final failure in ['cancel', 'race', 'failure']) {
+        final rejected = await project.prepareMigration(root, '${directory.path}/$failure', targetVersion: '2.0');addTearDown(rejected.close);
+        var cancelled = false;
+        await expectLater(rejected.publish(cancelled: () => cancelled, beforePublish: () async {
+          if (failure == 'cancel') cancelled = true;
+          if (failure == 'race') {await Directory(rejected.destination).create();await File('${rejected.destination}/foreign').writeAsString('Keep');}
+          if (failure == 'failure') throw const FileSystemException('Controlled R2 publication failure');
+        }), throwsA(anything));
+        if (failure == 'race') expect(await File('${rejected.destination}/foreign').readAsString(), 'Keep');
+        else expect(await Directory(rejected.destination).exists(), false);
+      }
+      await review.publish();
+      final target = await BusyProject.open(review.destination, engine);addTearDown(target.close);
+      Future<void> exercise(BusyProject owner) async {
+        final entry = owner.roots.single.id, checked = await owner.check(owner.roots.single.id);
+        expect(checked['complete'], true, reason: '$checked');
+        final plan = await owner.prepareRequest(entry, resource: entry, pointer: '/paths/~1echo/post');addTearDown(plan.close);
+        final body = plan.result['requestBody'] as Map, content = (body['content'] as List).single as Map;
+        expect(body['required'], true);expect(content['mediaType'], 'application/json');
+        expect((content['examples'] as List).cast<Map>().every((example) => example['raw'] == '9007199254740993.00'), true);
+        final responses = (plan.result['responses'] as List).cast<Map>();
+        expect((responses.singleWhere((response) => response['status'] == '204')['content'] as List), isEmpty);
+        for (final sample in ['9007199254740993.00', '0', '-1']) {
+          final result = await const ContractRequestExecutor().execute(plan,
+            OperationRequestDraft(planIdentity: plan.identity,
+              parameters: {OperationRequestDraft.parameterKey('query', 'n'): const RequestValue.json('0')},
+              body: RequestBodyDraft.raw(mediaType: 'application/json', text: sample)), resolveSecret: (_) async => null);
+          addTearDown(result.close);expect(result.outgoing.complete, true);expect(result.received.complete, true);
+          expect(result.outgoing.valid, sample != '-1');expect(result.received.valid, sample != '-1');
+          expect(observed.last, ('POST', '/echo?n=0', 'application/json', utf8.encode(sample)));
+          expect(await result.response.decodedBytes(), utf8.encode(sample));
+        }
+      }
+      await exercise(project);await exercise(target);
+      final stale = await project.prepareMigration(root, '${directory.path}/stale', targetVersion: '2.0');addTearDown(stale.close);
+      project.store.replace(root, buffer.text.replaceFirst('Unsaved R2', 'Changed R2'));
+      await expectLater(stale.publish(), throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'migration.stale')));project.store.undo();
+      final arguments = ['migrate', file.path, '--target', '2.0', '--output', '${directory.path}/cli', '--json'];
+      Future<ProcessResult> command(List<String> extra) => Process.run('$testBundle/busyapi', [...arguments, ...extra],
+        environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
+      final preview = await command([]);expect(preview.exitCode, 0, reason: '${preview.stdout} ${preview.stderr}');
+      final report = jsonDecode(preview.stdout as String) as Map;expect(report['producerVersion'], '92');expect(report['published'], false);
+      final applied = await command(['--apply', report['reviewIdentity'] as String]);expect(applied.exitCode, 0, reason: '${applied.stdout} ${applied.stderr}');
+      expect(await file.readAsString(), original);
+      final moved = await Directory(review.destination).rename('${directory.path}/cold');await file.delete();
+      final cold = await BusyProject.open(moved.path, engine);addTearDown(cold.close);await exercise(cold);
+      final cli = await BusyProject.open('${directory.path}/cli', engine);addTearDown(cli.close);await exercise(cli);
+    });
   }
 }
 
@@ -473,7 +570,7 @@ void _b05OperationContexts() {
       Future<ProcessResult> cli(List<String> extra) => Process.run('$testBundle/busyapi', ['migrate', directory.path, '--root', 'first', '--target', target, '--output', cliDestination, '--json', ...extra],
         environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
       final preview = await cli([]); expect(preview.exitCode, bodyApplicability ? 2 : 0, reason: '${preview.stdout}\n${preview.stderr}');
-      final report = jsonDecode(preview.stdout as String) as Map; expect(report['producerVersion'], '91'); expect(report['published'], false);
+      final report = jsonDecode(preview.stdout as String) as Map; expect(report['producerVersion'], '92'); expect(report['published'], false);
       final cliDecisions = [for (final problem in (report['problems'] as List).cast<Map>().where((problem) => problem['code'] == 'migration.body.ignored-activation')) ...['--decision', '${problem['id']}=omit-ignored-body']];
       final approved = cliDecisions.isEmpty ? preview : await cli(cliDecisions); expect(approved.exitCode, 0, reason: '${approved.stdout}\n${approved.stderr}');
       final approvedReport = jsonDecode(approved.stdout as String) as Map;

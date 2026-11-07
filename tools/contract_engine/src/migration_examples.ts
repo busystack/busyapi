@@ -5,6 +5,9 @@ import {CapturedExampleResources,ExternalExampleError,externalExampleRequests,
     type ExternalExampleResourcePacket} from './external_examples';
 import {documentUriBase,resolveUri,type ReferenceGraph,type GraphScope} from './reference_graph';
 import {MigrationSource,type MigrationLocation} from './migration_source';
+import {runtimeMediaKind} from './runtime_media';
+import {declaredPlainTextBytes} from './text_encoding';
+import {mediaTypes} from './media_types';
 
 type CapturedBytes=ReturnType<CapturedExampleResources['read']>;
 type SourceLocation=MigrationLocation&Readonly<{range:[number,number]}>;
@@ -22,10 +25,15 @@ type Relocation=Readonly<{
     outputs:readonly MigrationExampleCopy[];
     resources:readonly ExternalExampleResourcePacket[];
     mappings:ReadonlyMap<string,string>;
+    inlined:readonly MigrationInlineExampleProof[];
 }>;
+export type MigrationInlineExampleProof=Readonly<{location:MigrationLocation;media:string;source:SourceLocation;base64:string}>;
 const key=(location:MigrationLocation)=>JSON.stringify([location.resource,location.pointer]);
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
 const parent=(pointer:string)=>pointer.slice(0,pointer.lastIndexOf('/'));
+export function migrationExampleBytes(raw:string,media:string):Buffer {
+    return runtimeMediaKind(media)==='text'?declaredPlainTextBytes(raw,mediaTypes(media)[0].parameters.get('charset')):Buffer.from(raw,'utf8');
+}
 const captureIdentity=(capture:Capture)=>capture.state==='available'?
     JSON.stringify([capture.bytes.id,capture.bytes.identity,capture.bytes.generation]):JSON.stringify([capture.code,capture.message]);
 
@@ -51,7 +59,10 @@ function nativeExampleLocators(graphs:readonly ReferenceGraph[]) {
  * Migration publishes exact independent copies, never another payload loader. */
 export class MigrationExamples {
     private readonly bindings=new Map<string,Capture>();
+    private readonly inlined=new Map<string,Set<string>>();
+    private readonly namespaces:readonly string[];
     constructor(graphs:readonly ReferenceGraph[],packets:readonly ExternalExampleResourcePacket[]=[]) {
+        this.namespaces=[...new Set(graphs.map(graph=>graph.root))];
         const captured=new CapturedExampleResources(packets);
         for(const graph of graphs)for(const request of externalExampleRequests(graph)) {
             const source={resource:request.resource,pointer:request.pointer,
@@ -72,14 +83,53 @@ export class MigrationExamples {
         }
     }
 
+    /** Expose only the already approved capture. Structural converters cannot
+     * acquire bytes or substitute a URI/string for their wire representation. */
+    inlineCapture(location:MigrationLocation,namespace:string):Readonly<{base64:string}>|undefined {
+        const binding=this.bindings.get(JSON.stringify([namespace,location.resource,location.pointer]));
+        return binding?.state==='available'?{base64:binding.bytes.base64}:undefined;
+    }
+    materialized(location:MigrationLocation,namespace:string,media:string):void {
+        const capture=this.inlineCapture(location,namespace);if(!capture)return;
+        for(const namespace of this.namespaces){
+            const key=JSON.stringify([namespace,location.resource,location.pointer]),binding=this.bindings.get(key);
+            if(binding?.state!=='available'||binding.bytes.base64!==capture.base64)continue;
+            const types=this.inlined.get(key)??new Set<string>();types.add(media);this.inlined.set(key,types);
+        }
+    }
+    hasMaterialization(location:MigrationLocation,namespace:string):boolean {return this.inlined.has(JSON.stringify([namespace,location.resource,location.pointer]));}
+
     relocate(graph:ReferenceGraph,mapped:(source:MigrationLocation,namespace:string,scope:GraphScope)=>readonly MigrationLocation[],
         destination:string,documentPaths:Iterable<string>,contexts:readonly ReferenceGraph[]=[graph],retired:ReadonlySet<string>=new Set()):Relocation {
-        const expected=new Map<string,Binding>();
+        const expected=new Map<string,Binding>(),inlined:MigrationInlineExampleProof[]=[];
         const locators=nativeExampleLocators(contexts),nativeLocators=new Set(locators.keys());
+        let inlineWork=0;
         for(const binding of this.bindings.values()){
           const locations=mapped(binding.source,binding.namespace,binding.scope),surviving=locations.filter(location=>nativeLocators.has(key(location)));
+          const materialized=this.hasMaterialization(binding.source,binding.namespace);
+          if(materialized){
+            if(binding.state!=='available')throw new SourceError('migration.example.capture',binding.message,binding.source.range,'unsupported',binding.source);
+            const proofs:MigrationInlineExampleProof[]=[];
+            for(const location of locations){
+                if(++inlineWork>200000)throw new SourceError('limit.migration.examples','Inline example ownership exceeds 200000 captured locations',binding.source.range,'unsupported',binding.source);
+                const parent=location.pointer.slice(0,location.pointer.lastIndexOf('/'));
+                const response=parent.slice(0,parent.lastIndexOf('/'));
+                const schema=graph.scopeAs(location.resource,parent,'schema');
+                const media=location.pointer.endsWith('/example')&&schema?
+                    [...this.inlined.get(JSON.stringify([binding.namespace,binding.source.resource,binding.source.pointer]))??[]].find(media=>{
+                        const doc=graph.docs.get(location.resource)!,node=doc.dataNode(location.pointer)!;
+                        const raw=runtimeMediaKind(media)==='json'?doc.dataJson(location.pointer):node.value;
+                        try{return typeof raw==='string'&&migrationExampleBytes(raw,media).toString('base64')===binding.bytes.base64;}catch(error){if(!(error instanceof SourceError))throw error;return false;}
+                    }):
+                    parent.endsWith('/examples')&&graph.scopeAs(location.resource,response,'response')?
+                        location.pointer.slice(parent.length+1).replaceAll('~1','/').replaceAll('~0','~'):undefined;
+                if(media!==undefined)proofs.push({location,media,source:binding.source,base64:binding.bytes.base64});
+            }
+            if(!proofs.length)throw new SourceError('migration.example.inline-owner','The captured bytes lost their materialized standard example owner',binding.source.range,'unsupported',binding.source);
+            proveInlinedMigrationExamples(graph,proofs);inlined.push(...proofs);
+          }
           if(!surviving.length&&retired.has(key(binding.source)))continue;
-          if(locations.length&&!surviving.length)throw new SourceError('migration.example.context',
+          if(locations.length&&!surviving.length&&!materialized)throw new SourceError('migration.example.context',
               'A surviving external example lost its native Example Object context',binding.source.range,'unsupported',binding.source);
           for(const location of surviving) {
             // Source validation already guards required interpretation. An
@@ -148,9 +198,21 @@ export class MigrationExamples {
         for(const [coordinate,binding]of expected)if(!visited.has(coordinate))
             throw new SourceError('migration.example.context','A surviving external example lost its native Example Object context',binding.source.range,'unsupported',binding.source);
         const ordered=[...copies.values()].sort((a,b)=>a.output.path.localeCompare(b.output.path));
-        return {sources,mappings,outputs:ordered.map(copy=>copy.output),resources:ordered.map((copy):ExternalExampleResourcePacket=>({
+        return {sources,mappings,inlined,outputs:ordered.map(copy=>copy.output),resources:ordered.map((copy):ExternalExampleResourcePacket=>({
             version:1,id:copy.output.id,identity:copy.output.identity,generation:0,state:'available',
             aliases:[...copy.aliases].sort(),base64:copy.output.base64,byteLength:copy.output.byteLength}))};
+    }
+}
+
+/** Standard literal materialization has no external locator to reopen. Prove
+ * its exact entity bytes in the final and cold graphs using the same capture. */
+export function proveInlinedMigrationExamples(graph:ReferenceGraph,proofs:readonly MigrationInlineExampleProof[]):void {
+    for(const proof of proofs){
+        const doc=graph.docs.get(proof.location.resource);if(!doc)continue;
+        const node=doc.dataNode(proof.location.pointer);
+        const raw=node&&(runtimeMediaKind(proof.media)==='json'?doc.dataJson(proof.location.pointer):node.value);
+        if(typeof raw!=='string'||migrationExampleBytes(raw,proof.media).toString('base64')!==proof.base64)
+            throw new SourceError('migration.example.inline-bytes','The delivered example does not reproduce its exact captured entity bytes',proof.source.range,'unsupported',proof.source);
     }
 }
 

@@ -101,7 +101,7 @@ test(`${version} ${format} native objects and literal values share one specializ
  const input=fixture(version,format),original=input.resources[0].text,doc=new SourceDocument(original,input.root);
  assert.equal(analyse(input).status,'complete');await wire(input);
  const review=await planMigration(input);
- assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'91');
+ assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'92');
  assert.equal(review.exampleOutputs.length,2);assert.equal(input.resources[0].text,original);
  const output=delivered(review),{graph}=createGraph(output);
  assert.equal(analyse(output).status,'complete');await wire(output);
@@ -255,4 +255,25 @@ for(const format of ['yaml','json'])test(`${format} anonymous Operation entry us
  assert.notDeepEqual(owners[0],owners[1]);
  assert.equal(review.outputs.find(output=>output.id===review.changes.find(change=>change.resource===shared).destination).text,before[2]);
  assert.deepEqual(input.resources.map(resource=>resource.text),before);
+});
+for(const format of ['yaml','json'])test(`B05-R2 ${format} mixed entry consumers retain shared parameter, body, response, Header and Example identities`,async()=>{
+ const fixture=require('./migration_b05_r2_fixture.cjs'),{input,value}=fixture.capture('3.1.2',format),other='file:///approved/other.'+format;
+ value.components.parameters.Second={$ref:'other.'+format+'#/components/parameters/Second'};
+ const secondary={openapi:'3.0.4',info:{title:'Second entry',version:'1'},servers:[{url:'https://second.invalid'}],paths:{'/shared':{post:{
+  parameters:[{$ref:'api.'+format+'#/components/parameters/Shared'}],requestBody:{$ref:'api.'+format+'#/components/requestBodies/Shared'},responses:{200:{$ref:'api.'+format+'#/components/responses/Alias'},304:{description:'Empty'}}
+ }}},components:{parameters:{Second:{name:'second',in:'header',deprecated:false,schema:{type:'boolean'}}}}};
+ input.resources[0].text=fixture.render(value,format);input.resources.push({id:other,text:fixture.render(secondary,format),generation:3});
+ const before=JSON.stringify(input),review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const cold=fixture.reopened(review),{requestOperation}=require('./dist/execution.cjs');
+ for(const source of input.resources){
+  const root=review.changes.find(change=>change.resource===source.id).destination,packet={...cold,root},graph=createGraph(packet).graph;
+  assert.equal(analyse(packet).complete,true,JSON.stringify(analyse(packet).findings));
+  const operation=graph.operations()[0],plan=requestOperation({...packet,resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
+  assert.deepEqual(plan.parameters.map(p=>[p.name,p.in,p.required]),[['n','query',true]]);
+  assert.equal(plan.requestBody.content[0].examples[0].raw,'9007199254740993.00');assert.equal(plan.responses[0].content[0].examples[0].raw,'9007199254740993.00');
+  assert.equal(plan.responses[0].headers[0].name,'X-Count');assert.equal(plan.responses[1].content.length,0);
+  assert(graph.entryReferences().filter(edge=>edge.keyword==='$ref').every(edge=>edge.resolution==='resolved'));
+ }
+ const reversed=await planMigration({...input,resources:[...input.resources].reverse()});assert.equal(reversed.complete,true,JSON.stringify(reversed.problems));
+ assert.deepEqual([...reversed.outputs].sort((a,b)=>a.path.localeCompare(b.path)),[...review.outputs].sort((a,b)=>a.path.localeCompare(b.path)));assert.equal(JSON.stringify(input),before);
 });

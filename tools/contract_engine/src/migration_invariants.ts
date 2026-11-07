@@ -8,9 +8,57 @@ import {securityFlowOrder,securityRequirementAlternatives,type SecurityAlternati
 import type {MigrationLocation} from './migration_source';
 import type {MigrationIssue} from './migration_schema';
 import {migrationOperationUses} from './migration_operation_contexts';
-import {ParameterSemantics} from './parameter_semantics';
+import {ParameterSemantics,parameterStyle} from './parameter_semantics';
 import {ignoresRequestBody} from './operation_semantics';
-import {swaggerMedia} from './swagger_operation';
+import {swaggerMedia,swaggerFlat} from './swagger_operation';
+import {inactiveReservedExpansion} from './migration_object_metadata';
+import {MigrationSchemaProofs} from './migration_schema_proofs';
+import {isNativeFamily} from './specification';
+import {migrationExampleBytes} from './migration_examples';
+import {runtimeMediaKind} from './runtime_media';
+import {inactiveMigrationHeader} from './migration_media_schema';
+
+/** Independently reusable Parameters and Headers need the same metadata proof
+ * as executable occurrences. Literal history is not an active target owner. */
+export function proveMigrationObjectMetadata(source:ReferenceGraph,target:ReferenceGraph,
+    mapped:(location:MigrationLocation,scope:GraphScope)=>readonly MigrationLocation[],issue:MigrationIssue):void {
+    const headerTargets=new Set(source.entryReferences().filter(edge=>edge.kind==='header'&&edge.resolution==='resolved')
+        .map(edge=>JSON.stringify([edge.targetResource,edge.targetPointer])));
+    const parameters=new ParameterSemantics(source);
+    const profile=(graph:ReferenceGraph,scope:GraphScope):string=>{
+        const seen=new Set<string>();
+        while(true){
+            const id=JSON.stringify([scope.resource,scope.pointer]);
+            if(seen.has(id)||seen.size>=128)throw new SourceError('migration.invariant.object-reference','A metadata proof has no bounded concrete owner');
+            seen.add(id);const edge=graph.referenceAs(scope.resource,scope.pointer,'$ref',scope.kind);
+            if(!edge)break;
+            const next=edge.resolution==='resolved'&&graph.scopeAs(edge.targetResource!,edge.targetPointer!,scope.kind);
+            if(!next)throw new SourceError('migration.invariant.object-reference','A metadata proof lost its captured reference target');
+            scope=next;
+        }
+        const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)!.value;
+        if(!isNativeFamily(scope.family))throw new SourceError('migration.invariant.object-family','The object metadata has no supported specification owner');
+        const schema=graph.scopeAs(scope.resource,scope.pointer+'/schema','schema');
+        const domains=schema?new MigrationSchemaProofs(graph).domains(schema):new Set([value.type]);
+        const serialization=scope.family==='2.0'?swaggerFlat(value,{resource:scope.resource,pointer:scope.pointer,range:[0,0]}):
+            parameterStyle(scope.family,value.in,value.content?{}:value);
+        return JSON.stringify({name:scope.kind==='parameter'?value.name:undefined,in:scope.kind==='parameter'?value.in:undefined,
+            required:value.required===true||scope.kind==='parameter'&&value.in==='path',deprecated:value.deprecated===true,
+            allowEmptyValue:scope.kind==='parameter'&&value.in==='query'&&value.allowEmptyValue===true,
+            style:serialization.style,explode:serialization.style!=='simple'&&(domains.has('array')||domains.has('object'))&&serialization.explode,
+            allowReserved:scope.kind==='parameter'&&value.in==='query'&&!value.content&&value.allowReserved===true&&!inactiveReservedExpansion(graph,scope)});
+    };
+    for(const scope of source.entryScopes())if(scope.kind==='parameter'||scope.kind==='header'){
+        // Body/form Parameter identity changes belong to the existing operation
+        // applicability and media proof, including occurrence-specific forms.
+        const value=source.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
+        if(scope.kind==='parameter'&&scope.family==='2.0'&&['body','formData'].includes(parameters.occurrence(scope).location??value?.in))continue;
+        if(scope.kind==='header'&&inactiveMigrationHeader(source,scope)&&!headerTargets.has(JSON.stringify([scope.resource,scope.pointer])))continue;
+        const actual=mapped(scope,scope).map(at=>target.scopeAs(at.resource,at.pointer,scope.kind)).filter((scope):scope is GraphScope=>scope!==undefined&&target.isEntryUse(scope));
+        if(!actual.length||actual.some(at=>profile(source,scope)!==profile(target,at)))
+            issue(scope,'migration.invariant.object-metadata','A Parameter or Header changed its location, requiredness, deprecation or serialization instructions','implementation');
+    }
+}
 
 /** Supplement executable request signatures with the same media/applicability
  * rules at independently referenced Operations, reusable Path Items, callbacks
@@ -166,9 +214,20 @@ export function migrationRequestSignatures(graph:ReferenceGraph,resources:Resour
     return graph.operations().filter(operation=>operation.role==='operation').map(operation=>{
         const plan=requestOperation({root:graph.root,resources,snapshot:'migration-invariant',resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
         const normalize=(value:any):any=>Array.isArray(value)?value.map(normalize):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).filter(name=>!['source','definition','base','origin','sources'].includes(name)).sort().map(name=>[name,normalize(value[name])])):value;
-        const parameters=plan.parameters.map((parameter:any)=>({name:parameter.name,in:parameter.in,required:parameter.required,
-            style:parameter.style,explode:['array','object'].includes(parameter.type)?parameter.explode:false,allowReserved:parameter.allowReserved})).sort((a:any,b:any)=>JSON.stringify(a).localeCompare(JSON.stringify(b)));
+        const parameters=plan.parameters.map((parameter:any)=>{
+            const definition=graph.scopeAs(parameter.definition.resource,parameter.definition.pointer,'parameter');
+            const schema=definition&&graph.scopeAs(definition.resource,definition.pointer+'/schema','schema');
+            const domains=schema?new MigrationSchemaProofs(graph).domains(schema):new Set([parameter.type]);
+            return {name:parameter.name,in:parameter.in,required:parameter.required,deprecated:parameter.deprecated,
+                allowEmptyValue:parameter.in==='query'&&parameter.allowEmptyValue,
+                style:parameter.style,explode:parameter.style!=='simple'&&(domains.has('array')||domains.has('object'))?parameter.explode:false,
+                allowReserved:parameter.in==='query'&&!parameter.content.length&&parameter.allowReserved&&
+                    !(definition&&inactiveReservedExpansion(graph,definition))};
+        }).sort((a:any,b:any)=>JSON.stringify(a).localeCompare(JSON.stringify(b)));
         const media=(values:any[])=>values.map(value=>value.mediaType).sort();
+        const examples=(values:any[],includeSchema:boolean)=>values.map(value=>({mediaType:value.mediaType,
+            values:[...new Set((value.examples??[]).filter((value:any)=>includeSchema||value.origin!=='schema')
+                .map((example:any)=>example.wireBase64??migrationExampleBytes(runtimeMediaKind(value.mediaType)==='text'&&example.representation==='json'&&example.dataKind==='string'?example.text:example.raw,value.mediaType).toString('base64')))].sort()})).sort((a,b)=>a.mediaType.localeCompare(b.mediaType));
         // A 3.2 URI security key is a contract locator, rather than an HTTP
         // authentication name. Its relocation may change spelling. Keep
         // entry-component names, every declaration field and each required
@@ -205,7 +264,7 @@ export function migrationRequestSignatures(graph:ReferenceGraph,resources:Resour
                 }));
                 return {url:serverTemplate(server.url,server.base,server.variables,source),variables:Object.entries(variables).sort(([a],[b])=>a<b?-1:a>b?1:0)};
             }),
-            parameters,security,body:plan.requestBody?{required:plan.requestBody.required,media:media(plan.requestBody.content),forms:plan.requestBody.content.map((value:any)=>({mediaType:value.mediaType,fields:formSignatures(value)})).sort((a:any,b:any)=>a.mediaType.localeCompare(b.mediaType))}:undefined,
-            responses:plan.responses.map((response:any)=>({status:response.status,headers:response.headers.map((header:any)=>({name:header.name,required:header.required})),bodyAllowed:response.bodyAllowed??response.content.length>0,media:response.bodyAllowed===false?[]:media(response.content)}))}));
+            parameters,security,body:plan.requestBody?{required:plan.requestBody.required,media:media(plan.requestBody.content),examples:examples(plan.requestBody.content,true),forms:plan.requestBody.content.map((value:any)=>({mediaType:value.mediaType,fields:formSignatures(value)})).sort((a:any,b:any)=>a.mediaType.localeCompare(b.mediaType))}:undefined,
+            responses:plan.responses.map((response:any)=>({status:response.status,headers:response.headers.map((header:any)=>({name:header.name,required:header.required})),bodyAllowed:response.bodyAllowed??response.content.length>0,media:response.bodyAllowed===false?[]:media(response.content),examples:response.bodyAllowed===false?[]:examples(response.content,true)}))}));
     }).sort();
 }

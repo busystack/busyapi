@@ -25,8 +25,8 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(MIGRATION_PRODUCER, engine_revision.group(1))
 
     def test_current_revision_is_accepted_and_previous_package_is_rejected(self):
-        verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': '91'})
-        for obsolete in ('25', '34', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45', '46', '47', '48', '49', '50', '51', '52', '53', '54', '55', '56', '57', '58', '59', '60', '61', '62', '63', '64', '65', '66', '67', '68', '69', '70', '71', '72', '73', '74', '75', '76', '77', '78', '79', '80', '81', '82', '83', '84', '85', '86', '87', '88', '89', '90'):
+        verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': '92'})
+        for obsolete in ('25', '34', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45', '46', '47', '48', '49', '50', '51', '52', '53', '54', '55', '56', '57', '58', '59', '60', '61', '62', '63', '64', '65', '66', '67', '68', '69', '70', '71', '72', '73', '74', '75', '76', '77', '78', '79', '80', '81', '82', '83', '84', '85', '86', '87', '88', '89', '90', '91'):
             with self.subTest(obsolete=obsolete):
                 with self.assertRaisesRegex(RuntimeError, 'producer differ'):
                     verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': obsolete})
@@ -54,7 +54,7 @@ class PreflightTests(unittest.TestCase):
                 'target': {'declaredVersion': '2.0'}, 'reviewIdentity': 'a' * 64, **updates}
 
     def test_obsolete_producer_is_rejected_without_publication(self):
-        for version in ['6', '23', '25', '31', '32', '33', '89', '90']:
+        for version in ['6', '23', '25', '31', '32', '33', '89', '90', '91']:
             with self.subTest(producerVersion=version):
                 binary = self.fake(self.review(producerVersion=version))
                 with self.assertRaisesRegex(RuntimeError, 'producer differ'):
@@ -159,6 +159,51 @@ class PreflightTests(unittest.TestCase):
                 self.assertFalse(destination.exists())
                 self.assertEqual(source.read_bytes(), raw)
                 self.assertEqual(shared.read_bytes(), extra)
+
+    def test_actual_packaged_b05_r2_metadata_examples_and_refusals(self):
+        bundle = Path(os.environ.get('BUSYAPI_TEST_BUNDLE') or
+                      Path(__file__).resolve().parent.parent / 'build/linux/x64/release/bundle')
+        binary = bundle / 'busyapi'
+        for version in ['3.0.4', '3.1.2', '3.2.1']:
+            for format in ['yaml', 'json']:
+                with self.subTest(version=version, format=format):
+                    source = self.root / ('r2-' + version + '.' + format)
+                    ref = lambda kind, name: {'$ref': '#/components/' + kind + '/' + name}
+                    media = {'schema': {'type': 'boolean'}, 'examples': {
+                        'First': ref('examples', 'Alias'), 'Same': ref('examples', 'Payload')}}
+                    value = {'openapi': version, 'info': {'title': 'R2 metadata', 'version': '1'},
+                             'servers': [{'url': 'https://api.invalid'}],
+                             'paths': {'/echo': {'post': {
+                                 'parameters': [ref('parameters', 'Shared')],
+                                 'requestBody': ref('requestBodies', 'Shared'),
+                                 'responses': {'200': ref('responses', 'Reply'), '204': {'description': 'Empty'}}}}},
+                             'components': {
+                                 'parameters': {'Shared': {'name': 'flag', 'in': 'query', 'deprecated': False,
+                                                          'allowReserved': False, 'schema': {'type': 'boolean'}}},
+                                 'requestBodies': {'Shared': {'description': '[Request](./request.md)', 'required': True,
+                                                              'content': {'application/json': media}}},
+                                 'responses': {'Reply': {'description': 'Reply', 'headers': {'X-Flag': ref('headers', 'Flag')},
+                                                        'content': {'application/json': media}}},
+                                 'headers': {'Flag': {'required': False, 'deprecated': False, 'schema': {'type': 'boolean'}}},
+                                 'examples': {'Alias': ref('examples', 'Payload'), 'Payload': {'value': False}}}}
+                    raw = (('# R2 source remains private\n' if format == 'yaml' else '') + json.dumps(value)).encode()
+                    source.write_bytes(raw)
+                    destination = self.root / ('r2-preview-' + version + '-' + format)
+                    report = preflight_migration(binary, source, '2.0', destination, {source: raw})
+                    self.assertEqual(report['producerVersion'], MIGRATION_PRODUCER)
+                    self.assertFalse(report['published'])
+                    self.assertFalse(destination.exists())
+                    self.assertEqual(source.read_bytes(), raw)
+                    # Distinct values cannot acquire a lossless-selection claim.
+                    reply = value['components']['responses']['Reply']['content']['application/json']
+                    reply = {**reply, 'schema': {}, 'examples': {'First': {'value': False}, 'Other': {'value': 0}}}
+                    value['components']['responses']['Reply']['content'] = {'application/json': reply}
+                    refused = json.dumps(value).encode()
+                    source.write_bytes(refused)
+                    with self.assertRaisesRegex(RuntimeError, 'migration.response.named-examples'):
+                        preflight_migration(binary, source, '2.0', destination, {source: refused})
+                    self.assertFalse(destination.exists())
+                    self.assertEqual(source.read_bytes(), refused)
 
     def test_actual_packaged_b04_previews_keep_binary_resources_private(self):
         bundle = Path(os.environ.get('BUSYAPI_TEST_BUNDLE') or

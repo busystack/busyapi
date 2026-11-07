@@ -8,7 +8,10 @@ import {isNativeFamily,modernFamily} from './specification';
 import {securityFlowOrder} from './security_requirements';
 import {MigrationSchemaOwners} from './migration_schema_owners';
 import {materializeFlatSchema} from './migration_flat_items';
-import {commonMediaSchema,retainFormHeaderOwners} from './migration_media_schema';
+import {commonMediaSchema,retainFormHeaderOwners,inactiveMigrationHeader} from './migration_media_schema';
+import {SwaggerObjectMetadata,type MigrationInlineExamples} from './migration_object_metadata';
+import {migrationScopes,migrationReferences} from './migration_documents';
+import {migrationOperationUses} from './migration_operation_contexts';
 
 /** Inspect a captured Schema reference chain before a Header/parameter loses
  * its schema wrapper. A referenced object is just as unrepresentable in a
@@ -47,37 +50,52 @@ function retireFormBody(source:MigrationSource,pointer:string):void {
     }
 }
 
-function retainFormBodyHistory(source:MigrationSource,pointer:string,scope:GraphScope,owners:MigrationSchemaOwners):void {
-    if(pointer){owners.retainLiteralValue(scope,source,pointer,'form_body',true);return;}
+function retainFormBodyHistory(source:MigrationSource,pointer:string,scope:GraphScope,owners:MigrationSchemaOwners,context?:ReferenceGraph):void {
+    if(pointer){owners.retainNativeHistory(scope,source,pointer,'form_body',context);return;}
     const retained=owners.reserveSchema(scope,'form_body');
     retained.source.copy(source,'',retained.location.pointer+'/x-busyapi-retained-value',true);
+    // A fragment-root reference also becomes literal history. Keep its exact
+    // locator spelling out of later typed-edge repair.
+    if(typeof source.doc.dataNode('')?.value?.$ref==='string')for(const locations of retained.source.originSets())
+        locations.delete(retained.location.pointer+'/x-busyapi-retained-value/$ref');
     retireFormBody(source,'');
 }
 
 /** Evaluate actual target representation. A simple 3.x API can be faithfully
  * represented in Swagger; newer-only constructs receive located blockers. */
 export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,MigrationSource>,from:string,issue:MigrationIssue,
-    releaseNativeHolders?:()=>void,owners=new MigrationSchemaOwners(graph,sources)):void {
+    releaseNativeHolders?:()=>void,owners=new MigrationSchemaOwners(graph,sources),contexts:readonly ReferenceGraph[]=[graph],external?:MigrationInlineExamples):void {
+    const scopes=[...migrationScopes(contexts)];
+    const headerTargets=new Set([...migrationReferences(contexts)].filter(edge=>edge.kind==='header'&&edge.resolution==='resolved')
+        .map(edge=>JSON.stringify([edge.targetResource,edge.targetPointer])));
+    const primary=graph;
+    const exampleSources=new Map([...sources].map(([id,source])=>[id,source.fork()]));
+    const metadata=new Map<ReferenceGraph,SwaggerObjectMetadata>();
+    const forContext=(context:ReferenceGraph)=>{
+        let value=metadata.get(context);if(!value){value=new SwaggerObjectMetadata(context,sources,owners,issue,external,exampleSources);metadata.set(context,value);}return value;
+    };
+    // Snapshot examples before a different role consumes their original owner.
+    for(const context of contexts)forContext(context);
     // Capture and relocate every operation's body before processing reusable
     // definitions. A form Request Body reference expands to several Parameters;
     // it cannot survive as a reference to one misleading body Parameter.
     const formUses=new Map<string,{source:MigrationSource;pointer:string}[]>(),preparedOperations=new Set<string>();
-    for(const operation of graph.operations()){
-        const scope=graph.scope(operation.source.resource,operation.source.pointer);if(scope.family!==from)continue;
+    for(const context of contexts)for(const operation of migrationOperationUses(context)){
+        const scope=operation.source;if(scope.family!==from)continue;
         const id=scope.resource+'#'+scope.pointer;if(preparedOperations.has(id))continue;preparedOperations.add(id);
         const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer),body=source.current(scope.pointer+'/requestBody');
         if(pointer===undefined||body===undefined)continue;
         if(!source.doc.dataNode(pointer+'/parameters'))source.set(pointer+'/parameters',[]);
         const destination=pointer+'/parameters/'+source.doc.node(pointer+'/parameters').children.size;
         source.move(body,destination);
-        let request=graph.scopeAs(scope.resource,scope.pointer+'/requestBody','request-body');const seen=new Set<string>();
+        let request=context.scopeAs(scope.resource,scope.pointer+'/requestBody','request-body');const seen=new Set<string>();
         while(request){
             const id=request.resource+'#'+request.pointer;
             if(seen.has(id)||seen.size>=128){issue(request,'migration.body.reference','The body reference chain has no bounded concrete owner','source-incomplete');request=undefined;break;}
             seen.add(id);const value=graph.docs.get(request.resource)!.dataNode(request.pointer)?.value;
             if(typeof value?.$ref!=='string')break;
-            const ref=graph.referenceAs(request.resource,request.pointer,'$ref','request-body');
-            request=ref?.resolution==='resolved'?graph.scopeAs(ref.targetResource!,ref.targetPointer!,'request-body'):undefined;
+            const ref=context.referenceAs(request.resource,request.pointer,'$ref','request-body');
+            request=ref?.resolution==='resolved'?context.scopeAs(ref.targetResource!,ref.targetPointer!,'request-body'):undefined;
         }
         if(!request)continue;
         const value=graph.docs.get(request.resource)!.dataNode(request.pointer)!.value;
@@ -89,11 +107,17 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migrati
         }
     }
     const expandedForms=new Set<string>();
-    for(const scope of graph.scopes.values()){
+    for(const scope of scopes){
         if(scope.family!==from)continue;
+        const context=owners.contextOf(scope)??contexts.find(context=>context.scopeAs(scope.resource,scope.pointer,scope.kind)?.family===from)??primary;
+        const graph=context;
+        const annotations=forContext(context);
         const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);if(pointer===undefined)continue;
         const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)!.value;
         if(scope.kind==='parameter'||scope.kind==='header'){
+            if(scope.kind==='header'&&inactiveMigrationHeader(graph,scope)&&!headerTargets.has(JSON.stringify([scope.resource,scope.pointer]))){
+                annotations.ignoredHeader(scope,source,pointer);continue;
+            }
             let declaration=value,schemaOwner=scope;
             if(typeof value?.$ref==='string'){
                 if(scope.kind==='parameter')continue;
@@ -109,18 +133,27 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migrati
                 owners.materializeHeaderUse(scope,source,pointer,material.source,material.location.pointer);
                 declaration=graph.docs.get(target.resource)!.dataNode(target.pointer)!.value;schemaOwner=target;
             }
-            if(declaration.content||scope.kind==='parameter'&&declaration.in==='cookie')issue(scope,'migration.parameter.representation','This parameter representation has no implemented faithful Swagger mapping','implementation');
-            const style=declaration.style??(['query','cookie'].includes(declaration.in)?'form':'simple'),explode=declaration.explode??style==='form';
-            const shape=flatSchema(graph,schemaOwner) as {type?:unknown}|undefined;
+            if(scope.kind==='parameter'&&!['query','path','header'].includes(declaration.in)){
+                issue(scope,'migration.parameter.location','Swagger has no '+declaration.in+' parameter location','target-representation');continue;
+            }
+            annotations.parameter(scope,source,pointer,declaration,schemaOwner);
+            const contentSchema=declaration.content?annotations.parameterContent(scope,source,pointer,schemaOwner):undefined;
+            if(declaration.content&&!contentSchema)continue;
+            const style=declaration.content?declaration.in==='query'?'form':'simple':declaration.style??(['query','cookie'].includes(declaration.in)?'form':'simple'),explode=declaration.explode??style==='form';
+            const shape=flatSchema(context,schemaOwner) as {type?:unknown}|undefined;
             if(shape?.type==='object'||Array.isArray(shape?.type)){
                 issue(scope,'migration.parameter.type','Swagger flat parameters cannot represent this schema type','target-representation');continue;
             }
             const type=source.doc.dataNode(pointer+'/schema')?
-                materializeFlatSchema(graph,sources,owners,source,pointer+'/schema',scope,issue,graph.scopeAs(schemaOwner.resource,schemaOwner.pointer+'/schema','schema')):
+                materializeFlatSchema(context,sources,owners,source,pointer+'/schema',scope,issue,contentSchema?.schema??context.scopeAs(schemaOwner.resource,schemaOwner.pointer+'/schema','schema')):
                 source.doc.dataNode(pointer+'/type')?.value;
             if(type===undefined){if(!declaration.content)issue(scope,'migration.parameter.schema','Swagger requires a concrete flat primitive declaration','implementation');continue;}
+            if(contentSchema&&!contentSchema.types.includes(type)){
+                issue(scope,'migration.parameter.content-domain','This content value requires quoting, framing or a decoder absent from a flat Swagger scalar declaration','target-representation');continue;
+            }
             if(type==='array'){
                 const format=style==='simple'?'csv':style==='form'?explode?'multi':'csv':style==='spaceDelimited'?'ssv':style==='pipeDelimited'?'pipes':undefined;
+                if(['spaceDelimited','pipeDelimited'].includes(style)&&explode)issue(scope,'migration.parameter.style-proof','An exploded delimited array has no defined equivalent Swagger serialization certificate','unavailable-proof');
                 if(!format||format==='multi'&&!['query','formData'].includes(declaration.in))issue(scope,'migration.parameter.style','This style/explode combination cannot be faithfully represented by Swagger collectionFormat','target-representation');
                 else source.set(pointer+'/collectionFormat',format);
             }else if(!['simple','form'].includes(style))issue(scope,'migration.parameter.style','This primitive parameter serialization is unavailable in Swagger','target-representation');
@@ -138,19 +171,18 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migrati
                 source.remove(pointer+'/schema');
             }else if(!declaration.content&&!source.doc.dataNode(pointer+'/type'))issue(scope,'migration.parameter.schema','Swagger requires a concrete flat primitive declaration','implementation');
             for(const name of ['style','explode'])source.remove(pointer+'/'+name);
-            for(const name of ['deprecated','allowReserved','example','examples'])if(Object.hasOwn(declaration,name))issue({...schemaOwner,pointer:schemaOwner.pointer+'/'+name},'migration.parameter.metadata','This authored parameter field needs an explicit Swagger mapping','implementation');
         }
         if(scope.kind==='request-body'&&typeof value?.$ref!=='string'){
             const family=scope.family;
             if(!isNativeFamily(family)){issue(scope,'migration.body.family','This request body has no supported owning specification family','source-incomplete');continue;}
             const content=source.doc.dataNode(pointer+'/content'),media=[...content?.children.keys()??[]];
-            if(!media.length){issue(scope,'migration.body.content','A Swagger body needs a schema-bearing representation','implementation');continue;}
+            if(!media.length){issue(scope,'migration.body.content','Swagger cannot bind an active body Parameter to an empty set of request media','target-representation');continue;}
             if(media.some(name=>formBinding(family,name)!==undefined)){
                 if(media.some(name=>!['application/x-www-form-urlencoded','multipart/form-data'].includes(name.split(';')[0].trim().toLowerCase()))){issue(scope,'migration.body.form-media','Swagger cannot combine a body parameter and formData parameters or describe generic multipart field framing','target-representation');continue;}
+                annotations.prepareFormExamples(scope,source,pointer);
                 const uses=formUses.get(scope.resource+'#'+scope.pointer)??[];
                 expandedForms.add(scope.resource+'#'+scope.pointer);
                 const inline=uses.some(use=>use.source===source&&use.pointer===pointer);
-                if(inline){downgradeFormBody(graph,source,scope,pointer,media[0],issue,owners,sources);continue;}
                 retainFormHeaderOwners(graph,owners,source,scope,pointer);
                 for(const name of media){
                     const at=pointer+'/content/'+escape(name)+'/schema',schema=owners.capturedSchema({resource:scope.resource,pointer:at});
@@ -163,20 +195,27 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migrati
                     }
                 }
                 const captured=source.fork();
+                // An inline body can itself be a reusable reference target.
+                // Retain it before expanding any occurrence, including its
+                // own Parameters slot; the slot will subsequently contain a
+                // real form field and must never be retired as the old group.
+                if(inline)retainFormBodyHistory(source,pointer,scope,owners,graph);
                 for(const use of uses){
                     use.source.remove(use.pointer);
                     use.source.copy(captured,pointer,use.pointer,true);
                     downgradeFormBody(graph,use.source,scope,use.pointer,media[0],issue,owners,sources);
                 }
-                retainFormBodyHistory(source,pointer,scope,owners);
+                if(!inline)retainFormBodyHistory(source,pointer,scope,owners,graph);
                 continue;
             }
+            annotations.media(scope,source,pointer,true);
             const selected=commonMediaSchema(graph,sources,owners,source,pointer,scope,media);
             if(selected===undefined){issue(scope,'migration.body.media-schema','Swagger has one body schema; no common captured schema certificate establishes these representations','unavailable-proof');continue;}
+            annotations.coalesceBodyExamples(scope,source,pointer,media,selected);
             retainMediaAlternatives(source,pointer,media,graph,owners,selected);
             source.move(pointer+'/content/'+escape(selected)+'/schema',pointer+'/schema');
-            if(media.some(name=>Object.keys(value.content[name]).some(field=>field!=='schema')))issue(scope,'migration.body.media-metadata','Request media annotations/examples need an explicit Swagger representation','implementation');
-            source.remove(pointer+'/content');source.set(pointer+'/name','body');source.set(pointer+'/in','body');
+            annotations.retainMediaEnvelope(scope,source,pointer);
+            source.set(pointer+'/name','body');source.set(pointer+'/in','body');
         }
         if(scope.kind==='operation'){
             const represented:string[][]=[];
@@ -200,18 +239,14 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migrati
             if(value.callbacks)issue({...scope,pointer:scope.pointer+'/callbacks'},'migration.callbacks','Swagger has no standard Callback Object representation','target-representation');
         }
         if(scope.kind==='response'&&typeof value?.$ref!=='string'){
+            annotations.media(scope,source,pointer,false);
             const media=Object.keys(value.content??{}),selected=commonMediaSchema(graph,sources,owners,source,pointer,scope,media);
             if(media.length&&selected===undefined){issue(scope,'migration.response.media-schema','Swagger has one response schema; no common captured schema certificate establishes these representations','unavailable-proof');continue;}
             if(selected!==undefined){
                 retainMediaAlternatives(source,pointer,media,graph,owners,selected);
                 source.move(pointer+'/content/'+escape(selected)+'/schema',pointer+'/schema');
             }
-            for(const name of media){
-                const at=pointer+'/content/'+escape(name),value=source.doc.dataNode(at)?.value;
-                if(Object.hasOwn(value??{},'example'))source.move(at+'/example',pointer+'/examples/'+escape(name));
-                if(value?.examples)issue({...scope,pointer:scope.pointer+'/content/'+escape(name)+'/examples'},'migration.response.named-examples','Swagger permits one payload per media type; select an authored example explicitly','implementation');
-            }
-            source.remove(pointer+'/content');
+            annotations.retainMediaEnvelope(scope,source,pointer);
             if(value.links)issue({...scope,pointer:scope.pointer+'/links'},'migration.links','Swagger has no standard Link Object representation','target-representation');
         }
         if(scope.kind==='security'){
@@ -235,22 +270,23 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migrati
     }
     // All occurrences of form reference chains now own flat parameters. Their
     // intermediate Request Body wrappers have no Swagger Parameter equivalent.
-    for(const scope of graph.scopes.values())if(scope.family===from&&scope.kind==='request-body'){
+    for(const scope of scopes)if(scope.family===from&&scope.kind==='request-body'){
+        const context=owners.contextOf(scope)??contexts.find(context=>context.scopeAs(scope.resource,scope.pointer,'request-body')?.family===from)??graph;
         let target:GraphScope|undefined=scope;const seen=new Set<string>();
         while(target){
             const id=target.resource+'#'+target.pointer;if(seen.has(id)||seen.size>=128)break;seen.add(id);
             if(expandedForms.has(id)){
                 const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);
-                if(pointer!==undefined&&source.doc.dataNode(pointer)&&typeof source.doc.dataNode(pointer)!.value?.$ref==='string')retireFormBody(source,pointer);
+                if(pointer!==undefined&&source.doc.dataNode(pointer)&&typeof source.doc.dataNode(pointer)!.value?.$ref==='string')retainFormBodyHistory(source,pointer,scope,owners,context);
                 break;
             }
-            const ref=graph.referenceAs(target.resource,target.pointer,'$ref','request-body');
-            target=ref?.resolution==='resolved'?graph.scopeAs(ref.targetResource!,ref.targetPointer!,'request-body'):undefined;
+            const ref=context.referenceAs(target.resource,target.pointer,'$ref','request-body');
+            target=ref?.resolution==='resolved'?context.scopeAs(ref.targetResource!,ref.targetPointer!,'request-body'):undefined;
         }
     }
     // Swagger has no Header component map or Header Reference Object. Retain
     // independent native owners in unused, standard Response.headers slots.
-    for(const scope of graph.scopes.values())if(scope.family===from&&scope.kind==='header'&&scope.pointer.startsWith('/components/headers/')&&
+    for(const scope of scopes)if(scope.family===from&&scope.kind==='header'&&scope.pointer.startsWith('/components/headers/')&&
         scope.pointer.slice('/components/headers/'.length).indexOf('/')<0){
         const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);if(pointer===undefined||!source.doc.dataNode(pointer))continue;
         owners.move(scope,source,pointer,'header_owner',{context:owners.contextOf(scope)??graph,layout:'response-header'});
@@ -275,15 +311,25 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migrati
                 else {source.set('/host',url.host);source.set('/basePath',url.pathname);source.set('/schemes',[url.protocol.slice(0,-1)]);source.remove('/servers');}
             }
         }
+        if(source.doc.dataNode('/components/examples'))forContext(contexts.find(context=>context.root===resource)??graph)
+            .reusableExamples({resource,pointer:'/components/examples'},source,'/components/examples');
         for(const [from,to]of [['schemas','definitions'],['parameters','parameters'],['responses','responses'],['securitySchemes','securityDefinitions']])if(source.doc.nodes.has('/components/'+from))source.move('/components/'+from,'/'+to);
         if(source.doc.dataNode('/components/requestBodies')){
             source.ensure('/parameters');
-            for(const name of [...source.doc.node('/components/requestBodies').children.keys()])source.move('/components/requestBodies/'+escape(name),'/parameters/'+escape(name));
+            for(const name of [...source.doc.node('/components/requestBodies').children.keys()]){
+                const original='/components/requestBodies/'+escape(name);
+                const destination=source.doc.dataNode('/parameters/'+escape(name))?
+                    owners.allocate(source,'/parameters','request_body',JSON.stringify([resource,original])).pointer:'/parameters/'+escape(name);
+                source.move(original,destination);
+            }
             source.remove('/components/requestBodies');
         }
         const components=source.doc.dataNode('/components');
-        if(components?.children.size)issue({resource,pointer:'/components'},'migration.components','These reusable component families need an additional Swagger representation','implementation');
-        else source.remove('/components');
+        if(components?.children.size)for(const name of components.children.keys()){
+            if(name.startsWith('x-'))owners.retainNativeHistory({resource,pointer:'/components/'+escape(name)},source,'/components/'+escape(name),'components_metadata');
+            else issue({resource,pointer:'/components/'+escape(name)},'migration.components','This reusable '+name+' family belongs to the separately assigned B05-R3 conversion','implementation');
+        }
+        if(!source.doc.dataNode('/components')?.children.size)source.remove('/components');
         for(const name of ['webhooks','$self'])if(source.doc.nodes.has('/'+name))issue({resource,pointer:'/'+name},'migration.root.field','This document feature needs a faithful Swagger mapping','implementation');
         source.remove('/openapi');source.set('/swagger','2.0');
     }

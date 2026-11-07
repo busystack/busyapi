@@ -4,7 +4,7 @@ import {supportedSchemaDialect,type GraphTarget,type ReferenceGraph} from './ref
 import {projectSchemaReference} from './schema_reference_projection';
 import {modernFamily} from './specification';
 
-export const schemaExamplesRevision='2';
+export const schemaExamplesRevision='3';
 type SchemaExampleApplicator=Readonly<
  {keyword:'allOf'|'anyOf'|'oneOf'|'dependentSchemas';selector:string}|
  {keyword:'if'|'then'|'else'}

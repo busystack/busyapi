@@ -7,6 +7,146 @@ const {createGraph, analyse} = require('./dist/model.cjs');
 const {evaluateSchemas} = require('./dist/schema_evaluation.cjs');
 
 const publishedTargets = ['3.0.0', '3.0.1', '3.0.2', '3.0.3', '3.0.4', '3.1.0', '3.1.1', '3.1.2', '3.2.0', '3.2.1'];
+for(const version of publishedTargets)for(const format of ['yaml','json'])test(`B05-R2 ${version} ${format} reusable metadata and equivalent examples retain actual consumers`,async()=>{
+ const fixture=require('./migration_b05_r2_fixture.cjs'),{input}=fixture.capture(version,format),before=JSON.stringify(input);
+ const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));
+ const after=fixture.reopened(result,'file:///cold/r2/');assert.equal(analyse(after).complete,true,JSON.stringify(analyse(after).findings));
+ const source=operations(input)[0],target=operations(after)[0];
+ const selected=plan=>[plan.parameters.map(p=>[p.name,p.in,p.required,p.deprecated]),plan.requestBody.required,
+  plan.requestBody.content.map(m=>[m.mediaType,[...new Set(m.examples.map(e=>e.raw))])]),
+  plan.responses.map(r=>[r.status,r.bodyAllowed===false?[]:r.content.map(m=>[m.mediaType,[...new Set(m.examples.map(e=>e.raw))])]),r.headers.map(h=>[h.name,h.required])])];
+ assert.deepEqual(selected(target),selected(source));
+ assert.equal(target.requestBody.content[0].examples[0].raw,'9007199254740993.00');
+ assert.equal(target.responses.find(r=>r.status==='200').content[0].examples.length,1);
+ assert.equal(target.responses.find(r=>r.status==='204').content.length,0);
+ for(const sample of ['9007199254740993.00','0','-1']){
+  const check=async(packet,plan)=>{
+   const response=plan.responses.find(r=>r.status==='200');
+   const result=await evaluateSchemas({...packet,runtimeInstances:[
+    ...[plan.requestBody.content[0].schema,response.content[0].schema].map(schema=>({subject:'request-body',location:sample,text:sample,schema})),
+    {subject:'response-header',location:sample,text:'',header:{resource:response.headers[0].source.resource,pointer:response.headers[0].source.pointer,name:'X-Count',values:[sample]}}
+   ]});assert.equal(result.complete,true,JSON.stringify(result.findings));return result.runtimeEvaluations.map(e=>e.valid);
+  };
+  const expected=await check(input,source);assert(expected.every(valid=>valid===(sample!=='-1')));assert.deepEqual(await check(after,target),expected);
+ }
+ const text=result.outputs.map(output=>output.text).join('\n');assert(text.includes('9007199254740993.00'));assert(text.includes('literal-only'));
+ if(format==='yaml')assert(text.includes('# Preserve R2 owners 雪'));
+ const doc=new SourceDocument(result.outputs.find(o=>o.id===result.outputRoot).text,result.outputRoot);
+ assert.equal(doc.dataNode('/components'),undefined);assert.equal(doc.dataNode('/parameters/Shared/in').value,'query');
+ const independent=await evaluateSchemas({...after,runtimeInstances:[{subject:'request-body',location:'independent',text:'-1',schema:{resource:after.root,pointer:'/definitions/Independent'}}]});
+ assert.equal(independent.complete,true);assert(independent.runtimeEvaluations.every(e=>e.valid===false));
+ assert.equal(JSON.stringify(input),before);assert.equal((await planMigration(input)).identity,result.identity);
+});
+for(const format of ['yaml','json'])for(const distinct of [false,true])test(`B05-R2 ${format} schema-less response media and distinct=${distinct} named payloads preserve body presence`,async()=>{
+ const {render}=require('./migration_b05_r2_fixture.cjs'),root='file:///approved/named.'+format;
+ const media={examples:{First:{value:false},Second:{value:distinct?0:false}},encoding:{ignored:{headers:{'X-Ignore':{schema:{type:'object',properties:{n:{type:'integer'}}}}}}}};
+ const value={openapi:'3.0.4',info:{title:'Schema-less media',version:'1'},servers:[{url:'https://api.invalid'}],paths:{'/items':{get:{responses:{200:{$ref:'#/components/responses/Reply'},204:{description:'Empty'}}}}},
+  components:{responses:{Reply:{description:'Payload',content:{'application/json':media}}},schemas:{Independent:{$ref:'#/components/responses/Reply/content/application~1json/encoding/ignored/headers/X-Ignore/schema'}}}};
+ const text=render(value,format),input={root,resources:[{id:root,text,generation:1}],snapshot:'schema-less-names',targetVersion:'2.0',destination:'file:///review/named/'};
+ const result=await planMigration(input);
+ if(distinct){assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);assert(result.problems.some(p=>p.code==='migration.response.named-examples'&&p.reason==='target-representation'));assert.deepEqual(result.acceptedDecisions,[]);}
+ else{
+  assert.equal(result.complete,true,JSON.stringify(result.problems));const after=reopened(result),plan=operations(after)[0];
+  assert.equal(plan.responses[0].bodyAllowed,true);assert.deepEqual(plan.responses[0].content.map(m=>[m.mediaType,m.examples[0].raw]),[['application/json','false']]);
+  assert.equal(plan.responses[1].content.length,0);
+  const check=await evaluateSchemas({...after,runtimeInstances:[{subject:'response-body',location:'retained-owner',text:'{"n":3}',schema:{resource:after.root,pointer:'/definitions/Independent'}}]});
+  assert.equal(check.complete,true);assert(check.runtimeEvaluations.every(e=>e.valid));
+ }
+ assert.equal(input.resources[0].text,text);
+});
+for(const format of ['yaml','json'])for(const distinct of [false,true])test(`B05-R2 ${format} common JSON/text string example distinct=${distinct} requires a byte-preserving schema annotation`,async()=>{
+ const {render}=require('./migration_b05_r2_fixture.cjs'),root='file:///approved/body.'+format,media=['application/json','text/plain; charset=utf-8'];
+ const content=Object.fromEntries(media.map((name,index)=>[name,{schema:{type:'string'},example:distinct&&index?'different':'snow 雪'}]));
+ const value={openapi:'3.0.4',info:{title:'Media examples',version:'1'},servers:[{url:'https://api.invalid'}],paths:{'/echo':{post:{requestBody:{description:'Request text',required:true,content},responses:{204:{description:'Empty'}}}}}};
+ const text=render(value,format),input={root,resources:[{id:root,text,generation:1}],snapshot:'body-examples',targetVersion:'2.0',destination:'file:///review/body/'};
+ const result=await planMigration(input);assert.equal(result.complete,!distinct,JSON.stringify(result.problems));
+ if(distinct){assert.deepEqual(result.outputs,[]);assert(result.problems.some(p=>p.code==='migration.body.media-metadata'&&p.reason==='target-representation'));}
+ else{
+  const before=operations(input)[0],after=operations(reopened(result))[0];
+  assert.deepEqual(after.requestBody.content.map(m=>[m.mediaType,m.examples[0].raw]),before.requestBody.content.map(m=>[m.mediaType,m.examples[0].raw]));
+  assert.equal(after.requestBody.required,true);
+ }
+ assert.equal(input.resources[0].text,text);
+});
+for(const version of ['3.0.4','3.1.2','3.2.1'])for(const format of ['yaml','json'])test(`B05-R2 ${version} ${format} a media example overrides a shared recursive schema example only at its body use`,async()=>{
+ const {render,reopened}=require('./migration_b05_r2_fixture.cjs'),root='file:///approved/overrides.'+format;
+ const operation=example=>({post:{requestBody:{content:{'application/json':{schema:{$ref:'#/components/schemas/Model'},...(example?{example:{n:1}}:{})}}},responses:{204:{description:'Empty'}}}});
+ const value={openapi:version,info:{title:'Example overrides',version:'1'},servers:[{url:'https://api.invalid'}],paths:{'/override':operation(true),'/independent':operation(false)},
+  components:{schemas:{Model:{type:'object',required:['n'],properties:{n:{type:'integer',enum:[0,1]},next:{$ref:'#/components/schemas/Model'}},example:{n:0}}}}};
+ const text=render(value,format),input={root,resources:[{id:root,text,generation:1}],snapshot:'sample-overrides',targetVersion:'2.0',destination:'file:///review/override/'};
+ const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));const after=reopened(result);
+ for(const packet of [input,after]){
+  const plans=operations(packet);assert.deepEqual(plans.find(p=>p.operation.path==='/override').requestBody.content[0].examples.map(e=>e.raw),['{"n":1}']);
+  assert.deepEqual(plans.find(p=>p.operation.path==='/independent').requestBody.content[0].examples.map(e=>e.raw),['{"n":0}']);
+ }
+ const schema=operations(after).find(p=>p.operation.path==='/override').requestBody.content[0].schema;
+ const evaluated=await evaluateSchemas({...after,runtimeInstances:['{"n":1,"next":{"n":0}}','{"n":2}'].map(text=>({subject:'request-body',location:text,text,schema}))});
+ assert.equal(evaluated.complete,true);assert.deepEqual(evaluated.runtimeEvaluations.map(e=>e.valid),[true,false]);assert.equal(input.resources[0].text,text);
+});
+for(const format of ['yaml','json'])for(const targetVersion of ['2.0','3.0.4','3.1.2'])test(`B05-R2 ${format} active 3.2 response encoding cannot become ignored in ${targetVersion}`,async()=>{
+ const {render}=require('./migration_b05_r2_fixture.cjs'),root='file:///approved/response-encoding.'+format;
+ const value={openapi:'3.2.1',info:{title:'Response parts',version:'1'},paths:{'/parts':{get:{responses:{200:{description:'Parts',content:{'multipart/form-data':{
+  schema:{type:'object',properties:{part:{type:'string'}}},encoding:{part:{headers:{'X-Part':{schema:{type:'string',enum:['must remain']}}}}}
+ }}}}}}}};
+ const text=render(value,format),input={root,resources:[{id:root,text,generation:1}],snapshot:'response-parts',targetVersion,destination:'file:///review/parts/'};
+ const result=await planMigration(input);assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);
+ assert(result.problems.some(p=>p.code==='migration.response.encoding'&&p.reason==='target-representation'),JSON.stringify(result.problems));assert.equal(input.resources[0].text,text);
+});
+for(const format of ['yaml','json'])test(`B05-R2 ${format} formerly ignored response encoding remains inactive in 3.2`,async()=>{
+ const {render,reopened}=require('./migration_b05_r2_fixture.cjs'),root='file:///approved/inactive-response-encoding.'+format,type='multipart/form-data; boundary=R2';
+ const value={openapi:'3.1.2',info:{title:'Ignored response parts',version:'1'},servers:[{url:'https://api.invalid'}],paths:{'/parts':{get:{responses:{200:{description:'Parts',content:{[type]:{
+  schema:{type:'object',properties:{part:{type:'string',enum:['plain']}}},encoding:{part:{contentType:'application/json',headers:{'X-Part':{schema:{type:'object'}}}}}
+ }}}}}}}};
+ const text=render(value,format),input={root,resources:[{id:root,text,generation:1}],snapshot:'inactive-response-parts',targetVersion:'3.2.1',destination:'file:///review/inactive-parts/'};
+ const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));
+ const after=reopened(result),doc=new SourceDocument(result.outputs.find(output=>output.id===result.outputRoot).text,result.outputRoot);
+ assert.equal(doc.dataNode('/paths/~1parts/get/responses/200/content/multipart~1form-data; boundary=R2/encoding'),undefined);
+ assert(result.outputs.some(output=>output.text.includes('X-Part')));assert.equal(analyse(after).complete,true);assert.equal(input.resources[0].text,text);
+ for(const part of ['plain','wrong']){
+  const bytes=Buffer.from('--R2\r\nContent-Disposition: form-data; name="part"\r\n\r\n'+part+'\r\n--R2--\r\n');
+  for(const packet of [input,after]){
+   const media=operations(packet)[0].responses[0].content[0],check=await evaluateSchemas({...packet,runtimeInstances:[{subject:'response-body',location:part,text:bytes.toString('base64'),mediaBase64:true,mediaType:type,media:media.definition??media.source}]});
+   assert.equal(check.complete,true,JSON.stringify(check.findings));assert.deepEqual(check.runtimeEvaluations.map(e=>e.valid),[part==='plain']);
+  }
+ }
+});
+for(const format of ['yaml','json'])for(const referenced of [false,true])test(`B05-R2 ${format} ignored Content-Type Header referenced=${referenced} retains annotations and independent schema consumers`,async()=>{
+ const {render,reopened}=require('./migration_b05_r2_fixture.cjs'),root='file:///approved/ignored-header.'+format;
+ const header=referenced?{$ref:'#/components/headers/Type',description:'[Ignored reference](./ignored.md)'}:
+  {deprecated:true,required:true,description:'[Ignored header](./ignored.md)',schema:{type:'object',properties:{n:{type:'integer'}}}};
+ const value={openapi:'3.1.2',info:{title:'Ignored Header',version:'1'},servers:[{url:'https://api.invalid'}],paths:{'/empty':{get:{responses:{204:{description:'Empty',headers:{'Content-Type':header}}}}}},
+  components:referenced?{headers:{Type:{schema:{type:'string'}}}}:{schemas:{Independent:{$ref:'#/paths/~1empty/get/responses/204/headers/Content-Type/schema'}}}};
+ const text=render(value,format),input={root,resources:[{id:root,text,generation:1}],snapshot:'ignored-header',targetVersion:'2.0',destination:'file:///review/ignored-header/'};
+ const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));const after=reopened(result),plan=operations(after)[0];
+ assert.equal(plan.responses[0].content.length,0);assert.deepEqual(plan.responses[0].headers,[]);assert(result.outputs.some(output=>output.text.includes('ignored.md')));
+ if(!referenced){const check=await evaluateSchemas({...after,runtimeInstances:[{subject:'response-body',location:'independent',text:'{"n":3}',schema:{resource:after.root,pointer:'/definitions/Independent'}}]});assert.equal(check.complete,true);assert(check.runtimeEvaluations.every(e=>e.valid));}
+ assert.equal(input.resources[0].text,text);
+});
+for(const format of ['yaml','json'])test(`B05-R2 ${format} media-specific schema examples and empty overrides preserve selection`,async()=>{
+ const {render,reopened}=require('./migration_b05_r2_fixture.cjs'),root='file:///approved/schema-samples.'+format;
+ const content=Object.fromEntries(['application/json','application/vnd.busy+json'].map((media,index)=>[media,{schema:{type:'integer',enum:[0,1],example:index}}]));
+ const empty={schema:{type:'integer',enum:[0,1],example:0},examples:{}};
+ const value={openapi:'3.0.4',info:{title:'Schema samples',version:'1'},servers:[{url:'https://api.invalid'}],paths:{'/data':{post:{
+  requestBody:{content:{'application/json':structuredClone(empty)}},responses:{200:{description:'Data',content},201:{description:'No sample',content:{'application/json':empty,'application/vnd.busy+json':structuredClone(empty)}}}
+ }}}};
+ const text=render(value,format),input={root,resources:[{id:root,text,generation:1}],snapshot:'schema-samples',targetVersion:'2.0',destination:'file:///review/schema-samples/'};
+ const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));
+ const before=operations(input)[0],after=operations(reopened(result))[0];
+ const samples=plan=>[plan.requestBody.content.map(m=>m.examples.map(e=>e.raw)),plan.responses.map(r=>r.content.map(m=>[m.mediaType,m.examples.map(e=>e.raw)]))];
+ assert.deepEqual(samples(after),samples(before));assert.deepEqual(after.requestBody.content[0].examples,[]);
+ assert.deepEqual(after.responses[0].content.map(m=>m.examples[0].raw),['0','1']);assert(after.responses[1].content.every(m=>m.examples.length===0));
+ assert.equal(input.resources[0].text,text);
+});
+test('B05-R2 authored JSON entity whitespace and exact numeric spellings survive schema/media placement',async()=>{
+ const root='file:///approved/entity.json',payload='{\r\n  "n": 9007199254740993.00\r\n}';
+ const schema={type:'object',properties:{n:{type:'integer'}}};
+ const value={openapi:'3.0.4',info:{title:'Entity text',version:'1'},servers:[{url:'https://api.invalid'}],paths:{'/echo':{post:{
+  requestBody:{content:{'application/json':{schema,example:'MARKER'}}},responses:{200:{description:'Echo',content:{'application/json':{schema,examples:{First:{value:'MARKER'},Same:{value:'MARKER'}}}}}}
+ }}}};
+ const text=JSON.stringify(value,null,2).replaceAll('"MARKER"',payload),input={root,resources:[{id:root,text,generation:1}],snapshot:'entity-whitespace',targetVersion:'2.0',destination:'file:///review/entity/'};
+ const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));const after=operations(reopened(result))[0];
+ assert.equal(after.requestBody.content[0].examples[0].raw,payload);assert.equal(after.responses[0].content[0].examples[0].raw,payload);assert.equal(input.resources[0].text,text);
+});
 for(const targetVersion of publishedTargets)for(const format of ['yaml','json'])test(`B05-R1 ${format} inherited operation media and overrides have independent owners in ${targetVersion}`,async()=>{
  const input={...require('./migration_operation_contexts_fixture.cjs')(format),targetVersion},before=input.resources.map(resource=>resource.text);
  assert.equal(analyse(input).complete,true,JSON.stringify(analyse(input).findings));

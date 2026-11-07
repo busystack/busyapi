@@ -29,7 +29,7 @@ for(const version of versions)for(const format of ['yaml','json'])test(`${versio
   const packet=input(version,format,modern(version)?{examples:[value]}:{example:value}),before=packet.resources[0].text;
   const checked=analyse(packet);assert.equal(checked.complete,true);assert.deepEqual(checked.findings,[]);
   const plan=requestOperation(packet),media=body(plan),example=media.example;
-  assert.equal(plan.representationRevisions.schemaExamples,'2');assert.equal(media.examples.length,1);
+  assert.equal(plan.representationRevisions.schemaExamples,'3');assert.equal(media.examples.length,1);
   assert.equal(example.raw,exact(value));assert.equal(example.origin,'schema');assert.equal(example.representation,'json');assert.equal(example.level,'media');
   const owner=version==='2.0'?'/paths/~1data/post/parameters/0/schema':'/paths/~1data/post/requestBody/content/application~1json/schema';
   assert.equal(example.source.resource,packet.root);assert.equal(example.source.pointer,owner+(modern(version)?'/examples/0':'/example'));assert.equal(example.source.generation,7);
@@ -152,4 +152,13 @@ for(const format of ['yaml','json'])test(`Swagger ${format} a separately referen
  doc.definitions={ExplicitSchema:{$ref:'#'+pointer}};packet.resources[0].text=render(doc,format);
  assert.equal(createGraph(packet).graph.scopeAs(packet.root,pointer,'schema').kind,'schema');
  const parameter=requestOperation(packet).parameters[0];assert.equal(parameter.schema.resource,packet.root);assert.equal(parameter.schema.pointer,'/paths/~1data/post/parameters/0');assert.equal(parameter.example,undefined);assert.deepEqual(parameter.examples,[]);assert.equal(parameter.type,'string');
+});
+for(const format of ['yaml','json'])test(`Swagger ${format} response schema candidates keep their data owner and explicit media precedence`,()=>{
+ const root='file:///approved/response-samples.'+format,value={swagger:'2.0',info:{title:'Response data examples',version:'1'},produces:['application/json'],
+  paths:{'/':{get:{responses:{200:{description:'Fallback',schema:{$ref:'#/definitions/Value'}},201:{description:'Override',schema:{$ref:'#/definitions/Value'},examples:{'application/json':false}}}}}},
+  definitions:{Value:{type:'boolean',example:true}}};
+ const resources=[{id:root,text:format==='json'?JSON.stringify(value):require('yaml').stringify(value),generation:4}],plan=requestOperation({root,resources,snapshot:'response-candidates',resource:root,pointer:'/paths/~1/get'});
+ const fallback=plan.responses[0].content[0],override=plan.responses[1].content[0];
+ assert.equal(plan.representationRevisions.schemaExamples,'3');assert.equal(fallback.examples[0].raw,'true');assert.equal(fallback.examples[0].origin,'schema');
+ assert.equal(fallback.examples[0].source.pointer,'/definitions/Value/example');assert.equal(override.examples[0].raw,'false');assert.equal(override.examples[0].origin,undefined);
 });

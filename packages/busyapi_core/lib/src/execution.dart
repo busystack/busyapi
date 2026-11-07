@@ -1250,7 +1250,7 @@ extension RequestPlanning on BusyProject {
         result['identity'] is! String ||
         result['complete'] != true ||
         result['representationRevisions'] is! Map ||
-        (result['representationRevisions'] as Map)['schemaExamples'] != '2' ||
+        (result['representationRevisions'] as Map)['schemaExamples'] != '3' ||
         result['operation'] is! Map ||
         result['servers'] is! List ||
         result['parameters'] is! List ||

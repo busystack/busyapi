@@ -88,6 +88,7 @@ void main() {
                   '/items': {
                     'post': {
                       'requestBody': {
+                        'description': '[Group](./group.md)',
                         'required': true,
                         'content': {
                           media: {
@@ -114,7 +115,7 @@ void main() {
                                 'info: {title: "Form 雪", version: "unrelated"}\r\n'
                                 'servers: [{url: "http://127.0.0.1:${server.port}/v1"}]\r\n'
                                 'paths:\r\n  /items:\r\n    post:\r\n      requestBody: # Keep group\r\n'
-                                '        required: true\r\n        content:\r\n          ${jsonEncode(media)}:\r\n'
+                                '        description: "[Group](./group.md)"\r\n        required: true\r\n        content:\r\n          ${jsonEncode(media)}:\r\n'
                                 '            schema:\r\n              type: object\r\n              required: [name]\r\n'
                                 '              properties:\r\n${properties.entries.map((entry) => '                ${entry.key}: ${jsonEncode(entry.value)}').join('\r\n')}\r\n'
                                 '${arrays ? '            encoding: ${jsonEncode(encoding)}\r\n' : ''}'

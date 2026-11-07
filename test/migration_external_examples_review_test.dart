@@ -25,8 +25,8 @@ void main() {
     final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     for (final channel in ['yaru_window', 'yaru_window/events']) messenger.setMockMethodCallHandler(MethodChannel(channel), null);
   });
-  for (final format in ['yaml', 'json']) for (final stale in [false, true]) {
-    testWidgets('$format native example copy review ${stale ? 'rejects stale source' : 'publishes exact bytes'}', (tester) async {
+  for (final format in ['yaml', 'json']) for (final targetVersion in ['3.2.1', '2.0']) for (final stale in [false, true]) {
+    testWidgets('$format $targetVersion native example review ${stale ? 'rejects stale source' : 'publishes exact bytes'}', (tester) async {
       tester.view.physicalSize = const Size(1400, 1200);tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);
       final directory = Directory.systemTemp.createTempSync('busyapi-example-review-');
@@ -55,6 +55,12 @@ void main() {
           },
         },
       };
+      if (targetVersion == '2.0') {
+        final operation = ((value['paths'] as Map)['/'] as Map)['get'] as Map;
+        final media = ((((operation['responses'] as Map)['200'] as Map)['content'] as Map)[type] as Map);
+        value['components'] = {'examples': {'Bytes': {'externalValue': './payload.bin'}, 'Alias': {r'$ref': '#/components/examples/Bytes'}}};
+        media['examples'] = {'First': {r'$ref': '#/components/examples/Alias'}, 'Same': {r'$ref': '#/components/examples/Bytes'}};
+      }
       final original = (format == 'yaml' ? '# Keep original\r\n' : '') + jsonEncode(value) + '\r\n';
       file.writeAsStringSync(original);payload.writeAsBytesSync(bytes);
       final controller = WorkspaceController(EngineProcess(executable: runtimeNode, helper: runtimeHelper),
@@ -69,7 +75,10 @@ void main() {
         expect(condition(), true, reason: '${controller.error}');await tester.pumpAndSettle();
       }
       try {
-        await tester.runAsync(() async {await controller.initialize();await controller.open(file.path);await controller.analyse();});
+        await tester.runAsync(() async {
+          await controller.initialize();await controller.open(file.path);await controller.analyse();
+          if (targetVersion == '2.0') {controller.sourceEdit(controller.root!, controller.buffer!.text.replaceFirst('Original', 'Working R2'));await controller.analyse();}
+        });
         await tester.pumpWidget(MaterialApp(
           theme: buildBusyApiTheme(brightness: Brightness.light, accentColor: Colors.blue),
           localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -81,19 +90,35 @@ void main() {
         ));
         await tester.runAsync(() => tester.tap(find.text('Migrate')));
         final review = find.widgetWithText(BusyApiDialogButton, 'Review migration');
-        await ready(() => review.evaluate().isNotEmpty);await tester.runAsync(() => tester.tap(review));
+        await ready(() => review.evaluate().isNotEmpty);
+        if (targetVersion == '2.0') {
+          const channel = MethodChannel('busyapi/native_menus');
+          final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+          messenger.setMockMethodCallHandler(channel, (call) async {
+            if (call.method != 'show') return null;
+            return ((call.arguments as Map)['entries'] as List).indexWhere((entry) => entry['label'] == '2.0');
+          });
+          addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+          await tester.tap(find.byWidgetPredicate((widget) => widget is BusyApiComboRow<String> && widget.title == 'Target specification'));await tester.pumpAndSettle();
+        }
+        await tester.runAsync(() => tester.tap(review));
         final destination = find.widgetWithText(BusyApiDialogButton, 'Review output');
         await ready(() => destination.evaluate().isNotEmpty);await tester.runAsync(() => tester.tap(destination));
         final copy = find.byWidgetPredicate((widget) => widget is SelectableText &&
           widget.data?.startsWith('Copy 4 bytes unchanged: ${payload.uri} → ') == true);
-        await ready(() => copy.evaluate().isNotEmpty);await tester.ensureVisible(copy);
-        expect(tester.widget<SelectableText>(copy).data, contains('/examples/'));
         final publish = find.widgetWithText(BusyApiDialogButton, 'Create migrated copy');
+        if (targetVersion == '2.0') {
+          await ready(() => publish.evaluate().isNotEmpty && tester.widget<BusyApiDialogButton>(publish).onPressed != null);
+          expect(copy, findsNothing);
+        } else {
+          await ready(() => copy.evaluate().isNotEmpty);await tester.ensureVisible(copy);
+          expect(tester.widget<SelectableText>(copy).data, contains('/examples/'));
+        }
         expect(tester.widget<BusyApiDialogButton>(publish).onPressed, isNotNull);
         final output = Directory('${directory.path}/busyapi-migrated');expect(output.existsSync(), false);
         if (stale) {
           await tester.runAsync(() async {
-            controller.sourceEdit(controller.root!, controller.buffer!.text.replaceFirst('Original', 'Changed'));
+            controller.sourceEdit(controller.root!, controller.buffer!.text.replaceFirst(targetVersion == '2.0' ? 'Working R2' : 'Original', 'Changed'));
             await controller.analyse();
           });
           await ready(() => tester.widget<BusyApiDialogButton>(publish).onPressed == null);
@@ -101,9 +126,14 @@ void main() {
         } else {
           await tester.runAsync(() => tester.tap(publish));
           await ready(() => output.existsSync() && find.text('The migrated copy was created. Original documents are preserved.').evaluate().isNotEmpty);
-          final copies = Directory('${output.path}/examples').listSync().whereType<File>().toList();
-          expect(copies, hasLength(1));expect(copies.single.readAsBytesSync(), bytes);
-          expect(File('${output.path}/openapi.$format').readAsStringSync(), contains('examples/'));
+          if (targetVersion == '2.0') {
+            expect(Directory('${output.path}/examples').existsSync(), false);
+            final text = File('${output.path}/openapi.$format').readAsStringSync();expect(text, contains('swagger'));expect(text, contains('café'));expect(text, contains('Working R2'));
+          } else {
+            final copies = Directory('${output.path}/examples').listSync().whereType<File>().toList();
+            expect(copies, hasLength(1));expect(copies.single.readAsBytesSync(), bytes);
+            expect(File('${output.path}/openapi.$format').readAsStringSync(), contains('examples/'));
+          }
         }
         expect(file.readAsStringSync(), original);expect(payload.readAsBytesSync(), bytes);
         final close = find.widgetWithText(BusyApiDialogButton, 'Close');

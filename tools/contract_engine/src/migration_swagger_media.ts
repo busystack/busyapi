@@ -125,9 +125,14 @@ export function swaggerMediaMigration(graph:ReferenceGraph,sources:Map<string,Mi
             // Swagger 2.0 §6.4.12: no schema means no response content.
             // An unconstrained 3.x Media Type Object would activate a body.
             if(schema)content(owner,[...new Set([...media,...examples?.children.keys()??[]])]);
-            else if(examples?.children.size)issue({...scope,pointer:scope.pointer+'/examples'},'migration.response.examples-without-schema','These authored examples need a target owner that does not activate response content','implementation');
-            for(const name of [...examples?.children.keys()??[]])source.move(pointer+'/examples/'+escape(name),pointer+'/content/'+escape(name)+'/example');
-            source.remove(pointer+'/examples');
+            else if(examples?.children.size){
+                issue({...scope,pointer:scope.pointer+'/examples'},'migration.response.examples-without-schema',
+                    'Swagger declares no response content without schema; OpenAPI media examples require content and would change that meaning','target-representation');
+                continue;
+            }
+            if(schema)for(const name of [...examples?.children.keys()??[]])source.move(pointer+'/examples/'+escape(name),pointer+'/content/'+escape(name)+'/example');
+            if(!schema&&examples)owners.retainNativeHistory({...scope,pointer:scope.pointer+'/examples'},source,pointer+'/examples','empty_bodyless_examples');
+            else source.remove(pointer+'/examples');
             for(const consumer of consumers){
                 const selected=variant(owner,'responses',schema?consumer.media:[]);
                 if(typeof graph.docs.get(consumer.occurrence.resource)!.dataNode(consumer.occurrence.pointer)!.value?.$ref==='string')retargets.set(key(consumer.occurrence),selected);

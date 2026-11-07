@@ -336,6 +336,11 @@ export class MigrationSchemaOwners {
     reserveSchema(origin:MigrationLocation,label:string):{source:MigrationSource;location:MigrationLocation}{
         return this.materialOwner(this.reserve(origin,label),'array-item');
     }
+    reserveDocumentation(origin:MigrationLocation,context:ReferenceGraph,label:string):{source:MigrationSource;location:MigrationLocation}{
+        const entry=this.sources.get(context.root)!,family=entry.doc.dataNode('/swagger')?.value==='2.0'?'2.0':context.family;
+        return this.materialOwner(this.reserve(origin,label,JSON.stringify([context.root,origin.resource,origin.pointer]),
+            {resource:context.root,pointer:componentLocation('schemas',family)!}),'array-item');
+    }
     markProjectionSource(scope:GraphScope):void {
         this.rememberEntry('guard-source',scope,{resource:scope.resource,pointer:scope.pointer},scope,'capture');
     }
@@ -518,6 +523,43 @@ export class MigrationSchemaOwners {
         const location={...owner.location,pointer:owner.location.pointer+'/x-busyapi-retained-value'};
         owner.source.copy(source,pointer,location.pointer,true);source.remove(pointer,true,false);
         owner.source.presentationChanges.push(owner.location.pointer);return location;
+    }
+
+    /** A retired native object is history, so its former typed locators must
+     * not be repaired inside the literal copy. Independent live consumers
+     * retain their own provenance and continue through ordinary edge repair. */
+    retainNativeHistory(origin:MigrationLocation,source:MigrationSource,pointer:string,label:string,context?:ReferenceGraph):MigrationLocation {
+        const captured=source.fork();
+        const retained=this.retainLiteralValue(origin,source,pointer,label,true);
+        const output=this.sources.get(retained.resource)!;
+        const contexts=context?[...this.contexts,context]:this.contexts;
+        for(const context of contexts)for(const edge of context.entryReferences()){
+            this.inspectUse();
+            if(edge.resource!==origin.resource||edge.pointer!==origin.pointer&&!edge.pointer.startsWith(origin.pointer+'/'))continue;
+            const field=retained.pointer+edge.pointer.slice(origin.pointer.length)+'/'+escape(edge.keyword);
+            for(const locations of output.originSets())locations.delete(field);
+        }
+        // Descriptions keep a rendered standard Schema Object owner as well
+        // as their exact historical spelling. This preserves relative links
+        // through the existing Markdown relocation/proof, without interpreting
+        // reference-looking data in the historical object.
+        const descriptions=new Set<string>();
+        for(const context of contexts)for(const scope of context.entryScopes()){
+            this.inspectUse();
+            if(scope.resource!==origin.resource||scope.pointer!==origin.pointer&&!scope.pointer.startsWith(origin.pointer+'/'))continue;
+            const value=context.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
+            if(typeof value?.description!=='string'||!richTextField(scope.kind,scope.family,value,'description',segments(scope.pointer).at(-1)??'',context.allowsReference(scope)))continue;
+            const id=JSON.stringify([context.root,scope.resource,scope.pointer]);if(descriptions.has(id))continue;descriptions.add(id);
+            const from=pointer+scope.pointer.slice(origin.pointer.length)+'/description';
+            if(!captured.doc.dataNode(from))continue;
+            const owner=this.reserveDocumentation(scope,context,label+'_documentation');
+            this.admit(owner.source,4);
+            owner.source.set(owner.location.pointer,{});
+            owner.source.copy(captured,from,owner.location.pointer+'/description',true);
+            const root=pointer+scope.pointer.slice(origin.pointer.length);
+            captured.own(root,false);owner.source.associate(captured,root,owner.location.pointer);
+        }
+        return retained;
     }
 
     /** An assertion variant has new schema identities but retains the source
@@ -720,6 +762,11 @@ export class MigrationSchemaOwners {
         const owner=this.materialOwner(this.reserve(origin,label,JSON.stringify([origin.resource,origin.pointer]),destination),options.layout);
         this.admit(source,8);
         if(owner.source!==source)this.admit(owner.source,8);
+        // Layouts reserve a generated empty material slot. CST copy/move
+        // requires an absent destination; release only that fresh placeholder.
+        if(options.layout&&owner.source.doc.dataNode(owner.location.pointer)){
+            this.admit(owner.source);owner.source.remove(owner.location.pointer);
+        }
         if(owner.source===source)source.move(pointer,owner.location.pointer,true);
         else {owner.source.copy(source,pointer,owner.location.pointer,true);source.remove(pointer);}
         owner.source.presentationChanges.push(owner.retirement.pointer);
@@ -841,6 +888,9 @@ export class MigrationSchemaOwners {
             location:owner.location,retirement:reservation.location,schemaIdentity:options.schemaIdentity===true,
             ...(parameterLayout?{nativeAnnotation:origin.kind}:{})});
         this.admit(input,8);if(owner.source!==input)this.admit(owner.source,8);
+        if(layout&&owner.source.doc.dataNode(owner.location.pointer)){
+            this.admit(owner.source);owner.source.remove(owner.location.pointer);
+        }
         owner.source.copy(input,origin.pointer,owner.location.pointer,true);
         if(options.operationSlot?.parameters?.length){
             // A directly referenced Operation need not admit its lexical Path
@@ -911,7 +961,7 @@ export class MigrationSemanticOrigins {
         // including unused definitions and operations without incoming Links.
         // Typed provenance uses the same relation as reference targets.
         for(const graph of graphs)for(const scope of graph.entryScopes())
-            if(scope.kind==='schema'||scope.kind==='operation')add(graph,scope,scope.kind,'target');
+            if(['schema','operation','parameter','header','request-body','response','example'].includes(scope.kind))add(graph,scope,scope.kind,'target');
         for(const graph of graphs)for(const scope of graph.entryScopes())
             if(scope.kind==='security-array'||scope.kind==='security-requirement')add(graph,scope,scope.kind,'target');
         for(const graph of graphs)for(const {location,scope,field}of this.valueFields(graph)){

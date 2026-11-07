@@ -2,6 +2,7 @@ import {escape,SourceError} from './document';
 import type {ReferenceGraph} from './reference_graph';
 import {swaggerFileSchemas} from './swagger_file';
 import {exampleRepresentation} from './example_representation';
+import {schemaExampleCandidates} from './schema_examples';
 
 export type LocatedSource={resource:string;pointer:string;generation:number;range:number[]};
 type Locate=(resource:string,pointer:string)=>LocatedSource;
@@ -42,6 +43,21 @@ export function swaggerResponseContent(graph:ReferenceGraph,resource:string,poin
         const examplePointer=pointer+'/examples/'+escape(mediaType),entry=doc.dataNode(examplePointer);
         const representation=entry?exampleRepresentation('swagger-response',entry.value,mediaType):undefined;
         const example=entry?{mediaType,source:locate(resource,examplePointer),raw:representation==='serialized'?entry.value:doc.dataJson(examplePointer),text:typeof entry.value==='string'?entry.value:doc.dataJson(examplePointer),dataKind:typeof entry.value==='string'?'string':entry.kind,representation,level:'media'}:undefined;
-        return {mediaType,source:locate(resource,pointer),definition:locate(resource,pointer),schema:Object.hasOwn(value,'schema')?{...locate(resource,pointer+'/schema'),kind:'schema',file,...(fileIssue?{fileIssue}:{}),unconstrained:Object.keys(value.schema??{}).length===0}:undefined,example,examples:example?[example]:[]};
+        // A file has no JSON data instance to serialize as a schema candidate.
+        // Media-keyed wire examples above remain independent of that annotation.
+        const fallback=!example&&scope&&!file?schemaExampleCandidates(graph,scope):undefined;
+        const candidates=fallback?.values.map(source=>{
+            const owner=graph.docs.get(source.resource)!,node=owner.dataNode(source.pointer)!;
+            const representation=exampleRepresentation('example',node.value,mediaType);
+            return {mediaType,name:source.name,source:locate(source.resource,source.pointer),
+                raw:representation==='serialized'?node.value:owner.dataJson(source.pointer),
+                text:typeof node.value==='string'?node.value:owner.dataJson(source.pointer),
+                dataKind:typeof node.value==='string'?'string':node.kind,representation,level:'media',origin:'schema',
+                schemaApplicability:'not-evaluated',schemaContext:source.context.map(step=>({keyword:step.keyword,
+                    ...('selector' in step?{selector:step.selector}:{}),source:locate(step.resource,step.pointer)}))};
+        })??[];
+        const selected=example?[example]:candidates;
+        return {mediaType,source:locate(resource,pointer),definition:locate(resource,pointer),schema:Object.hasOwn(value,'schema')?{...locate(resource,pointer+'/schema'),kind:'schema',file,...(fileIssue?{fileIssue}:{}),unconstrained:Object.keys(value.schema??{}).length===0}:undefined,
+            example:selected[0],examples:selected,...(fallback?{schemaExamples:{complete:fallback.complete,issues:fallback.issues.map(issue=>({code:issue.code,message:issue.message,source:locate(issue.resource,issue.pointer)}))}}:{})};
     });
 }

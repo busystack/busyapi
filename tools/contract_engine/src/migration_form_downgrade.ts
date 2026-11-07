@@ -31,8 +31,18 @@ export function downgradeFormBody(graph:ReferenceGraph,source:MigrationSource,sc
     if(source.doc.dataNode(parent)?.kind!=='array'||!parent.endsWith('/parameters')){
         block(scope.pointer,'migration.form.reusable','A reusable form body needs occurrence-specific form parameter bindings');return;
     }
-    for(const name of body.children.keys())if(!['content','required'].includes(name))
-        block(scope.pointer+'/'+escape(name),'migration.form.body-metadata','This form body metadata needs an explicit target owner');
+    const annotations=[...body.children.keys()].filter(name=>name==='description'||name.startsWith('x-'));
+    if(annotations.length){
+        const retained=owners.reserveDocumentation(scope,graph,'form_body_metadata');owners.admit(retained.source,4);
+        retained.source.set(retained.location.pointer,{});
+        retained.source.associate(source,pointer,retained.location.pointer);
+        for(const name of annotations){
+            retained.source.copy(source,pointer+'/'+escape(name),retained.location.pointer+'/'+escape(name),true);
+            source.remove(pointer+'/'+escape(name));
+        }
+    }
+    for(const name of body.children.keys())if(!['content','required',...annotations].includes(name))
+        block(scope.pointer+'/'+escape(name),'migration.form.body-metadata','Swagger form parameters have no standard owner for this active Request Body field');
     const content=source.doc.dataNode(pointer+'/content');
     const alternatives=[...content?.children.keys()??[]];
     const identities=alternatives.map(name=>mediaSchemaIdentity(source,pointer+'/content/'+escape(name)+'/schema',sources,owners));
@@ -43,8 +53,11 @@ export function downgradeFormBody(graph:ReferenceGraph,source:MigrationSource,sc
     if(!capturedFields)return;
     retainFormHeaderOwners(graph,owners,source,scope,pointer);
     const schema=source.doc.dataNode(at+'/schema')!;
-    for(const alternative of alternatives)for(const name of source.doc.node(pointer+'/content/'+escape(alternative)).children.keys())if(!['schema','encoding'].includes(name))
-        block(scope.pointer+'/content/'+escape(alternative)+'/'+escape(name),'migration.form.media','Swagger formData has no owner for this authored media annotation');
+    for(const alternative of alternatives)for(const name of [...source.doc.node(pointer+'/content/'+escape(alternative)).children.keys()])if(!['schema','encoding'].includes(name)){
+        const original=scope.pointer+'/content/'+escape(alternative)+'/'+escape(name),at=pointer+'/content/'+escape(alternative)+'/'+escape(name);
+        if(name.startsWith('x-'))owners.retainNativeHistory({resource:scope.resource,pointer:original},source,at,'form_media_metadata',graph);
+        else block(original,'migration.form.media','Swagger formData parameters have no standard media-example owner; a wire example cannot become a field/schema annotation');
+    }
     for(const name of schema.children.keys())if(!['type','properties','required'].includes(name)&&!(name==='additionalProperties'&&schema.value.additionalProperties===true))
         block(origin+'/'+escape(name),'migration.form.object-constraint','This object-wide form constraint or annotation needs a faithful Swagger representation');
     const properties=source.doc.dataNode(at+'/schema/properties');
