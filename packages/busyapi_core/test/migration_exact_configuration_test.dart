@@ -38,6 +38,7 @@ void main() {
   for (final scenario in [
     (name: 'missing configuration projections', from: 'projection:missing', to: '', accepted: false),
     (name: 'unrelated configuration projection', from: 'projection:unrelated', to: '', accepted: false),
+    (name: 'unrelated multipart projection', from: 'projection:multipart-unrelated', to: '', accepted: false),
     (name: 'missing parameter review', from: 'parameter-review:missing', to: '', accepted: false),
     (name: 'foreign parameter review source', from: 'parameter-review:foreign', to: '', accepted: false),
     (name: 'untouched', from: '', to: '', accepted: true),
@@ -52,6 +53,7 @@ void main() {
     (name: 'obsolete B05-R1 producer', from: 'producer:91', to: '', accepted: false),
     (name: 'obsolete B05-R3a producer', from: 'producer:94', to: '', accepted: false),
     (name: 'obsolete B05-R3c-3 producer', from: 'producer:99', to: '', accepted: false),
+    (name: 'obsolete B05-R3d-1 producer', from: 'producer:100', to: '', accepted: false),
     (name: 'obsolete B05-R3c-2 producer', from: 'producer:98', to: '', accepted: false),
     (name: 'obsolete B05-R3c-1 producer', from: 'producer:97', to: '', accepted: false),
     (name: 'obsolete B05-R3c producer', from: 'producer:96', to: '', accepted: false),
@@ -92,6 +94,7 @@ child.stdout.on('data', chunk => {
   if (result?.producer === 'busyapi-native-migration' && result.complete && from) {
    if (from === 'projection:missing') delete result.configurationProjections;
    else if (from === 'projection:unrelated') result.configurationProjections = [{pointer:'/environments/manual/authentication',before:null,after:'{}'}];
+   else if (from === 'projection:multipart-unrelated') result.configurationProjections = [{pointer:'/tests/0/body',before:null,after:'{"mediaType":"multipart/form-data","value":{"tag":[]}}',multipart:{name:'tag'}}];
    else if (from === 'parameter-review:missing') delete result.parameterChanges;
    else if (from === 'parameter-review:foreign') result.parameterChanges = [{resource:'file:///uncaptured.json',pointer:'',range:[0,1],name:'p',before:'cookie',after:'form'}];
    else if (from.startsWith('producer:')) result.producerVersion = from.slice('producer:'.length);

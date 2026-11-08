@@ -1,4 +1,5 @@
 import {PositionalEncodingEquivalence} from './migration_positional_encoding';
+import {NamedMultipartEquivalence,proveNamedMultipartOutput} from './migration_named_multipart';
 import {MigrationArrayBounds} from './migration_schema_arrays';
 import {migrationMediaTypes} from './migration_media_objects';
 import {migrationServerSignature} from './migration_servers';
@@ -214,9 +215,18 @@ export function migrationSecurityAlternativeProjection(source:ReferenceGraph,tar
     return {choices,bounds};
 }
 
-function formSignatures(media:any):unknown {
+function formSignatures(media:any,graph?:ReferenceGraph,namedTarget?:string):unknown {
     const type=media.mediaType.split(';')[0].trim().toLowerCase(),multipart=type==='multipart/form-data';
     if(!multipart&&type!=='application/x-www-form-urlencoded')return;
+    if(multipart&&graph&&namedTarget&&media.family==='3.2'){
+        const scope=graph.scopeAs(media.definition.resource,media.definition.pointer,'media');
+        const c=scope&&new NamedMultipartEquivalence(graph).prove(scope,[media.mediaType],namedTarget).certificate;
+        if(c){
+            const rule=c.rule&&graph.docs.get(c.rule.resource)!.dataNode(c.rule.pointer)?.value;
+            const part=c.positions[0]??c.tail!;
+            return [{name:c.name,mode:'content',array:true,contentType:rule?.contentType??new PositionalEncodingEquivalence(graph).defaults(part.values,'3.2'),required:c.required}];
+        }
+    }
     const content=(shape:any)=>shape?.defaultContentType??'text/plain';
     const signature=(name:string,shape:any,rule:any,styled:boolean)=>{
         const types=shape?.types??[],item=shape?.items??(shape?.prefixItems?.length===1?shape.prefixItems[0]:undefined);
@@ -257,7 +267,7 @@ function effectiveUrl(value:string,path:string):string {
 
 /** Representation-sensitive checks supplement native target validation. The
  * signature contains API declarations, never environments or credentials. */
-export function migrationRequestProfiles(graph:ReferenceGraph,resources:Resource[],wire?:ParameterWireProfiles):ReadonlyMap<string,string> {
+export function migrationRequestProfiles(graph:ReferenceGraph,resources:Resource[],wire?:ParameterWireProfiles,namedTarget?:string):ReadonlyMap<string,string> {
     const securityBindings=new Map(graph.references.filter(reference=>reference.connection==='security').map(reference=>[
         JSON.stringify([reference.resource,reference.pointer,reference.keyword]),reference]));
     return new Map(graph.operations().filter(operation=>operation.role==='operation').map(operation=>{
@@ -332,7 +342,7 @@ export function migrationRequestProfiles(graph:ReferenceGraph,resources:Resource
             urls:[...new Set(finite.flat().map(url=>effectiveUrl(url,operation.path)))].sort(),
         }:{path:operation.path,servers:migrationServerSignature(plan.servers)};
         return [operation.occurrence,JSON.stringify(normalize({method:plan.operation.method,effective,
-            parameters,security,body:plan.requestBody?{required:plan.requestBody.required,media:media(plan.requestBody.content),examples:examples(plan.requestBody.content,true),forms:plan.requestBody.content.map((value:any)=>({mediaType:value.mediaType,fields:formSignatures(value)})).sort((a:any,b:any)=>a.mediaType.localeCompare(b.mediaType))}:undefined,
+            parameters,security,body:plan.requestBody?{required:plan.requestBody.required,media:media(plan.requestBody.content),examples:examples(plan.requestBody.content,true),forms:plan.requestBody.content.map((value:any)=>({mediaType:value.mediaType,fields:formSignatures(value,graph,namedTarget)})).sort((a:any,b:any)=>a.mediaType.localeCompare(b.mediaType))}:undefined,
             responses:plan.responses.map((response:any)=>({status:response.status,headers:response.headers.map((header:any)=>({name:header.name,required:header.required})),bodyAllowed:response.bodyAllowed??response.content.length>0,media:response.bodyAllowed===false?[]:media(response.content),examples:response.bodyAllowed===false?[]:examples(response.content,true)}))}))] as const;
     }));
 }
@@ -357,11 +367,13 @@ export function proveMigrationPositionalEncoding(source:ReferenceGraph,target:Re
   if(!media.length||media.some(type=>!type.split(';')[0].trim().toLowerCase().startsWith('multipart/')))continue;
   const fields=(['prefixEncoding','itemEncoding'] as const).filter(field=>Object.hasOwn(value??{},field)&&
    (field==='prefixEncoding'?value[field]:[value[field]]).some((rule:Record<string,unknown>)=>Object.keys(rule).length));
-  if(!fields.length)continue;
+  if(!fields.length&&!(media.some(type=>type.split(';')[0].trim().toLowerCase()==='multipart/form-data')&&
+   (value?.prefixEncoding!==undefined||value?.itemEncoding!==undefined)))continue;
   const schema=source.scopeAs(scope.resource,scope.pointer+'/schema','schema'),maximum=schema?bounds.maximum(schema):undefined;
   const outputs=mapped(scope,scope).map(at=>target.scopeAs(at.resource,at.pointer,'media')).filter((at):at is GraphScope=>!!at&&at.family!=='3.2');
   if(!outputs.length)issue(scope,'migration.invariant.positional-encoding','A positional multipart owner has no delivered Media Type owner','implementation');
   for(const output of outputs){
+   if(proveNamedMultipartOutput(source,target,scope,output,mapped,issue))continue;
    const targetValue=target.docs.get(output.resource)!.dataNode(output.pointer)?.value;
    if(Object.keys(targetValue?.encoding??{}).length)issue(scope,'migration.invariant.positional-encoding','The delivered unnamed multipart owner activates a named Encoding rule','implementation');
    for(const field of fields){

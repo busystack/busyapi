@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:convert';
+import 'migration_named_multipart_review_fixture.dart';
 
 import 'package:busyapi/l10n/generated/app_localizations.dart';
 import 'package:busyapi/src/app/app_theme.dart';
@@ -16,6 +17,7 @@ import '../packages/busyapi_core/test/test_support.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  namedMultipartReviewRegressions();
   setUp(() {
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;

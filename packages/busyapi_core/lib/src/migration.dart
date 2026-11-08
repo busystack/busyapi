@@ -114,7 +114,8 @@ void _verifyMigrationConfigurationProjections(
     final test = parts.length >= 3 && parts[0] == 'tests' && int.tryParse(parts[1]) != null;
     final operation = test && parts.length == 3 && parts[2] == 'operation';
     final parameters = test && parts.length == 3 && parts[2] == 'parameters';
-    if (!environment && !baseUrl && !operation && !parameters && !(test &&
+    final multipart = test && parts.length == 3 && parts[2] == 'body';
+    if (!environment && !baseUrl && !operation && !parameters && !multipart && !(test &&
         (parts.length == 3 && parts[2] == 'server' || parts.length == 4 && parts[2] == 'servers'))) invalid();
     Object? owner = configuration;
     for (final part in parts.take(parts.length - 1)) {
@@ -137,7 +138,7 @@ void _verifyMigrationConfigurationProjections(
       expected = before == null ? null : exactConfiguration(before as String);
       after = exactConfiguration(record['after'] as String);
     } on Object { invalid(); }
-    if ((before != null) != owner.containsKey(key) || !sameExactConfiguration(owner[key], expected, preserveNumberSpelling: parameters)) invalid();
+    if ((before != null) != owner.containsKey(key) || !sameExactConfiguration(owner[key], expected, preserveNumberSpelling: parameters || multipart)) invalid();
     if (operation) {
       final original = owner[key];
       if (original is! Map || after is! Map || original['occurrence'] is! String && original['method'] != null && after['method'] != original['method'] ||
@@ -149,6 +150,24 @@ void _verifyMigrationConfigurationProjections(
           (after['method'] is! String || (after['method'] as String).isEmpty || after['path'] is! String || !(after['path'] as String).startsWith('/')) ||
           after.containsKey('occurrence') && after['occurrence'] is! String ||
           after.containsKey('entry') && after['entry'] is! String) invalid();
+    } else if (multipart) {
+      final certificate = record['multipart'];
+      if (before == null || expected is! Map || after is! Map ||
+          certificate is! Map || certificate.length != 1 || certificate['name'] is! String) invalid();
+      final name = certificate['name'] as String;
+      if (name.isEmpty || RegExp(r'[\x00-\x1f\x7f"\\]').hasMatch(name) ||
+          expected['mediaType'] is! String ||
+          (expected['mediaType'] as String).split(';').first.trim().toLowerCase() != 'multipart/form-data' ||
+          expected['value'] is! List) invalid();
+      final values = <Object?>[];
+      for (final part in expected['value'] as List) {
+        if (part is! Map || part.length != 1 || !part.containsKey(name)) invalid();
+        values.add(part[name]);
+      }
+      // Verify only the exact name/value bijection here. Canonical Engine
+      // certificates own schema, MIME, charset and transfer semantics.
+      final planned = {...expected, 'value': {name: values}};
+      if (!sameExactConfiguration(planned, after, preserveNumberSpelling: true)) invalid();
     } else if (parameters) {
       if (before == null || expected is! Map || after is! Map) invalid();
       // Admit exact whole-value moves or lossless named field extraction.
@@ -287,7 +306,7 @@ void _verifyMigrationReview(
   if (result['version'] != 1 ||
       result['snapshot'] != input.snapshot.identity ||
       result['producer'] != 'busyapi-native-migration' ||
-      result['producerVersion'] != '100' ||
+      result['producerVersion'] != '101' ||
       result['problems'] is! List ||
       result['outputs'] is! List ||
       result['exampleOutputs'] is! List ||

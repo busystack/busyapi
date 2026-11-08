@@ -64,3 +64,5 @@ test('R3d1 publication invariant rejects changed delivered positional defaults',
   location=>[{resource:review.outputRoot,pointer:location.pointer}],(location,code,message,reason)=>problems.push({location,code,message,reason}));
  assert(problems.some(problem=>problem.code==='migration.invariant.positional-encoding'),JSON.stringify(problems));
 });
+
+require('./migration_b05_r3d1b_fixture.cjs')('media');

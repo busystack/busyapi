@@ -13,6 +13,7 @@ import type {ParameterWireProfiles} from './migration_parameter_serialization';
 /** Exact leaf edits in the existing captured configuration, reviewed and
  * published with the contract. These records never contain credentials. */
 export type MigrationConfigurationProjection=Readonly<{pointer:string;before:string|null;after:string;required?:boolean;
+ multipart?:Readonly<{name:string}>;
  rawQueries?:readonly Readonly<{name:string;data:string;destinations:readonly string[];
   targets:readonly Readonly<{name:string;resource:string;pointer:string}>[]}>[];
  cookieGroups?:readonly Readonly<{name:string;destinations:readonly string[]}>[];

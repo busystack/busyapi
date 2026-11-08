@@ -25,8 +25,8 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(MIGRATION_PRODUCER, engine_revision.group(1))
 
     def test_current_revision_is_accepted_and_previous_package_is_rejected(self):
-        verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': '100'})
-        for obsolete in ('25', '34', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45', '46', '47', '48', '49', '50', '51', '52', '53', '54', '55', '56', '57', '58', '59', '60', '61', '62', '63', '64', '65', '66', '67', '68', '69', '70', '71', '72', '73', '74', '75', '76', '77', '78', '79', '80', '81', '82', '83', '84', '85', '86', '87', '88', '89', '90', '91', '92', '93', '94', '95', '96', '97', '98', '99'):
+        verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': '101'})
+        for obsolete in ('25', '34', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45', '46', '47', '48', '49', '50', '51', '52', '53', '54', '55', '56', '57', '58', '59', '60', '61', '62', '63', '64', '65', '66', '67', '68', '69', '70', '71', '72', '73', '74', '75', '76', '77', '78', '79', '80', '81', '82', '83', '84', '85', '86', '87', '88', '89', '90', '91', '92', '93', '94', '95', '96', '97', '98', '99', '100'):
             with self.subTest(obsolete=obsolete):
                 with self.assertRaisesRegex(RuntimeError, 'producer differ'):
                     verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': obsolete})
@@ -523,6 +523,61 @@ class PreflightTests(unittest.TestCase):
                         self.assertFalse(destination.exists())
                         self.assertEqual(source.read_bytes(), raw)
 
+
+    def test_multipart_projection_packets_preserve_exact_values_and_selections(self):
+        before = '{"mediaType":"multipart/form-data","value":[{"tag":9007199254740993.00},{"tag":""}],"partMediaTypes":{"tag":"text/plain"}}'
+        after = '{"mediaType":"multipart/form-data","value":{"tag":[9007199254740993.00,""]},"partMediaTypes":{"tag":"text/plain"}}'
+        record = {'pointer': '/tests/0/body', 'before': before, 'after': after, 'multipart': {'name': 'tag'}}
+        report = preflight_migration(self.fake(self.review(configurationProjections=[record])), self.source,
+                                     '2.0', self.destination, self.originals)
+        self.assertEqual(report['configurationProjections'], [record])
+        for changed in ({**record, 'after': after.replace('9007199254740993.00', '9007199254740992.00')},
+                        {**record, 'after': after.replace('text/plain', 'application/json')},
+                        {**record, 'multipart': {'name': 'different'}},
+                        {**record, 'multipart': {}},
+                        {**record, 'pointer': '/tests/0/parameters'}):
+            with self.subTest(changed=changed):
+                with self.assertRaises(RuntimeError):
+                    preflight_migration(self.fake(self.review(configurationProjections=[changed])), self.source,
+                                        '2.0', self.destination, self.originals)
+                self.assertFalse(self.destination.exists())
+                self.assertEqual(self.source.read_bytes(), self.raw)
+
+    def test_actual_packaged_r3d1b_named_saved_previews(self):
+        bundle = Path(os.environ.get('BUSYAPI_TEST_BUNDLE') or
+                      Path(__file__).resolve().parent.parent / 'build/linux/x64/release/bundle')
+        for version in ['3.2.0', '3.2.1']:
+            for format in ['yaml', 'json']:
+                for target in ['3.1.2', '3.0.4']:
+                    with self.subTest(version=version, format=format, target=target):
+                        project = self.root / ('named-' + version + '-' + format + '-' + target)
+                        project.mkdir()
+                        source = project / ('api.' + format)
+                        part = {'type': 'object', 'required': ['tag'], 'additionalProperties': False,
+                                'properties': {'tag': {'type': 'string'}}}
+                        media = {'schema': {'type': 'array', 'maxItems': 3, 'items': part},
+                                 'prefixEncoding': [{'contentType': 'text/plain'}],
+                                 'itemEncoding': {'contentType': 'text/plain'}}
+                        value = {'openapi': version, 'info': {'title': 'Named positional', 'version': '1'},
+                                 'paths': {'/parts': {'post': {'requestBody': {'content': {'multipart/form-data': media}},
+                                                            'responses': {'204': {'description': 'Empty'}}}}}}
+                        raw = (json.dumps(value) if format == 'json' else
+                               '# Keep named source\r\n' + '\r\n'.join(json.dumps(k) + ': ' + json.dumps(v) for k, v in value.items())).encode()
+                        manifest = project / 'busyapi.yaml'
+                        configuration = ('version: 1\nroots: [{name: api, path: api.' + format + '}]\ntests:\n'
+                                         '- name: selected\n  operation: {entry: api, method: POST, path: /parts}\n'
+                                         '  body: {mediaType: multipart/form-data, value: [{tag: snow}, {tag: ""}]}\n').encode()
+                        source.write_bytes(raw)
+                        manifest.write_bytes(configuration)
+                        destination = self.root / ('output-' + project.name)
+                        report = preflight_migration(bundle / 'busyapi', project, target, destination,
+                                                     {source: raw, manifest: configuration})
+                        self.assertTrue(report['complete'])
+                        self.assertFalse(report['published'])
+                        self.assertEqual(len([record for record in report['configurationProjections'] if 'multipart' in record]), 1)
+                        self.assertFalse(destination.exists())
+                        self.assertEqual(source.read_bytes(), raw)
+                        self.assertEqual(manifest.read_bytes(), configuration)
 
 if __name__ == '__main__':
     unittest.main()

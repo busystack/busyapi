@@ -191,7 +191,7 @@ void main() {
               reason: '${review.result}',
             );
             expect(review.unsaved, isTrue);
-            expect(review.result['producerVersion'], '100');
+            expect(review.result['producerVersion'], '101');
             final outputs = (review.result['outputs'] as List).cast<Map>();
             expect(
               outputs.any(

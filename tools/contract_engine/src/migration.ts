@@ -23,6 +23,8 @@ import {serverTemplate} from './derived_bundle';
 import {captureMigrationMarkdown,rewriteMigrationMarkdown,proveMigrationMarkdown} from './migration_markdown';
 import {proveMigrationPositionalEncoding,migrationRequestProfiles,migrationOperationPairs,migrationSecurityAlternativeProjection,proveMigrationOperationMedia,proveMigrationObjectMetadata,proveMigrationServerSelections} from './migration_invariants';
 import {migrateEncodings} from './migration_encoding';
+import {migrateNamedMultipart} from './migration_named_multipart';
+import {projectMigrationMultipartConfiguration} from './migration_multipart_configuration';
 import {migrateBinarySchemas} from './migration_binary';
 import {specializeBinarySchemaUses} from './migration_binary_uses';
 import {checkOperationTarget,checkRequestBodyTarget,migrateOperationBodies} from './migration_operation';
@@ -52,7 +54,7 @@ import {migrateParameterSerialization,proveMigrationParameterSerialization,type 
 import {projectMigrationParameterConfiguration} from './migration_parameter_configuration';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='100';
+const migrationProducerVersion='101';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const referenceLocator=(reference:GraphReference)=>!reference.connection&&['$ref','$dynamicRef'].includes(reference.keyword)||
     reference.connection==='operationRef'&&reference.keyword==='operationRef';
@@ -132,7 +134,7 @@ export async function planMigration(input:MigrationInput) {
     };
     const refused=(error:unknown,location:MigrationLocation)=>{
         if(!(error instanceof SourceError))throw error;
-        const proofLimit=['limit.migration.parameters','limit.migration.binary','limit.migration.media-schema','limit.migration.media-objects','limit.migration.example-versions','limit.migration.servers','limit.migration.form','limit.migration.examples','limit.migration.literal','limit.request.encoding']
+        const proofLimit=['limit.migration.parameters','limit.migration.binary','limit.migration.media-schema','limit.migration.media-objects','limit.migration.positional-encoding','limit.migration.example-versions','limit.migration.servers','limit.migration.form','limit.migration.examples','limit.migration.literal','limit.request.encoding']
             .some(prefix=>error.code.startsWith(prefix));
         issue(error.source??location,error.code,error.message,error.code==='migration.configuration.alternative'?'target-representation':proofLimit?'unavailable-proof':'implementation');
     };
@@ -428,6 +430,7 @@ export async function planMigration(input:MigrationInput) {
             }
             for(const before of stage.sources)await migrateSchemas(graph,sources,before,after,issue,contexts.map(context=>context.graph),resources,input.exampleResources);
             for(const before of stage.sources)migrateEncodings(graph,sources,before,after,issue,contexts.map(context=>context.graph),owners);
+            if(stage.sources.includes('3.2'))migrateNamedMultipart(contexts.map(context=>context.graph),sources,after,owners,issue);
             const referenceTargets=stage.sources.includes('2.0')?upgradeSwagger(graph,sources,issue,contexts.map(context=>context.graph),after,owners):new Map<string,MigrationLocation>();
             if(problems.length)break;
             const discriminator=stage.sources.includes('2.0')?migrateSwaggerDiscriminators(graph,sources,issue,contexts.map(context=>context.graph),location=>{
@@ -778,7 +781,7 @@ export async function planMigration(input:MigrationInput) {
                 if(parameterChanges.size>=4096)throw new SourceError('limit.migration.parameters','Parameter review exceeds 4096 captured occurrences');
                 parameterChanges.set(JSON.stringify(change),change);
             }
-            const beforeProfiles=migrationRequestProfiles(context.graph,input.resources,parameterProfiles.before),afterProfiles=migrationRequestProfiles(targetGraph,outputResources,parameterProfiles.after);
+            const beforeProfiles=migrationRequestProfiles(context.graph,input.resources,parameterProfiles.before,target.family),afterProfiles=migrationRequestProfiles(targetGraph,outputResources,parameterProfiles.after);
             for(const {before,after}of operationPairs)if(before.role==='operation'&&
                 beforeProfiles.get(before.occurrence)!==afterProfiles.get(after.occurrence))
                 issue(before.source,'migration.invariant.request','The captured operation changed effective URLs, serialization, authentication, request media or responses','implementation');
@@ -873,6 +876,7 @@ export async function planMigration(input:MigrationInput) {
         }
         configurationProjections=[...serverConfiguration.values()].filter(change=>change.required).map(({pointer,before,after})=>({pointer,before,after}));
         configurationProjections.push(...await projectMigrationParameterConfiguration(serverContexts,configurationDoc,issue,input.exampleResources));
+        configurationProjections.push(...await projectMigrationMultipartConfiguration(serverContexts,configurationDoc,issue,input.exampleResources));
         proveMigrationConfiguredOperationSelections(serverContexts,configurationDoc,configurationProjections,issue);
     }catch(error){refused(error,{resource:configurationDoc?.id??input.root,pointer:''});}
     if(problems.length)return {...common(),changes:[],outputs:[]};

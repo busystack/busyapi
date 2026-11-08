@@ -163,3 +163,5 @@ for(const variant of ['nested-content','reserved','exploded-delimited','nested',
 });
 
 require('./migration_b05_r3d1_fixture.cjs')('downgrade');
+
+require('./migration_b05_r3d1b_fixture.cjs')('downgrade');

@@ -3,9 +3,11 @@ import 'dart:io';
 import 'package:busyapi_core/busyapi_core.dart';
 import 'package:test/test.dart';
 import 'test_support.dart';
+import 'migration_r3d1b_fixture.dart';
 
 // Registered through the existing form, binary and Swagger migration gates.
 void positionalMigrationRegressions(String group) {
+  namedMultipartMigrationRegressions(group);
   for (final version in ['3.2.0', '3.2.1']) {
     for (final format in ['yaml', 'json']) {
       test('R3d1 $group $version $format captured publication and cold reopening', () async {

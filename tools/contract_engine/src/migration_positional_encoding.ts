@@ -23,7 +23,7 @@ export class PositionalEncodingEquivalence {
  /** Only unconditional, fixed same-instance applications supply shape
   * evidence. Recursion in a child value is harmless; recursion in this
   * same-instance proof and conditional annotations require further evidence. */
- private parts(scope:GraphScope,active=new Set<string>()):GraphScope[]|undefined {
+ parts(scope:GraphScope,active=new Set<string>()):GraphScope[]|undefined {
   this.inspect();const id=JSON.stringify([scope.resource,scope.pointer]);
   if(active.has(id)||active.size>=128)return;
   const value=this.graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
@@ -39,7 +39,7 @@ export class PositionalEncodingEquivalence {
   }
   return result;
  }
- private defaults(scopes:readonly GraphScope[],family:string,active=new Set<string>()):string|undefined {
+ defaults(scopes:readonly GraphScope[],family:string,active=new Set<string>()):string|undefined {
   this.inspect();const parts:GraphScope[]=[];
   for(const scope of scopes){const values=this.parts(scope);if(!values)return;parts.push(...values);}
   const typed=parts.filter(part=>Object.hasOwn(this.graph.docs.get(part.resource)!.dataNode(part.pointer)?.value??{},'type'));

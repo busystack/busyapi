@@ -10,6 +10,7 @@ import {SchemaPropertyRequirements} from './schema_property_requirements';
 import {runtimeMediaKind} from './runtime_media';
 import {migrationMediaTypes} from './migration_media_objects';
 import {PositionalEncodingEquivalence} from './migration_positional_encoding';
+import {NamedMultipartEquivalence} from './migration_named_multipart';
 
 /** Versioned native fields use captured roles and the existing material/CST
  * owners. A redundant instruction retains its authored value as history;
@@ -129,7 +130,11 @@ export function migrateNewerObjects(graphs:readonly ReferenceGraph[],sources:Map
   }
   if(scope.kind==='oauth-flows'&&Object.hasOwn(value,'deviceAuthorization'))
    issue(field('deviceAuthorization'),'migration.security.device-authorization','The older OAuth Flows Object has no device authorization grant','target-representation');
-  if(scope.kind==='media'&&Object.hasOwn(value,'itemSchema')){
+  const named=scope.kind==='media'&&scope.family==='3.2'&&['3.0','3.1'].includes(target)&&
+   (value.prefixEncoding!==undefined||value.itemEncoding!==undefined)&&
+   [...mediaTypes.get(JSON.stringify([scope.resource,scope.pointer]))??[]].some(type=>type.split(';')[0].trim().toLowerCase()==='multipart/form-data')?
+   new NamedMultipartEquivalence(graph).prove(scope,[...mediaTypes.get(JSON.stringify([scope.resource,scope.pointer]))??[]],target):undefined;
+  if(scope.kind==='media'&&Object.hasOwn(value,'itemSchema')&&!named?.certificate){
    const types=[...mediaTypes.get(JSON.stringify([scope.resource,scope.pointer]))??[]];
    const kinds=types.map(type=>runtimeMediaKind(type)),item=graph.scopeAs(scope.resource,scope.pointer+'/itemSchema','schema');
    if(!item){issue(field('itemSchema'),'migration.media.item-owner','No captured item Schema Object is available','unavailable-proof');continue;}
@@ -148,6 +153,7 @@ export function migrateNewerObjects(graphs:readonly ReferenceGraph[],sources:Map
    // Non-default positional or nested part instructions need a part-shape
    // conversion; archiving them would turn active wire behavior into metadata.
    for(const name of ['prefixEncoding','itemEncoding',...(scope.kind==='encoding'?['encoding']:[])])if(Object.hasOwn(value,name)){
+    if(named?.certificate&&(name==='prefixEncoding'||name==='itemEncoding'))continue;
     const rules=name==='prefixEncoding'?value[name]:name==='encoding'?Object.values(value[name]):[value[name]];
     const empty=rules.every((rule:unknown)=>rule!==null&&typeof rule==='object'&&Object.keys(rule).length===0);
     const types=scope.kind==='media'?[...mediaTypes.get(JSON.stringify([scope.resource,scope.pointer]))??[]]:
@@ -173,7 +179,7 @@ export function migrateNewerObjects(graphs:readonly ReferenceGraph[],sources:Map
      }
      history(name,'default_'+name);
     }
-    else issue(field(name),'migration.encoding.'+name,positional?.reason??'No captured part-shape certificate maps these positional or nested encoding instructions into the older named Encoding representation',positional?.classification??'unavailable-proof');
+    else issue(field(name),'migration.encoding.'+name,named?.reason??positional?.reason??'No captured part-shape certificate maps these positional or nested encoding instructions into the older named Encoding representation',named?.classification??positional?.classification??'unavailable-proof');
    }
   }
  }

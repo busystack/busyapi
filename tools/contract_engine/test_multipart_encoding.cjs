@@ -135,3 +135,5 @@ test('file array unions cannot silently select scalar annotations or item annota
 });
 
 require('./migration_b05_r3d1_fixture.cjs')('multipart');
+
+require('./migration_b05_r3d1b_fixture.cjs')('multipart');

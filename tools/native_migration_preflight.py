@@ -8,7 +8,7 @@ import tempfile
 import re
 
 
-MIGRATION_PRODUCER = '100'
+MIGRATION_PRODUCER = '101'
 
 
 def verify_migration_producer(metadata):
@@ -23,7 +23,7 @@ def verify_configuration_projections(report):
     if not isinstance(records, list) or len(records) > 4096:
         raise RuntimeError('Migration review omitted bounded configuration projections')
     seen = set()
-    pattern = r'/(?:environments/[^/]+/(?:servers/[^/]+|baseUrl)|tests/[0-9]+/(?:operation|parameters|server|servers/[^/]+))'
+    pattern = r'/(?:environments/[^/]+/(?:servers/[^/]+|baseUrl)|tests/[0-9]+/(?:operation|parameters|body|server|servers/[^/]+))'
     for record in records:
         if (not isinstance(record, dict) or not isinstance(record.get('pointer'), str)
                 or not re.fullmatch(pattern, record['pointer']) or record['pointer'] in seen
@@ -45,6 +45,27 @@ def verify_configuration_projections(report):
                 json.loads(record['before'])
         except (ValueError, TypeError) as error:
             raise RuntimeError('Migration returned malformed exact configuration values') from error
+        if record['pointer'].endswith('/body'):
+            certificate = record.get('multipart')
+            name = certificate.get('name') if isinstance(certificate, dict) else None
+            if (not isinstance(name, str) or not name or set(certificate) != {'name'}
+                    or re.search(r'[\x00-\x1f\x7f"\\]', name)):
+                raise RuntimeError('Migration returned malformed multipart identity proof')
+            exact = lambda value: json.loads(value, parse_int=lambda text: ('number', text),
+                                           parse_float=lambda text: ('number', text))
+            try:
+                before, after = exact(record['before']), exact(record['after'])
+                parts = before.get('value') if isinstance(before, dict) else None
+                if (not isinstance(after, dict) or not isinstance(parts, list)
+                        or not isinstance(before.get('mediaType'), str)
+                        or before['mediaType'].split(';')[0].strip().lower() != 'multipart/form-data'
+                        or any(not isinstance(part, dict) or set(part) != {name} for part in parts)
+                        or {**before, 'value': {name: [part[name] for part in parts]}} != after):
+                    raise ValueError('The saved multipart bijection changed unrelated selections')
+            except (ValueError, TypeError) as error:
+                raise RuntimeError('Migration returned unrelated multipart projection') from error
+        elif 'multipart' in record:
+            raise RuntimeError('Migration returned unrelated multipart identity proof')
         for field in ('rawQueries', 'cookieGroups'):
             proofs = record.get(field, [])
             if not isinstance(proofs, list) or len(proofs) > 2048 or proofs and not record['pointer'].endswith('/parameters'):

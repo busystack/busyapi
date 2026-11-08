@@ -231,7 +231,7 @@ void main() {
             MigrationStatus.faithfullyConvertible,
             reason: '${review.result}',
           );
-          expect(review.result['producerVersion'], '100');
+          expect(review.result['producerVersion'], '101');
           expect(review.unsaved, isTrue);
           expect(review.changes, hasLength(5));
           expect(await Directory(review.destination).exists(), isFalse);
@@ -275,7 +275,7 @@ void main() {
           final report = jsonDecode(cliReview.stdout as String) as Map;
           expect(report['status'], 'faithfully-convertible');
           expect(report['published'], false);
-          expect(report['producerVersion'], '100');
+          expect(report['producerVersion'], '101');
           expect(await Directory(cliDestination).exists(), isFalse);
           final applied = await command([
             '--apply',
@@ -413,7 +413,7 @@ void _b05R2Metadata() {
       final root = file.uri.toString(), buffer = await project.buffer(file.uri.toString());
       project.store.replace(root, buffer.text.replaceFirst('Saved R2', 'Unsaved R2'));
       final review = await project.prepareMigration(root, '${directory.path}/target', targetVersion: '2.0');addTearDown(review.close);
-      expect(review.publishable, true, reason: '${review.result}');expect(review.unsaved, true);expect(review.result['producerVersion'], '100');
+      expect(review.publishable, true, reason: '${review.result}');expect(review.unsaved, true);expect(review.result['producerVersion'], '101');
       final repeat = await project.prepareMigration(root, review.destination, targetVersion: '2.0');addTearDown(repeat.close);
       expect(repeat.identity, review.identity);
       for (final failure in ['cancel', 'race', 'failure']) {
@@ -457,7 +457,7 @@ void _b05R2Metadata() {
       Future<ProcessResult> command(List<String> extra) => Process.run('$testBundle/busyapi', [...arguments, ...extra],
         environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
       final preview = await command([]);expect(preview.exitCode, 0, reason: '${preview.stdout} ${preview.stderr}');
-      final report = jsonDecode(preview.stdout as String) as Map;expect(report['producerVersion'], '100');expect(report['published'], false);
+      final report = jsonDecode(preview.stdout as String) as Map;expect(report['producerVersion'], '101');expect(report['published'], false);
       final applied = await command(['--apply', report['reviewIdentity'] as String]);expect(applied.exitCode, 0, reason: '${applied.stdout} ${applied.stderr}');
       expect(await file.readAsString(), original);
       final moved = await Directory(review.destination).rename('${directory.path}/cold');await file.delete();
@@ -572,7 +572,7 @@ void _b05OperationContexts() {
       Future<ProcessResult> cli(List<String> extra) => Process.run('$testBundle/busyapi', ['migrate', directory.path, '--root', 'first', '--target', target, '--output', cliDestination, '--json', ...extra],
         environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
       final preview = await cli([]); expect(preview.exitCode, bodyApplicability ? 2 : 0, reason: '${preview.stdout}\n${preview.stderr}');
-      final report = jsonDecode(preview.stdout as String) as Map; expect(report['producerVersion'], '100'); expect(report['published'], false);
+      final report = jsonDecode(preview.stdout as String) as Map; expect(report['producerVersion'], '101'); expect(report['published'], false);
       final cliDecisions = [for (final problem in (report['problems'] as List).cast<Map>().where((problem) => problem['code'] == 'migration.body.ignored-activation')) ...['--decision', '${problem['id']}=omit-ignored-body']];
       final approved = cliDecisions.isEmpty ? preview : await cli(cliDecisions); expect(approved.exitCode, 0, reason: '${approved.stdout}\n${approved.stderr}');
       final approvedReport = jsonDecode(approved.stdout as String) as Map;

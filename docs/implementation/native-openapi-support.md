@@ -31,6 +31,112 @@ consume those shared results. Source-preserving transactions remain authoritativ
 Current changes require complete engine, Core, native and packaged verification;
 source inspection or a successful build is not runtime acceptance.
 
+## B05-R3d-1b: Named multipart continuation (partial source implementation)
+
+**R3d-1b remains incomplete and unverified. It is not source-complete.**
+This continuation starts at `63c1f4718608a100537e3b5c2ce961cc000ed4e0`
+on the primary `release/v0.1.0` checkout. The positional-default certificate
+and previous work remain in place. R3d-1, B05-R3d, B05 and W3.09 remain
+incomplete. R3d-1c, nested Encoding, response Encoding and general typed
+multipart execution (W4.01) have not begun in this continuation.
+
+A named content certificate now proves the closed singleton-name bijection
+`[{n:v0}, ..., {n:vk}]` to `{n:[v0, ..., vk]}`. It obtains names from captured
+unconditional schemas and fixed references, never filenames or one payload.
+Repeated-field order follows RFC 7578 §5.2. Array bounds, uniqueItems,
+whole-array const/enum constraints and applicable positional value-schema
+conjunctions travel through that bijection. The 3.1 target retains finite
+prefix constraints; the 3.0 path requires established homogeneous item
+constraints. Unbounded homogeneous tails stay symbolic. Field requiredness
+also accounts for const/enum exclusion of the empty array. Missing body,
+absent field, selected empty array and empty part values retain separate
+configuration coordinates.
+
+Complete effective media alternatives and parameters, charset, explicit versus
+default selection, schema transfer annotations and independently defined part
+Headers must agree across every applicable position and the tail. One named
+Encoding cannot replace conflicting positional rules. The existing MIME,
+transfer, schema-reference, array-bound and assertion proof implementations
+supply the evidence. No codec, schema evaluator or ownership registry is added.
+Part and whole schemas and Headers retain neutral owners through A01–A03;
+only the selected media envelope receives the generated named schema and rule.
+Existing media materialization separates request envelopes and YAML aliases.
+
+Planning, final request profiles and the existing positional publication
+invariant consume the named certificate. The final check compares the complete
+projected array assertions, neutral value-schema constraints and targets,
+Header constraints and targets, media alternatives and selection mode. It
+rejects extra fields/rules and changed bounds, original values or Header
+requirements. This is a bounded language/codec correspondence; complete
+production comparison of actual serialized multipart bytes for all reviewed
+representations is **still missing**.
+
+Saved ordered singleton maps project into exact named arrays through reviewed
+`/tests/i/body` records. Already named arrays with a captured source inverse
+remain unchanged. Source and target schema evaluation validates the inverse;
+number spellings, empty values and unrelated body settings remain exact. Core
+and packaged preflight admit only this structural bijection and preserve the
+original media, authentication, Server and environment settings. No MIME logic
+is duplicated in Dart. Existing native review and CLI expose these body records
+and all changed source owners through their shared review/publication paths.
+
+| Remaining R3d-1b gap or refusal | Classification / required continuation |
+| --- | --- |
+| Several fixed names imposing cross-field order | Target restriction: older object-based form-data cannot guarantee that order. This does not establish a restriction for every multi-name array language. |
+| Finite-domain name discovery or multi-name languages closed under all permitted interleavings | Unavailable proof: finite-domain factorization/shuffle certificates are not implemented. |
+| Nonhomogeneous finite 3.0 repeated-value tuples, despite potentially finite representable languages | Unavailable proof: this named certificate has not integrated exhaustive finite tuple lowering. |
+| Shared reusable Media Type with different effective form/non-form media contexts | Unavailable proof: per-context neutral Media Type specialization remains unfinished. Same-context request materialization does not close this gap. |
+| Position-dependent media, Headers or explicit/default selections for one repeated name | Target restriction in one older named Encoding owner. |
+| Unknown identities, unestablished homogeneous tails, style/nested rules, missing decoding evidence, resource-recursive structural inverses | Unavailable proof; no guessed names, finite truncation or target incompatibility claim. |
+| Authored multipart examples requiring value restructuring; unsupported Header-content/resource lowerings | Unavailable representation/inverse proof; retained declarations cannot silently lose their independent choices. |
+| Saved file inputs without captured payload bytes, raw multipart saved values, unsupported saved shapes or incompatible entry inverses | Explicit `migration.multipart.saved-proof` / `migration.multipart.saved-context` blocker; no saved input or media selection is discarded. |
+| Complete actual-byte production invariants and full cross-component regression matrix | Implementation remains unfinished. Prepared decoder comparisons do not constitute full serializer equivalence or executed acceptance. |
+
+Prepared **unexecuted** regressions extend all five requested Engine suites
+through `migration_b05_r3d1b_fixture.cjs`. They cover both 3.2 patches,
+YAML/JSON, direct 3.1/3.0 targets, repeated/fixed same-name positions,
+optional finite prefixes, symbolic tails, conflicting rules, unknown names,
+cross-field order refusals, media alternatives, encoded and raw binary octets,
+external schemas/Headers, same-context shared Media Types, YAML aliases,
+saved exact values and selections, file-inverse refusal, cold reopening and
+final-owner mutation controls. The different-media shared-owner case remains
+a negative control rather than a claimed conversion.
+
+Core's existing form/binary/Swagger gates import
+`migration_r3d1b_fixture.dart` through the existing R3d-1 fixture, preparing
+unsaved captures, saved projections, cancellation, stale reviews, destination
+races, publication, CLI preview and cold reopening after original deletion.
+The registered native migration review suite imports the named owner/body
+review fixture. The existing packaged preflight suite prepares named saved
+previews, exact projection packet controls and obsolete producer rejection.
+No new runner or gate was introduced. Broader file/header-selection journeys,
+actual source/target emitted-byte comparisons and the remaining requested
+failure/ownership matrix are still outstanding.
+
+Production files changed: Engine `migration_named_multipart.ts`,
+`migration_multipart_configuration.ts`, `migration_positional_encoding.ts`,
+`migration_newer_objects.ts`, `migration_invariants.ts`,
+`migration_server_configuration.ts`, `migration.ts`; Core `migration.dart`;
+and `tools/native_migration_preflight.py`. Other existing test assertion edits
+synchronize migration admission. Migration producer/Core/preflight admission
+is **101**; **100** is obsolete. Evaluator **1.18.0+62**, graph **9**,
+parameter mock **6**, response mock **5**, sample **4** and schema-example
+projection **3** are unchanged. Bundles remain unbuilt.
+
+Verification performed: normative OpenAPI 3.2.1 §§4.14.5/4.15 and applicable
+3.1.2/3.0.4 Encoding text, source/ownership/protocol/gate inspection, local Git
+inspection and `git diff --check` only. The execution hold remains active:
+no tests, compilers, analyzers, builds, code generation, CI, graphical or
+performance checks ran. Prepared regressions are not reported as passing.
+Snapcraft remains skipped. No third-party software or installed official
+Flutter SDK changes, push or remote refresh were performed.
+
+The listed R3d-1b implementation gaps must be completed before claiming its
+source-complete handoff. The separately assigned next assignment remains
+**B05-R3d-1c — Remaining union/conditional and binary equivalence proofs,
+dedicated native review, complete positional Encoding regression matrix and
+final R3d-1 reconciliation**; it has not begun here.
+
 ## B05-R3d-1: Positional Encoding (partial source implementation)
 
 **R3d-1 is incomplete and unverified. It is not source-complete.** This work
