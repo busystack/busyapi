@@ -42,7 +42,7 @@ import {migrateTerms} from './migration_terms';
 import {migrateServerVariableDefaults,retainDefaultServers} from './migration_servers';
 import {migrationLogicalPointers} from './migration_yaml_ownership';
 import {separateMigrationRoles,separateMigrationEntryUses,materializeMigrationOperationConnections} from './migration_schema_uses';
-import {repairMigrationOwnerReferences} from './migration_owner_references';
+import {captureMigrationOwnerReferences,repairMigrationOwnerReferences} from './migration_owner_references';
 import {proveMigrationSchemaResources} from './migration_schema_resource_contexts';
 import {MigrationSchemaOwners,MigrationSemanticOrigins} from './migration_schema_owners';
 import {projectSchemaReference} from './schema_reference_projection';
@@ -54,7 +54,7 @@ import {migrateParameterSerialization,proveMigrationParameterSerialization,type 
 import {projectMigrationParameterConfiguration} from './migration_parameter_configuration';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='103';
+const migrationProducerVersion='104';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const referenceLocator=(reference:GraphReference)=>!reference.connection&&['$ref','$dynamicRef'].includes(reference.keyword)||
     reference.connection==='operationRef'&&reference.keyword==='operationRef';
@@ -450,7 +450,22 @@ export async function planMigration(input:MigrationInput) {
             }))referenceTargets.set(key,target);
             if(problems.length)break;
             relocatePathItemComponents(contexts.map(context=>context.graph),sources,stage.sources,after,owners);
+            // Named projections and neutral envelopes can introduce static
+            // schema/Header/Example edges before their reusable parents move.
+            // Capture those graph edges while the old targets still resolve,
+            // then finish them through the common terminal-owner repair.
+            const mediaReferences=stage.sources.includes('3.2')&&['3.0','3.1'].includes(after)?(()=>{
+                const capture=preparationInput(),prepared=createGraph(capture);
+                return migrationDocumentContexts(capture,prepared,issue,true);
+            })():undefined;
+            if(mediaReferences)captureMigrationOwnerReferences(mediaReferences,sources);
             relocateMediaComponents(contexts.map(context=>context.graph),sources,stage.sources,after,owners);
+            if(mediaReferences){
+                const capture=preparationInput(),prepared=createGraph(capture);
+                const delivered=migrationDocumentContexts(capture,prepared,issue,true);
+                repairMigrationOwnerReferences(mediaReferences,sources,owners,issue,delivered.map(context=>context.graph));
+            }
+            if(problems.length)break;
             for(const [id]of createdResources)if(!resources.some(resource=>resource.id===id))
                 resources.push({id,text:sources.get(id)!.doc.text,generation:0,identity:digest(sources.get(id)!.doc.text)});
             for(const [id,specification]of graph.specifications){

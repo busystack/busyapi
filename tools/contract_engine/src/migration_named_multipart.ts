@@ -13,7 +13,7 @@ import {MultipartEncoding} from './multipart_encoding';
 import {FormSemantics,formContentType,formLiteralType,type FormShape} from './form_semantics';
 import {runtimeMediaKind} from './runtime_media';
 import {migrationScopes} from './migration_documents';
-import {migrationMediaTypes} from './migration_media_objects';
+import {migrationMediaTypes,migrationMediaDefinition,migrationMediaOccurrence,migrationMediaOccurrences} from './migration_media_objects';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import type {MigrationLocation,MigrationSource} from './migration_source';
 import type {MigrationIssue} from './migration_schema';
@@ -22,7 +22,8 @@ type Part=NamedPart;
 export type NamedMultipartField=Readonly<{name:string;parts:readonly Part[];required:boolean;
  rule?:MigrationLocation;explicitMedia:boolean;mediaIdentity:string}>;
 const finiteCertificates=new WeakMap<ReferenceGraph,Map<string,NamedMultipartProof>>();
-const certificateKey=(scope:GraphScope,target:string)=>JSON.stringify([scope.resource,scope.pointer,target]);
+const certificateKey=(graph:ReferenceGraph,scope:GraphScope,target:string,types:readonly string[])=>
+ JSON.stringify([migrationMediaOccurrence(graph,scope)?.identity??[graph.root,scope],types,target]);
 export const namedMultipartFields=(c:NamedMultipartCertificate):readonly NamedMultipartField[]=>c.fields??[
  {name:c.name,parts:[...c.positions,...(c.tail?[c.tail]:[])],required:c.required,rule:c.rule,explicitMedia:c.explicitMedia,mediaIdentity:c.mediaIdentity}];
 export type NamedMultipartCertificate=Readonly<{
@@ -103,16 +104,16 @@ export class NamedMultipartEquivalence {
   return '{'+fields.sort().join(',')+'}';
  }
  prove(scope:GraphScope,types:readonly string[],target:string):NamedMultipartProof {
-  return finiteCertificates.get(this.graph)?.get(certificateKey(scope,target))??this.single(scope,types,target);
+  return finiteCertificates.get(this.graph)?.get(certificateKey(this.graph,scope,target,types))??this.single(migrationMediaDefinition(this.graph,scope),types,target,scope);
  }
- async prepare(scope:GraphScope,types:readonly string[],target:string,examples:readonly ExternalExampleResourcePacket[]=[]):Promise<void> {
+ async prepare(occurrence:GraphScope,types:readonly string[],target:string,examples:readonly ExternalExampleResourcePacket[]=[]):Promise<void> {
   const existing=finiteCertificates.get(this.graph)??new Map<string,NamedMultipartProof>();finiteCertificates.set(this.graph,existing);
-  const key=certificateKey(scope,target);if(existing.has(key))return;
-  const single=this.single(scope,types,target);if(single.certificate){existing.set(key,single);return;}
-  const media=this.graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value,marker=scope.pointer.lastIndexOf('/content/');
+  const key=certificateKey(this.graph,occurrence,target,types);if(existing.has(key))return;
+  const scope=migrationMediaDefinition(this.graph,occurrence),single=this.single(scope,types,target,occurrence);if(single.certificate){existing.set(key,single);return;}
+  const media=this.graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value,marker=occurrence.pointer.lastIndexOf('/content/');
   if(!['3.0','3.1'].includes(target)||!types.length||types.some(type=>type.split(';')[0].trim().toLowerCase()!=='multipart/form-data')||
    media?.encoding!==undefined||media?.example!==undefined||media?.examples!==undefined||
-   marker>=0&&!this.graph.scopeAs(scope.resource,scope.pointer.slice(0,marker),'request-body')||
+   marker<0||!this.graph.scopeAs(occurrence.resource,occurrence.pointer.slice(0,marker),'request-body')||
    media?.prefixEncoding===undefined&&media?.itemEncoding===undefined){existing.set(key,single);return;}
   const schema=this.graph.scopeAs(scope.resource,scope.pointer+'/schema','schema'),item=this.graph.scopeAs(scope.resource,scope.pointer+'/itemSchema','schema');
   if(!schema){existing.set(key,single);return;}
@@ -330,11 +331,11 @@ export class NamedMultipartEquivalence {
   if(target==='3.0'&&!finite&&parts.some(part=>this.valueIdentity(part)!==this.valueIdentity(parts[0])))return unavailable('Nonhomogeneous repeated-field constraints require a complete finite tuple-value certificate');
   return {name:parts[0].name,parts,required:false,rule:selected,explicitMedia:explicit,mediaIdentity:identity};
  }
- private single(scope:GraphScope,types:readonly string[],target:string):NamedMultipartProof {
+ private single(scope:GraphScope,types:readonly string[],target:string,occurrence:GraphScope=scope):NamedMultipartProof {
   const media=this.graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
   if(media?.prefixEncoding===undefined&&media?.itemEncoding===undefined)return unavailable('No captured positional Encoding declaration requires a named projection');
-  const marker=scope.pointer.lastIndexOf('/content/');
-  if(marker>=0&&!this.graph.scopeAs(scope.resource,scope.pointer.slice(0,marker),'request-body'))return unavailable('Named positional conversion requires a captured request-body consumer; response and nested Encoding remain separately assigned');
+  const marker=occurrence.pointer.lastIndexOf('/content/');
+  if(marker<0||!this.graph.scopeAs(occurrence.resource,occurrence.pointer.slice(0,marker),'request-body'))return unavailable('Named positional conversion requires a captured request-body consumer; response and nested Encoding remain separately assigned');
   if(!types.length||types.some(type=>type.split(';')[0].trim().toLowerCase()!=='multipart/form-data'))return unavailable('The named certificate needs an independently specialized multipart/form-data consumer');
   if(!['3.0','3.1'].includes(target))return restriction('This named positional certificate requires an OpenAPI named Encoding owner');
   if(media?.encoding!==undefined)return unavailable('A previously ignored named Encoding map must not become active');
@@ -519,13 +520,12 @@ export function projectNamedMultipartValue(doc:SourceDocument,pointer:string,nam
  * lookup can reuse evidence across unsaved generations or entry contexts. */
 export async function prepareNamedMultipart(graphs:readonly ReferenceGraph[],target:string,examples:readonly ExternalExampleResourcePacket[]=[],finalTarget=target):Promise<void> {
  if(!['3.0','3.1'].includes(target))return;
- const types=migrationMediaTypes(graphs);
  for(const graph of graphs){
   const proof=new NamedMultipartEquivalence(graph);
-  for(const scope of graph.entryScopes())if(scope.kind==='media'&&scope.family==='3.2'){
-   const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
+  for(const {use:scope,definition,mediaType}of migrationMediaOccurrences(graph))if(scope.family==='3.2'){
+   const value=graph.docs.get(definition.resource)!.dataNode(definition.pointer)?.value;
    if(value?.prefixEncoding!==undefined||value?.itemEncoding!==undefined){
-    const media=[...types.get(JSON.stringify([scope.resource,scope.pointer]))??[]];
+    const media=[mediaType];
     await proof.prepare(scope,media,target,examples);
     // A 3.0 review traverses 3.1. Carry the final tuple certificate through
     // that hop, including single-name tuples, rather than emitting prefixes
@@ -533,7 +533,7 @@ export async function prepareNamedMultipart(graphs:readonly ReferenceGraph[],tar
     if(target==='3.1'&&finalTarget==='3.0'){
      await proof.prepare(scope,media,finalTarget,examples);
      const final=proof.prove(scope,media,finalTarget);
-     if(!final.certificate||final.certificate.language)finiteCertificates.get(graph)!.set(certificateKey(scope,target),final);
+     if(!final.certificate||final.certificate.language)finiteCertificates.get(graph)!.set(certificateKey(graph,scope,target,media),final);
     }
    }
   }
@@ -596,9 +596,9 @@ export function migrateNamedMultipart(graphs:readonly ReferenceGraph[],sources:R
  * codecs and charset decoding are unchanged under the proved name bijection.
  */
 export function proveNamedMultipartOutput(source:ReferenceGraph,target:ReferenceGraph,scope:GraphScope,output:GraphScope,
- mapped:(location:MigrationLocation,scope:GraphScope)=>readonly MigrationLocation[],issue:MigrationIssue):boolean {
- const media=migrationMediaTypes([source]).get(JSON.stringify([scope.resource,scope.pointer]));
- const prover=new NamedMultipartEquivalence(source),proof=prover.prove(scope,[...media??[]],output.family),c=proof.certificate;
+ mapped:(location:MigrationLocation,scope:GraphScope)=>readonly MigrationLocation[],issue:MigrationIssue,
+ media:readonly string[]=[...migrationMediaTypes([source]).get(JSON.stringify([scope.resource,scope.pointer]))??[]]):boolean {
+ const prover=new NamedMultipartEquivalence(source),proof=prover.prove(scope,media,output.family),c=proof.certificate;
  if(!c)return false;
  const fail=(message:string)=>issue(scope,'migration.invariant.named-multipart',message,'implementation');
  const neutral=(scope:GraphScope):MigrationLocation=>{

@@ -16,7 +16,7 @@ async function valid(input,text,schema=at+'/schema',wire=false){
 }
 async function review(input){
  const before=JSON.stringify(input),result=await planMigration(input);assert.equal(JSON.stringify(input),before);
- assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(result.producerVersion,'103');
+ assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(result.producerVersion,'104');
  const cold={root:result.outputRoot,resources:result.outputs,snapshot:'multi-cold'};assert.equal(analyse(cold).complete,true);
  return {result,cold,graph:createGraph(cold).graph};
 }
@@ -146,11 +146,21 @@ module.exports=function register(group){
   const {cold,graph}=await review(input);assert(graph.entryReferences().filter(edge=>['schema','header'].includes(edge.kind)).every(edge=>edge.resolution==='resolved'));
   const wire=bytes([{name:'b',value:'snow'},{name:'a',value:'雪'}]);assert.equal(await valid(input,wire,undefined,true),true);assert.equal(await valid(cold,wire,undefined,true),true);
  });
- if(group==='downgrade')test('R3d1b2 multi-name mixed-media reusable contexts remain a subsequent ownership task',async()=>{
+ if(group==='downgrade')test('R3d1b2 active mixed-media positional differences retain a target restriction',async()=>{
   const {input,value,encode}=capture('3.2.1','json','3.1.2',{schema:{type:'array',maxItems:2,items:alternatives(['a','b'])},itemEncoding:{contentType:'text/plain'}});
   const media=value.paths['/parts'].post.requestBody.content['multipart/form-data'];value.components={mediaTypes:{Shared:media}};
   value.paths['/parts'].post.requestBody.content={'multipart/form-data':{$ref:'#/components/mediaTypes/Shared'},'multipart/mixed':{$ref:'#/components/mediaTypes/Shared'}};
-  input.resources[0].text=encode(value);const result=await planMigration(input);assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);assert(result.problems.some(problem=>problem.reason==='unavailable-proof'));
+  input.resources[0].text=encode(value);const result=await planMigration(input);assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);
+  assert(result.problems.some(problem=>problem.reason==='target-representation'&&problem.pointer.includes('multipart~1mixed')),JSON.stringify(result.problems));
+ });
+ if(group==='downgrade')test('R3d1b2 a JSON consumer does not block a faithful multi-name form occurrence',async()=>{
+  const {input,value,encode}=capture('3.2.1','json','3.1.2',{schema:{type:'array',maxItems:2,items:alternatives(['a','b'])},itemEncoding:{contentType:'text/plain'}});
+  const media=value.paths['/parts'].post.requestBody.content['multipart/form-data'];value.components={mediaTypes:{Shared:media}};
+  value.paths['/parts'].post.requestBody.content={'multipart/form-data':{$ref:'#/components/mediaTypes/Shared'},'application/json':{$ref:'#/components/mediaTypes/Shared'}};
+  input.resources[0].text=encode(value);const {cold,graph}=await review(input);
+  assert.equal(graph.docs.get(cold.root).dataNode(at+'/schema').value.type,'object');
+  const edge=graph.referenceAs(cold.root,at.replace('multipart~1form-data','application~1json')+'/schema','$ref','schema');assert.equal(edge.resolution,'resolved');
+  assert.equal(graph.docs.get(edge.targetResource).dataNode(edge.targetPointer).value.type,'array');
  });
  if(group==='downgrade')test('R3d1b2 large finite name products refuse completeness without a finite approximation',async()=>{
   const {input}=capture('3.2.1','json','3.1.2',{schema:{type:'array',maxItems:32,items:alternatives(['a','b','c'])},itemEncoding:{contentType:'text/plain'}}),result=await planMigration(input);

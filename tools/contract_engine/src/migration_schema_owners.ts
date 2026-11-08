@@ -976,7 +976,7 @@ export class MigrationSemanticOrigins {
         // including unused definitions and operations without incoming Links.
         // Typed provenance uses the same relation as reference targets.
         for(const graph of graphs)for(const scope of graph.entryScopes())
-            if(['schema','path-item','operation','parameter','header','request-body','response','example'].includes(scope.kind))add(graph,scope,scope.kind,'target');
+            if(['schema','path-item','operation','parameter','header','request-body','response','media','example'].includes(scope.kind))add(graph,scope,scope.kind,'target');
         for(const graph of graphs)for(const scope of graph.entryScopes())
             if(scope.kind==='security-array'||scope.kind==='security-requirement')add(graph,scope,scope.kind,'target');
         for(const graph of graphs)for(const {location,scope,field}of this.valueFields(graph)){

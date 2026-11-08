@@ -5,6 +5,25 @@ import type {MigrationIssue} from './migration_schema';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import {migrationLocations,type MigrationLocation,type MigrationSource} from './migration_source';
 
+/** Converters can introduce typed reference fields before later component
+ * moves. Capture their current coordinates through the same CST relation;
+ * existing authored/foreign provenance remains independent. Literal-looking
+ * values never enter this graph-selected inventory. */
+export function captureMigrationOwnerReferences(contexts:readonly DocumentContext[],sources:ReadonlyMap<string,MigrationSource>):void {
+    let work=0;
+    for(const {graph}of contexts)for(const reference of graph.entryReferences()){
+        if(++work>2000000)throw new SourceError('limit.migration.owners','Generated reference capture exceeds 2000000 fields');
+        if(reference.resolution!=='resolved'||reference.connection||!['$ref','$dynamicRef'].includes(reference.keyword))continue;
+        const source=sources.get(reference.resource)!,field=reference.pointer+'/'+escape(reference.keyword);
+        if(!source.origins.has(field))source.origins.set(field,new Set([field]));
+        for(const target of [{resource:reference.targetResource!,pointer:reference.targetPointer!},...reference.dynamic?.candidates??[]]){
+            if(++work>2000000)throw new SourceError('limit.migration.owners','Generated reference capture exceeds 2000000 fields');
+            const output=sources.get(target.resource)!;
+            if(!output.origins.has(target.pointer))output.origins.set(target.pointer,new Set([target.pointer]));
+        }
+    }
+}
+
 /** Finish static edges after all reservations have materialized. Inserting a
  * container owner in a later entry must also repair an earlier owner's copied
  * fields. Coordinates and targets come exclusively from the common entry/role
@@ -55,7 +74,7 @@ export function repairMigrationOwnerReferences(contexts:readonly DocumentContext
                 }
             }
             inspect();const id=JSON.stringify([at.resource,at.pointer]),previous=edits.get(id);
-            const changed=!same(owner,scope)||!same(target,origin);
+            const changed=!same(owner,scope)||!same(target,origin)||!same(targets[0],origin)||!same(at,field);
             if(previous){previous.changed||=changed;previous.conflict||=previous.value!==value;}
             else edits.set(id,{at,value,changed,reference,conflict:false});
         }

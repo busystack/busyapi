@@ -18,7 +18,10 @@ import {NamedMultipartEquivalence} from './migration_named_multipart';
  * pretending to implement the missing target behavior. */
 export function migrateNewerObjects(graphs:readonly ReferenceGraph[],sources:Map<string,MigrationSource>,
  families:readonly string[],target:string,owners:MigrationSchemaOwners,issue:MigrationIssue):void {
- const mediaTypes=migrationMediaTypes(graphs,sources);let work=0;
+ // Media references have already been materialized. Only the actual content
+ // key owns applicability; copy provenance must not pool other consumers back
+ // into the canonical, now unbound definition.
+ const mediaTypes=migrationMediaTypes(graphs);let work=0;
  for(const scope of migrationScopes(graphs)){
   if(!families.includes(scope.family))continue;
   const graph=graphs.find(graph=>{
@@ -138,30 +141,45 @@ export function migrateNewerObjects(graphs:readonly ReferenceGraph[],sources:Map
    const types=[...mediaTypes.get(JSON.stringify([scope.resource,scope.pointer]))??[]];
    const kinds=types.map(type=>runtimeMediaKind(type)),item=graph.scopeAs(scope.resource,scope.pointer+'/itemSchema','schema');
    if(!item){issue(field('itemSchema'),'migration.media.item-owner','No captured item Schema Object is available','unavailable-proof');continue;}
-   if(!kinds.length||kinds.some((kind,index)=>!['json-lines','json-sequence','event-stream'].includes(kind)&&!types[index].split(';')[0].trim().toLowerCase().startsWith('multipart/'))){
+   if(!types.length||types.every((type,index)=>!type.includes('*')&&['json','text'].includes(kinds[index]))){
+    // An unbound definition, or a complete non-sequential representation,
+    // must not gain an array assertion from an inapplicable itemSchema.
+    // Its independently addressable schema retains the common neutral owner.
+    if(source.doc.dataNode(pointer+'/itemSchema'))owners.move(item,source,pointer+'/itemSchema','inactive_media_item',{context:graph,layout:'array-item'});
+   }else if(kinds.some((kind,index)=>!['json-lines','json-sequence','event-stream'].includes(kind)&&!types[index].split(';')[0].trim().toLowerCase().startsWith('multipart/'))){
     issue(field('itemSchema'),'migration.media.item-model','No captured sequential media model establishes an equivalent older whole-content array schema for this item constraint','unavailable-proof');continue;
+   }else {
+    const schema=graph.scopeAs(scope.resource,scope.pointer+'/schema','schema');
+    if(schema&&source.doc.dataNode(pointer+'/schema')){
+     const retained=owners.move(schema,source,pointer+'/schema','sequence_content_schema',{context:graph,layout:'array-item'});
+     source.set(pointer+'/schema',{allOf:[{$ref:owners.reference(retained,target)},{type:'array'}]});
+     source.move(pointer+'/itemSchema',pointer+'/schema/allOf/1/items');
+    }else {source.set(pointer+'/schema',{type:'array'});source.move(pointer+'/itemSchema',pointer+'/schema/items');}
    }
-   const schema=graph.scopeAs(scope.resource,scope.pointer+'/schema','schema');
-   if(schema&&source.doc.dataNode(pointer+'/schema')){
-    const retained=owners.move(schema,source,pointer+'/schema','sequence_content_schema',{context:graph,layout:'array-item'});
-    source.set(pointer+'/schema',{allOf:[{$ref:owners.reference(retained,target)},{type:'array'}]});
-    source.move(pointer+'/itemSchema',pointer+'/schema/allOf/1/items');
-   }else {source.set(pointer+'/schema',{type:'array'});source.move(pointer+'/itemSchema',pointer+'/schema/items');}
   }
   if(scope.kind==='media'||scope.kind==='encoding'){
    // Empty positional rules perform exactly the documented default encoding.
    // Non-default positional or nested part instructions need a part-shape
    // conversion; archiving them would turn active wire behavior into metadata.
-   for(const name of ['prefixEncoding','itemEncoding',...(scope.kind==='encoding'?['encoding']:[])])if(Object.hasOwn(value,name)){
+   const types=scope.kind==='media'?[...mediaTypes.get(JSON.stringify([scope.resource,scope.pointer]))??[]]:
+       typeof value.contentType==='string'?value.contentType.split(',').map((type:string)=>type.trim()):[];
+   if(scope.kind==='media'&&types.some(type=>type.includes('*'))&&(value.prefixEncoding!==undefined||value.itemEncoding!==undefined)){
+    issue(scope,'migration.encoding.media-context','A media range does not establish one positional multipart interpretation','unavailable-proof');continue;
+   }
+   const inactiveMedia=scope.kind==='media'&&(!types.length||types.every(type=>!type.includes('*')&&
+    !type.split(';')[0].trim().toLowerCase().startsWith('multipart/')&&type.split(';')[0].trim().toLowerCase()!=='application/x-www-form-urlencoded'));
+   for(const name of ['prefixEncoding','itemEncoding',...(scope.kind==='encoding'||inactiveMedia?['encoding']:[])])if(Object.hasOwn(value,name)){
     if(named?.certificate&&(name==='prefixEncoding'||name==='itemEncoding'))continue;
     const rules=name==='prefixEncoding'?value[name]:name==='encoding'?Object.values(value[name]):[value[name]];
     const empty=rules.every((rule:unknown)=>rule!==null&&typeof rule==='object'&&Object.keys(rule).length===0);
-    const types=scope.kind==='media'?[...mediaTypes.get(JSON.stringify([scope.resource,scope.pointer]))??[]]:
-        typeof value.contentType==='string'?value.contentType.split(',').map((type:string)=>type.trim()):[];
-    const inactive=types.length>0&&types.every(type=>!type.toLowerCase().startsWith('multipart/')&&!type.includes('*'));
-    const positional=scope.kind==='media'&&(name==='prefixEncoding'||name==='itemEncoding')&&!empty&&!inactive?
+    const inactive=inactiveMedia||types.length>0&&types.every(type=>!type.split(';')[0].trim().toLowerCase().startsWith('multipart/')&&!type.includes('*'));
+    // Empty declarations select defaults. With a captured part model those
+    // defaults still need the same source/target proof as explicit rules;
+    // nested arrays in particular have different older defaults.
+    const defaultModel=scope.kind==='media'&&(value.schema!==undefined||value.itemSchema!==undefined);
+    const positional=scope.kind==='media'&&(name==='prefixEncoding'||name==='itemEncoding')&&(!empty||defaultModel)&&!inactive?
      new PositionalEncodingEquivalence(graph).prove(scope,name,types,target):undefined;
-    if(empty||inactive||positional?.equivalent){
+    if(empty&&!defaultModel||inactive||positional?.equivalent){
      if((inactive||positional?.equivalent)&&!empty){
       const prefix=scope.pointer+'/'+escape(name);
       const children=[...graph.entryScopes()].filter(child=>child.resource===scope.resource&&child.pointer.startsWith(prefix+'/'));

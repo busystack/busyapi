@@ -14,8 +14,9 @@ import '../packages/busyapi_core/test/test_support.dart';
 
 void multiNameMultipartReviewRegressions() {
   for (final finite in [false, true]) {
+  for (final mixed in [false, true]) {
   for (final stale in [false, true]) {
-    testWidgets('R3d1b2/R3d1b3 native owners and saved-value review finite=$finite stale=$stale', (tester) async {
+    testWidgets('R3d1b2/R3d1b3/R3d1b4 native owners and saved-value review finite=$finite mixed=$mixed stale=$stale', (tester) async {
       final temp = Directory.systemTemp.createTempSync('busyapi-multi-review-');
       final file = File('${temp.path}/openapi.yaml');
       final part = {'type': 'object', 'minProperties': 1, 'maxProperties': 1, 'additionalProperties': false, 'properties': {for (final name in ['a', 'b', '雪']) name: {'type': 'string'}}};
@@ -23,8 +24,11 @@ void multiNameMultipartReviewRegressions() {
         for (final value in [{'type': 'integer', 'const': 1}, {'type': 'string', 'enum': ['', '雪']}, {'type': 'boolean'}])
           {'type': 'object', 'required': ['tag'], 'additionalProperties': false, 'properties': {'tag': value}},
       ]} : {'type': 'array', 'maxItems': 3, 'items': part};
-      final original = jsonEncode({'openapi': '3.2.1', 'info': {'title': 'Original named', 'version': '1'}, 'paths': {'/parts': {'post': {
-        'requestBody': {'content': {'multipart/form-data': {'schema': schema, 'itemEncoding': {'contentType': finite ? 'application/json' : 'text/plain'}}}},
+      final media = {'schema': schema, 'itemEncoding': {'contentType': finite ? 'application/json' : 'text/plain'}};
+      final original = jsonEncode({'openapi': '3.2.1', 'info': {'title': 'Original named', 'version': '1'},
+        if (mixed) 'components': {'mediaTypes': {'Shared': media}}, 'paths': {'/parts': {'post': {
+        'requestBody': {'content': {'multipart/form-data': mixed ? {r'$ref': '#/components/mediaTypes/Shared'} : media,
+          if (mixed) 'application/json': {r'$ref': '#/components/mediaTypes/Shared'}}},
         'responses': {'204': {'description': 'Empty'}},
       }}}});
       file.writeAsStringSync(original);
@@ -66,6 +70,7 @@ void multiNameMultipartReviewRegressions() {
         final comparison = tester.widget<BusyApiReviewComparison>(find.byType(BusyApiReviewComparison));
         expect(comparison.before, contains('itemEncoding'));expect(comparison.after, contains('encoding'));
         expect(comparison.after, contains('positional_named_schema'));
+        if (mixed) {expect(comparison.before, contains('application/json'));expect(comparison.after, contains('application/json'));}
         if (finite) {expect(comparison.after, contains('anyOf'));expect(comparison.after, contains('enum'));}
         expect(find.byWidgetPredicate((widget) => widget is SelectableText && (widget.data?.contains('/tests/0/body') ?? false)), findsOneWidget);
         final publish = find.widgetWithText(BusyApiDialogButton, 'Create migrated copy');
@@ -86,6 +91,7 @@ void multiNameMultipartReviewRegressions() {
         await tester.pumpWidget(const SizedBox.shrink());await tester.runAsync(controller.shutdown);controller.dispose();temp.deleteSync(recursive: true);
       }
     });
+  }
   }
   }
 }

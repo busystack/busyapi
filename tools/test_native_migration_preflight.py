@@ -25,8 +25,8 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(MIGRATION_PRODUCER, engine_revision.group(1))
 
     def test_current_revision_is_accepted_and_previous_package_is_rejected(self):
-        verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': '103'})
-        for obsolete in ('25', '34', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45', '46', '47', '48', '49', '50', '51', '52', '53', '54', '55', '56', '57', '58', '59', '60', '61', '62', '63', '64', '65', '66', '67', '68', '69', '70', '71', '72', '73', '74', '75', '76', '77', '78', '79', '80', '81', '82', '83', '84', '85', '86', '87', '88', '89', '90', '91', '92', '93', '94', '95', '96', '97', '98', '99', '100', '101', '102'):
+        verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': '104'})
+        for obsolete in ('25', '34', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45', '46', '47', '48', '49', '50', '51', '52', '53', '54', '55', '56', '57', '58', '59', '60', '61', '62', '63', '64', '65', '66', '67', '68', '69', '70', '71', '72', '73', '74', '75', '76', '77', '78', '79', '80', '81', '82', '83', '84', '85', '86', '87', '88', '89', '90', '91', '92', '93', '94', '95', '96', '97', '98', '99', '100', '101', '102', '103'):
             with self.subTest(obsolete=obsolete):
                 with self.assertRaisesRegex(RuntimeError, 'producer differ'):
                     verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': obsolete})
@@ -638,6 +638,52 @@ class PreflightTests(unittest.TestCase):
                         self.assertEqual(json.loads(record['after'])['partMediaTypes'], {'tag': 'application/json'})
                         self.assertFalse(destination.exists())
                         self.assertEqual(source.read_bytes(), raw)
+                        self.assertEqual(manifest.read_bytes(), configuration)
+
+    def test_actual_packaged_r3d1b4_mixed_media_saved_previews(self):
+        bundle = Path(os.environ.get('BUSYAPI_TEST_BUNDLE') or
+                      Path(__file__).resolve().parent.parent / 'build/linux/x64/release/bundle')
+        for version in ['3.2.0', '3.2.1']:
+            for format in ['yaml', 'json']:
+                for target in ['3.1.2', '3.0.0', '3.0.1', '3.0.2', '3.0.3', '3.0.4']:
+                    with self.subTest(version=version, format=format, target=target):
+                        project = self.root / ('mixed-' + version + '-' + format + '-' + target)
+                        project.mkdir()
+                        source, library, manifest = project / ('api.' + format), project / 'media.json', project / 'busyapi.yaml'
+                        part = {'type': 'object', 'required': ['tag'], 'additionalProperties': False,
+                                'properties': {'tag': {'type': 'integer', 'minimum': 'EXACT'}}}
+                        media = {'schema': {'type': 'array', 'maxItems': 3, 'items': part}, 'itemEncoding': {'contentType': 'application/json'}}
+                        ref = {'$ref': '#/components/mediaTypes/Chain'}
+                        value = {'openapi': version, 'info': {'title': 'Mixed media', 'version': '1'},
+                                 'components': {'mediaTypes': {'Chain': {'$ref': 'media.json#/Shared'}}},
+                                 'paths': {'/parts': {'post': {'requestBody': {'content': {
+                                     'multipart/form-data': ref, 'application/json': ref}},
+                                     'responses': {'200': {'description': 'JSON', 'content': {'application/json': ref}}}}}}}
+                        raw = (json.dumps(value) if format == 'json' else
+                               '# Keep mixed source\r\n' + '\r\n'.join(json.dumps(k) + ': ' + json.dumps(v) for k, v in value.items())).encode()
+                        child = json.dumps({'Shared': media}).replace('"EXACT"', '9007199254740993.00').encode()
+                        configuration = ('version: 1\nroots: [{name: api, path: api.' + format + '}]\ntests:\n'
+                                         '- name: form\n  operation: {entry: api, method: POST, path: /parts}\n'
+                                         '  body: {mediaType: multipart/form-data, value: [{tag: 9007199254740993.00}]}\n'
+                                         '- name: json\n  operation: {entry: api, method: POST, path: /parts}\n'
+                                         '  body: {mediaType: application/json, value: [{tag: 9007199254740993.00}]}\n').encode()
+                        source.write_bytes(raw)
+                        library.write_bytes(child)
+                        manifest.write_bytes(configuration)
+                        destination = self.root / ('output-' + project.name)
+                        report = preflight_migration(bundle / 'busyapi', project, target, destination,
+                                                     {source: raw, library: child, manifest: configuration})
+                        self.assertTrue(report['complete'])
+                        self.assertFalse(report['published'])
+                        self.assertEqual(report['producerVersion'], MIGRATION_PRODUCER)
+                        projections = [record for record in report['configurationProjections'] if 'multipart' in record]
+                        self.assertEqual(len(projections), 1)
+                        self.assertEqual(projections[0]['pointer'], '/tests/0/body')
+                        self.assertIn('9007199254740993.00', projections[0]['after'])
+                        self.assertFalse(any(record['pointer'] == '/tests/1/body' for record in report['configurationProjections']))
+                        self.assertFalse(destination.exists())
+                        self.assertEqual(source.read_bytes(), raw)
+                        self.assertEqual(library.read_bytes(), child)
                         self.assertEqual(manifest.read_bytes(), configuration)
 
     def test_actual_packaged_r3d1b_named_saved_previews(self):

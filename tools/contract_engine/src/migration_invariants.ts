@@ -3,7 +3,7 @@ import {PositionalEncodingEquivalence} from './migration_positional_encoding';
 import {formContentType} from './form_semantics';
 import {NamedMultipartEquivalence,namedMultipartFields,proveNamedMultipartOutput} from './migration_named_multipart';
 import {MigrationArrayBounds} from './migration_schema_arrays';
-import {migrationMediaTypes} from './migration_media_objects';
+import {migrationMediaOccurrences} from './migration_media_objects';
 import {migrationServerSignature} from './migration_servers';
 import {migrationJoinedPath} from './migration_server_routes';
 import {requestOperation} from './execution';
@@ -221,7 +221,7 @@ function formSignatures(media:any,graph?:ReferenceGraph,namedTarget?:string):unk
     const type=media.mediaType.split(';')[0].trim().toLowerCase(),multipart=type==='multipart/form-data';
     if(!multipart&&type!=='application/x-www-form-urlencoded')return;
     if(multipart&&graph&&namedTarget&&media.family==='3.2'){
-        const scope=graph.scopeAs(media.definition.resource,media.definition.pointer,'media');
+        const scope=graph.scopeAs(media.source.resource,media.source.pointer,'media');
         const c=scope&&new NamedMultipartEquivalence(graph).prove(scope,[media.mediaType],namedTarget).certificate;
         if(c){
             return namedMultipartFields(c).map(field=>{
@@ -364,37 +364,59 @@ export function migrationRequestSignatures(graph:ReferenceGraph,resources:Resour
 export function proveMigrationPositionalEncoding(source:ReferenceGraph,target:ReferenceGraph,
  mapped:(location:MigrationLocation,scope:GraphScope)=>readonly MigrationLocation[],issue:MigrationIssue):void {
  if(target.specifications.get(target.root)?.family==='3.2')return;
- const types=migrationMediaTypes([source]),before=new PositionalEncodingEquivalence(source),after=new PositionalEncodingEquivalence(target);
+ const before=new PositionalEncodingEquivalence(source),after=new PositionalEncodingEquivalence(target);
  const bounds=new MigrationArrayBounds(source);
- for(const scope of source.entryScopes())if(scope.kind==='media'&&scope.family==='3.2'){
-  const value=source.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
-  const media=[...types.get(JSON.stringify([scope.resource,scope.pointer]))??[]];
-  if(!media.length||media.some(type=>!type.split(';')[0].trim().toLowerCase().startsWith('multipart/')))continue;
+ for(const {use:scope,definition,mediaType}of migrationMediaOccurrences(source))if(scope.family==='3.2'){
+  const value=source.docs.get(definition.resource)!.dataNode(definition.pointer)?.value;
+  if(value?.prefixEncoding===undefined&&value?.itemEncoding===undefined)continue;
+  const media=[mediaType];
+  const outputs=mapped(scope,scope).map(at=>target.scopeAs(at.resource,at.pointer,'media')).filter((at):at is GraphScope=>!!at&&at.family!=='3.2');
+  if(!outputs.length)issue(scope,'migration.invariant.positional-encoding','A captured multipart or inactive media occurrence has no delivered Media Type owner','implementation');
+  if(!mediaType.split(';')[0].trim().toLowerCase().startsWith('multipart/')){
+   // A consumer which ignores positional instructions cannot acquire the
+   // named projection selected by a different consumer of the same definition.
+   for(const at of outputs){
+    const delivered=target.docs.get(at.resource)!.dataNode(at.pointer)?.value;
+    if(delivered?.prefixEncoding!==undefined||delivered?.itemEncoding!==undefined)
+     issue(scope,'migration.invariant.positional-encoding','An inactive positional declaration survived in an older Media Type occurrence','implementation');
+    if(value?.encoding===undefined&&Object.keys(delivered?.encoding??{}).length)
+     issue(scope,'migration.invariant.media-context','An inactive consumer acquired another occurrence\'s named Encoding rules','implementation');
+    if(scope.resource!==definition.resource||scope.pointer!==definition.pointer){
+     const schema=source.scopeAs(definition.resource,definition.pointer+'/schema','schema');
+     if(schema){
+      const neutral=mapped(schema,schema),edge=target.referenceAs(at.resource,at.pointer+'/schema','$ref','schema');
+      if(edge?.resolution!=='resolved'||!neutral.some(owner=>owner.resource===edge.targetResource&&owner.pointer===edge.targetPointer))
+       issue(scope,'migration.invariant.media-context','An inactive consumer lost its independent whole-content schema owner','implementation');
+     }
+    }
+   }
+   continue;
+  }
+  const schema=source.scopeAs(definition.resource,definition.pointer+'/schema','schema');
+  const item=source.scopeAs(definition.resource,definition.pointer+'/itemSchema','schema');
   const fields=(['prefixEncoding','itemEncoding'] as const).filter(field=>Object.hasOwn(value??{},field)&&
-   (field==='prefixEncoding'?value[field]:[value[field]]).some((rule:Record<string,unknown>)=>Object.keys(rule).length));
+   (schema||item||(field==='prefixEncoding'?value[field]:[value[field]]).some((rule:Record<string,unknown>)=>Object.keys(rule).length)));
   if(!fields.length&&!(media.some(type=>type.split(';')[0].trim().toLowerCase()==='multipart/form-data')&&
    (value?.prefixEncoding!==undefined||value?.itemEncoding!==undefined)))continue;
-  const schema=source.scopeAs(scope.resource,scope.pointer+'/schema','schema'),maximum=schema?bounds.maximum(schema):undefined;
-  const outputs=mapped(scope,scope).map(at=>target.scopeAs(at.resource,at.pointer,'media')).filter((at):at is GraphScope=>!!at&&at.family!=='3.2');
-  if(!outputs.length)issue(scope,'migration.invariant.positional-encoding','A positional multipart owner has no delivered Media Type owner','implementation');
+  const maximum=schema?bounds.maximum(schema):undefined;
   for(const output of outputs){
-   if(proveNamedMultipartOutput(source,target,scope,output,mapped,issue))continue;
+   if(proveNamedMultipartOutput(source,target,scope,output,mapped,issue,media))continue;
    const targetValue=target.docs.get(output.resource)!.dataNode(output.pointer)?.value;
    if(Object.keys(targetValue?.encoding??{}).length)issue(scope,'migration.invariant.positional-encoding','The delivered unnamed multipart owner activates a named Encoding rule','implementation');
    for(const field of fields){
-    const proof=before.prove(scope,field,media,output.family);
+    const proof=before.prove(definition,field,media,output.family,scope);
     if(!proof.equivalent){issue(scope,'migration.invariant.positional-encoding',proof.reason,'implementation');continue;}
     if(Object.hasOwn(targetValue??{},field)){
      issue(scope,'migration.invariant.positional-encoding','An older target retains an active positional Encoding declaration','implementation');continue;
     }
     if(proof.inactive)continue;
-    const a=before.boundary(scope),b=after.boundary(output);
+    const a=before.boundary(definition),b=after.boundary(output);
     if(a===undefined||b===undefined){issue(scope,'migration.invariant.positional-encoding','Delivered schemas no longer establish the positional default partition','implementation');continue;}
     const prefix=value.prefixEncoding?.length??0;
     const end=Math.max(a,b,prefix)+1;
     for(let index=0;index<end&&(maximum===undefined||index<maximum);index++){
      const rule=index<prefix?value.prefixEncoding[index]:value.itemEncoding;
-     const expected=rule?.contentType??before.defaultAt(scope,index,'3.2'),actual=after.defaultAt(output,index,output.family);
+     const expected=rule?.contentType??before.defaultAt(definition,index,'3.2'),actual=after.defaultAt(output,index,output.family);
      if(expected===undefined||expected!==actual){
       issue(scope,'migration.invariant.positional-encoding','A delivered part changed its effective positional media or encoded representation','implementation');break;
      }

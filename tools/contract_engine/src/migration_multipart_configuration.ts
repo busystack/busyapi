@@ -31,7 +31,7 @@ export async function projectMigrationMultipartConfiguration(entries:readonly Mi
    const before=plan(entry.source,pair.before),after=plan(entry.target,pair.after);
    const selected=before.requestBody?.content.find((media:any)=>media.mediaType===body.value.mediaType);
    const destination=after.requestBody?.content.find((media:any)=>media.mediaType===body.value.mediaType);
-   const scope=selected&&entry.source.scopeAs(selected.definition.resource,selected.definition.pointer,'media');
+   const scope=selected&&entry.source.scopeAs(selected.source.resource,selected.source.pointer,'media');
    const c=scope&&new NamedMultipartEquivalence(entry.source).prove(scope,[selected.mediaType],entry.target.family).certificate;
    if(!c){proposals.set(configuration.dataJson(body.pointer),{after:configuration.dataJson(body.pointer)});continue;}
    applies=true;

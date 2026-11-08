@@ -104,19 +104,20 @@ export class PositionalEncodingEquivalence {
   }
   return this.defaults(children,family);
  }
- prove(scope:GraphScope,field:'prefixEncoding'|'itemEncoding',types:readonly string[],target:string):PositionalEncodingProof {
+ prove(scope:GraphScope,field:'prefixEncoding'|'itemEncoding',types:readonly string[],target:string,occurrence:GraphScope=scope):PositionalEncodingProof {
   this.inspect();const value=this.graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
-  const marker=scope.pointer.lastIndexOf('/content/');
-  if(marker>=0&&this.graph.scopeAs(scope.resource,scope.pointer.slice(0,marker),'response'))
-   return unknown('Response Encoding equivalence remains separately assigned to B05-R3d-2');
+  const marker=occurrence.pointer.lastIndexOf('/content/');
   const prefix:readonly unknown[]=Array.isArray(value?.prefixEncoding)?value.prefixEncoding:[];
   if(prefix.length>2048)throw new SourceError('limit.migration.positional-encoding','Positional Encoding exceeds 2048 prefix rules');
   const schema=this.graph.scopeAs(scope.resource,scope.pointer+'/schema','schema');
   const item=this.graph.scopeAs(scope.resource,scope.pointer+'/itemSchema','schema');
   const maximum=schema?this.bounds.maximum(schema):undefined;
   if(maximum===0||field==='itemEncoding'&&maximum!==undefined&&maximum<=prefix.length)return equivalent(true);
+  if(marker>=0&&this.graph.scopeAs(occurrence.resource,occurrence.pointer.slice(0,marker),'response'))
+   return unknown('Response Encoding equivalence remains separately assigned to B05-R3d-2');
   if(!types.length||types.some(type=>!type.toLowerCase().split(';')[0].trim().startsWith('multipart/')))
    return unknown('The positional declaration has no unambiguous captured multipart media context');
+  if(types.some(type=>type.includes('*')))return unknown('A media range does not establish one positional multipart interpretation');
   if(target==='2.0')return restriction('Swagger has no positional multipart Encoding owner; a named formData field cannot stand for an unnamed ordered part');
   if(Object.keys(value.encoding??{}).length)return unknown('Retiring positional rules could activate an older named Encoding declaration; its independent applicability is not proved');
   const roots=schema&&this.parts(schema);

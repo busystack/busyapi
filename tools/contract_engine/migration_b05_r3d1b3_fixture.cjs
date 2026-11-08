@@ -15,7 +15,7 @@ async function valid(input,text,bytes=false,pointer=at+'/schema'){
 }
 async function review(input){
  const original=JSON.stringify(input),result=await planMigration(input);assert.equal(JSON.stringify(input),original);
- assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(result.producerVersion,'103');
+ assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(result.producerVersion,'104');
  const cold={root:result.outputRoot,resources:result.outputs,snapshot:'tuple-cold'},analysis=analyse(cold);
  assert.equal(analysis.complete,true,JSON.stringify(analysis.findings));
  assert(!analysis.findings.some(value=>value.severity==='error'),JSON.stringify(analysis.findings));
