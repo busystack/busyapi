@@ -6,10 +6,12 @@ import type {GraphScope,ReferenceGraph} from './reference_graph';
 import type {ExternalExampleResourcePacket} from './external_examples';
 
 export type NamedPart=Readonly<{name:string;values:readonly GraphScope[];literalType?:string}>;
+export type FiniteNamedTuple=Readonly<{name:string;alternatives:readonly Readonly<{part:NamedPart;values:readonly string[]}>[]}>;
 export type FiniteNamedLanguage=Readonly<{
  accepted:readonly string[];projected:readonly string[];names:readonly string[];
  positions:readonly (readonly NamedPart[])[];
  counts?:readonly (readonly number[])[];unique?:boolean;
+ tuples?:readonly FiniteNamedTuple[];
 }>;
 export type NamedLanguageProof=Readonly<{language?:FiniteNamedLanguage;restriction?:boolean;reason:string}>;
 export const multipartFieldName=(name:string):boolean=>name.length>0&&name.length<=4096&&!/[\x00-\x1f\x7f\uD800-\uDFFF]/u.test(name);

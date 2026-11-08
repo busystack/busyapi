@@ -13,17 +13,23 @@ import 'package:flutter_test/flutter_test.dart';
 import '../packages/busyapi_core/test/test_support.dart';
 
 void multiNameMultipartReviewRegressions() {
+  for (final finite in [false, true]) {
   for (final stale in [false, true]) {
-    testWidgets('R3d1b2 native multi-name owners and saved-value review stale=$stale', (tester) async {
+    testWidgets('R3d1b2/R3d1b3 native owners and saved-value review finite=$finite stale=$stale', (tester) async {
       final temp = Directory.systemTemp.createTempSync('busyapi-multi-review-');
       final file = File('${temp.path}/openapi.yaml');
       final part = {'type': 'object', 'minProperties': 1, 'maxProperties': 1, 'additionalProperties': false, 'properties': {for (final name in ['a', 'b', '雪']) name: {'type': 'string'}}};
+      final schema = finite ? {'type': 'array', 'items': false, 'prefixItems': [
+        for (final value in [{'type': 'integer', 'const': 1}, {'type': 'string', 'enum': ['', '雪']}, {'type': 'boolean'}])
+          {'type': 'object', 'required': ['tag'], 'additionalProperties': false, 'properties': {'tag': value}},
+      ]} : {'type': 'array', 'maxItems': 3, 'items': part};
       final original = jsonEncode({'openapi': '3.2.1', 'info': {'title': 'Original named', 'version': '1'}, 'paths': {'/parts': {'post': {
-        'requestBody': {'content': {'multipart/form-data': {'schema': {'type': 'array', 'maxItems': 3, 'items': part}, 'itemEncoding': {'contentType': 'text/plain'}}}},
+        'requestBody': {'content': {'multipart/form-data': {'schema': schema, 'itemEncoding': {'contentType': finite ? 'application/json' : 'text/plain'}}}},
         'responses': {'204': {'description': 'Empty'}},
       }}}});
       file.writeAsStringSync(original);
-      File('${temp.path}/busyapi.yaml').writeAsStringSync('version: 1\nroots: [{name: api, path: openapi.yaml}]\ntests:\n- name: saved\n  operation: {entry: api, method: POST, path: /parts}\n  body: {mediaType: multipart/form-data, value: [{b: snow}, {a: ""}, {a: 雪}]}\n');
+      final saved = finite ? '[{tag: 1}, {tag: 雪}, {tag: true}]' : '[{b: snow}, {a: ""}, {a: 雪}]';
+      File('${temp.path}/busyapi.yaml').writeAsStringSync('version: 1\nroots: [{name: api, path: openapi.yaml}]\ntests:\n- name: saved\n  operation: {entry: api, method: POST, path: /parts}\n  body: {mediaType: multipart/form-data, value: $saved}\n');
       final controller = WorkspaceController(EngineProcess(executable: runtimeNode, helper: runtimeHelper),
         StateLocations(config: '${temp.path}/config', state: '${temp.path}/state', cache: '${temp.path}/cache'));
       Future<void>? dialog;
@@ -49,7 +55,7 @@ void multiNameMultipartReviewRegressions() {
         messenger.setMockMethodCallHandler(channel, (call) async {
           if (call.method != 'show') return null;
           final entries = (call.arguments as Map)['entries'] as List;
-          final index = entries.indexWhere((entry) => entry['label'] == '3.1.2');
+          final index = entries.indexWhere((entry) => entry['label'] == (finite ? '3.0.4' : '3.1.2'));
           expect(index, greaterThanOrEqualTo(0));return index;
         });
         addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
@@ -60,6 +66,7 @@ void multiNameMultipartReviewRegressions() {
         final comparison = tester.widget<BusyApiReviewComparison>(find.byType(BusyApiReviewComparison));
         expect(comparison.before, contains('itemEncoding'));expect(comparison.after, contains('encoding'));
         expect(comparison.after, contains('positional_named_schema'));
+        if (finite) {expect(comparison.after, contains('anyOf'));expect(comparison.after, contains('enum'));}
         expect(find.byWidgetPredicate((widget) => widget is SelectableText && (widget.data?.contains('/tests/0/body') ?? false)), findsOneWidget);
         final publish = find.widgetWithText(BusyApiDialogButton, 'Create migrated copy');
         if (stale) {
@@ -70,7 +77,7 @@ void multiNameMultipartReviewRegressions() {
           await tester.runAsync(() => tester.tap(publish));
           await ready(() => File('${temp.path}/busyapi-migrated/busyapi.yaml').existsSync());
           final manifest = jsonDecode(File('${temp.path}/busyapi-migrated/busyapi.yaml').readAsStringSync()) as Map;
-          expect(manifest['tests'][0]['body']['value'], {'b': ['snow'], 'a': ['', '雪']});
+          expect(manifest['tests'][0]['body']['value'], finite ? {'tag': [1, '雪', true]} : {'b': ['snow'], 'a': ['', '雪']});
         }
         expect(file.readAsStringSync(), original);
         await tester.runAsync(() => tester.tap(find.widgetWithText(BusyApiDialogButton, 'Close')));
@@ -79,5 +86,6 @@ void multiNameMultipartReviewRegressions() {
         await tester.pumpWidget(const SizedBox.shrink());await tester.runAsync(controller.shutdown);controller.dispose();temp.deleteSync(recursive: true);
       }
     });
+  }
   }
 }

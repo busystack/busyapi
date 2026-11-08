@@ -20,12 +20,13 @@ async function valid(input,bytes){
 }
 async function review(input){
  const original=JSON.stringify(input),result=await planMigration(input);assert.equal(JSON.stringify(input),original);
- assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(result.producerVersion,'102');
+ assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(result.producerVersion,'103');
  const cold={root:result.outputRoot,resources:result.outputs,snapshot:'named-cold'};
  assert.equal(analyse(cold).complete,true,JSON.stringify(analyse(cold).findings));return {result,cold,graph:createGraph(cold).graph};
 }
 module.exports=function register(group){
  require('./migration_b05_r3d1b2_fixture.cjs')(group);
+ require('./migration_b05_r3d1b3_fixture.cjs')(group);
  if(group==='media')for(const version of ['3.2.0','3.2.1'])for(const format of ['yaml','json'])for(const target of ['3.1.2','3.0.4'])test(`R3d1b ${version} ${format} complete named repetitions to ${target}`,async()=>{
   const {input}=capture(version,format,target),{result,cold,graph}=await review(input),media=graph.docs.get(cold.root).dataNode(at).value;
   assert.equal(media.prefixEncoding,undefined);assert.equal(media.itemEncoding,undefined);

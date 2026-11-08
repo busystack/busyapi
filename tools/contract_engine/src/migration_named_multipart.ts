@@ -1,5 +1,6 @@
 import {escape,SourceDocument,SourceError} from './document';
 import {proveFiniteNamedLanguage,multipartFieldName,type FiniteNamedLanguage,type NamedPart} from './migration_multipart_language';
+import {proveFiniteNamedTuples} from './migration_multipart_tuples';
 import {evaluateSchemas} from './schema_evaluation';
 import type {ExternalExampleResourcePacket} from './external_examples';
 import {pointerFragment,type GraphScope,type ReferenceGraph} from './reference_graph';
@@ -47,6 +48,7 @@ export class NamedMultipartEquivalence {
  private readonly positional:PositionalEncodingEquivalence;
  private readonly schemas:MigrationSchemaProofs;
  private readonly identityState={work:0};
+ private readonly valueIdentities=new WeakMap<Part,string>();
  private work=0;
  constructor(private readonly graph:ReferenceGraph){this.positional=new PositionalEncodingEquivalence(graph);this.schemas=new MigrationSchemaProofs(graph);}
  private inspect():void {if(++this.work>50000)throw new SourceError('limit.migration.positional-encoding','Named multipart equivalence exceeds 50000 captured states');}
@@ -126,16 +128,24 @@ export class NamedMultipartEquivalence {
   const fields:NamedMultipartField[]=[];
   for(const name of language.names){
    const entries=language.positions.flatMap((parts,index)=>parts.filter(part=>part.name===name).map(part=>({part,index})));
-   const field=this.field(scope,entries,target);if('equivalent' in field){existing.set(key,field);return;}
+   const field=this.field(scope,entries,target,true);if('equivalent' in field){existing.set(key,field);return;}
    const required=language.accepted.every(text=>{
     const doc=new SourceDocument(text,'finite-multipart',true,'json');return [...doc.dataNode('')!.children.values()].some(node=>node.children.has(name));
    });
    fields.push({...field,required});
   }
+  const nonhomogeneous=fields.filter(field=>field.parts.some(part=>this.valueIdentity(part)!==this.valueIdentity(field.parts[0])));
+  if(nonhomogeneous.some(field=>field.parts.some(part=>part.values.some(scope=>{
+   const shape=new FormSemantics(this.graph).shape(scope.resource,scope.pointer);
+   return shape.contentEncoding!==undefined||['byte','binary'].includes(shape.format??'');
+  })))){existing.set(key,unavailable('The older target codec cannot apply conditional binary or transfer bindings inside finite tuple item alternatives'));return;}
+  const tuples=nonhomogeneous.length?proveFiniteNamedTuples(this.graph,schema,item,language,nonhomogeneous.map(field=>field.name)):undefined;
+  if(tuples&&!tuples.tuples){existing.set(key,unavailable(tuples.reason!));return;}
   const first=fields[0];
   existing.set(key,{equivalent:true,classification:'unavailable-proof',reason:result.reason,certificate:{
    name:first.name,schema,item,roots:[schema],positions:language.positions.flat(),minimum:0,maximum:language.positions.length,
-   required:first.required,rule:first.rule,explicitMedia:first.explicitMedia,mediaIdentity:first.mediaIdentity,fields,language}});
+   required:first.required,rule:first.rule,explicitMedia:first.explicitMedia,mediaIdentity:first.mediaIdentity,fields,
+   language:{...language,...(tuples?{tuples:tuples.tuples}: {})}}});
  }
  /** A witness proves a restriction only; it never supplies name discovery
   * or finite-language completeness. Native evaluation checks both arrays. */
@@ -264,7 +274,7 @@ export class NamedMultipartEquivalence {
    explicitMedia:first.explicitMedia,mediaIdentity:first.mediaIdentity,fields:proved,
    language:{names,positions,accepted:[],projected:[],counts:[...counts.values()],unique}}};
  }
- private field(scope:GraphScope,entries:readonly Readonly<{part:Part;index:number}>[],target:string):NamedMultipartField|NamedMultipartProof {
+ private field(scope:GraphScope,entries:readonly Readonly<{part:Part;index:number}>[],target:string,finite=false):NamedMultipartField|NamedMultipartProof {
   const media=this.graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
   let selected:MigrationLocation|undefined,signature:string|undefined,serialization:string|undefined,identity='',explicit=false;
   for(const {part,index}of entries){
@@ -276,12 +286,16 @@ export class NamedMultipartEquivalence {
    const shapes=part.values.map(scope=>new FormSemantics(this.graph).shape(scope.resource,scope.pointer));
    const types=part.literalType?[part.literalType]:[...new Set(shapes.flatMap(shape=>shape.types??[]))].sort();
    const transfers=part.values.map(scope=>new MultipartEncoding(this.graph).schemaPathEncoding(scope,[],types.length===1&&types[0]!=='string'?'other':undefined));
-   const currentSerialization=JSON.stringify([types,[...new Set(transfers.map(({encoding,schemaEncoded,instanceEncoding})=>JSON.stringify({encoding,schemaEncoded,instanceEncoding})))].sort()]);
-   if(serialization!==undefined&&serialization!==currentSerialization)return unavailable('A finite field lacks uniform schema decoding and transfer binding across every applicable position');
-   serialization=currentSerialization;
    const before=part.literalType?formContentType({types:[part.literalType]},'3.2'):this.positional.defaults(part.values,'3.2'),after=part.literalType?formContentType({types:[part.literalType]},target):this.positional.defaults(part.values,target);
    if(value.contentType===undefined&&(before===undefined||after!==before))return unavailable('A finite field default media/charset has no identical target interpretation');
    const effective=value.contentType??before;if(typeof effective!=='string')return unavailable('No finite field media is established');
+   // JSON decoding retains the value's own kind. Text decoding instead uses
+   // the schema hint, so differing positional scalar hints cannot be merged.
+   const json=finite&&mediaTypes(effective).every(type=>runtimeMediaKind(type.text,true)==='json')&&
+    transfers.every(transfer=>!transfer.schemaEncoded&&transfer.instanceEncoding===undefined);
+   const currentSerialization=JSON.stringify([json?'json-value':types,[...new Set(transfers.map(({encoding,schemaEncoded,instanceEncoding})=>JSON.stringify({encoding,schemaEncoded,instanceEncoding})))].sort()]);
+   if(serialization!==undefined&&serialization!==currentSerialization)return unavailable('A finite field lacks uniform schema decoding and transfer binding across every applicable position');
+   serialization=currentSerialization;
    if(part.literalType==='array')return unavailable('A literal array-valued part needs a separately established older repeated/nested value inverse');
    if(mediaTypes(effective).some(type=>type.type==='multipart'||type.type==='*'||type.subtype==='*'&&!['image','audio','video','font'].includes(type.type)))
     return unavailable('A finite field media alternative includes unproved sequence, range or nested decoding');
@@ -296,6 +310,9 @@ export class NamedMultipartEquivalence {
    const actual:FormShape=actualShapes.find(shape=>shape?.types?.length||shape?.contentEncoding!==undefined)??actualShapes[0]??{};
    if(value.contentType===undefined&&actual.defaultContentType!==before)return unavailable('The captured source codec has no identical default hint for this discovered field');
    const actualType=formLiteralType(actual),expectedType=part.literalType??formLiteralType({types});
+   if(finite&&mediaTypes(effective).some(type=>runtimeMediaKind(type.text,true)==='text')&&
+    (types.length!==1&&actualType!==undefined&&actualType!=='string'||target==='3.0'&&types[0]==='null'))
+    return unavailable('The uniform finite item union has no identical target scalar text-decoding hint');
    if(expectedType!==undefined&&expectedType!=='string'&&actualType!==expectedType&&mediaTypes(effective).some(type=>runtimeMediaKind(type.text,true)==='text'))
     return unavailable('The captured source text decoder lacks the discovered field numeric or structured value hint');
    try {
@@ -310,7 +327,7 @@ export class NamedMultipartEquivalence {
    signature=current;selected??=rule;explicit=value.contentType!==undefined;
   }
   const parts=entries.map(entry=>entry.part);
-  if(target==='3.0'&&parts.some(part=>this.valueIdentity(part)!==this.valueIdentity(parts[0])))return unavailable('Nonhomogeneous finite repeated-field tuple lowering into 3.0 remains separately assigned');
+  if(target==='3.0'&&!finite&&parts.some(part=>this.valueIdentity(part)!==this.valueIdentity(parts[0])))return unavailable('Nonhomogeneous repeated-field constraints require a complete finite tuple-value certificate');
   return {name:parts[0].name,parts,required:false,rule:selected,explicitMedia:explicit,mediaIdentity:identity};
  }
  private single(scope:GraphScope,types:readonly string[],target:string):NamedMultipartProof {
@@ -391,10 +408,40 @@ export class NamedMultipartEquivalence {
    certificate:{name,schema,item,roots,positions,tail,maximum,minimum,required:minimum>0||!empty,rule:selected,explicitMedia:explicit,mediaIdentity:identity}};
  }
  private valueIdentity(part:Part):string {
+  const cached=this.valueIdentities.get(part);if(cached!==undefined)return cached;
   this.inspect();
-  return JSON.stringify([part.literalType,[...new Set(part.values.flatMap(scope=>{
+  const identity=JSON.stringify([part.literalType,[...new Set(part.values.flatMap(scope=>{
+   const identity=this.annotationIdentity(scope);return identity.startsWith('unavailable:')?[identity]:JSON.parse(identity) as string[];
+  }))].sort(),[...new Set(part.values.flatMap(scope=>{
    const identity=namedValueSchemaIdentity(this.graph,scope,new Set(),this.identityState);return identity===undefined?['unavailable:'+scope.resource+scope.pointer]:JSON.parse(identity) as string[];
   }))].sort()]);
+  this.valueIdentities.set(part,identity);return identity;
+ }
+ /** Assertion identity deliberately ignores documentation and extensions.
+  * Item uniformity must also compare those annotations before selecting one
+  * position's owner for every repeated value. Fixed aliases retain metadata. */
+ private annotationIdentity(scope:GraphScope,active=new Set<string>()):string {
+  this.inspect();const id=JSON.stringify([scope.resource,scope.pointer]);
+  if(active.has(id)||active.size>=128)return 'unavailable:'+id;
+  const doc=this.graph.docs.get(scope.resource)!,value=doc.dataNode(scope.pointer)?.value,next=new Set(active).add(id),terms:string[]=[];
+  for(const field of Object.keys(value??{})){
+   if(['title','description','$comment'].includes(field)||field.startsWith('x-'))terms.push(field+':'+doc.dataJson(scope.pointer+'/'+escape(field)));
+   else if(field==='$ref'||field==='$dynamicRef'){
+    const child=this.schemas.fixed(scope,field);if(!child)return 'unavailable:'+id;
+    const identity=this.annotationIdentity(child,next);if(identity.startsWith('unavailable:'))return identity;terms.push(...JSON.parse(identity) as string[]);
+   }else if(['allOf','anyOf','oneOf','prefixItems','properties','patternProperties'].includes(field)){
+    for(const name of doc.dataNode(scope.pointer+'/'+field)!.children.keys()){
+     const child=this.graph.scopeAs(scope.resource,scope.pointer+'/'+field+'/'+escape(name),'schema');
+     if(child){const identity=this.annotationIdentity(child,next);if(identity==='[]')continue;
+      if(identity.startsWith('unavailable:'))return identity;
+      if(field==='allOf')terms.push(...JSON.parse(identity) as string[]);else terms.push(field+'/'+name+':'+identity);
+     }
+    }
+   }else {
+    const child=this.graph.scopeAs(scope.resource,scope.pointer+'/'+escape(field),'schema');if(child){const identity=this.annotationIdentity(child,next);if(identity!=='[]')terms.push(field+':'+identity);}
+   }
+  }
+  return JSON.stringify([...new Set(terms)].sort());
  }
  /** Pure exact schema projection used by planning and final publication.
   * References must select neutral value schemas, never copied identifiers. */
@@ -406,12 +453,17 @@ export class NamedMultipartEquivalence {
     const schema=(part:Part)=>part.literalType?(target==='3.0'&&part.literalType==='null'?'{"anyOf":[{"type":"string","nullable":true,"enum":[null]}]}':'{"type":'+JSON.stringify(part.literalType)+'}'):'{"allOf":['+part.values.map(scope=>'{"$ref":'+JSON.stringify(reference(scope))+'}').join(',')+']}';
     // Identical transfer/default hints are proved separately. Exact enums
     // retain correlations; these neutral uses keep schema annotations alive.
-    const alternatives=parts.every(part=>this.valueIdentity(part)===this.valueIdentity(first))?[schema(first)]:[...new Set(parts.map(schema))];
+    const tuple=c.language!.tuples?.find(tuple=>tuple.name===field.name);
+    const alternatives=tuple?tuple.alternatives.map(branch=>'{"allOf":[{"enum":['+branch.values.join(',')+']},'+schema(branch.part)+']}'):
+     parts.every(part=>this.valueIdentity(part)===this.valueIdentity(first))?[schema(first)]:[...new Set(parts.map(schema))];
     const shapes=parts.flatMap(part=>part.literalType?[{types:[part.literalType]}]:part.values.map(scope=>new FormSemantics(this.graph).shape(scope.resource,scope.pointer)));
-    const types=[...new Set(shapes.flatMap(shape=>shape.types??[]))];
+    const partTypes=parts.map(part=>part.literalType?[part.literalType]:[...new Set(part.values.flatMap(scope=>new FormSemantics(this.graph).shape(scope.resource,scope.pointer).types??[]))]);
+    const types=partTypes.every(types=>types.length===1&&types[0]===partTypes[0][0])?partTypes[0]:[];
     const encoded=shapes.find(shape=>'contentEncoding' in shape&&shape.contentEncoding),legacy=shapes.find(shape=>'format' in shape&&shape.format);
-    const hints=JSON.stringify({...(types.length===1?{type:types[0]}:{}),...(encoded&&'contentEncoding' in encoded?{contentEncoding:encoded.contentEncoding}:{}),...(legacy&&'format' in legacy?{format:legacy.format}:{})});
-    const items=alternatives.length===1?alternatives[0]:hints.slice(0,-1)+(hints==='{}'?'':',')+'"anyOf":['+alternatives.join(',')+']}';
+    const hints=JSON.stringify({...(types.length===1&&!(target==='3.0'&&types[0]==='null')?{type:types[0]}:{}),
+     ...(!tuple&&encoded&&'contentEncoding' in encoded?{contentEncoding:encoded.contentEncoding}:{}),
+     ...(!tuple&&legacy&&'format' in legacy?{format:legacy.format}:{})});
+    const items=alternatives.length===1&&!tuple?alternatives[0]:hints.slice(0,-1)+(hints==='{}'?'':',')+'"anyOf":['+alternatives.join(',')+']}';
     return JSON.stringify(field.name)+':{"type":"array","items":'+items+(c.language!.unique?',"uniqueItems":true':'')+'}';
    });
    const assertions=c.language.counts?',"anyOf":['+c.language.counts.map(count=>'{"properties":{'+c.language!.names.map((name,index)=>JSON.stringify(name)+':{"minItems":'+count[index]+',"maxItems":'+count[index]+'}').join(',')+'}'+(count.some(Boolean)?',"required":'+JSON.stringify(c.language!.names.filter((_,index)=>count[index]>0)):'')+'}').join(',')+']':',"enum":['+c.language.projected.join(',')+']';
@@ -475,12 +527,13 @@ export async function prepareNamedMultipart(graphs:readonly ReferenceGraph[],tar
    if(value?.prefixEncoding!==undefined||value?.itemEncoding!==undefined){
     const media=[...types.get(JSON.stringify([scope.resource,scope.pointer]))??[]];
     await proof.prepare(scope,media,target,examples);
-    // A 3.0 review traverses 3.1. Do not admit a new multi-field certificate
-    // whose final field tuples still require the separately assigned lowering.
-    if(target==='3.1'&&finalTarget==='3.0'&&proof.prove(scope,media,target).certificate?.fields){
+    // A 3.0 review traverses 3.1. Carry the final tuple certificate through
+    // that hop, including single-name tuples, rather than emitting prefixes
+    // that would need a second unrelated multipart equivalence proof.
+    if(target==='3.1'&&finalTarget==='3.0'){
      await proof.prepare(scope,media,finalTarget,examples);
      const final=proof.prove(scope,media,finalTarget);
-     if(!final.certificate)finiteCertificates.get(graph)!.set(certificateKey(scope,target),final);
+     if(!final.certificate||final.certificate.language)finiteCertificates.get(graph)!.set(certificateKey(scope,target),final);
     }
    }
   }

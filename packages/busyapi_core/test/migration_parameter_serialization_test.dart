@@ -113,7 +113,7 @@ void main() {
               environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
             expect(preview.exitCode, 0, reason: '${preview.stdout}${preview.stderr}');
             final report = jsonDecode(preview.stdout as String) as Map;
-            expect(report['producerVersion'], '102');
+            expect(report['producerVersion'], '103');
             expect((report['configurationProjections'] as List).cast<Map>().any((change) => change.containsKey('rawQueries')), true);
             final applied = await Process.run('$testBundle/busyapi', ['migrate', directory.path, '--target', target, '--output', destination, '--apply', report['reviewIdentity'] as String, '--json'],
               environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
@@ -245,7 +245,7 @@ void main() {
               environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
             expect(preview.exitCode, 0, reason: '${preview.stdout}${preview.stderr}');
             final report = jsonDecode(preview.stdout as String) as Map;
-            expect(report['producerVersion'], '102');expect(report['published'], false);
+            expect(report['producerVersion'], '103');expect(report['published'], false);
             expect((report['configurationProjections'] as List).any((change) => change['pointer'] == '/tests/0/parameters'), true);
             expect(await Directory(destination).exists(), false);
             final applied = await Process.run('$testBundle/busyapi', ['migrate', directory.path, '--target', target, '--output', destination, '--apply', report['reviewIdentity'] as String, '--json'],

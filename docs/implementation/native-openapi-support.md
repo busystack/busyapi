@@ -31,6 +31,116 @@ consume those shared results. Source-preserving transactions remain authoritativ
 Current changes require complete engine, Core, native and packaged verification;
 source inspection or a successful build is not runtime acceptance.
 
+## B05-R3d-1b-3: Finite nonhomogeneous tuple values
+
+**B05-R3d-1b-3 is source-complete, unverified for the established finite
+certificate families below. R3d-1b as a whole remains incomplete and
+unverified.** This assignment starts at
+`e57575627c02786c87cb516beea12eab08e1521a` in the primary `release/v0.1.0`
+checkout. The earlier homogeneous repeated-field and finite-name/interleaving
+paths remain in use. No execution acceptance is claimed.
+
+The existing `FiniteMigrationDomain` and canonical source evaluator still
+establish completeness and membership. The named certificate now carries
+finite tuple item applications alongside the exhaustive source and projected
+languages. Uniform Schema Object `items` uses supported `anyOf`/`allOf`, exact
+value guards and neutral value-schema references. The existing whole-object
+`enum` supplies complete tuple membership, correlations, cardinality, repeat
+order, requiredness and empty/omitted equivalence. A broad item union alone
+never grants a new tuple. No positional keyword, tuple-valued `items`, invented
+bound or sample-based finite domain is introduced into a 3.0 consumer.
+
+Established inputs include two/three positions, different scalar types,
+position `const`/`enum`, compatible composition and fixed references, finite
+tails, optional positions, exact numeric literals, Unicode and empty strings.
+The same proof supports shuffle-closed multi-name languages with heterogeneous
+repetitions and whole-array correlations. A final 3.0 certificate is carried
+through the intermediate 3.1 hop, including single-name consumers. Publication
+reconstructs that same generated schema through the existing named invariant;
+the finite interleaving and exact-value machinery is not duplicated.
+
+Annotation applicability is separate from assertion equivalence. Guarded
+branches retain original defaults, examples, documentation and other supported
+value annotations through common allocator references. A value cannot acquire
+an annotated owner used only at another position: a repeated exact value with
+different annotated applications remains unavailable proof. Ambiguous
+annotated alternative covers and array/wrapper annotations without an
+established named location also remain unavailable. Item uniformity now checks
+documentation and extension identity as well as assertions. Neutral original
+array owners can lower direct finite positional applications using guarded
+references to their original items; independently referenced schemas and
+defining resources retain their own assertions, annotations and provenance.
+No source document is modified in place.
+
+The canonical MIME, FormSemantics and MultipartEncoding owners still govern
+serialization. A shared JSON media choice can retain different scalar kinds
+without a positional schema decoding hint. Compatible uniform text hints
+retain their existing proof. Unknown hints are not copied from another
+position; position-specific formats remain in their guarded owners. Every
+field still requires identical media alternatives/parameters, charset,
+explicit/default selection, Header applicability and transfer/binary binding.
+Incompatible media/Headers retain target-representation diagnostics. Missing
+decoding evidence, unsupported target codecs and conditional binary/transfer
+bindings inside item alternatives remain unavailable-proof diagnostics. An
+exhaustively forbidden cross-name interleaving remains a target restriction.
+
+Structured saved values use the existing projection and captured source/target
+schema evaluations. There is no new Core/native/CLI serialization rule or
+review packet shape: exact numeric spelling, item order, empty/omitted parts,
+media/Header selections and surrounding configuration retain the existing
+checks. Binary references continue through the established homogeneous path;
+heterogeneous conditional binary codecs and saved file/raw inverses are not
+admitted. Cancellation, stale captures and safe publication continue through
+the common transaction path. The migration producer, Core admission and
+packaged preflight admission advance together from **102** to **103**; 102 is
+obsolete. Evaluator **1.18.0+62**, graph **9**, parameter mock **6**, response
+mock **5**, sample **4** and schema-example projection **3** are unchanged.
+
+Prepared **unexecuted** coverage is registered through the existing gates:
+
+- Engine `migration_b05_r3d1b3_fixture.cjs` is called by the existing R3d-1b
+  fixture in all five media, downgrade, multipart, owner and Swagger suites.
+  It covers both 3.2 patches, YAML/JSON, 3.0.0–3.0.4, two/three scalar
+  positions, exact numbers, const-only hints, composition, whole-array
+  constraints, finite tails, optional/absent fields, repeats/correlations/null,
+  text/JSON wire decoding, byte-order/Header mutation controls, referenced and
+  shared identified owners, YAML aliases and actual annotation traces through
+  the canonical evaluator. Negative controls cover unbounded values/tails,
+  incompatible media/Headers/text hints, conditional binary codecs, ambiguous
+  annotations/access semantics, saved-value reversal and Swagger refusal.
+  Final-correspondence controls mutate item guards, whole tuples and codecs.
+- Core `migration_r3d1b3_fixture.dart` is registered through the existing
+  form/binary/Swagger fixture gates. It prepares unsaved finite-tuple captures,
+  structured exact-number/empty/omitted projections, cancellation, stale
+  review, publication races, original-file preservation, packaged CLI previews,
+  cold reopening and real request-builder bytes evaluated against both
+  captured source and target schemas after original deletion.
+- The existing registered native review fixture adds finite-tuple 3.0 review,
+  converted schema/Encoding and saved-body display, publication and stale
+  review controls. Packaged preflight adds finite-tuple saved previews across
+  both source patches, both formats and all five 3.0 patch targets. Existing
+  positive/negative R3d-1b-2 bodies remain, with current producer assertions.
+
+Production changes are `migration_multipart_tuples.ts`,
+`migration_multipart_language.ts`, `migration_named_multipart.ts`,
+`migration_schema_tuples.ts`, `migration_finite_domain.ts`, `migration.ts`,
+Core `migration.dart` and `tools/native_migration_preflight.py`. Saved-value
+projection, request profiles, final invariants, native review and CLI consume
+the existing common proof/projection paths.
+
+Verification performed: source/protocol/ownership/gate inspection, local Git
+inspection and `git diff --check` only. The execution hold remains active:
+no tests, compilers, analyzers, builds, code generation, CI, graphical workloads
+or performance checks ran. Prepared regressions are not passing-test evidence.
+No bundles were rebuilt; Snapcraft remains skipped. No third-party or installed
+official Flutter SDK changes, push or remote refresh were performed.
+
+**Next assignment: B05-R3d-1b-4 — Mixed-media reusable-owner specialization.**
+That work, example/Header inverses, saved raw/file multipart inversion, final
+production-byte/transaction reconciliation and R3d-1c were not started here.
+The preceding assignment records below are historical evidence of their own
+producer revisions, not statements that the new finite tuple path is absent.
+
 ## B05-R3d-1b-2: Finite names and representable multi-name multipart
 
 **B05-R3d-1b-2 is source-complete, unverified for the established certificate

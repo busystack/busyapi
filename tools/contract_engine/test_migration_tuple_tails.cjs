@@ -228,7 +228,7 @@ test('a finite language beyond the enumeration budget is a missing proof, not a 
  }}});
  const input={root,snapshot:'finite-budget',resources:[{id:root,text,generation:1}],targetVersion:'3.0.4',destination:'file:///finite-budget-output/'};
  const review=await planMigration(input);assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);
- assert(review.problems.some(value=>value.code==='migration.schema.tuple'&&value.reason==='implementation'));
+ assert(review.problems.some(value=>value.code==='migration.schema.tuple'&&value.reason==='unavailable-proof'));
  assert(!review.problems.some(value=>value.reason==='target-representation'));assert.equal(input.resources[0].text,text);
 });
 

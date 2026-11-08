@@ -14,6 +14,7 @@ import {schemaContext} from './schema_context';
 import {migrationUnevaluatedMapping} from './migration_schema_unevaluated';
 import type {ExternalExampleResourcePacket} from './external_examples';
 import {modernFamily} from './specification';
+import {finiteTupleItemApplications} from './migration_schema_tuples';
 
 /** Finite domains are exhaustive supersets, never a selection of samples.
  * The original captured evaluator filters them under the source dialect.
@@ -171,7 +172,7 @@ export async function migrateFiniteSchemaDomain(graph:ReferenceGraph,scope:Graph
     const fields=[...new Set([...positionalFields.filter(field=>source.doc.dataNode(pointer+'/'+field)),...dependencyFields,...containmentFields,...logicalFields,...evaluatedFields,...coveredConjunction])];
     if(!fields.length)return false;
     if(fields.some(field=>source.doc.dataNode(pointer+'/'+field)===undefined))return false;
-    const proofs=new MigrationSchemaProofs(graph),names=new Set(Object.keys(value.properties??{}));
+    const proofs=new MigrationSchemaProofs(graph),names=new Set(Object.keys(value.properties??{}));let annotatedTuple=false;
     for(const field of fields){
         if(['dependentRequired','minContains','maxContains'].includes(field))continue;
         const node=doc.dataNode(scope.pointer+'/'+field)!;
@@ -183,8 +184,14 @@ export async function migrateFiniteSchemaDomain(graph:ReferenceGraph,scope:Graph
                 field===positional&&Number(original.slice(original.lastIndexOf('/')+1))>=maximum||
                 field!==positional&&maximum<=value[positional].length))continue;
             const schema=graph.scopeAs(scope.resource,original,'schema');
-            if(!schema||!(field==='allOf'?proofs.annotationsCoveredByItems(schema):
-                positional||field==='contains'||field==='unevaluatedItems'||logicalFields.includes(field)?proofs.annotationFree(schema):proofs.annotationsCoveredByProperties(schema,names)))return false;
+            if(!schema)return false;
+            if(!(field==='allOf'?proofs.annotationsCoveredByItems(schema):
+                positional||field==='contains'||field==='unevaluatedItems'||logicalFields.includes(field)?proofs.annotationFree(schema):proofs.annotationsCoveredByProperties(schema,names))){
+                // Only direct positional applications obtain guarded owners.
+                // Other annotations still require their existing inverse.
+                if(target!=='3.0'||positional!=='prefixItems'||!positionalFields.includes(field))return false;
+                annotatedTuple=true;
+            }
         }
     }
     // Without an explicit tail, source coverage ends at the last prefix. The
@@ -214,8 +221,13 @@ export async function migrateFiniteSchemaDomain(graph:ReferenceGraph,scope:Graph
             if(response)accepted.push(text);
         }
     }
+    const tupleItems=annotatedTuple?finiteTupleItemApplications(graph,scope,accepted):undefined;
+    if(annotatedTuple&&!tupleItems)return false;
     const retire=(original:string)=>{
         const material=source.current(original,scope.resource);if(material===undefined||!material.startsWith(pointer+'/'))return;
+        if(tupleItems?.some(branch=>branch.schema.resource===scope.resource&&branch.schema.pointer===original)){
+            owners.move({resource:scope.resource,pointer:original},source,material,'finite_tuple_item',{context:graph,layout:'array-item'});return;
+        }
         // An enclosing unevaluatedItems projection can consume the original
         // contains predicate even when no authored $ref enters it directly.
         // Keep that predicate in the common allocator through finite folding.
@@ -244,6 +256,8 @@ export async function migrateFiniteSchemaDomain(graph:ReferenceGraph,scope:Graph
     // A successful unevaluatedItems application finishes coverage of every
     // present item. Scalar, annotation-free U schemas may therefore fold with
     // the exhaustive assertion while the target retains complete coverage.
-    if(positional||evaluatedFields.length)source.set(pointer+'/items',{});
+    if(tupleItems?.length)source.exact(pointer+'/items','{"anyOf":['+tupleItems.map(branch=>'{"allOf":[{"enum":['+branch.values.join(',')+']},{"$ref":'+
+        JSON.stringify(owners.reference(owners.uniqueLocation(branch.schema).location,target))+'}]}').join(',')+']}');
+    else if(positional||evaluatedFields.length)source.set(pointer+'/items',{});
     return true;
 }

@@ -42,7 +42,7 @@ void multiNameMultipartMigrationRegressions(String group) {
           expect(review.unsaved, true);
           if (group == 'swagger') { expect(review.publishable, false);expect(review.result['outputs'], isEmpty);return; }
           expect(review.publishable, true, reason: '${review.result}');
-          expect(review.result['producerVersion'], '102');
+          expect(review.result['producerVersion'], '103');
           final projections = review.result['configurationProjections'] as List;
           expect(projections.where((record) => record['multipart'] != null).length, 2);
           expect(projections.firstWhere((record) => record['multipart'] != null)['multipart'], {'names': ['a', 'b', '雪']});

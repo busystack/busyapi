@@ -5,12 +5,42 @@ import type {MigrationSchemaOwners} from './migration_schema_owners';
 import type {MigrationIssue} from './migration_schema';
 import type {MigrationArrayBounds} from './migration_schema_arrays';
 import {uniformTupleTail} from './migration_tuple_uniform_tail';
-import {MigrationSchemaProofs} from './migration_schema_proofs';
+import {MigrationSchemaProofs,migrationExactValueIdentity} from './migration_schema_proofs';
 import {migrationValueIdentity} from './migration_source';
 import {schemaResourceContextIdentity} from './reference_graph';
 import {constantSchemaAssertion} from './schema_constant_assertions';
 import type {GraphReference} from './reference_graph';
 import {discardInactiveMigrationSchema} from './migration_schema_conditions';
+import {SourceDocument} from './document';
+
+/** Preserve annotated finite positional applications at neutral array owners.
+ * Membership has already been exhaustively checked by FiniteMigrationDomain's
+ * caller. An exact value guard retains the original schema reference only
+ * where it applied. If one value needs different annotated owners at different
+ * indices, uniform items has no established annotation inverse. */
+export function finiteTupleItemApplications(graph:ReferenceGraph,scope:GraphScope,accepted:readonly string[]):
+    readonly Readonly<{schema:GraphScope;values:readonly string[]}>[]|undefined {
+    const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
+    if(!Array.isArray(value?.prefixItems))return;
+    const proofs=new MigrationSchemaProofs(graph),applications=new Map<string,string>();
+    const branches=new Map<string,{schema:GraphScope;values:Map<string,string>}>();let work=0,bytes=0;
+    for(const text of accepted){
+        const doc=new SourceDocument(text,'finite-tuple-items',true,'json');if(doc.dataNode('')?.kind!=='array')return;
+        for(const [index,node]of [...doc.dataNode('')!.children.values()].entries()){
+            if(++work>50000)return;
+            const child=graph.scopeAs(scope.resource,scope.pointer+(index<value.prefixItems.length?'/prefixItems/'+index:'/items'),'schema');
+            if(!child)return;
+            const id=JSON.stringify([child.resource,child.pointer]),exact=migrationExactValueIdentity(doc,node.pointer);
+            const application=proofs.annotationFree(child,true)?'':id,previous=applications.get(exact);
+            if(previous!==undefined&&previous!==application)return;
+            applications.set(exact,application);
+            const branch=branches.get(id)??{schema:child,values:new Map<string,string>()};
+            if(!branch.values.has(exact)){const literal=doc.dataJson(node.pointer);bytes+=literal.length;if(bytes>8*1024*1024)return;branch.values.set(exact,literal);}
+            branches.set(id,branch);if(branches.size>2048)return;
+        }
+    }
+    return [...branches.values()].map(({schema,values})=>({schema,values:[...values.values()]}));
+}
 
 /** A proved bound makes these schema applications unreachable, including
  * their annotations. Preserve independent targets before ordinary vocabulary
@@ -251,7 +281,7 @@ export function migrateSchemaTuple(graph:ReferenceGraph,scope:GraphScope,source:
         issue({...scope,pointer:scope.pointer+'/'+keyword},'migration.schema.tuple',limitation?
             'OpenAPI 3.0 uniform items and finite whole-array literals cannot express this unbounded order-sensitive type tuple':
             'OpenAPI 3.0 has no positional items keyword; uniformity or a finite literal representation has not been established for these reachable positions',
-            limitation?'target-representation':'implementation');return;
+            limitation?'target-representation':'unavailable-proof');return;
     }
     const constrained=tailValue!==undefined&&typeof tailValue!=='boolean';
     const maximum=constrained?bounds.maximum(scope):undefined;

@@ -68,7 +68,7 @@ for(const version of ['3.2.0','3.2.1'])for(const format of ['yaml','json'])for(c
 test(`R3c-3 ${version} ${format} raw ${single?'single':'multiple'} fields → ${targetVersion}`,async()=>{
  const raw=single?'q=a%2Bb&q=%2520':'count=9007199254740993e%2B0&q=a%2Bb&q=%2520&flag=false';
  const input=require('./migration_b05_r3c3_fixture.cjs')(version,format,targetVersion,single).configure(raw),before=JSON.stringify(input);
- const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));assert.equal(plan.producerVersion,'102');
+ const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));assert.equal(plan.producerVersion,'103');
  const projection=plan.configurationProjections.find(change=>change.pointer==='/tests/0/parameters');
  assert.equal(projection.rawQueries[0].name,'descriptionOnly');assert(projection.rawQueries[0].data.includes(single?'a+b':'9007199254740993e+0'));
  const after=new SourceDocument(projection.after,'file:///configuration.json',true,'json');
@@ -146,7 +146,7 @@ test('R3c optional empty whole form objects preserve absence without inventing a
 for(const version of ['3.2.0','3.2.1'])for(const format of ['yaml','json'])for(const targetVersion of ['3.1.2','3.0.4'])
 test(`R3c ${version} ${format} finite whole queries and literal cookies publish to ${targetVersion}`,async()=>{
  const input=require('./migration_b05_r3c_fixture.cjs')(version,format,targetVersion),original=input.resources[0].text;
- const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(result.producerVersion,'102');
+ const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(result.producerVersion,'103');
  assert.equal(input.resources[0].text,original);assert.equal(analyse(input).complete,true);
  const resources=result.outputs.map(output=>({id:output.id,text:output.text,generation:0}));
  const packet={root:result.outputRoot,resources,snapshot:'r3c-cold'},doc=new SourceDocument(result.outputs.find(output=>output.id===result.outputRoot).text,result.outputRoot);
