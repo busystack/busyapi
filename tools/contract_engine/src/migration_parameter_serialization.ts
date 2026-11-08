@@ -114,15 +114,21 @@ function projectWire(owner:Declaration,raw:string):Wire|undefined {
  let pairs:Pair[]=[];
  if(location==='querystring'||location==='query'&&!media){
   if(location==='querystring'&&!owner.wholeForm)return;
-  if(root.kind!=='object'||location==='query'&&(style.style!=='form'||!style.explode||value.allowReserved===true))return;
-  for(const name of root.children.keys()){
-   const text=scalar('/'+escape(name));if(text===undefined)return;
-   const encode=location==='querystring'?form:uri;
-   // The component certificate covers all member orders and all exact numeric
-   // spellings: both serializers apply the same scalar conversion before URI
-   // encoding. A space is the sole codec difference for this supported shape.
-   if(form(name)!==uri(name)||form(text)!==uri(text))return;
-   pairs.push([uri(name),encode(text)]);
+  if(location==='query'&&(style.style!=='form'||!style.explode||value.allowReserved===true))return;
+  const append=(name:string,pointer:string):boolean=>{
+   const text=scalar(pointer);if(text===undefined||form(name)!==uri(name)||form(text)!==uri(text))return false;
+   pairs.push([uri(name),location==='querystring'?form(text):uri(text)]);return true;
+  };
+  if(location==='query'&&root.kind==='array'){
+   for(const index of root.children.keys())if(!append(value.name,'/'+index))return;
+  }else {
+   if(root.kind!=='object')return;
+   for(const name of root.children.keys()){
+    const pointer='/'+escape(name),node=doc.dataNode(pointer)!;
+    if(location==='querystring'&&node.kind==='array'){
+     for(const index of node.children.keys())if(!append(name,pointer+'/'+index))return;
+    }else if(!append(name,pointer))return;
+   }
   }
  }else if(location==='cookie'){
   if(!media&&(!['form','cookie'].includes(style.style)||style.style==='cookie'&&owner.scope.family!=='3.2'))return;
@@ -197,11 +203,65 @@ async function wireLanguage(graph:ReferenceGraph,owner:Declaration,values:Domain
  return true;
 }
 
+type RepeatedField=Readonly<{name:string;schema:GraphScope;values:Domain;required:boolean}>;
+
+/** This bounded factor has one field, so there is no Cartesian-product
+ * assumption. The exhaustive *whole object* evaluation carries dependencies,
+ * conditions and property counts into the projected enum. The original
+ * schema remains a typed allocator owner, including independent references. */
+async function repeatedField(graph:ReferenceGraph,owner:Declaration,values:Domain,
+ examples:readonly ExternalExampleResourcePacket[],budget:ParameterProofBudget):Promise<RepeatedField|undefined> {
+ if(!owner.wholeForm||!owner.schema||!values.length)return;
+ const parts=new MigrationSchemaProofs(graph).conjuncts(owner.schema),fields=new Map<string,GraphScope>();
+ for(const part of parts){
+  const node=graph.docs.get(part.resource)!.dataNode(part.pointer);
+  for(const name of Object.keys(node?.value?.properties??{})){
+   const child=graph.scopeAs(part.resource,part.pointer+'/properties/'+escape(name),'schema');
+   if(child)fields.set(name,child);
+  }
+ }
+ if(fields.size!==1)return;
+ const [name,schema]=[...fields][0],projected:string[]=[];let omitted=false;
+ for(const raw of values){
+  const doc=new SourceDocument(raw,'file:///repeated-field.json',true,'json'),root=doc.dataNode('')!;
+  if(root.kind!=='object'||[...root.children.keys()].some(field=>field!==name))return;
+  const field=doc.dataNode('/'+escape(name));
+  if(!field){omitted=true;continue;}
+  if(field.kind!=='array')return;
+  projected.push(doc.dataJson(field.pointer));
+ }
+ if(!projected.length)return;
+ const required=owner.value.required===true&&!omitted;
+ // Required empty collections have no older native presence representation.
+ if(required&&projected.some(raw=>new SourceDocument(raw,'file:///array.json',true,'json').dataNode('')!.children.size===0))return;
+ const result={name,schema,values:projected,required};
+ const after:Declaration={...owner,media:undefined,wholeForm:false,value:{...owner.value,name,in:'query',required,style:'form',explode:true},scope:{...owner.scope,family:'3.1'}};
+ if(!equalRepeatedWire(owner,after,result,values)||!await wireLanguage(graph,owner,values,examples,budget))return;
+ return result;
+}
+
+function extracted(raw:string,name:string):string|undefined {
+ const doc=new SourceDocument(raw,'file:///extracted-field.json',true,'json');
+ const node=doc.dataNode('/'+escape(name));return node&&doc.dataJson(node.pointer);
+}
+function equalRepeatedWire(before:Declaration,after:Declaration,field:Pick<RepeatedField,'name'>,values:Domain):boolean {
+ return values.every(raw=>{
+  const first=wire(before,raw),value=extracted(raw,field.name),last=value===undefined?{pairs:[],text:'',emptyFailure:false}:wire(after,value);
+  return first!==undefined&&last!==undefined&&first.text===last.text&&JSON.stringify(first.pairs)===JSON.stringify(last.pairs)&&first.emptyFailure===last.emptyFailure;
+ });
+}
+
 /** Captured saved inputs can lie outside the schema's permitted language.
  * Preserve their actual codec too; an enum is no permission to alter them. */
 export function sameMigrationParameterValue(source:ReferenceGraph,before:MigrationLocation,target:ReferenceGraph,after:MigrationLocation,raw:string):boolean {
  const first=declaration(source,before),last=declaration(target,after);
- return first!==undefined&&last!==undefined&&equalWire(first,last,[raw]);
+ if(!first||!last)return false;
+ if(first.value.in==='querystring'&&last.value.in==='query'&&last.schema!==undefined&&target.docs.get(last.schema.resource)!.dataNode(last.schema.pointer)?.value?.type==='array'){
+  const doc=new SourceDocument(raw,'file:///saved-field.json',true,'json'),root=doc.dataNode('')!;
+  if(root.kind!=='object'||[...root.children.keys()].some(name=>name!==last.value.name))return false;
+  return equalRepeatedWire(first,last,{name:last.value.name},[raw]);
+ }
+ return equalWire(first,last,[raw]);
 }
 
 /** Identity-value mappings preserve cross-property assertions, requiredness,
@@ -246,6 +306,27 @@ export async function migrateParameterSerialization(graphs:readonly ReferenceGra
    fail('encoding-proof','No established scalar form certificate covers these Encoding instructions; advanced positional and nested Encoding remain separately assigned');continue;
   }
   if(!values){fail('proof','An exhaustive finite source domain could not be established within the captured proof budget');continue;}
+  const repeated=whole?await repeatedField(graph,before,values,examples,budget):undefined;
+  if(repeated){
+   const material=owners.uniqueLocation(scope),{source,location:{pointer}}=material;
+   const media=pointer+'/content/'+escape(before.media!);
+   if(['example','examples'].some(name=>source.doc.dataNode(media+'/'+name)||source.doc.dataNode(pointer+'/'+name))){
+    fail('example-proof','Extracted array examples require a separate field ownership certificate');continue;
+   }
+   const schemaAt=before.schema!,schemaMaterial=owners.uniqueLocation(schemaAt);
+   owners.move(schemaAt,schemaMaterial.source,schemaMaterial.location.pointer,'whole_query_object',{context:graph});
+   const fieldAt=owners.uniqueLocation(repeated.schema).location;
+   source.set(pointer+'/schema',{type:'array',allOf:[{$ref:owners.reference(fieldAt,target)}]});
+   // Exact literals are copied as source text, never machine numbers.
+   source.exact(pointer+'/schema/enum','['+repeated.values.join(',')+']');
+   owners.retainNativeHistory({...scope,pointer:scope.pointer+'/content'},source,pointer+'/content','whole_query_media',graph);
+   if(source.doc.dataNode(pointer+'/allowEmptyValue'))owners.retainNativeHistory({...scope,pointer:scope.pointer+'/allowEmptyValue'},source,pointer+'/allowEmptyValue','inactive_whole_query_empty_value',graph);
+   source.set(pointer+'/name',repeated.name);source.set(pointer+'/in','query');source.set(pointer+'/required',repeated.required);
+   source.set(pointer+'/style','form');source.set(pointer+'/explode',true);
+   source.presentationChanges.push(pointer);changed=true;
+   for(const at of migrationLogicalPointers(source.doc))if(!source.origins.has(at))source.origins.set(at,new Set([at]));
+   continue;
+  }
   const formTarget:Declaration={...before,media:undefined,mediaOwner:undefined,scope:{...scope,family:target},
    value:{...before.value,content:undefined,in:whole?'query':'cookie',style:'form',explode:true}};
   let after=formTarget;
@@ -311,18 +392,24 @@ export async function proveMigrationParameterSerialization(source:ReferenceGraph
    deprecated:before.value.deprecated===true,domain:language(values),wire:values.map(raw=>[identity(raw),wire(before,raw)]),absent:before.value.required?'required':'omitted'});
   for(const at of outputs){
    const after=declaration(target,at),permitted=after&&await domain(target,after,targetExamples,budget);
-   if(!after||!permitted||language(values)!==language(permitted)||before.value.name!==after.value.name||
+   const field=after&&before.value.in==='querystring'&&after.schema!==undefined&&target.docs.get(after.schema.resource)!.dataNode(after.schema.pointer)?.value?.type==='array'?
+    await repeatedField(source,before,values,examples,budget):undefined;
+   const validField=field&&after&&permitted&&after.value.name===field.name&&after.value.in==='query'&&
+    !!after.value.deprecated===!!before.value.deprecated&&after.value.required===field.required&&language(field.values)===language(permitted)&&equalRepeatedWire(before,after,field,values)&&
+    await wireLanguage(target,after,permitted,targetExamples,budget);
+   if(!validField&&(!after||!permitted||language(values)!==language(permitted)||before.value.name!==after.value.name||
     !!before.value.required!==!!after.value.required||!!before.value.deprecated!==!!after.value.deprecated||!equalWire(before,after,values)||
-    !await wireLanguage(source,before,values,examples,budget)||!await wireLanguage(target,after,values,targetExamples,budget)){
+    !await wireLanguage(source,before,values,examples,budget)||!await wireLanguage(target,after,values,targetExamples,budget))){
     issue(scope,'migration.invariant.parameter-wire','The target parameter changed its exhaustive value language, request-target/Cookie octets, names or presence behavior','unavailable-proof');continue;
    }
+   if(!after)continue;
    beforeProfiles.set(key(scope),signature);beforeProfiles.set(key(before.scope),signature);
    afterProfiles.set(key(at),signature);afterProfiles.set(key(after.scope),signature);
    if(changes.length>=4096)throw new SourceError('limit.migration.parameters','Parameter review exceeds 4096 captured occurrences');
    const label=(owner:Declaration)=>owner.value.in+' · '+(owner.media??parameterStyle(
     isNativeFamily(owner.scope.family)?owner.scope.family:'3.2',owner.value.in,owner.value).style);
    changes.push({resource:scope.resource,pointer:scope.pointer,range:source.docs.get(scope.resource)!.dataNode(scope.pointer)!.range,
-    name:before.value.name,before:label(before),after:label(after)});
+    name:before.value.name,before:label(before),after:label(after)+(validField?' · '+after.value.name:'')});
   }
  }
  return {before:beforeProfiles,after:afterProfiles,changes};

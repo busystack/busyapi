@@ -125,25 +125,37 @@ void _verifyMigrationConfigurationProjections(
           after.containsKey('entry') && after['entry'] is! String) invalid();
     } else if (parameters) {
       if (before == null || expected is! Map || after is! Map) invalid();
-      // Admit only exact value-preserving querystring -> query key moves.
+      // Admit exact whole-value moves or single array field extraction.
       // No other saved value, representation, or selection may change.
       final planned = exactConfiguration(before as String);
       if (planned is! Map || planned['querystring'] is! Map ||
           planned['query'] != null && planned['query'] is! Map ||
-          after['query'] is! Map ||
+          after['query'] != null && after['query'] is! Map ||
           after['querystring'] != null && after['querystring'] is! Map) invalid();
       final whole = planned['querystring'] as Map;
       final query = planned['query'] as Map? ?? <String, Object?>{};
       var moved = 0;
       for (final name in whole.keys.toList()) {
         if ((after['querystring'] as Map?)?.containsKey(name) == true) continue;
-        if (query.containsKey(name) || !(after['query'] as Map).containsKey(name) ||
-            !sameExactConfiguration(whole[name], (after['query'] as Map)[name])) invalid();
-        query[name] = whole.remove(name);
+        final destination = after['query'] as Map? ?? const {};
+        final value = whole[name];
+        if (!query.containsKey(name) && destination.containsKey(name) &&
+            sameExactConfiguration(value, destination[name])) {
+          query[name] = whole.remove(name);
+        } else if (value is Map && value.length == 1) {
+          if (value.isNotEmpty) {
+            final field = value.keys.single;
+            if (value[field] is! List || query.containsKey(field) ||
+                !destination.containsKey(field) ||
+                !sameExactConfiguration(value[field], destination[field])) invalid();
+            query[field] = value[field];
+          }
+          whole.remove(name);
+        } else { invalid(); }
         moved++;
       }
       if (moved == 0) invalid();
-      planned['query'] = query;
+      if (query.isNotEmpty || planned.containsKey('query')) planned['query'] = query;
       if (whole.isEmpty) planned.remove('querystring');
       if (!sameExactConfiguration(planned, after)) invalid();
     } else if (baseUrl) {
@@ -173,7 +185,7 @@ void _verifyMigrationReview(
   if (result['version'] != 1 ||
       result['snapshot'] != input.snapshot.identity ||
       result['producer'] != 'busyapi-native-migration' ||
-      result['producerVersion'] != '96' ||
+      result['producerVersion'] != '97' ||
       result['problems'] is! List ||
       result['outputs'] is! List ||
       result['exampleOutputs'] is! List ||

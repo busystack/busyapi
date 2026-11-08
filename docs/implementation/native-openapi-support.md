@@ -31,6 +31,75 @@ consume those shared results. Source-preserving transactions remain authoritativ
 Current changes require complete engine, Core, native and packaged verification;
 source inspection or a successful build is not runtime acceptance.
 
+## B05-R3c-1: Single array field projection
+
+**Single-field finite projection implemented, unverified. B05-R3c remains
+incomplete.** This bounded continuation starts at
+`188ff2f086e486fdc6b9d0bf87cd8831102e6961` on `release/v0.1.0`.
+It does not begin R3c-2, R3c-3 or R3d.
+
+The planner can extract one array property of a whole form object into a named
+`in: query`, `style: form`, `explode: true` Parameter in OpenAPI 3.0/3.1.
+The source property name becomes the query owner. The exact finite source
+object domain is evaluated before extraction; its projected array enum carries
+whole-object constraints, while an `allOf` reference retains the original
+property's item/count constraints. The entire original schema stays in a typed
+A01–A03 allocator owner. Referenced item/object schemas and shared Parameters
+continue through canonical ownership and reference repair.
+
+This is a one-field language proof, with no assumption that finite examples
+establish a Cartesian product. The publication invariant recomputes both
+complete domains, compares extracted values and complete ordered query fields,
+and exercises captured source/target parameter inversion. Empty arrays remain
+arrays; repeated identical values retain multiplicity and order. Exact number
+literals are inserted as source text. Existing scalar-object and cookie paths
+remain in place. Review records identify the destination field. Core and CLI
+share the same projection records and producer admission.
+
+Structured saved single-field objects move their array to its destination query
+owner, with exact value checks and destination collision rejection. Core
+independently admits only identity moves or single array field extraction;
+unrelated selections must remain identical. Raw saved inputs, extra saved
+fields and explicitly saved empty objects refuse publication with
+`migration.parameter.saved-proof`; no saved selection is silently discarded.
+
+Remaining boundaries are explicit unavailable proofs: unbounded/exhausted
+source domains; absent property schema owners; multi-field/correlated splitting;
+form/RFC6570 byte differences (including spaces); and required named arrays
+that can emit no field. Required nonempty arrays and optional empty arrays
+have separate admitted presence behavior. Extracted Parameter/Media examples
+retain `querystring-example-proof` pending the independently assigned Example
+mapping. General Swagger/grouped-presence work remains R3c-2; raw saved inputs
+and remaining Example mappings remain R3c-3. No general one-to-many factorizer
+or claim of all-R3c source completion is made here.
+
+Production changes: `tools/contract_engine/src/migration_parameter_serialization.ts`,
+`migration_parameter_configuration.ts`, `migration.ts`;
+`packages/busyapi_core/lib/src/migration.dart`; and
+`tools/native_migration_preflight.py`. Existing native review and CLI consumers
+use the expanded records without separate serialization implementations.
+
+Prepared regressions extend all seven requested production-path test files,
+with `migration_b05_r3c1_fixture.cjs` and the existing Dart shared fixture.
+Coverage includes both patches, JSON/YAML, direct/composed modern downgrades,
+empty/singleton/duplicate arrays, length/item rejection, exact numeric elements,
+Unicode/delimiter/percent bytes, shared/referenced owners, cross-field refusal,
+saved arrays and collisions, invariant mutations, unsaved buffers, stale and
+cancelled reviews, atomic failure and cold reopening. Existing negative cases
+remain. Engine cases are registered through the existing `build_engine.sh`
+entries; Core and native files remain in their existing directory discovery.
+
+Migration producer, Core admission and preflight are **97**; 96 is obsolete.
+Evaluator **1.18.0+61**, parameter mock **5**, configuration `parameter-wire-v5`,
+graph **9**, schema-example projection **3**, response mock **5** and sample
+producer **4** are unchanged. Bundles have not been rebuilt.
+
+**Actual checks:** specification/source/registration inspection and
+`git diff --check` only. All regressions are prepared, not executed. The execution
+hold remains active; no tests, compilers, analyzers, builds, code generation,
+CI, graphical workloads or performance checks ran. Snapcraft remains skipped.
+No third-party software or Flutter SDK was modified. No push was performed.
+
 ## B05-R3c: Whole-query and finite cookie-style lowering
 
 **B05-R3c is partially implemented, unverified within W3.09. It is not
@@ -157,9 +226,9 @@ performance checks ran. The execution hold remains active; Snapcraft remains
 skipped. No push or remote fetch was performed. This partial implementation
 does not meet the R3c source-completion criteria or complete B05-R3/B05.
 
-**Next assigned work: B05-R3d — Advanced Encoding conversions, including
-positional, nested and response Encoding Objects.** It has not begun; the R3c
-gaps above remain explicitly open for reconciliation.
+**Next bounded work: B05-R3c-2, then B05-R3c-3.** R3d remains deferred
+until R3c is source-complete. The historical R3c baseline above is superseded
+only by the bounded R3c-1 changes documented in the preceding section.
 
 ## B05-R3b: Reusable Path Item and Media Type ownership
 

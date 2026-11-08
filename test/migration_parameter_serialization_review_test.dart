@@ -15,7 +15,7 @@ import '../packages/busyapi_core/test/migration_r3c_fixture.dart';
 import '../packages/busyapi_core/test/test_support.dart';
 
 void main() {
-  for (final state in ['publish', 'stale', 'unsupported']) {
+  for (final state in ['publish', 'stale', 'unsupported', 'repeated']) {
     testWidgets('R3c native review exposes exact parameter/configuration changes: $state', (tester) async {
       tester.view.physicalSize = const Size(1400, 1200);tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);
@@ -31,9 +31,10 @@ void main() {
       addTearDown(() => messenger.setMockMethodCallHandler(menu, null));
       final directory = Directory.systemTemp.createTempSync('busyapi-r3c-native-');
       final file = File('${directory.path}/api.yaml'), configuration = File('${directory.path}/busyapi.yaml');
-      var original = r3cSource('3.2.1', 'yaml', 1);
+      var original = state == 'repeated' ? r3cRepeatedSource('3.2.1', 1) : r3cSource('3.2.1', 'yaml', 1);
+      final savedConfiguration = state == 'repeated' ? r3cRepeatedConfiguration('yaml') : r3cConfiguration('yaml');
       if (state == 'unsupported') original = original.replaceAll('application/x-www-form-urlencoded', 'application/json');
-      file.writeAsStringSync(original);configuration.writeAsStringSync(r3cConfiguration('yaml'));
+      file.writeAsStringSync(original);configuration.writeAsStringSync(savedConfiguration);
       final controller = WorkspaceController(EngineProcess(executable: runtimeNode, helper: runtimeHelper),
         StateLocations(config: '${directory.path}/config', state: '${directory.path}/state', cache: '${directory.path}/cache'));
       Future<void>? dialog;
@@ -73,12 +74,13 @@ void main() {
           final output = find.widgetWithText(BusyApiDialogButton, 'Review output');
           await tester.runAsync(() => tester.tap(output));await ready(() => find.byType(BusyApiReviewComparison).evaluate().isNotEmpty);
           final comparison = tester.widget<BusyApiReviewComparison>(find.byType(BusyApiReviewComparison));
-          expect(comparison.before, working);expect(comparison.after, contains('text/plain'));expect(comparison.after, contains('9007199254740993.00'));
+          expect(comparison.before, working);expect(comparison.after, contains('text/plain'));if (state != 'repeated') expect(comparison.after, contains('9007199254740993.00'));
+          if (state == 'repeated') expect(comparison.after, contains('array'));
           if (state == 'stale') {
             await tester.runAsync(() async {controller.sourceEdit(controller.root!, '$working ');});
           }
           await tester.runAsync(() => tester.tap(publish));
-          if (state == 'publish') {
+          if (state == 'publish' || state == 'repeated') {
             await ready(() => File('${directory.path}/busyapi-migrated/openapi.yaml').existsSync());
             await tester.runAsync(() async {
               final cold = await BusyProject.open('${directory.path}/busyapi-migrated', controller.engine);
@@ -90,7 +92,7 @@ void main() {
           }
         }
         expect(file.readAsStringSync(), original);
-        expect(configuration.readAsStringSync(), r3cConfiguration('yaml'));
+        expect(configuration.readAsStringSync(), savedConfiguration);
       } finally {
         await tester.pumpWidget(const SizedBox.shrink());await tester.runAsync(() async {
           controller.dispose();await dialog;await directory.delete(recursive: true);

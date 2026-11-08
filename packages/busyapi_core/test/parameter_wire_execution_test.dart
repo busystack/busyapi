@@ -5,8 +5,42 @@ import 'package:busyapi_core/busyapi_core.dart';
 import 'package:test/test.dart';
 
 import 'test_support.dart';
+import 'migration_r3c_fixture.dart';
 
 void main() {
+  for (final version in ['3.2.0', '3.2.1']) {
+    test('R3c-1 $version migration retains actual repeated request targets', () async {
+      final directory = await Directory.systemTemp.createTemp('busyapi-array-wire-');
+      addTearDown(() => directory.delete(recursive: true));
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);addTearDown(() => server.close(force: true));
+      final seen = <String>[];
+      server.listen((request) async {seen.add(request.uri.toString());request.response.statusCode = 204;await request.response.close();});
+      final file = File('${directory.path}/api.json');await file.writeAsString(r3cRepeatedSource(version, server.port));
+      final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);addTearDown(engine.close);
+      final project = await BusyProject.open(file.path, engine);addTearDown(project.close);
+      final review = await project.prepareMigration(project.roots.single.id, '${directory.path}/output', targetVersion: '3.0.4');
+      addTearDown(review.close);expect(review.publishable, true, reason: '${review.result}');await review.publish();
+      final cold = await BusyProject.open(review.destination, engine);addTearDown(cold.close);
+      for (final values in [<String>[], [''], ['a+b'], ['a+b', 'a+b'], ['%20', '雪'], ['/?&=#']]) {
+        final targets = <String>[];
+        for (final owner in [project, cold]) {
+          final root = owner.roots.single.id;
+          final plan = await owner.prepareRequest(root, resource: root, pointer: '/paths/~1shared/get');
+          try {
+            final response = await const ContractRequestExecutor().execute(plan,
+              OperationRequestDraft(planIdentity: plan.identity, parameters: {
+                OperationRequestDraft.parameterKey(owner == project ? 'querystring' : 'query', owner == project ? 'descriptionOnly' : 'q'):
+                  RequestValue.json(jsonEncode(owner == project ? {'q': values} : values)),
+              }), resolveSecret: (_) async => 'credential');
+            try {expect(response.conforming, true);targets.add(seen.last);} finally {await response.close();}
+          } finally {plan.close();}
+        }
+        expect(targets[0], targets[1]);
+        final query = values.map((value) => 'q=${Uri.encodeQueryComponent(value)}').join('&');
+        expect(targets.first, '/shared${query.isEmpty ? '' : '?$query'}');
+      }
+    });
+  }
   for (final version in ['3.0.4', '3.1.2', '3.2.1']) {
     test('R3c $version cookie content sends literal percent sequences, empty and omitted values', () async {
       final directory = await Directory.systemTemp.createTemp('busyapi-literal-cookie-');

@@ -211,3 +211,29 @@ for(const format of ['yaml','json'])test(`R3b ${format} a separately referenced 
  assert(result.problems.some(problem=>problem.code==='migration.path-item.unused-owner'&&problem.reason==='target-representation'),JSON.stringify(result.problems));
  assert.equal(input.resources[0].text,text);
 });
+
+for(const value of [{q:['a+b','a+b']},{q:[]}])test(`R3c-1 saved field extraction ${JSON.stringify(value)}`,async()=>{
+ const input=require('./migration_b05_r3c1_fixture.cjs')();
+ const parameters={querystring:{descriptionOnly:value},cookie:{literal:'a%20b'}};
+ input.configuration={id:'file:///captured/busyapi.yaml',generation:1,text:JSON.stringify({version:1,roots:[{name:'api',path:'api.json'}],tests:[{name:'saved',operation:{method:'get',path:'/p'},parameters}]})};
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const projection=review.configurationProjections.find(change=>change.pointer==='/tests/0/parameters');assert(projection);
+ const after=JSON.parse(projection.after);assert.deepEqual(after.cookie,parameters.cookie);assert.equal(after.querystring,undefined);
+ if(value.q)assert.deepEqual(after.query.q,value.q);else assert.equal(after.query,undefined);
+ const collision=JSON.parse(input.configuration.text);collision.tests[0].parameters.query={q:['held']};input.configuration.text=JSON.stringify(collision);
+ const refused=await planMigration(input);assert.equal(refused.complete,false);assert.deepEqual(refused.outputs,[]);
+ assert(refused.problems.some(problem=>problem.code==='migration.parameter.saved-collision'));
+});
+
+for(const mutation of ['name','required','domain','explode'])test(`R3c-1 complete extracted owner proof rejects ${mutation}`,async()=>{
+ const input=require('./migration_b05_r3c1_fixture.cjs')(),review=await planMigration(input);
+ assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const {createGraph}=require('./dist/model.cjs'),{proveMigrationParameterSerialization}=require('./dist/migration_invariants.cjs');
+ const resources=review.outputs.map(output=>({id:output.id,text:output.text,generation:0})),root=review.outputRoot;
+ const resource=resources.find(value=>value.id===root),doc=new SourceDocument(resource.text,root),base='/components/parameters/Whole';
+ const [field,value]=mutation==='domain'?['schema/enum',[['a+b']]]:mutation==='name'?['name','other']:mutation==='required'?['required',true]:['explode',false];
+ resource.text=doc.set(base+'/'+field,value);const problems=[];
+ await proveMigrationParameterSerialization(createGraph(input).graph,createGraph({root,resources,snapshot:'mutated-array'}).graph,
+  at=>[{resource:root,pointer:at.pointer}],(at,code,message,reason)=>problems.push({at,code,message,reason}));
+ assert(problems.some(problem=>problem.code==='migration.invariant.parameter-wire'),JSON.stringify(problems));
+});

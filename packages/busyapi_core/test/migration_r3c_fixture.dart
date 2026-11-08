@@ -60,3 +60,21 @@ String r3cConfiguration(String format) => jsonEncode({
     'expect': {'status': 204},
   }],
 }).replaceAll('"EXACT"', '9007199254740993.00');
+
+String r3cRepeatedSource(String version, int port) {
+  final value = jsonDecode(r3cSource(version, 'json', port)) as Map;
+  final whole = value['components']['parameters']['Whole'] as Map;
+  whole['required'] = false;
+  whole['content'] = {'application/x-www-form-urlencoded': {'schema': {
+    'type': 'object', 'additionalProperties': false,
+    'properties': {'q': {'type': 'array', 'minItems': 0, 'maxItems': 2,
+      'items': {'type': 'string', 'enum': ['', 'a+b', '%20', '/?&=#', '雪']}}},
+  }}};
+  return jsonEncode(value);
+}
+
+String r3cRepeatedConfiguration(String format) {
+  final value = jsonDecode(r3cConfiguration(format)) as Map;
+  value['tests'][0]['parameters']['querystring']['descriptionOnly'] = {'q': ['a+b', 'a+b']};
+  return jsonEncode(value);
+}

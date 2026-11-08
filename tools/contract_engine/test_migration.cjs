@@ -37,7 +37,7 @@ test('R3c optional empty whole form objects preserve absence without inventing a
 for(const version of ['3.2.0','3.2.1'])for(const format of ['yaml','json'])for(const targetVersion of ['3.1.2','3.0.4'])
 test(`R3c ${version} ${format} finite whole queries and literal cookies publish to ${targetVersion}`,async()=>{
  const input=require('./migration_b05_r3c_fixture.cjs')(version,format,targetVersion),original=input.resources[0].text;
- const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(result.producerVersion,'96');
+ const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(result.producerVersion,'97');
  assert.equal(input.resources[0].text,original);assert.equal(analyse(input).complete,true);
  const resources=result.outputs.map(output=>({id:output.id,text:output.text,generation:0}));
  const packet={root:result.outputRoot,resources,snapshot:'r3c-cold'},doc=new SourceDocument(result.outputs.find(output=>output.id===result.outputRoot).text,result.outputRoot);
@@ -246,4 +246,46 @@ for(const format of ['yaml','json'])test(`${format} a Swagger base-only discrimi
  const before=await evaluateSchemas({...input,runtimeInstances:['{}','{"kind":"Base"}','{"kind":"Unknown"}'].map(text=>({subject:'response-body',location:'application/json',text,schema:{resource:input.root,pointer:'/definitions/Base'}}))});
  const after=await evaluateSchemas({root:result.outputRoot,snapshot:'single-dispatch',resources:result.outputs.map(value=>({...value,generation:0})),runtimeInstances:['{}','{"kind":"Base"}','{"kind":"Unknown"}'].map(text=>({subject:'response-body',location:'application/json',text,schema:{resource:result.outputRoot,pointer:'/components/schemas/Base'}}))});
  assert.equal(after.complete,true);assert.deepEqual(after.runtimeEvaluations.map(value=>value.valid),[false,true,false]);assert.deepEqual(after.runtimeEvaluations.map(value=>value.valid),before.runtimeEvaluations.map(value=>value.valid));assert.equal(input.resources[0].text,text);
+});
+
+for(const version of ['3.2.0','3.2.1'])for(const format of ['yaml','json'])for(const targetVersion of ['3.1.2','3.0.4'])for(const required of [false,true])
+test(`R3c-1 ${version} ${format} repeated array → ${targetVersion}, required=${required}`,async()=>{
+ const input=require('./migration_b05_r3c1_fixture.cjs')(version,format,targetVersion,required),review=await planMigration(input);
+ assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const resources=review.outputs.map(output=>({id:output.id,text:output.text,generation:0})),root=review.outputRoot;
+ const doc=new SourceDocument(resources.find(value=>value.id===root).text,root),base='/components/parameters/Whole';
+ assert.equal(doc.dataNode(base+'/name').value,'q');assert.equal(doc.dataNode(base+'/required').value,required);
+ assert.equal(doc.dataNode(base+'/explode').value,true);
+ const values=['[]','[""]','["a+b","a+b"]','["%20","雪"]','["a","a","a"]','["other"]'];
+ const results=[];
+ for(const [packet,pointer,wrap]of [[input,base+'/content/application~1x-www-form-urlencoded/schema',true],[{root,resources,snapshot:'cold-array'},base+'/schema',false]]){
+  const result=await evaluateSchemas({...packet,runtimeInstances:values.map(text=>({subject:'request-parameter',location:'array',text:wrap?'{"q":'+text+'}':text,schema:{resource:packet.root,pointer}}))});
+  assert.equal(result.complete,true,JSON.stringify(result.findings));results.push(result.runtimeEvaluations.map(value=>value.valid));
+ }
+ assert.deepEqual(results[0],results[1]);assert.deepEqual(results[1],[!required,true,true,true,false,false]);
+ if(targetVersion==='3.1.2')assert.equal((await planMigration({root,resources,snapshot:'array-composed',targetVersion:'3.0.4',destination:'file:///composed-array/'})).complete,true);
+});
+
+for(const mutation of ['space','correlation','required-empty','unbounded'])test(`R3c-1 ${mutation} retains unpublished proof boundary`,async()=>{
+ const input=require('./migration_b05_r3c1_fixture.cjs')(),whole=input.value.components.parameters.Whole,schema=whole.content['application/x-www-form-urlencoded'].schema;
+ if(mutation==='space')input.value.components.schemas.Item.enum=['a b'];
+ if(mutation==='correlation'){schema.properties.flag={type:'boolean'};schema.dependentRequired={q:['flag']};}
+ if(mutation==='required-empty'){whole.required=true;schema.required=['q'];}
+ if(mutation==='unbounded')delete schema.properties.q.maxItems;
+ input.resources[0].text=input.encode(input.value);const review=await planMigration(input);
+ assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);
+ assert(review.problems.some(problem=>problem.code==='migration.parameter.querystring-proof'&&problem.reason==='unavailable-proof'),JSON.stringify(review.problems));
+});
+
+for(const targetVersion of ['3.1.2','3.0.4'])test(`R3c-1 exact numeric array elements at ${targetVersion}`,async()=>{
+ const input=require('./migration_b05_r3c1_fixture.cjs')('3.2.1','json',targetVersion,true);
+ input.value.components.schemas.Item={type:'integer',enum:['EXACT']};
+ input.resources[0].text=input.encode(input.value).replaceAll('"EXACT"','9007199254740993.00');
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const packet={root:review.outputRoot,resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0})),snapshot:'exact-array'};
+ assert(review.outputs.some(output=>output.text.includes('9007199254740993.00')));
+ for(const capture of [input,packet]){
+  const result=await evaluateSchemas({...capture,runtimeInstances:['q=9007199254740993.00&q=9007199254740993.00','q=9007199254740992'].map(text=>({subject:'request-parameter',location:text,text,parameter:{resource:capture.root,pointer:'/components/parameters/Whole'}}))});
+  assert.equal(result.complete,true);assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,false]);
+ }
 });

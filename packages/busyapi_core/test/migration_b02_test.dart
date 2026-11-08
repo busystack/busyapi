@@ -93,7 +93,7 @@ void main() {
         }
         final review = await project.prepareMigration(root, '${directory.path}/copy', targetVersion: target);
         addTearDown(review.close);expect(review.publishable, true, reason: '${review.result}');
-        expect(review.unsaved, true);expect(review.result['producerVersion'], '96');
+        expect(review.unsaved, true);expect(review.result['producerVersion'], '97');
         final outputs = (review.result['outputs'] as List).cast<Map>();
         expect(outputs.any((value) => (value['text'] as String).contains('Unsaved B02 model')), true);
         expect(outputs.any((value) => (value['text'] as String).contains('x-alias: *literal')), true);

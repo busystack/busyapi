@@ -148,7 +148,7 @@ test(`${version} ${format} native objects and literal values share one specializ
  const input=fixture(version,format),original=input.resources[0].text,doc=new SourceDocument(original,input.root);
  assert.equal(analyse(input).status,'complete');await wire(input);
  const review=await planMigration(input);
- assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'96');
+ assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'97');
  assert.equal(review.exampleOutputs.length,2);assert.equal(input.resources[0].text,original);
  const output=delivered(review),{graph}=createGraph(output);
  assert.equal(analyse(output).status,'complete');await wire(output);
@@ -438,4 +438,20 @@ test(`R3b ${format} reusable itemSchema keeps both sequential media occurrences 
   assert(checked.runtimeEvaluations.filter(value=>value.location==='0').every(value=>value.valid));
   assert(checked.runtimeEvaluations.some(value=>value.location==='1'&&!value.valid));
  }
+});
+
+for(const format of ['yaml','json'])test(`R3c-1 ${format} independent object/item aliases retain live schema owners`,async()=>{
+ const input=require('./migration_b05_r3c1_fixture.cjs')('3.2.1',format);
+ const whole=input.value.components.parameters.Whole,object=whole.content['application/x-www-form-urlencoded'].schema;
+ input.value.components.schemas.Object=object;
+ whole.content['application/x-www-form-urlencoded'].schema={$ref:'#/components/schemas/Object'};
+ input.value.components.parameters.Alias={$ref:'#/components/parameters/Whole'};
+ input.value.paths['/shared'].get.parameters=[{$ref:'#/components/parameters/Alias'}];
+ input.value.components.schemas.IndependentItem={$ref:'#/components/schemas/Item'};
+ input.resources[0].text=input.encode(input.value);
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const packet={root:review.outputRoot,resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0})),snapshot:'array-alias-cold'};
+ const graph=createGraph(packet).graph;
+ for(const name of ['Object','Item','IndependentItem'])assert(graph.scopeAs(packet.root,'/components/schemas/'+name,'schema'));
+ assert(graph.entryReferences().filter(edge=>edge.keyword==='$ref').every(edge=>edge.resolution==='resolved'));
 });

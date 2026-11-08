@@ -46,3 +46,14 @@ test('Swagger serialized parameter runtime retains its narrower Items and collec
  const result=await evaluateSchemas({...input,runtimeInstances:['ids=0%209007199254740993','ids=0%209007199254740992'].map((text,index)=>({subject:'request-parameter',location:String(index),text,parameter:{resource:root,pointer}}))});
  assert.equal(result.complete,true,JSON.stringify(result.runtimeFindings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,false]);assert.equal(input.resources[0].text,text);
 });
+
+for(const version of ['3.2.0','3.2.1'])for(const targetVersion of ['3.1.2','3.0.4'])
+test(`R3c-1 ${version} → ${targetVersion} complete repeated query inversion`,async()=>{
+ const input=require('./migration_b05_r3c1_fixture.cjs')(version,'json',targetVersion),review=await require('./dist/migration.cjs').planMigration(input);
+ assert.equal(review.complete,true,JSON.stringify(review.problems));
+ for(const packet of [input,{root:review.outputRoot,resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0})),snapshot:'array-wire-cold'}]){
+  const result=await evaluateSchemas({...packet,runtimeInstances:['q=a%2Bb&q=a%2Bb','q=','q=%2520&q=%E9%9B%AA','q=%2F%3F%26%3D%23','q=a%2Bb&q=a%2Bb&q=a%2Bb','q=wrong'].map(text=>({subject:'request-parameter',location:text,text,parameter:{resource:packet.root,pointer:'/components/parameters/Whole'}}))});
+  assert.equal(result.complete,true,JSON.stringify(result.runtimeFindings));
+  assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,true,true,true,false,false]);
+ }
+});
