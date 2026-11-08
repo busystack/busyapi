@@ -91,6 +91,15 @@ export class FiniteMigrationDomain {
                 if(compare(decimal(low),decimal(high))>=0)return this.bounded([low,...finiteExtras('number')]);
             }
         }
+        for(const part of parts)for(const keyword of ['anyOf','oneOf'])if(Array.isArray(value(part)?.[keyword])){
+            const all:string[]=[];let complete=true;
+            for(let index=0;index<value(part)[keyword].length;index++){
+                const child=this.graph.scopeAs(part.resource,part.pointer+'/'+keyword+'/'+index,'schema');
+                const literals=child?this.values(child,next):undefined;
+                if(literals===undefined){complete=false;break;}all.push(...literals);
+            }
+            if(complete)return this.bounded(all);
+        }
         const object=parts.some(part=>value(part)?.type==='object'||Array.isArray(value(part)?.type)&&
             value(part).type.includes('object')&&value(part).type.every(type=>['object','null','boolean'].includes(type)));
         if(object)for(const part of parts){
@@ -137,15 +146,6 @@ export class FiniteMigrationDomain {
                 if(!current.length)break;
             }
             return this.bounded([...arrays,...finiteExtras('array')]);
-        }
-        for(const part of parts)for(const keyword of ['anyOf','oneOf'])if(Array.isArray(value(part)?.[keyword])){
-            const all:string[]=[];let complete=true;
-            for(let index=0;index<value(part)[keyword].length;index++){
-                const child=this.graph.scopeAs(part.resource,part.pointer+'/'+keyword+'/'+index,'schema');
-                const literals=child?this.values(child,next):undefined;
-                if(literals===undefined){complete=false;break;}all.push(...literals);
-            }
-            if(complete)return this.bounded(all);
         }
     }
 }

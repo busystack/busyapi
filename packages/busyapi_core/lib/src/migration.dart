@@ -153,20 +153,33 @@ void _verifyMigrationConfigurationProjections(
     } else if (multipart) {
       final certificate = record['multipart'];
       if (before == null || expected is! Map || after is! Map ||
-          certificate is! Map || certificate.length != 1 || certificate['name'] is! String) invalid();
-      final name = certificate['name'] as String;
-      if (name.isEmpty || RegExp(r'[\x00-\x1f\x7f"\\]').hasMatch(name) ||
+          certificate is! Map || certificate.length != 1 ||
+          certificate['name'] is! String && certificate['names'] is! List) invalid();
+      final rawNames = certificate['names'];
+      final names = rawNames == null ? [certificate['name']] : rawNames;
+      if (names is! List || names.isEmpty || names.length > 2048 ||
+          names.any((name) => name is! String || name.isEmpty || name.length > 4096 || RegExp(r'[\x00-\x1f\x7f\uD800-\uDFFF]', unicode: true).hasMatch(name)) ||
+          names.toSet().length != names.length ||
           expected['mediaType'] is! String ||
           (expected['mediaType'] as String).split(';').first.trim().toLowerCase() != 'multipart/form-data' ||
           expected['value'] is! List) invalid();
-      final values = <Object?>[];
+      final fields = <String, List<Object?>>{};
+      String? previous;
       for (final part in expected['value'] as List) {
-        if (part is! Map || part.length != 1 || !part.containsKey(name)) invalid();
-        values.add(part[name]);
+        if (part is! Map || part.length != 1 || !names.contains(part.keys.single)) invalid();
+        final name = part.keys.single as String;
+        if (rawNames != null && previous != name && fields.containsKey(name)) invalid();
+        previous = name;
+        (fields[name] ??= []).add(part.values.single);
       }
-      // Verify only the exact name/value bijection here. Canonical Engine
-      // certificates own schema, MIME, charset and transfer semantics.
-      final planned = {...expected, 'value': {name: values}};
+      // Verify exact associations, multiplicity and same-field order. Engine
+      // certificates own shuffle closure, schema and MIME behavior.
+      if ((expected['value'] as List).isEmpty) {
+        for (final name in names) { fields[name as String] = []; }
+      }
+      if (rawNames != null && after['value'] is Map &&
+          !sameExactConfiguration(fields.keys.toList(), (after['value'] as Map).keys.toList())) invalid();
+      final planned = {...expected, 'value': fields};
       if (!sameExactConfiguration(planned, after, preserveNumberSpelling: true)) invalid();
     } else if (parameters) {
       if (before == null || expected is! Map || after is! Map) invalid();
@@ -306,7 +319,7 @@ void _verifyMigrationReview(
   if (result['version'] != 1 ||
       result['snapshot'] != input.snapshot.identity ||
       result['producer'] != 'busyapi-native-migration' ||
-      result['producerVersion'] != '101' ||
+      result['producerVersion'] != '102' ||
       result['problems'] is! List ||
       result['outputs'] is! List ||
       result['exampleOutputs'] is! List ||

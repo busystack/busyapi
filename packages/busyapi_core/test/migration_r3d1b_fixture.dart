@@ -3,9 +3,11 @@ import 'dart:io';
 import 'package:busyapi_core/busyapi_core.dart';
 import 'package:test/test.dart';
 import 'test_support.dart';
+import 'migration_r3d1b2_fixture.dart';
 
 // Prepared through the existing form, binary and Swagger migration gates.
 void namedMultipartMigrationRegressions(String group) {
+  multiNameMultipartMigrationRegressions(group);
   for (final version in ['3.2.0', '3.2.1']) {
     for (final format in ['yaml', 'json']) {
       for (final target in group == 'swagger' ? ['2.0'] : ['3.1.2', '3.0.4']) {

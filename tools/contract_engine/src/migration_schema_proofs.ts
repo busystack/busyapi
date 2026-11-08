@@ -299,6 +299,34 @@ export class MigrationSchemaProofs {
         }
         return result;
     }
+    /** Bounded disjunctive cover of same-instance applications. This is a
+     * superset for oneOf; the canonical evaluator still decides exclusive
+     * alternatives and all remaining assertions. No recursive assumption. */
+    alternatives(scope:GraphScope,active=new Set<string>()):GraphScope[][]|undefined {
+        this.inspect(scope);if(active.has(id(scope))||active.size>=128||!supportedSchemaDialect(scope))return;
+        const value=this.graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
+        if(value===false)return [];if(value===true)return [[scope]];
+        if(!value||typeof value!=='object'||['if','then','else','dependentSchemas'].some(field=>Object.hasOwn(value,field)))return;
+        const next=new Set(active).add(id(scope));let result:GraphScope[][]=[[scope]];
+        const combine=(choices:GraphScope[][]|undefined):boolean=>{
+            if(!choices||result.length*choices.length>2048)return false;
+            result=result.flatMap(left=>choices.map(right=>[...left,...right]));return true;
+        };
+        for(const field of ['$ref','$dynamicRef'])if(Object.hasOwn(value,field)){
+            const target=this.fixed(scope,field);if(!target||!combine(this.alternatives(target,next)))return;
+        }
+        for(const field of ['allOf','anyOf','oneOf'])if(Array.isArray(value[field])){
+            const choices:GraphScope[][]=[];
+            for(let index=0;index<value[field].length;index++){
+                const child=this.graph.scopeAs(scope.resource,scope.pointer+'/'+field+'/'+index,'schema');
+                const local=child&&this.alternatives(child,next);if(!local)return;
+                if(field==='allOf'){if(!combine(local))return;}else choices.push(...local);
+                if(choices.length>2048)return;
+            }
+            if(field!=='allOf'&&!combine(choices))return;
+        }
+        return result;
+    }
     /** A positive superset of accepted JSON instance kinds. Unknown types and
      * native binary representations do not authorize a domain exclusion. */
     domains(scope:GraphScope):ReadonlySet<string> {

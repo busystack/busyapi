@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'migration_multi_name_multipart_review_fixture.dart';
 import 'package:busyapi/l10n/generated/app_localizations.dart';
 import 'package:busyapi/src/app/app_theme.dart';
 import 'package:busyapi/src/app/busyapi_design.dart';
@@ -13,6 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 import '../packages/busyapi_core/test/test_support.dart';
 
 void namedMultipartReviewRegressions() {
+  multiNameMultipartReviewRegressions();
   for (final stale in [false, true]) {
     testWidgets('R3d1b native named owners and saved-value review stale=$stale', (tester) async {
       final temp = Directory.systemTemp.createTempSync('busyapi-named-review-');

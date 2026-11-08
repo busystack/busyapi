@@ -23,7 +23,7 @@ import {serverTemplate} from './derived_bundle';
 import {captureMigrationMarkdown,rewriteMigrationMarkdown,proveMigrationMarkdown} from './migration_markdown';
 import {proveMigrationPositionalEncoding,migrationRequestProfiles,migrationOperationPairs,migrationSecurityAlternativeProjection,proveMigrationOperationMedia,proveMigrationObjectMetadata,proveMigrationServerSelections} from './migration_invariants';
 import {migrateEncodings} from './migration_encoding';
-import {migrateNamedMultipart} from './migration_named_multipart';
+import {migrateNamedMultipart,prepareNamedMultipart} from './migration_named_multipart';
 import {projectMigrationMultipartConfiguration} from './migration_multipart_configuration';
 import {migrateBinarySchemas} from './migration_binary';
 import {specializeBinarySchemaUses} from './migration_binary_uses';
@@ -54,7 +54,7 @@ import {migrateParameterSerialization,proveMigrationParameterSerialization,type 
 import {projectMigrationParameterConfiguration} from './migration_parameter_configuration';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='101';
+const migrationProducerVersion='102';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const referenceLocator=(reference:GraphReference)=>!reference.connection&&['$ref','$dynamicRef'].includes(reference.keyword)||
     reference.connection==='operationRef'&&reference.keyword==='operationRef';
@@ -134,7 +134,7 @@ export async function planMigration(input:MigrationInput) {
     };
     const refused=(error:unknown,location:MigrationLocation)=>{
         if(!(error instanceof SourceError))throw error;
-        const proofLimit=['limit.migration.parameters','limit.migration.binary','limit.migration.media-schema','limit.migration.media-objects','limit.migration.positional-encoding','limit.migration.example-versions','limit.migration.servers','limit.migration.form','limit.migration.examples','limit.migration.literal','limit.request.encoding']
+        const proofLimit=['limit.migration.parameters','limit.migration.binary','limit.migration.media-schema','limit.migration.media-objects','limit.migration.positional-encoding','limit.migration.example-versions','limit.migration.servers','limit.migration.form','limit.migration.examples','limit.migration.literal','limit.request.encoding','limit.migration.proof','limit.migration.array-bounds','limit.migration.finite']
             .some(prefix=>error.code.startsWith(prefix));
         issue(error.source??location,error.code,error.message,error.code==='migration.configuration.alternative'?'target-representation':proofLimit?'unavailable-proof':'implementation');
     };
@@ -408,6 +408,7 @@ export async function planMigration(input:MigrationInput) {
                 const directionalUpgrade=before==='2.0'&&after!=='2.0'||before==='3.0'&&modernFamily(after);
                 if(scope.kind==='schema'&&!directionalUpgrade&&!access.preserves(scope,before,after))issue(scope,'migration.schema.direction','Access annotations need a direction-specific schema mapping to preserve their captured property and required-list semantics in the target family','implementation');
             }
+            await prepareNamedMultipart(contexts.map(context=>context.graph),after,input.exampleResources,target.family);
             migrateNewerObjects(contexts.map(context=>context.graph),sources,stage.sources,after,owners,issue);
             if(problems.length)break;
             if(stage.sources.includes('3.2')){
@@ -430,6 +431,7 @@ export async function planMigration(input:MigrationInput) {
             }
             for(const before of stage.sources)await migrateSchemas(graph,sources,before,after,issue,contexts.map(context=>context.graph),resources,input.exampleResources);
             for(const before of stage.sources)migrateEncodings(graph,sources,before,after,issue,contexts.map(context=>context.graph),owners);
+            if(stage.sources.includes('3.2'))await prepareNamedMultipart(contexts.map(context=>context.graph),after,input.exampleResources,target.family);
             if(stage.sources.includes('3.2'))migrateNamedMultipart(contexts.map(context=>context.graph),sources,after,owners,issue);
             const referenceTargets=stage.sources.includes('2.0')?upgradeSwagger(graph,sources,issue,contexts.map(context=>context.graph),after,owners):new Map<string,MigrationLocation>();
             if(problems.length)break;
@@ -781,6 +783,7 @@ export async function planMigration(input:MigrationInput) {
                 if(parameterChanges.size>=4096)throw new SourceError('limit.migration.parameters','Parameter review exceeds 4096 captured occurrences');
                 parameterChanges.set(JSON.stringify(change),change);
             }
+            await prepareNamedMultipart([context.graph],target.family,input.exampleResources);
             const beforeProfiles=migrationRequestProfiles(context.graph,input.resources,parameterProfiles.before,target.family),afterProfiles=migrationRequestProfiles(targetGraph,outputResources,parameterProfiles.after);
             for(const {before,after}of operationPairs)if(before.role==='operation'&&
                 beforeProfiles.get(before.occurrence)!==afterProfiles.get(after.occurrence))

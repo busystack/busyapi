@@ -8,7 +8,7 @@ import tempfile
 import re
 
 
-MIGRATION_PRODUCER = '101'
+MIGRATION_PRODUCER = '102'
 
 
 def verify_migration_producer(metadata):
@@ -47,9 +47,13 @@ def verify_configuration_projections(report):
             raise RuntimeError('Migration returned malformed exact configuration values') from error
         if record['pointer'].endswith('/body'):
             certificate = record.get('multipart')
-            name = certificate.get('name') if isinstance(certificate, dict) else None
-            if (not isinstance(name, str) or not name or set(certificate) != {'name'}
-                    or re.search(r'[\x00-\x1f\x7f"\\]', name)):
+            names = certificate.get('names', [certificate.get('name')]) if isinstance(certificate, dict) else None
+            if (not isinstance(names, list) or not 1 <= len(names) <= 2048
+                    or set(certificate) not in ({'name'}, {'names'})
+                    or any(not isinstance(name, str) or not name or len(name.encode('utf-16-le', errors='surrogatepass')) // 2 > 4096
+                           or any(0xD800 <= ord(character) <= 0xDFFF for character in name)
+                           or re.search(r'[\x00-\x1f\x7f]', name) for name in names)
+                    or len(set(names)) != len(names)):
                 raise RuntimeError('Migration returned malformed multipart identity proof')
             exact = lambda value: json.loads(value, parse_int=lambda text: ('number', text),
                                            parse_float=lambda text: ('number', text))
@@ -59,8 +63,21 @@ def verify_configuration_projections(report):
                 if (not isinstance(after, dict) or not isinstance(parts, list)
                         or not isinstance(before.get('mediaType'), str)
                         or before['mediaType'].split(';')[0].strip().lower() != 'multipart/form-data'
-                        or any(not isinstance(part, dict) or set(part) != {name} for part in parts)
-                        or {**before, 'value': {name: [part[name] for part in parts]}} != after):
+                        or any(not isinstance(part, dict) or len(part) != 1 or not set(part) <= set(names) for part in parts)):
+                    raise ValueError('The saved multipart bijection changed unrelated selections')
+                fields, previous = {}, None
+                for part in parts:
+                    name = next(iter(part))
+                    if 'names' in certificate and previous != name and name in fields:
+                        raise ValueError('The saved multipart order has no grouped inverse')
+                    previous = name
+                    fields.setdefault(name, []).append(part[name])
+                if not parts:
+                    fields = {name: [] for name in names}
+                if 'names' in certificate and (not isinstance(after.get('value'), dict)
+                                               or list(fields) != list(after['value'])):
+                    raise ValueError('The saved multipart field order changed')
+                if {**before, 'value': fields} != after:
                     raise ValueError('The saved multipart bijection changed unrelated selections')
             except (ValueError, TypeError) as error:
                 raise RuntimeError('Migration returned unrelated multipart projection') from error
@@ -149,7 +166,7 @@ def preflight_migration(binary, source, target, destination, originals):
         raise RuntimeError('Migration preflight unexpectedly published a destination')
     if any(Path(path).read_bytes() != raw for path, raw in originals.items()):
         raise RuntimeError('Migration preflight changed its original fixture')
-    return {'producerVersion': report['producerVersion'], 'target': target,
+    return {'producerVersion': report['producerVersion'], 'target': target, 'complete': True,
             'reviewIdentity': report['reviewIdentity'], 'sourceIdentities': before,
             'published': False, 'nativeAcceptance': False,
             'configurationProjections': report['configurationProjections'], 'parameterChanges': report['parameterChanges']}

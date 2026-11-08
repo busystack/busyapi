@@ -2,7 +2,7 @@ import {SourceDocument,SourceError} from './document';
 import {MigrationSource,type MigrationLocation} from './migration_source';
 import {requestOperation} from './execution';
 import {evaluateSchemas} from './schema_evaluation';
-import {NamedMultipartEquivalence,projectNamedMultipartValue} from './migration_named_multipart';
+import {NamedMultipartEquivalence,namedMultipartFields,projectNamedMultipartValue} from './migration_named_multipart';
 import {migrationConfiguredOperations,type MigrationConfigurationProjection,type MigrationServerSelectionContext} from './migration_server_configuration';
 import type {MigrationIssue} from './migration_schema';
 import type {ExternalExampleResourcePacket} from './external_examples';
@@ -20,7 +20,7 @@ export async function projectMigrationMultipartConfiguration(entries:readonly Mi
  const result:MigrationConfigurationProjection[]=[];let workBytes=0;
  for(const test of configuration.dataNode('/tests')?.children.values()??[]){
   const body=configuration.dataNode(test.pointer+'/body');if(body?.kind!=='object')continue;
-  const proposals=new Map<string,{after:string;name?:string}>();let applies=false;
+  const proposals=new Map<string,{after:string;name?:string;names?:readonly string[]}>();let applies=false;
   for(const entry of entries){
    const matches=migrationConfiguredOperations(configuration,entry.source,test.value?.operation);
    if(matches.length!==1)continue;
@@ -35,23 +35,28 @@ export async function projectMigrationMultipartConfiguration(entries:readonly Mi
    const c=scope&&new NamedMultipartEquivalence(entry.source).prove(scope,[selected.mediaType],entry.target.family).certificate;
    if(!c){proposals.set(configuration.dataJson(body.pointer),{after:configuration.dataJson(body.pointer)});continue;}
    applies=true;
+   const names=namedMultipartFields(c).map(field=>field.name),allowed=new Set(names);
    const fail=(message:string)=>issue({resource:configuration.id,pointer:body.pointer},'migration.multipart.saved-proof',message,'unavailable-proof');
    if(!destination?.schema||!configuration.dataNode(body.pointer+'/value')){fail('The selected saved multipart body has no captured structured value and target schema inverse');continue;}
    if((body.value.files?.length??0)>0){fail('Saved file parts need captured payload bytes for the original positional value inverse');continue;}
    const value=configuration.dataNode(body.pointer+'/value')!;
    let original:string|undefined,projected:string|undefined;
    if(value.kind==='array'){
-    original=configuration.dataJson(value.pointer);projected=projectNamedMultipartValue(configuration,value.pointer,c.name);
-   }else if(value.kind==='object'&&[...value.children.keys()].every(name=>name===c.name)){
-    const field=value.children.get(c.name);
-    if(!field)original='[]';
-    else if(field.kind==='array')original='['+[...field.children.values()].map(item=>'{'+JSON.stringify(c.name)+':'+configuration.dataJson(item.pointer)+'}').join(',')+']';
+    original=configuration.dataJson(value.pointer);projected=projectNamedMultipartValue(configuration,value.pointer,c.fields?names:c.name);
+   }else if(value.kind==='object'&&[...value.children.keys()].every(name=>allowed.has(name))){
+    const parts:string[]=[];let valid=true;
+    for(const name of names){
+     const field=value.children.get(name);if(!field)continue;
+     if(field.kind!=='array'){valid=false;break;}
+     for(const item of field.children.values())parts.push('{'+JSON.stringify(name)+':'+configuration.dataJson(item.pointer)+'}');
+    }
+    if(valid)original='['+parts.join(',')+']';
     projected=configuration.dataJson(value.pointer);
    }
-   if(original===undefined||projected===undefined){fail('The saved multipart value has no exact ordered singleton-name inverse');continue;}
-   if(body.value.partMediaTypes&&Object.keys(body.value.partMediaTypes).some(name=>name!==c.name)||
-      body.value.partHeaders?.some((header:any)=>header.part!==c.name)||
-      body.value.fileShapes&&Object.keys(body.value.fileShapes).some(name=>name!==c.name)){
+   if(original===undefined||projected===undefined){fail('The saved multipart value has no exact same-field-order-preserving named-part inverse');continue;}
+   if(body.value.partMediaTypes&&Object.keys(body.value.partMediaTypes).some(name=>!allowed.has(name))||
+      body.value.partHeaders?.some((header:any)=>!allowed.has(header.part))||
+      body.value.fileShapes&&Object.keys(body.value.fileShapes).some(name=>!allowed.has(name))){
     fail('A saved part media, Header or file-shape selection belongs to another field');continue;
    }
    const sourceDoc=new SourceDocument(original,'file:///saved-positional.json',true,'json');
@@ -69,12 +74,12 @@ export async function projectMigrationMultipartConfiguration(entries:readonly Mi
     fail('The saved multipart inverse is outside the complete captured source or target schema language');continue;
    }
    const output=new MigrationSource(configuration);output.exact(value.pointer,projected);
-   const text=output.doc.dataJson(body.pointer);proposals.set(text,{after:text,name:c.name});
+   const text=output.doc.dataJson(body.pointer);proposals.set(text,{after:text,...(c.fields?{names}:{name:c.name})});
   }
   if(!applies)continue;
   if(proposals.size!==1){issue({resource:configuration.id,pointer:body.pointer},'migration.multipart.saved-context','The same saved body has incompatible positional and named interpretations across captured entries','target-representation');continue;}
   const proposal=[...proposals.values()][0],before=configuration.dataJson(body.pointer);
-  if(proposal.after!==before)result.push({pointer:body.pointer,before,after:proposal.after,multipart:{name:proposal.name!}});
+  if(proposal.after!==before)result.push({pointer:body.pointer,before,after:proposal.after,multipart:proposal.names?{names:proposal.names}:{name:proposal.name!}});
  }
  return result;
 }

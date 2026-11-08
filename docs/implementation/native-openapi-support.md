@@ -31,6 +31,145 @@ consume those shared results. Source-preserving transactions remain authoritativ
 Current changes require complete engine, Core, native and packaged verification;
 source inspection or a successful build is not runtime acceptance.
 
+## B05-R3d-1b-2: Finite names and representable multi-name multipart
+
+**B05-R3d-1b-2 is source-complete, unverified for the established certificate
+families below. R3d-1b as a whole remains incomplete and unverified.** This
+assignment starts at `6d27df3aeb1339cf33284dac549f0daa18df7441` in the primary
+`release/v0.1.0` checkout. The existing repeated singleton-name certificate
+and regressions remain the first path. R3d-1c, nested Encoding, response
+Encoding and general typed positional multipart execution have not begun.
+
+The schema-proof owner now provides a bounded, fixed same-instance alternative
+cover for references, compatible `allOf`, `anyOf` and `oneOf`. The existing
+finite-domain owner tries complete alternative domains before structural
+products. Neither owner takes names from requests, examples, filenames or
+Content-Disposition. Field identities retain exact property spelling,
+including Unicode, JSON Pointer escapes and MIME quoted pairs. Names follow
+the existing bounded printable multipart policy; lone surrogates cannot
+establish a lossless UTF-8 name.
+
+Two multi-name certificate families are implemented:
+
+- A finite name skeleton with homogeneous independent value constraints per
+  field. Established array bounds delimit the complete name language, while
+  field values remain symbolic, including unbounded strings and binary value
+  schemas. Every permitted name sequence must be closed under cross-name
+  interleavings. The target retains exact correlated field-count alternatives,
+  total cardinality, requiredness and omission. Whole-array uniqueness becomes
+  per-field uniqueness because singleton maps with different names cannot be
+  equal. Exclusive alternatives with overlapping names do not obtain this
+  symbolic certificate.
+- A complete finite exact-value language supplied by the existing finite-domain
+  owner and filtered by the canonical exact evaluator. Fixed references,
+  composition, closed object-property products and whole/part `const` and
+  `enum` can establish this language. Exhaustive interleaving membership
+  preserves each field's repeated-value order. Exact target object enums
+  preserve correlations, field bounds, uniqueness, omission and explicit empty
+  selections. Independently defined value schemas remain neutral references;
+  finite alternative item constraints are supported for 3.1. The 3.0 path
+  requires the established homogeneous mapping per field, and reuses the
+  existing null-only representation. It does not implement nonhomogeneous
+  finite tuple lowering.
+
+A forbidden member of the exhaustive interleaving closure is a target
+restriction. Fixed-name positional arrangements can also obtain that
+restriction from a native-evaluated valid sequence and its invalid shuffled
+counterpart. Such a witness only disproves equivalence; it never proves finite
+completeness or discovers names. Unknown languages, recursive/dynamic evidence,
+unestablished codec hints, unsupported conditions and exhausted proof budgets
+retain unavailable-proof diagnostics. Several names alone no longer imply a
+target restriction. Enumeration is bounded by 2048 candidates/objects,
+8 MiB literal domains, 50000 proof states and 128 MiB captured-source evaluation
+work. No bound is invented for an unbounded name or value language.
+
+Each proved field has its own uniform Encoding certificate. Canonical media,
+FormSemantics and MultipartEncoding owners compare all applicable positions,
+complete media alternatives and parameters, charset, explicit/default
+selection, schema transfer/binary bindings and independent Header identities.
+Physical source codec paths are checked as well as logical branch constraints.
+A conditional transfer rule, incompatible position rule or missing source hint
+cannot be merged into one named field. No codec is added.
+
+The certificate and A01–A03 projection carry every field. Selected request
+consumers receive local generated schemas and Encoding maps; original schemas,
+Headers, resource identities, references, YAML aliases, comments and literal
+history retain their independent owners. The existing incompatible mixed-media
+reusable-owner blocker remains. Final request profiles and publication compare
+all fields, correlated schema assertions, neutral schema/Header targets,
+media alternatives and selection modes. Reference-looking objects inside
+literal enums remain literal data during this comparison.
+
+Saved structured ordered values project only when their exact cross-name
+choice can be represented by the current grouped-field serializer. Field
+insertion order, associations, repeated-value order and numeric spellings stay
+exact. A name recurring after a different field is an explicit
+`migration.multipart.saved-proof` refusal, even when the declaration's language
+is shuffle-closed. Already named values retain their empty/omitted field
+coordinates and receive a validated source inverse. Source and target native
+evaluation protect each saved inverse. Media/Header selections, authentication,
+Servers and environments remain unchanged. Core and packaged preflight verify
+the exact grouped structural projection; the multi-name review packet carries
+`multipart.names`, while existing single-name packets keep `multipart.name`.
+
+The existing invariant module also exposes an actual-MIME-buffer comparison
+using the canonical framing and quoted-name parser. It compares complete
+per-field Header/media/disposition correspondence and actual part body octets,
+retaining repeat order and multiplicity. It does not infer equivalence from
+matching decoded objects. Such buffers are not available for every publication
+representation; complete production-byte/transaction reconciliation remains
+subsequent work, as assigned.
+
+Prepared **unexecuted** coverage is registered through the existing gates:
+
+- Engine `migration_b05_r3d1b2_fixture.cjs`, called by the unchanged single-name
+  test bodies in the existing media, downgrade, multipart, owner and Swagger
+  suites: two/three names, Unicode/quoted pairs, finite name enums/consts,
+  symbolic values, correlations, same-name repeat ordering, uniqueness, lower
+  and upper counts, explicit empties/omissions, exact numbers, field defaults,
+  compatible/incompatible media/Headers, binary octets, external/shared
+  schemas/Headers, aliases, same-context reusable media, mixed-context
+  refusals, finite order counterexamples, unknown/invalid/recursive/over-budget
+  proofs, saved projections and final-owner mutation controls. Both 3.2 patches,
+  YAML/JSON and applicable 3.1/3.0 targets are included.
+- Core `migration_r3d1b2_fixture.dart`, imported through the existing R3d-1b
+  fixture in form/binary/Swagger gates: unsaved buffers, saved three-name
+  projections, empty/omitted values, cancellation, stale review, destination
+  race/publication failure, original-file preservation, CLI preview and cold
+  reopening. Prepared real request-builder bytes are evaluated through both
+  canonical source/target MIME paths after original deletion.
+- Native `migration_multi_name_multipart_review_fixture.dart`, called by the
+  registered named review fixture: unsaved owner/body review, three names,
+  publication and stale-review rejection.
+- Existing packaged preflight suite: three-name YAML/JSON previews across both
+  patches and targets, exact-number/order/selection mutation packets, explicit
+  empty fields and obsolete producer rejection. The preflight result now
+  retains its already-established complete status for these assertions.
+
+Production changes are `migration_multipart_language.ts`,
+`migration_named_multipart.ts`, `migration_schema_proofs.ts`,
+`migration_finite_domain.ts`, `migration_multipart_configuration.ts`,
+`migration_server_configuration.ts`, `migration_invariants.ts`, `migration.ts`,
+Core `migration.dart` and `tools/native_migration_preflight.py`. Other existing
+regression edits only update producer admission or register the new fixtures.
+Migration producer/Core/preflight admission is **102**; **101** is obsolete.
+Evaluator **1.18.0+62**, graph **9**, parameter mock **6**, response mock **5**,
+sample **4** and schema-example projection **3** remain unchanged. No bundles
+were rebuilt.
+
+Verification performed: source, protocol, ownership and gate inspection, local
+Git inspection and `git diff --check` only. The execution hold remains active:
+no tests, compilers, analyzers, builds, code generation, CI, graphical workloads
+or performance checks were run. Prepared tests are not passing-test evidence.
+Snapcraft remains skipped. No third-party software or installed official
+Flutter SDK changes, push or remote refresh were performed.
+
+Remaining R3d-1b work is finite nonhomogeneous tuple mapping, mixed-media reusable
+ownership, example/Header inverses, saved file/raw multipart inverses and
+complete production-byte/transaction reconciliation. Those tasks and R3d-1c
+were not started here. The earlier R3d-1b record below describes producer 101
+and its then-current gaps; it is retained as historical evidence.
+
 ## B05-R3d-1b: Named multipart continuation (partial source implementation)
 
 **R3d-1b remains incomplete and unverified. It is not source-complete.**

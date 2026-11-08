@@ -1,5 +1,7 @@
+export {prepareNamedMultipart,NamedMultipartEquivalence,proveNamedMultipartWire} from './migration_named_multipart';
 import {PositionalEncodingEquivalence} from './migration_positional_encoding';
-import {NamedMultipartEquivalence,proveNamedMultipartOutput} from './migration_named_multipart';
+import {formContentType} from './form_semantics';
+import {NamedMultipartEquivalence,namedMultipartFields,proveNamedMultipartOutput} from './migration_named_multipart';
 import {MigrationArrayBounds} from './migration_schema_arrays';
 import {migrationMediaTypes} from './migration_media_objects';
 import {migrationServerSignature} from './migration_servers';
@@ -222,9 +224,12 @@ function formSignatures(media:any,graph?:ReferenceGraph,namedTarget?:string):unk
         const scope=graph.scopeAs(media.definition.resource,media.definition.pointer,'media');
         const c=scope&&new NamedMultipartEquivalence(graph).prove(scope,[media.mediaType],namedTarget).certificate;
         if(c){
-            const rule=c.rule&&graph.docs.get(c.rule.resource)!.dataNode(c.rule.pointer)?.value;
-            const part=c.positions[0]??c.tail!;
-            return [{name:c.name,mode:'content',array:true,contentType:rule?.contentType??new PositionalEncodingEquivalence(graph).defaults(part.values,'3.2'),required:c.required}];
+            return namedMultipartFields(c).map(field=>{
+                const rule=field.rule&&graph.docs.get(field.rule.resource)!.dataNode(field.rule.pointer)?.value;
+                const part=field.parts[0];
+                const fallback=part.literalType?formContentType({types:[part.literalType]},'3.2'):new PositionalEncodingEquivalence(graph).defaults(part.values,'3.2');
+                return {name:field.name,mode:'content',array:true,contentType:rule?.contentType??fallback,required:field.required};
+            }).sort((a,b)=>a.name.localeCompare(b.name));
         }
     }
     const content=(shape:any)=>shape?.defaultContentType??'text/plain';

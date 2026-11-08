@@ -1,11 +1,15 @@
 import {escape,SourceDocument,SourceError} from './document';
+import {proveFiniteNamedLanguage,multipartFieldName,type FiniteNamedLanguage,type NamedPart} from './migration_multipart_language';
+import {evaluateSchemas} from './schema_evaluation';
+import type {ExternalExampleResourcePacket} from './external_examples';
 import {pointerFragment,type GraphScope,type ReferenceGraph} from './reference_graph';
 import {MigrationArrayBounds} from './migration_schema_arrays';
 import {MigrationSchemaProofs,migrationExactValueIdentity} from './migration_schema_proofs';
 import {PositionalEncodingEquivalence,type PositionalEncodingProof} from './migration_positional_encoding';
 import {mediaTypes} from './media_types';
+import {mimeParts,mimeSingleton} from './mime_parts';
 import {MultipartEncoding} from './multipart_encoding';
-import {FormSemantics} from './form_semantics';
+import {FormSemantics,formContentType,formLiteralType,type FormShape} from './form_semantics';
 import {runtimeMediaKind} from './runtime_media';
 import {migrationScopes} from './migration_documents';
 import {migrationMediaTypes} from './migration_media_objects';
@@ -13,8 +17,15 @@ import type {MigrationSchemaOwners} from './migration_schema_owners';
 import type {MigrationLocation,MigrationSource} from './migration_source';
 import type {MigrationIssue} from './migration_schema';
 
-type Part=Readonly<{name:string;values:readonly GraphScope[]}>;
+type Part=NamedPart;
+export type NamedMultipartField=Readonly<{name:string;parts:readonly Part[];required:boolean;
+ rule?:MigrationLocation;explicitMedia:boolean;mediaIdentity:string}>;
+const finiteCertificates=new WeakMap<ReferenceGraph,Map<string,NamedMultipartProof>>();
+const certificateKey=(scope:GraphScope,target:string)=>JSON.stringify([scope.resource,scope.pointer,target]);
+export const namedMultipartFields=(c:NamedMultipartCertificate):readonly NamedMultipartField[]=>c.fields??[
+ {name:c.name,parts:[...c.positions,...(c.tail?[c.tail]:[])],required:c.required,rule:c.rule,explicitMedia:c.explicitMedia,mediaIdentity:c.mediaIdentity}];
 export type NamedMultipartCertificate=Readonly<{
+ fields?:readonly NamedMultipartField[];language?:FiniteNamedLanguage;
  name:string;schema?:GraphScope;item?:GraphScope;roots:readonly GraphScope[];
  positions:readonly Part[];tail?:Part;maximum?:number;minimum:number;required:boolean;
  rule?:MigrationLocation;explicitMedia:boolean;mediaIdentity:string;
@@ -59,7 +70,7 @@ export class NamedMultipartEquivalence {
   const name=[...names][0];if(!required.has(name)||[...required].some(key=>key!==name))return;
   // The transport's quoted-name policy is shared with the existing native
   // form controls. No filename or observed Content-Disposition supplies names.
-  if(!name||/[\x00-\x1f\x7f"\\]/u.test(name))return;
+  if(!multipartFieldName(name)||/["\\]/u.test(name))return;
   const values=parts.flatMap(scope=>{
    const child=this.graph.scopeAs(scope.resource,scope.pointer+'/properties/'+escape(name),'schema');return child?[child]:[];
   });
@@ -90,6 +101,219 @@ export class NamedMultipartEquivalence {
   return '{'+fields.sort().join(',')+'}';
  }
  prove(scope:GraphScope,types:readonly string[],target:string):NamedMultipartProof {
+  return finiteCertificates.get(this.graph)?.get(certificateKey(scope,target))??this.single(scope,types,target);
+ }
+ async prepare(scope:GraphScope,types:readonly string[],target:string,examples:readonly ExternalExampleResourcePacket[]=[]):Promise<void> {
+  const existing=finiteCertificates.get(this.graph)??new Map<string,NamedMultipartProof>();finiteCertificates.set(this.graph,existing);
+  const key=certificateKey(scope,target);if(existing.has(key))return;
+  const single=this.single(scope,types,target);if(single.certificate){existing.set(key,single);return;}
+  const media=this.graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value,marker=scope.pointer.lastIndexOf('/content/');
+  if(!['3.0','3.1'].includes(target)||!types.length||types.some(type=>type.split(';')[0].trim().toLowerCase()!=='multipart/form-data')||
+   media?.encoding!==undefined||media?.example!==undefined||media?.examples!==undefined||
+   marker>=0&&!this.graph.scopeAs(scope.resource,scope.pointer.slice(0,marker),'request-body')||
+   media?.prefixEncoding===undefined&&media?.itemEncoding===undefined){existing.set(key,single);return;}
+  const schema=this.graph.scopeAs(scope.resource,scope.pointer+'/schema','schema'),item=this.graph.scopeAs(scope.resource,scope.pointer+'/itemSchema','schema');
+  if(!schema){existing.set(key,single);return;}
+  if(!new FormSemantics(this.graph).shape(schema.resource,schema.pointer).types?.includes('array')){existing.set(key,unavailable('The captured source multipart codec lacks a whole-array decoding hint'));return;}
+  const symbolic=this.symbolic(scope,schema,item,target);
+  if(symbolic){existing.set(key,symbolic);return;}
+  const result=await proveFiniteNamedLanguage(this.graph,schema,item,examples),language=result.language;
+  if(!language){
+   const order=await this.fixedOrderCounterexample(schema,item);
+   existing.set(key,result.restriction?restriction(result.reason):order?restriction('A captured schema-valid named sequence has a forbidden same-field-order-preserving interleaving'):
+    single.classification==='target-representation'?single:unavailable(result.reason));return;
+  }
+  const fields:NamedMultipartField[]=[];
+  for(const name of language.names){
+   const entries=language.positions.flatMap((parts,index)=>parts.filter(part=>part.name===name).map(part=>({part,index})));
+   const field=this.field(scope,entries,target);if('equivalent' in field){existing.set(key,field);return;}
+   const required=language.accepted.every(text=>{
+    const doc=new SourceDocument(text,'finite-multipart',true,'json');return [...doc.dataNode('')!.children.values()].some(node=>node.children.has(name));
+   });
+   fields.push({...field,required});
+  }
+  const first=fields[0];
+  existing.set(key,{equivalent:true,classification:'unavailable-proof',reason:result.reason,certificate:{
+   name:first.name,schema,item,roots:[schema],positions:language.positions.flat(),minimum:0,maximum:language.positions.length,
+   required:first.required,rule:first.rule,explicitMedia:first.explicitMedia,mediaIdentity:first.mediaIdentity,fields,language}});
+ }
+ /** A witness proves a restriction only; it never supplies name discovery
+  * or finite-language completeness. Native evaluation checks both arrays. */
+ private async fixedOrderCounterexample(schema:GraphScope,item:GraphScope|undefined):Promise<boolean> {
+  const roots=this.positional.parts(schema),maximum=new MigrationArrayBounds(this.graph).maximum(schema);
+  if(!roots||maximum===undefined||maximum>2048)return false;
+  let minimum=0;for(const root of roots)minimum=Math.max(minimum,this.graph.docs.get(root.resource)!.dataNode(root.pointer)?.value?.minItems??0);
+  const parts:Part[]=[],literals:string[]=[];
+  for(let index=0;index<maximum;index++){
+   const children:GraphScope[]=item?[item]:[];
+   for(const root of roots){
+    const value=this.graph.docs.get(root.resource)!.dataNode(root.pointer)?.value;
+    const child=this.graph.scopeAs(root.resource,root.pointer+(index<(value?.prefixItems?.length??0)?'/prefixItems/'+index:'/items'),'schema');if(child)children.push(child);
+   }
+   const part=this.part(children);if(!part)return false;
+   const type=this.schemas.domains(part.values[0]);
+   const literal=type.has('string')?'""':type.has('integer')||type.has('fraction')?'0':type.has('boolean')?'false':type.has('null')?'null':undefined;
+   if(literal===undefined)return false;parts.push(part);literals.push('{'+JSON.stringify(part.name)+':'+literal+'}');
+  }
+  const index=parts.findIndex(part=>part.name!==parts[0].name);if(index<0)return false;
+  const count=Math.max(minimum,index+1),before=literals.slice(0,count),after=[...before];
+  [after[0],after[index]]=[after[index],after[0]];
+  const resources=[...this.graph.docs].map(([id,doc])=>({id,text:doc.text,generation:0}));
+  if(resources.reduce((bytes,resource)=>bytes+resource.text.length,0)>128*1024*1024)return false;
+  const checked=await evaluateSchemas({root:this.graph.root,snapshot:'named-order-counterexample',resources,runtimeInstances:[
+   {subject:'request-body',location:'before',text:'['+before.join(',')+']',schema},
+   {subject:'request-body',location:'after',text:'['+after.join(',')+']',schema},
+   ...(item?before.map(text=>({subject:'request-body',location:'item',text,schema:item})):[])]});
+  return checked.complete&&checked.runtimeEvaluations.length===2+(item?before.length:0)&&checked.runtimeEvaluations.every(value=>value.complete)&&
+   checked.runtimeEvaluations[0].valid===true&&checked.runtimeEvaluations[1].valid===false&&checked.runtimeEvaluations.slice(2).every(value=>value.valid===true);
+ }
+ /** Finite name skeletons with symbolic homogeneous value constraints.
+  * Only array counts and uniqueness are transported algebraically. Other
+  * assertions use the exhaustive exact-value path; no finite value sampling. */
+ private symbolic(scope:GraphScope,schema:GraphScope,item:GraphScope|undefined,target:string):NamedMultipartProof|undefined {
+  const roots=this.positional.parts(schema),maximum=new MigrationArrayBounds(this.graph).maximum(schema);
+  if(!roots||maximum===undefined||maximum===0)return;
+  if(this.schemas.domains(schema).size!==1||!this.schemas.domains(schema).has('array'))return;
+  let minimum=0,unique=false;
+  for(const root of roots){
+   const value=this.graph.docs.get(root.resource)!.dataNode(root.pointer)?.value;
+   if(value===true)continue;
+   if(!value||typeof value!=='object'||Object.keys(value).some(key=>!arrayFields.has(key)&&!metadata.has(key)&&!key.startsWith('x-'))||
+    Object.hasOwn(value,'const')||Object.hasOwn(value,'enum'))return;
+   minimum=Math.max(minimum,value.minItems??0);unique ||= value.uniqueItems===true;
+  }
+  const positions:Part[][]=[];
+  for(let index=0;index<maximum;index++){
+   let covers:GraphScope[][]=[[]];
+   const children:GraphScope[]=item?[item]:[];
+   for(const root of roots){
+    const value=this.graph.docs.get(root.resource)!.dataNode(root.pointer)?.value;
+    const child=this.graph.scopeAs(root.resource,root.pointer+(index<(value?.prefixItems?.length??0)?'/prefixItems/'+index:'/items'),'schema');if(child)children.push(child);
+   }
+   for(const child of children){
+    const local=this.schemas.alternatives(child);if(!local||covers.length*local.length>2048)return;
+    covers=covers.flatMap(left=>local.map(right=>[...left,...right]));
+   }
+   const parts:Part[]=[];
+   for(const cover of covers){
+    const names=new Set<string>(),required=new Set<string>();let object=false,closed=false,nonempty=false;
+    for(const owner of cover){
+     this.inspect();const value=this.graph.docs.get(owner.resource)!.dataNode(owner.pointer)?.value;
+     if(value===true)continue;
+     if(!value||typeof value!=='object'||Object.keys(value).some(key=>!wrapperFields.has(key)&&!['anyOf','oneOf'].includes(key)&&!metadata.has(key)&&!key.startsWith('x-')))return;
+     if(value.type==='object')object=true;else if(value.type!==undefined)return;
+     for(const name of Object.keys(value.properties??{}))names.add(name);
+     for(const name of value.required??[])required.add(name);
+     if(value.additionalProperties===false)closed=true;else if(value.additionalProperties!==undefined&&value.additionalProperties!==true)return;
+     if(value.minProperties===1)nonempty=true;else if(value.minProperties!==undefined&&value.minProperties!==0)return;
+     if(value.maxProperties!==undefined&&value.maxProperties!==1)return;
+    }
+    if(!object||!closed||required.size>1||!nonempty&&!required.size)return;
+    // The source must exclude multi-property parts, as well as empty maps.
+    const singleton=names.size===1||cover.some(owner=>this.graph.docs.get(owner.resource)!.dataNode(owner.pointer)?.value?.maxProperties===1);
+    if(!singleton)return;
+    for(const name of names){
+     if(required.size&&!required.has(name))continue;
+     if(cover.some(owner=>{const value=this.graph.docs.get(owner.resource)!.dataNode(owner.pointer)?.value;return value?.additionalProperties===false&&!Object.hasOwn(value.properties??{},name);}))continue;
+     if(!multipartFieldName(name))return;
+     const values=cover.flatMap(owner=>{const child=this.graph.scopeAs(owner.resource,owner.pointer+'/properties/'+escape(name),'schema');return child?[child]:[];});
+     if(!values.length||values.some(scope=>this.schemas.conjuncts(scope).some(part=>{
+      const value=this.graph.docs.get(part.resource)!.dataNode(part.pointer)?.value;return value?.readOnly===true||value?.writeOnly===true;
+     })))return;
+     // Exclusive alternatives with the same name can correlate values.
+     // That case needs native finite evaluation rather than a name cover.
+     if(parts.some(part=>part.name===name)&&cover.some(owner=>Object.hasOwn(this.graph.docs.get(owner.resource)!.dataNode(owner.pointer)?.value??{},'oneOf')))return;
+     parts.push({name,values});
+    }
+   }
+   if(!parts.length)break;
+   positions.push(parts);
+  }
+  const names=[...new Set(positions.flatMap(parts=>parts.map(part=>part.name)))].sort();if(!names.length)return;
+  const fields:NamedMultipartField[]=[];
+  for(const name of names){
+   const entries=positions.flatMap((parts,index)=>parts.filter(part=>part.name===name).map(part=>({part,index})));
+   if(entries.some(({part})=>this.valueIdentity(part)!==this.valueIdentity(entries[0].part)))return;
+   const field=this.field(scope,entries,target);if('equivalent' in field)return field.classification==='target-representation'?undefined:field;fields.push(field);
+  }
+  const sequences:string[][]=[];let states=0;
+  const enumerate=(prefix:string[]):boolean=>{
+   if(++states>50000)return false;
+   if(prefix.length>=minimum)sequences.push(prefix);
+   if(sequences.length>2048)return false;
+   if(prefix.length===positions.length)return true;
+   return [...new Set(positions[prefix.length].map(part=>part.name))].every(name=>enumerate([...prefix,name]));
+  };
+  if(!enumerate([])||!sequences.length)return;
+  const permitted=new Set(sequences.map(sequence=>JSON.stringify(sequence))),counts=new Map<string,number[]>();
+  for(const sequence of sequences){
+   const count=names.map(name=>sequence.filter(field=>field===name).length);counts.set(JSON.stringify(count),count);
+   const shuffle=(prefix:string[],remaining:number[]):boolean=>{
+    if(++states>50000)return false;
+    if(!remaining.some(Boolean))return permitted.has(JSON.stringify(prefix));
+    for(let field=0;field<names.length;field++)if(remaining[field]){
+     const next=[...remaining];next[field]--;if(!shuffle([...prefix,names[field]],next))return false;
+    }
+    return true;
+   };
+   if(!shuffle([],count))return;
+  }
+  const proved=fields.map((field,index)=>({...field,required:[...counts.values()].every(count=>count[index]>0)})),first=proved[0];
+  return {equivalent:true,classification:'unavailable-proof',reason:'The complete bounded name language is shuffle-closed with homogeneous independent value constraints per field',certificate:{
+   name:first.name,schema,item,roots,positions:positions.flat(),maximum,minimum,required:first.required,rule:first.rule,
+   explicitMedia:first.explicitMedia,mediaIdentity:first.mediaIdentity,fields:proved,
+   language:{names,positions,accepted:[],projected:[],counts:[...counts.values()],unique}}};
+ }
+ private field(scope:GraphScope,entries:readonly Readonly<{part:Part;index:number}>[],target:string):NamedMultipartField|NamedMultipartProof {
+  const media=this.graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
+  let selected:MigrationLocation|undefined,signature:string|undefined,serialization:string|undefined,identity='',explicit=false;
+  for(const {part,index}of entries){
+   const rule=index<(media.prefixEncoding?.length??0)?{resource:scope.resource,pointer:scope.pointer+'/prefixEncoding/'+index}:
+    media.itemEncoding!==undefined?{resource:scope.resource,pointer:scope.pointer+'/itemEncoding'}:undefined;
+   const value=rule?this.graph.docs.get(rule.resource)!.dataNode(rule.pointer)?.value:{};
+   if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(key=>!['contentType','headers'].includes(key)&&!key.startsWith('x-')))
+    return unavailable('The finite named Encoding needs a style, nested or unknown-field proof outside this certificate');
+   const shapes=part.values.map(scope=>new FormSemantics(this.graph).shape(scope.resource,scope.pointer));
+   const types=part.literalType?[part.literalType]:[...new Set(shapes.flatMap(shape=>shape.types??[]))].sort();
+   const transfers=part.values.map(scope=>new MultipartEncoding(this.graph).schemaPathEncoding(scope,[],types.length===1&&types[0]!=='string'?'other':undefined));
+   const currentSerialization=JSON.stringify([types,[...new Set(transfers.map(({encoding,schemaEncoded,instanceEncoding})=>JSON.stringify({encoding,schemaEncoded,instanceEncoding})))].sort()]);
+   if(serialization!==undefined&&serialization!==currentSerialization)return unavailable('A finite field lacks uniform schema decoding and transfer binding across every applicable position');
+   serialization=currentSerialization;
+   const before=part.literalType?formContentType({types:[part.literalType]},'3.2'):this.positional.defaults(part.values,'3.2'),after=part.literalType?formContentType({types:[part.literalType]},target):this.positional.defaults(part.values,target);
+   if(value.contentType===undefined&&(before===undefined||after!==before))return unavailable('A finite field default media/charset has no identical target interpretation');
+   const effective=value.contentType??before;if(typeof effective!=='string')return unavailable('No finite field media is established');
+   if(part.literalType==='array')return unavailable('A literal array-valued part needs a separately established older repeated/nested value inverse');
+   if(mediaTypes(effective).some(type=>type.type==='multipart'||type.type==='*'||type.subtype==='*'&&!['image','audio','video','font'].includes(type.type)))
+    return unavailable('A finite field media alternative includes unproved sequence, range or nested decoding');
+   if(transfers.every(transfer=>!transfer.schemaEncoded)&&mediaTypes(effective).some(type=>!['json','text','opaque'].includes(runtimeMediaKind(type.text,true))))
+    return unavailable('A finite field media has no identical older named MIME decoder');
+   const sourceSchemas=[this.graph.scopeAs(scope.resource,scope.pointer+'/schema','schema'),this.graph.scopeAs(scope.resource,scope.pointer+'/itemSchema','schema')].filter((value):value is GraphScope=>!!value);
+   const actualShapes=sourceSchemas.map(schema=>{
+    const shape=new FormSemantics(this.graph).shape(schema.resource,schema.pointer);
+    return schema.pointer.endsWith('/itemSchema')?shape.properties?.[part.name]:
+     (shape.prefixItems?.[index]??shape.items)?.properties?.[part.name];
+   });
+   const actual:FormShape=actualShapes.find(shape=>shape?.types?.length||shape?.contentEncoding!==undefined)??actualShapes[0]??{};
+   if(value.contentType===undefined&&actual.defaultContentType!==before)return unavailable('The captured source codec has no identical default hint for this discovered field');
+   const actualType=formLiteralType(actual),expectedType=part.literalType??formLiteralType({types});
+   if(expectedType!==undefined&&expectedType!=='string'&&actualType!==expectedType&&mediaTypes(effective).some(type=>runtimeMediaKind(type.text,true)==='text'))
+    return unavailable('The captured source text decoder lacks the discovered field numeric or structured value hint');
+   try {
+    const actualTransfers=sourceSchemas.map(schema=>new MultipartEncoding(this.graph).schemaPathEncoding(schema,
+     [...(schema.pointer.endsWith('/itemSchema')?[]:[{item:index}]),{property:part.name}],actualType!==undefined&&actualType!=='string'?'other':undefined));
+    const summary=(values:readonly {encoding?:string;schemaEncoded:boolean;instanceEncoding?:string}[])=>JSON.stringify([...new Set(values.map(({encoding,schemaEncoded,instanceEncoding})=>JSON.stringify({encoding,schemaEncoded,instanceEncoding})))].sort());
+    if(summary(actualTransfers)!==summary(transfers.length?transfers:[{schemaEncoded:false}]))return unavailable('The captured source and discovered field use different transfer or binary bindings');
+   }catch(error){if(!(error instanceof SourceError))throw error;return unavailable('The source field transfer binding is unavailable: '+error.message);}
+   const header=this.headers(rule);if(header===undefined)return unavailable('Finite field Header applicability is ambiguous');
+   identity=this.mediaIdentity(effective);const current=JSON.stringify([value.contentType!==undefined,identity,header]);
+   if(signature!==undefined&&signature!==current)return restriction('One discovered field has position-dependent media, Headers or explicit/default selection that one named Encoding cannot express');
+   signature=current;selected??=rule;explicit=value.contentType!==undefined;
+  }
+  const parts=entries.map(entry=>entry.part);
+  if(target==='3.0'&&parts.some(part=>this.valueIdentity(part)!==this.valueIdentity(parts[0])))return unavailable('Nonhomogeneous finite repeated-field tuple lowering into 3.0 remains separately assigned');
+  return {name:parts[0].name,parts,required:false,rule:selected,explicitMedia:explicit,mediaIdentity:identity};
+ }
+ private single(scope:GraphScope,types:readonly string[],target:string):NamedMultipartProof {
   const media=this.graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
   if(media?.prefixEncoding===undefined&&media?.itemEncoding===undefined)return unavailable('No captured positional Encoding declaration requires a named projection');
   const marker=scope.pointer.lastIndexOf('/content/');
@@ -130,7 +354,7 @@ export class NamedMultipartEquivalence {
   const tail=maximum===undefined||maximum>boundary?at(boundary):undefined;
   if((maximum===undefined||maximum>boundary)&&!tail)return unavailable('The entire homogeneous tail needs a determinable field identity; a finite expansion cannot replace it');
   const all=[...positions,...(tail?[tail]:[])],names=new Set(all.map(part=>part.name));
-  if(names.size!==1)return restriction('Different named fields in this ordered array require a cross-field order that the older object representation cannot guarantee');
+  if(names.size!==1)return unavailable('Several names require a complete interleaving certificate or a captured order counterexample');
   const name=[...names][0];if(!name)return unavailable('No relevant part establishes a target name');
   if(target==='3.0'){
    const first=this.valueIdentity(all[0]);
@@ -168,14 +392,32 @@ export class NamedMultipartEquivalence {
  }
  private valueIdentity(part:Part):string {
   this.inspect();
-  return JSON.stringify([...new Set(part.values.flatMap(scope=>{
+  return JSON.stringify([part.literalType,[...new Set(part.values.flatMap(scope=>{
    const identity=namedValueSchemaIdentity(this.graph,scope,new Set(),this.identityState);return identity===undefined?['unavailable:'+scope.resource+scope.pointer]:JSON.parse(identity) as string[];
-  }))].sort());
+  }))].sort()]);
  }
  /** Pure exact schema projection used by planning and final publication.
   * References must select neutral value schemas, never copied identifiers. */
  schema(certificate:NamedMultipartCertificate,reference:(scope:GraphScope)=>string,target:string):string {
   const c=certificate,clauses:string[]=[];
+  if(c.language){
+   const properties=namedMultipartFields(c).map(field=>{
+    const parts=field.parts,first=parts[0];
+    const schema=(part:Part)=>part.literalType?(target==='3.0'&&part.literalType==='null'?'{"anyOf":[{"type":"string","nullable":true,"enum":[null]}]}':'{"type":'+JSON.stringify(part.literalType)+'}'):'{"allOf":['+part.values.map(scope=>'{"$ref":'+JSON.stringify(reference(scope))+'}').join(',')+']}';
+    // Identical transfer/default hints are proved separately. Exact enums
+    // retain correlations; these neutral uses keep schema annotations alive.
+    const alternatives=parts.every(part=>this.valueIdentity(part)===this.valueIdentity(first))?[schema(first)]:[...new Set(parts.map(schema))];
+    const shapes=parts.flatMap(part=>part.literalType?[{types:[part.literalType]}]:part.values.map(scope=>new FormSemantics(this.graph).shape(scope.resource,scope.pointer)));
+    const types=[...new Set(shapes.flatMap(shape=>shape.types??[]))];
+    const encoded=shapes.find(shape=>'contentEncoding' in shape&&shape.contentEncoding),legacy=shapes.find(shape=>'format' in shape&&shape.format);
+    const hints=JSON.stringify({...(types.length===1?{type:types[0]}:{}),...(encoded&&'contentEncoding' in encoded?{contentEncoding:encoded.contentEncoding}:{}),...(legacy&&'format' in legacy?{format:legacy.format}:{})});
+    const items=alternatives.length===1?alternatives[0]:hints.slice(0,-1)+(hints==='{}'?'':',')+'"anyOf":['+alternatives.join(',')+']}';
+    return JSON.stringify(field.name)+':{"type":"array","items":'+items+(c.language!.unique?',"uniqueItems":true':'')+'}';
+   });
+   const assertions=c.language.counts?',"anyOf":['+c.language.counts.map(count=>'{"properties":{'+c.language!.names.map((name,index)=>JSON.stringify(name)+':{"minItems":'+count[index]+',"maxItems":'+count[index]+'}').join(',')+'}'+(count.some(Boolean)?',"required":'+JSON.stringify(c.language!.names.filter((_,index)=>count[index]>0)):'')+'}').join(',')+']':',"enum":['+c.language.projected.join(',')+']';
+   return '{"type":"object","properties":{'+properties.join(',')+'},"additionalProperties":false'+assertions+
+    (c.fields!.some(field=>field.required)?',"required":'+JSON.stringify(c.fields!.filter(field=>field.required).map(field=>field.name)):'')+'}';
+  }
   for(const root of c.roots){
    const doc=this.graph.docs.get(root.resource)!;
    for(const field of ['minItems','maxItems','uniqueItems'])if(doc.dataNode(root.pointer+'/'+field))clauses.push('{'+JSON.stringify(field)+':'+doc.dataJson(root.pointer+'/'+field)+'}');
@@ -206,14 +448,43 @@ export class NamedMultipartEquivalence {
 
 /** Literal inverse preserves number spelling, null, empty strings and binary
  * reference objects. An empty array remains an explicit empty selection. */
-export function projectNamedMultipartValue(doc:SourceDocument,pointer:string,name:string):string|undefined {
- const node=doc.dataNode(pointer);if(node?.kind!=='array')return;
- const values:string[]=[];
+export function projectNamedMultipartValue(doc:SourceDocument,pointer:string,name:string|readonly string[]):string|undefined {
+ const names=typeof name==='string'?[name]:name,node=doc.dataNode(pointer);if(node?.kind!=='array')return;
+ const values=new Map<string,string[]>();
+ const allowed=new Set(names);let previous:string|undefined;
  for(const part of node.children.values()){
-  if(part.kind!=='object'||part.children.size!==1||!part.children.has(name))return;
-  values.push(doc.dataJson(part.pointer+'/'+escape(name)));
+  if(part.kind!=='object'||part.children.size!==1)return;
+  const field=[...part.children.keys()][0];if(!allowed.has(field))return;
+  if(typeof name!=='string'&&previous!==field&&values.has(field))return;
+  previous=field;if(!values.has(field))values.set(field,[]);
+  values.get(field)!.push(doc.dataJson(part.pointer+'/'+escape(field)));
  }
- return '{'+JSON.stringify(name)+':['+values.join(',')+']}';
+ if(!node.children.size)for(const name of names)values.set(name,[]);
+ return '{'+[...values].filter(([,items])=>items.length||!node.children.size||typeof name==='string').map(([name,items])=>JSON.stringify(name)+':['+items.join(',')+']').join(',')+'}';
+}
+
+/** Captured graph instances own their proof cache; no global text/resource
+ * lookup can reuse evidence across unsaved generations or entry contexts. */
+export async function prepareNamedMultipart(graphs:readonly ReferenceGraph[],target:string,examples:readonly ExternalExampleResourcePacket[]=[],finalTarget=target):Promise<void> {
+ if(!['3.0','3.1'].includes(target))return;
+ const types=migrationMediaTypes(graphs);
+ for(const graph of graphs){
+  const proof=new NamedMultipartEquivalence(graph);
+  for(const scope of graph.entryScopes())if(scope.kind==='media'&&scope.family==='3.2'){
+   const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
+   if(value?.prefixEncoding!==undefined||value?.itemEncoding!==undefined){
+    const media=[...types.get(JSON.stringify([scope.resource,scope.pointer]))??[]];
+    await proof.prepare(scope,media,target,examples);
+    // A 3.0 review traverses 3.1. Do not admit a new multi-field certificate
+    // whose final field tuples still require the separately assigned lowering.
+    if(target==='3.1'&&finalTarget==='3.0'&&proof.prove(scope,media,target).certificate?.fields){
+     await proof.prepare(scope,media,finalTarget,examples);
+     const final=proof.prove(scope,media,finalTarget);
+     if(!final.certificate)finiteCertificates.get(graph)!.set(certificateKey(scope,target),final);
+    }
+   }
+  }
+ }
 }
 
 /** Selected consumers are edited locally. Whole schemas and independent part
@@ -250,10 +521,10 @@ export function migrateNamedMultipart(graphs:readonly ReferenceGraph[],sources:R
    }
   }
   source.exact(pointer+'/schema',proof.schema(c,scope=>owners.reference(owners.uniqueLocation(scope).location,target),target));
-  if(c.rule){
-   const at=source.current(c.rule.pointer,c.rule.resource);
+  for(const field of namedMultipartFields(c))if(field.rule){
+   const at=source.current(field.rule.pointer,field.rule.resource);
    if(at===undefined){issue(scope,'migration.encoding.named-owner','The captured positional Encoding lost its material owner','unavailable-proof');continue;}
-   source.copy(source.fork(),at,pointer+'/encoding/'+escape(c.name),true);
+   source.copy(source.fork(),at,pointer+'/encoding/'+escape(field.name),true);
    // Only the new named use may follow these Header references. The original
    // Encoding and all other aliased consumers retain their own provenance.
   }
@@ -293,45 +564,46 @@ export function proveNamedMultipartOutput(source:ReferenceGraph,target:Reference
  }
  const actual=target.docs.get(output.resource)!,value=actual.dataNode(output.pointer)?.value;
  let work=0;
- const canonical=(doc:SourceDocument,pointer:string,delivered:boolean):string=>{
+ const canonical=(doc:SourceDocument,pointer:string,delivered:boolean,literal=false,propertyMap=false):string=>{
   if(++work>50000)throw new SourceError('limit.migration.positional-encoding','Delivered named multipart correspondence exceeds 50000 captured states');
   const node=doc.dataNode(pointer);if(!node)return 'missing';
   if(node.kind==='object'){
-   if(Object.keys(node.value).length===1&&typeof node.value.$ref==='string'){
+   if(!literal&&Object.keys(node.value).length===1&&typeof node.value.$ref==='string'){
     if(!delivered)return 'schema:'+node.value.$ref;
     const edge=target.referenceAs(doc.id,pointer,'$ref','schema');
     if(edge?.resolution!=='resolved')return 'unresolved';
     return 'schema:'+edge.targetResource+pointerFragment(edge.targetPointer!);
    }
-   return '{'+[...node.children].sort(([a],[b])=>a<b?-1:a>b?1:0).map(([key,child])=>JSON.stringify(key)+':'+canonical(doc,child.pointer,delivered)).join(',')+'}';
+   return '{'+[...node.children].sort(([a],[b])=>a<b?-1:a>b?1:0).map(([key,child])=>JSON.stringify(key)+':'+canonical(doc,child.pointer,delivered,literal||key==='enum'||key==='const')).join(',')+'}';
   }
-  if(node.kind==='array')return '['+[...node.children.values()].map(child=>canonical(doc,child.pointer,delivered)).join(',')+']';
+  if(node.kind==='array')return '['+[...node.children.values()].map(child=>canonical(doc,child.pointer,delivered,literal)).join(',')+']';
   return migrationExactValueIdentity(doc,pointer);
  };
  if(canonical(expected,'',false)!==canonical(actual,output.pointer+'/schema',true))fail('The delivered named schema changed part identity, counts, order, omission, constraints or allowed value combinations');
  if(value.prefixEncoding!==undefined||value.itemEncoding!==undefined||value.itemSchema!==undefined)fail('The delivered named owner retains an active positional instruction');
  const names=Object.keys(value.encoding??{});
- if(names.some(name=>name!==c.name))fail('The delivered named owner activates an unrelated Encoding declaration');
- const rule=value.encoding?.[c.name]??{};
+ if(names.some(name=>!namedMultipartFields(c).some(field=>field.name===name)))fail('The delivered named owner activates an unrelated Encoding declaration');
+ for(const field of namedMultipartFields(c)){
+ const rule=value.encoding?.[field.name]??{};
  if(Object.keys(rule).some(key=>!['contentType','headers'].includes(key)&&!key.startsWith('x-')))fail('The delivered named Encoding activates a different serialization mode');
- if((rule.contentType!==undefined)!==c.explicitMedia||rule.contentType!==undefined&&prover.mediaIdentity(rule.contentType)!==c.mediaIdentity)fail('The delivered part changed its complete media alternatives, charset or explicit/default selection');
- if(!c.explicitMedia){
-  const positional=new PositionalEncodingEquivalence(target),field=target.scopeAs(output.resource,output.pointer+'/schema/properties/'+escape(c.name),'schema');
+ if((rule.contentType!==undefined)!==field.explicitMedia||rule.contentType!==undefined&&prover.mediaIdentity(rule.contentType)!==field.mediaIdentity)fail('The delivered part changed its complete media alternatives, charset or explicit/default selection');
+ if(!field.explicitMedia){
+  const positional=new PositionalEncodingEquivalence(target),owner=target.scopeAs(output.resource,output.pointer+'/schema/properties/'+escape(field.name),'schema');
   // Target default depends on items, including tuple positions. Compare each
   // delivered part partition through the existing default-media prover.
-  if(!field)fail('The delivered repeated field has no schema owner');
-  else for(const [index,part]of [...c.positions,...(c.tail?[c.tail]:[])].entries()){
-   const suffix=output.family==='3.1'&&index<c.positions.length?'/prefixItems/'+index:'/items';
-   const all=target.scopeAs(field.resource,field.pointer+suffix,'schema');
-   const before=new PositionalEncodingEquivalence(source).defaults(part.values,'3.2'),after=all&&positional.defaults([all],output.family);
+  if(!owner)fail('The delivered repeated field has no schema owner');
+  else for(const [index,part]of field.parts.entries()){
+   const suffix=!c.language&&output.family==='3.1'&&index<c.positions.length?'/prefixItems/'+index:'/items';
+   const all=target.scopeAs(owner.resource,owner.pointer+suffix,'schema');
+   const before=part.literalType?formContentType({types:[part.literalType]},'3.2'):new PositionalEncodingEquivalence(source).defaults(part.values,'3.2'),after=all&&(c.language?new FormSemantics(target).shape(all.resource,all.pointer).defaultContentType:positional.defaults([all],output.family));
    if(before===undefined||after!==before)fail('A delivered default part changed its media or raw/encoded interpretation');
   }
  }
  const multipart=new MultipartEncoding(source),delivered=new MultipartEncoding(target);
  const expectedHeaders=new Map<string,MigrationLocation>();
- if(c.rule)for(const [name]of source.docs.get(c.rule.resource)!.dataNode(c.rule.pointer+'/headers')?.children??[]){
+ if(field.rule)for(const [name]of source.docs.get(field.rule.resource)!.dataNode(field.rule.pointer+'/headers')?.children??[]){
   if(name.toLowerCase()==='content-type')continue;
-  const at=multipart.follow({...c.rule,pointer:c.rule.pointer+'/headers/'+escape(name),kind:'header'},'header');
+  const at=multipart.follow({...field.rule,pointer:field.rule.pointer+'/headers/'+escape(name),kind:'header'},'header');
   const header=source.scopeAs(at.resource,at.pointer,'header');if(!header){fail('The captured part Header has no typed owner');continue;}
   const next=neutral(header);expectedHeaders.set(name.toLowerCase(),next);
   const afterHeader=target.scopeAs(next.resource,next.pointer,'header'),a=namedHeaderIdentity(source,header),b=afterHeader&&namedHeaderIdentity(target,afterHeader);
@@ -340,13 +612,39 @@ export function proveNamedMultipartOutput(source:ReferenceGraph,target:Reference
  const actualHeaders=new Map<string,MigrationLocation>();
  for(const name of Object.keys(rule.headers??{})){
   if(name.toLowerCase()==='content-type')continue;
-  const at=delivered.follow({...output,pointer:output.pointer+'/encoding/'+escape(c.name)+'/headers/'+escape(name),kind:'header'},'header');
+  const at=delivered.follow({...output,pointer:output.pointer+'/encoding/'+escape(field.name)+'/headers/'+escape(name),kind:'header'},'header');
   actualHeaders.set(name.toLowerCase(),at);
  }
  if(actualHeaders.size!==expectedHeaders.size||[...expectedHeaders].some(([name,at])=>{
   const next=actualHeaders.get(name);return !next||next.resource!==at.resource||next.pointer!==at.pointer;
  }))fail('The delivered part changed independently defined Headers or Content-Transfer-Encoding constraints');
+ }
  return true;
+}
+
+/** Optional actual-byte correspondence for captured production/fixture MIME
+ * buffers. Framing and quoted names use the canonical MIME implementation.
+ * Schema/Encoding correspondence is a prerequisite, never inferred from this
+ * comparison. Only cross-name interleaving may differ; all part body octets,
+ * media parameters, disposition parameters and Header values stay exact. */
+export function proveNamedMultipartWire(c:NamedMultipartCertificate,before:Readonly<{bytes:Buffer;contentType:string}>,
+ after:Readonly<{bytes:Buffer;contentType:string}>):boolean {
+ const fields=new Set(namedMultipartFields(c).map(field=>field.name));
+ const read=(input:typeof before):Map<string,readonly string[]>|undefined=>{
+  const result=new Map<string,string[]>();
+  for(const part of mimeParts(input.bytes,input.contentType)){
+   const disposition=mimeSingleton(part.headers,'content-disposition');if(!disposition)return;
+   const parsed=mediaTypes('x/'+disposition,false);if(parsed.length!==1||parsed[0].subtype!=='form-data')return;
+   const name=parsed[0].parameters.get('name');if(name===undefined||!fields.has(name))return;
+   const headers=[...part.headers].map(([name,values])=>[name,name==='content-disposition'?[JSON.stringify([...parsed[0].parameters].sort())]:
+    name==='content-type'?values.map(value=>JSON.stringify(mediaTypes(value,false).map(type=>[type.type,type.subtype,[...type.parameters].sort()]))):values]).sort(([a],[b])=>String(a)<String(b)?-1:String(a)>String(b)?1:0);
+   const values=result.get(name)??[];values.push(JSON.stringify([headers,part.bytes.toString('base64')]));result.set(name,values);
+  }
+  return result;
+ };
+ try {
+  const a=read(before),b=read(after);return !!a&&!!b&&a.size===b.size&&[...a].every(([name,values])=>JSON.stringify(values)===JSON.stringify(b.get(name)));
+ }catch(error){if(error instanceof SourceError)return false;throw error;}
 }
 
 function namedHeaderIdentity(graph:ReferenceGraph,scope:GraphScope,state={work:0}):string|undefined {
