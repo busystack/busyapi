@@ -424,6 +424,10 @@ export function requestOperation(input:any,captured?:ReturnType<typeof createGra
             return {...base,raw:'',conversionError:'This external example needs a concrete media occurrence before request conversion.'};
           }
           const kind=runtimeMediaKind(mediaType);
+          if(mediaType.split(';')[0].trim().toLowerCase()==='application/x-www-form-urlencoded'){
+            const text=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(bytes);
+            return {...base,raw:text,text};
+          }
           if(kind==='json'){
             const text=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(bytes);
             return {...base,raw:text,text};

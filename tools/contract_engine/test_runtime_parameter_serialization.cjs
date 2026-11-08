@@ -1,6 +1,18 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),YAML=require('yaml');
 const {evaluateSchemas,schemaProducer}=require('./dist/schema_evaluation.cjs');
 
+test('R3c-3 present empty exploded fields cannot witness omitted empty arrays',async()=>{
+ const input=require('./migration_b05_r3c3_fixture.cjs')();input.schema.properties.q.items.enum=['a+b'];input.refresh();
+ const plan=await require('./dist/migration.cjs').planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));
+ const packet={root:plan.outputRoot,resources:plan.outputs.map(output=>({...output,generation:0})),snapshot:'empty-field-presence'};
+ const parameters=require('./dist/execution.cjs').requestOperation({...packet,resource:packet.root,pointer:'/paths/~1p/get'}).parameters;
+ const selected=parameters.find(parameter=>parameter.name==='q');
+ const source=await evaluateSchemas({...input,runtimeInstances:[{subject:'request-parameter',location:'source',text:'flag=false&q=',parameter:{resource:input.root,pointer:'/components/parameters/Whole'}}]});
+ const target=await evaluateSchemas({...packet,runtimeInstances:[{subject:'request-parameter',location:'target',text:'flag=false&q=',parameter:selected.definition}]});
+ assert.equal(source.complete,true);assert.equal(target.complete,true);
+ assert.equal(source.runtimeEvaluations[0].valid,false);assert.equal(target.runtimeEvaluations[0].valid,false);
+});
+
 for(const version of ['3.0.4','3.1.2','3.2.1'])test(`R3c ${version} cookie content preserves literal percent octets during evaluation`,async()=>{
  const root='file:///captured/cookie.json',pointer='/paths/~1p/get/parameters/0';
  const value={openapi:version,info:{title:'Literal content',version:'1'},paths:{'/p':{get:{parameters:[
@@ -9,7 +21,7 @@ for(const version of ['3.0.4','3.1.2','3.2.1'])test(`R3c ${version} cookie conte
  const input={root,snapshot:'literal-cookie',resources:[{id:root,text:JSON.stringify(value),generation:1}]};
  const result=await evaluateSchemas({...input,runtimeInstances:['literal=a%20b','literal=a%2520b','literal=a+b'].map(text=>({subject:'request-parameter',location:text,text,parameter:{resource:root,pointer}}))});
  assert.equal(result.complete,true,JSON.stringify(result.runtimeFindings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,false,false]);
- assert.equal(schemaProducer.version,'1.18.0+61');assert(schemaProducer.configuration.includes('literal-cookie-content-v1'));
+ assert.equal(schemaProducer.version,'1.18.0+62');assert(schemaProducer.configuration.includes('literal-cookie-content-v1'));
 });
 for(const version of ['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const format of ['yaml','json'])test(`${version} ${format} runtime parameter serializations use captured schemas and actual header octets`,async()=>{
  const root='file:///approved/api.'+format,q='/paths/~1p/get/parameters/0',header='/paths/~1p/get/parameters/1';
@@ -35,7 +47,7 @@ for(const version of ['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3
  assert.equal(input.resources[0].text,text);
 });
 test('serialized runtime semantics have a distinct producer and configuration identity',()=>{
- assert.equal(schemaProducer.version,'1.18.0+61');assert(schemaProducer.configuration.includes('parameter-runtime-serialization-v1'));
+ assert.equal(schemaProducer.version,'1.18.0+62');assert(schemaProducer.configuration.includes('parameter-runtime-serialization-v1'));
 });
 test('Swagger serialized parameter runtime retains its narrower Items and collectionFormat interpretation',async()=>{
  const root='file:///approved/api.json',pointer='/paths/~1p/get/parameters/0';

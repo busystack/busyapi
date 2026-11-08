@@ -32,6 +32,9 @@ class ExactConfigurationNumber {
   final BigInt exponent;
   final bool negativeZero;
 
+  @override
+  String toString() => lexeme;
+
   /// Retain the existing Core integer-only authentication selector behavior.
   /// A numerically equal decimal spelling must not activate an ignored setting.
   final int? nativeInteger;
@@ -93,7 +96,7 @@ Object? exactConfiguration(String text) {
 /// Mapping order is immaterial; sequence order and scalar types are material.
 /// Signed zero is retained for configuration source fidelity, separately from
 /// the mathematical JSON equality offered by ExactConfigurationNumber.
-bool sameExactConfiguration(Object? a, Object? b) {
+bool sameExactConfiguration(Object? a, Object? b, {bool preserveNumberSpelling = false}) {
   var work = 0;
   bool equal(Object? left, Object? right, int depth) {
     if (++work > 2000000 || depth > 128) {
@@ -102,7 +105,8 @@ bool sameExactConfiguration(Object? a, Object? b) {
     if (left is int) left = ExactConfigurationNumber('$left', nativeInteger: left);
     if (right is int) right = ExactConfigurationNumber('$right', nativeInteger: right);
     if (left is ExactConfigurationNumber) {
-      return right is ExactConfigurationNumber && left.sameValue(right, preserveNegativeZero: true);
+      return right is ExactConfigurationNumber && left.sameValue(right, preserveNegativeZero: true) &&
+          (!preserveNumberSpelling || left.lexeme == right.lexeme);
     }
     if (left is Map) {
       return right is Map && left.length == right.length && left.keys.every(

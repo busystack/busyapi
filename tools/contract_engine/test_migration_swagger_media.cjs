@@ -6,6 +6,22 @@ const {SourceDocument} = require('./dist/document.cjs');
 const {createGraph, analyse} = require('./dist/model.cjs');
 const {evaluateSchemas} = require('./dist/schema_evaluation.cjs');
 
+for(const targetVersion of ['3.1.2','3.0.4','2.0'])for(const correlated of [false,true])test(`R3c-3 ${targetVersion} authored example product correlated=${correlated}`,async()=>{
+ const input=require('./migration_b05_r3c3_fixture.cjs')('3.2.1','json',targetVersion),choices={};
+ for(const [index,q]of ['a+b','%20'].entries())for(const flag of [false,true]){
+  if(correlated&&flag!==!!index)continue;
+  choices['Choice'+index+flag]={summary:'Keep '+index+flag,dataValue:{q:[q],flag,count:'EXACT'}};
+ }
+ input.whole.content['application/x-www-form-urlencoded'].examples=choices;input.refresh();
+ const review=await planMigration(input);assert.equal(review.complete,!correlated&&targetVersion!=='2.0',JSON.stringify(review.problems));
+ if(!review.complete){assert.deepEqual(review.outputs,[]);assert(review.problems.some(problem=>problem.code==='migration.parameter.querystring-example-target'&&problem.reason==='target-representation'));}
+ else{
+  const cold={root:review.outputRoot,resources:review.outputs.map(output=>({...output,generation:0})),snapshot:'example-product'};
+  const parameters=requestOperation({...cold,resource:cold.root,pointer:'/paths/~1p/get'}).parameters;
+  assert(parameters.every(parameter=>parameter.examples.length===4));
+ }
+});
+
 for(const location of ['whole','cookie'])test(`R3c Swagger retains the ${location} native-owner proof boundary`,async()=>{
  const input=require('./migration_b05_r3c_fixture.cjs')('3.2.1','json','2.0');
  if(location==='cookie'){

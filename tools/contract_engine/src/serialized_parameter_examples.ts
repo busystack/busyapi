@@ -91,7 +91,7 @@ export function parameterSerializationEvaluator(graph:ReferenceGraph,evaluate:Ev
  if(media?.kind==='object')for(const [type]of media.children){
   if(type.startsWith('x-'))continue;
   const source={resource:target.resource,pointer:target.pointer+'/content/'+escape(type)},selected=capture(source);
-  content.push({mediaType:type,schema:selected.schema,itemSchema:selected.itemSchema,definition:source});
+  content.push({mediaType:type,schema:selected.schema,itemSchema:selected.itemSchema,definition:selected.source});
  }
  const declaration={name,in:location,family,...parameterStyle(family,location,value),required:value.required===true||location==='path',allowEmptyValue:value.allowEmptyValue===true,
   definition:{resource:target.resource,pointer:target.pointer,range:node.range},...(node.children.has('schema')?{schema:{resource:target.resource,pointer:target.pointer+'/schema'}}:{}),content,
@@ -122,6 +122,13 @@ export function parameterSerializationEvaluator(graph:ReferenceGraph,evaluate:Ev
   return {complete:valid,valid,findings:checked.findings,instances,...(valid?{omission:'empty-collection' as const}:{})};
  }
  const complete=result.complete&&(proofs>0||result.findings.some(finding=>finding.severity==='error'));
+ if(text===''&&result.complete&&proofs===0&&result.findings.length===0&&location==='querystring'&&!declaration.required&&content.length===1){
+  const media=content[0],form=media.mediaType.split(';')[0].trim().toLowerCase()==='application/x-www-form-urlencoded';
+  const checked=await prove([representation({subject:'request-parameter',location:'example',text:'',mediaType:media.mediaType,
+   schema:media.schema,itemSchema:media.itemSchema,...(form?{form:media.definition}:{})})]);
+  const valid=checked.complete&&checked.valid&&checked.evaluations.length>0&&checked.evaluations.every(value=>value.complete&&value.valid);
+  return {complete:checked.complete,valid,findings:checked.findings,instances};
+ }
  return {complete,valid:complete&&result.valid,findings:result.findings,instances};
  };
 }

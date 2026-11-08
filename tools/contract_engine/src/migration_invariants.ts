@@ -284,7 +284,12 @@ export function migrationRequestProfiles(graph:ReferenceGraph,resources:Resource
             const expected=JSON.parse(proved).fields as string[];
             // One whole-query owner and its full target group share a profile.
             // A partial operation group must never collapse to that profile.
-            const whole=plan.parameters.some((parameter:any)=>parameter.in==='querystring'&&wire?.get(JSON.stringify([parameter.definition.resource,parameter.definition.pointer]))===proved);
+            const whole=plan.parameters.some((parameter:any)=>{
+                if(wire?.get(JSON.stringify([parameter.definition.resource,parameter.definition.pointer]))!==proved)return false;
+                if(parameter.in==='querystring')return true;
+                const schema=parameter.in==='cookie'&&graph.scopeAs(parameter.definition.resource,parameter.definition.pointer+'/schema','schema');
+                return schema&&new MigrationSchemaProofs(graph).domains(schema).has('object');
+            });
             parameters.push(whole||expected.length===names.size&&expected.every(name=>names.has(name))?{wire:proved}:{incompleteGroup:proved,names:[...names].sort()});
         }
         parameters.sort((a:any,b:any)=>JSON.stringify(a).localeCompare(JSON.stringify(b)));

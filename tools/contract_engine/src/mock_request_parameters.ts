@@ -17,7 +17,7 @@ const maximumCandidates=256,maximumInstances=2048;
 const decimal=/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$/;
 const unsupported=(message:string):never=>{throw new SourceError('runtime.request.parameter.unchecked',message,[0,0],'unsupported');};
 const malformed=(message:string):never=>{throw new SourceError('runtime.request.parameter.serialization',message);};
-export const mockParameterProducer=Object.freeze({name:'busyapi-native-parameters',version:'5'});
+export const mockParameterProducer=Object.freeze({name:'busyapi-native-parameters',version:'6'});
 
 function decode(value:string,form=false):string {
     try{return decodeURIComponent(form?value.replace(/\+/g,' '):value);}
@@ -62,9 +62,9 @@ function primitive(shape?:FormShape):void {
     if(shape?.types?.length&&shape.types.every(type=>type==='array'||type==='object'))
         unsupported('Nested array or object parameter values have no defined scalar style representation');
 }
-function arrays(parts:readonly string[],shape?:FormShape):string[] {
+function arrays(parts:readonly string[],shape?:FormShape,emptyWitness=true):string[] {
     primitive(shape?.items);
-    return [...(parts.length===1&&parts[0]===''?['[]']:[]),...product(parts.map(part=>scalars(part,shape?.items))).map(values=>'['+values.join(',')+']')];
+    return [...(emptyWitness&&parts.length===1&&parts[0]===''?['[]']:[]),...product(parts.map(part=>scalars(part,shape?.items))).map(values=>'['+values.join(',')+']')];
 }
 function objects(fields:readonly Pair[],shape?:FormShape):string[] {
     if(new Set(fields.map(([name])=>name)).size!==fields.length)unsupported('An object parameter repeats a property name');
@@ -144,7 +144,7 @@ function data(parameter:Parameter,values:readonly string[],raw:boolean,fields:re
             if(separator!==undefined)parts=location==='header'&&delimiter===','?nativeHeaderParts(value):value.split(separator);
         }
         if(possible('array')){
-            if((location==='query'||location==='cookie')&&explode&&(style==='form'||style==='cookie'))add(arrays(values.map(convert),shape));
+            if((location==='query'||location==='cookie')&&explode&&(style==='form'||style==='cookie'))add(arrays(values.map(convert),shape,false));
             else if(parts){
                 for(const layout of style==='label'&&explode?labelPartitions(parts):[parts])add(arrays(layout.map(convert),shape));
             }

@@ -8,6 +8,84 @@ import 'test_support.dart';
 import 'migration_r3c_fixture.dart';
 
 void main() {
+  test('R3c-3 explicit whole-query form Encoding and named query arrays emit the same space/plus octets', () async {
+    final directory = await Directory.systemTemp.createTemp('busyapi-form-style-');addTearDown(() => directory.delete(recursive: true));
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);addTearDown(() => server.close(force: true));
+    final seen = <String>[];
+    server.listen((request) async {seen.add(request.uri.toString());request.response.statusCode = 204;await request.response.close();});
+    final source = {'openapi':'3.2.1','info':{'title':'Styled form','version':'1'},'servers':[{'url':'http://127.0.0.1:${server.port}'}],
+      'paths':{'/p':{'get':{'parameters':[{'name':'all','in':'querystring','required':true,'content':{'application/x-www-form-urlencoded':{
+        'schema':{'type':'object','required':['q'],'additionalProperties':false,'properties':{'q':{'type':'array','minItems':1,'maxItems':2,'items':{'type':'string','enum':['a b','a+b']}}}},
+        'encoding':{'q':{'style':'form','explode':true}},
+      }}}],'responses':{'204':{'description':'Empty'}}}}}};
+    final file = File('${directory.path}/api.json');await file.writeAsString(jsonEncode(source));
+    final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);addTearDown(engine.close);
+    final project = await BusyProject.open(directory.path, engine);addTearDown(project.close);
+    Future<void> send(BusyProject owner, String location, String name, String data) async {
+      final plan = await owner.prepareRequest(owner.roots.single.id, resource: owner.roots.single.id, pointer:'/paths/~1p/get');
+      try {
+        final result = await const ContractRequestExecutor().execute(plan, OperationRequestDraft(planIdentity:plan.identity,
+          parameters:{OperationRequestDraft.parameterKey(location,name):RequestValue.json(data)}),resolveSecret:(_) async => throw StateError('No credentials'));
+        try {expect(result.outgoing.valid,true);expect(seen.last,'/p?q=a%20b&q=a%2Bb');} finally {await result.close();}
+      } finally {plan.close();}
+    }
+    await send(project,'querystring','all','{"q":["a b","a+b"]}');
+    final review = await project.prepareMigration(project.roots.single.id,'${directory.path}/output',targetVersion:'3.0.4');
+    addTearDown(review.close);expect(review.publishable,true,reason:'${review.result}');await review.publish();await file.delete();
+    final cold = await BusyProject.open(review.destination,engine);addTearDown(cold.close);await send(cold,'query','q','["a b","a+b"]');
+  });
+  for (final version in ['3.2.0', '3.2.1']) {
+    for (final target in ['3.1.2', '3.0.4']) {
+      test('R3c-3 $version → $target preserves literal cookie groups, singleton arrays and authentication precedence', () async {
+        final directory = await Directory.systemTemp.createTemp('busyapi-cookie-projection-');
+        addTearDown(() => directory.delete(recursive: true));
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);addTearDown(() => server.close(force: true));
+        final seen = <String?>[];
+        server.listen((request) async { seen.add(request.headers.value('cookie'));request.response.statusCode = 204;await request.response.close(); });
+        final value = jsonDecode(r3cSource(version, 'json', server.port).replaceAll('9007199254740993.00', '"EXACT"')) as Map;
+        final parameters = value['paths']['/p']['get']['parameters'] as List;
+        parameters.removeWhere((parameter) => parameter['name'] == 'auth');
+        parameters.addAll([
+          {'name':'bundle','in':'cookie','style':'cookie','schema':{'type':'object','additionalProperties':false,'properties':{
+            'percent':{'type':'string','enum':['','%2C']},'flag2':{'type':'boolean'},'auth':{'type':'string','enum':['explicit','credential%2C']}}}},
+          {'name':'single','in':'cookie','style':'cookie','schema':{'type':'array','minItems':1,'maxItems':1,'items':{'type':'string','enum':['','a%20b']}},
+            'examples':{'One':{'dataValue':['a%20b'],'serializedValue':'single=a%20b'}}},
+        ]);
+        final original = jsonEncode(value).replaceAll('"EXACT"', '9007199254740993.00');
+        final settings = jsonDecode(r3cConfiguration('json').replaceAll('9007199254740993.00', '"EXACT"')) as Map;
+        settings['tests'][0]['parameters']['cookie']['bundle'] = {'percent':'%2C','flag2':false};
+        settings['tests'][0]['parameters']['cookie']['single'] = ['a%20b'];
+        final configuration = jsonEncode(settings).replaceAll('"EXACT"', '9007199254740993.00');
+        final file = File('${directory.path}/api.json'), config = File('${directory.path}/busyapi.yaml');
+        await file.writeAsString(original);await config.writeAsString(configuration);
+        final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);addTearDown(engine.close);
+        final project = await BusyProject.open(directory.path, engine);addTearDown(project.close);
+        Future<void> exercise(BusyProject owner, String location, String bundleName) async {
+          final report = await const ContractTestRunner().run(owner, owner.roots.single.id, selectedCases: ['saved'],
+            resolveSecret: (_) async => 'credential%2C');
+          expect(report.passed, true, reason: '${report.toJson()}');
+          expect(seen.last, 'literal=a%20b; one=safe; right=true; percent=%2C; flag2=false; single=a%20b; auth=credential%2C');
+          final plan = await owner.prepareRequest(owner.roots.single.id, resource: owner.roots.single.id, pointer: '/paths/~1p/get');
+          try {
+            await expectLater(const ContractRequestBuilder().build(plan, OperationRequestDraft(planIdentity: plan.identity,
+              environment: 'manual', parameters: {
+                OperationRequestDraft.parameterKey(location, 'descriptionOnly'): const RequestValue.json('{"q":"a+b"}'),
+                OperationRequestDraft.parameterKey('cookie', bundleName): bundleName == 'bundle'
+                    ? const RequestValue.json('{"auth":"explicit"}') : const RequestValue.text('explicit'),
+              }), resolveSecret: (_) async => throw StateError('An explicit authentication cookie must prevent acquisition')),
+              throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'request.security.collision')));
+          } finally { plan.close(); }
+        }
+        await exercise(project, 'querystring', 'bundle');
+        final review = await project.prepareMigration(project.roots.single.id, '${directory.path}/output', targetVersion: target);
+        addTearDown(review.close);expect(review.publishable, true, reason: '${review.result}');
+        final records = (review.result['configurationProjections'] as List).cast<Map>();
+        expect(records.any((record) => record.containsKey('cookieGroups')), true);expect(records.any((record) => record.containsKey('cookieUnwraps')), true);
+        await review.publish();expect(await config.readAsString(), configuration);await file.delete();
+        final cold = await BusyProject.open(review.destination, engine);addTearDown(cold.close);await exercise(cold, 'query', 'auth');
+      });
+    }
+  }
   for (final target in ['3.1.2', '3.0.4', '2.0']) {
     test('R3c-2 $target preserves field permutations, empty queries and repeated arrays', () async {
       final directory = await Directory.systemTemp.createTemp('busyapi-factor-wire-');

@@ -3,6 +3,31 @@ const assert=require('node:assert/strict');
 const {createHash}=require('node:crypto');
 const YAML=require('yaml');
 const {planMigration}=require('./dist/migration.cjs');
+
+for(const format of ['yaml','json'])test(`R3c-3 ${format} independent Example references and distinct Parameter/media layers survive`,async()=>{
+ const input=require('./migration_b05_r3c_fixture.cjs')('3.2.1',format),whole=input.value.components.parameters.Whole;
+ whole.examples={ParameterChoice:{dataValue:{q:'%20'},summary:'Parameter metadata'}};
+ const media=whole.content['application/x-www-form-urlencoded'];media.examples.Plus.summary='Media metadata';
+ media.examples.Plus.description='Keep [guide](./guide.md#part)';
+ input.value.components.examples={Independent:{$ref:'#/components/parameters/Whole/content/application~1x-www-form-urlencoded/examples/Plus'}};
+ input.value['x-literal-example']=media.examples.Plus;
+ input.resources[0].text=input.encode(input.value);const original=input.resources[0].text;
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const cold={root:review.outputRoot,resources:review.outputs.map(output=>({...output,generation:0})),snapshot:'independent-query-examples'};
+ const operation=requestOperation({...cold,resource:cold.root,pointer:'/paths/~1p/get'}),parameter=operation.parameters.find(parameter=>parameter.in==='query');
+ assert.deepEqual(parameter.examples.map(example=>example.name),['ParameterChoice','Plus']);
+ const graph=createGraph(cold).graph,edge=graph.referenceAs(cold.root,'/components/examples/Independent','$ref','example');
+ assert.equal(edge.resolution,'resolved');assert.equal(graph.docs.get(edge.targetResource).dataNode(edge.targetPointer+'/value/q').value,'a+b');
+ assert.equal(graph.docs.get(cold.root).dataNode('/x-literal-example/dataValue/q').value,'a+b');
+ const {documentUriBase}=require('./dist/reference_graph.cjs');
+ const at=graph.scopeAs(parameter.definition.resource,parameter.definition.pointer+'/examples/Plus','example');
+ assert.equal(new URL(/\]\(([^)]+)\)/u.exec(graph.docs.get(at.resource).dataNode(at.pointer+'/description').value)[1],documentUriBase(graph,at)).href,
+  new URL('./guide.md#part',input.root).href);
+ assert.equal(input.resources[0].text,original);
+ whole.examples={Plus:{dataValue:{q:'%20'}}};input.resources[0].text=input.encode(input.value);
+ const refused=await planMigration(input);assert.equal(refused.complete,false);assert.deepEqual(refused.outputs,[]);
+ assert(refused.problems.some(problem=>problem.code==='migration.parameter.querystring-example-target'&&problem.reason==='target-representation'),JSON.stringify(refused.problems));
+});
 const {analyse,createGraph}=require('./dist/model.cjs');
 const {requestOperation}=require('./dist/execution.cjs');
 const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
@@ -148,7 +173,7 @@ test(`${version} ${format} native objects and literal values share one specializ
  const input=fixture(version,format),original=input.resources[0].text,doc=new SourceDocument(original,input.root);
  assert.equal(analyse(input).status,'complete');await wire(input);
  const review=await planMigration(input);
- assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'98');
+ assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'99');
  assert.equal(review.exampleOutputs.length,2);assert.equal(input.resources[0].text,original);
  const output=delivered(review),{graph}=createGraph(output);
  assert.equal(analyse(output).status,'complete');await wire(output);

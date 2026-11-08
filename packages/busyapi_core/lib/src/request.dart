@@ -535,29 +535,30 @@ class ContractRequestBuilder {
             const Iterable<MapEntry<String, String>>.empty()) {
       _addHeader(headers, value.key, substitute(value.value));
     }
-    // Independent query fields follow the explicit selection order. This
-    // preserves whole-form member order after a reviewed field extraction,
-    // while each array still uses the existing repeated-field serializer.
+    // Independent query/cookie fields follow explicit selection order after
+    // a reviewed field extraction. Arrays keep their existing serializer.
     final parameters = (plan.result['parameters'] as List).cast<Map>().toList();
-    final querySlots = <int>[
-      for (var i = 0; i < parameters.length; i++)
-        if (parameters[i]['in'] == 'query') i,
-    ];
-    final selectionOrder = {
-      for (final (index, key) in draft.parameters.keys.indexed) key: index,
-    };
-    final orderedQuery = [for (final i in querySlots) parameters[i]];
-    final originalOrder = {for (final (index, value) in orderedQuery.indexed) value: index};
-    orderedQuery.sort((a, b) {
-      final first = selectionOrder[OperationRequestDraft.parameterKey('query', a['name'] as String)];
-      final last = selectionOrder[OperationRequestDraft.parameterKey('query', b['name'] as String)];
-      if (first != null && last != null) return first.compareTo(last);
-      if (first != null) return -1;
-      if (last != null) return 1;
-      return originalOrder[a]!.compareTo(originalOrder[b]!);
-    });
-    for (final (index, slot) in querySlots.indexed) {
-      parameters[slot] = orderedQuery[index];
+    for (final location in ['query', 'cookie']) {
+      final slots = <int>[
+        for (var i = 0; i < parameters.length; i++)
+          if (parameters[i]['in'] == location) i,
+      ];
+      final selectionOrder = {
+        for (final (index, key) in draft.parameters.keys.indexed) key: index,
+      };
+      final ordered = [for (final i in slots) parameters[i]];
+      final originalOrder = {for (final (index, value) in ordered.indexed) value: index};
+      ordered.sort((a, b) {
+        final first = selectionOrder[OperationRequestDraft.parameterKey(location, a['name'] as String)];
+        final last = selectionOrder[OperationRequestDraft.parameterKey(location, b['name'] as String)];
+        if (first != null && last != null) return first.compareTo(last);
+        if (first != null) return -1;
+        if (last != null) return 1;
+        return originalOrder[a]!.compareTo(originalOrder[b]!);
+      });
+      for (final (index, slot) in slots.indexed) {
+        parameters[slot] = ordered[index];
+      }
     }
     for (final raw in parameters) {
       final name = raw['name'] as String, location = raw['in'] as String;
@@ -992,6 +993,24 @@ class ContractRequestBuilder {
     return [(parameter['name'] as String, text)];
   }
 
+  /// Independent admission of a reviewed raw-query projection uses the same
+  /// exploded query serializer as HTTP execution. Numbers keep their captured
+  /// exact spelling through ExactConfigurationNumber.toString().
+  static String migrationQueryRepresentation(Map fields, {Map<String, Map>? declarations}) {
+    final pairs = <(String, String)>[];
+    for (final entry in fields.entries) {
+      if (entry.key is! String) throw const FormatException('Expected query names');
+      pairs.addAll(_serializeParameter(declarations?[entry.key] ?? {
+        'family': '3.1', 'name': entry.key, 'in': 'query',
+        'style': 'form', 'explode': true,
+      }, entry.value, '', structured: true));
+    }
+    final text = pairs.map((pair) => '${_encode(pair.$1, false)}=${pair.$2}').join('&');
+    // HTTP execution frames the same serialized fields with Uri.parse, whose
+    // query mask also escapes literal brackets from reserved expansion.
+    return Uri.parse('?$text').query;
+  }
+
   static List<(String, String)> _serializeParameter(
     Map parameter,
     Object? value,
@@ -1016,7 +1035,7 @@ class ContractRequestBuilder {
                 'application/x-www-form-urlencoded',
               ) &&
               value is Map)
-            for (final item in value.values) '$item',
+            for (final entry in value.entries) ...['${entry.key}', '${entry.value}'],
         ]);
       } on CoreFailure catch (error) {
         throw CoreFailure(error.code, 'Parameter $name: ${error.message}');
@@ -1049,12 +1068,27 @@ class ContractRequestBuilder {
             'Parameter $name requires a complex form serializer. Use an explicitly serialized media example.',
           );
         }
-        representation = [
-          for (final entry in value.entries)
-            for (final item
-                in entry.value is List ? entry.value as List : [entry.value])
-              '${Uri.encodeQueryComponent(entry.key as String)}=${Uri.encodeQueryComponent(item == null ? 'null' : '$item')}',
-        ].join('&');
+        final fields = <String>[];
+        final encoding = content.single['encoding'] as Map? ?? const {};
+        for (final entry in value.entries) {
+          final rule = encoding[entry.key] as Map? ?? const {};
+          final styled = ['style', 'explode', 'allowReserved'].any(rule.containsKey);
+          if (styled) {
+            final style = rule['style'] as String? ?? 'form';
+            final pairs = _serializeParameter({
+              'name': entry.key, 'in': 'query', 'style': style,
+              'explode': rule['explode'] ?? (style == 'form'),
+              'allowReserved': rule['allowReserved'] == true,
+            }, entry.value, '', structured: true,
+              encodeValue: (text) => _formStyleEncode(text, rule['allowReserved'] == true));
+            fields.addAll(pairs.map((pair) => '${_formStyleEncode(pair.$1, false)}=${pair.$2}'));
+          } else {
+            for (final item in entry.value is List ? entry.value as List : [entry.value]) {
+              fields.add('${Uri.encodeQueryComponent(entry.key as String)}=${Uri.encodeQueryComponent(item == null ? 'null' : '$item')}');
+            }
+          }
+        }
+        representation = fields.join('&');
       }
       validateTextCharset(content.single['mediaType'] as String, [
         representation,

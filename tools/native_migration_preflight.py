@@ -8,7 +8,7 @@ import tempfile
 import re
 
 
-MIGRATION_PRODUCER = '98'
+MIGRATION_PRODUCER = '99'
 
 
 def verify_migration_producer(metadata):
@@ -32,12 +32,49 @@ def verify_configuration_projections(report):
                 or not isinstance(record.get('after'), str)):
             raise RuntimeError('Migration returned unrelated configuration projection records')
         seen.add(record['pointer'])
+        for field in ('cookieUnwraps', 'emptyQueries'):
+            names = record.get(field, [])
+            if (not isinstance(names, list) or len(names) > 2048
+                    or any(not isinstance(name, str) or not name for name in names)
+                    or len(set(names)) != len(names)
+                    or names and not record['pointer'].endswith('/parameters')):
+                raise RuntimeError('Migration returned malformed empty/singleton parameter proofs')
         try:
             json.loads(record['after'])
             if record.get('before') is not None:
                 json.loads(record['before'])
         except (ValueError, TypeError) as error:
             raise RuntimeError('Migration returned malformed exact configuration values') from error
+        for field in ('rawQueries', 'cookieGroups'):
+            proofs = record.get(field, [])
+            if not isinstance(proofs, list) or len(proofs) > 2048 or proofs and not record['pointer'].endswith('/parameters'):
+                raise RuntimeError('Migration returned unrelated parameter projection proofs')
+            names = set()
+            for proof in proofs:
+                if (not isinstance(proof, dict) or not isinstance(proof.get('name'), str)
+                        or proof['name'] in names or not isinstance(proof.get('destinations'), list)
+                        or not 1 <= len(proof['destinations']) <= 2048
+                        or any(not isinstance(name, str) or not name for name in proof['destinations'])
+                        or len(set(proof['destinations'])) != len(proof['destinations'])):
+                    raise RuntimeError('Migration returned malformed parameter projection proofs')
+                names.add(proof['name'])
+                if field == 'rawQueries':
+                    targets = proof.get('targets')
+                    if (not isinstance(targets, list) or len(targets) != len(proof['destinations'])
+                            or any(not isinstance(target, dict)
+                                   or target.get('name') != proof['destinations'][index]
+                                   or not isinstance(target.get('resource'), str)
+                                   or not isinstance(target.get('pointer'), str)
+                                   or len(target['pointer']) > 65536
+                                   or target['pointer'] and not target['pointer'].startswith('/')
+                                   or re.search(r'~(?![01])', target['pointer'])
+                                   for index, target in enumerate(targets))):
+                        raise RuntimeError('Migration returned malformed raw query target owners')
+                    try:
+                        if not isinstance(proof.get('data'), str) or not isinstance(json.loads(proof['data']), dict):
+                            raise ValueError('Expected captured decoded object data')
+                    except (ValueError, TypeError) as error:
+                        raise RuntimeError('Migration returned malformed raw query data') from error
     parameters = report.get('parameterChanges')
     if not isinstance(parameters, list) or len(parameters) > 4096:
         raise RuntimeError('Migration review omitted bounded parameter changes')

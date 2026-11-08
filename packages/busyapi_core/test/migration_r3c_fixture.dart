@@ -107,3 +107,10 @@ String r3cFactoredConfiguration(String format) => jsonEncode({
     }}}, 'expect': {'status': 204},
   }],
 }).replaceAll('"EXACT"', '9007199254740993.00');
+
+String r3cFactoredRawConfiguration(String format) {
+  final value = jsonDecode(r3cFactoredConfiguration(format)) as Map;
+  value['tests'][0]['parameters']['querystring']['descriptionOnly'] =
+      'text=&q=a%2Bb&q=a%2Bb&count=9007199254740993.00&flag=false';
+  return jsonEncode(value);
+}

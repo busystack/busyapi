@@ -23,6 +23,7 @@ import 'mime_text_materialization.dart';
 import 'form_media_types.dart';
 import 'multipart_encoding.dart';
 import 'exact_configuration.dart';
+import 'request.dart' show ContractRequestBuilder;
 
 part 'governance.dart';
 part 'policy_code_review.dart';
@@ -40,7 +41,7 @@ part 'external_examples.dart';
 
 // Semantic revisions are part of captured evaluator ownership, alongside the
 // wire protocol and snapshot identity.
-const _schemaProducerVersion = '1.18.0+61';
+const _schemaProducerVersion = '1.18.0+62';
 
 // Keep native-isolate IO wakeups bounded without serializing every resource.
 // Each batch finishes (including failures) before access can be released.

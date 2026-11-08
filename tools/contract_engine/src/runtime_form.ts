@@ -17,7 +17,7 @@ export type RuntimeFormTarget={resource:string;pointer:string;occurrence?:string
 type Location={resource:string;pointer:string};
 export type FormIssue={code:string;message:string;pointer:string;severity:'error'|'warning';source:{resource:string;pointer:string;range:Range}};
 export type FormCheck={document:SourceDocument;schema?:Location;prefix:string;file?:boolean;binary?:BinaryLocations};
-export type RuntimeFormData=RuntimeMediaData&{checks:FormCheck[];issues:FormIssue[]};
+export type RuntimeFormData=RuntimeMediaData&{checks:FormCheck[];issues:FormIssue[];fieldOrder?:readonly string[]};
 type Part={name:string;bytes:Buffer;encoded?:Buffer;headers:ReadonlyMap<string,string[]>};
 const object=(value:unknown):value is Record<string,unknown>=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const maximumParts=2048;
@@ -287,5 +287,6 @@ export function decodeRuntimeForm(text:string,id:string,contentType:string,base6
     }
     if(unicode&&multipart&&input.some(part=>!claimed.has(part)))failure('runtime.media.unicode.unsupported','An uninterpreted MIME field has no established Unicode serialization');
     const result=document('{'+[...members].map(([name,value])=>JSON.stringify(name)+':'+value).join(',')+'}','body');
-    return {document:result,...(binary.size?{binaryInstances:new Map<SourceDocument,BinaryLocations>([[result,binary]])}:{}),kind:multipart?'multipart-form':'form-urlencoded',checks,issues};
+    return {document:result,...(binary.size?{binaryInstances:new Map<SourceDocument,BinaryLocations>([[result,binary]])}:{}),kind:multipart?'multipart-form':'form-urlencoded',checks,issues,
+        fieldOrder:input.map(part=>claimed.get(part)??part.name)};
 }

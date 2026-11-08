@@ -15,7 +15,7 @@ import '../packages/busyapi_core/test/migration_r3c_fixture.dart';
 import '../packages/busyapi_core/test/test_support.dart';
 
 void main() {
-  for (final state in ['publish', 'stale', 'unsupported', 'repeated', 'factored']) {
+  for (final state in ['publish', 'stale', 'unsupported', 'repeated', 'factored', 'raw']) {
     testWidgets('R3c native review exposes exact parameter/configuration changes: $state', (tester) async {
       tester.view.physicalSize = const Size(1400, 1200);tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);
@@ -31,8 +31,8 @@ void main() {
       addTearDown(() => messenger.setMockMethodCallHandler(menu, null));
       final directory = Directory.systemTemp.createTempSync('busyapi-r3c-native-');
       final file = File('${directory.path}/api.yaml'), configuration = File('${directory.path}/busyapi.yaml');
-      var original = state == 'factored' ? r3cFactoredSource('3.2.1', 1) : state == 'repeated' ? r3cRepeatedSource('3.2.1', 1) : r3cSource('3.2.1', 'yaml', 1);
-      final savedConfiguration = state == 'factored' ? r3cFactoredConfiguration('yaml') : state == 'repeated' ? r3cRepeatedConfiguration('yaml') : r3cConfiguration('yaml');
+      var original = (state == 'factored' || state == 'raw') ? r3cFactoredSource('3.2.1', 1) : state == 'repeated' ? r3cRepeatedSource('3.2.1', 1) : r3cSource('3.2.1', 'yaml', 1);
+      final savedConfiguration = state == 'raw' ? r3cFactoredRawConfiguration('yaml') : state == 'factored' ? r3cFactoredConfiguration('yaml') : state == 'repeated' ? r3cRepeatedConfiguration('yaml') : r3cConfiguration('yaml');
       if (state == 'unsupported') original = original.replaceAll('application/x-www-form-urlencoded', 'application/json');
       file.writeAsStringSync(original);configuration.writeAsStringSync(savedConfiguration);
       final controller = WorkspaceController(EngineProcess(executable: runtimeNode, helper: runtimeHelper),
@@ -74,13 +74,13 @@ void main() {
           final output = find.widgetWithText(BusyApiDialogButton, 'Review output');
           await tester.runAsync(() => tester.tap(output));await ready(() => find.byType(BusyApiReviewComparison).evaluate().isNotEmpty);
           final comparison = tester.widget<BusyApiReviewComparison>(find.byType(BusyApiReviewComparison));
-          expect(comparison.before, working);if (state != 'factored') expect(comparison.after, contains('text/plain'));if (state != 'repeated') expect(comparison.after, contains('9007199254740993.00'));
-          if (state == 'repeated' || state == 'factored') expect(comparison.after, contains('array'));
+          expect(comparison.before, working);if (state != 'factored' && state != 'raw') expect(comparison.after, contains('text/plain'));if (state != 'repeated') expect(comparison.after, contains('9007199254740993.00'));
+          if (state == 'repeated' || state == 'factored' || state == 'raw') expect(comparison.after, contains('array'));
           if (state == 'stale') {
             await tester.runAsync(() async {controller.sourceEdit(controller.root!, '$working ');});
           }
           await tester.runAsync(() => tester.tap(publish));
-          if (state == 'publish' || state == 'repeated' || state == 'factored') {
+          if (state == 'publish' || state == 'repeated' || state == 'factored' || state == 'raw') {
             await ready(() => File('${directory.path}/busyapi-migrated/openapi.yaml').existsSync());
             await tester.runAsync(() async {
               final cold = await BusyProject.open('${directory.path}/busyapi-migrated', controller.engine);

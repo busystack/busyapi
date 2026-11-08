@@ -8,11 +8,17 @@ import type {MigrationOperationPair} from './migration_invariants';
 import {migrationJoinedPath} from './migration_server_routes';
 import {MigrationSource} from './migration_source';
 import {serverTemplate} from './derived_bundle';
+import type {ParameterWireProfiles} from './migration_parameter_serialization';
 
 /** Exact leaf edits in the existing captured configuration, reviewed and
  * published with the contract. These records never contain credentials. */
-export type MigrationConfigurationProjection=Readonly<{pointer:string;before:string|null;after:string;required?:boolean}>;
-export type MigrationServerSelectionContext=Readonly<{source:ReferenceGraph;target:ReferenceGraph;pairs:readonly MigrationOperationPair[];targetEntryName:string}>;
+export type MigrationConfigurationProjection=Readonly<{pointer:string;before:string|null;after:string;required?:boolean;
+ rawQueries?:readonly Readonly<{name:string;data:string;destinations:readonly string[];
+  targets:readonly Readonly<{name:string;resource:string;pointer:string}>[]}>[];
+ cookieGroups?:readonly Readonly<{name:string;destinations:readonly string[]}>[];
+ cookieUnwraps?:readonly string[];emptyQueries?:readonly string[]}>;
+export type MigrationServerSelectionContext=Readonly<{source:ReferenceGraph;target:ReferenceGraph;pairs:readonly MigrationOperationPair[];targetEntryName:string;
+ parameters?:Readonly<{before:ParameterWireProfiles;after:ParameterWireProfiles}>}>;
 function configurationEntryName(configuration:SourceDocument,graph:ReferenceGraph):string {
  const roots=configuration.dataNode('/roots')?.value;
  return (Array.isArray(roots)?roots.find((entry:any)=>typeof entry?.path==='string'&&new URL(entry.path,configuration.id).href===graph.root)?.name:undefined)??graph.root;

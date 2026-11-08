@@ -66,6 +66,7 @@ class _ChangedEntryDiscovery extends EngineProcess {
 }
 
 void main() {
+  _r3cExternalQueries();
   _r3bReusableExamples();
   _b05R2InlineExamples();
   for (final defect in ['missing', 'revision', 'references']) {
@@ -246,7 +247,7 @@ void main() {
         environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
       final review = await run(['--json']);expect(review.exitCode, 0, reason: '${review.stdout} ${review.stderr}');
       final report = jsonDecode(review.stdout as String) as Map;
-      expect(report['published'], false);expect(report['producerVersion'], '98');
+      expect(report['published'], false);expect(report['producerVersion'], '99');
       final copy = (report['exampleOutputs'] as List).single as Map;
       expect(base64Decode(copy['base64'] as String), bytes);expect(await Directory(destination).exists(), false);
       final textReview = await run([]);expect(textReview.exitCode, 0, reason: textReview.stderr as String);
@@ -324,6 +325,61 @@ void main() {
         expect(await Directory('${directory.path}/copy').exists(), false);expect(await payload.readAsBytes(), _payload('json').bytes);
       });
     }
+  }
+}
+
+void _r3cExternalQueries() {
+  for (final version in ['3.2.0', '3.2.1']) for (final format in ['yaml', 'json']) for (final target in ['3.1.2', '3.0.4']) {
+    test('R3c-3 $version $format external query example retains bytes after cold $target publication', () async {
+      final directory = await Directory.systemTemp.createTemp('busyapi-external-query-');
+      addTearDown(() => directory.delete(recursive: true));
+      final seen = <String>[], bytes = utf8.encode('q=a%2Bb&q=%2520');
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      server.listen((request) async { seen.add(request.uri.toString());request.response.statusCode = 204;await request.response.close(); });
+      final file = File('${directory.path}/api.$format'), external = File('${directory.path}/query.bin');
+      final original = _render({
+        'openapi': version, 'info': {'title': 'External query', 'version': '1'},
+        'servers': [{'url': 'http://127.0.0.1:${server.port}'}],
+        'paths': {'/p': {'get': {
+          'parameters': [{'name': 'whole', 'in': 'querystring', 'required': true, 'content': {
+            'application/x-www-form-urlencoded': {
+              'schema': {'type': 'object', 'required': ['q'], 'additionalProperties': false, 'properties': {
+                'q': {'type': 'array', 'minItems': 1, 'maxItems': 2, 'items': {'type': 'string', 'enum': ['a+b', '%20']}}}},
+              'examples': {'Captured': {'summary': 'Approved octets', 'externalValue': './query.bin'}},
+            },
+          }}], 'responses': {'204': {'description': 'Empty'}},
+        }}},
+      }, format);
+      await file.writeAsString(original);await external.writeAsBytes(bytes);
+      final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);addTearDown(engine.close);
+      final project = await BusyProject.open(file.path, engine);addTearDown(project.close);
+      Future<void> execute(BusyProject owner, {required bool mediaLevel}) async {
+        final plan = await owner.prepareRequest(owner.roots.single.id,
+          resource: owner.roots.single.id, pointer: '/paths/~1p/get');
+        try {
+          final parameter = (plan.result['parameters'] as List).single as Map;
+          final examples = mediaLevel ? (((parameter['content'] as List).single as Map)['examples'] as List) : parameter['examples'] as List;
+          final example = examples.single as Map;
+          expect(example['name'], 'Captured');expect(example['wireBase64'], base64Encode(bytes));
+          final result = await const ContractRequestExecutor().execute(plan, OperationRequestDraft(planIdentity: plan.identity,
+            parameters: {OperationRequestDraft.parameterKey(mediaLevel ? 'querystring' : 'query', mediaLevel ? 'whole' : 'q'):
+              RequestValue.serialized(utf8.decode(bytes), mediaLevel: mediaLevel)}), resolveSecret: (_) async => null);
+          try { expect(result.conforming, true, reason: '${result.outgoing.findings} ${result.received.findings}'); }
+          finally { await result.close(); }
+          expect(seen.last, '/p?q=a%2Bb&q=%2520');
+        } finally { plan.close(); }
+      }
+      await execute(project, mediaLevel: true);
+      final review = await project.prepareMigration(file.uri.toString(), '${directory.path}/output', targetVersion: target);
+      addTearDown(review.close);expect(review.publishable, true, reason: '${review.result}');
+      expect(review.exampleCopies.single.resource, external.uri.toString());expect(review.exampleCopies.single.bytes, bytes);
+      await review.publish();expect(await file.readAsString(), original);expect(await external.readAsBytes(), bytes);
+      final relocated = await Directory(review.destination).rename('${directory.path}/cold query');
+      await file.delete();await external.delete();
+      final cold = await BusyProject.open(relocated.path, engine);addTearDown(cold.close);
+      await execute(cold, mediaLevel: false);expect((await cold.check(cold.roots.single.id))['complete'], true);
+    });
   }
 }
 

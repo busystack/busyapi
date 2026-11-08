@@ -72,11 +72,37 @@ bool _sameMigrationSelectorTypes(Object? before, Object? after) {
 /// Apply only reviewed canonical selection and parameter leaves to the capture.
 /// Authentication and TLS are checked separately by their existing protocol.
 void _verifyMigrationConfigurationProjections(
-  Object? configuration, Object? records,
+  Object? configuration, Object? records, List outputs, String targetVersion,
 ) {
   Never invalid() => throw CoreFailure('migration.protocol', 'Migration returned an unrelated configuration projection');
   if (records is! List || records.length > 4096) invalid();
   final seen = <String>{};
+  final parsed = <String, Object?>{};
+  Map targetDeclaration(Object? certificate, String name) {
+    if (certificate is! Map || certificate['name'] != name || certificate['resource'] is! String || certificate['pointer'] is! String) invalid();
+    final resource = certificate['resource'] as String, pointer = certificate['pointer'] as String;
+    if (pointer.length > 65536 || pointer.isNotEmpty && !pointer.startsWith('/') || RegExp(r'~(?![01])').hasMatch(pointer)) invalid();
+    if (!parsed.containsKey(resource)) {
+      final matches = outputs.whereType<Map>().where((output) => output['id'] == resource).toList();
+      if (matches.length != 1 || matches.single['text'] is! String) invalid();
+      try { parsed[resource] = loadYaml(matches.single['text'] as String); } on Object { invalid(); }
+    }
+    Object? value = parsed[resource];
+    for (final token in pointer.isEmpty ? const <String>[] : pointer.substring(1).split('/')) {
+      final part = token.replaceAll('~1', '/').replaceAll('~0', '~');
+      if (value is Map) { value = value[part]; }
+      else if (value is List) {
+        final index = int.tryParse(part);
+        if (index == null || index < 0 || index >= value.length) invalid();
+        value = value[index];
+      } else { invalid(); }
+    }
+    if (value is! Map || value.containsKey(r'$ref') || value['in'] != 'query' || value['name'] != name || value.containsKey('content')) invalid();
+    final swagger = targetVersion.startsWith('2.');
+    if (swagger ? value['type'] == 'array' && value['collectionFormat'] != 'multi' :
+        (value['style'] ?? 'form') != 'form' || value['explode'] != true) invalid();
+    return {...value, 'family': swagger ? '2.0' : '3.1'};
+  }
   for (final record in records) {
     if (record is! Map || record['pointer'] is! String ||
         record['before'] != null && record['before'] is! String || record['after'] is! String) invalid();
@@ -111,7 +137,7 @@ void _verifyMigrationConfigurationProjections(
       expected = before == null ? null : exactConfiguration(before as String);
       after = exactConfiguration(record['after'] as String);
     } on Object { invalid(); }
-    if ((before != null) != owner.containsKey(key) || !sameExactConfiguration(owner[key], expected)) invalid();
+    if ((before != null) != owner.containsKey(key) || !sameExactConfiguration(owner[key], expected, preserveNumberSpelling: parameters)) invalid();
     if (operation) {
       final original = owner[key];
       if (original is! Map || after is! Map || original['occurrence'] is! String && original['method'] != null && after['method'] != original['method'] ||
@@ -128,18 +154,65 @@ void _verifyMigrationConfigurationProjections(
       // Admit exact whole-value moves or lossless named field extraction.
       // No other saved value, representation, or selection may change.
       final planned = exactConfiguration(before as String);
-      if (planned is! Map || planned['querystring'] is! Map ||
+      if (planned is! Map || planned['querystring'] != null && planned['querystring'] is! Map ||
           planned['query'] != null && planned['query'] is! Map ||
           after['query'] != null && after['query'] is! Map ||
+          planned['cookie'] != null && planned['cookie'] is! Map ||
+          after['cookie'] != null && after['cookie'] is! Map ||
           after['querystring'] != null && after['querystring'] is! Map) invalid();
-      final whole = planned['querystring'] as Map;
+      final whole = planned['querystring'] as Map? ?? <String, Object?>{};
       final query = planned['query'] as Map? ?? <String, Object?>{};
+      final rawProofs = record['rawQueries'] ?? const [];
+      if (rawProofs is! List || rawProofs.length > 2048) invalid();
+      final rawNames = <String>{};
+      for (final proof in rawProofs) {
+        if (proof is! Map || proof['name'] is! String ||
+            proof['data'] is! String || proof['destinations'] is! List ||
+            !rawNames.add(proof['name'] as String)) invalid();
+      }
+      final emptyProofs = record['emptyQueries'] ?? const [];
+      if (emptyProofs is! List || emptyProofs.length > 2048 || emptyProofs.any((name) => name is! String || name.isEmpty) || emptyProofs.toSet().length != emptyProofs.length) invalid();
+      final emptyNames = emptyProofs.toSet();
       var moved = 0;
       for (final name in whole.keys.toList()) {
         if ((after['querystring'] as Map?)?.containsKey(name) == true) continue;
         final destination = after['query'] as Map? ?? const {};
         final value = whole[name];
-        if (!query.containsKey(name) && destination.containsKey(name) &&
+        if (value == '' && emptyNames.remove(name)) {
+          if (query.containsKey(name) || !destination.containsKey(name) || destination[name] is! List || (destination[name] as List).isNotEmpty ||
+              ContractRequestBuilder.migrationQueryRepresentation({name: destination[name]}) != '') invalid();
+          query[name] = destination[name];whole.remove(name);
+        } else if (value is String && rawNames.contains(name)) {
+          final proof = rawProofs.cast<Map>().singleWhere((proof) => proof['name'] == name);
+          final decoded = exactConfiguration(proof['data'] as String);
+          final names = proof['destinations'] as List;
+          if (decoded is! Map || names.isEmpty || names.length > 2048 ||
+              names.any((field) => field is! String || field.isEmpty) ||
+              names.toSet().length != names.length) invalid();
+          final selections = <String, Object?>{};
+          // An identity object retains its selection name. Field extraction
+          // retains every member and its authored order.
+          final identity = names.length == 1 && destination[names.single] is Map;
+          if (identity) {
+            if (!sameExactConfiguration(decoded, destination[names.single])) invalid();
+            selections[names.single as String] = destination[names.single];
+          } else {
+            if (!sameExactConfiguration(names, decoded.keys.toList())) invalid();
+            for (final field in names) {
+              if (!destination.containsKey(field) || !sameExactConfiguration(decoded[field], destination[field])) invalid();
+              selections[field as String] = destination[field];
+            }
+          }
+          final targets = proof['targets'];
+          if (targets is! List || targets.length != names.length) invalid();
+          final declarations = <String, Map>{};
+          for (var index = 0; index < names.length; index++) {
+            declarations[names[index] as String] = targetDeclaration(targets[index], names[index] as String);
+          }
+          if (names.any(query.containsKey) ||
+              ContractRequestBuilder.migrationQueryRepresentation(selections, declarations: declarations) != value) invalid();
+          query.addAll(selections);whole.remove(name);rawNames.remove(name);
+        } else if (!query.containsKey(name) && destination.containsKey(name) &&
             sameExactConfiguration(value, destination[name])) {
           query[name] = whole.remove(name);
         } else if (value is Map && value.isNotEmpty) {
@@ -153,11 +226,40 @@ void _verifyMigrationConfigurationProjections(
         } else { invalid(); }
         moved++;
       }
-      if (moved == 0) invalid();
+      if (rawNames.isNotEmpty || emptyNames.isNotEmpty) invalid();
       if (query.isNotEmpty || planned.containsKey('query')) planned['query'] = query;
-      if (whole.isEmpty) planned.remove('querystring');
-      if (!sameExactConfiguration(planned, after) ||
-          !sameExactConfiguration(query.keys.toList(), ((after['query'] as Map?) ?? const {}).keys.toList())) invalid();
+      if (moved > 0 && whole.isEmpty) planned.remove('querystring');
+      final cookieGroups = record['cookieGroups'] ?? const [];
+      if (cookieGroups is! List || cookieGroups.length > 2048) invalid();
+      final cookieNames = <String>{};
+      for (final group in cookieGroups) {
+        if (group is! Map || group['name'] is! String || group['destinations'] is! List ||
+            !cookieNames.add(group['name'] as String) || planned['cookie'] is! Map) invalid();
+        final cookies = planned['cookie'] as Map, name = group['name'] as String;
+        final original = cookies[name], names = group['destinations'] as List;
+        if (original is! Map || original.isEmpty ||
+            !sameExactConfiguration(names, original.keys.toList()) ||
+            names.any((field) => field is! String || field.isEmpty || field != name && cookies.containsKey(field))) invalid();
+        final projected = <String, Object?>{};
+        for (final entry in cookies.entries) {
+          if (entry.key == name) {
+            for (final field in names) { projected[field as String] = original[field]; }
+          } else { projected[entry.key as String] = entry.value; }
+        }
+        planned['cookie'] = projected;moved++;
+      }
+      final unwraps = record['cookieUnwraps'] ?? const [];
+      if (unwraps is! List || unwraps.length > 2048 || unwraps.toSet().length != unwraps.length) invalid();
+      for (final name in unwraps) {
+        if (name is! String || name.isEmpty || planned['cookie'] is! Map) invalid();
+        final cookies = planned['cookie'] as Map, original = cookies[name];
+        if (original is! List || original.length != 1 || original.single is Map || original.single is List) invalid();
+        cookies[name] = original.single;moved++;
+      }
+      if (moved == 0) invalid();
+      if (!sameExactConfiguration(planned, after, preserveNumberSpelling: true) ||
+          !sameExactConfiguration(query.keys.toList(), ((after['query'] as Map?) ?? const {}).keys.toList()) ||
+          !sameExactConfiguration(((planned['cookie'] as Map?) ?? const {}).keys.toList(), ((after['cookie'] as Map?) ?? const {}).keys.toList())) invalid();
     } else if (baseUrl) {
       final original = owner[key];
       if (original is! String || after is! String) invalid();
@@ -185,7 +287,7 @@ void _verifyMigrationReview(
   if (result['version'] != 1 ||
       result['snapshot'] != input.snapshot.identity ||
       result['producer'] != 'busyapi-native-migration' ||
-      result['producerVersion'] != '98' ||
+      result['producerVersion'] != '99' ||
       result['problems'] is! List ||
       result['outputs'] is! List ||
       result['exampleOutputs'] is! List ||
@@ -344,7 +446,7 @@ void _verifyMigrationReview(
     exactManifest = exactConfiguration(manifestText);
   } on Object { invalid(); }
   if (exactManifest is! Map) invalid();
-  _verifyMigrationConfigurationProjections(sourceConfiguration, result['configurationProjections']);
+  _verifyMigrationConfigurationProjections(sourceConfiguration, result['configurationProjections'], result['outputs'] as List, targetVersion);
   if (sourceConfiguration is Map) {
     for (final key in sourceConfiguration.keys.where((key) => !const ['version', 'roots', 'resourceMappings', 'environments'].contains(key))) {
       if (!exactManifest.containsKey(key) || !sameExactConfiguration(sourceConfiguration[key], exactManifest[key])) invalid();

@@ -8,11 +8,27 @@ const {evaluateSchemas} = require('./dist/schema_evaluation.cjs');
 const {requestOperation} = require('./dist/execution.cjs');
 const {planMigration} = require('./dist/migration.cjs');
 
+
 const versions = ['3.0.0', '3.0.1', '3.0.2', '3.0.3', '3.0.4', '3.1.0', '3.1.1', '3.1.2', '3.2.0', '3.2.1'];
 const formats = ['yaml', 'json'];
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const render = (value, format) => (format === 'yaml' ? '# Keep Unicode 雪\r\n' + YAML.stringify(value).replaceAll('\n', '\r\n') : JSON.stringify(value)) + '\r\n';
 const packet = (id, bytes, aliases = []) => ({version: 1, id, generation: 3, aliases, state: 'available', identity: hash(bytes), base64: bytes.toString('base64'), byteLength: bytes.length});
+for(const format of ['yaml','json'])test(`R3c-3 ${format} whole-query external bytes retain identity after multi-field projection`,async()=>{
+ const input=require('./migration_b05_r3c3_fixture.cjs')('3.2.1',format),bytes=Buffer.from('count=9007199254740993.00&q=a%2Bb&flag=false');
+ input.whole.content['application/x-www-form-urlencoded'].examples={Captured:{summary:'Original resource',externalValue:'./wire.bin'}};
+ input.exampleResources=[packet('file:///captured/wire.bin',bytes)];input.refresh();
+ const before=JSON.stringify(input),review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ assert.equal(review.exampleOutputs.length,1);assert.equal(review.exampleOutputs[0].source.identity,hash(bytes));assert.equal(review.exampleOutputs[0].base64,bytes.toString('base64'));
+ const resources=review.outputs.map(output=>({...output,generation:0})),examples=review.exampleOutputs.map(output=>({...packet(output.id,Buffer.from(output.base64,'base64')),generation:0}));
+ const cold={root:review.outputRoot,resources,exampleResources:examples,snapshot:'cold-query-external'};
+ assert.equal((await evaluateSchemas(cold)).complete,true);const parameters=requestOperation({...cold,resource:cold.root,pointer:'/paths/~1p/get'}).parameters;
+ assert.deepEqual(parameters.map(parameter=>parameter.name),['count','q','flag']);assert(parameters.every(parameter=>parameter.examples[0].name==='Captured'));
+ assert.equal(JSON.stringify(input),before);
+ input.exampleResources=[];const refused=await planMigration(input);assert.equal(refused.complete,false);assert.deepEqual(refused.outputs,[]);
+ assert(refused.problems.some(problem=>problem.reason==='unavailable-proof'),JSON.stringify(refused.problems));
+});
+
 for(const format of formats)for(const kind of ['json','latin1','empty'])test(`B05-R2 ${format} captured ${kind} response examples materialize exact bytes through reusable chains`,async()=>{
  const f=fixture('3.0.4',format,kind);delete f.value.paths['/echo'].post.requestBody;
  const original=f.value.paths['/echo'].post.responses[200].content[f.mediaType];
@@ -102,7 +118,7 @@ async function assertPortable(f, input = f.input) {
   const original = JSON.stringify(input);
   const plan = await planMigration(input);
   assert.equal(plan.complete, true, JSON.stringify(plan.problems));
-  assert.equal(plan.producerVersion, '98');
+  assert.equal(plan.producerVersion, '99');
   assert.equal(plan.exampleOutputs.length, 1);
   const copy = plan.exampleOutputs[0];
   if(input.resources[0].id.endsWith('.yaml'))assert(plan.outputs.find(value => value.id === plan.outputRoot).text.includes('# Keep Unicode 雪'));

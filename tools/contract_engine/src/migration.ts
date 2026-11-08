@@ -52,7 +52,7 @@ import {migrateParameterSerialization,proveMigrationParameterSerialization,type 
 import {projectMigrationParameterConfiguration} from './migration_parameter_configuration';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='98';
+const migrationProducerVersion='99';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const referenceLocator=(reference:GraphReference)=>!reference.connection&&['$ref','$dynamicRef'].includes(reference.keyword)||
     reference.connection==='operationRef'&&reference.keyword==='operationRef';
@@ -144,7 +144,8 @@ export async function planMigration(input:MigrationInput) {
             // Incomplete warnings identify evaluator limitations, not invalid
             // source. Preserve their locations alongside the overall refusal.
             for(const finding of [...analysis.findings,...schemas.findings])if(finding.severity==='error'||finding.incomplete===true)
-                issue(finding,'migration.validation.'+finding.code,finding.message,finding.incomplete===true?'implementation':phase==='source'?'source-incomplete':'target-representation');
+                issue(finding,'migration.validation.'+finding.code,finding.message,finding.incomplete===true?
+                    finding.condition==='unavailable'?'unavailable-proof':'implementation':phase==='source'?'source-incomplete':'target-representation');
         }
     };
     const initialContexts=migrationDocumentContexts(input,initial,issue,true);
@@ -337,13 +338,15 @@ export async function planMigration(input:MigrationInput) {
                 contexts=migrationDocumentContexts(mediaInput,mediaGraph,issue);graph=mediaGraph.graph;
             }
             if(problems.length)break;
-            if(await migrateParameterSerialization(contexts.map(context=>context.graph),sources,stage.sources,after,owners,issue,input.exampleResources)){
+            const parameterExampleContexts=contexts.map(context=>context.graph);
+            const parametersChanged=await migrateParameterSerialization(parameterExampleContexts,sources,stage.sources,after,owners,issue,input.exampleResources);
+            if(parametersChanged){
                 const parameterInput=preparationInput(),parameterGraph=createGraph(parameterInput);
                 contexts=migrationDocumentContexts(parameterInput,parameterGraph,issue);graph=parameterGraph.graph;
             }
             if(problems.length)break;
-            if(migrateExampleVersions(contexts.map(context=>context.graph),sources,stage.sources,after,owners,issue,
-                (location,namespace)=>externalExamples!.inlineCapture(sourceLocation(location.resource,location.pointer),namespace))){
+            if(await migrateExampleVersions(contexts.map(context=>context.graph),sources,stage.sources,after,owners,issue,
+                (location,namespace)=>externalExamples!.inlineCapture(sourceLocation(location.resource,location.pointer),namespace),parametersChanged?parameterExampleContexts:[])){
                 const examplesInput=preparationInput(),examplesGraph=createGraph(examplesInput);
                 contexts=migrationDocumentContexts(examplesInput,examplesGraph,issue);graph=examplesGraph.graph;
             }
@@ -781,7 +784,7 @@ export async function planMigration(input:MigrationInput) {
                 issue(before.source,'migration.invariant.request','The captured operation changed effective URLs, serialization, authentication, request media or responses','implementation');
             proveMigrationOperationMedia(context.graph,ownerGraph,mapped,issue);
             proveMigrationObjectMetadata(context.graph,ownerGraph,mapped,issue,parameterProfiles);
-            serverContexts.push({source:context.graph,target:targetGraph,pairs:operationPairs,targetEntryName:root===input.root?'migrated':'resource_'+digest(root).slice(0,24)});
+            serverContexts.push({source:context.graph,target:targetGraph,pairs:operationPairs,parameters:parameterProfiles,targetEntryName:root===input.root?'migrated':'resource_'+digest(root).slice(0,24)});
             proveMigrationConnections(context.graph,ownerGraph,mapped,issue);
             if(modernFamily(target.family))proveMigrationSchemaResources(context.graph,targetGraph,mapped,issue);
             const alternatives=migrationSecurityAlternativeProjection(context.graph,targetGraph,input.resources,mapped);
@@ -868,7 +871,7 @@ export async function planMigration(input:MigrationInput) {
             else serverConfiguration.set(change.pointer,required??change);
         }
         configurationProjections=[...serverConfiguration.values()].filter(change=>change.required).map(({pointer,before,after})=>({pointer,before,after}));
-        configurationProjections.push(...projectMigrationParameterConfiguration(serverContexts,configurationDoc,issue));
+        configurationProjections.push(...await projectMigrationParameterConfiguration(serverContexts,configurationDoc,issue,input.exampleResources));
         proveMigrationConfiguredOperationSelections(serverContexts,configurationDoc,configurationProjections,issue);
     }catch(error){refused(error,{resource:configurationDoc?.id??input.root,pointer:''});}
     if(problems.length)return {...common(),changes:[],outputs:[]};

@@ -8,10 +8,64 @@ import 'migration_r3c_fixture.dart';
 import 'test_support.dart';
 
 void main() {
+  for (final target in ['3.1.2', '3.0.4']) {
+    test('R3c-3 $target admits reserved raw query proofs using the actual target owners', () async {
+      final directory = await Directory.systemTemp.createTemp('busyapi-reserved-query-');addTearDown(() => directory.delete(recursive: true));
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);addTearDown(() => server.close(force: true));
+      final seen = <String>[];
+      server.listen((request) async {seen.add(request.uri.toString());request.response.statusCode=204;await request.response.close();});
+      final file=File('${directory.path}/api.json'),config=File('${directory.path}/busyapi.yaml');
+      await file.writeAsString(jsonEncode({'openapi':'3.2.1','info':{'title':'Reserved query','version':'1'},'servers':[{'url':'http://127.0.0.1:${server.port}'}],
+        'paths':{'/p':{'get':{'parameters':[{'name':'whole','in':'querystring','required':true,'content':{'application/x-www-form-urlencoded':{
+          'schema':{'type':'object','required':['q','flag'],'additionalProperties':false,'properties':{
+            'q':{'type':'array','minItems':1,'maxItems':2,'items':{'type':'string','enum':['/','[x]']}},'flag':{'type':'boolean'}}},
+          'encoding':{'q':{'style':'form','explode':true,'allowReserved':true}},
+        }}}],'responses':{'204':{'description':'Empty'}}}}}}));
+      await config.writeAsString(jsonEncode({'version':1,'roots':[{'name':'api','path':'api.json'}],'tests':[
+        {'name':'saved','operation':{'method':'get','path':'/p'},'parameters':{'querystring':{'whole':'q=/&q=%5Bx%5D&flag=false'}},'expect':{'status':204}},
+      ]}));
+      final engine=EngineProcess(executable:runtimeNode,helper:runtimeHelper);addTearDown(engine.close);
+      final project=await BusyProject.open(directory.path,engine);addTearDown(project.close);
+      Future<void> saved(BusyProject owner) async {
+        final report=await const ContractTestRunner().run(owner,owner.roots.single.id,resolveSecret:(_) async=>null);
+        expect(report.passed,true,reason:'${report.toJson()}');expect(seen.last,'/p?q=/&q=%5Bx%5D&flag=false');
+      }
+      await saved(project);final review=await project.prepareMigration(project.roots.single.id,'${directory.path}/output',targetVersion:target);
+      addTearDown(review.close);expect(review.publishable,true,reason:'${review.result}');await review.publish();
+      await file.delete();final cold=await BusyProject.open(review.destination,engine);addTearDown(cold.close);await saved(cold);
+    });
+  }
+  for (final target in ['3.1.2', '3.0.4', '2.0']) {
+    test('R3c-3 $target preserves explicitly empty whole-text selections', () async {
+      final directory = await Directory.systemTemp.createTemp('busyapi-empty-query-');addTearDown(() => directory.delete(recursive: true));
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);addTearDown(() => server.close(force: true));
+      final seen = <String>[];
+      server.listen((request) async {seen.add(request.uri.toString());request.response.statusCode=204;await request.response.close();});
+      final file=File('${directory.path}/api.json'),config=File('${directory.path}/busyapi.yaml');
+      await file.writeAsString(jsonEncode({'openapi':'3.2.1','info':{'title':'Empty text','version':'1'},'servers':[{'url':'http://127.0.0.1:${server.port}'}],
+        'paths':{'/p':{'get':{'parameters':[{'name':'all','in':'querystring','content':{'text/plain':{'schema':{'type':'string','maxLength':0}}}}],
+          'responses':{'204':{'description':'Empty'}}}}}}));
+      final settings=jsonEncode({'version':1,'roots':[{'name':'api','path':'api.json'}],'tests':[
+        {'name':'selected','operation':{'method':'get','path':'/p'},'parameters':{'querystring':{'all':''}},'expect':{'status':204}},
+        {'name':'omitted','operation':{'method':'get','path':'/p'},'parameters':{},'expect':{'status':204}},
+      ]});await config.writeAsString(settings);
+      final engine=EngineProcess(executable:runtimeNode,helper:runtimeHelper);addTearDown(engine.close);
+      final project=await BusyProject.open(directory.path,engine);addTearDown(project.close);
+      Future<void> saved(BusyProject owner) async {
+        final report=await const ContractTestRunner().run(owner,owner.roots.single.id,resolveSecret:(_) async=>throw StateError('No credentials'));
+        expect(report.passed,true,reason:'${report.toJson()}');expect(seen.reversed.take(2),['/p','/p']);
+      }
+      await saved(project);final review=await project.prepareMigration(project.roots.single.id,'${directory.path}/output',targetVersion:target);
+      addTearDown(review.close);expect(review.publishable,true,reason:'${review.result}');await review.publish();
+      await file.delete();final cold=await BusyProject.open(review.destination,engine);addTearDown(cold.close);await saved(cold);
+      expect(await config.readAsString(),settings);
+    });
+  }
   for (final version in ['3.2.0', '3.2.1']) {
     for (final format in ['yaml', 'json']) {
       for (final target in ['3.1.2', '3.0.4', '2.0']) {
-        test('R3c-2 $version $format → $target preserves multi-field saved HTTP order', () async {
+        for (final raw in [false, true]) {
+        test('R3c-3 $version $format → $target preserves ${raw ? 'raw' : 'structured'} saved HTTP order', () async {
           final directory = await Directory.systemTemp.createTemp('busyapi-r3c2-');
           addTearDown(() => directory.delete(recursive: true));
           final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -21,7 +75,7 @@ void main() {
             seen.add(request.uri.toString());request.response.statusCode = 204;await request.response.close();
           });
           final file = File('${directory.path}/api.$format'), config = File('${directory.path}/busyapi.yaml');
-          final original = r3cFactoredSource(version, server.port), settings = r3cFactoredConfiguration(format);
+          final original = '${format == 'yaml' ? '# Whole query inverse\r\n' : ''}${r3cFactoredSource(version, server.port)}', settings = raw ? r3cFactoredRawConfiguration(format) : r3cFactoredConfiguration(format);
           await file.writeAsString(original);await config.writeAsString(settings);
           final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);addTearDown(engine.close);
           final project = await BusyProject.open(directory.path, engine);addTearDown(project.close);
@@ -40,18 +94,39 @@ void main() {
           final query = jsonDecode(projection.after)['query'] as Map;
           expect(query.keys.toList(), ['text', 'q', 'count', 'flag']);expect(query['q'], ['a+b', 'a+b']);
           expect(projection.after, contains('9007199254740993.00'));
+          expect((review.result['configurationProjections'] as List).cast<Map>().any((change) => change.containsKey('rawQueries')), raw);
           expect(review.parameterChanges.any((change) => change.after.endsWith(' · flag')), true);
           await expectLater(review.publish(cancelled: () => true), throwsA(anything));
           expect(await Directory(review.destination).exists(), false);
           await expectLater(review.publish(beforePublish: () async {throw const FileSystemException('Controlled grouped publication failure');}), throwsA(anything));
           expect(await Directory(review.destination).exists(), false);
           await review.publish();
+          if (raw && version == '3.2.1' && format == 'json' && target == '3.0.4') {
+            final stale = await project.prepareMigration(project.roots.single.id, '${directory.path}/stale', targetVersion: target);
+            addTearDown(stale.close);
+            final configuration = await project.buffer(config.uri.toString());
+            project.store.replace(configuration.id, '$settings ');
+            await expectLater(stale.publish(), throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'migration.stale')));
+            expect(await Directory(stale.destination).exists(), false);
+            final destination = '${directory.path}/cli-raw';
+            final preview = await Process.run('$testBundle/busyapi', ['migrate', directory.path, '--target', target, '--output', destination, '--json'],
+              environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
+            expect(preview.exitCode, 0, reason: '${preview.stdout}${preview.stderr}');
+            final report = jsonDecode(preview.stdout as String) as Map;
+            expect(report['producerVersion'], '99');
+            expect((report['configurationProjections'] as List).cast<Map>().any((change) => change.containsKey('rawQueries')), true);
+            final applied = await Process.run('$testBundle/busyapi', ['migrate', directory.path, '--target', target, '--output', destination, '--apply', report['reviewIdentity'] as String, '--json'],
+              environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
+            expect(applied.exitCode, 0, reason: '${applied.stdout}${applied.stderr}');
+            final cli = await BusyProject.open(destination, engine);addTearDown(cli.close);await saved(cli);
+          }
           final moved = await Directory(review.destination).rename('${directory.path}/cold factors');
           await file.delete();
           final cold = await BusyProject.open(moved.path, engine);addTearDown(cold.close);await saved(cold);
           expect((await cold.check(cold.roots.single.id))['complete'], true);
           expect(await config.readAsString(), settings);
         });
+        }
       }
     }
   }
@@ -170,7 +245,7 @@ void main() {
               environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
             expect(preview.exitCode, 0, reason: '${preview.stdout}${preview.stderr}');
             final report = jsonDecode(preview.stdout as String) as Map;
-            expect(report['producerVersion'], '98');expect(report['published'], false);
+            expect(report['producerVersion'], '99');expect(report['published'], false);
             expect((report['configurationProjections'] as List).any((change) => change['pointer'] == '/tests/0/parameters'), true);
             expect(await Directory(destination).exists(), false);
             final applied = await Process.run('$testBundle/busyapi', ['migrate', directory.path, '--target', target, '--output', destination, '--apply', report['reviewIdentity'] as String, '--json'],

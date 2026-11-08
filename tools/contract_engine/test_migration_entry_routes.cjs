@@ -2,6 +2,55 @@ const {test}=require('node:test'),assert=require('node:assert/strict'),YAML=requ
 const {planMigration}=require('./dist/migration.cjs'),{analyse}=require('./dist/model.cjs'),{evaluateSchemas}=require('./dist/schema_evaluation.cjs');
 const {SourceDocument}=require('./dist/document.cjs');
 
+test('R3c-3 shared raw cases cannot acquire incompatible decoded selections',async()=>{
+ const input=require('./migration_b05_r3c3_fixture.cjs')('3.2.1','json','3.1.2',true).configure('q=a%2Bb');
+ const second=JSON.parse(input.resources[0].text);second.components.parameters.Whole.content['application/x-www-form-urlencoded'].schema.properties.q={type:'string',enum:['a+b']};
+ input.resources.push({id:'file:///captured/second.json',generation:1,text:JSON.stringify(second)});
+ const settings=JSON.parse(input.configuration.text);settings.roots.push({name:'second',path:'second.json'});input.configuration.text=JSON.stringify(settings);
+ const review=await planMigration(input);assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);
+ assert(review.problems.some(problem=>problem.code==='migration.parameter.saved-context'&&problem.reason==='target-representation'),JSON.stringify(review.problems));
+});
+
+test('R3c-3 raw projection never overwrites an occupied query destination',async()=>{
+ const input=require('./migration_b05_r3c3_fixture.cjs')('3.2.1','json','3.0.4',true).configure('q=a%2Bb');
+ const settings=JSON.parse(input.configuration.text);settings.tests[0].parameters.query={q:['held']};input.configuration.text=JSON.stringify(settings);
+ const review=await planMigration(input);assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);
+ assert(review.problems.some(problem=>problem.code==='migration.parameter.saved-collision'),JSON.stringify(review.problems));
+});
+
+for(const targetVersion of ['3.1.2','3.0.4'])test(`R3c-3 ${targetVersion} cookie fields and literal singleton selections preserve configuration`,async()=>{
+ const input=require('./migration_b05_r3c3_fixture.cjs')('3.2.1','json',targetVersion);
+ const group={name:'bundle',in:'cookie',style:'cookie',schema:{type:'object',additionalProperties:false,properties:{left:{type:'string',enum:['','%2C','a+b']},right:{type:'boolean'}}}};
+ const singleton={name:'single',in:'cookie',style:'cookie',schema:{type:'array',minItems:1,maxItems:1,items:{type:'string',enum:['','a%20b','%zz']}}};
+ input.value.paths['/p'].get.parameters=[group,singleton,{name:'tail',in:'cookie',style:'cookie',schema:{type:'string',enum:['safe']}}];input.refresh();
+ input.configuration={id:'file:///captured/busyapi.yaml',generation:1,text:JSON.stringify({version:1,roots:[{name:'api',path:'factors.json'}],tests:[{name:'cookies',operation:{method:'get',path:'/p'},parameters:{cookie:{bundle:{right:false,left:'%2C'},single:['a%20b'],tail:'safe'}}}]})};
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const change=review.configurationProjections.find(change=>change.pointer==='/tests/0/parameters'),after=JSON.parse(change.after);
+ assert.deepEqual(Object.keys(after.cookie),['right','left','single','tail']);assert.deepEqual(after.cookie,{right:false,left:'%2C',single:'a%20b',tail:'safe'});
+ assert.deepEqual(change.cookieGroups,[{name:'bundle',destinations:['right','left']}]);assert.deepEqual(change.cookieUnwraps,['single']);
+ const original=JSON.parse(input.configuration.text);original.tests[0].parameters.cookie.left='occupied';input.configuration.text=JSON.stringify(original);
+ const refused=await planMigration(input);assert.equal(refused.complete,false);assert.deepEqual(refused.outputs,[]);
+ assert(refused.problems.some(problem=>problem.code==='migration.parameter.saved-collision'),JSON.stringify(refused.problems));
+});
+
+for(const mutation of ['example-value','example-name','example-summary','field-domain','example-field-order'])test(`R3c-3 publication group invariant rejects ${mutation}`,async()=>{
+ const input=require('./migration_b05_r3c3_fixture.cjs')(),media=input.whole.content['application/x-www-form-urlencoded'];
+ media.examples={All:{summary:'Keep',dataValue:{q:['a+b'],flag:false,count:'EXACT'}}};input.refresh();
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const {createGraph}=require('./dist/model.cjs'),{proveMigrationParameterSerialization}=require('./dist/migration_invariants.cjs');
+ const resources=review.outputs.map(output=>({...output,generation:0})),entry=resources.find(resource=>resource.id===review.outputRoot);
+ let doc=new SourceDocument(entry.text,entry.id);const base='/components/parameters/Whole';
+ if(mutation==='example-value')entry.text=doc.set(base+'/examples/All/value',['%20']);
+ if(mutation==='example-name')entry.text=doc.set(base+'/examples',{Renamed:doc.dataNode(base+'/examples/All').value});
+ if(mutation==='example-summary')entry.text=doc.set(base+'/examples/All/summary','Changed');
+ if(mutation==='field-domain')entry.text=doc.set(base+'/schema/enum',[['a+b']]);
+ if(mutation==='example-field-order')entry.text=doc.set('/paths/~1p/parameters',[...doc.dataNode('/paths/~1p/parameters').value].reverse());
+ const source=createGraph(input).graph,target=createGraph({root:review.outputRoot,resources,snapshot:'mutated-examples'}).graph;
+ const outputs=[...target.entryScopes()].filter(scope=>scope.kind==='parameter'&&scope.pointer.startsWith('/components/parameters/')&&target.docs.get(scope.resource).dataNode(scope.pointer)?.value?.in==='query');
+ const problems=[];await proveMigrationParameterSerialization(source,target,()=>outputs,(at,code,message,reason)=>problems.push({at,code,message,reason}));
+ assert(problems.some(problem=>['migration.invariant.parameter-wire','migration.invariant.parameter-examples'].includes(problem.code)),JSON.stringify(problems));
+});
+
 for(const mutation of ['encoding','domain','required','name'])test(`R3c final parameter wire proof rejects ${mutation}`,async()=>{
  const input=require('./migration_b05_r3c_fixture.cjs')(),result=await planMigration(input);
  assert.equal(result.complete,true,JSON.stringify(result.problems));

@@ -2,6 +2,18 @@ const assert=require('node:assert/strict');
 const {test}=require('node:test');
 const YAML=require('yaml');
 const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
+
+for(const version of ['3.2.0','3.2.1'])test(`R3c-3 ${version} paired whole-query examples retain original serialized octets`,async()=>{
+ const input=require('./migration_b05_r3c3_fixture.cjs')(version,'json','3.0.4',true);
+ input.whole.content['application/x-www-form-urlencoded'].examples={Paired:{dataValue:{q:['a+b','%20']},serializedValue:'q=a%2Bb&q=%2520'}};input.refresh();
+ const review=await require('./dist/migration.cjs').planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const cold={root:review.outputRoot,resources:review.outputs.map(output=>({...output,generation:0})),snapshot:'paired-whole-query'};
+ const checked=await evaluateSchemas(cold);assert.equal(checked.complete,true,JSON.stringify(checked.findings));
+ const parameter=require('./dist/execution.cjs').requestOperation({...cold,resource:cold.root,pointer:'/paths/~1p/get'}).parameters[0];
+ assert.equal(parameter.examples[0].raw,'["a+b","%20"]');
+ input.whole.content['application/x-www-form-urlencoded'].examples.Paired.serializedValue='q=a%2bb&q=%2520';input.refresh();
+ const refused=await require('./dist/migration.cjs').planMigration(input);assert.equal(refused.complete,false);assert.deepEqual(refused.outputs,[]);
+});
 const versions=['3.2.0','3.2.1'];
 const schema={type:'object',required:['id'],properties:{id:{type:'integer',enum:['EXACT']}},additionalProperties:false};
 const wire=number=>'\u007b"id":'+number+'}';

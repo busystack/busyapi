@@ -31,7 +31,150 @@ consume those shared results. Source-preserving transactions remain authoritativ
 Current changes require complete engine, Core, native and packaged verification;
 source inspection or a successful build is not runtime acceptance.
 
-## B05-R3c-2: Multi-field factorization and grouped presence
+## B05-R3c-3: Saved inverses, codecs, examples and reconciliation
+
+**B05-R3c is source-complete, unverified within W3.09. B05-R3 and B05 remain
+incomplete.** This continuation starts at
+`879c884dfaac1a53e34fe1a16c9133c7b7591007` on the primary
+`release/v0.1.0` checkout. It preserves R3c-1/2 and earlier implementations.
+The current dispositions below supersede the historical R3c gap statements in
+the following sections. R3d has not begun.
+
+Raw saved whole-query inputs now resolve the original effective Parameter,
+captured Media Type definition and Encoding instructions. The existing form
+decoder supplies exact data tokens and field attribution/order; the captured
+schema evaluator validates that inverse. The actual destination declarations
+must reproduce every original query octet before a projection is offered.
+Repeated names, multiplicity, field/item order, numeric exponent/decimal
+spellings, literal plus signs and existing percent sequences remain material.
+Missing input, selected empty text, selected empty collections and omitted
+fields keep separate owners. Malformed escapes, invalid UTF-8, noncanonical
+escape spellings, interleaved repeats and ambiguous or schema-invalid inverses
+retain `migration.parameter.saved-proof`; decoding success never proves byte
+equivalence. Arbitrary strings do not acquire a form binding.
+
+Reviewed raw certificates include decoded exact JSON, destination selection
+names and the physical target Parameter coordinates. Core reads those literal
+declarations from the reviewed outputs and independently runs the existing
+request serializer, including native `allowReserved` or Swagger collection and
+escaping rules. This introduces neither a reference resolver nor a serializer.
+Core admits only the recorded raw inverse, structured field move, cookie field
+group, singleton-cookie unwrap or optional empty-text projection. Exact number
+spelling, unrelated selections, environment values, authentication bindings and
+cookie/query order remain protected. Destination collisions and incompatible
+shared-case interpretations refuse publication. Cancellation, stale captures,
+decisions, destination races and atomic publication retain the existing paths.
+
+Finite form certificates distinguish content-based form encoding (`+` for
+space) from explicitly styled Encoding and named RFC 6570 query expansion.
+Field-specific reserved expansion is admitted only when its actual emitted
+bytes match; literal percent triples and brackets receive the existing codec
+rules. Swagger punctuation uses its actual Core codec, with a finite proof for
+equivalent reserved-expansion downgrades in composed routes. Default/UTF-8 and
+US-ASCII form bindings are the established codecs; ASCII certificates check
+the complete permitted names and values. Nonempty whole-query JSON/text framing
+cannot gain a named field without changing bytes. Optional empty text can keep
+an explicit selection through an empty-array owner; required empty text retains
+its presence restriction. An empty whole-query value language can use a proved
+contradictory flat Swagger schema, while modern targets retain native content.
+
+Literal-cookie scalar and singleton-array values can use older native
+text/plain or JSON content where ordinary form escaping differs. JSON scalar
+content preserves arbitrary numeric lexical spellings, including exponent `+`.
+Independent finite cookie objects can project into separately owned fields;
+the same exact domain/absence product certificate governs both query and cookie
+groups. Semicolon delimiters, empty values, percent sequences and member order
+remain literal. Cookie names are checked against other effective owners before
+allocation. No percent decoding, duplicate-name merging or authentication
+overwrite is introduced. Authentication collisions continue to fail before
+secret acquisition.
+
+The new `migration_parameter_examples.ts` projects examples through canonical
+Example occurrences, existing representation rules and approved external-byte
+captures. Parameter and Media Type selection layers retain their independently
+named choices and their own schema-fallback precedence. `dataValue`, legacy
+`value`, shorthand, `serializedValue`, paired representations and `externalValue`
+use the defining serialization context. Serialized/external queries require the
+same schema-valid exact inverse as saved inputs. Summaries, descriptions and
+Markdown bases remain captured metadata. Original independently referenced
+Example/Media/schema owners stay with A01–A03; projected literals receive fresh
+provenance. External resource identities and bytes survive copying and cold
+reopening, including multi-field projections retaining an original native owner.
+Different values, metadata or external identities sharing an authored name
+cannot be silently selected or renamed.
+
+Authored example independence is proved separately from schema independence.
+An extracted multi-field example relation must equal its complete product and
+retain its field order. Missing projected members, newly implied combinations
+or incompatible per-example group orders retain target restrictions. Generated
+cookie content suppresses accidental reactivation of schema fallback choices.
+The existing final publication invariant now re-derives every affected field's
+domain, codec and presence, checks the full authored example relation, metadata,
+external bytes and effective Operation field order, and supplies the associated
+saved-value checks. No new invariant registry/evaluator was introduced.
+
+| Remaining refusal | Classification and basis |
+| --- | --- |
+| Nonempty whole-query JSON or supported field-free text framing | Target restriction: a named query owner adds a field delimiter. |
+| Native Cookie Parameters in Swagger | Target restriction: no native Cookie Parameter location; no Header substitution. |
+| Correlated field/absence products requiring separate owners; required emitting groups without a presence coordinate | Target restriction where the identity-object alternative cannot preserve the codec. |
+| Repeated literal cookie names with semicolon framing | Target restriction: older form uses ampersand grouping; duplicate native owners cannot retain the source ownership. |
+| Correlated/incompletely projected examples, incompatible authored names/orders, active Parameter examples in Swagger | Target restriction in the approved target's independent example/Parameter containers. |
+| Missing effective media/schema bindings, unsupported charsets, externally defined formats, ambiguous inverses, unavailable approved external bytes or exhausted finite proof budgets | Unavailable proof; no codec rules or claims of impossibility are invented. |
+| Saved raw bytes that normalize differently, empty extracted groups without a selected owner, unaddressable empty names or out-of-certificate saved values | Unavailable saved proof; original configuration remains intact. |
+| Positional, nested and response Encoding conversions | Separately assigned R3d; not implemented by this continuation. |
+
+No established representable R3c implementation gap remains known after this
+source reconciliation. This is a source assessment, not executed acceptance or
+a claim that unavailable evidence establishes target incompatibility.
+
+Prepared, **unexecuted** Engine coverage extends the registered migration,
+entry-route, object-use, Swagger-media, runtime-parameter, serialized-example
+and external-example suites. `migration_b05_r3c3_fixture.cjs` adds both 3.2
+patches, YAML/JSON, applicable 3.0/3.1/Swagger direct/composed routes, raw and
+structured values, repeated/empty/omitted fields, exact numbers, form/RFC 6570
+punctuation, charset and malformed-input controls, cookie groups/singletons,
+example precedence/products/references, external bytes, aliases, collisions and
+final invariant mutations. Core's registered migration, wire and external-example
+suites prepare actual HTTP/Cookie comparisons, unsaved review, original settings,
+authentication collisions, cancellation/stale decisions, destination conflicts,
+atomic failures, CLI preview/apply and cold reopening after original removal.
+The registered native review suite adds raw configuration review/publication.
+Packaged preflight adds the raw inverse matrix, malformed certificate controls
+and obsolete producer rejection. Existing assertions and earlier suites remain.
+
+Production changes: Engine `migration_parameter_serialization.ts`,
+`migration_parameter_examples.ts`, `migration_parameter_configuration.ts`,
+`migration_server_configuration.ts`, `migration_invariants.ts`,
+`migration_example_versions.ts`, `runtime_form.ts`,
+`serialized_parameter_examples.ts`, `execution.ts`,
+`mock_request_parameters.ts`, `mock_native_validation.ts`,
+`schema_evaluation.ts` and `migration.ts`; Core `migration.dart`, `request.dart`,
+`exact_configuration.dart`, `project.dart` and `mock.dart`; and native preflight
+`tools/native_migration_preflight.py`. Other test edits synchronize producer
+assertions. Existing build/test registrations already include the extended
+suites; the new fixture/module are imported by those registered paths.
+
+Migration producer/Core/preflight admission is **99**; **98** is obsolete.
+The shared evaluator is **1.18.0+62**, native parameter mock **6** and its
+configuration is **parameter-wire-v6** because explicit empty exploded fields
+no longer witness an omitted empty array. Graph **9**, schema-example projection
+**3**, response mock **5** and sample producer **4** are unchanged. Bundles have
+not been rebuilt.
+
+**Verification actually performed:** normative specification and installed SDK
+source inspection, source/protocol/regression-registration review, Git state
+inspection and `git diff --check`. The execution hold remains active. No tests,
+compilers, analyzers, builds, code generation, CI, graphical/native workloads,
+packaging or performance checks executed. Snapcraft remains skipped. No
+third-party software or official Flutter SDK was modified. No push or remote
+refresh was performed. Prepared regressions are not reported as passing.
+
+**Next assignment: B05-R3d — Advanced Encoding conversions, including positional,
+nested and response Encoding Objects.** B05-R3/B05 and W3.09 remain incomplete
+and unaccepted.
+
+## B05-R3c-2: Multi-field factorization and grouped presence (historical)
 
 **Implemented in source, unverified within W3.09. B05-R3c remains incomplete.**
 This bounded continuation starts at
@@ -644,10 +787,10 @@ Known remaining R3 implementation/proof gaps:
 | Saved Server selections and environment coupling | Reviewed projections are implemented in B05-R3a above. Incompatible shared selectors/factors and unproved lowered execution-environment interpolation retain the exact boundaries recorded there. |
 | Independently unused reusable Path Items targeting Swagger | R3b above establishes `migration.path-item.unused-owner` as a final-target restriction from the available standard native ownership positions. Referenced uses and foreign-only consumers retain common fragment ownership. |
 | Reusable Media Type categories targeting Swagger | R3b above completes established occurrence/child-owner conversion; independently unbound definitions retain the precise `migration.media.unbound-owner` final-target restriction. |
-| Whole-query parameters | R3c-1/2 above implement finite scalar-object identity, one-array extraction, independent multi-field factorization, grouped-presence proofs and standard Swagger query lowering. Correlations/required empty collections retain precise target restrictions; unavailable finite/media/encoding proofs, raw saved decoding and remaining Example projections remain explicit gaps. Source changes and prepared regressions are unverified. |
+| Whole-query parameters | R3c-1/2/3 above are source-complete, unverified: finite identity/extraction/factorization, grouped presence, actual codec comparisons, raw/structured saved projections, examples and shared ownership are implemented. Precise target restrictions and unavailable-evidence cases remain as reconciled above. |
 | Positional/nested multipart and response part instructions | Non-default instructions still need complete shape-specific conversion, including any equivalent older Schema annotations; current unavailable-proof/target boundaries do not establish that every such source is impossible. |
 | General newer Example serialization | Other parameter/Header serializations, non-JSON/plain-text codecs and unbound reusable examples still lack the required equality/ownership certificates. Simple string Header, JSON and plain-text conversions do not close this matrix. |
-| Other newer parameter/XML/fallback specializations | R3c above implements bounded finite form/literal-content cookie certificates; other cookie projections, mixed XML domains/reference-forwarding cases and fallback relationships outside the established required finite-string certificate remain unreconciled. |
+| Other newer parameter/XML/fallback specializations | R3c above completes established finite query/cookie projections and their examples/configuration, unverified. Mixed XML domains/reference-forwarding cases and fallback relationships outside the established required finite-string certificate remain unreconciled. |
 | Combined R3 regression coverage | New coverage is prepared below, but the complete requested Engine/Core/native/CLI and transaction matrix is not yet prepared for every remaining conversion. |
 
 Established target restrictions include distinct authorities that one Swagger
@@ -2266,7 +2409,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W3.06 Pattern/property-name/contains/count/unevaluated/content constraints; JC §§10–11, JV §§6/8 | `migration_schema.ts`, name-domain/regex/containment/annotation certificate owners, existing binary/reference/dependency owners | M E S C | pattern/property-name/array/unevaluated/content suites, official fixtures, Core/native B03 journeys | Source-complete for established B03 certificate families, unverified; finite/cofinite/closed name proofs, finite/universal/equivalent-uniform pattern selection, nonconstant structural/existential/complement/unique-finite counts, successful composed/reference annotation selection, static/homogeneous/finite positional coverage and inactive content-owner preservation are implemented. Active decoded-content annotations retain actual older-vocabulary refusals; unavailable name/count/coverage/binding certificates and B04 binary work are distinguished in the B03 handoff above | H |
 | W3.07 Raw/data/base64/byte/file/union consumers and byte constraints; family binary clauses, JV §8 | `migration_binary.ts`, Swagger flat/media owners | M E S C | migration binary, direct Swagger, form/media, Core and native binary suites | Source-complete, unverified after B04-R3 reconciliation; common entry proof capture, YAML containing literals, exact media-value comparison and intersected singleton cardinality are corrected. R1/R2 mappings share the existing ownership/schema/media pipeline; complete binary transaction/native/CLI/preflight regression sources are registered. Remaining target restrictions, unavailable proofs and source/evidence prerequisites are separately classified and source-located in the R3 register above; no known established representable B04 mapping is deferred | H |
 | W3.08 Inherited media, forms/files, examples without schemas, shared operations/body meaning and reusable objects; family object clauses | Swagger media/form/downgrade/operation owners | M E S C | Swagger media/form/bodyless/ignored-body suites, Core form CLI | R1 and R2 source-complete, unverified; inherited media use entry owners, representable parameter/body/response/example/reusable conversions are implemented, bodyless legacy examples retain a precise standard-target restriction, and remaining proof/target boundaries are registered above; B05-R3 adds the newer-object conversions and prepared coverage recorded above but remains partially implemented, unverified | H |
-| W3.09 Servers/security/newer-version fields and invariant proof; family clauses, HTTP/URI | servers/security/operation/invariant owners | M E S C | default-server/security-role/entry-route suites, native-object-use publication and URI-key controls | Partially implemented; Retained 3.2 URI security bindings preserve separate role arrays through owner specialization and portable relocation, with target/name-precedence proofs and declaration/scopes invariants. Older-family URI-to-name source paths now allocate separate standard components through the shared allocator and additional typed-use provenance; external/aliased targets, name precedence, exact scope/role arrays and AND/OR order retain captured connection and request proofs. Shared URI requirements seed entry specialization even when their targets agree; source-side moves repair relative URI keys, and targets lacking Path Item component maps use common anonymous holders. Scheme Reference Object materialization retains applicable description overrides and their original Markdown bases. Captured environment aliases, exact manifest text/identity, Core stale/publication checks, native binding review and CLI output are implemented with prepared regressions; execution remains outstanding. Standard OAuth acquisition flows now specialize into one-flow Swagger schemes and ordered OR expansions without merging AND bindings or scope arrays. Compatible global environment selections project through captured effective security-array owners, intersect complete branch sets across operations, and preserve invalid-selection guards. Ignored Reference Object siblings retain full literal copies through the shared anonymous allocator; source formats/comments and exact values survive materialization. Non-OAuth roles in restricted targets, unavailable summary/discovery/device representations and flow metadata without a standard target container retain located blockers. B05-R3a and B05-R3b above are source-complete, unverified: route/configuration projection and established reusable parent/child ownership are implemented, with normative unused-owner target restrictions and prepared regression coverage. The B05-R3 section records the other exact implementation/proof gaps; R3 is not source-complete, R3c and later bounded newer-field work remain open, and B05-R4 has not begun | H |
+| W3.09 Servers/security/newer-version fields and invariant proof; family clauses, HTTP/URI | servers/security/operation/invariant owners | M E S C | default-server/security-role/entry-route suites, native-object-use publication and URI-key controls | Partially implemented; Retained 3.2 URI security bindings preserve separate role arrays through owner specialization and portable relocation, with target/name-precedence proofs and declaration/scopes invariants. Older-family URI-to-name source paths now allocate separate standard components through the shared allocator and additional typed-use provenance; external/aliased targets, name precedence, exact scope/role arrays and AND/OR order retain captured connection and request proofs. Shared URI requirements seed entry specialization even when their targets agree; source-side moves repair relative URI keys, and targets lacking Path Item component maps use common anonymous holders. Scheme Reference Object materialization retains applicable description overrides and their original Markdown bases. Captured environment aliases, exact manifest text/identity, Core stale/publication checks, native binding review and CLI output are implemented with prepared regressions; execution remains outstanding. Standard OAuth acquisition flows now specialize into one-flow Swagger schemes and ordered OR expansions without merging AND bindings or scope arrays. Compatible global environment selections project through captured effective security-array owners, intersect complete branch sets across operations, and preserve invalid-selection guards. Ignored Reference Object siblings retain full literal copies through the shared anonymous allocator; source formats/comments and exact values survive materialization. Non-OAuth roles in restricted targets, unavailable summary/discovery/device representations and flow metadata without a standard target container retain located blockers. B05-R3a and B05-R3b above are source-complete, unverified: route/configuration projection and established reusable parent/child ownership are implemented, with normative unused-owner target restrictions and prepared regression coverage. The B05-R3 section records the other exact implementation/proof gaps; R3 is not source-complete; R3c above is source-complete, unverified, while R3d and later bounded newer-field work remain open, and B05-R4 has not begun | H |
 | W3.10 Unsaved capture, stale review rejection, original preservation, inventories, exact external bytes, atomic publication and relocated verification; URI/TEXT, Core transaction contract | migration source/examples/invariants; Core `migration.dart` and publication owners | M S C | Core migration/derived-resource/publication suites, engine external examples | R2 source integration is complete and unverified; captured bytes use surviving native locators or proved standard literals, with per-entry ownership, exact payload and cold proofs, immutable review and atomic publication; current runtime/publication acceptance remains required | H |
 
 ### W4–W5: wire representations and execution
