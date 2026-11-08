@@ -10,6 +10,7 @@ import {discardInactiveMigrationSchema} from './migration_schema_conditions';
 import type {GraphReference} from './reference_graph';
 import {restrictedBooleanSchema} from './migration_schema_values';
 import {compare,decimal} from './exact_numbers';
+import {schemaContext} from './schema_context';
 import {migrationUnevaluatedMapping} from './migration_schema_unevaluated';
 import type {ExternalExampleResourcePacket} from './external_examples';
 import {modernFamily} from './specification';
@@ -123,7 +124,7 @@ export class FiniteMigrationDomain {
                     const schema=value(owner),keyword=Array.isArray(schema?.prefixItems)?'prefixItems':Array.isArray(schema?.items)?'items':undefined;
                     const pointer=keyword&&index<schema[keyword].length?owner.pointer+'/'+keyword+'/'+index:
                         keyword==='items'?undefined:owner.pointer+(migrationUnevaluatedMapping(schema,'unevaluatedItems')==='local'?'/unevaluatedItems':'/items');
-                    const child=pointer===undefined?undefined:this.graph.scopeAs(owner.resource,pointer,'schema');
+                    const child=pointer===undefined?undefined:schemaContext(this.graph,owner.resource,pointer);
                     if(child){candidates=this.values(child,next);if(candidates!==undefined)break;}
                 }
                 if(candidates===undefined)return;

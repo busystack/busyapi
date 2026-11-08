@@ -59,7 +59,7 @@ void main() {
         }
         await exercise(project, '/components/schemas');
         final review = await project.prepareMigration(root, '${directory.path}/copy', targetVersion: target);addTearDown(review.close);
-        expect(review.publishable, true, reason: '${review.result}');expect(review.unsaved, true);expect(review.result['producerVersion'], '97');
+        expect(review.publishable, true, reason: '${review.result}');expect(review.unsaved, true);expect(review.result['producerVersion'], '98');
         final outputs = (review.result['outputs'] as List).cast<Map>();
         expect(outputs.any((value) => (value['text'] as String).contains('Unsaved B03 model')), true);
         expect(outputs.any((value) => (value['text'] as String).contains('x-alias: *literal')), true);
@@ -86,7 +86,7 @@ void main() {
         final cliReview = await Process.run('$testBundle/busyapi', arguments,
           environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
         expect(cliReview.exitCode, 0, reason: '${cliReview.stdout} ${cliReview.stderr}');
-        final report = jsonDecode(cliReview.stdout as String) as Map;expect(report['producerVersion'], '97');expect(report['published'], false);
+        final report = jsonDecode(cliReview.stdout as String) as Map;expect(report['producerVersion'], '98');expect(report['published'], false);
         expect(await Directory('${directory.path}/cli').exists(), false);
         final applied = await Process.run('$testBundle/busyapi', [...arguments, '--apply', report['reviewIdentity'] as String],
           environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);

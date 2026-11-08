@@ -25,8 +25,8 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(MIGRATION_PRODUCER, engine_revision.group(1))
 
     def test_current_revision_is_accepted_and_previous_package_is_rejected(self):
-        verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': '97'})
-        for obsolete in ('25', '34', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45', '46', '47', '48', '49', '50', '51', '52', '53', '54', '55', '56', '57', '58', '59', '60', '61', '62', '63', '64', '65', '66', '67', '68', '69', '70', '71', '72', '73', '74', '75', '76', '77', '78', '79', '80', '81', '82', '83', '84', '85', '86', '87', '88', '89', '90', '91', '92', '93', '94', '95', '96'):
+        verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': '98'})
+        for obsolete in ('25', '34', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45', '46', '47', '48', '49', '50', '51', '52', '53', '54', '55', '56', '57', '58', '59', '60', '61', '62', '63', '64', '65', '66', '67', '68', '69', '70', '71', '72', '73', '74', '75', '76', '77', '78', '79', '80', '81', '82', '83', '84', '85', '86', '87', '88', '89', '90', '91', '92', '93', '94', '95', '96', '97'):
             with self.subTest(obsolete=obsolete):
                 with self.assertRaisesRegex(RuntimeError, 'producer differ'):
                     verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': obsolete})
@@ -365,6 +365,42 @@ class PreflightTests(unittest.TestCase):
                         with self.assertRaisesRegex(RuntimeError, 'migration.parameter.querystring-target'):
                             preflight_migration(binary, source, target, destination, {**originals, source: raw})
                         self.assertFalse(destination.exists())
+
+    def test_actual_packaged_r3c2_factor_groups_and_saved_values(self):
+        bundle = Path(os.environ.get('BUSYAPI_TEST_BUNDLE') or
+                      Path(__file__).resolve().parent.parent / 'build/linux/x64/release/bundle')
+        binary = bundle / 'busyapi'
+        self.assertTrue(binary.is_file(), 'Build the assembled CLI or set BUSYAPI_TEST_BUNDLE')
+        for version in ['3.2.0', '3.2.1']:
+            for target in ['3.1.2', '3.0.4', '2.0']:
+                with self.subTest(version=version, target=target):
+                    source, configuration = self.root / 'factors.json', self.root / 'busyapi.yaml'
+                    schema = {'type': 'object', 'additionalProperties': False, 'properties': {
+                        'q': {'type': 'array', 'maxItems': 2, 'items': {'type': 'string', 'enum': ['', 'a+b']}},
+                        'flag': {'type': 'boolean'}, 'text': {'type': 'string', 'enum': ['', '雪']}}}
+                    whole = {'name': 'descriptionOnly', 'in': 'querystring', 'required': False,
+                             'content': {'application/x-www-form-urlencoded': {'schema': schema}}}
+                    value = {'openapi': version, 'info': {'title': 'R3c2', 'version': '1'},
+                             'paths': {'/p': {'get': {'parameters': [whole], 'responses': {'204': {'description': 'Empty'}}}}}}
+                    settings = {'version': 1, 'roots': [{'name': 'api', 'path': source.name}],
+                                'tests': [{'name': 'saved', 'operation': {'method': 'get', 'path': '/p'},
+                                           'parameters': {'querystring': {'descriptionOnly': {'text': '', 'q': ['a+b', 'a+b'], 'flag': False}}}}]}
+                    originals = {source: json.dumps(value).encode(), configuration: json.dumps(settings).encode()}
+                    for path, raw in originals.items():
+                        path.write_bytes(raw)
+                    destination = self.root / ('factors-' + version + '-' + target)
+                    report = preflight_migration(binary, source, target, destination, originals)
+                    projection = next(item for item in report['configurationProjections'] if item['pointer'] == '/tests/0/parameters')
+                    query = json.loads(projection['after'])['query']
+                    self.assertEqual(list(query), ['text', 'q', 'flag'])
+                    self.assertEqual(query['q'], ['a+b', 'a+b'])
+                    self.assertTrue(any(item['after'].endswith(' · flag') for item in report['parameterChanges']))
+                    schema['required'] = ['flag', 'text']
+                    refused = json.dumps(value).encode()
+                    source.write_bytes(refused)
+                    with self.assertRaisesRegex(RuntimeError, 'migration.parameter.querystring-factorization'):
+                        preflight_migration(binary, source, target, destination, {**originals, source: refused})
+                    self.assertFalse(destination.exists())
 
     def test_actual_packaged_r3b_owners_and_unused_target_restrictions(self):
         bundle = Path(os.environ.get('BUSYAPI_TEST_BUNDLE') or

@@ -15,7 +15,7 @@ for(const location of ['whole','cookie'])test(`R3c Swagger retains the ${locatio
  }
  input.resources[0].text=input.encode(input.value);const result=await planMigration(input);
  assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);assert.deepEqual(result.changes,[]);
- assert(result.problems.some(problem=>problem.code===(location==='whole'?'migration.parameter.querystring-proof':'migration.parameter.cookie-target')&&
+ assert(result.problems.some(problem=>problem.code===(location==='whole'?'migration.parameter.querystring-example-proof':'migration.parameter.cookie-target')&&
   problem.reason===(location==='whole'?'unavailable-proof':'target-representation')),JSON.stringify(result.problems));
 });
 
@@ -457,5 +457,23 @@ test(`R3b ${format} an unbound ${targetVersion} Response holder supplies no exec
  for(const operation of graph.operations()){
   const plan=requestOperation({...cold,resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
   assert(![...plan.requestBody.content,...plan.responses.flatMap(response=>response.content)].some(media=>media.mediaType==='application/octet-stream'));
+ }
+});
+
+for(const version of ['3.2.0','3.2.1'])for(const format of ['yaml','json'])test(`R3c-2 ${version} ${format} Swagger flat owners and multi Items`,async()=>{
+ const input=require('./migration_b05_r3c2_fixture.cjs')(version,format,'2.0'),review=await planMigration(input);
+ assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const packet={root:review.outputRoot,resources:review.outputs.map(output=>({...output,generation:0})),snapshot:'flat-factors'};
+ const plan=requestOperation({...packet,resource:packet.root,pointer:'/paths/~1p/get'});
+ for(const parameter of plan.parameters){
+  const doc=new SourceDocument(packet.resources.find(resource=>resource.id===parameter.definition.resource).text,parameter.definition.resource);
+  const value=doc.dataNode(parameter.definition.pointer).value;
+  assert.equal(value.in,'query');assert(['array','boolean','string'].includes(value.type));
+  for(const field of ['schema','style','explode','content','x-busyapi-group'])assert.equal(Object.hasOwn(value,field),false,field);
+  if(value.type==='array'){
+   assert.equal(value.collectionFormat,'multi');assert.equal(value.items.type,'string');
+   for(const field of ['$ref','allOf','oneOf','schema'])assert.equal(Object.hasOwn(value.items,field),false,field);
+   assert.equal(value.allowEmptyValue,true);
+  }
  }
 });

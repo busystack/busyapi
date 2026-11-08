@@ -148,7 +148,7 @@ test(`${version} ${format} native objects and literal values share one specializ
  const input=fixture(version,format),original=input.resources[0].text,doc=new SourceDocument(original,input.root);
  assert.equal(analyse(input).status,'complete');await wire(input);
  const review=await planMigration(input);
- assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'97');
+ assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'98');
  assert.equal(review.exampleOutputs.length,2);assert.equal(input.resources[0].text,original);
  const output=delivered(review),{graph}=createGraph(output);
  assert.equal(analyse(output).status,'complete');await wire(output);
@@ -454,4 +454,33 @@ for(const format of ['yaml','json'])test(`R3c-1 ${format} independent object/ite
  const graph=createGraph(packet).graph;
  for(const name of ['Object','Item','IndependentItem'])assert(graph.scopeAs(packet.root,'/components/schemas/'+name,'schema'));
  assert(graph.entryReferences().filter(edge=>edge.keyword==='$ref').every(edge=>edge.resolution==='resolved'));
+});
+
+for(const format of ['yaml','json'])test(`R3c-2 ${format} schema resources and reusable alias factor owners survive cold references`,async()=>{
+ const input=require('./migration_b05_r3c2_fixture.cjs')('3.2.1',format);
+ input.value.components.schemas.Item.$id='https://schemas.invalid/factor-item';
+ input.value.components.schemas.Item.$anchor='Item';
+ input.schema.properties.q.items={$ref:'https://schemas.invalid/factor-item#Item'};
+ input.resources[0].text=input.encode(input.value);const review=await planMigration(input);
+ assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const packet={root:review.outputRoot,resources:review.outputs.map(output=>({...output,generation:0})),snapshot:'factor-resource'};
+ const {createGraph}=require('./dist/model.cjs'),graph=createGraph(packet).graph;
+ assert(graph.identities.has('https://schemas.invalid/factor-item'));
+ assert(graph.entryReferences().every(reference=>reference.resolution==='resolved'));
+ assert(review.parameterChanges.filter(change=>change.pointer==='/components/parameters/Alias').some(change=>change.after.endsWith(' · flag')));
+});
+
+for(const targetVersion of ['3.1.2','3.0.4','2.0'])test(`R3c-2 ${targetVersion} factor references retain surrounding captured Parameter edges`,async()=>{
+ const input=require('./migration_b05_r3c2_fixture.cjs')('3.2.1','json',targetVersion);
+ input.value.components.parameters.Other={name:'X-Other',in:'header',schema:{type:'string'}};
+ const list=input.value.paths['/shared'].get.parameters;
+ list.unshift({name:'X-Before',in:'header',schema:{type:'integer'}});list.push({$ref:'#/components/parameters/Other'});
+ input.resources[0].text=input.encode(input.value);const review=await planMigration(input);
+ assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const {requestOperation}=require('./dist/execution.cjs'),{createGraph}=require('./dist/model.cjs');
+ const packet={root:review.outputRoot,resources:review.outputs.map(output=>({...output,generation:0})),snapshot:'surrounding-edges'};
+ const plan=requestOperation({...packet,resource:packet.root,pointer:'/paths/~1shared/get'});
+ assert.deepEqual(plan.parameters.filter(parameter=>parameter.in==='header').map(parameter=>parameter.name),['X-Before','X-Other']);
+ assert.equal(plan.parameters.filter(parameter=>parameter.in==='query').length,3);
+ assert(createGraph(packet).graph.entryReferences().every(reference=>reference.resolution==='resolved'));
 });

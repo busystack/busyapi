@@ -260,18 +260,34 @@ export function migrationRequestProfiles(graph:ReferenceGraph,resources:Resource
     return new Map(graph.operations().filter(operation=>operation.role==='operation').map(operation=>{
         const plan=requestOperation({root:graph.root,resources,snapshot:'migration-invariant',resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
         const normalize=(value:any):any=>Array.isArray(value)?value.map(normalize):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).filter(name=>!['source','definition','base','origin','sources'].includes(name)).sort().map(name=>[name,normalize(value[name])])):value;
-        const parameters=plan.parameters.map((parameter:any)=>{
+        const groups=new Map<string,Set<string>>();
+        const parameters:any[]=plan.parameters.flatMap((parameter:any):any[]=>{
             const proved=wire?.get(JSON.stringify([parameter.definition.resource,parameter.definition.pointer]));
-            if(proved!==undefined)return {wire:proved};
+            if(proved!==undefined){
+                const profile=JSON.parse(proved);
+                if(profile.fields){
+                    const names=groups.get(proved)??new Set<string>();
+                    names.add(parameter.name);groups.set(proved,names);return [];
+                }
+                return [{wire:proved}];
+            }
             const definition=graph.scopeAs(parameter.definition.resource,parameter.definition.pointer,'parameter');
             const schema=definition&&graph.scopeAs(definition.resource,definition.pointer+'/schema','schema');
             const domains=schema?new MigrationSchemaProofs(graph).domains(schema):new Set([parameter.type]);
-            return {name:parameter.name,in:parameter.in,required:parameter.required,deprecated:parameter.deprecated,
+            return [{name:parameter.name,in:parameter.in,required:parameter.required,deprecated:parameter.deprecated,
                 allowEmptyValue:parameter.in==='query'&&parameter.allowEmptyValue,
                 style:parameter.style,explode:parameter.style!=='simple'&&(domains.has('array')||domains.has('object'))?parameter.explode:false,
                 allowReserved:parameter.in==='query'&&!parameter.content.length&&parameter.allowReserved&&
-                    !(definition&&inactiveReservedExpansion(graph,definition))};
-        }).sort((a:any,b:any)=>JSON.stringify(a).localeCompare(JSON.stringify(b)));
+                    !(definition&&inactiveReservedExpansion(graph,definition))}];
+        });
+        for(const [proved,names]of groups){
+            const expected=JSON.parse(proved).fields as string[];
+            // One whole-query owner and its full target group share a profile.
+            // A partial operation group must never collapse to that profile.
+            const whole=plan.parameters.some((parameter:any)=>parameter.in==='querystring'&&wire?.get(JSON.stringify([parameter.definition.resource,parameter.definition.pointer]))===proved);
+            parameters.push(whole||expected.length===names.size&&expected.every(name=>names.has(name))?{wire:proved}:{incompleteGroup:proved,names:[...names].sort()});
+        }
+        parameters.sort((a:any,b:any)=>JSON.stringify(a).localeCompare(JSON.stringify(b)));
         const media=(values:any[])=>values.map(value=>value.mediaType).sort();
         const examples=(values:any[],includeSchema:boolean)=>values.map(value=>({mediaType:value.mediaType,
             values:[...new Set((value.examples??[]).filter((value:any)=>includeSchema||value.origin!=='schema')

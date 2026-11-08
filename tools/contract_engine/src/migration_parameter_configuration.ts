@@ -3,9 +3,9 @@ import {ParameterSemantics} from './parameter_semantics';
 import {MigrationSource} from './migration_source';
 import type {MigrationIssue} from './migration_schema';
 import {migrationConfiguredOperations,type MigrationConfigurationProjection,type MigrationServerSelectionContext} from './migration_server_configuration';
-import {sameMigrationParameterValue} from './migration_parameter_serialization';
+import {sameMigrationParameterValue,sameMigrationQueryFields} from './migration_parameter_serialization';
 
-/** Location moves and certified single array field extraction preserve exact values,
+/** Location moves and certified field extraction preserve exact values,
  * field order, unrelated selections and environment bindings remain captured.
  * The final parameter invariant has already proved the complete owner codec. */
 export function projectMigrationParameterConfiguration(entries:readonly MigrationServerSelectionContext[],configuration:SourceDocument|undefined,
@@ -28,6 +28,32 @@ export function projectMigrationParameterConfiguration(entries:readonly Migratio
     const whole=parameter.location==='querystring',cookie=parameter.location==='cookie'&&original?.style==='cookie';
     if(!whole&&!cookie)continue;
     const queries=next.filter(next=>next.location==='query');
+    const savedWhole=pointer+'/querystring/'+escape(parameter.name!);
+    const wholeValue=configuration.dataNode(savedWhole);
+    // Object identity remains a separate path. A factor group consists only
+    // of named primitive/array query owners, including flat Swagger owners.
+    const split=whole&&queries.length>0&&queries.every(query=>{
+     if(!query.definition)return false;
+     const scope=entry.target.scopeAs(query.definition.resource,query.definition.pointer,'parameter');
+     const doc=entry.target.docs.get(query.definition.resource)!;
+     const type=doc.dataNode(query.definition.pointer+(scope?.family==='2.0'?'':'/schema'))?.value?.type;
+     return ['string','number','integer','boolean','array'].includes(type);
+    });
+    if(split&&wholeValue){
+     if(wholeValue.kind!=='object'||!wholeValue.children.size||!sameMigrationQueryFields(entry.source,parameter.source,entry.target,queries.map(query=>query.source),configuration.dataJson(savedWhole))){
+      issue({resource:configuration.id,pointer:savedWhole},'migration.parameter.saved-proof','The saved input requires raw decoding, contains an unowned field or has an explicitly saved empty group with no target selection owner','unavailable-proof');continue;
+     }
+     const destinations=[...wholeValue.children.keys()].map(name=>({name,to:pointer+'/query/'+escape(name)}));
+     if(destinations.some(({name})=>name.length===0)){
+      issue({resource:configuration.id,pointer:savedWhole},'migration.parameter.saved-proof','The existing saved-case consumer cannot address an empty named query selection; the original whole-object selection must be retained','unavailable-proof');continue;
+     }
+     const collision=destinations.find(({to})=>configuration.dataNode(to));
+     if(collision){issue({resource:configuration.id,pointer:collision.to},'migration.parameter.saved-collision','A saved target query value already owns this name; neither selection can be overwritten','target-representation');continue;}
+     for(const {name,to}of destinations)projected.move(savedWhole+'/'+escape(name),to);
+     projected.remove(savedWhole);
+     if(projected.doc.dataNode(pointer+'/querystring')?.children.size===0)projected.remove(pointer+'/querystring');
+     continue;
+    }
     const output=next.find(next=>next.location===(whole?'query':'cookie')&&next.name===parameter.name)??(whole&&queries.length===1?queries[0]:undefined);
     if(!output||!output.definition||entry.target.scopeAs(output.definition.resource,output.definition.pointer,'parameter')?.family==='3.2')continue;
     const saved=pointer+'/'+parameter.location+'/'+escape(parameter.name!);

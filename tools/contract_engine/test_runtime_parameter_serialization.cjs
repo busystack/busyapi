@@ -57,3 +57,15 @@ test(`R3c-1 ${version} → ${targetVersion} complete repeated query inversion`,a
   assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,true,true,true,false,false]);
  }
 });
+
+for(const targetVersion of ['3.1.2','3.0.4','2.0'])test(`R3c-2 ${targetVersion} complete named scalar/array inversion`,async()=>{
+ const input=require('./migration_b05_r3c2_fixture.cjs')('3.2.1','json',targetVersion),review=await require('./dist/migration.cjs').planMigration(input);
+ assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const packet={root:review.outputRoot,resources:review.outputs.map(output=>({...output,generation:0})),snapshot:'factor-codecs'};
+ const {requestOperation}=require('./dist/execution.cjs'),plan=requestOperation({...packet,resource:packet.root,pointer:'/paths/~1p/get'});
+ for(const parameter of plan.parameters){
+  const values=parameter.name==='q'?['q=','q=a%2Bb&q=a%2Bb','q=other']:parameter.name==='text'?['text=','text=%E9%9B%AA','text=other']:['flag=true','flag=false','flag=other'];
+  const result=await evaluateSchemas({...packet,runtimeInstances:values.map(text=>({subject:'request-parameter',location:text,text,parameter:parameter.definition}))});
+  assert.equal(result.complete,true,JSON.stringify(result.findings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,true,false]);
+ }
+});

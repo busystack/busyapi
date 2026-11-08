@@ -535,7 +535,31 @@ class ContractRequestBuilder {
             const Iterable<MapEntry<String, String>>.empty()) {
       _addHeader(headers, value.key, substitute(value.value));
     }
-    for (final raw in (plan.result['parameters'] as List).cast<Map>()) {
+    // Independent query fields follow the explicit selection order. This
+    // preserves whole-form member order after a reviewed field extraction,
+    // while each array still uses the existing repeated-field serializer.
+    final parameters = (plan.result['parameters'] as List).cast<Map>().toList();
+    final querySlots = <int>[
+      for (var i = 0; i < parameters.length; i++)
+        if (parameters[i]['in'] == 'query') i,
+    ];
+    final selectionOrder = {
+      for (final (index, key) in draft.parameters.keys.indexed) key: index,
+    };
+    final orderedQuery = [for (final i in querySlots) parameters[i]];
+    final originalOrder = {for (final (index, value) in orderedQuery.indexed) value: index};
+    orderedQuery.sort((a, b) {
+      final first = selectionOrder[OperationRequestDraft.parameterKey('query', a['name'] as String)];
+      final last = selectionOrder[OperationRequestDraft.parameterKey('query', b['name'] as String)];
+      if (first != null && last != null) return first.compareTo(last);
+      if (first != null) return -1;
+      if (last != null) return 1;
+      return originalOrder[a]!.compareTo(originalOrder[b]!);
+    });
+    for (final (index, slot) in querySlots.indexed) {
+      parameters[slot] = orderedQuery[index];
+    }
+    for (final raw in parameters) {
       final name = raw['name'] as String, location = raw['in'] as String;
       final supplied =
           draft.parameters[OperationRequestDraft.parameterKey(

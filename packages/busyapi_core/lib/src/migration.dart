@@ -125,7 +125,7 @@ void _verifyMigrationConfigurationProjections(
           after.containsKey('entry') && after['entry'] is! String) invalid();
     } else if (parameters) {
       if (before == null || expected is! Map || after is! Map) invalid();
-      // Admit exact whole-value moves or single array field extraction.
+      // Admit exact whole-value moves or lossless named field extraction.
       // No other saved value, representation, or selection may change.
       final planned = exactConfiguration(before as String);
       if (planned is! Map || planned['querystring'] is! Map ||
@@ -142,10 +142,9 @@ void _verifyMigrationConfigurationProjections(
         if (!query.containsKey(name) && destination.containsKey(name) &&
             sameExactConfiguration(value, destination[name])) {
           query[name] = whole.remove(name);
-        } else if (value is Map && value.length == 1) {
-          if (value.isNotEmpty) {
-            final field = value.keys.single;
-            if (value[field] is! List || query.containsKey(field) ||
+        } else if (value is Map && value.isNotEmpty) {
+          for (final field in value.keys) {
+            if (query.containsKey(field) ||
                 !destination.containsKey(field) ||
                 !sameExactConfiguration(value[field], destination[field])) invalid();
             query[field] = value[field];
@@ -157,7 +156,8 @@ void _verifyMigrationConfigurationProjections(
       if (moved == 0) invalid();
       if (query.isNotEmpty || planned.containsKey('query')) planned['query'] = query;
       if (whole.isEmpty) planned.remove('querystring');
-      if (!sameExactConfiguration(planned, after)) invalid();
+      if (!sameExactConfiguration(planned, after) ||
+          !sameExactConfiguration(query.keys.toList(), ((after['query'] as Map?) ?? const {}).keys.toList())) invalid();
     } else if (baseUrl) {
       final original = owner[key];
       if (original is! String || after is! String) invalid();
@@ -185,7 +185,7 @@ void _verifyMigrationReview(
   if (result['version'] != 1 ||
       result['snapshot'] != input.snapshot.identity ||
       result['producer'] != 'busyapi-native-migration' ||
-      result['producerVersion'] != '97' ||
+      result['producerVersion'] != '98' ||
       result['problems'] is! List ||
       result['outputs'] is! List ||
       result['exampleOutputs'] is! List ||

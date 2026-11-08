@@ -16,7 +16,7 @@ test(`${format} ${single?'ordinary role':'independent entries'} whole resources 
  const input=fixture(format,target,single),before=input.resources.map(resource=>resource.text),entryIds=input.resources.slice(0,-1).map(resource=>resource.id);
  const expected=[true,true,true,true,false,false,false,true,false,true,false,false];
  for(const [index,root]of entryIds.entries())assert.deepEqual(await outcomes({...input,root},['First','Second'][index]),expected);
- const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'97');
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'98');
  const output=cold(review);
  for(const [index,id]of entryIds.entries()){
   const root=review.changes.find(change=>change.resource===id).destination,packet={...output,root};

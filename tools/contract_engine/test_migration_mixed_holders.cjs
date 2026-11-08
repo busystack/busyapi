@@ -71,7 +71,7 @@ test(`${format} foreign ${foreignVersion} ${kind} acquires a standard typed hold
  const history=new SourceDocument(before[1],input.resources[1].id).dataJson('/x-history');
  await inspect(input,'First',kind);await inspect({...input,root:input.resources[1].id},'Second','path-item');
  const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
- assert.equal(review.producerVersion,'97');
+ assert.equal(review.producerVersion,'98');
  const cold={snapshot:'cold-mixed-holders',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
  const first=await inspect({...cold,root:review.outputRoot},'First',kind);
  const other=review.changes.find(change=>change.resource===input.resources[1].id).destination;

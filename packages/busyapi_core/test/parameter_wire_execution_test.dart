@@ -8,6 +8,48 @@ import 'test_support.dart';
 import 'migration_r3c_fixture.dart';
 
 void main() {
+  for (final target in ['3.1.2', '3.0.4', '2.0']) {
+    test('R3c-2 $target preserves field permutations, empty queries and repeated arrays', () async {
+      final directory = await Directory.systemTemp.createTemp('busyapi-factor-wire-');
+      addTearDown(() => directory.delete(recursive: true));
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);addTearDown(() => server.close(force: true));
+      final seen = <String>[];
+      server.listen((request) async {seen.add(request.uri.toString());request.response.statusCode = 204;await request.response.close();});
+      final file = File('${directory.path}/api.json');
+      final source = r3cFactoredSource('3.2.1', server.port)
+          .replaceFirst('"required":true', '"required":false').replaceFirst('"required":["flag"],', '');
+      await file.writeAsString(source);
+      final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);addTearDown(engine.close);
+      final project = await BusyProject.open(file.path, engine);addTearDown(project.close);
+      final review = await project.prepareMigration(project.roots.single.id, '${directory.path}/output', targetVersion: target);
+      addTearDown(review.close);expect(review.publishable, true, reason: '${review.result}');await review.publish();
+      final cold = await BusyProject.open(review.destination, engine);addTearDown(cold.close);
+      final values = <Map<String, Object>>[{},
+        for (final array in [<String>[], [''], ['a+b', 'a+b']]) ...[
+          {'text': '', 'q': array, 'flag': false}, {'flag': false, 'q': array, 'text': ''},
+        ],
+      ];
+      for (final value in values) {
+        final targets = <String>[];
+        for (final owner in [project, cold]) {
+          final root = owner.roots.single.id;
+          final plan = await owner.prepareRequest(root, resource: root, pointer: '/paths/~1shared/get');
+          try {
+            final response = await const ContractRequestExecutor().execute(plan,
+              OperationRequestDraft(planIdentity: plan.identity, parameters: owner == project ? {
+                OperationRequestDraft.parameterKey('querystring', 'descriptionOnly'): RequestValue.json(jsonEncode(value)),
+              } : {
+                for (final entry in value.entries)
+                  OperationRequestDraft.parameterKey('query', entry.key): RequestValue.json(jsonEncode(entry.value)),
+              }), resolveSecret: (_) async => null);
+            try {expect(response.conforming, true);targets.add(seen.last);} finally {await response.close();}
+          } finally {plan.close();}
+        }
+        expect(targets[1], targets[0]);if (value.isEmpty) expect(targets.first, '/shared');
+      }
+    });
+  }
+
   for (final version in ['3.2.0', '3.2.1']) {
     test('R3c-1 $version migration retains actual repeated request targets', () async {
       final directory = await Directory.systemTemp.createTemp('busyapi-array-wire-');

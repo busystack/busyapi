@@ -31,6 +31,111 @@ consume those shared results. Source-preserving transactions remain authoritativ
 Current changes require complete engine, Core, native and packaged verification;
 source inspection or a successful build is not runtime acceptance.
 
+## B05-R3c-2: Multi-field factorization and grouped presence
+
+**Implemented in source, unverified within W3.09. B05-R3c remains incomplete.**
+This bounded continuation starts at
+`34beb0d1bcc8f523b89ff28a83d4f13af62c36f4` on `release/v0.1.0`.
+R3c-1 and the preceding migration paths remain in place. R3c-3, advanced
+Encoding and R3d have not begun. This section supersedes the historical
+multi-field/Swagger/grouped-presence gaps below, within the finite proof bounds.
+
+Whole form objects can project to several standard named query Parameters.
+`FiniteMigrationDomain` supplies an exhaustive superset and the captured exact
+evaluator filters the complete original object language. The factorizer then
+compares that relation with the full Cartesian product of the projected field
+domains **and absence coordinates**, using canonical mathematical numeric and
+object equality. It never establishes independence from separate field examples.
+Dependencies, conditional requirements, composition, mutually exclusive values,
+property counts and additional-property assertions are included in the original
+evaluation. A successful projection therefore carries their complete effect;
+correlations that remain outside independent Parameters retain a located
+`migration.parameter.querystring-factorization` target restriction. Modern
+scalar-object identity mappings can still preserve correlation in one object
+Parameter when their established wire proof applies.
+
+Requiredness follows permitted field presence. A required whole value does not
+make all its properties required. An optional group contributes only the
+all-absent tuple; it does not authorize partially populated tuples when the
+source requires fields together. Required groups without an independently
+required emitting field, and required extracted arrays admitting empty arrays,
+retain precise target restrictions. Optional empty arrays remain selected array
+values, distinct from omitted selections. Required scalar empty strings emit
+`name=` and can supply presence. An explicitly saved empty group has no selected
+field owner and retains `migration.parameter.saved-proof`, without deletion.
+
+The original whole schema, property/item references and schema-resource
+identities remain live typed owners through A01–A03 allocation and reference
+repair. Each field receives its exact projected enum and applicable conjunctive
+property schema references. Generated owners use the common allocator; reusable
+Parameter chains and Path Item/Operation lists expand into ordinary references.
+Additional-use provenance maps each source owner to its complete factor group,
+while static references retain one canonical target. No proprietary Parameter
+fields or runtime group validators are introduced.
+
+Swagger uses the same field projection followed by the existing flat-schema
+compiler: primitive Parameter types, concrete flat Items Objects and repeated
+arrays with `collectionFormat: multi`. Standard `allowEmptyValue` accompanies
+permitted empty strings, including empty array items, through direct and composed
+routes. Flat target domains and codecs are independently re-evaluated at the
+publication boundary. The normative basis is the
+[Swagger Parameter clause](https://spec.openapis.org/oas/v2.0.html#parameter-object),
+[Items clause](https://spec.openapis.org/oas/v2.0.html#items-object) and
+[OpenAPI 3.2 Parameter clause](https://spec.openapis.org/oas/v3.2.1.html#parameter-object).
+Unavailable concrete item/type/assertion certificates retain existing located
+compiler findings; an object-valued Swagger non-body Parameter is never emitted.
+
+The final wire invariant recomputes the complete source relation and every
+actual target field domain, requiredness, type and codec. It rejects missing
+fields and mutated names, values or serialization. Request profiles collapse a
+factor group only when the effective operation contains its full set of fields;
+retaining unused reusable definitions cannot conceal a partial operation group.
+Review rows identify each destination name through the existing bounded records.
+
+Structured saved objects project every selected field in source member order,
+with exact literals, array order/multiplicity, unrelated settings and collision
+checks retained. Core independently admits only whole-value identity moves or
+nonempty, exact field extraction. Core's existing query serializer now visits
+independent query selections in supplied selection order, preserving original
+whole-form member order without a second serialization path. Raw inputs,
+unknown saved fields, empty names unsupported by the saved-case consumer and
+explicitly saved empty groups remain unavailable proofs. Remaining Example ownership/decoding work belongs to R3c-3; extracted
+Parameter/Media and whole-schema examples retain `querystring-example-proof`. Existing scalar
+identity Example mappings remain in place.
+
+Prepared regressions, **not executed**, extend the existing engine migration,
+entry-route, object-use, Swagger-media and runtime-parameter suites, using
+`migration_b05_r3c2_fixture.cjs`. They cover both 3.2 patches, JSON/YAML,
+3.0/3.1/Swagger direct and composed paths, independent/all-required/mixed fields,
+optional groups, dependencies/conditions/counts/correlation restrictions,
+empty strings and arrays, repeated values, exact numeric literals, aliases,
+resource identities, saved collisions and final invariant mutations. Existing
+R3c-1 negative controls now distinguish established factorization restrictions
+from unavailable evidence. Core regressions prepare saved HTTP comparisons,
+unsaved review, cancellation, controlled atomic failure, source deletion and
+relocated cold reopening. Native review and packaged preflight regressions use
+multi-field selections and the existing review/configuration consumers.
+
+Production files: Engine `migration_parameter_serialization.ts`,
+`migration_parameter_configuration.ts`, `migration_finite_domain.ts`,
+`migration_invariants.ts`, `migration.ts`; Core `migration.dart`, `request.dart`;
+and `tools/native_migration_preflight.py`. Other revision assertion changes
+synchronize producer admission without changing earlier migration algorithms.
+
+Migration producer, Core admission and preflight are **98**; 97 is obsolete.
+Evaluator **1.18.0+61**, parameter mock **5**, configuration `parameter-wire-v5`,
+graph **9**, schema-example projection **3**, response mock **5** and sample
+producer **4** are unchanged. Bundles have not been rebuilt.
+
+**Actual checks:** normative specification/source review, regression registration
+inspection and `git diff --check` only. The documented execution hold remains
+active: no tests, compilers, analyzers, builds, code generation, CI, graphical
+workloads, packaging or performance checks ran. Snapcraft remains skipped.
+No third-party software or Flutter SDK was modified. No push was performed.
+Source implementation and prepared regressions do not establish runtime/native
+acceptance. R3c-3 remains the next bounded assignment; all-R3c/B05 completion is
+not claimed.
+
 ## B05-R3c-1: Single array field projection
 
 **Single-field finite projection implemented, unverified. B05-R3c remains
@@ -226,7 +331,7 @@ performance checks ran. The execution hold remains active; Snapcraft remains
 skipped. No push or remote fetch was performed. This partial implementation
 does not meet the R3c source-completion criteria or complete B05-R3/B05.
 
-**Next bounded work: B05-R3c-2, then B05-R3c-3.** R3d remains deferred
+**Historical next bounded work: B05-R3c-2, then B05-R3c-3.** R3d remains deferred
 until R3c is source-complete. The historical R3c baseline above is superseded
 only by the bounded R3c-1 changes documented in the preceding section.
 
@@ -539,7 +644,7 @@ Known remaining R3 implementation/proof gaps:
 | Saved Server selections and environment coupling | Reviewed projections are implemented in B05-R3a above. Incompatible shared selectors/factors and unproved lowered execution-environment interpolation retain the exact boundaries recorded there. |
 | Independently unused reusable Path Items targeting Swagger | R3b above establishes `migration.path-item.unused-owner` as a final-target restriction from the available standard native ownership positions. Referenced uses and foreign-only consumers retain common fragment ownership. |
 | Reusable Media Type categories targeting Swagger | R3b above completes established occurrence/child-owner conversion; independently unbound definitions retain the precise `migration.media.unbound-owner` final-target restriction. |
-| Whole-query parameters | R3c above implements finite scalar-object identity mappings into native query Parameters. Arrays, splitting/factorization, raw saved-value projections and other exact gaps remain open; `migration.parameter.querystring-proof` retains unavailable-proof classification. |
+| Whole-query parameters | R3c-1/2 above implement finite scalar-object identity, one-array extraction, independent multi-field factorization, grouped-presence proofs and standard Swagger query lowering. Correlations/required empty collections retain precise target restrictions; unavailable finite/media/encoding proofs, raw saved decoding and remaining Example projections remain explicit gaps. Source changes and prepared regressions are unverified. |
 | Positional/nested multipart and response part instructions | Non-default instructions still need complete shape-specific conversion, including any equivalent older Schema annotations; current unavailable-proof/target boundaries do not establish that every such source is impossible. |
 | General newer Example serialization | Other parameter/Header serializations, non-JSON/plain-text codecs and unbound reusable examples still lack the required equality/ownership certificates. Simple string Header, JSON and plain-text conversions do not close this matrix. |
 | Other newer parameter/XML/fallback specializations | R3c above implements bounded finite form/literal-content cookie certificates; other cookie projections, mixed XML domains/reference-forwarding cases and fallback relationships outside the established required finite-string certificate remain unreconciled. |

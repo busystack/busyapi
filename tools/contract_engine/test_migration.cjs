@@ -37,7 +37,7 @@ test('R3c optional empty whole form objects preserve absence without inventing a
 for(const version of ['3.2.0','3.2.1'])for(const format of ['yaml','json'])for(const targetVersion of ['3.1.2','3.0.4'])
 test(`R3c ${version} ${format} finite whole queries and literal cookies publish to ${targetVersion}`,async()=>{
  const input=require('./migration_b05_r3c_fixture.cjs')(version,format,targetVersion),original=input.resources[0].text;
- const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(result.producerVersion,'97');
+ const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(result.producerVersion,'98');
  assert.equal(input.resources[0].text,original);assert.equal(analyse(input).complete,true);
  const resources=result.outputs.map(output=>({id:output.id,text:output.text,generation:0}));
  const packet={root:result.outputRoot,resources,snapshot:'r3c-cold'},doc=new SourceDocument(result.outputs.find(output=>output.id===result.outputRoot).text,result.outputRoot);
@@ -65,7 +65,7 @@ for(const [kind,value,code,reason]of [
  ['space',{q:'a b'},'migration.parameter.querystring-proof','unavailable-proof'],
  ['array',{q:['a','a']},'migration.parameter.querystring-proof','unavailable-proof'],
  ['nested',{q:{x:'a'}},'migration.parameter.querystring-proof','unavailable-proof'],
- ['empty',{},'migration.parameter.querystring-proof','unavailable-proof'],
+ ['empty',{},'migration.parameter.querystring-factorization','target-representation'],
 ])test(`R3c ${kind} whole-query values retain a precise unpublished boundary`,async()=>{
  const input=require('./migration_b05_r3c_fixture.cjs')(),whole=input.value.components.parameters.Whole;
  whole.content={'application/x-www-form-urlencoded':{schema:{type:'object',enum:[value]}}};
@@ -274,7 +274,7 @@ for(const mutation of ['space','correlation','required-empty','unbounded'])test(
  if(mutation==='unbounded')delete schema.properties.q.maxItems;
  input.resources[0].text=input.encode(input.value);const review=await planMigration(input);
  assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);
- assert(review.problems.some(problem=>problem.code==='migration.parameter.querystring-proof'&&problem.reason==='unavailable-proof'),JSON.stringify(review.problems));
+ assert(review.problems.some(problem=>problem.code===(['correlation','required-empty'].includes(mutation)?'migration.parameter.querystring-factorization':'migration.parameter.querystring-proof')&&problem.reason===(['correlation','required-empty'].includes(mutation)?'target-representation':'unavailable-proof')),JSON.stringify(review.problems));
 });
 
 for(const targetVersion of ['3.1.2','3.0.4'])test(`R3c-1 exact numeric array elements at ${targetVersion}`,async()=>{
@@ -288,4 +288,84 @@ for(const targetVersion of ['3.1.2','3.0.4'])test(`R3c-1 exact numeric array ele
   const result=await evaluateSchemas({...capture,runtimeInstances:['q=9007199254740993.00&q=9007199254740993.00','q=9007199254740992'].map(text=>({subject:'request-parameter',location:text,text,parameter:{resource:capture.root,pointer:'/components/parameters/Whole'}}))});
   assert.equal(result.complete,true);assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,false]);
  }
+});
+
+for(const version of ['3.2.0','3.2.1'])for(const format of ['json','yaml'])for(const targetVersion of ['3.1.2','3.0.4','2.0'])for(const mode of ['independent','required','all-required'])
+test(`R3c-2 ${version} ${format} ${mode} complete field product → ${targetVersion}`,async()=>{
+ const input=require('./migration_b05_r3c2_fixture.cjs')(version,format,targetVersion,mode),text=input.resources[0].text;
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(input.resources[0].text,text);
+ const {requestOperation}=require('./dist/execution.cjs'),packet={root:review.outputRoot,resources:review.outputs.map(output=>({...output,generation:0})),snapshot:'factor-cold'};
+ assert.equal(analyse(packet).complete,true,JSON.stringify(analyse(packet).findings));
+ for(const pointer of ['/paths/~1p/get','/paths/~1shared/get']){
+  const plan=requestOperation({...packet,resource:packet.root,pointer}),fields=plan.parameters;
+  assert.deepEqual(new Set(fields.map(field=>field.name)),new Set(['q','flag','text']));assert(fields.every(field=>field.in==='query'));
+  assert.equal(fields.find(field=>field.name==='q').required,mode==='all-required');
+  assert.equal(fields.find(field=>field.name==='flag').required,mode!=='independent');
+  assert.equal(fields.find(field=>field.name==='text').required,mode==='all-required');
+ }
+ assert(review.parameterChanges.some(change=>change.after.endsWith(' · q')));
+ assert(review.parameterChanges.some(change=>change.after.endsWith(' · flag')));
+ if(targetVersion==='3.1.2')for(const next of ['3.0.4','2.0']){
+  const composed=await planMigration({...packet,targetVersion:next,destination:'file:///factor-composed/'});assert.equal(composed.complete,true,JSON.stringify(composed.problems));
+ }
+});
+
+for(const mode of ['optional-group','required-empty','dependent','conditional','exclusive','counts','correlated'])for(const targetVersion of ['3.1.2','3.0.4','2.0'])
+test(`R3c-2 ${mode} retains a precise target restriction at ${targetVersion}`,async()=>{
+ const input=require('./migration_b05_r3c2_fixture.cjs')('3.2.1','json',targetVersion,mode),review=await planMigration(input);
+ assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);assert.deepEqual(review.changes,[]);
+ assert(review.problems.some(problem=>problem.code==='migration.parameter.querystring-factorization'&&problem.reason==='target-representation'),JSON.stringify(review.problems));
+});
+
+for(const targetVersion of ['3.1.2','3.0.4','2.0'])test(`R3c-2 finite composition and exact scalar/array numbers at ${targetVersion}`,async()=>{
+ const input=require('./migration_b05_r3c2_fixture.cjs')('3.2.1','json',targetVersion,'required');
+ input.schema.properties.count={type:'integer',enum:['EXACT']};
+ input.schema.allOf=[{if:{required:['flag'],properties:{flag:{const:true}}},then:{properties:{text:{enum:['','%20','雪']}}}}];
+ input.value.components.schemas.Item={type:'integer',enum:['EXACT']};
+ input.resources[0].text=input.encode(input.value).replaceAll('"EXACT"','9007199254740993.00');
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ assert(review.outputs.some(output=>output.text.includes('9007199254740993.00')));
+});
+
+for(const targetVersion of ['3.1.2','3.0.4','2.0'])test(`R3c-2 ${targetVersion} several independent scalar fields`,async()=>{
+ const input=require('./migration_b05_r3c2_fixture.cjs')('3.2.1','json',targetVersion);
+ input.schema.properties.q={type:'string',enum:['','a+b']};
+ input.resources[0].text=input.encode(input.value);const review=await planMigration(input);
+ assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const {requestOperation}=require('./dist/execution.cjs'),packet={root:review.outputRoot,resources:review.outputs.map(output=>({...output,generation:0})),snapshot:'scalar-factors'};
+ const plan=requestOperation({...packet,resource:packet.root,pointer:'/paths/~1p/get'});
+ assert.equal(plan.parameters.length,3);assert(plan.parameters.every(parameter=>parameter.in==='query'&&!parameter.required));
+});
+
+for(const targetVersion of ['3.1.2','3.0.4','2.0'])for(const layer of ['media','schema'])test(`R3c-2 ${targetVersion} extracted ${layer} examples remain assigned to R3c-3`,async()=>{
+ const input=require('./migration_b05_r3c2_fixture.cjs')('3.2.1','json',targetVersion);
+ if(layer==='media')input.whole.content['application/x-www-form-urlencoded'].examples={Empty:{dataValue:{q:[],flag:false}}};
+ else input.schema.examples=[{q:[],flag:false}];
+ input.resources[0].text=input.encode(input.value);const review=await planMigration(input);
+ assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);
+ assert(review.problems.some(problem=>problem.code==='migration.parameter.querystring-example-proof'&&problem.reason==='unavailable-proof'),JSON.stringify(review.problems));
+});
+
+for(const targetVersion of ['3.1.2','3.0.4','2.0'])test(`R3c-2 ${targetVersion} required whole group cannot become one optional array`,async()=>{
+ const input=require('./migration_b05_r3c1_fixture.cjs')('3.2.1','json',targetVersion,false);
+ input.value.components.parameters.Whole.required=true;
+ if(targetVersion==='2.0'){
+  delete input.value.components.parameters.Literal;
+  delete input.value.paths['/p'].get.parameters;
+  input.value.paths['/shared'].get.parameters.pop();
+ }
+ input.resources[0].text=input.encode(input.value);const review=await planMigration(input);
+ assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);
+ assert(review.problems.some(problem=>problem.code==='migration.parameter.querystring-factorization'&&problem.reason==='target-representation'),JSON.stringify(review.problems));
+});
+
+for(const targetVersion of ['3.1.2','3.0.4','2.0'])test(`R3c-2 ${targetVersion} preserves Unicode and delimiter field names and required empty strings`,async()=>{
+ const input=require('./migration_b05_r3c2_fixture.cjs')('3.2.1','json',targetVersion,'required'),name='tag+雪&%[]';
+ input.schema.properties[name]=input.schema.properties.q;delete input.schema.properties.q;
+ input.schema.properties.flag={type:'string',enum:['']};
+ input.resources[0].text=input.encode(input.value);const review=await planMigration(input);
+ assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const {requestOperation}=require('./dist/execution.cjs'),packet={root:review.outputRoot,resources:review.outputs.map(output=>({...output,generation:0})),snapshot:'named-factors'};
+ const plan=requestOperation({...packet,resource:packet.root,pointer:'/paths/~1p/get'});
+ assert(plan.parameters.some(parameter=>parameter.name===name));assert(plan.parameters.find(parameter=>parameter.name==='flag').required);
 });

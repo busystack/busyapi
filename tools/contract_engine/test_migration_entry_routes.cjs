@@ -237,3 +237,51 @@ for(const mutation of ['name','required','domain','explode'])test(`R3c-1 complet
   at=>[{resource:root,pointer:at.pointer}],(at,code,message,reason)=>problems.push({at,code,message,reason}));
  assert(problems.some(problem=>problem.code==='migration.invariant.parameter-wire'),JSON.stringify(problems));
 });
+
+for(const targetVersion of ['3.1.2','3.0.4','2.0'])for(const array of [[],[''],['a+b','a+b']])test(`R3c-2 ${targetVersion} saved multi-field order ${JSON.stringify(array)}, arrays and collisions`,async()=>{
+ const input=require('./migration_b05_r3c2_fixture.cjs')('3.2.1','json',targetVersion);
+ const value={text:'',q:array,flag:false};
+ const settings={version:1,roots:[{name:'api',path:'factors.json'}],tests:[{name:'saved',operation:{method:'get',path:'/p'},parameters:{querystring:{descriptionOnly:value},header:{Keep:'literal'}}}]};
+ input.configuration={id:'file:///captured/busyapi.yaml',generation:1,text:JSON.stringify(settings)};
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const projection=review.configurationProjections.find(change=>change.pointer==='/tests/0/parameters'),after=JSON.parse(projection.after);
+ assert.deepEqual(after.query,value);assert.deepEqual(Object.keys(after.query),Object.keys(value));assert.deepEqual(after.header,settings.tests[0].parameters.header);assert.equal(after.querystring,undefined);
+ for(const mutation of ['collision','raw','empty','extra']){
+  const changed=JSON.parse(JSON.stringify(settings));
+  if(mutation==='collision')changed.tests[0].parameters.query={q:['held']};
+  if(mutation==='raw')changed.tests[0].parameters.querystring.descriptionOnly='q=a';
+  if(mutation==='empty')changed.tests[0].parameters.querystring.descriptionOnly={};
+  if(mutation==='extra')changed.tests[0].parameters.querystring.descriptionOnly.unknown='held';
+  input.configuration.text=JSON.stringify(changed);const refused=await planMigration(input);
+  assert.equal(refused.complete,false);assert.deepEqual(refused.outputs,[]);
+  assert(refused.problems.some(problem=>problem.code==='migration.parameter.'+(mutation==='collision'?'saved-collision':'saved-proof')),JSON.stringify(refused.problems));
+ }
+});
+
+for(const mutation of ['name','required','domain','explode','missing'])test(`R3c-2 factor invariant rejects ${mutation}`,async()=>{
+ const input=require('./migration_b05_r3c2_fixture.cjs')(),review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const {createGraph}=require('./dist/model.cjs'),{requestOperation}=require('./dist/execution.cjs'),{proveMigrationParameterSerialization}=require('./dist/migration_invariants.cjs');
+ const packet={root:review.outputRoot,resources:review.outputs.map(output=>({...output,generation:0})),snapshot:'mutated-factor'};
+ const plan=requestOperation({...packet,resource:packet.root,pointer:'/paths/~1shared/get'}),owners=plan.parameters.map(parameter=>parameter.definition);
+ const q=plan.parameters.find(parameter=>parameter.name==='q').definition,resource=packet.resources.find(resource=>resource.id===q.resource),doc=new SourceDocument(resource.text,resource.id);
+ if(mutation!=='missing'){
+  const [field,value]=mutation==='name'?['name','changed']:mutation==='required'?['required',true]:mutation==='explode'?['explode',false]:['schema/enum',[['a+b']]];
+  resource.text=doc.set(q.pointer+'/'+field,value);
+ }
+ const problems=[];
+ await proveMigrationParameterSerialization(createGraph(input).graph,createGraph(packet).graph,()=>mutation==='missing'?owners.slice(1):owners,(at,code,message,reason)=>problems.push({code,message,reason}));
+ assert(problems.some(problem=>problem.code==='migration.invariant.parameter-wire'),JSON.stringify(problems));
+});
+
+test('R3c-2 operation signature rejects a partial group despite surviving reusable definitions',async()=>{
+ const input=require('./migration_b05_r3c2_fixture.cjs')(),review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const {createGraph}=require('./dist/model.cjs'),{requestOperation}=require('./dist/execution.cjs'),{proveMigrationParameterSerialization,migrationRequestProfiles}=require('./dist/migration_invariants.cjs');
+ const packet={root:review.outputRoot,resources:review.outputs.map(output=>({...output,generation:0})),snapshot:'partial-group'};
+ const plan=requestOperation({...packet,resource:packet.root,pointer:'/paths/~1shared/get'}),owners=plan.parameters.map(parameter=>parameter.definition);
+ const source=createGraph(input).graph,target=createGraph(packet).graph,problems=[];
+ const proof=await proveMigrationParameterSerialization(source,target,()=>owners,(at,code)=>problems.push(code));assert.deepEqual(problems,[]);
+ const resource=packet.resources.find(resource=>resource.id===packet.root),doc=new SourceDocument(resource.text,packet.root);
+ resource.text=doc.remove('/paths/~1shared/get/parameters/1');
+ const before=[...migrationRequestProfiles(source,input.resources,proof.before).values()],after=[...migrationRequestProfiles(createGraph(packet).graph,packet.resources,proof.after).values()];
+ assert.notDeepEqual(after,before);
+});

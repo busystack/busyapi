@@ -78,3 +78,32 @@ String r3cRepeatedConfiguration(String format) {
   value['tests'][0]['parameters']['querystring']['descriptionOnly'] = {'q': ['a+b', 'a+b']};
   return jsonEncode(value);
 }
+
+String r3cFactoredSource(String version, int port) {
+  final value = jsonDecode(r3cSource(version, 'json', port)) as Map;
+  value.remove('security');
+  (value['components'] as Map).remove('securitySchemes');
+  (value['components']['parameters'] as Map).remove('Literal');
+  (value['paths']['/p']['get'] as Map).remove('parameters');
+  final whole = value['components']['parameters']['Whole'] as Map;
+  whole['content'] = {'application/x-www-form-urlencoded': {'schema': {
+    'type': 'object', 'additionalProperties': false, 'required': ['flag'],
+    'properties': {
+      'q': {'type': 'array', 'maxItems': 2, 'items': {'type': 'string', 'enum': ['', 'a+b']}},
+      'flag': {'type': 'boolean'}, 'text': {'type': 'string', 'enum': ['', '雪']},
+      'count': {'type': 'integer', 'enum': ['EXACT']},
+    },
+  }}};
+  return jsonEncode(value).replaceAll('"EXACT"', '9007199254740993.00');
+}
+
+String r3cFactoredConfiguration(String format) => jsonEncode({
+  'version': 1, 'roots': [{'name': 'api', 'path': 'api.$format'}],
+  'environments': {'manual': {'variables': {'keep': 'unchanged'}}},
+  'tests': [{
+    'name': 'saved', 'operation': {'method': 'get', 'path': '/p'}, 'environment': 'manual',
+    'parameters': {'querystring': {'descriptionOnly': {
+      'text': '', 'q': ['a+b', 'a+b'], 'count': 'EXACT', 'flag': false,
+    }}}, 'expect': {'status': 204},
+  }],
+}).replaceAll('"EXACT"', '9007199254740993.00');
