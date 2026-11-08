@@ -9,6 +9,7 @@ import {FiniteMigrationDomain} from './migration_finite_domain';
 import {SchemaPropertyRequirements} from './schema_property_requirements';
 import {runtimeMediaKind} from './runtime_media';
 import {migrationMediaTypes} from './migration_media_objects';
+import {PositionalEncodingEquivalence} from './migration_positional_encoding';
 
 /** Versioned native fields use captured roles and the existing material/CST
  * owners. A redundant instruction retains its authored value as history;
@@ -132,7 +133,7 @@ export function migrateNewerObjects(graphs:readonly ReferenceGraph[],sources:Map
    const types=[...mediaTypes.get(JSON.stringify([scope.resource,scope.pointer]))??[]];
    const kinds=types.map(type=>runtimeMediaKind(type)),item=graph.scopeAs(scope.resource,scope.pointer+'/itemSchema','schema');
    if(!item){issue(field('itemSchema'),'migration.media.item-owner','No captured item Schema Object is available','unavailable-proof');continue;}
-   if(!kinds.length||kinds.some(kind=>!['json-lines','json-sequence','event-stream'].includes(kind))){
+   if(!kinds.length||kinds.some((kind,index)=>!['json-lines','json-sequence','event-stream'].includes(kind)&&!types[index].split(';')[0].trim().toLowerCase().startsWith('multipart/'))){
     issue(field('itemSchema'),'migration.media.item-model','No captured sequential media model establishes an equivalent older whole-content array schema for this item constraint','unavailable-proof');continue;
    }
    const schema=graph.scopeAs(scope.resource,scope.pointer+'/schema','schema');
@@ -152,8 +153,10 @@ export function migrateNewerObjects(graphs:readonly ReferenceGraph[],sources:Map
     const types=scope.kind==='media'?[...mediaTypes.get(JSON.stringify([scope.resource,scope.pointer]))??[]]:
         typeof value.contentType==='string'?value.contentType.split(',').map((type:string)=>type.trim()):[];
     const inactive=types.length>0&&types.every(type=>!type.toLowerCase().startsWith('multipart/')&&!type.includes('*'));
-    if(empty||inactive){
-     if(inactive&&!empty){
+    const positional=scope.kind==='media'&&(name==='prefixEncoding'||name==='itemEncoding')&&!empty&&!inactive?
+     new PositionalEncodingEquivalence(graph).prove(scope,name,types,target):undefined;
+    if(empty||inactive||positional?.equivalent){
+     if((inactive||positional?.equivalent)&&!empty){
       const prefix=scope.pointer+'/'+escape(name);
       const children=[...graph.entryScopes()].filter(child=>child.resource===scope.resource&&child.pointer.startsWith(prefix+'/'));
       for(const child of children){
@@ -170,7 +173,7 @@ export function migrateNewerObjects(graphs:readonly ReferenceGraph[],sources:Map
      }
      history(name,'default_'+name);
     }
-    else issue(field(name),'migration.encoding.'+name,'No captured part-shape certificate maps these positional or nested encoding instructions into the older named Encoding representation','unavailable-proof');
+    else issue(field(name),'migration.encoding.'+name,positional?.reason??'No captured part-shape certificate maps these positional or nested encoding instructions into the older named Encoding representation',positional?.classification??'unavailable-proof');
    }
   }
  }

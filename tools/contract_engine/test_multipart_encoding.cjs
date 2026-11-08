@@ -133,3 +133,5 @@ test('file array unions cannot silently select scalar annotations or item annota
  });
  await assert.rejects(requestMultipartEncoding({...input,parts:[],files:['file']}),error=>error.code==='request.multipart.encoding.unsupported'&&error.kind==='unsupported'&&error.source.resource===input.root&&error.range[1]>error.range[0]);
 });
+
+require('./migration_b05_r3d1_fixture.cjs')('multipart');

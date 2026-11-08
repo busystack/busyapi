@@ -161,3 +161,5 @@ for(const variant of ['nested-content','reserved','exploded-delimited','nested',
  assert.equal(result.complete,false);assert.equal(result.status,'blocked');assert.deepEqual(result.outputs,[]);
  assert(result.problems.some(p=>p.code.startsWith('migration.form.')&&p.resource===root&&p.pointer&&p.range[1]>p.range[0]),JSON.stringify(result.problems));assert.equal(resources[0].text,text);
 });
+
+require('./migration_b05_r3d1_fixture.cjs')('downgrade');

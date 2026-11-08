@@ -1,3 +1,6 @@
+import {PositionalEncodingEquivalence} from './migration_positional_encoding';
+import {MigrationArrayBounds} from './migration_schema_arrays';
+import {migrationMediaTypes} from './migration_media_objects';
 import {migrationServerSignature} from './migration_servers';
 import {migrationJoinedPath} from './migration_server_routes';
 import {requestOperation} from './execution';
@@ -338,4 +341,48 @@ export function migrationRequestProfiles(graph:ReferenceGraph,resources:Resource
  * compare these same profiles by captured identity rather than by sort order. */
 export function migrationRequestSignatures(graph:ReferenceGraph,resources:Resource[]):string[] {
  return [...migrationRequestProfiles(graph,resources).values()].sort();
+}
+
+/** Default certificates are re-derived from the delivered owners, after all
+ * schema/binary conversions and reference repair. Schema invariants retain the
+ * value language; this compares the positional media/byte interpretation. */
+export function proveMigrationPositionalEncoding(source:ReferenceGraph,target:ReferenceGraph,
+ mapped:(location:MigrationLocation,scope:GraphScope)=>readonly MigrationLocation[],issue:MigrationIssue):void {
+ if(target.specifications.get(target.root)?.family==='3.2')return;
+ const types=migrationMediaTypes([source]),before=new PositionalEncodingEquivalence(source),after=new PositionalEncodingEquivalence(target);
+ const bounds=new MigrationArrayBounds(source);
+ for(const scope of source.entryScopes())if(scope.kind==='media'&&scope.family==='3.2'){
+  const value=source.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
+  const media=[...types.get(JSON.stringify([scope.resource,scope.pointer]))??[]];
+  if(!media.length||media.some(type=>!type.split(';')[0].trim().toLowerCase().startsWith('multipart/')))continue;
+  const fields=(['prefixEncoding','itemEncoding'] as const).filter(field=>Object.hasOwn(value??{},field)&&
+   (field==='prefixEncoding'?value[field]:[value[field]]).some((rule:Record<string,unknown>)=>Object.keys(rule).length));
+  if(!fields.length)continue;
+  const schema=source.scopeAs(scope.resource,scope.pointer+'/schema','schema'),maximum=schema?bounds.maximum(schema):undefined;
+  const outputs=mapped(scope,scope).map(at=>target.scopeAs(at.resource,at.pointer,'media')).filter((at):at is GraphScope=>!!at&&at.family!=='3.2');
+  if(!outputs.length)issue(scope,'migration.invariant.positional-encoding','A positional multipart owner has no delivered Media Type owner','implementation');
+  for(const output of outputs){
+   const targetValue=target.docs.get(output.resource)!.dataNode(output.pointer)?.value;
+   if(Object.keys(targetValue?.encoding??{}).length)issue(scope,'migration.invariant.positional-encoding','The delivered unnamed multipart owner activates a named Encoding rule','implementation');
+   for(const field of fields){
+    const proof=before.prove(scope,field,media,output.family);
+    if(!proof.equivalent){issue(scope,'migration.invariant.positional-encoding',proof.reason,'implementation');continue;}
+    if(Object.hasOwn(targetValue??{},field)){
+     issue(scope,'migration.invariant.positional-encoding','An older target retains an active positional Encoding declaration','implementation');continue;
+    }
+    if(proof.inactive)continue;
+    const a=before.boundary(scope),b=after.boundary(output);
+    if(a===undefined||b===undefined){issue(scope,'migration.invariant.positional-encoding','Delivered schemas no longer establish the positional default partition','implementation');continue;}
+    const prefix=value.prefixEncoding?.length??0;
+    const end=Math.max(a,b,prefix)+1;
+    for(let index=0;index<end&&(maximum===undefined||index<maximum);index++){
+     const rule=index<prefix?value.prefixEncoding[index]:value.itemEncoding;
+     const expected=rule?.contentType??before.defaultAt(scope,index,'3.2'),actual=after.defaultAt(output,index,output.family);
+     if(expected===undefined||expected!==actual){
+      issue(scope,'migration.invariant.positional-encoding','A delivered part changed its effective positional media or encoded representation','implementation');break;
+     }
+    }
+   }
+  }
+ }
 }

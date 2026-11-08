@@ -5,6 +5,7 @@ import 'package:busyapi_core/busyapi_core.dart';
 import 'package:test/test.dart';
 
 import 'test_support.dart';
+import 'migration_r3d1_fixture.dart';
 
 String _source(String version, String format, int port, {required bool binary, bool r1 = false, bool opaqueEncoded = false, bool encodedPart = false}) {
   final legacy = version.startsWith('3.0.');
@@ -32,6 +33,7 @@ String _source(String version, String format, int port, {required bool binary, b
 }
 
 void main() {
+  positionalMigrationRegressions('binary');
   _r3Transactions();
   _r3CliAndDecisions();
   for (final representation in ['body', 'part', 'items', 'targeted',
@@ -147,7 +149,7 @@ void main() {
         environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
       expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');
       final report = jsonDecode(cli.stdout as String) as Map;
-      expect(report['complete'], true); expect(report['producerVersion'], '99');
+      expect(report['complete'], true); expect(report['producerVersion'], '100');
       expect(report['published'], false);
       await review.publish();
       expect(await file.readAsString(), text); expect(buffer.text, working);
@@ -195,7 +197,7 @@ void main() {
         final review = await project.prepareMigration(root, destination, targetVersion: target);
         addTearDown(review.close);
         expect(review.status, MigrationStatus.faithfullyConvertible, reason: '${review.result}');
-        expect(review.result['producerVersion'], '99');
+        expect(review.result['producerVersion'], '100');
         expect(review.unsaved, true);
         expect(Directory(destination).existsSync(), false);
         await review.publish();
@@ -248,7 +250,7 @@ void main() {
         expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');
         final report = jsonDecode(cli.stdout as String) as Map;
         expect(report['complete'], true);
-        expect(report['producerVersion'], '99');
+        expect(report['producerVersion'], '100');
         expect(report['published'], false);
         expect(Directory('${directory.path}/cli-review').existsSync(), false);
       });
@@ -408,7 +410,7 @@ void _r3CliAndDecisions() {
       final decision = '${cliProblem['id']}=omit-ignored-body';
       final preview = await cli(['--decision', decision]); expect(preview.exitCode, 0, reason: '${preview.stdout} ${preview.stderr}');
       final report = jsonDecode(preview.stdout as String) as Map;
-      expect(report['producerVersion'], '99'); expect(report['published'], false);
+      expect(report['producerVersion'], '100'); expect(report['published'], false);
       final repeated = await cli(['--decision', decision]); expect(repeated.exitCode, 0);
       expect((jsonDecode(repeated.stdout as String) as Map)['reviewIdentity'], report['reviewIdentity']);
       await file.writeAsString(original.replaceFirst('Original', 'External'));

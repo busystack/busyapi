@@ -493,3 +493,5 @@ for(const version of ['3.2.0','3.2.1'])for(const format of ['yaml','json'])test(
   }
  }
 });
+
+require('./migration_b05_r3d1_fixture.cjs')('swagger');

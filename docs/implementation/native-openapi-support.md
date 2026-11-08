@@ -31,6 +31,84 @@ consume those shared results. Source-preserving transactions remain authoritativ
 Current changes require complete engine, Core, native and packaged verification;
 source inspection or a successful build is not runtime acceptance.
 
+## B05-R3d-1: Positional Encoding (partial source implementation)
+
+**R3d-1 is incomplete and unverified. It is not source-complete.** This work
+starts at `2d7591b9813339d1e5a54c22f5a095f86c39a44b` on the primary
+`release/v0.1.0` checkout. B05-R3d as a whole, B05 and W3.09 remain incomplete.
+Nested and response Encoding remain R3d-2 and have not been implemented here.
+This status supersedes the historical statement below that R3d has not begun.
+
+A shared bounded positional certificate now uses the existing schema proofs,
+fixed reference graph and array bounds. Non-form multipart positional rules
+can retire when their complete permitted media interpretation equals the older
+family's defaults. Prefix and tail partitions are considered together, including
+positions with omitted Encoding declarations. Array upper bounds establish
+always-absent positions; these are ignored rather than reported as missing
+serialization values. The schema, array value model, constraints, part order,
+count, omission behavior and literal operands are not rewritten by this path.
+Multipart `itemSchema` uses the existing whole-content array conjunction and
+shared allocator, retaining an independent original whole-schema resource.
+
+The proof distinguishes whole-array JSON defaults in 3.2 from older item-based
+array defaults, encoded strings from raw string values, active part headers
+from ignored Content-Type headers, and explicit media alternatives from a
+single default. It introduces no codecs. Non-form RFC6570 fields remain
+ignored. Headers and their independently referenced schemas retire through the
+existing allocator and terminal reference repair. Final publication re-derives
+positional defaults from delivered schema owners after schema conversion and
+reference repair; it also rejects newly activated named Encoding declarations.
+The ordinary schema/resource and transactional invariants remain in force.
+
+**Remaining implementation gaps:** named multipart conversions (including
+single-name and repeated-name certificates), owner specialization for those
+mappings, their saved-value/configuration projections, and complete multipart
+wire invariants for any future named restructuring are not implemented. Uniform
+union alternatives, conditional schemas whose wire interpretations agree, and
+additional raw/encoded 3.0 cases remain outside this bounded certificate. These
+are implementation/proof gaps, not claims that all such inputs are impossible.
+Dedicated positional native review coverage, broader reusable-media/shared
+Encoding/alias scenarios, and the full requested cross-component regression
+matrix remain to be prepared. This work must continue within R3d-1 before the
+separately assigned R3d-2 begins.
+
+| Remaining refusal | Disposition |
+| --- | --- |
+| Unnamed positional media choices or active part/transfer headers differing from target defaults | Target restriction: no standard older positional Encoding owner; no fabricated form names or global header substitution. |
+| Swagger active unnamed multipart instructions | Target restriction in its named formData representation. |
+| Ordered form-data needing a named representation | Unavailable proof: identity/order/value-model mapping is not implemented. |
+| Missing media/schema evidence, conditional/union shape applications, dynamic references, same-instance recursive proof or conflicting content annotations | Unavailable bounded equivalence evidence. |
+| Existing named Encoding alongside positional rules | Unavailable applicability proof; conversion must not activate an ignored rule. |
+| Nested or response Encoding | Separately assigned R3d-2; existing refusal remains. |
+
+Prepared, **unexecuted** regressions extend all five requested Engine suites via
+`migration_b05_r3d1_fixture.cjs`: both 3.2 patches, YAML/JSON, 3.1/3.0 targets,
+optional positions and finite/variable tails, precise media/header/shape
+refusals, independent absent Header schemas, exact integers, mixed structured
+and base64 parts, cold reopening and a final-invariant mutation control.
+Core's existing form-downgrade, binary and Swagger-media gates import
+`migration_r3d1_fixture.dart` for unsaved captures, cancellation, stale reviews,
+publication races, cold reopening, CLI publication and Swagger refusal.
+Packaged preflight adds positional-default previews and producer 99 rejection.
+The existing gates import the fixtures; no new test runner is introduced.
+
+Production files changed: Engine `migration_positional_encoding.ts`,
+`migration_newer_objects.ts`, `migration_media_schema.ts`,
+`migration_invariants.ts`, `migration.ts`; Core `migration.dart`; native
+preflight `tools/native_migration_preflight.py`. Other producer assertion edits
+synchronize existing positive controls and retain previous negative controls.
+Migration producer/Core/preflight admission is **100**; **99** is obsolete.
+Evaluator **1.18.0+62**, graph **9**, parameter mock **6**, response mock **5**,
+sample **4** and schema-example projection **3** are unchanged. Bundles remain
+unbuilt; no runtime qualification of producer 100 is claimed.
+
+Verification performed: normative OpenAPI 3.2.1 §§4.14.5/4.15 and corresponding
+3.1.2/3.0.4 requirements, source/ownership/protocol/gate inspection, Git state
+inspection and `git diff --check` only. The execution hold remains active: no
+tests, compilers, analyzers, builds, generation, CI, graphical workloads or
+performance checks ran. Snapcraft remains skipped. No third-party software or
+installed Flutter SDK changes, push or remote refresh were performed.
+
 ## B05-R3c-3: Saved inverses, codecs, examples and reconciliation
 
 **B05-R3c is source-complete, unverified within W3.09. B05-R3 and B05 remain

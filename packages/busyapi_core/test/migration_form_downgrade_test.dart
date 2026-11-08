@@ -5,8 +5,10 @@ import 'package:busyapi_core/busyapi_core.dart';
 import 'package:test/test.dart';
 
 import 'test_support.dart';
+import 'migration_r3d1_fixture.dart';
 
 void main() {
+  positionalMigrationRegressions('form');
   _r2MixedForms();
   for (final media in [
     'application/x-www-form-urlencoded',

@@ -25,8 +25,8 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(MIGRATION_PRODUCER, engine_revision.group(1))
 
     def test_current_revision_is_accepted_and_previous_package_is_rejected(self):
-        verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': '99'})
-        for obsolete in ('25', '34', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45', '46', '47', '48', '49', '50', '51', '52', '53', '54', '55', '56', '57', '58', '59', '60', '61', '62', '63', '64', '65', '66', '67', '68', '69', '70', '71', '72', '73', '74', '75', '76', '77', '78', '79', '80', '81', '82', '83', '84', '85', '86', '87', '88', '89', '90', '91', '92', '93', '94', '95', '96', '97', '98'):
+        verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': '100'})
+        for obsolete in ('25', '34', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45', '46', '47', '48', '49', '50', '51', '52', '53', '54', '55', '56', '57', '58', '59', '60', '61', '62', '63', '64', '65', '66', '67', '68', '69', '70', '71', '72', '73', '74', '75', '76', '77', '78', '79', '80', '81', '82', '83', '84', '85', '86', '87', '88', '89', '90', '91', '92', '93', '94', '95', '96', '97', '98', '99'):
             with self.subTest(obsolete=obsolete):
                 with self.assertRaisesRegex(RuntimeError, 'producer differ'):
                     verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': obsolete})
@@ -498,6 +498,30 @@ class PreflightTests(unittest.TestCase):
                     self.assertFalse(destination.exists())
                     for path, raw in originals.items():
                         self.assertEqual(path.read_bytes(), raw)
+
+    def test_actual_packaged_r3d1_positional_default_previews(self):
+        bundle = Path(os.environ.get('BUSYAPI_TEST_BUNDLE') or
+                      Path(__file__).resolve().parent.parent / 'build/linux/x64/release/bundle')
+        for version in ['3.2.0', '3.2.1']:
+            for format in ['yaml', 'json']:
+                for target in ['3.1.2', '3.0.4']:
+                    with self.subTest(version=version, format=format, target=target):
+                        source = self.root / ('positional.' + format)
+                        media = {'schema': {'type': 'array', 'maxItems': 3, 'items': {'type': 'string'}},
+                                 'prefixEncoding': [{'contentType': 'text/plain'}],
+                                 'itemEncoding': {'contentType': 'text/plain'}}
+                        value = {'openapi': version, 'info': {'title': 'Positional', 'version': '1'},
+                                 'paths': {'/parts': {'post': {'requestBody': {'content': {'multipart/mixed': media}},
+                                                            'responses': {'204': {'description': 'Empty'}}}}}}
+                        raw = (json.dumps(value) if format == 'json' else
+                               '# Keep positional source\r\n' + '\r\n'.join(json.dumps(k) + ': ' + json.dumps(v) for k, v in value.items())).encode()
+                        source.write_bytes(raw)
+                        destination = self.root / ('preview-' + version + '-' + format + '-' + target)
+                        report = preflight_migration(bundle / 'busyapi', source, target, destination, {source: raw})
+                        self.assertTrue(report['complete'])
+                        self.assertFalse(report['published'])
+                        self.assertFalse(destination.exists())
+                        self.assertEqual(source.read_bytes(), raw)
 
 
 if __name__ == '__main__':

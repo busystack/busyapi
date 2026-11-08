@@ -46,3 +46,21 @@ for(const version of ['3.0.4','3.2.1'])for(const format of ['yaml','json'])for(c
  assert.equal(problem.pointer,'/paths/~1items/post/requestBody/content/'+escape(media)+'/schema/maxProperties');
  assert(problem.range[1]>problem.range[0]);
 });
+
+require('./migration_b05_r3d1_fixture.cjs')('media');
+
+test('R3d1 publication invariant rejects changed delivered positional defaults',async()=>{
+ const {capture}=require('./migration_b05_r3d1_fixture.cjs'),{createGraph}=require('./dist/model.cjs');
+ const {input}=capture('3.2.1','json',{schema:{type:'array',items:{type:'string'}},itemEncoding:{contentType:'text/plain'}});
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const pointer='/paths/~1parts/post/requestBody/content/multipart~1mixed';
+ const outputs=review.outputs.map(output=>{
+  if(output.id!==review.outputRoot)return output;
+  const value=JSON.parse(output.text);value.paths['/parts'].post.requestBody.content['multipart/mixed'].schema.items.type='object';
+  return {...output,text:JSON.stringify(value)};
+ });
+ const source=createGraph(input).graph,target=createGraph({root:review.outputRoot,resources:outputs,snapshot:'mutated'}).graph,problems=[];
+ require('./dist/migration_invariants.cjs').proveMigrationPositionalEncoding(source,target,
+  location=>[{resource:review.outputRoot,pointer:location.pointer}],(location,code,message,reason)=>problems.push({location,code,message,reason}));
+ assert(problems.some(problem=>problem.code==='migration.invariant.positional-encoding'),JSON.stringify(problems));
+});

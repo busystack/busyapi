@@ -21,7 +21,7 @@ import {documentUriBase,resolveUri,pointerFragment as fragment,schemaDialectIden
 import {documentUriOccurrences} from './document_uris';
 import {serverTemplate} from './derived_bundle';
 import {captureMigrationMarkdown,rewriteMigrationMarkdown,proveMigrationMarkdown} from './migration_markdown';
-import {migrationRequestProfiles,migrationOperationPairs,migrationSecurityAlternativeProjection,proveMigrationOperationMedia,proveMigrationObjectMetadata,proveMigrationServerSelections} from './migration_invariants';
+import {proveMigrationPositionalEncoding,migrationRequestProfiles,migrationOperationPairs,migrationSecurityAlternativeProjection,proveMigrationOperationMedia,proveMigrationObjectMetadata,proveMigrationServerSelections} from './migration_invariants';
 import {migrateEncodings} from './migration_encoding';
 import {migrateBinarySchemas} from './migration_binary';
 import {specializeBinarySchemaUses} from './migration_binary_uses';
@@ -52,7 +52,7 @@ import {migrateParameterSerialization,proveMigrationParameterSerialization,type 
 import {projectMigrationParameterConfiguration} from './migration_parameter_configuration';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='99';
+const migrationProducerVersion='100';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const referenceLocator=(reference:GraphReference)=>!reference.connection&&['$ref','$dynamicRef'].includes(reference.keyword)||
     reference.connection==='operationRef'&&reference.keyword==='operationRef';
@@ -782,6 +782,7 @@ export async function planMigration(input:MigrationInput) {
             for(const {before,after}of operationPairs)if(before.role==='operation'&&
                 beforeProfiles.get(before.occurrence)!==afterProfiles.get(after.occurrence))
                 issue(before.source,'migration.invariant.request','The captured operation changed effective URLs, serialization, authentication, request media or responses','implementation');
+            proveMigrationPositionalEncoding(context.graph,ownerGraph,mapped,issue);
             proveMigrationOperationMedia(context.graph,ownerGraph,mapped,issue);
             proveMigrationObjectMetadata(context.graph,ownerGraph,mapped,issue,parameterProfiles);
             serverContexts.push({source:context.graph,target:targetGraph,pairs:operationPairs,parameters:parameterProfiles,targetEntryName:root===input.root?'migrated':'resource_'+digest(root).slice(0,24)});

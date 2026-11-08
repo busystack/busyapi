@@ -9,6 +9,7 @@ import {runtimeBinaryMedia} from './runtime_binary';
 import {pointerFragment} from './reference_graph';
 import {mediaTypes} from './media_types';
 import {decimal} from './exact_numbers';
+import {MigrationArrayBounds} from './migration_schema_arrays';
 
 type Field=Readonly<{source:MigrationSource;pointer:string}>;
 
@@ -16,6 +17,15 @@ type Field=Readonly<{source:MigrationSource;pointer:string}>;
  * applicable multipart encoding to other media occurrences. Content-Type in
  * Encoding.headers is ignored in every family. */
 export function inactiveEncodingHeader(graph:ReferenceGraph,header:GraphScope):boolean {
+    const positional=/^(.*)\/(prefixEncoding\/(\d+)|itemEncoding)\/headers\/([^/]+)$/.exec(header.pointer);
+    if(positional){
+        if(positional[4].replaceAll('~1','/').replaceAll('~0','~').toLowerCase()==='content-type')return true;
+        const media=graph.scopeAs(header.resource,positional[1],'media');
+        const schema=media&&graph.scopeAs(media.resource,media.pointer+'/schema','schema');
+        const maximum=schema?new MigrationArrayBounds(graph).maximum(schema):undefined;
+        const prefix=media?graph.docs.get(media.resource)!.dataNode(media.pointer+'/prefixEncoding')?.children.size??0:0;
+        if(maximum!==undefined&&maximum<=(positional[3]===undefined?prefix:Number(positional[3])))return true;
+    }
     const marker=header.pointer.lastIndexOf('/content/');if(marker<0)return false;
     const suffix=header.pointer.slice(marker+'/content/'.length),match=/^([^/]+)\/encoding\/[^/]+\/headers\/([^/]+)$/.exec(suffix);
     if(!match)return false;
