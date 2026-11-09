@@ -12,11 +12,50 @@ class RequestPartMediaEditor extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l = context.l10n;
-    final options = run.plan!.formMediaOptions(run.bodyMediaType);
+    final options = run.multipartTree
+        ? [...FormPartMediaOptions.fromJson({for (final part in run.multipartControls) part['name']: part}),
+            ...run.plan!.formMediaOptions(run.bodyMediaType).where((option) => run.bodyFiles.any((file) => file.name == option.name && !file.name.startsWith('/')))]
+        : run.plan!.formMediaOptions(run.bodyMediaType);
     final names = options.map((option) => option.name).toSet();
     final enabled = !run.busy && !run.hasComposingInput;
     return Column(
       children: [
+        if (run.multipartTree) ...[
+          if (run.plan!.multipartRootChoices(run.bodyMediaType).isNotEmpty)
+            BusyApiComboRow<String?>(title: l.requestStructuredValue,
+              values: {null, ...run.plan!.multipartRootChoices(run.bodyMediaType).map((choice) => choice['id'] as String),
+                if (run.partSchemas[''] case final String selected) selected}.toList(),
+              selected: run.partSchemas[''],
+              labelFor: (value) => value ?? l.requestFileShapeChoose,
+              enabled: enabled, onSelected: (value) => run.selectPartSchema('', value)),
+          const BusyApiStatusBox(message: 'Enter an ordered array, or the declared named object. Ordered form-data items contain one name/value pair. Files replace null at an instance JSON pointer, such as /1 or /1/file. Inspect parts again after changing values or representations.'),
+          BusyApiActionRow(title: l.requestPartEncoding,
+            subtitle: 'Inspect current parts and declared choices', enabled: enabled,
+            onTap: () => _inspect(run.inspectMultipartParts)),
+          RequestDraftEntry(run: run, label: 'Array JSON pointer (empty for the body)',
+            value: run.multipartArrayPointer, enabled: enabled,
+            onChanged: (value) => run.multipartArrayPointer = value),
+          RequestDraftEntry(run: run, label: 'New ordered part · exact JSON value',
+            value: run.multipartNewValue, enabled: enabled,
+            onChanged: (value) => run.multipartNewValue = value),
+          BusyApiActionRow(title: 'Add ordered part', enabled: enabled,
+            onTap: () => _inspect(run.appendMultipartPart)),
+          BusyApiActionRow(title: 'Inspect prepared multipart request', enabled: enabled,
+            onTap: () => _inspect(run.inspectPreparedMultipart)),
+          if (run.multipartPrepared case final String preview)
+            SelectableText(preview),
+          for (final part in run.multipartControls)
+            if (part['choiceMessage'] case final String message)
+              BusyApiStatusBox(message: '${part['name']}: $message'),
+          for (final part in run.multipartControls)
+            if (part['schemas'] is List && (part['schemas'] as List).length > 1)
+              BusyApiComboRow<String?>(title: '${part['name']} · ${l.requestStructuredValue}',
+                values: {null, if (run.partSchemas[part['name']] case final String retained) retained,
+                  for (final schema in part['schemas'] as List) schema['id'] as String}.toList(),
+                selected: run.partSchemas[part['name']] ?? part['selected'] as String?,
+                labelFor: (value) => value ?? l.requestFileShapeChoose,
+                enabled: enabled, onSelected: (value) => run.selectPartSchema(part['name'] as String, value)),
+        ],
         for (final option in options) ...[
           if (run.bodyFiles.any((file) => file.name == option.name) &&
               option.fileShapes.length > 1)
@@ -92,6 +131,12 @@ class RequestPartMediaEditor extends StatelessWidget {
             enabled: enabled,
             onTap: () => run.selectPartMedia(name, null),
           ),
+        for (final entry in run.partSchemas.entries.where((entry) => entry.key.isNotEmpty &&
+            !run.multipartControls.any((part) => part['name'] == entry.key &&
+                (part['schemas'] as List? ?? const []).any((schema) => schema['id'] == entry.value))))
+          BusyApiActionRow(title: '${entry.key} · ${entry.value}',
+            subtitle: l.requestPartMediaStale, enabled: enabled,
+            onTap: () => run.selectPartSchema(entry.key, null)),
         for (final entry in run.fileShapes.entries.where(
           (entry) =>
               !options.any(
@@ -121,5 +166,14 @@ class RequestPartMediaEditor extends StatelessWidget {
           ),
       ],
     );
+  }
+
+  Future<void> _inspect(Future<void> Function() action) async {
+    try { await action(); }
+    on CoreFailure catch (error) {
+      run.failure = error.code;
+      run.failureMessage = error.message;
+      run.refresh(draftChanged: false);
+    }
   }
 }

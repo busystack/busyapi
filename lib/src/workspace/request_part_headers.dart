@@ -14,9 +14,9 @@ class RequestPartHeadersEditor extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l = context.l10n;
-    final generic =
-        run.plan!.formBindingForMedia(run.bodyMediaType) ==
-            RequestFormBinding.namedMultipart &&
+    final generic = run.multipartTree
+        ? run.multipartControls.any((part) => (part['name'] == run.partHeaderPart || part['partName'] == run.partHeaderPart) && part['formData'] == false && part['emitted'] != false)
+        : run.plan!.formBindingForMedia(run.bodyMediaType)?.multipart == true &&
         run.bodyMediaType?.split(';').first.trim().toLowerCase() !=
             'multipart/form-data';
     final editable = !run.busy && !run.hasComposingInput;
@@ -24,6 +24,13 @@ class RequestPartHeadersEditor extends StatelessWidget {
       title: Text(l.requestPartHeaders),
       children: [
         BusyApiStatusBox(message: l.requestPartHeadersHelp),
+        if (run.multipartTree)
+          for (final part in run.multipartControls)
+            if (part['emitted'] != false)
+              for (final header in part['headerControls'] as List? ?? const [])
+                BusyApiStatusBox(message: '${part['name']} · ${header['name']}'
+                  '${header['required'] == true ? ' · required' : ''}'
+                  '${header['reason'] is String ? ': ${header['reason']}' : ''}'),
         for (final (index, header) in run.partHeaders.indexed)
           BusyApiActionRow(
             title: '${header.part} · ${header.name}',
@@ -34,7 +41,9 @@ class RequestPartHeadersEditor extends StatelessWidget {
               onPressed: editable ? () => run.removePartHeader(index) : null,
             ),
           ),
-        if (generic) ...[
+        if (generic || run.multipartTree) ...[
+          if (run.multipartTree && !generic)
+            const BusyApiStatusBox(message: 'Inspect current parts and enter the JSON pointer of a generic MIME part. Additional headers are unavailable on form-data parts.'),
           RequestDraftEntry(
             run: run,
             label: l.requestMultipartName,
@@ -60,8 +69,9 @@ class RequestPartHeadersEditor extends StatelessWidget {
             title: l.requestAddHeader,
             enabled:
                 editable &&
+                generic &&
                 run.partHeaders.length < 2048 &&
-                run.partHeaderPart.isNotEmpty &&
+                run.hasPartHeaderOwner &&
                 run.partHeaderName.isNotEmpty,
             onTap: run.addPartHeader,
           ),

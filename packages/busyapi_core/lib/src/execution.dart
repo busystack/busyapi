@@ -487,6 +487,121 @@ class OperationRequestPlan {
     return RequestFormBinding.fromJson(media?['formBinding']);
   }
 
+  bool hasDeclaredBodyMedia(String? mediaType) {
+    final body = result['requestBody'];
+    final content = body is Map ? body['content'] : null;
+    return content is List && selectDeclaredMedia(content.whereType<Map>(), mediaType) != null;
+  }
+
+  bool get hasBodyMediaRanges {
+    final body = result['requestBody'];
+    final content = body is Map ? body['content'] : null;
+    return content is List && content.whereType<Map>().any((media) =>
+      media['mediaChoices'] is Map && media['mediaChoices']['allowsCustom'] == true);
+  }
+
+  bool usesMultipartTree(String? mediaType, {bool typed = false}) {
+    final body = result['requestBody'];
+    final content = body is Map ? body['content'] : null;
+    if (content is! List || mediaType == null) return false;
+    final media = selectDeclaredMedia(content.whereType<Map>(), mediaType);
+    return media?['multipart'] is Map && (media!['multipart']['usesTree'] == true || typed && media['multipart']['typedTree'] == true);
+  }
+
+  List<Map> multipartRootChoices(String? mediaType) {
+    final body = result['requestBody'];
+    final content = body is Map ? body['content'] : null;
+    if (content is! List || mediaType == null) return const [];
+    final media = selectDeclaredMedia(content.whereType<Map>(), mediaType);
+    final choices = media?['multipart'] is Map ? media!['multipart']['rootChoices'] : null;
+    return choices is List ? choices.whereType<Map>().toList() : const [];
+  }
+
+  Future<String> appendMultipartValue(String text, String pointer, String value) async {
+    final projected = await _formProjection('requestMultipartAppend',
+      {'text': text, 'pointer': pointer, 'value': value},
+      'multipart-edit-${DateTime.now().microsecondsSinceEpoch}', null);
+    if (projected['version'] != 1 || projected['text'] is! String) {
+      throw CoreFailure('request.multipart.protocol', 'Invalid exact multipart draft edit.');
+    }
+    return projected['text'] as String;
+  }
+
+  /// Captured Engine policy is shared by native, saved cases and CLI. File
+  /// metadata contains instance pointers; only Core acquires the file bytes.
+  Future<Map<String, dynamic>> multipartPlan(
+    String mediaType,
+    String text, {
+    List<Map<String, Object?>> files = const [],
+    Map<String, String> choices = const {},
+    Map<String, String> partSchemas = const {},
+    Map<String, MultipartFileShape> fileShapes = const {},
+    List<Map<String, String>> literalFields = const [],
+    List<RequestPartHeaderValue> headers = const [],
+    String? wire,
+    String? wireType,
+    bool inspect = false,
+    required String requestId,
+    RunCancellation? cancellation,
+  }) async {
+    final projected = await _formProjection('requestMultipartPlan', {
+      ...snapshot.toJson(),
+      'resource': (operation['source'] as Map)['resource'],
+      'pointer': (operation['source'] as Map)['pointer'],
+      'occurrence': operation['occurrence'],
+      'mediaType': mediaType,
+      'text': text,
+      'files': files,
+      'choices': choices,
+      'partSchemas': partSchemas,
+      'fileShapes': {for (final entry in fileShapes.entries) entry.key: entry.value.name},
+      'literalFields': literalFields,
+      'headers': {
+        for (final part in headers.map((header) => header.part).toSet())
+          part: [for (final header in headers.where((header) => header.part == part))
+            {'name': header.name, 'value': header.value}],
+      },
+      if (wire != null) 'wire': wire,
+      if (wireType != null) 'wireType': wireType,
+      if (inspect) 'inspect': true,
+    }, requestId, cancellation);
+    if (projected['version'] != 1 || projected['identity'] != identity ||
+        projected['snapshot'] != snapshot.identity ||
+        projected['representationRevisions'] is! Map ||
+        jsonEncode(projected['representationRevisions']) != jsonEncode(result['representationRevisions']) ||
+        projected['tree'] is! Map || projected['controls'] is! List ||
+        projected['partSchemas'] is! Map || projected['fileShapes'] is! Map ||
+        projected['input'] != textIdentity(text) ||
+        wire != null && (projected['proof'] is! Map || projected['proof']['complete'] != true || projected['proof']['valid'] != true)) {
+      throw CoreFailure('request.multipart.protocol', 'The worker returned an unrelated multipart preparation.');
+    }
+    return projected;
+  }
+
+  Future<void> proveNamedMultipart(String mediaType, String wireType, String wire, {
+    String? expected,
+    bool partialFiles = false,
+    List<Map<String, Object?>> files = const [],
+    Map<String, MultipartFileShape> fileShapes = const {},
+    required String requestId,
+    RunCancellation? cancellation,
+  }) async {
+    final projected = await _formProjection('requestMultipartNamedProof', {
+      ...snapshot.toJson(),
+      'resource': (operation['source'] as Map)['resource'],
+      'pointer': (operation['source'] as Map)['pointer'],
+      'occurrence': operation['occurrence'],
+      'mediaType': mediaType, 'wireType': wireType, 'wire': wire,
+      'expected': expected, 'partialFiles': partialFiles, 'files': files,
+      'fileShapes': {for (final entry in fileShapes.entries) entry.key: entry.value.name},
+    }, requestId, cancellation);
+    if (projected['version'] != 1 || projected['snapshot'] != snapshot.identity ||
+        projected['identity'] != identity || projected['proof'] is! Map ||
+        projected['proof']['complete'] != true || projected['proof']['valid'] != true) {
+      throw CoreFailure('request.multipart.protocol', 'Named multipart byte identity could not be established.');
+    }
+  }
+
   Future<Uint8List> readProjectFile(String relative) async {
     ensureCurrentOwner();
     final path = p.normalize(
@@ -1084,14 +1199,19 @@ class RuntimeFormTarget {
     required this.pointer,
     this.occurrence,
     this.fileShapes = const {},
+    this.partSchemas = const {},
+    this.partMediaTypes = const {},
   });
   final String resource, pointer;
   final String? occurrence;
   final Map<String, MultipartFileShape> fileShapes;
+  final Map<String, String> partSchemas, partMediaTypes;
   Map<String, Object> toJson() => {
     'resource': resource,
     'pointer': pointer,
     if (occurrence != null) 'occurrence': occurrence!,
+    if (partSchemas.isNotEmpty) 'partSchemas': partSchemas,
+    if (partMediaTypes.isNotEmpty) 'partMediaTypes': partMediaTypes,
     if (fileShapes.isNotEmpty)
       'fileShapes': {
         for (final entry in fileShapes.entries) entry.key: entry.value.name,
@@ -1274,6 +1394,7 @@ extension RequestPlanning on BusyProject {
         result['identity'] is! String ||
         result['complete'] != true ||
         result['representationRevisions'] is! Map ||
+        (result['representationRevisions'] as Map)['multipart'] != '2' ||
         (result['representationRevisions'] as Map)['schemaExamples'] != '3' ||
         result['operation'] is! Map ||
         result['servers'] is! List ||

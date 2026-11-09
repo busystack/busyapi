@@ -168,3 +168,38 @@ for(const version of ['3.2.0','3.2.1'])for(const format of ['yaml','json'])for(c
  const before=input.resources.map(resource=>resource.text),result=await evaluateSchemas({...input,runtimeInstances:[{subject:'request-body',location:'grouping',text,mediaType:type+'; boundary=Fixture',schema:{resource:input.root,pointer:pointer+'/schema'},form:{resource:input.root,pointer,fileShapes:{asset:'array'}}}]});
  assert.equal(result.complete,false,JSON.stringify(result.runtimeFindings));assert(result.runtimeFindings.some(finding=>finding.detailCode==='runtime.form.file-shape'),JSON.stringify(result.runtimeFindings));assert.deepEqual(input.resources.map(resource=>resource.text),before);
 });
+
+for(const version of ['3.2.0','3.2.1'])for(const format of ['yaml','json'])test(`${version} ${format} ordered file pointers preserve binary capture identity`,async()=>{
+ const {requestMultipartPlan}=require(path.join(engine,'dist/execution.cjs'));
+ const {createHash}=require('node:crypto');
+ const source=packet(version,format,'single'),value=YAML.parse(source.resources[0].text);
+ value.paths['/files'].post.requestBody.content={'multipart/mixed':{schema:{type:'array',minItems:2,maxItems:2,prefixItems:[{type:'object',required:['id'],properties:{id:{type:'integer'}}},{}]},prefixEncoding:[{contentType:'application/json'},{contentType:'image/png, application/octet-stream'}]}};
+ source.resources[0].text=format==='json'?JSON.stringify(value):YAML.stringify(value);
+ const bytes=Buffer.from([0,255,128,195,169,13,10]),identity=createHash('sha256').update(bytes).digest('hex');
+ const input={...source,mediaType:'multipart/mixed',text:'[{"id":9007199254740993.00},null]',files:[{name:'/1',selected:'image/png',identity}],fileShapes:undefined};
+ const projected=await requestMultipartPlan(input);assert.equal(projected.tree.parts[1].file,0);assert.equal(projected.tree.parts[1].name,undefined);
+ const body=Buffer.concat([Buffer.from('--W4\r\nContent-Type: application/json\r\n\r\n{"id":9007199254740993.00}\r\n--W4\r\nContent-Disposition: attachment; filename="data.bin"\r\nContent-Type: image/png\r\n\r\n'),bytes,Buffer.from('\r\n--W4--\r\n')]);
+ const proof=await requestMultipartPlan({...input,wire:body.toString('base64'),wireType:'multipart/mixed; boundary=W4'});assert.equal(proof.proof.valid,true);
+ await assert.rejects(requestMultipartPlan({...input,files:[{...input.files[0],identity:'0'.repeat(64)}],wire:body.toString('base64'),wireType:'multipart/mixed; boundary=W4'}),error=>error.code==='request.multipart.file.identity');
+ await assert.rejects(requestMultipartPlan({...input,files:[{name:'/9',selected:'image/png'}]}),error=>error.code==='request.multipart.codec.unsupported'||error.code==='request.multipart.file.stale');
+ await assert.rejects(requestMultipartPlan({...input,files:[{name:'/1'}]}),error=>error.code==='request.form.content-type'&&error.source.pointer.endsWith('/prefixEncoding/1'));
+});
+
+test('named groups and nullable typed values survive the captured tree without changing existing file inputs',async()=>{
+ const {requestMultipartPlan}=require(path.join(engine,'dist/execution.cjs'));
+ const {createHash}=require('node:crypto');
+ const input=packet('3.2.1','json','array'),value=JSON.parse(input.resources[0].text);
+ value.paths['/files'].post.requestBody.content['multipart/form-data'].schema.properties.nullable={type:['string','null'],contentEncoding:'base64'};
+ value.paths['/files'].post.requestBody.content['multipart/form-data'].encoding.asset.contentType='application/octet-stream';
+ const model=YAML.parse(input.resources[1].text);model.File.items.contentEncoding='base64';model.File.contentEncoding='base64';
+ input.resources[0].text=JSON.stringify(value);input.resources[1].text=YAML.stringify(model);
+ const typed={...input,text:'{"nullable":null}',files:['a','b'].map(text=>({name:'asset',identity:createHash('sha256').update(text).digest('hex')}))};
+ const plan=await requestMultipartPlan(typed);
+ assert.deepEqual(plan.files.map(file=>file.name),['/asset/0','/asset/1']);
+ assert.match(plan.partSchemas['/nullable'],/::type=null$/);
+ assert.deepEqual(plan.fileShapes,{asset:'array'});
+ const body='--W4\r\nContent-Disposition: form-data; name="nullable"\r\nContent-Type: text/plain\r\n\r\nnull\r\n'+
+  ['YQ==','Yg=='].map(value=>'--W4\r\nContent-Disposition: form-data; name="asset"\r\nContent-Type: application/octet-stream\r\nContent-Transfer-Encoding: base64\r\n\r\n'+value+'\r\n').join('')+'--W4--\r\n';
+ const proof=await requestMultipartPlan({...typed,wire:Buffer.from(body).toString('base64'),wireType:'multipart/form-data; boundary=W4'});
+ assert.equal(proof.proof.valid,true);assert.equal(proof.proof.instance,'{"nullable":null,"asset":["YQ==","Yg=="]}');
+});

@@ -33,8 +33,10 @@ source inspection or a successful build is not runtime acceptance.
 
 ## Active completion directive: application capabilities
 
-This source-inspection pass starts from `8e36f53775b702050d6307a81936c5782ca520a0`
-on `release/v0.1.0`. The revised completion directive supersedes every historical **next assignment**
+The application-capability directive was established at
+`8e36f53775b702050d6307a81936c5782ca520a0`. The W4.01 follow-up starts from
+`28c65c5f6c66c1bd35d44f40f2055c533813f05e` on `release/v0.1.0`.
+The revised completion directive supersedes every historical **next assignment**
 in this file. Do not start B05-R3d-1b-5 or resume the migration microtask sequence.
 Existing migration implementations, certificates and regression sources remain
 intact. The W register remains the single detailed inventory; the application
@@ -66,19 +68,23 @@ acceptance must retain each exact authored patch declaration.
 | Reference resolution/navigation | U | U | U | U | `reference_graph.ts`, `reference_choices.ts`, source assistance and Core resource capture; contextual/dynamic/native-connection suites exist. Full external/mixed-role qualification remains unverified. |
 | Reference maintenance/refactoring | P | P | P | P | `refactoring_copy.ts` extract/move/inline, file/property/Markdown owners, Core file/refactoring transactions and native review, CLI refactor. W6-M1 resource relocation and W6-M2 shared Markdown/compatible ownership separation are source-complete, unverified within their stated proof boundaries. General schema-position and mixed-reference-role closure, unavailable dynamic proofs and full workflow qualification remain explicit. |
 | Native documentation/export | U | U | U | U | `reference_projection.ts`, `derived_bundle.ts`, Core `documentation.dart`/`documentation_sources.dart`, native documentation actions, CLI build-docs. Native offline HTML publication exists; complete relocation/rendering closure and pinned adapter compatibility remain unverified (W6.04). |
-| Requests/responses/authentication | P | P | P | P | Core `request.dart`/`execution.dart`, shared execution/security/runtime owners and native Request controls; existing HTTP/security/header/media suites. XML/Linkset mapping and stream integration remain missing; typed multipart restrictions below also apply. Standard implemented security flows are not missing because execution is held; full device-flow qualification remains unverified. |
+| Requests/responses/authentication | P | P | P | P | Core `request.dart`/`execution.dart`, shared execution/security/runtime owners and native Request controls; existing HTTP/security/header/media suites. XML/Linkset mapping and stream integration remain missing; W4.01 typed multipart generation is source-complete, unverified as recorded below. Standard implemented security flows are not missing because execution is held; full device-flow qualification remains unverified. |
 | Example interpretation/selection | P | P | P | P | `example_representation.ts`, serialized/external example owners and Core captured selections; native external-body and CLI saved-case paths exist. W4.07 retains binary Parameter/Header/part choice gaps; occurrence-free reusable media must not guess context. |
 | Mock execution/response validation | P | P | P | P | `mock_server.ts`, `mock_native_validation.ts`, generation adapter and Core `mock.dart`; exact external-byte/status/header/schema checks exist. W5.04 witness generation/media coverage remains incomplete; 3.2 CONNECT has an explicit ordinary-transport refusal. |
 | Contract testing | P | P | P | P | Core `execution.dart` and CLI test use native request/response evaluation and saved cases. Existing conformance/HTTP/CLI fixtures are unexecuted; missing wire models and streaming constrain complete conformance. |
 | CLI headless workflows | P | P | P | P | `packages/busyapi_core/bin/busyapi.dart` dispatches init/check/lint/bundle/build-docs/refactor/migrate/diff/mock/test/import/generate to Core. Native family/reference/refactoring CLI suites exist. Shared execution/media/maintenance gaps also affect CLI; a desktop completion popup is not a separate CLI requirement. |
 | Save/reopen/source retention | I | I | I | I | Core document store/publication and engine CST edits retain declaration, exact numbers, extensions, BOM/newlines and unaffected source; no-op/ownership/transaction/publication fixtures exist. Current-revision execution remains held. |
 
+W4.01 typed multipart generation is **SOURCE COMPLETE, unverified** within the
+codec, representation and resource boundaries in the W4.01 handoff below. This
+is a capability status; neither overall BusyAPI SOURCE COMPLETE nor ACCEPTED
+is achieved.
+
 The following gaps have direct production evidence rather than just missing test
 results. They are required native application work, not specification limits:
 
 | Capability | Current implementation | Missing consumer behavior / completion criterion |
 | --- | --- | --- |
-| Typed multipart | Named generation and finite ordered/nested decoding exist. Core `request.dart` explicitly refuses a missing named binding and positional Encoding in structured generation. | W4.01: one captured typed ordered/nested generation policy, native choice controls and saved-case/CLI preparation; emitted bytes must pass the original declaration and response/mock evaluation. Raw-byte execution alone does not close it. |
 | XML wire model | XML authoring/metadata/relationship checks exist in `xml_semantics.ts`; runtime media has no modeled XML codec. | W4.04: shared modeled encoder/decoder, namespaces/order/escaping/node semantics, no external acquisition; requests, responses, examples, mocks and cases must consume it. |
 | Linkset wire model | `runtimeMediaKind` classifies `application/linkset` as opaque. | W4.05: shared Linkset/JSON-model mapping in runtime/header handling, request/response/example/mock/CLI integration and malformed-input handling. |
 | Incremental streaming | Finite JSON Lines, JSON sequences, SSE and multipart decoding plus transport byte accumulation exist. | W5.01–02: incremental transport evaluation, backpressure/progress, bounded retention, cancellation and terminal malformed/truncated results through Core/native/CLI. Transport chunks alone are not incremental conformance. |
@@ -3281,7 +3287,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 
 | ID / requirement and authority | Production owner | Surfaces | Prepared regression coverage | Implementation status / remaining closure | Executed acceptance |
 | --- | --- | --- | --- | --- | --- |
-| W4.01 Named/ordered/nested multipart generation and decoding, typed/file/union choice, dynamic encoding, media/headers/transfers and exact bytes; O32 Encoding, MIME | runtime form/multipart/encoding owners; Core `request.dart`; native Request | A R E S C | generic/positional/nested/multipart-header/file-shape suites | Partially implemented; finite decoding exists; typed ordered/nested generation and captured choice controls are still missing in Core/native paths | H |
+| W4.01 Named/ordered/nested multipart generation and decoding, typed/file/union choice, dynamic encoding, media/headers/transfers and exact bytes; O32 Encoding, MIME | runtime form/multipart/encoding owners; Core `request.dart`; native Request | A R E S C | generic/positional/nested/multipart-header/file-shape suites | SOURCE COMPLETE, unverified; captured named/ordered/nested generation, per-instance schema/media/Header choices, approved file captures, original-declaration byte proof, native controls and shared saved-case/CLI preparation are implemented. Specific unavailable codecs, ambiguous bindings and work limits remain located failures; see the W4.01 handoff | H |
 | W4.02 Parameter styles, collectionFormat, whole-query content, omission/empty/reserved/Unicode/exact numbers; family Parameter clauses, URI/WIRE | parameter/header codecs, Core request controls | A E S C | parameter/style/optional serialized/Swagger header suites, `test_runtime_parameter_serialization`, Core runtime-proof/external-parameter suites | Partially implemented; complete parameter serializations now evaluate through their captured declaration in Core execution; original Swagger flat/Items rules, exact numbers and header octets are retained; remaining occurrence-specific representations still need closure | H |
 | W4.03 Repeated content/style field lines and Set-Cookie; HTTP §§5.2–5.5, O32 §4.21, RFC 6265 | `http_field_lines.ts`, runtime/MIME/parameter owners; Core `response_field_capture.dart`, connection adapter, `proxy_tls_socket.dart`; exact mock proxy | A R E S C | runtime header, mock header/parameter/exact-proxy suites; Core `repeated_header_fields_test`, `response_field_capture_test`, `http_proxy_transport_test`, response-header/CLI suites | Source-complete, unverified; known field definitions authorize ordered list combination; known singleton repeats are invalid; unknown repeated extensions remain separate and incomplete. Core captures original fields before SDK replacement, including HTTP proxy forwarding and verified HTTPS proxy tunnels. SDK proxy resolution/authentication and HTTP parsing remain authoritative; selected trust, hostname/client certificates, cancellation and standard HEAD semantics remain owned. Capture above 64 KiB or unsupported folding is explicitly incomplete | H |
 | W4.04 OAS XML data/wire mapping, namespaces/order/escaping and disabled external acquisition; O32 §4.26, XML/Namespaces | XML semantics plus runtime-media/Core codec integration | A R E S C | XML metadata suites only; wire coverage still required | Missing for modeled wire encoder/decoder across consumers; opaque bytes remain available with truthful evaluation limits | H |
@@ -3304,7 +3310,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W7.01 Creation, editing, unsaved Reference, request/example/mock/case, migration review, documentation and CLI integration for every capability; all applicable clauses above | shared engine, Core owners and native workspace controls | A R E M S C | engine/Core/widget/native journey suites | Partially implemented; applicable existing consumers inherit shared field/codec/routing changes; complete family journeys are not accepted | H |
 | W7.02 Stale-action invalidation on declaration/dialect/root/external/approval changes; coherent reviewed transactions, Undo/Redo and no buffer loss; Core transaction contract | Core project/store/capture and native review/request controllers | A R E M S C | stale capture/cancellation/publication/widget review suites | Partially implemented; existing source for existing safeguards; new paths require current integration qualification | H |
 | W7.03 CST fidelity, no-op saves, exact values, aliases, extensions and source-only migration restructuring; TEXT | `document.ts`, graph/CST editing, Core store/transaction owners | A R M S C | source ownership/alias/exact-value/no-op suites | Partially implemented; existing source for existing boundaries; generated schema owners retain original provenance and reviewed restructuring | H |
-| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+62`, migration producer `104`, response mock producer `5`, parameter mock producer `6`, sample producer is now `4`; no dependency versions/source changed | H |
+| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+63`, multipart projection `2`, migration producer `104`, response mock producer `5`, parameter mock producer `6`, sample producer is now `4`; no dependency versions/source changed | H |
 | W8.01 Explicit independent evidence input across SDK/build/CMake/CI/installed/package checks; PINS | `flutter_archive.py`, SDK verifier, `build_linux.sh`, CMake, package/native-distribution/artifact-smoke inputs | P | `tools/test_flutter_sdk.py`, source-wiring regressions | Partially implemented; existing source for archive-input propagation; same existing evidence reaches installed checks; independent member pins remain an alternative; no SDK acquisition/replacement | H; actual evidence availability/authenticity has not been qualified |
 | W8.02 Ordered gates, registration, source-version-valid fixtures and production-byte regressions; PINS and each row's authority | `tools/build_engine.sh`, Linux workflow, engine/Core/widget/native/package suites | P | new direct-Swagger/conditional/tuple-tail/constant-containment/property-name/runtime-parameter and URI-security/OAuth-flow/invariant regressions registered; existing TypeScript-before-bundle gate retained | Partially implemented; compilation and all suspended gates remain unexecuted; missing regression coverage identified in this register remains implementation work | H |
 | W8.03 Current automated/native/packaged/offline acceptance and normal Quit; all approved families and PINS | native acceptance tools, Core/package/CLI suites | A R E M S C P | existing native acceptance including historical Quit/focus failures; complete new journeys still required | Missing for accepted evidence; no driver/engine attribution established; Snapcraft remains skipped | H |
@@ -4897,6 +4903,172 @@ native controls. No additional refactoring ticket sequence is created.
 | W6.01–W6.03 maintenance | W6-M1/M2 close their bounded resource/Markdown/compatible ownership cases. General schema-bearing-position closure, virtual occurrences needing explicit physical YAML ownership, independent container/member schema roles and shared-reference-role splitting retain their concrete eligibility/proof boundaries above. Do not automatically expand each boundary into a speculative conversion assignment. |
 | W6.04 Reference/export/adapters | Existing native/offline implementation remains U for complete rendered-field/relocation and pinned-adapter qualification. Maintenance Markdown equivalence alone does not establish complete export/native Reference acceptance. |
 | W7 native professional journeys | Existing capture/review/history/publication owners and new regressions are prepared; full authenticated native-family journeys and packaged acceptance remain held. |
-| Next concrete implementation priority | **W4.01 typed multipart generation:** one captured typed ordered/nested generation policy, native choice controls, saved-case/CLI preparation, and emitted-byte proof against the original declaration through request/response/mock consumers. Core's missing named-binding and structured positional-generation refusals remain actual production gaps. Complete this professional workflow before further speculative conversion/refactoring work. |
+| Next concrete implementation priority | **XML/Linkset wire mapping (W4.04/W4.05).** W4.01 is source-complete, unverified as recorded below. Continue application-capability work; do not automatically resume B05 migration or W6 refactoring microtasks. The execution hold remains active. |
 | Other application gaps | XML/Linkset wire mapping, transport-integrated streaming, CONNECT mocks, remaining mock witnesses and example/part selection remain P/M as recorded in the application matrix. They were not implemented or declared complete here. |
 | Migration and acceptance | Existing migration work remains intact and separately reconciled in Phase 3; B05 is not resumed. Phase 4 still requires explicit authorization lifting the execution hold and complete current-revision verification. |
+
+
+## W4.01 — Native typed multipart generation handoff (2026-11-09)
+
+**SOURCE COMPLETE, unverified.** This increment starts at
+`28c65c5f6c66c1bd35d44f40f2055c533813f05e` in the primary
+`release/v0.1.0` checkout. No compilation, analysis, tests, builds, generation,
+CI, graphical workloads or performance checks were executed. Snapcraft remains
+skipped. Overall BusyAPI SOURCE COMPLETE and ACCEPTED remain unmet.
+
+### Captured interpretation and production preparation
+
+`form_semantics.ts` is the version-aware authority for named versus ordered
+multipart, located schema alternatives, tuple/item paths and transport hints.
+`execution.ts` captures that policy with each request-media declaration;
+`multipart_generation.ts` projects the actual selected instance into directives
+for the existing Core serializer. It performs no file acquisition and introduces
+no alternate MIME parser. Swagger retains flat formData/file/required/repeated
+parameter interpretation and constraints. OpenAPI 3.0.0–3.0.4 and 3.1.0–3.1.2
+retain their named property/array and per-property Encoding semantics. OpenAPI
+3.2.0–3.2.1 additionally captures ordered form-data, unnamed generic multipart,
+prefixEncoding, itemEncoding, itemSchema and nested Encoding. Ignored or absent
+positions do not activate an Encoding codec. Named Encoding keys absent from
+captured schema properties and older-family newer keywords remain inactive.
+
+The former Core implementation-wide named-only and positional-Encoding refusal
+conditions have been replaced by actual structured generation. Ordered
+form-data uses an array of singleton name/value objects; generic multipart uses
+ordered array values. Named arrays emit repeated fields, including single-item
+arrays and index-specific tuple schemas. Optional tails are omitted by shortening
+the array. Null is an actual typed value; a file uses an explicit null placeholder
+and an instance JSON pointer. Legacy named file groups remain supported, with
+captured single/array choices. Empty optional collections omit fields; required
+collections that become absent on this wire must still satisfy the original
+schema. A zero-part entity is refused under RFC 2046.
+
+Each selected part retains original schema targets, its applicable Encoding and
+Header owners, name/position, media options and source location. Disjoint JSON
+kinds may select a unique captured representation; same-kind alternative codecs
+require an explicit captured choice. Logical choice routes survive ordinary
+resource relocation. Selected alternatives and their containing conditional or
+composition branches are evaluated against the original captured schemas;
+transport hints never replace those schemas.
+
+Core retains approved file access, freshness/ownership checks and immutable
+captures. The shared boundary/disposition framing helper and existing transfer,
+text and form codecs produce named, ordered and nested entities. File bytes
+remain binary; generic filenames use the existing MIME parameter rules,
+including an explicit UTF-8 extended filename when needed. Root charset
+parameters do not recode individual parts. Nested URL-encoded media alone use
+the existing form percent-encoding codec; multipart leaves remain unescaped.
+Explicit generic Header lines, media parameters, text charsets, transfer tokens,
+empty values and duplicate field multiplicity are preserved.
+
+Both legacy named generation and the typed tree path now submit actual emitted
+bytes to the existing MIME/runtime form decoder before dispatch. Leaf payloads,
+file hashes, filenames, ordering, transfer tokens, explicit tree Header values
+and exact typed values have identity checks. Original whole-content, item and
+selected-branch schemas plus applicable Headers are checked by the existing
+schema evaluator. Generated schema-invalid or incompletely proved bodies fail
+preparation. Raw serialized entities retain the existing outgoing validation
+report behavior, including deliberately invalid request/response controls.
+
+### Native, saved cases, CLI and existing consumers
+
+Native Request uses existing BusyAPI components for media selection, exact JSON
+entry, ordered-item append, captured representation/media choices, file picking,
+per-part Headers and prepared-byte inspection. Header declarations and reasons
+for controlled/ignored fields are visible. Append edits preserve exact numeric
+source through Engine CST editing. Draft snapshots retain choices, files, array
+edit state and operation/environment identity. A failed preparation leaves
+unrelated input available for correction; stale choices remain removable.
+Prepared inspection is cancelled and invalidated through the existing controller
+owners and closes its held captures.
+
+Saved cases accept named objects or ordered arrays, relative approved files,
+partMediaTypes, partSchemas, partHeaders and existing fileShapes. Core's existing
+contract-test runner and independent CLI use the same captured plan and builder.
+No CLI-only serializer or mock engine was added. Actual generated multipart bytes
+flow into existing outgoing and mock request validation; response validation
+continues to evaluate the actual response independently.
+
+Production owners changed:
+
+- Engine: `execution.ts`, `form_semantics.ts`, new
+  `multipart_generation.ts`, `runtime_form.ts`, `runtime_multipart.ts`,
+  `multipart_encoding.ts`, `multipart_header_values.ts`,
+  `runtime_evaluation.ts`, `server.ts`, `schema_reference_projection.ts` and
+  `schema_evaluation.ts`.
+- Core: `request.dart`, `execution.dart`, `form_media_types.dart`,
+  `multipart_encoding.dart`, `contract_test.dart` and `project.dart`.
+  Existing `form_serialization.dart`, transfer codecs and approved capture
+  owners are reused without another serializer or acquisition layer.
+- Native: `request_run.dart`, `request_part_media.dart` and
+  `request_part_headers.dart`.
+
+### Prepared regression evidence (all unexecuted)
+
+The required Engine suites remain registered in `tools/build_engine.sh`:
+`test_generic_multipart.cjs`, `test_multipart_encoding.cjs`,
+`test_runtime_multipart.cjs`, `test_form_semantics.cjs`,
+`test_multipart_file_shapes.cjs`, `test_multipart_header_generation.cjs` and
+`test_mock_positional_multipart.cjs`. Their extensions cover prefix/tail/nested
+planning and emitted-byte proof, ordered form-data duplicate names, ignored
+missing positions and older-family metadata, independent itemSchema, named
+unions and tuples, nullable/encoded values, selected file hashes, explicit
+Header content and dispositions, media alternatives, nested form content/styles
+and item kinds, exact numbers, relocation-stable choices and malformed/stale
+inputs. Existing exact-byte and original-schema negative controls remain.
+
+Core coverage extends `generic_multipart_execution_test.dart`,
+`positional_multipart_execution_test.dart`, `structured_form_execution_test.dart`,
+`multipart_file_shapes_test.dart`,
+`multipart_header_generation_execution_test.dart` and
+`multipart_framing_execution_test.dart`, `binary_multipart_execution_test.dart`
+and the existing transport/ownership suite. New typed production journeys include
+actual HTTP bytes, Swagger flat constraints/repeated fields/files, nested files,
+media choices, unsaved capture, original-schema
+predispatch failures, fixed-boundary collisions, cancellation/retry, capture
+retention when the original upload changes during proof, saved-case reopen,
+relocated independent CLI execution and generated bytes sent to the existing
+mock consumer. Existing approved upload regressions retain changes during
+acquisition and capture-cancellation controls. Core suites remain included by
+`tools/build_linux.sh`'s existing Core test-directory invocation.
+
+Native extensions to `multipart_file_shapes_test.dart`,
+`request_part_headers_test.dart` and `request_review_regressions_test.dart`
+cover both 3.2 patches and applicable older patches, required controls, exact
+entry/append, files/Headers/prepared inspection, invalid-input repair, retained
+operation/environment drafts and schema-invalid generated input with no second
+dispatch. Existing raw invalid-response/request controls remain separate.
+Producer expectation updates in other existing suites only admit this revision;
+they do not resume migration or refactoring implementation.
+
+### Specific remaining boundaries and verification
+
+There is no retained implementation-wide refusal of typed positional or required
+first-level nested multipart. Remaining failures identify the actual unavailable
+representation or proof: XML/Linkset and other media without a native modeled
+codec; an unsupported transfer/charset token; missing concrete media or schema
+choice; unresolved or genuinely dynamic annotation bindings; shared alternative
+leaves whose branch identity cannot be proved; schema-invalid selected values;
+undefined RFC6570 nested values or a multi-field exploded composite with no
+single ordered-position inverse; or a stale/ambiguous field ownership choice.
+A file supplies approved raw media bytes; it does not grant a missing modeled
+codec or schema proof. Nested multipart remains bounded to eight levels, 2048
+MIME parts and 2048 captured controls, together with existing schema-work,
+16 MiB typed-JSON, 64 MiB Engine frame and Core upload-size limits. No deeper or
+larger workflow is claimed beyond those bounds.
+
+Schema producer is `hyperjump+busyapi-exact` **1.18.0+63**, including
+`typed-multipart-generation-v1` and `nested-form-model-v1`. Multipart projection
+revision is **2**; schema-example projection stays **3**, protocol stays **1**
+and Engine package version stays **0.1.0**. Core admission and current regression
+pins agree. Mock/migration producer versions and third-party software, Flutter,
+Dart, dependencies, engines and SDKs were not changed. Packaged/generated assets
+were not rebuilt under the hold.
+
+Verification actually performed: production and regression-source inspection,
+consumer/registration searches, revision-pin inspection and `git diff --check`.
+These checks establish no test pass, compiler success, native journey or installed
+CLI success. All described runtime outcomes are prepared assertions awaiting
+execution authorization. The changes are to be committed locally without a push.
+
+**Next application capability: XML/Linkset wire mapping (W4.04/W4.05).** Do not
+automatically resume B05 migration, W6 refactoring, streaming or CONNECT work.

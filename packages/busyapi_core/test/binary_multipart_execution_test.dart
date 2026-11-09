@@ -198,6 +198,16 @@ void main() {
               'maxLength': 2,
             },
           );
+          if (version == '3.0.4') {
+            await expectLater(const ContractRequestExecutor().execute(
+              fixture.plan,
+              OperationRequestDraft(planIdentity: fixture.plan.identity,
+                body: const RequestBodyDraft.multipartValue(json: '{"exact":$_exact,"asset":"雪😀"}')),
+              resolveSecret: (_) async => null),
+              throwsA(isA<CoreFailure>().having((failure) => failure.code, 'code', 'request.multipart.conformance')));
+            expect(seen, isEmpty);
+            return;
+          }
           final result = await const ContractRequestExecutor().execute(
             fixture.plan,
             OperationRequestDraft(
@@ -214,7 +224,7 @@ void main() {
             true,
             reason: '${result.outgoing.toJson()}',
           );
-          expect(result.outgoing.valid, version != '3.0.4');
+          expect(result.outgoing.valid, isTrue);
           expect(
             latin1.decode(seen.single),
             contains(latin1.decode(utf8.encode('雪😀'))),
@@ -393,6 +403,14 @@ void main() {
               files: [MultipartFileValue(name: 'asset', path: upload.path)],
             ),
           );
+          if (bytes.length != 4) {
+            final dispatched = seen.length;
+            await expectLater(const ContractRequestBuilder().build(fixture.plan, draft,
+              resolveSecret: (_) async => null),
+              throwsA(isA<CoreFailure>().having((failure) => failure.code, 'code', 'request.multipart.conformance')));
+            expect(seen.length, dispatched);
+            continue;
+          }
           final prepared = await const ContractRequestBuilder().build(
             fixture.plan,
             draft,
@@ -412,16 +430,7 @@ void main() {
                 preparedBody: prepared.body,
               );
           expect(outgoing.complete, true, reason: '${outgoing.toJson()}');
-          expect(outgoing.valid, bytes.length == 4);
-          if (bytes.length != 4)
-            expect(
-              outgoing.findings.any(
-                (finding) =>
-                    finding['code'] == 'runtime.schema.incompatible' &&
-                    finding['pointer'] == '/asset',
-              ),
-              true,
-            );
+          expect(outgoing.valid, isTrue);
           final response = await const ContractHttpTransport().send(prepared);
           addTearDown(response.close);
           expect(response.status, 204);
@@ -484,6 +493,15 @@ void main() {
                     const RequestFormField('exact', _exact),
                     RequestFormField('asset', value),
                   ], const []);
+            if (value != '雪😀') {
+              final dispatched = seen.length;
+              await expectLater(const ContractRequestExecutor().execute(fixture.plan,
+                OperationRequestDraft(planIdentity: fixture.plan.identity, body: body),
+                resolveSecret: (_) async => null),
+                throwsA(isA<CoreFailure>().having((failure) => failure.code, 'code', 'request.multipart.conformance')));
+              expect(seen.length, dispatched);
+              continue;
+            }
             final result = await const ContractRequestExecutor().execute(
               fixture.plan,
               OperationRequestDraft(
@@ -498,7 +516,7 @@ void main() {
               true,
               reason: '${result.outgoing.toJson()}',
             );
-            expect(result.outgoing.valid, value == '雪😀');
+            expect(result.outgoing.valid, isTrue);
             expect(
               latin1.decode(seen.last),
               contains(latin1.decode(utf8.encode(value))),

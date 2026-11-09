@@ -109,7 +109,7 @@ for (const format of ['yaml', 'json']) for (const targetVersion of ['3.0.0','3.0
 });
 
 test('tuple schema bindings and migrations have distinct captured proof identities', () => {
-    assert.equal(schemaProducer.version, '1.18.0+62');
+    assert.equal(schemaProducer.version, '1.18.0+63');
     assert(schemaProducer.configuration.includes('swagger-schema-rules-v1'));
     assert(schemaProducer.configuration.includes('compound-unicode-v1'));
 });

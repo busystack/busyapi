@@ -1,10 +1,10 @@
-import {SourceDocument,SourceError,escape,type Range} from './document';
+import {SourceDocument,SourceError,escape,segments,type Range} from './document';
 import type {GraphTarget,ReferenceGraph} from './reference_graph';
 import {FormSemantics,formLiteralType,namedFileShapeSelection,type FormShape} from './form_semantics';
 import {ParameterSemantics} from './parameter_semantics';
 import {mediaTypeChoice,mediaTypes} from './media_types';
 import {decodeRuntimeMedia,runtimeMediaBytes,runtimeMediaKind,type RuntimeMediaData,type TextSerialization} from './runtime_media';
-import {MultipartEncoding} from './multipart_encoding';
+import {MultipartEncoding,type MultipartSchemaStep} from './multipart_encoding';
 import {decodeMultipartTransfer,multipartTextSerialization} from './multipart_transfer';
 import {embeddedMimeTextBytes} from './embedded_mime_text';
 import {mimeParts,mimePartDecodingType,mimeSingleton as singleton} from './mime_parts';
@@ -12,11 +12,13 @@ import {decodeRuntimeMultipart} from './runtime_multipart';
 import {mimeHeaders} from './mime_headers';
 import {MultipartFileShapes,type MultipartFileShape} from './multipart_file_shapes';
 import type {BinaryLocations} from './runtime_binary';
+import {decimal} from './exact_numbers';
 
-export type RuntimeFormTarget={resource:string;pointer:string;occurrence?:string;fileShapes?:Readonly<Record<string,MultipartFileShape>>};
+export type RuntimeFormTarget={resource:string;pointer:string;occurrence?:string;fileShapes?:Readonly<Record<string,MultipartFileShape>>;partSchemas?:Readonly<Record<string,string>>;partMediaTypes?:Readonly<Record<string,string>>};
+export type RuntimeFormModel={schema:GraphTarget;path:MultipartSchemaStep[];shape:FormShape;encoding:Record<string,unknown>;prefix:string};
 type Location={resource:string;pointer:string};
 export type FormIssue={code:string;message:string;pointer:string;severity:'error'|'warning';source:{resource:string;pointer:string;range:Range}};
-export type FormCheck={document:SourceDocument;schema?:Location;prefix:string;file?:boolean;binary?:BinaryLocations};
+export type FormCheck={document:SourceDocument;schema?:Location;prefix:string;file?:boolean;binary?:BinaryLocations;expectedValid?:boolean};
 export type RuntimeFormData=RuntimeMediaData&{checks:FormCheck[];issues:FormIssue[];fieldOrder?:readonly string[]};
 type Part={name:string;bytes:Buffer;encoded?:Buffer;headers:ReadonlyMap<string,string[]>};
 const object=(value:unknown):value is Record<string,unknown>=>value!==null&&typeof value==='object'&&!Array.isArray(value);
@@ -74,7 +76,7 @@ function parts(bytes:Buffer,contentType:string,allowGenericNamed:boolean):Part[]
 /** Contextual inversion of the canonical form projection, not a schema merger.
  * Scalar text is literal for strings and strict JSON for declared numeric,
  * boolean and null types. Content-based JSON keeps its CST numeric lexemes. */
-export function decodeRuntimeForm(text:string,id:string,contentType:string,base64:boolean,target:RuntimeFormTarget,subject:string,graph:ReferenceGraph,textSerialization?:TextSerialization):RuntimeFormData {
+export function decodeRuntimeForm(text:string,id:string,contentType:string,base64:boolean,target:RuntimeFormTarget,subject:string,graph:ReferenceGraph,textSerialization?:TextSerialization,model?:RuntimeFormModel):RuntimeFormData {
     if(!base64&&textSerialization==='embedded'&&mediaTypes(contentType,false)[0].type==='multipart'){
         text=embeddedMimeTextBytes(text,contentType).toString('base64');base64=true;
     }
@@ -90,8 +92,9 @@ export function decodeRuntimeForm(text:string,id:string,contentType:string,base6
     // MIME field lines already have their ASCII/UTF-8 framing proof. A
     // Header.content model does not replace the part body's serialization.
     const decodeHeaderForm=(text:string,id:string,type:string,target:RuntimeFormTarget)=>decodeRuntimeForm(text,id,type,false,target,subject,graph);
-    if(scope.family==='3.2'&&scope.kind==='media'&&mediaTypes(contentType,false)[0].type==='multipart'){
-        const decoded=decodeRuntimeMultipart(text,id,contentType,base64,target,graph,decodeHeaderForm,unicode);
+    if((scope.family==='3.2'||subject==='request-body')&&scope.kind==='media'&&mediaTypes(contentType,false)[0].type==='multipart'){
+        const decoded=decodeRuntimeMultipart(text,id,contentType,base64,target,graph,decodeHeaderForm,unicode,
+            (text,id,type,target,model)=>decodeRuntimeForm(text,id,type,true,target,subject,graph,undefined,model));
         if(decoded)return decoded;
     }
     const input=parts(runtimeMediaBytes(text,base64),contentType,scope.kind==='media'&&(scope.family==='3.0'||scope.family==='3.1')),multipart=mediaTypes(contentType,false)[0].type==='multipart';
@@ -99,6 +102,7 @@ export function decodeRuntimeForm(text:string,id:string,contentType:string,base6
     const genericHeaders=mimeHeaders(graph,id+'/headers',transfers,decodeHeaderForm);
     const checks:FormCheck[]=[],issues:FormIssue[]=[],members=new Map<string,string>(),claimed=new Map<Part,string>(),notes=new Set<string>();
     const binary=new Map<string,Buffer>();
+    const selectedFields:{pointer:string;schema:GraphTarget;type?:string;path:MultipartSchemaStep[]}[]=[];
     const document=(raw:string,suffix:string)=>{
         const result=new SourceDocument(raw,id+'/'+suffix,true,'json');
         if(result.issues.length)throw result.issues[0];return result;
@@ -160,18 +164,24 @@ export function decodeRuntimeForm(text:string,id:string,contentType:string,base6
             members.set(name,raw);checks.push({document:document(raw,'parameter/'+checks.length),schema:definition,prefix:'/'+escape(name)});
         }
     }else{
-        const media=scope.kind==='media',body=scope.family==='2.0'&&(scope.kind==='parameter'&&node.value?.in==='body'||scope.kind==='response');
+        const media=scope.kind==='media'||model!==undefined,body=scope.family==='2.0'&&(scope.kind==='parameter'&&node.value?.in==='body'||scope.kind==='response');
         if(!media&&!body)failure('runtime.form.owner','This source does not own a form media description');
-        if(subject==='request-body'&&(node.value?.prefixEncoding!==undefined||node.value?.itemEncoding!==undefined))
-            failure('runtime.form.positional.unsupported','This media description requires positional multipart decoding');
-        const schema:GraphTarget={resource:target.resource,pointer:target.pointer+'/schema',kind:'schema'},shape=forms.shape(schema.resource,schema.pointer),properties=shape.properties??{};
+        const schema:GraphTarget=model?.schema??{resource:target.resource,pointer:target.pointer+'/schema',kind:'schema'},shape=model?.shape??forms.shape(schema.resource,schema.pointer),properties=shape.properties??{};
         const selectedShapes=target.fileShapes??{},fileShapes=new MultipartFileShapes(graph);
         for(const [name,selected]of Object.entries(selectedShapes)){
             if(subject!=='request-body'||!namedFileShapeSelection(scope.family,contentType,false)||!fileShapes.choices(schema,name).includes(selected))
                 failure('runtime.form.file-shape','The file shape is not owned by this captured request media',schema);
         }
         const encodingApplies=subject==='request-body'||scope.family==='3.2';
-        const encoding=media&&encodingApplies&&object(node.value?.encoding)?node.value.encoding:{};
+        const encoding=forms.namedEncoding(model?.encoding??(media&&encodingApplies&&object(node.value?.encoding)?node.value.encoding:{}),[{schema,path:model?.path??[]}]);
+        const selectedField=(field:FormShape,path:MultipartSchemaStep[],pointer:string):FormShape=>{
+            const selection=model?target.partSchemas?.[model.prefix+pointer]:undefined;
+            if(selection===undefined)return field;
+            const choice=forms.partRepresentations({...target,kind:'media'},schema,path).find(choice=>choice.id===selection);
+            if(!choice)failure('runtime.form.representation','The selected nested field representation is absent from the captured declaration',schema,false);
+            selectedFields.push({pointer,schema:choice!.schema,type:choice!.type,path});
+            return forms.selectedShape(field,choice!.shape,choice!.schema);
+        };
         const styled=(rule:Record<string,unknown>)=>(!multipart||scope.family!=='3.0')&&['style','explode','allowReserved'].some(key=>Object.hasOwn(rule,key));
         for(const name of Object.keys(selectedShapes))if(styled(encoding[name]??{}))
             failure('runtime.form.file-shape','File shape choices require the captured MIME content binding',schema);
@@ -199,8 +209,7 @@ export function decodeRuntimeForm(text:string,id:string,contentType:string,base6
             }
         };
         const literal=(part:Part,field:FormShape,rule:Record<string,unknown>,name:string,array:boolean,pointer:string):string=>{
-            if(rule.encoding!==undefined||rule.prefixEncoding!==undefined||rule.itemEncoding!==undefined)
-                failure('runtime.form.nested.unsupported','This field requires nested multipart decoding',{resource:target.resource,pointer:target.pointer+'/encoding/'+escape(name)});
+            if(array)field=selectedField(field,[...(model?.path??[]),{property:name},{item:Number(segments(pointer).at(-1))}],pointer);
             const undeclared=!Object.hasOwn(properties,name)&&!Object.hasOwn(encoding,name);
             // 3.0/3.1 Encoding belongs to requests. A response's actual MIME
             // field line selects its decoder; an inferred request default is
@@ -208,7 +217,7 @@ export function decodeRuntimeForm(text:string,id:string,contentType:string,base6
             const type=formLiteralType(field),declared=multipart&&!encodingApplies?singleton(part.headers,'content-type')??'text/plain':typeof rule.contentType==='string'?rule.contentType:
                 multipart&&Object.hasOwn(selectedShapes,name)?transfers.fileContentType(schema,name,selectedShapes[name]):
                 undeclared&&multipart?singleton(part.headers,'content-type')??'text/plain':field.defaultContentType??(undeclared||scope.family==='3.0'?'text/plain':'application/octet-stream');
-            const concrete=multipart?singleton(part.headers,'content-type')??'text/plain':mediaTypeChoice(declared);
+            const concrete=multipart?singleton(part.headers,'content-type')??'text/plain':mediaTypeChoice(declared,model?target.partMediaTypes?.[model.prefix+'/'+escape(name)]:undefined);
             if(multipart)mediaTypeChoice(declared,concrete);
             const decodingType=mimePartDecodingType(concrete,!multipart||mediaTypes(contentType,false)[0].subtype==='form-data');
             const transfer=multipart&&graph.scopes.has(schema.resource+'#'+schema.pointer)?transfers.schemaEncoding(schema,name,array,type!==undefined&&type!=='string'?'other':undefined,Object.hasOwn(selectedShapes,name)):{schemaEncoded:false};
@@ -239,7 +248,9 @@ export function decodeRuntimeForm(text:string,id:string,contentType:string,base6
         };
         const names=new Set([...Object.keys(properties),...Object.keys(encoding),...input.map(part=>part.name)]);
         for(const name of names){
-            const field=properties[name]??{},rule=object(encoding[name])?encoding[name]:{},type=formLiteralType(field);
+            const path:MultipartSchemaStep[]=[...(model?.path??[]),{property:name}];
+            const field=selectedField(properties[name]??(model?forms.pathShape(schema,path):{}),path,'/'+escape(name));
+            const rule=object(encoding[name])?encoding[name]:{},type=formLiteralType(field);
             const named=input.filter(part=>part.name===name);
             if((Object.hasOwn(properties,name)||Object.hasOwn(encoding,name))&&named.some(part=>claimed.has(part)&&claimed.get(part)!==name))
                 failure('runtime.form.ambiguous','Two form declarations claim the same wire field',schema);
@@ -272,7 +283,7 @@ export function decodeRuntimeForm(text:string,id:string,contentType:string,base6
                     if(type==='array'){
                         const items=field.items??{},itemType=formLiteralType(items);
                         const tokens=explode?values.map(read):values.length===1?split(values[0]):failure('runtime.form.style','A separated array occurs more than once',schema,false);
-                        members.set(name,'['+tokens.map(token=>scalar(token,itemType)).join(',')+']');
+                        members.set(name,'['+tokens.map((token,index)=>scalar(token,formLiteralType(selectedField(field.prefixItems?.[index]??items,[...path,{item:index}],'/'+escape(name)+'/'+index))??itemType)).join(',')+']');
                     }else{if(values.length!==1)return syntax('A scalar form property occurs more than once');members.set(name,scalar(read(values[0]),type));}
                 }
                 continue;
@@ -281,12 +292,30 @@ export function decodeRuntimeForm(text:string,id:string,contentType:string,base6
             values.forEach(part=>claim(part,name));
             const selected=selectedShapes[name],array=selected!==undefined?selected==='array':type==='array'||values.length>1;
             if(!array&&values.length>1||selected===undefined&&values.length>1&&type!==undefined&&type!=='array'&&scope.family!=='3.2')return syntax('A non-array form property occurs more than once');
-            const item=array?field.items??{}:field,raw=values.map((part,index)=>literal(part,item,rule,name,array,'/'+escape(name)+(array?'/'+index:'')));
+            const item=array?field.items??{}:field,raw=values.map((part,index)=>literal(part,array?field.prefixItems?.[index]??item:item,rule,name,array,'/'+escape(name)+(array?'/'+index:'')));
             members.set(name,array?'['+raw.join(',')+']':raw[0]);
         }
     }
     if(unicode&&multipart&&input.some(part=>!claimed.has(part)))failure('runtime.media.unicode.unsupported','An uninterpreted MIME field has no established Unicode serialization');
     const result=document('{'+[...members].map(([name,value])=>JSON.stringify(name)+':'+value).join(',')+'}','body');
+    for(const selected of selectedFields){
+        const pointer=selected.pointer,node=result.dataNode(pointer);
+        if(!node)failure('runtime.form.representation','A selected nested field has no decoded instance',selected.schema,false);
+        // The original schema checks the value; type variants of that same
+        // schema also commit to the explicitly captured transport kind.
+        const value=document(result.dataJson(pointer),'selected/'+checks.length);
+        if(selected.type!==undefined&&!(selected.type==='integer'?value.root.kind==='number'&&decimal(value.dataJson('')).exponent>=0n:value.root.kind===selected.type))
+            failure('runtime.form.representation.type','The decoded nested field has another captured type',selected.schema,false);
+        checks.push({document:value,schema:selected.schema,prefix:pointer});
+        if(model)for(const assertion of forms.partSchemaAssertions(model.schema,selected.path,selected.schema)){
+            // Ancestor alternatives are checked by the outer multipart decoder;
+            // this owner can evaluate assertions at or below its nested object.
+            if(assertion.path.length<model.path.length)continue;
+            const actual=segments(pointer);
+            const local=assertion.path.slice(model.path.length).map((step,index)=>'property' in step?'/'+escape(step.property):'/'+(step.item??actual[index])).join('');
+            if(result.dataNode(local))checks.push({document:document(result.dataJson(local),'selected-branch/'+checks.length),schema:assertion.schema,prefix:local,expectedValid:assertion.valid});
+        }
+    }
     return {document:result,...(binary.size?{binaryInstances:new Map<SourceDocument,BinaryLocations>([[result,binary]])}:{}),kind:multipart?'multipart-form':'form-urlencoded',checks,issues,
         fieldOrder:input.map(part=>claimed.get(part)??part.name)};
 }

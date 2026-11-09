@@ -75,3 +75,22 @@ for(const version of versions)for(const format of ['yaml','json'])test(`${versio
  }
  assert.equal(JSON.stringify(input.resources),original);
 });
+
+for(const version of ['3.2.0','3.2.1'])for(const format of ['yaml','json'])test(`${version} ${format} ordered Header values use actual position and original Header schema`,async()=>{
+ const {requestMultipartPlan}=require(path.join(engine,'dist/execution.cjs'));
+ const input=fixture(version,format),value=YAML.parse(input.resources[0].text);
+ value.paths['/parts'].post.requestBody.content['multipart/mixed']={schema:{type:'array',items:{type:'string'}},itemEncoding:{contentType:'text/plain',headers:{'X-Meta':{$ref:'headers.yaml#/Alias'}}}};
+ input.resources[0].text=format==='yaml'?YAML.stringify(value):JSON.stringify(value);
+ const typed={...input,text:'["value"]',files:[],headers:{'/0':[{name:'X-Meta',value:meta}]}};
+ const plan=await requestMultipartPlan(typed);assert.equal(plan.tree.parts[0].headers[0].value,meta);
+ const wire=value=>'--W4\r\nContent-Type: text/plain\r\nX-Meta: '+value+'\r\n\r\nvalue\r\n--W4--\r\n';
+ assert.equal((await requestMultipartPlan({...typed,wire:Buffer.from(wire(meta)).toString('base64'),wireType:'multipart/mixed; boundary=W4'})).proof.valid,true);
+ await assert.rejects(requestMultipartPlan({...typed,wire:Buffer.from(wire(meta.replace('9007199254740993.00','9007199254740992'))).toString('base64'),wireType:'multipart/mixed; boundary=W4'}),error=>error.code==='request.multipart.conformance');
+ await assert.rejects(requestMultipartPlan({...typed,headers:{'/8':[{name:'X-Meta',value:meta}]}}),error=>error.code==='request.multipart.choice.stale');
+ const disposition={...typed,headers:{'/0':[{name:'X-Meta',value:meta},{name:'Content-Disposition',value:'inline'}]}};
+ const selected=await requestMultipartPlan(disposition);
+ assert.equal(selected.tree.parts[0].allowDisposition,true);
+ assert.equal((await requestMultipartPlan({...disposition,wire:Buffer.from(wire(meta).replace('X-Meta:', 'Content-Disposition: inline\r\nX-Meta:')).toString('base64'),wireType:'multipart/mixed; boundary=W4'})).proof.valid,true);
+ await assert.rejects(requestMultipartPlan({...disposition,headers:{'/0':[{name:'Content-Disposition',value:'inline'},{name:'content-disposition',value:'attachment'}]}}),error=>error.code==='request.multipart.header.singleton');
+ await assert.rejects(requestMultipartPlan({...disposition,wire:Buffer.from(wire(meta).replace('X-Meta:', 'Content-Disposition: attachment\r\nX-Meta:')).toString('base64'),wireType:'multipart/mixed; boundary=W4'}),error=>error.code==='request.multipart.identity');
+});

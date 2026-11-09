@@ -102,7 +102,7 @@ class MultipartHeaderLine {
   final String name, value;
   final CoreFailureSource? source;
 
-  factory MultipartHeaderLine.fromJson(Object? raw) {
+  factory MultipartHeaderLine.fromJson(Object? raw, {bool allowDisposition = false}) {
     if (raw is! Map || raw['name'] is! String || raw['value'] is! String)
       _invalid();
     final name = raw['name'] as String, value = raw['value'] as String;
@@ -112,9 +112,9 @@ class MultipartHeaderLine {
         RegExp(r'[^\x20-\x7e]').hasMatch(value) ||
         const [
           'content-type',
-          'content-disposition',
           'content-transfer-encoding',
-        ].contains(name.toLowerCase()))
+        ].contains(name.toLowerCase()) ||
+        name.toLowerCase() == 'content-disposition' && !allowDisposition)
       _invalid();
     return MultipartHeaderLine(name, value, _multipartSource(raw['source']));
   }

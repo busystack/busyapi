@@ -1,6 +1,6 @@
 import type {GraphReference,GraphTarget} from './reference_graph';
 
-export const multipartProjectionRevision='1';
+export const multipartProjectionRevision='2';
 
 export type SchemaReferenceProjection =
     {state:'fixed';target:GraphTarget} |

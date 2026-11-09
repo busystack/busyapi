@@ -372,7 +372,7 @@ class ContractTestRunner {
           value.entries.any(
             (e) =>
                 e.key is! String ||
-                (e.key as String).isEmpty ||
+                (e.key as String).isEmpty && !const ['body/partSchemas', 'body/partMediaTypes'].contains(path) ||
                 e.value is! String,
           ))
         invalid(
@@ -477,17 +477,17 @@ class ContractTestRunner {
             .toLowerCase();
         if (!(essence == 'application/x-www-form-urlencoded' ||
                 essence.startsWith('multipart/')) ||
-            body['value'] is! Map)
+            (body['value'] is! Map && body['value'] is! List))
           invalid(
             'body/partMediaTypes',
-            'Part media choices require object-valued form data.',
+            'Part media choices require structured form data.',
           );
       }
       if (body.containsKey('partHeaders')) {
         final fields = body['partHeaders'];
         if (fields is! List ||
             fields.length > 2048 ||
-            body['value'] is! Map ||
+            (body['value'] is! Map && body['value'] is! List) ||
             !(body['mediaType'] as String)
                 .split(';')
                 .first
@@ -496,7 +496,7 @@ class ContractTestRunner {
                 .startsWith('multipart/')) {
           invalid(
             'body/partHeaders',
-            'Part headers require object-valued multipart input and bounded field lines.',
+            'Part headers require structured multipart input and bounded field lines.',
           );
         }
         for (var i = 0; i < fields.length; i++) {
@@ -511,7 +511,7 @@ class ContractTestRunner {
         }
       }
       if (body.containsKey('files') || body.containsKey('fileShapes')) {
-        if (body['value'] is! Map ||
+        if ((body['value'] is! Map && body['value'] is! List) ||
             !(body['mediaType'] as String)
                 .split(';')
                 .first
@@ -520,7 +520,7 @@ class ContractTestRunner {
                 .startsWith('multipart/')) {
           invalid(
             'body/files',
-            'File inputs require object-valued multipart data.',
+            'File inputs require structured multipart data.',
           );
         }
         final files = body.containsKey('files') ? body['files'] : const [];
@@ -540,7 +540,6 @@ class ContractTestRunner {
                 ].contains(key),
               ) ||
               file['name'] is! String ||
-              (file['name'] as String).isEmpty ||
               (file['name'] as String).length > 8192 ||
               file['path'] is! String ||
               (file['path'] as String).isEmpty ||
@@ -574,6 +573,13 @@ class ContractTestRunner {
               'Expected single or array choices for selected file names.',
             );
           }
+        }
+      }
+      if (body.containsKey('partSchemas')) {
+        strings(body['partSchemas'], 'body/partSchemas', allowEmpty: true);
+        if (!(body['mediaType'] as String).toLowerCase().startsWith('multipart/') ||
+            body['value'] is! Map && body['value'] is! List) {
+          invalid('body/partSchemas', 'Representation choices require structured multipart data.');
         }
       }
     }
@@ -675,7 +681,7 @@ class ContractTestRunner {
       if (((partHeaders.isNotEmpty ||
                   files.isNotEmpty ||
                   fileShapes.isNotEmpty) &&
-              binding != RequestFormBinding.namedMultipart) ||
+              binding?.multipart != true) ||
           (partMediaTypes.isNotEmpty && binding == null)) {
         throw CoreFailure(
           'request.multipart.header.owner',
@@ -689,7 +695,7 @@ class ContractTestRunner {
                 mediaType: media,
                 partMediaTypes: partMediaTypes,
               ),
-              RequestFormBinding.namedMultipart =>
+              RequestFormBinding.namedMultipart || RequestFormBinding.orderedMultipart =>
                 RequestBodyDraft.multipartValue(
                   json: text,
                   mediaType: media,
@@ -697,6 +703,7 @@ class ContractTestRunner {
                   partHeaders: partHeaders,
                   files: files,
                   fileShapes: fileShapes,
+                  partSchemas: (rawBody['partSchemas'] as Map? ?? const {}).cast<String, String>(),
                 ),
               null => RequestBodyDraft.raw(mediaType: media, text: text),
             }

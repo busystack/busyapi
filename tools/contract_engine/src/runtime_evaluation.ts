@@ -35,13 +35,14 @@ function suppliedInstance(value:unknown):RuntimeInstance {
  const header=(value:unknown)=>schema(value)&&'name' in value&&typeof value.name==='string'&&value.name.length<=4096&&
   'values' in value&&Array.isArray(value.values)&&value.values.length>0&&value.values.length<=2048&&value.values.every(value=>typeof value==='string');
  const shapes=(value:unknown)=>value!==null&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length<=2048&&Object.values(value).every(shape=>shape==='single'||shape==='array');
+ const partSchemas=(value:unknown)=>value!==null&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length<=2048&&Object.entries(value).every(([key,value])=>key.length<=8192&&typeof value==='string'&&value.length<=16384);
  if(typeof item.text!=='string'||item.text.length>64*1024*1024||typeof item.subject!=='string'||item.subject.length>1024||
   typeof item.location!=='string'||item.location.length>4096||item.schema!==undefined&&!schema(item.schema)||
   item.parameter!==undefined&&(!schema(item.parameter)||Object.keys(item.parameter).some(name=>!['resource','pointer'].includes(name))||item.subject!=='request-parameter'||
    ['schema','itemSchema','media','mediaType','form','alternatives','swaggerHeader','header','textSerialization','unicodeSerialization','mediaBase64'].some(name=>item[name]!==undefined))||
   item.itemSchema!==undefined&&!schema(item.itemSchema)||item.mediaType!==undefined&&(typeof item.mediaType!=='string'||item.mediaType.length>16384)||
   item.media!==undefined&&(!schema(item.media)||item.mediaType===undefined&&item.subject!=='response-body'||item.form!==undefined||!['request-body','response-body'].includes(item.subject))||
-  item.form!==undefined&&(!schema(item.form)||'occurrence' in item.form&&(typeof item.form.occurrence!=='string'||item.form.occurrence.length>4096)||'fileShapes' in item.form&&(!shapes(item.form.fileShapes)||item.subject!=='request-body')||item.mediaType===undefined)||
+  item.form!==undefined&&(!schema(item.form)||'occurrence' in item.form&&(typeof item.form.occurrence!=='string'||item.form.occurrence.length>4096)||'fileShapes' in item.form&&(!shapes(item.form.fileShapes)||item.subject!=='request-body')||'partSchemas' in item.form&&(!partSchemas(item.form.partSchemas)||item.subject!=='request-body')||'partMediaTypes' in item.form&&(!partSchemas(item.form.partMediaTypes)||item.subject!=='request-body')||item.mediaType===undefined)||
   item.mediaBase64!==undefined&&typeof item.mediaBase64!=='boolean'||item.mediaBase64===true&&item.mediaType===undefined&&item.media===undefined||
   item.textSerialization!==undefined&&(item.textSerialization!=='embedded'&&item.textSerialization!=='unicode'||item.unicodeSerialization!==true)||
   item.unicodeSerialization!==undefined&&typeof item.unicodeSerialization!=='boolean'||item.unicodeSerialization===true&&(item.mediaType===undefined||item.mediaBase64===true)||
@@ -173,6 +174,13 @@ async function evaluateRuntimeValues(runtime:unknown,owner:Owner,diagnostics?:{o
     let result:Output;
     try{result=interpret(ast,owner.exact.exactInstance(check.document,'',undefined,false,check.binary??decoded.binaryInstances?.get(check.document)),BASIC);instances++;}
     finally{owner.exact.setDirection(undefined);}
+    if(check.expectedValid===false){
+     const valid=result.valid===false;
+     evaluations.push({subject:supplied.subject,location:supplied.location,pointer:check.prefix,complete:true,valid,representation:decoded.kind,schema:check.schema});
+     if(!valid)add({code:'runtime.form.representation.condition',severity:'error',subject:supplied.subject,location:supplied.location,pointer:check.prefix,
+      message:'The selected else representation is not applicable to this instance.',schema:{...check.schema,range:owner.graph.docs.get(scope.resource)?.dataNode(scope.pointer)?.range}});
+     continue;
+    }
     evaluations.push({subject:supplied.subject,location:supplied.location,pointer:check.prefix,complete:true,valid:result.valid,representation:decoded.kind,schema:check.schema});
     if(result.valid===false){
      if(!result.errors?.length)throw new SourceError('runtime.protocol','Invalid schema output omitted its findings');

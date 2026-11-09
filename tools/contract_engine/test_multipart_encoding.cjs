@@ -84,7 +84,9 @@ for(const version of ['3.0.4','3.1.2','3.2.1'])test(`${version} conflicting tran
   await assert.rejects(requestMultipartEncoding(changed),error=>error.code==='request.reference'&&error.range[1]>error.range[0]);
  }
  const forbidden=mutate(input,media=>{media.encoding.encoded.headers['X-Custom']={schema:{type:'string'}};});
- await assert.rejects(requestMultipartEncoding(forbidden),error=>error.code==='request.multipart.headers');
+ const ignored=await requestMultipartEncoding(forbidden);
+ assert.equal(ignored.parts.encoded.string.encoding,'base64');
+ await assert.rejects(requestMultipartEncoding({...forbidden,headers:{encoded:[{name:'X-Custom',value:'x'}]}}),error=>error.code==='request.multipart.header.forbidden');
 });
 
 test('legacy byte format is not a modern content encoding, and non-string instances ignore modern content annotations',async()=>{
@@ -137,3 +139,24 @@ test('file array unions cannot silently select scalar annotations or item annota
 require('./migration_b05_r3d1_fixture.cjs')('multipart');
 
 require('./migration_b05_r3d1b_fixture.cjs')('multipart');
+
+for(const version of ['3.2.0','3.2.1'])for(const format of ['yaml','json'])test(`${version} ${format} positional transfer choices retain annotation and Header ownership`,async()=>{
+ const {requestMultipartPlan}=require('./dist/execution.cjs');
+ let input=mutate(packet(version,format),media=>{
+  media.schema={type:'array',prefixItems:[{type:'string',contentEncoding:'base64'}],items:{type:'boolean'}};
+  delete media.encoding;
+  media.prefixEncoding=[{contentType:'application/octet-stream',headers:{'Content-Transfer-Encoding':{$ref:'shared.yaml#/Header'}}}];
+  media.itemEncoding={contentType:'text/plain'};
+ });
+ // Use generic MIME so the data model is the declared positional array.
+ input.resources[0].text=input.resources[0].text.replaceAll('multipart/form-data','multipart/mixed');
+ input={...input,mediaType:'multipart/mixed',text:'["AP8=",false]',files:[]};
+ const projected=await requestMultipartPlan(input);
+ assert.equal(projected.tree.parts[0].transfer.encoding,'base64');
+ assert.equal(projected.tree.parts[0].transfer.schemaEncoded,true);
+ assert.equal(projected.tree.parts[1].text,'false');
+ const value=YAML.parse(input.resources[0].text);
+ value.paths['/upload'].post.requestBody.content['multipart/mixed'].schema.prefixItems[0].contentEncoding='rot13';
+ input.resources[0].text=format==='json'?JSON.stringify(value):YAML.stringify(value);
+ await assert.rejects(requestMultipartPlan(input),error=>error.code==='request.multipart.header.invalid'||error.code==='request.multipart.encoding.unsupported');
+});

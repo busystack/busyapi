@@ -201,7 +201,7 @@ void main() {
       );
     }
   });
-  for (final version in ['2.0', '3.0.4', '3.1.2', '3.2.1'])
+  for (final version in ['2.0', '3.0.0', '3.0.1', '3.0.2', '3.0.3', '3.0.4', '3.1.0', '3.1.1', '3.1.2', '3.2.0', '3.2.1'])
     for (final format in ['yaml', 'json']) {
       test(
         '$version $format saved form cases use native serialization in core and installed CLI',
@@ -358,7 +358,7 @@ void main() {
       );
     }
 
-  for (final method in ['requestFormDataValues', 'requestFormMediaTypes'])
+  for (final method in ['requestFormDataValues', 'requestFormMediaTypes', 'requestMultipartPlan', 'requestMultipartNamedProof'])
     for (final outcome in ['cancelled', 'closed', 'version-changed']) {
       test(
         'structured form $method preparation cannot send after $outcome',
@@ -370,7 +370,21 @@ void main() {
           final engine = _DelayedFormEngine(method);
           addTearDown(engine.close);
           final file = File('${temp.path}/api.yaml');
-          final original = _source('3.0.4', 1, 'yaml');
+          final tree = method == 'requestMultipartPlan';
+          final named = method == 'requestMultipartNamedProof';
+          final original = tree || named ? '''openapi: 3.2.1
+info: {title: Multipart cancellation, version: '1'}
+servers: [{url: 'http://127.0.0.1:1'}]
+paths:
+  /parts:
+    post:
+      requestBody:
+        content:
+          ${tree ? 'multipart/mixed' : 'multipart/form-data'}:
+            ${tree ? 'itemSchema: {type: boolean}' : 'schema: {type: object, properties: {value: {type: boolean}}}'}
+            ${tree ? 'itemEncoding: {contentType: text/plain}' : 'encoding: {value: {contentType: text/plain}}'}
+      responses: {'204': {description: Empty}}
+''' : _source('3.0.4', 1, 'yaml');
           await file.writeAsString(original);
           final project = await BusyProject.open(file.path, engine);
           addTearDown(project.close);
@@ -384,10 +398,11 @@ void main() {
             occurrence: operation['occurrence'] as String,
           );
           addTearDown(plan.close);
-          final token = RunCancellation(), data = _data('3.0.4');
+          final token = RunCancellation(), data = tree ? '[false]' : named ? '{"value":false}' : _data('3.0.4');
           final draft = OperationRequestDraft(
             planIdentity: plan.identity,
-            body: RequestBodyDraft.formValue(json: data),
+            body: tree || named ? RequestBodyDraft.multipartValue(json: data, mediaType: tree ? 'multipart/mixed' : 'multipart/form-data')
+              : RequestBodyDraft.formValue(json: data),
           );
           final pending = const ContractRequestBuilder().build(
             plan,
@@ -416,7 +431,8 @@ void main() {
             final buffer = await project.buffer(file.uri.toString());
             project.store.replace(
               buffer.id,
-              buffer.text.replaceFirst('3.0.4', '3.1.2'),
+              tree || named ? buffer.text.replaceFirst('3.2.1', '3.2.0')
+                  : buffer.text.replaceFirst('3.0.4', '3.1.2'),
             );
           }
           engine.release.complete();

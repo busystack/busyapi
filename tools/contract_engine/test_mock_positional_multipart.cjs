@@ -15,6 +15,12 @@ for(const version of ['3.2.0','3.2.1'])for(const format of ['json','yaml'])for(c
  const source=(format==='json'?JSON.stringify(value):'# Keep exact values 雪\r\n'+YAML.stringify(value).replaceAll('\n','\r\n')).replaceAll(format==='json'?'"EXACT"':'EXACT','9007199254740993.00');
  const input=mockStart(source,{},'file:///mock-fixture/api.'+format),original=JSON.stringify(input.capture),{port}=await startMock(t,input);
  const send=body=>mockRequest(port,'/parts',body,{mediaType:'multipart/mixed; boundary=Fixture'});
+ const {requestMultipartPlan}=require('./dist/execution.cjs');
+ const typed={...input.capture,resource:input.capture.root,pointer:'/paths/~1parts/post',mediaType:'multipart/mixed',
+  text:nested?'[{"id":9007199254740993.00},[false,0]]':'[{"id":9007199254740993.00},""]',files:[]};
+ const prepared=await requestMultipartPlan(typed);
+ assert.equal(prepared.tree.parts[0].text,'{"id":9007199254740993.00}');
+ assert.equal((await requestMultipartPlan({...typed,wire:Buffer.from(wire('9007199254740993.00',nested)).toString('base64'),wireType:'multipart/mixed; boundary=Fixture'})).proof.valid,true);
  const positive=await send(wire('9007199254740993.00',nested));assert.equal(positive.status,204,positive.text);
  for(const body of [wire('9007199254740992',nested),wire('9007199254740993.00',nested).replace('"id":','"missing":'),wire('9007199254740993.00',nested).replace('--Fixture--','--Other--'),
   ...(nested?[wire('9007199254740993.00',nested).replace('false','true')]:[])]){

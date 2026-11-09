@@ -86,9 +86,17 @@ class RequestRunController extends ChangeNotifier {
   bool bodyEnabled = false;
   bool bodyStructured = false;
   final Map<String, String> partMediaTypes = {};
+  final Map<String, String> partSchemas = {};
+  List<Map<String, dynamic>> multipartControls = const [];
+  String multipartArrayPointer = '', multipartNewValue = 'null';
+  String? multipartPrepared;
+  bool get multipartTree => plan?.usesMultipartTree(bodyMediaType,
+      typed: bodyStructured && (bodyFiles.isEmpty || bodyFiles.any((file) => file.name.startsWith('/')))) == true;
   final Map<String, MultipartFileShape> fileShapes = {};
   final List<RequestPartHeaderValue> partHeaders = [];
   String partHeaderPart = '', partHeaderName = '', partHeaderValue = '';
+  bool get hasPartHeaderOwner => partHeaderPart.isNotEmpty ||
+      plan?.formMediaOptions(bodyMediaType).any((option) => option.name.isEmpty) == true;
   int _epoch = 0;
   final Map<(BusyProject?, OperationRequestPlan?, String?), int>
   _credentialWrites = {};
@@ -171,13 +179,7 @@ class RequestRunController extends ChangeNotifier {
       (plan?.outdated ?? false) ||
       plan != null && _draftIdentity != plan!.identity;
   bool get hasDeclaredBodyMediaType {
-    if (bodyMediaType == null) return false;
-    final body = plan?.result['requestBody'];
-    final content = body is Map ? body['content'] : null;
-    return content is List &&
-        content.whereType<Map>().any(
-          (media) => media['mediaType'] == bodyMediaType,
-        );
+    return plan?.hasDeclaredBodyMedia(bodyMediaType) == true;
   }
 
   bool get bodyMediaNeedsSelection => bodyEnabled && !hasDeclaredBodyMediaType;
@@ -187,7 +189,7 @@ class RequestRunController extends ChangeNotifier {
     if (bodyEnabled) {
       final binding = captured.formBindingForMedia(bodyMediaType);
       if (bodyKind == RequestBodyKind.multipart &&
-              binding != RequestFormBinding.namedMultipart ||
+              binding?.multipart != true ||
           bodyKind == RequestBodyKind.form &&
               binding != RequestFormBinding.urlEncoded) {
         return true;
@@ -222,7 +224,7 @@ class RequestRunController extends ChangeNotifier {
       phase = 'ready';
       failure = failureMessage = null;
     }
-    if (draftChanged) ++_draftRevision;
+    if (draftChanged) { ++_draftRevision; multipartPrepared = null; }
     _previewTimer?.cancel();
     final epoch = ++_previewEpoch;
     effectiveRequest = previewFailure = null;
@@ -298,6 +300,7 @@ class RequestRunController extends ChangeNotifier {
                       mediaType: bodyMediaType!,
                       partMediaTypes: Map.of(partMediaTypes),
                       fileShapes: Map.of(fileShapes),
+                      partSchemas: Map.of(partSchemas),
                       partHeaders: [
                         ...partHeaders,
                         if (partHeaderName.isNotEmpty)
@@ -314,6 +317,7 @@ class RequestRunController extends ChangeNotifier {
                       mediaType: bodyMediaType!,
                       partMediaTypes: Map.of(partMediaTypes),
                       fileShapes: Map.of(fileShapes),
+                      partSchemas: Map.of(partSchemas),
                       partHeaders: [
                         ...partHeaders,
                         if (partHeaderName.isNotEmpty)
@@ -364,6 +368,10 @@ class RequestRunController extends ChangeNotifier {
     bodyFiles.clear();
     partMediaTypes.clear();
     bodyKind = _kindForMedia(media);
+    multipartControls = const [];
+    multipartPrepared = null;
+    if (multipartTree) bodyStructured = true;
+    if (bodyText.isEmpty && plan?.formBindingForMedia(media) == RequestFormBinding.orderedMultipart) bodyText = '[]';
     if (bodyKind != RequestBodyKind.form &&
         bodyKind != RequestBodyKind.multipart) {
       bodyStructured = false;
@@ -371,10 +379,19 @@ class RequestRunController extends ChangeNotifier {
     refresh();
   }
 
+  void editBodyMedia(String media) {
+    if (busy || hasComposingInput) return;
+    bodyMediaType = media;
+    bodyKind = _kindForMedia(media);
+    if (multipartTree) bodyStructured = true;
+    multipartControls = const [];
+    refresh();
+  }
+
   RequestBodyKind _kindForMedia(String? media) =>
       switch (plan?.formBindingForMedia(media)) {
         RequestFormBinding.urlEncoded => RequestBodyKind.form,
-        RequestFormBinding.namedMultipart => RequestBodyKind.multipart,
+        RequestFormBinding.namedMultipart || RequestFormBinding.orderedMultipart => RequestBodyKind.multipart,
         null => RequestBodyKind.raw,
       };
 
@@ -387,10 +404,77 @@ class RequestRunController extends ChangeNotifier {
     refresh();
   }
 
+  Future<void> inspectMultipartParts() async {
+    if (busy || hasComposingInput || !multipartTree) return;
+    final captured = plan!, revision = _draftRevision, text = bodyText;
+    final projected = await captured.multipartPlan(bodyMediaType!, bodyStructured ? text : '{}',
+      files: [for (final file in bodyFiles) {
+        'name': file.name,
+        if (file.selectedMediaType != null) 'selected': file.selectedMediaType,
+      }], choices: Map.of(partMediaTypes), partSchemas: Map.of(partSchemas),
+      fileShapes: Map.of(fileShapes),
+      literalFields: bodyStructured ? const [] : [for (final field in formRows(bodyText)) {'name': field.name, 'value': field.value}],
+      headers: List.of(partHeaders), inspect: true,
+      requestId: 'native-multipart-parts-${DateTime.now().microsecondsSinceEpoch}');
+    if (_disposed || !identical(captured, plan) || revision != _draftRevision || text != bodyText) return;
+    multipartControls = (projected['controls'] as List)
+        .map((part) => Map<String, dynamic>.from(part as Map)).toList();
+    _notify();
+  }
+
+  Future<void> appendMultipartPart() async {
+    if (busy || hasComposingInput || !multipartTree) return;
+    final captured = plan!, revision = _draftRevision, text = bodyText;
+    final result = await captured.appendMultipartValue(text,
+      multipartArrayPointer, multipartNewValue);
+    if (_disposed || !identical(captured, plan) || revision != _draftRevision || text != bodyText) return;
+    bodyText = result;
+    refresh();
+    await inspectMultipartParts();
+  }
+
+  void selectPartSchema(String pointer, String? value) {
+    if (busy || hasComposingInput) return;
+    if (value == null) { partSchemas.remove(pointer); } else { partSchemas[pointer] = value; }
+    if (pointer.isEmpty && bodyText.isEmpty && value != null) {
+      final choice = plan!.multipartRootChoices(bodyMediaType).where((choice) => choice['id'] == value).firstOrNull;
+      if (choice != null) bodyText = choice['binding'] == 'multipart-ordered' ? '[]' : '{}';
+    }
+    refresh();
+  }
+
+  Future<void> inspectPreparedMultipart() async {
+    if (busy || hasComposingInput || !multipartTree) return;
+    final captured = plan!, revision = _draftRevision;
+    final cancellation = RunCancellation();
+    this.cancellation = cancellation;
+    phase = 'preparing';
+    _notify();
+    try {
+      final prepared = await const ContractRequestBuilder().build(captured,
+        draft(), resolveSecret: (_) async => '[REDACTED]', cancellation: cancellation);
+      try {
+        final preview = <int>[];
+        await for (final chunk in prepared.body!.open()) {
+          cancellation.throwIfCancelled();
+          preview.addAll(chunk.take(4096 - preview.length));
+          if (preview.length == 4096) break;
+        }
+        if (!_disposed && identical(captured, plan) && revision == _draftRevision) {
+          multipartPrepared = '${prepared.body!.mediaType}\n${prepared.body!.length} bytes\n'
+              '${preview.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join(' ')}';
+        }
+      } finally { await prepared.body?.close(); }
+    } finally {
+      if (identical(this.cancellation, cancellation)) this.cancellation = null;
+      if (!_disposed && identical(captured, plan)) { phase = 'ready'; _notify(); }
+    }
+  }
+
   void addPartHeader() {
     if (busy ||
         hasComposingInput ||
-        partHeaderPart.isEmpty ||
+        !hasPartHeaderOwner ||
         partHeaderName.isEmpty) {
       return;
     }
@@ -493,6 +577,11 @@ class RequestRunController extends ChangeNotifier {
     bodyStructured = false;
     partMediaTypes.clear();
     fileShapes.clear();
+    partSchemas.clear();
+    multipartControls = const [];
+    multipartPrepared = null;
+    multipartArrayPointer = '';
+    multipartNewValue = 'null';
     partHeaders.clear();
     partHeaderPart = partHeaderName = partHeaderValue = '';
     connectTimeout = const Duration(seconds: 15);
@@ -526,6 +615,8 @@ class RequestRunController extends ChangeNotifier {
           .whereType<String>()
           .firstOrNull;
       bodyKind = _kindForMedia(bodyMediaType);
+      if (multipartTree) bodyStructured = true;
+      if (bodyText.isEmpty && plan?.formBindingForMedia(bodyMediaType) == RequestFormBinding.orderedMultipart) bodyText = '[]';
     }
   }
 
@@ -785,7 +876,9 @@ class RequestRunController extends ChangeNotifier {
       return;
     }
     void validateText(Iterable<String> values) {
-      if (kind == RequestBodyKind.raw) {
+      if (kind == RequestBodyKind.multipart) {
+        ContentType.parse(type);
+      } else if (kind == RequestBodyKind.raw) {
         ContractRequestBuilder.validateRawTextCharset(type, values);
       } else {
         ContractRequestBuilder.validateTextCharset(type, values);
@@ -805,7 +898,7 @@ class RequestRunController extends ChangeNotifier {
     // retains its kinds and owns the applicable serialization checks.
     final formData =
         example['representation'] != 'serialized' &&
-        example['dataKind'] == 'object' &&
+        (example['dataKind'] == 'object' || plan!.usesMultipartTree(type) && example['dataKind'] == 'array') &&
         (kind == RequestBodyKind.form || kind == RequestBodyKind.multipart);
     if (!formData && example['conversionError'] is String ||
         example['representation'] != 'serialized' &&
@@ -880,12 +973,6 @@ class RequestRunController extends ChangeNotifier {
         bodyKind != RequestBodyKind.binaryFile &&
         _kindForMedia(bodyMediaType) == RequestBodyKind.multipart;
     final part = multipart ? bodyFilePart.trim() : 'file';
-    if (multipart && part.isEmpty) {
-      throw CoreFailure(
-        'request.multipart.name',
-        'Enter a multipart field name before choosing a file',
-      );
-    }
     if (busy || hasComposingInput) return;
     bodyExample = null;
     if (!multipart) {
@@ -1445,6 +1532,9 @@ class _RequestDraftState {
       bodyExample = run.bodyExample,
       bodyStructured = run.bodyStructured,
       partMediaTypes = Map.of(run.partMediaTypes),
+      partSchemas = Map.of(run.partSchemas),
+      multipartArrayPointer = run.multipartArrayPointer,
+      multipartNewValue = run.multipartNewValue,
       fileShapes = Map.of(run.fileShapes),
       partHeaders = List.of(run.partHeaders),
       partHeaderDraft = (
@@ -1477,7 +1567,8 @@ class _RequestDraftState {
   final RequestBodyKind kind;
   final CapturedRequestBodyExample? bodyExample;
   final bool bodyStructured;
-  final Map<String, String> partMediaTypes;
+  final Map<String, String> partMediaTypes, partSchemas;
+  final String multipartArrayPointer, multipartNewValue;
   final Map<String, MultipartFileShape> fileShapes;
   final List<RequestPartHeaderValue> partHeaders;
   final (String, String, String) partHeaderDraft;
@@ -1492,6 +1583,8 @@ class _RequestDraftState {
   final int? security;
   int get bytes =>
       (body.length +
+          multipartArrayPointer.length + multipartNewValue.length +
+          partSchemas.entries.fold<int>(0, (n, entry) => n + entry.key.length + entry.value.length) +
           fileShapes.keys.fold<int>(0, (size, name) => size + name.length + 5) +
           partHeaders.fold<int>(
             0,
@@ -1536,6 +1629,9 @@ class _RequestDraftState {
     run.bodyExample = bodyExample == null ? null : run.plan?.restoreBodyExample(bodyExample!) ?? bodyExample;
     run.bodyStructured = bodyStructured;
     run.partMediaTypes.addAll(partMediaTypes);
+    run.partSchemas.addAll(partSchemas);
+    run.multipartArrayPointer = multipartArrayPointer;
+    run.multipartNewValue = multipartNewValue;
     run.fileShapes.addAll(fileShapes);
     run.partHeaders.addAll(partHeaders);
     run.partHeaderPart = partHeaderDraft.$1;
@@ -3141,7 +3237,7 @@ class _BodyEditor extends StatelessWidget {
     final selectedMedia = mediaType?.split(';').first.trim().toLowerCase();
     final binding = run.plan!.formBindingForMedia(mediaType);
     final form = binding == RequestFormBinding.urlEncoded;
-    final multipart = binding == RequestFormBinding.namedMultipart;
+    final multipart = binding?.multipart == true;
     final formInput =
         run.bodyKind == RequestBodyKind.form ||
         run.bodyKind == RequestBodyKind.multipart;
@@ -3185,6 +3281,10 @@ class _BodyEditor extends StatelessWidget {
           },
         ),
         if (run.bodyEnabled) ...[
+          if (run.plan!.hasBodyMediaRanges)
+            RequestDraftEntry(run: run, label: l.requestPartMediaConcrete,
+              value: run.bodyMediaType ?? '', enabled: !run.busy,
+              onChanged: run.editBodyMedia),
           if (run.bodyExample == null && (run.bodyStructured && formInput ||
               selectedMedia == 'application/json' ||
               selectedMedia?.endsWith('+json') == true))
@@ -3232,7 +3332,7 @@ class _BodyEditor extends StatelessWidget {
             BusyApiSwitchRow(
               title: l.requestStructuredValue,
               value: run.bodyStructured,
-              enabled: !run.busy && !run.hasComposingInput,
+              enabled: !run.busy && !run.hasComposingInput && (!run.multipartTree || !run.bodyStructured),
               onChanged: (value) {
                 run.bodyStructured = value;
                 run.refresh();
@@ -3269,7 +3369,7 @@ class _BodyEditor extends StatelessWidget {
                 RequestPartMediaEditor(run: run),
                 if (multipart &&
                         formInput &&
-                        selectedMedia != 'multipart/form-data' ||
+                        (selectedMedia != 'multipart/form-data' || run.multipartTree) ||
                     run.partHeaders.isNotEmpty)
                   RequestPartHeadersEditor(run: run),
               ],
@@ -3278,7 +3378,7 @@ class _BodyEditor extends StatelessWidget {
             if (run.bodyKind == RequestBodyKind.multipart)
               RequestDraftEntry(
                 run: run,
-                label: l.requestMultipartName,
+                label: run.multipartTree ? 'File instance JSON pointer' : l.requestMultipartName,
                 value: run.bodyFilePart,
                 enabled: !run.busy,
                 onChanged: (value) => run.bodyFilePart = value,

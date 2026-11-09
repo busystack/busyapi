@@ -19,7 +19,7 @@ import '../packages/busyapi_core/test/test_support.dart';
 class _NativeHttp extends HttpOverrides {}
 
 void main() {
-  for (final version in ['3.0.4', '3.1.2', '3.2.1']) {
+  for (final version in ['3.0.0', '3.0.1', '3.0.2', '3.0.3', '3.0.4', '3.1.0', '3.1.1', '3.1.2', '3.2.0', '3.2.1']) {
     for (final format in ['yaml', 'json']) {
       for (final binding
           in version.startsWith('3.0.')
@@ -255,16 +255,8 @@ void main() {
                 () =>
                     HttpOverrides.runWithHttpOverrides(run.send, _NativeHttp()),
               );
-              expect(run.failure, isNull, reason: run.failureMessage);
-              expect(run.result!.outgoing.complete, isTrue);
-              expect(run.result!.outgoing.valid, isFalse);
-              expect(seen, hasLength(2));
-              final secondBoundary = ContentType.parse(seen.last.$3)
-                  .parameters['boundary']!;
-              expect(
-                utf8.decode(seen.last.$4).replaceAll(secondBoundary, boundary),
-                utf8.decode(request.$4),
-              );
+              expect(run.failure, 'request.multipart.conformance');
+              expect(seen, hasLength(1));
               expect(run.fileShapes, {'asset': MultipartFileShape.single});
               expect(file.readAsStringSync(), original);
               expect(workspace.buffer!.text, original);
@@ -286,24 +278,9 @@ void main() {
                 );
               });
               expect(run.fileShapes, {'asset': MultipartFileShape.single});
-              expect(run.failure, isNull, reason: run.failureMessage);
-              expect(run.result!.outgoing.complete, isTrue);
-              expect(run.result!.outgoing.valid, isFalse);
-              expect(seen, hasLength(3));
+              expect(run.failure, 'request.multipart.conformance');
+              expect(seen, hasLength(1));
               expect(run.plan!.identity, isNot(previousIdentity));
-              final changedBoundary = ContentType.parse(seen.last.$3)
-                  .parameters['boundary']!;
-              final changedType = format == 'json'
-                  ? 'text/plain; charset=utf-8'
-                  : 'text/plain';
-              expect(seen.last.$1, 'POST');
-              expect(seen.last.$2, '/files');
-              expect(
-                seen.last.$4,
-                utf8.encode(
-                  '--$changedBoundary\r\nContent-Disposition: form-data; name="asset"; filename="upload.bin"\r\nContent-Type: $changedType\r\n\r\nabc\r\n--$changedBoundary--\r\n',
-                ),
-              );
               expect(file.readAsStringSync(), original);
               await tester.runAsync(() async {
                 await workspace.undo();
@@ -318,7 +295,7 @@ void main() {
               expect(run.failure, isNull, reason: run.failureMessage);
               expect(run.result!.outgoing.complete, isTrue);
               expect(run.result!.outgoing.valid, isTrue);
-              expect(seen, hasLength(4));
+              expect(seen, hasLength(2));
               final restoredBoundary = ContentType.parse(seen.last.$3)
                   .parameters['boundary']!;
               expect(

@@ -27,12 +27,77 @@ String _wire(
     '--$boundary--\r\n';
 
 void main() {
+  for (final version in ['3.2.0', '3.2.1']) {
+    test('$version nested URL form uses the existing codec inside MIME framing', () async {
+      final directory = await Directory.systemTemp.createTemp('busyapi-nested-form-');
+      addTearDown(() => directory.delete(recursive: true));
+      final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);
+      addTearDown(engine.close);
+      final seen = <List<int>>[];
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      server.listen((request) async {
+        seen.add(await request.fold<List<int>>([], (all, chunk) => all..addAll(chunk)));
+        request.response.statusCode = 204;
+        await request.response.close();
+      });
+      final source = '''openapi: $version
+info: {title: Nested form, version: original}
+servers: [{url: 'http://127.0.0.1:${server.port}'}]
+paths:
+  /parts:
+    post:
+      requestBody:
+        content:
+          multipart/mixed:
+            schema:
+              type: array
+              items:
+                type: object
+                required: [n, note, metadata, ids]
+                properties:
+                  n: {type: integer, enum: [9007199254740993.00]}
+                  note: {type: string}
+                  metadata: {type: object, properties: {ok: {type: boolean}}}
+                  ids: {type: array, items: {type: integer}}
+            itemEncoding:
+              contentType: application/x-www-form-urlencoded
+              headers: {X-Root: {required: true, schema: {type: string, enum: [retained]}}}
+              encoding:
+                metadata: {contentType: application/json}
+                ids: {style: form, explode: false}
+                note:
+                  contentType: text/plain
+                  headers: {X-Ignored: {required: true, schema: false}}
+      responses: {'204': {description: Empty}}
+''';
+      final file = File('${directory.path}/api.yaml')..writeAsStringSync(source);
+      final project = await BusyProject.open(file.path, engine);
+      addTearDown(project.close);
+      final plan = await project.prepareRequest(file.uri.toString(), resource: file.uri.toString(), pointer: '/paths/~1parts/post');
+      addTearDown(plan.close);
+      final result = await const ContractRequestExecutor().execute(plan,
+        OperationRequestDraft(planIdentity: plan.identity, body: const RequestBodyDraft.multipartValue(
+          json: '[{"n":9007199254740993.00,"note":"a+b &雪","metadata":{"ok":false},"ids":[1,2]}]',
+          mediaType: 'multipart/mixed; boundary=NestedForm',
+          partHeaders: [RequestPartHeaderValue('/0', 'X-Root', 'retained')],
+        )), resolveSecret: (_) async => null);
+      try {
+        expect(result.conforming, isTrue, reason: '${result.outgoing.findings}');
+        expect(seen.single, utf8.encode('--NestedForm\r\nContent-Type: application/x-www-form-urlencoded\r\nX-Root: retained\r\n\r\n'
+          'n=9007199254740993.00&note=a%2Bb+%26%E9%9B%AA&metadata=%7B%22ok%22%3Afalse%7D&ids=1,2\r\n--NestedForm--\r\n'));
+        expect(file.readAsStringSync(), source);
+      } finally { await result.close(); }
+    });
+  }
   for (final version in [
     '3.0.0',
     '3.0.1',
     '3.0.2',
     '3.0.3',
     '3.0.4',
+    '3.1.0',
+    '3.1.1',
     '3.1.2',
   ]) {
     for (final format in ['yaml', 'json']) {
@@ -283,7 +348,8 @@ void main() {
             pointer: '/paths/~1parts/post',
           );
           try {
-            final changed = await const ContractRequestExecutor().execute(
+            final dispatched = seen.length;
+            await expectLater(const ContractRequestExecutor().execute(
               changedPlan,
               OperationRequestDraft(
                 planIdentity: changedPlan.identity,
@@ -294,26 +360,9 @@ void main() {
                 ),
               ),
               resolveSecret: (_) async => null,
-            );
-            try {
-              expect(changed.outgoing.complete, isTrue);
-              expect(changed.outgoing.valid, isFalse);
-              expect(changed.received.valid, isTrue);
-              expect(
-                changed.outgoing.findings.any(
-                  (finding) =>
-                      finding['schema'] is Map &&
-                      (finding['schema'] as Map)['resource'] == sharedBuffer.id,
-                ),
-                isTrue,
-                reason: '${changed.outgoing.findings}',
-              );
-              final boundary = ContentType.parse(seen.last.$4)
-                  .parameters['boundary']!;
-              expect(seen.last.$5, utf8.encode(_wire(boundary)));
-            } finally {
-              await changed.close();
-            }
+            ), throwsA(isA<CoreFailure>().having((failure) => failure.code,
+              'code', 'request.multipart.conformance')));
+            expect(seen.length, dispatched);
           } finally {
             changedPlan.close();
           }

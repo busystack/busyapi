@@ -18,7 +18,7 @@ class _NativeHttp extends HttpOverrides {}
 const _meta = '{"id":9007199254740993.00}';
 
 void main() {
-  for (final version in ['3.0.4', '3.1.2']) {
+  for (final version in ['3.0.0', '3.0.1', '3.0.2', '3.0.3', '3.0.4', '3.1.0', '3.1.1', '3.1.2', '3.2.0', '3.2.1']) {
     for (final brightness in [Brightness.light, Brightness.dark]) {
       testWidgets(
         '$version $brightness native MIME header drafts reach actual HTTP',
@@ -27,6 +27,8 @@ void main() {
           tester.view.devicePixelRatio = 1;
           addTearDown(tester.view.resetPhysicalSize);
           addTearDown(tester.view.resetDevicePixelRatio);
+          final ordered = version.startsWith('3.2.');
+          final part = ordered ? '/0' : 'value';
           final directory = Directory.systemTemp.createTempSync(
             'busyapi-part-headers-',
           );
@@ -86,6 +88,13 @@ paths:
                         schema: {type: object, required: [id], properties: {id: {type: integer, enum: [9007199254740993.00]}}}
       responses: {'204': {description: Empty}}
 ''';
+              if (ordered) {
+                source = source.replaceFirst(
+                  'schema: {type: object, required: [value], properties: {value: {type: boolean, enum: [false]}}}',
+                  'schema: {type: array, items: {type: boolean, enum: [false]}}',
+                ).replaceFirst('            encoding:\n              value:\n                contentType:',
+                  '            prefixEncoding:\n              - contentType:');
+              }
               file.writeAsStringSync(source);
               File('${directory.path}/busyapi.yaml').writeAsStringSync(
                 'version: 1\nroots: [{name: api, path: api.yaml}]\nenvironments: {local: {baseUrl: "http://127.0.0.1:1"}}\n',
@@ -101,8 +110,9 @@ paths:
               );
               run.bodyEnabled = true;
               run.bodyStructured = true;
-              run.bodyText = '{"value":false}';
+              run.bodyText = ordered ? '[false]' : '{"value":false}';
               run.refresh();
+              if (ordered) await run.inspectMultipartParts();
             });
             await tester.pumpWidget(
               MaterialApp(
@@ -158,7 +168,7 @@ paths:
               await tester.pump();
             }
 
-            await enter(l.requestMultipartName, 'value');
+            await enter(l.requestMultipartName, part);
             await enter(l.requestHeaderName, 'X-Meta');
             await enter(l.requestHeaderValue, _meta);
             final add = find.descendant(
@@ -169,7 +179,7 @@ paths:
             await tester.tap(add);
             await tester.pumpAndSettle();
             expect(run.partHeaders.single.toJson(), {
-              'part': 'value',
+              'part': part,
               'name': 'X-Meta',
               'value': _meta,
             });
@@ -207,7 +217,7 @@ paths:
                 boundary = type.parameters['boundary']!;
             expect(type.mimeType, 'multipart/mixed');
             String wire(String boundary) =>
-                '--$boundary\r\nContent-Disposition: form-data; name="value"\r\nContent-Type: text/plain\r\nX-Meta: $_meta\r\n\r\nfalse\r\n--$boundary--\r\n';
+                '--$boundary\r\n${ordered ? '' : 'Content-Disposition: form-data; name="value"\r\n'}Content-Type: text/plain\r\nX-Meta: $_meta\r\n\r\nfalse\r\n--$boundary--\r\n';
             expect(seen.single.$4, utf8.encode(wire(boundary)));
             await tester.runAsync(() async {
               workspace.sourceEdit(
@@ -221,14 +231,9 @@ paths:
               await run.reconcileDraft();
               await HttpOverrides.runWithHttpOverrides(run.send, _NativeHttp());
             });
-            expect(run.failure, isNull, reason: run.failureMessage);
-            expect(run.result!.outgoing.complete, isTrue);
-            expect(run.result!.outgoing.valid, isFalse);
+            expect(run.failure, 'request.multipart.conformance');
             expect(run.partHeaders.single.value, _meta);
-            expect(seen.length, 2);
-            final secondBoundary = ContentType.parse(seen.last.$3)
-                .parameters['boundary']!;
-            expect(seen.last.$4, utf8.encode(wire(secondBoundary)));
+            expect(seen.length, 1);
             expect(file.readAsStringSync(), source);
           } finally {
             await tester.pumpWidget(const SizedBox.shrink());

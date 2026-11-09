@@ -14,6 +14,7 @@ import 'package:busyapi/src/source/source_editor.dart';
 import 'package:busyapi/src/reference/reference_object.dart';
 import 'package:busyapi/src/comparison/review_comparison.dart';
 import 'package:busyapi/src/workspace/request_run.dart';
+import 'package:busyapi/src/workspace/request_part_media.dart';
 import 'package:busyapi/src/workspace/test_run.dart';
 import 'package:busyapi/src/workspace/workspace_controller.dart';
 import 'package:busyapi/src/platform/secret_store.dart';
@@ -203,6 +204,88 @@ Future<void> expectCompleteCopy(
 }
 
 void main() {
+  for (final version in ['3.2.0', '3.2.1']) {
+    testWidgets('$version typed positional/nested controls retain unrelated draft input', (tester) async {
+      tester.view.physicalSize = const Size(1500, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final fixture = _Fixture();
+      final source = '''openapi: $version
+info: {title: Typed multipart controls, version: original}
+servers: [{url: 'http://127.0.0.1:1'}]
+paths:
+  /parts:
+    post:
+      requestBody:
+        required: true
+        content:
+          multipart/mixed:
+            schema:
+              type: array
+              minItems: 3
+              maxItems: 4
+              prefixItems:
+                - {type: integer, const: 9007199254740993.00}
+                - {type: array, items: {type: boolean}}
+                - {}
+              items: {type: string}
+            prefixEncoding:
+              - {contentType: text/plain}
+              - {contentType: multipart/mixed, itemEncoding: {contentType: text/plain}}
+              - contentType: 'image/png, application/octet-stream'
+                headers: {X-Part: {required: true, schema: {type: string, const: retained}}}
+            itemEncoding: {contentType: 'text/plain; charset=utf-8'}
+      responses: {'204': {description: Empty}}
+''';
+      try {
+        await tester.runAsync(() async {
+          await fixture.open(source);
+          fixture.run.bodyText = '[9007199254740993.00,[false],null]';
+          fixture.run.bodyStructured = true;
+          fixture.run.bodyFilePart = '/2';
+          final upload = File('${fixture.dir.path}/upload.bin')..writeAsBytesSync([0, 255, 128]);
+          fixture.run.addBodyFile(XFile(upload.path, name: 'upload.bin'));
+          fixture.run.selectFileMedia(0, 'image/png');
+          fixture.run.partHeaders.add(const RequestPartHeaderValue('/2', 'X-Part', 'retained'));
+          fixture.run.multipartNewValue = '""';
+          await fixture.run.appendMultipartPart();
+        });
+        await tester.pumpWidget(host(RequestPartMediaEditor(run: fixture.run)));
+        await tester.pumpAndSettle();
+        expect(fixture.run.multipartTree, isTrue);
+        expect(fixture.run.bodyText, '[9007199254740993.00,[false],null,""]');
+        expect(fixture.run.multipartControls.map((part) => part['name']), ['/0', '/1', '/1/0', '/2', '/3']);
+        expect(find.text('Add ordered part'), findsOneWidget);
+        expect(find.text('Inspect prepared multipart request'), findsOneWidget);
+        await tester.runAsync(fixture.run.inspectPreparedMultipart);
+        await tester.pumpAndSettle();
+        expect(fixture.run.multipartPrepared, contains('multipart/mixed; boundary='));
+        final retained = fixture.run.bodyText;
+        await tester.runAsync(() async {
+          fixture.run.bodyText = retained.replaceFirst('9007199254740993.00', '9007199254740992');
+          fixture.run.refresh();
+          await expectLater(fixture.run.inspectPreparedMultipart(), throwsA(isA<CoreFailure>().having((f) => f.code, 'code', 'request.multipart.conformance')));
+          expect(fixture.run.bodyFiles.single.selectedMediaType, 'image/png');
+          expect(fixture.run.partHeaders.single.value, 'retained');
+          fixture.run.bodyText = retained;
+          fixture.run.refresh();
+          fixture.run.selectEnvironment('local');
+          fixture.run.bodyText = '[false]';
+          fixture.run.refresh();
+          fixture.run.selectEnvironment(null);
+        });
+        await tester.pumpAndSettle();
+        expect(fixture.run.bodyText, retained);
+        expect(fixture.run.bodyFiles.single.name, '/2');
+        expect(fixture.run.draft().body.partHeaders.single.value, 'retained');
+        expect(fixture.file.readAsStringSync(), source);
+        expect(tester.takeException(), isNull);
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.runAsync(fixture.dispose);
+      }
+    });
+  }
   for (final version in ['3.0.0', '3.0.4', '3.1.2']) {
     for (final brightness in Brightness.values) {
       testWidgets(
@@ -277,11 +360,13 @@ paths:
             expect(fixture.run.bodyText, retained);
             expect(
               fixture.run.plan!.formBindingForMedia('multipart/mixed'),
-              isNull,
+              RequestFormBinding.orderedMultipart,
             );
             expect(fixture.run.outdated, isFalse);
-            expect(fixture.run.hasUnavailableSelection, isTrue);
-            expect(fixture.run.canSend, isFalse);
+            expect(fixture.run.hasUnavailableSelection, isFalse);
+            await tester.runAsync(() => expectLater(fixture.run.inspectPreparedMultipart(),
+              throwsA(isA<CoreFailure>().having((f) => f.code, 'code', 'request.multipart.shape'))));
+            expect(fixture.run.bodyText, retained);
             await tester.runAsync(() async {
               fixture.c.store!.replace(fixture.c.root!, source);
               await fixture.run.reconcileDraft();

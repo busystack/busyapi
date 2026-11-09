@@ -7,7 +7,7 @@ import 'package:test/test.dart';
 import 'test_support.dart';
 
 void main() {
-  for (final version in ['3.0.0', '3.0.4', '3.1.2', '3.2.1']) {
+  for (final version in ['3.0.0', '3.0.1', '3.0.2', '3.0.3', '3.0.4', '3.1.0', '3.1.1', '3.1.2', '3.2.0', '3.2.1']) {
     for (final format in ['yaml', 'json']) {
       for (final defaultMedia in [false, true]) {
         for (final binding
@@ -496,7 +496,7 @@ void main() {
                     await response.drain<void>();
                     expect(response.statusCode, 204);
                     expect(response.headers.value('sl-violations'), isNull);
-                    expect(mock.nativeValidation.version, '1.18.0+62');
+                    expect(mock.nativeValidation.version, '1.18.0+63');
                     project.store.replace(
                       buffer.id,
                       buffer.text.replaceFirst(

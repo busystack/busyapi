@@ -7,7 +7,59 @@ import 'package:test/test.dart';
 import 'test_support.dart';
 
 void main() {
-  for (final version in ['2.0', '3.0.4', '3.1.2', '3.2.1']) {
+  test('Swagger flat constraints, repeated fields and approved file bytes share generated conformance', () async {
+    final directory = await Directory.systemTemp.createTemp('busyapi-swagger-multipart-');
+    addTearDown(() => directory.delete(recursive: true));
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    final seen = <List<int>>[];
+    server.listen((request) async {
+      seen.add(await request.fold<List<int>>([], (all, chunk) => all..addAll(chunk)));
+      request.response.statusCode = 204;
+      await request.response.close();
+    });
+    final file = File('${directory.path}/api.yaml')..writeAsStringSync('''swagger: '2.0'
+info: {title: Flat multipart, version: original}
+host: 127.0.0.1:${server.port}
+schemes: [http]
+consumes: [multipart/form-data]
+paths:
+  /files:
+    post:
+      parameters:
+        - {in: formData, name: n, required: true, type: integer, enum: [9007199254740993.00]}
+        - {in: formData, name: tag, type: array, collectionFormat: multi, items: {type: string}}
+        - {in: formData, name: asset, required: true, type: file}
+      responses: {'204': {description: Empty}}
+''');
+    final upload = File('${directory.path}/input.bin')..writeAsBytesSync([0, 255, 128]);
+    final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);
+    addTearDown(engine.close);
+    final project = await BusyProject.open(file.path, engine);
+    addTearDown(project.close);
+    final plan = await project.prepareRequest(file.uri.toString(), resource: file.uri.toString(), pointer: '/paths/~1files/post');
+    addTearDown(plan.close);
+    OperationRequestDraft draft(String number) => OperationRequestDraft(planIdentity: plan.identity,
+      body: RequestBodyDraft.multipart([
+        RequestFormField('n', number), const RequestFormField('tag', 'first'), const RequestFormField('tag', '雪'),
+      ], [MultipartFileValue(name: 'asset', path: upload.path, filename: 'input.bin')],
+        mediaType: 'multipart/form-data; boundary=Swagger'));
+    final result = await const ContractRequestExecutor().execute(plan, draft('9007199254740993.00'), resolveSecret: (_) async => null);
+    try { expect(result.conforming, isTrue, reason: '${result.outgoing.findings}'); }
+    finally { await result.close(); }
+    expect(seen.single, [
+      ...utf8.encode('--Swagger\r\nContent-Disposition: form-data; name="n"\r\n\r\n9007199254740993.00\r\n'
+        '--Swagger\r\nContent-Disposition: form-data; name="tag"\r\n\r\nfirst\r\n'
+        '--Swagger\r\nContent-Disposition: form-data; name="tag"\r\n\r\n雪\r\n'
+        '--Swagger\r\nContent-Disposition: form-data; name="asset"; filename="input.bin"\r\nContent-Type: application/octet-stream\r\n\r\n'),
+      0, 255, 128, ...utf8.encode('\r\n--Swagger--\r\n'),
+    ]);
+    await expectLater(const ContractRequestExecutor().execute(plan, draft('9007199254740992'), resolveSecret: (_) async => null),
+      throwsA(isA<CoreFailure>().having((failure) => failure.code, 'code', 'request.multipart.conformance')));
+    expect(seen.length, 1);
+    expect(upload.readAsBytesSync(), [0, 255, 128]);
+  });
+  for (final version in ['2.0', '3.0.0', '3.0.1', '3.0.2', '3.0.3', '3.0.4', '3.1.0', '3.1.1', '3.1.2', '3.2.0', '3.2.1']) {
     for (final format in ['yaml', 'json']) {
       test(
         '$version $format multipart preparation and raw framing retain wire ownership',
@@ -158,6 +210,17 @@ ${legacy ? "      parameters: [{in: formData, name: value, type: string, allowEm
               '--$boundary\r\nContent-Disposition: form-data; name="value"\r\n${legacy ? '' : 'Content-Type: text/plain\r\n'}\r\n\r\n--$boundary--\r\n',
             ),
           );
+          final fixed = await send(const RequestBodyDraft.multipart([
+            RequestFormField('value', ''),
+          ], [], mediaType: 'multipart/form-data; boundary=TypedBoundary'));
+          expect(fixed.conforming, isTrue);
+          expect(seen.last.$3, 'multipart/form-data; boundary=TypedBoundary');
+          expect(seen.last.$4, utf8.encode(
+            '--TypedBoundary\r\nContent-Disposition: form-data; name="value"\r\n${legacy ? '' : 'Content-Type: text/plain\r\n'}\r\n\r\n--TypedBoundary--\r\n'));
+          await expectLater(send(const RequestBodyDraft.multipart([
+            RequestFormField('value', 'before\r\n--TypedBoundary-collision'),
+          ], [], mediaType: 'multipart/form-data; boundary=TypedBoundary')),
+            throwsA(isA<CoreFailure>().having((f) => f.code, 'code', 'runtime.form.syntax')));
           for (final wire in [
             '--Fixture--\r\n',
             '--Fixture\r\nContent-Disposition: form-data; name="value"\r\n\r\nbefore\r\n--Fixture-is-data\r\nafter\r\n--Fixture--\r\n',
@@ -194,8 +257,8 @@ ${legacy ? "      parameters: [{in: formData, name: value, type: string, allowEm
               ),
             ),
           );
-          expect(dispatched, 3);
-          expect(seen, hasLength(3));
+          expect(dispatched, 4);
+          expect(seen, hasLength(4));
           expect(await file.readAsString(), original);
           expect((await project.buffer(file.uri.toString())).text, original);
         },

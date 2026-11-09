@@ -3,12 +3,16 @@ import 'multipart_encoding.dart';
 
 enum RequestFormBinding {
   urlEncoded,
-  namedMultipart;
+  namedMultipart,
+  orderedMultipart;
+
+  bool get multipart => this == namedMultipart || this == orderedMultipart;
 
   static RequestFormBinding? fromJson(Object? value) => switch (value) {
     null => null,
     'urlencoded' => urlEncoded,
     'multipart-named' => namedMultipart,
+    'multipart-ordered' => orderedMultipart,
     _ => throw CoreFailure(
       'request.form.protocol',
       'The captured form binding is not recognized.',

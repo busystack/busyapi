@@ -87,3 +87,28 @@ for(const version of ['3.0.4','3.1.2'])for(const format of ['yaml','json']){
   const result=await evaluate(input,body);assert.equal(result.complete,true,JSON.stringify(result.runtimeFindings));assert(result.runtimeEvaluations.every(value=>value.valid),JSON.stringify(result.runtimeFindings));
  });
 }
+
+for(const version of ['3.2.0','3.2.1'])test(`${version} explicit union representation is captured, validated and relocation-stable`,async()=>{
+ const {requestMultipartPlan}=require('./dist/execution.cjs');
+ const root='file:///typed-choice/api.json',media={schema:{type:'array',items:{oneOf:[{type:'string',contentEncoding:'base64',pattern:'^AP8=$'},{type:'string',contentEncoding:'base16',pattern:'^00FF$'}]}},itemEncoding:{contentType:'application/octet-stream'}};
+ const input={root,resource:root,pointer:'/paths/~1parts/post',snapshot:version,mediaType:'multipart/mixed',text:'["AP8="]',files:[],resources:[{id:root,generation:1,text:JSON.stringify({openapi:version,info:{title:'Choices',version:'1'},paths:{'/parts':{post:{requestBody:{content:{'multipart/mixed':media}},responses:{204:{description:'Empty'}}}}}})}]};
+ const options=await requestMultipartPlan({...input,inspect:true});
+ const selected=options.controls[0].schemas.find(schema=>schema.pointer.endsWith('/oneOf/0')).id;
+ assert(!selected.startsWith('file:///'));
+ await assert.rejects(requestMultipartPlan(input),error=>error.code==='request.multipart.encoding.unsupported');
+ const wire=Buffer.from('--W4\r\nContent-Type: application/octet-stream\r\nContent-Transfer-Encoding: base64\r\n\r\nAP8=\r\n--W4--\r\n');
+ assert.equal((await requestMultipartPlan({...input,partSchemas:{'/0':selected},wire:wire.toString('base64'),wireType:'multipart/mixed; boundary=W4'})).proof.valid,true);
+ await assert.rejects(requestMultipartPlan({...input,partSchemas:{'/0':'#/not-a-choice'}}),error=>error.code==='request.multipart.representation.stale');
+ const relocated={...input,root:'file:///relocated/api.json',resource:'file:///relocated/api.json',resources:input.resources.map(resource=>({...resource,id:'file:///relocated/api.json'}))};
+ assert.equal((await requestMultipartPlan({...relocated,partSchemas:{'/0':selected}})).tree.parts[0].transfer.encoding,'base64');
+});
+
+for(const version of versions)test(`${version} generated named bytes cannot substitute a rounded intended number`,async()=>{
+ const {requestMultipartNamedProof}=require('./dist/execution.cjs');
+ const input=capture(version,'json');
+ const proof={...input,mediaType:'multipart/mixed',wireType:'multipart/mixed; boundary=Fixture',wire:Buffer.from(wire()).toString('base64'),files:[],expected:'{"flag":false,"metadata":{"id":9007199254740993.00}}'};
+ assert.equal((await requestMultipartNamedProof(proof)).proof.valid,true);
+ await assert.rejects(requestMultipartNamedProof({...proof,wire:Buffer.from(wire('false','retained','9007199254740992')).toString('base64')}),error=>error.code==='request.multipart.roundtrip'&&error.source.resource===input.root);
+ await assert.rejects(requestMultipartNamedProof({...proof,wire:Buffer.from(wire('false','retained','9007199254740993')).toString('base64')}),error=>error.code==='request.multipart.roundtrip');
+ await assert.rejects(requestMultipartNamedProof({...proof,wire:Buffer.from(wire('false','retained','9007199254740992')).toString('base64'),expected:'{"flag":false,"metadata":{"id":9007199254740992}}'}),error=>error.code==='request.multipart.conformance'&&error.source.range[1]>0);
+});

@@ -2262,7 +2262,7 @@ paths:
       requestBody:
         content:
           'multipart/form-data; charset=utf-8':
-            schema: {type: object}
+            schema: {type: object, properties: {metadata: {type: object, properties: {nested: {type: string}}}}}
             encoding:
               metadata:
                 contentType: application/json
@@ -2379,57 +2379,45 @@ paths:
     );
     final forbidden = await planFor('/upload');
     addTearDown(forbidden.close);
-    await expectLater(
-      const ContractRequestBuilder().build(
-        forbidden,
-        OperationRequestDraft(
-          planIdentity: forbidden.identity,
-          body: const RequestBodyDraft.multipart(
-            [RequestFormField('metadata', '{}')],
-            [],
-            mediaType: 'multipart/form-data; charset=utf-8',
-          ),
-        ),
-        resolveSecret: (_) async => null,
-      ),
-      throwsA(
-        isA<CoreFailure>().having(
-          (e) => e.code,
-          'code',
-          'request.multipart.headers',
-        ),
-      ),
-    );
+    final ignored = await const ContractRequestBuilder().build(forbidden,
+      OperationRequestDraft(planIdentity: forbidden.identity,
+        body: const RequestBodyDraft.multipart([RequestFormField('metadata', '{}')], [],
+          mediaType: 'multipart/form-data; charset=utf-8')),
+      resolveSecret: (_) async => null);
+    try {
+      final bytes = await ignored.body!.open().fold<List<int>>([], (all, chunk) => all..addAll(chunk));
+      expect(utf8.decode(bytes), isNot(contains('X-Forbidden:')));
+    } finally { await ignored.body?.close(); }
+    await expectLater(const ContractRequestBuilder().build(forbidden,
+      OperationRequestDraft(planIdentity: forbidden.identity,
+        body: const RequestBodyDraft.multipart([RequestFormField('metadata', '{}')], [],
+          mediaType: 'multipart/form-data; charset=utf-8',
+          partHeaders: [RequestPartHeaderValue('metadata', 'X-Forbidden', 'literal')])),
+      resolveSecret: (_) async => null),
+      throwsA(isA<CoreFailure>().having((failure) => failure.code, 'code', 'request.multipart.header.forbidden')));
     project!.store.replace(
       root.uri.toString(),
-      original.replaceFirst(
-        'contentType: application/json',
-        'contentType: multipart/mixed\n                encoding: {nested: {contentType: text/plain}}',
-      ),
+      original.replaceFirst('contentType: application/json',
+        'contentType: multipart/form-data\n                encoding: {nested: {contentType: text/plain}}'),
     );
     final complex = await planFor('/upload');
     addTearDown(complex.close);
-    await expectLater(
-      const ContractRequestBuilder().build(
-        complex,
-        OperationRequestDraft(
-          planIdentity: complex.identity,
-          body: const RequestBodyDraft.multipart(
-            [RequestFormField('metadata', 'literal')],
-            [],
-            mediaType: 'multipart/form-data; charset=utf-8',
-          ),
-        ),
-        resolveSecret: (_) async => null,
-      ),
-      throwsA(
-        isA<CoreFailure>().having(
-          (e) => e.code,
-          'code',
-          'request.multipart.encoding',
-        ),
-      ),
-    );
+    final nested = await const ContractRequestBuilder().build(complex,
+      OperationRequestDraft(planIdentity: complex.identity,
+        body: const RequestBodyDraft.multipartValue(json: '{"metadata":{"nested":"retained"}}',
+          mediaType: 'multipart/form-data; charset=utf-8')),
+      resolveSecret: (_) async => null);
+    try {
+      final bytes = await nested.body!.open().fold<List<int>>([], (all, chunk) => all..addAll(chunk));
+      expect(utf8.decode(bytes), contains('name="nested"'));
+      expect(utf8.decode(bytes), contains('retained'));
+    } finally { await nested.body?.close(); }
+    await expectLater(const ContractRequestBuilder().build(complex,
+      OperationRequestDraft(planIdentity: complex.identity,
+        body: const RequestBodyDraft.multipartValue(json: '{"metadata":"literal"}',
+          mediaType: 'multipart/form-data; charset=utf-8')),
+      resolveSecret: (_) async => null),
+      throwsA(isA<CoreFailure>().having((failure) => failure.code, 'code', 'request.multipart.shape')));
     expect(bodies.length, 1);
   });
   test('H10 parameterized form identity survives generic alternatives and validation', () async {

@@ -4,6 +4,7 @@ import {modernFamily} from './specification';
 import {escape,SourceError,type Range} from './document';
 import {ReferenceGraph,supportedSchemaDialect,type GraphTarget} from './reference_graph';
 import {MultipartFileShapes,type MultipartFileShape} from './multipart_file_shapes';
+import {FormSemantics} from './form_semantics';
 
 type MultipartSource={resource:string;pointer:string;range:number[]};
 export type MultipartTransfer={encoding?:string;schemaEncoded:boolean;instanceEncoding?:'octets';instanceSource?:MultipartSource;source?:MultipartSource};
@@ -22,7 +23,9 @@ export class MultipartEncoding {
     constructor(private graph:ReferenceGraph){}
 
     failure(code:string,message:string,target:Pick<GraphTarget,'resource'|'pointer'>,unsupported=false):never {
-        const node=this.graph.docs.get(target.resource)?.dataNode(target.pointer),range:Range=node?.range??[0,0];
+        let pointer=target.pointer,node=this.graph.docs.get(target.resource)?.dataNode(pointer);
+        while(!node&&pointer){pointer=pointer.slice(0,pointer.lastIndexOf('/'));node=this.graph.docs.get(target.resource)?.dataNode(pointer);}
+        const range:Range=node?.range??[0,0];
         throw new SourceError(code,message+' at '+target.pointer,range,unsupported||code.endsWith('.unsupported')?'unsupported':undefined,{resource:target.resource,pointer:node?.pointer??target.pointer,range});
     }
 
@@ -64,13 +67,15 @@ export class MultipartEncoding {
 
     // Swagger byte can establish an explicitly modeled whole-body string;
     // that evidence does not invent a Swagger MIME part transfer binding.
-    schemaPathEncoding(schema:GraphTarget,path:MultipartSchemaStep[],instanceKind?:'string'|'other',explicitShape=false,swaggerWholeBody=false):MultipartTransfer {
+    schemaPathEncoding(schema:GraphTarget,path:MultipartSchemaStep[],instanceKind?:'string'|'other',explicitShape=false,swaggerWholeBody=false,selection?:GraphTarget):MultipartTransfer {
         // Content annotations and the legacy binary/byte formats only describe
         // string instances. They cannot change an object's MIME representation.
         if(instanceKind==='other')return {schemaEncoded:false};
         const values=new Map<string,GraphTarget>();
         let binary:GraphTarget|undefined;
         const shapes=explicitShape?new MultipartFileShapes(this.graph):undefined;
+        const forms=selection?new FormSemantics(this.graph):undefined;
+        const selected=(branch:GraphTarget,path:MultipartSchemaStep[])=>selection&&(branch.resource===selection.resource&&(branch.pointer===selection.pointer||selection.pointer.startsWith(branch.pointer+'/'))||forms!.partSchemas(branch,path).some(target=>target.resource===selection.resource&&target.pointer===selection.pointer));
         let work=0;
         const visit=(target:GraphTarget,path:MultipartSchemaStep[],active:ReadonlySet<string>,conditional=false):void=>{
             if(++work>2048)this.failure('limit.request.encoding','Multipart schema inspection exceeds 2048 locations',target);
@@ -96,11 +101,16 @@ export class MultipartEncoding {
                 visit({...target,pointer:target.pointer+'/allOf/'+index},path,active,conditional);
             for(const keyword of ['anyOf','oneOf']){
                 const branches=(Array.isArray(value[keyword])?value[keyword]:[]).map((_:unknown,index:number)=>({...target,pointer:target.pointer+'/'+keyword+'/'+index}));
-                const viable=shapes?branches.filter((branch:GraphTarget)=>shapes.allows(branch,path,'string')):branches;
-                for(const branch of viable)visit(branch,path,active,conditional||!shapes||viable.length!==1);
+                const chosen=selection?branches.filter((branch:GraphTarget)=>selected(branch,path)):[];
+                const viable=chosen.length===1?chosen:shapes?branches.filter((branch:GraphTarget)=>shapes.allows(branch,path,'string')):branches;
+                for(const branch of viable)visit(branch,path,active,conditional||chosen.length!==1&&(!shapes||viable.length!==1));
             }
-            for(const keyword of ['if','then','else'])if(value[keyword]!==undefined)
-                visit({...target,pointer:target.pointer+'/'+keyword},path,active,true);
+            for(const keyword of ['if','then','else'])if(value[keyword]!==undefined){
+                const branch={...target,pointer:target.pointer+'/'+keyword};
+                if(selection&&['then','else'].some(key=>value[key]!==undefined&&selected({...target,pointer:target.pointer+'/'+key},path))){
+                    if(selected(branch,path))visit(branch,path,active,conditional);
+                }else visit(branch,path,active,true);
+            }
             for(const key of Object.keys(value.dependentSchemas??{}))
                 visit({...target,pointer:target.pointer+'/dependentSchemas/'+escape(key)},path,active,true);
             if(path.length){
@@ -109,7 +119,7 @@ export class MultipartEncoding {
                     if(field.item!==undefined&&Array.isArray(value.prefixItems)&&field.item<value.prefixItems.length)
                         visit({...target,pointer:target.pointer+'/prefixItems/'+field.item},rest,active,conditional);
                     else if(value.items!==undefined&&!Array.isArray(value.items))visit({...target,pointer:target.pointer+'/items'},rest,active,conditional);
-                }else if(Object.hasOwn(value.properties??{},field.property))visit({...target,pointer:target.pointer+'/properties/'+escape(field.property)},rest,active,conditional);
+                }else for(const property of new FormSemantics(this.graph).propertySchemas(target,field.property))visit(property,rest,active,conditional);
                 return;
             }
             const legacy=scope.family==='3.0'||swaggerWholeBody&&scope.family==='2.0';
@@ -136,10 +146,14 @@ export class MultipartEncoding {
     }
 
     header(media:GraphTarget,name:string,implicit:MultipartTransfer,formData=true):MultipartHeaderCandidate|undefined {
-        const at=media.pointer+'/encoding/'+escape(name),value=this.graph.docs.get(media.resource)?.dataNode(at)?.value;
+        return this.headerAt({...media,pointer:media.pointer+'/encoding/'+escape(name)},name,implicit,formData);
+    }
+
+    headerAt(rule:GraphTarget,name:string,implicit:MultipartTransfer,formData=true):MultipartHeaderCandidate|undefined {
+        const media=rule,at=rule.pointer,value=this.graph.docs.get(rule.resource)?.dataNode(at)?.value;
         if(value===undefined)return;
-        if(!value||typeof value!=='object'||Array.isArray(value)||value.encoding!==undefined||value.prefixEncoding!==undefined||value.itemEncoding!==undefined)
-            this.failure('request.multipart.encoding','This part requires nested multipart serialization',{...media,pointer:at},true);
+        if(!value||typeof value!=='object'||Array.isArray(value))
+            this.failure('request.multipart.encoding','A part Encoding must be an object',rule);
         const headers=value.headers;
         if(headers===undefined)return;
         if(!headers||typeof headers!=='object'||Array.isArray(headers))this.failure('request.multipart.headers','Part headers must be a Header Object map',{...media,pointer:at+'/headers'});
@@ -148,7 +162,6 @@ export class MultipartEncoding {
             const source={...media,pointer:at+'/headers/'+escape(key),kind:'header'};
             if(key.toLowerCase()==='content-type')continue;
             if(key.toLowerCase()!=='content-transfer-encoding'){
-                if(formData)this.failure('request.multipart.headers','multipart/form-data forbids this additional part header',source);
                 continue;
             }
             if(candidate)this.failure('request.multipart.headers','Part header names must be unique without regard to case',source);
