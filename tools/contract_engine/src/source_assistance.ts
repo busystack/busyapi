@@ -4,6 +4,7 @@ import { escape, segments, SourceDocument, SourceError } from './document';
 import { GraphReference, supportedSchemaDialect } from './reference_graph';
 import { referenceValue, securityBindings, securitySelectionScope, discriminatorBindings } from './reference_choices';
 import {isNativeFamily} from './specification';
+import {schemaOccurrenceForms} from './schema_value_forms';
 const standard = (family: string, kind: string) => `https://spec.openapis.org/oas/v${family === '2.0' ? '2.0' : family === '3.0' ? '3.0.4' : family === '3.1' ? '3.1.2' : '3.2.1'}.html#${({ root: family === '2.0' ? 'swagger' : 'openapi', media: 'media-type', security: 'security-scheme' } as any)[kind] ?? kind}-object`;
 function located(input: any, doc: SourceDocument, pointer: string, extra: any = {}) {
     const resource = (input.resources as Resource[]).find(r => r.id === doc.id)!;
@@ -96,6 +97,14 @@ export function assistSource(input: any) {
         if (partial.length) {result.completions=partial;return result;}
     }
     if (!schemaDialectKnown || field?.prohibited || field?.blockedBy?.length) return result;
+    // A scalar Schema Object in a component map or applicator array has no
+    // fixed parent field. Use the same occurrence forms as Design, rather
+    // than treating a boolean (or an invalid scalar being repaired) as data.
+    if (!keyNode && exact?.kind === 'schema' && !field && node.kind !== 'object' && node.kind !== 'array') {
+        for (const value of completionValues({schemaValueForms: schemaOccurrenceForms(graph, exact)}))
+            addValue(value, JSON.stringify(value));
+        return result;
+    }
     // Scalar replacements use legal field options or captured schema forms.
     // Arbitrary example strings never become keys or reference applicators.
     if (!keyNode && field && node.kind !== 'object' && node.kind !== 'array') {

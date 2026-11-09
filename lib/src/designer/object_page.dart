@@ -413,7 +413,7 @@ class _NativeObjectPageState extends State<_NativeObjectPage> {
     final target = field['target'] as Map?;
     if (target != null && target['kind'] != 'data' ||
         !present && field['childKind'] != null) {
-      return BusyApiActionRow(
+      final navigation = BusyApiActionRow(
         title: title,
         subtitle: present
             ? context.l10n.authoredEntries(field['count'] as int? ?? 0)
@@ -421,6 +421,18 @@ class _NativeObjectPageState extends State<_NativeObjectPage> {
         onTap: c.scopeSafe(item)
             ? () => run(() => _openObjectChild(context, c, item, field))
             : null,
+      );
+      if (field['schemaValueForms'] == null) return navigation;
+      return Column(
+        children: [
+          navigation,
+          BusyApiActionRow(
+            title: context.l10n.editCompleteCapturedValue,
+            onTap: c.scopeSafe(item)
+                ? () => run(() => _editObjectValue(context, c, item, field))
+                : null,
+          ),
+        ],
       );
     }
     return withReferenceSelector(
@@ -851,19 +863,35 @@ class _NativeObjectPageState extends State<_NativeObjectPage> {
                     values: const [true, false],
                     selected: item['boolean'] as bool,
                     labelFor: (v) => '$v',
-                    enabled: c.scopeSafe(item),
+                    enabled: c.scopeSafe(item) &&
+                        SchemaValueForms.fromJson(item['schemaValueForms'])
+                            .forms.contains(SchemaValueForm.boolean),
                     onSelected: (v) {
                       if (v == item['boolean']) return;
                       run(
                         () => c.mutate(item, [
                           {
-                            'kind': 'set',
+                            'kind': 'setData',
                             'pointer': item['pointer'],
-                            'value': v,
+                            'raw': '$v',
+                            'schemaValueForms': item['schemaValueForms'],
                           },
                         ]),
                       );
                     },
+                  ),
+                if (item['schemaValueForms'] != null)
+                  BusyApiActionRow(
+                    title: l.editCompleteCapturedValue,
+                    onTap: c.scopeSafe(item) &&
+                            SchemaValueForms.fromJson(item['schemaValueForms']).supported
+                        ? () => run(() => _editObjectValue(context, c, item, {
+                            'name': 'schema',
+                            'type': 'schema',
+                            'wholeSchema': true,
+                            'schemaValueForms': item['schemaValueForms'],
+                          }))
+                        : null,
                   ),
                 if (visible.isNotEmpty)
                   BusyApiGroupedList(
@@ -903,7 +931,9 @@ class _NativeObjectPageState extends State<_NativeObjectPage> {
                     onTap: c.scopeSafe(item)
                         ? () => run(() async {
                             final available = fields
-                                .where((f) => f['present'] != true)
+                                .where((f) => f['present'] != true &&
+                                    f['prohibited'] != true &&
+                                    (f['blockedBy'] as List? ?? const []).isEmpty)
                                 .toList();
                             if (available.isEmpty) return;
                             final selected = await editForm(
@@ -1385,6 +1415,9 @@ Future<void> _editObjectValue(
   item = prepared;
   field = _refreshedObjectField(item, field);
   final name = field['name'] as String;
+  final pointer = field['wholeSchema'] == true
+      ? item['pointer'] as String
+      : '${item['pointer']}/${pointerEscape(name)}';
   final schemaForms = field['type'] == 'schema'
       ? SchemaValueForms.fromJson(field['schemaValueForms'])
       : null;
@@ -1446,6 +1479,7 @@ Future<void> _editObjectValue(
         'type': field['type'],
         if (schemaForms != null) 'schemaValueForms': field['schemaValueForms'],
         'nativeString': nativeString,
+        if (field['wholeSchema'] == true) 'wholeSchema': true,
       },
     },
     validate: nativeString
@@ -1466,13 +1500,13 @@ Future<void> _editObjectValue(
       result['remove'] == true
           ? {
               'kind': 'remove',
-              'pointer': '${item['pointer']}/${pointerEscape(name)}',
+              'pointer': pointer,
               if (schemaForms != null)
                 'schemaValueForms': field['schemaValueForms'],
             }
           : {
               'kind': nativeString ? 'set' : 'setData',
-              'pointer': '${item['pointer']}/${pointerEscape(name)}',
+              'pointer': pointer,
               if (nativeString)
                 'value': result['value']
               else
@@ -1529,6 +1563,9 @@ Future<void> _addObjectEntry(
   item = prepared;
   final array = item['nodeKind'] == 'array', kind = item['kind'] as String;
   final textValue = kind == 'string-array';
+  final schemaForms = item['schemaEntryValueForms'] == null
+      ? null
+      : SchemaValueForms.fromJson(item['schemaEntryValueForms']);
   final namePolicy = item['memberNamePolicy'] == null
       ? null
       : MemberNamePolicy.fromJson(item['memberNamePolicy']);
@@ -1547,13 +1584,21 @@ Future<void> _addObjectEntry(
         FormFieldSpec('emptyName', l.useEmptyObjectName, boolean: true),
       if (kind == 'server-array') FormFieldSpec('url', l.serverUrl),
       if (textValue) FormFieldSpec('value', l.textValue),
+      if (schemaForms != null)
+        FormFieldSpec('value', l.dataValue, multiline: true, json: true),
     ],
-    {'name': '', 'url': '', 'value': '', 'emptyName': false},
+    {'name': '', 'url': '', 'value': schemaForms == null ? '' : '{}', 'emptyName': false},
     controller: c,
     target: item,
     kind: 'object.add',
     arguments: const {},
     validate: (v) {
+      if (schemaForms != null) {
+        if (!schemaForms.supported) return l.schemaDialectIncomplete;
+        if (!schemaForms.accepts(v['value'] as String)) {
+          return l.dataTypeRequired(schemaForms.jsonTypes.join(' | '));
+        }
+      }
       if (!array && (v['name'] as String).isEmpty && v['emptyName'] != true ||
           kind == 'server-array' && (v['url'] as String).isEmpty) {
         return l.objectNameRequired;
@@ -1575,9 +1620,12 @@ Future<void> _addObjectEntry(
           '${item['pointer']}/${array ? item['count'] : pointerEscape(v['emptyName'] == true ? '' : v['name'])}';
       await c.mutate(item, [
         {
-          'kind': 'create',
+          'kind': schemaForms == null ? 'create' : 'createData',
           'pointer': pointer,
-          'value': kind == 'server-array'
+          if (schemaForms != null) ...{
+            'raw': v['value'],
+            'schemaValueForms': item['schemaEntryValueForms'],
+          } else 'value': kind == 'server-array'
               ? {'url': v['url']}
               : textValue
               ? v['value']
@@ -2169,6 +2217,20 @@ Map<String, dynamic> _refreshedObjectField(
   Map<String, dynamic> item,
   Map<String, dynamic> field,
 ) {
+  if (field['wholeSchema'] == true) {
+    final current = item['schemaValueForms'];
+    if (current == null || !SchemaValueForms.fromJson(field['schemaValueForms'])
+        .equivalentTo(SchemaValueForms.fromJson(current))) {
+      throw CoreFailure('draft.stale', 'The captured schema occurrence changed');
+    }
+    return {
+      ...field,
+      'present': true,
+      'required': true,
+      'target': item,
+      'schemaValueForms': current,
+    };
+  }
   final fixed = (item['fields'] as List? ?? [])
       .cast<Map<String, dynamic>>()
       .where((f) => f['name'] == field['name'])

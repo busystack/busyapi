@@ -128,3 +128,29 @@ test('Source schema form assistance does not infer custom dialects or payload co
   assert.deepEqual(assistSource({root,resource:root,caret,snapshot:'negative',resources:[{id:root,text:text.replace('§',''),generation:1}]}).completions,[]);
  }
 });
+
+for(const version of ['2.0','3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const json of [false,true]) {
+ test(`${version} ${json?'JSON':'YAML'} Source repairs scalar schema occurrences in maps and applicator arrays`,()=>{
+  const swagger=version==='2.0',modern=/^3\.[12]\./.test(version);
+  const value={...(swagger?{swagger:version}:{openapi:version}),info:{title:'Keep',version:'unrelated'},paths:{},
+   ...(swagger?{definitions:{Value:{properties:{child:null},allOf:[null]}}}:{components:{schemas:{Value:{properties:{child:null},allOf:[null]}}}})};
+  const text=json?JSON.stringify(value):'# Keep\r\n'+YAML.stringify(value).replaceAll('\n','\r\n');
+  const root='file:///approved/occurrences.'+(json?'json':'yaml'),doc=new SourceDocument(text,root);
+  const base=(swagger?'/definitions':'/components/schemas')+'/Value';
+  for(const pointer of [base+'/properties/child',base+'/allOf/0']) {
+   const input={root,resource:root,caret:doc.dataNode(pointer).range[0]+1,snapshot:'occurrences',resources:[{id:root,text,generation:7}]};
+   const choices=assistSource(input).completions;
+   assert.deepEqual(choices.map(c=>c.label),modern?['{}','true','false']:['{}']);
+   for(const choice of choices) {
+    let changed=text;for(const edit of [...choice.edits].reverse()) {
+     assert.equal(edit.generation,7);assert.equal(changed.slice(edit.start,edit.end),edit.expected);
+     changed=changed.slice(0,edit.start)+edit.replacement+changed.slice(edit.end);
+    }
+    assert.notEqual(new SourceDocument(changed,root).dataNode(pointer).value,null);
+    // The other intentionally invalid occurrence stays authored for repair.
+    assert.equal(new SourceDocument(changed,root).dataNode(pointer.endsWith('/0')?base+'/properties/child':base+'/allOf/0').value,null);
+    if(!json)assert(changed.startsWith('# Keep\r\n')&&!/(?<!\r)\n/.test(changed));
+   }
+  }
+ });
+}

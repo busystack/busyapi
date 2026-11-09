@@ -3,6 +3,7 @@ const {test} = require('node:test');
 const YAML = require('yaml');
 const {analyse, inspect, propose} = require('./dist/model.cjs');
 const {SourceDocument} = require('./dist/document.cjs');
+const {referencePage} = require('./dist/reference_projection.cjs');
 
 const versions = ['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','2.0','3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'];
 function packet(version, format, schemas = {Record: {}}) {
@@ -27,6 +28,53 @@ function apply(input, plan) {
         return {...resource, text};
     })};
 }
+
+for (const version of versions) for (const format of ['yaml', 'json']) test(`${version} ${format} whole schemas and collection entries use captured native forms`, () => {
+    const input = packet(version, format, {Record: {properties: {child: {}}, allOf: [{}]}});
+    const pointer = version === '2.0' ? '/definitions/Record' : '/components/schemas/Record';
+    const modern = /^3\.[12]\./.test(version), owner = target(input, pointer);
+    assert.deepEqual(owner.schemaValueForms.forms, modern ? ['object', 'boolean'] : ['object']);
+    const edit = (captured, destination, raw, forms) => propose({...input, target: captured,
+        actions: [{kind: 'setData', pointer: destination, raw, schemaValueForms: forms}]});
+    for (const location of [pointer, pointer + '/properties/child', pointer + '/allOf/0']) {
+        const schema = target(input, location);
+        if (!modern) assert.throws(() => edit(schema, location, 'false', schema.schemaValueForms), error => error.code === 'edit.schema.value');
+        else {
+            const changed = apply(input, edit(schema, location, 'false', schema.schemaValueForms));
+            const page = referencePage({...changed, resource: input.root, pointer: location});
+            assert.equal(page.boolean, false);
+            assert.equal(page.schemaContext.supported, true);
+            const fresh = target(changed, location);
+            const restored = apply(changed, propose({...changed, target: fresh, actions: [{kind: 'setData', pointer: location,
+                raw: '{"type":"integer","minimum":9007199254740993.00}', schemaValueForms: fresh.schemaValueForms}]}));
+            assert.equal(analyse(restored).status, 'complete');
+            assert.equal(referencePage({...restored, resource: input.root, pointer: location + '/minimum'}).text, '9007199254740993.00');
+        }
+    }
+    for (const collection of [pointer.slice(0, pointer.lastIndexOf('/')), pointer + '/properties', pointer + '/allOf']) {
+        const page = target(input, collection), destination = collection + (collection.endsWith('/allOf') ? '/1' : '/New');
+        assert.deepEqual(page.schemaEntryValueForms.forms, owner.schemaValueForms.forms);
+        const action = {kind: 'createData', pointer: destination, raw: modern ? 'false' : '{}', schemaValueForms: page.schemaEntryValueForms};
+        const changed = apply(input, propose({...input, target: page, actions: [action]}));
+        assert.equal(analyse(changed).status, 'complete');
+        assert.equal(referencePage({...changed, resource: input.root, pointer: destination}).kind, 'schema');
+        assert.throws(() => propose({...input, target: page, actions: [{...action, raw: '[]'}]}), error => error.code === 'edit.schema.value');
+    }
+    // Capabilities are not transferable between a field, a collection and an occurrence.
+    assert.throws(() => edit(owner, pointer + '/items', '{}', owner.schemaValueForms), error => error.code === 'edit.stale');
+    assert(input.resources[0].text.includes('9007199254740993.00'));
+});
+
+test('whole-schema and collection forms reject stale containing dialects without changing source', () => {
+    const input = packet('3.2.1', 'json'), pointer = '/components/schemas/Record';
+    for (const location of [pointer, '/components/schemas']) {
+        const owner = target(input, location), forms = owner.schemaValueForms ?? owner.schemaEntryValueForms;
+        const doc = new SourceDocument(input.resources[0].text, input.root);
+        const changed = {...input, resources: [{...input.resources[0], text: doc.set('/jsonSchemaDialect', 'https://dialect.invalid/custom')}]};
+        assert.throws(() => propose({...changed, target: owner, actions: [{kind: 'setData', pointer: location === pointer ? pointer : location + '/New',
+            raw: 'false', schemaValueForms: forms}]}), error => error.code === 'edit.stale');
+    }
+});
 
 for (const version of versions) for (const format of ['yaml', 'json']) test(`${version} ${format} native schema field forms retain their own valid data shapes`, () => {
     const input = packet(version, format), before = input.resources[0].text;

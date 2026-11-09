@@ -5,7 +5,7 @@ import {serverContextProblem} from './server_semantics';
 import {fieldsForScope,richTextField} from './authoring';
 import {escape, segments, SourceError} from './document';
 import {ParameterSemantics} from './parameter_semantics';
-import {GraphTarget,ReferenceGraph,referenceMarkdownContext} from './reference_graph';
+import {GraphTarget,ReferenceGraph,referenceMarkdownContext,supportedSchemaDialect,schemaAddress} from './reference_graph';
 import {createHash} from 'node:crypto';
 import {isNativeFamily} from './specification';
 import {ignoresRequestBody} from './operation_semantics';
@@ -130,8 +130,8 @@ export function referencePage(input: any, context?:ReturnType<typeof createGraph
         ...(ref.dynamic ? {dynamic: {...ref.dynamic, candidates: ref.dynamic.candidates.map(target => located(target.resource, target.pointer,'schema'))}} : {}),
     }));
     const defaults = fieldDefinitions.filter(field => !node.children.has(field.name) && Object.hasOwn(field, 'effectiveDefault')).map(field => ({name: field.name, value: field.effectiveDefault}));
-    const interpretation = kind === 'schema' ? 'schema-applicators' : kind === 'path-item' ? 'path-item' :
-        graph.allowsReference({...(scope??graph.scope(doc.id,node.pointer)),kind}) && typeof node.value?.$ref === 'string' ? 'reference-object' : kind === 'data' ? 'data' : 'inline';
+    const interpretation = referenceData && kind !== 'data' ? 'reference-object' :
+        kind === 'schema' ? 'schema-applicators' : kind === 'path-item' ? 'path-item' : kind === 'data' ? 'data' : 'inline';
     const issues = kind === 'data' ? [] : graph.issues.filter(issue => issue.resource === doc.id && (issue.pointer === node.pointer || issue.pointer.startsWith(node.pointer + '/')));
     const previews: any[] = [];
     let previewsLimited = false;
@@ -229,6 +229,9 @@ export function referencePage(input: any, context?:ReturnType<typeof createGraph
     }
     const richText=(input.data!==true||input.parentKind!==undefined)&&doc.nodes.get(node.pointer)?.alias===undefined&&!!parent&&richTextField(parent.kind,family,doc.dataNode(parentPointer)?.value,segments(node.pointer).at(-1)!,segments(parentPointer).at(-1),graph.allowsReference(parent));
     return {version: 1, snapshot: input.snapshot, family, ...located(doc.id,node.pointer,kind),kind,interpretations:graph.scopesAt(doc.id,node.pointer).map(({kind,family,dialect})=>({kind,family,dialect})),data:kind==='data', nodeKind: node.kind,richText,
+        ...(kind === 'schema' && scope ? {schemaContext: {base: scope.base, resourcePointer: scope.resourcePointer,
+            address: schemaAddress(scope), dialect: scope.dialect, supported: supportedSchemaDialect(scope),
+            resource: located(scope.resource, scope.resourcePointer)}} : {}),
         interpretation, references, defaults, entries, offset, count: node.children.size, issues:issues.slice(0,50).map(issue => ({...issue, source:located(issue.resource,issue.pointer)})), issueCount:issues.length, effective, previews, previewsLimited,
         ...(kind==='operation'?{occurrence:selected?.occurrence??null,contextSelectionRequired:contexts.length>0&&!selected,
             selectedContext:selected?{occurrence:selected.occurrence,navigationId:operationNavigationId(input.root,selected.occurrence),path:selected.path,method:selected.method,customMethod:selected.customMethod===true,role:selected.role,pathItem:located(selected.pathItem.resource,selected.pathItem.pointer)}:null,

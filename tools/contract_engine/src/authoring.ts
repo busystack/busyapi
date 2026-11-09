@@ -5,6 +5,7 @@ import {xmlRequiresExplicitName} from './xml_semantics';
 import Ajv2020 from 'ajv/dist/2020';
 import {structuralSchema, structuralDefinition, structuralReference} from './structural_schema';
 import {modernFamily} from './specification';
+import {supportedSchemaDialect} from './reference_graph';
 import type {ReferenceGraph,GraphScope} from './reference_graph';
 import {escape,segments} from './document';
 import {isReferenceObject,referenceKinds,supportsReference} from './contexts';
@@ -69,8 +70,15 @@ export function fieldsForScope(graph: ReferenceGraph, scope: GraphScope, value: 
     const explicitName = xmlRequiresExplicitName(graph,scope);
     return fields.map(field => {
         const forms = schemaValueForms(graph, scope, field);
+        // Core 8.1.1 permits $schema only at a resource root. The graph knows
+        // whether this occurrence is an intrinsic subschema or a native root;
+        // pointer depth alone cannot establish that distinction.
+        const dialectLocation = scope.kind === 'schema' && field.name === '$schema' &&
+            scope.schemaParent !== undefined && scope.resourcePointer !== scope.pointer;
+        const unknownDialect = scope.kind === 'schema' && !supportedSchemaDialect(scope) && field.name !== '$schema';
         return {...field, ...(forms ? {schemaValueForms: forms} : {}),
             ...(field.name === 'type' && typeChoices ? {schemaTypeChoices: typeChoices} : {}),
+            ...(dialectLocation || unknownDialect ? {prohibited: true, blockedBy: dialectLocation ? ['$id'] : ['$schema']} : {}),
             ...(explicitName && field.name === 'name' ? {required: true} : {})};
     });
 }
@@ -242,7 +250,7 @@ function schemaFields() {
         boolean: ['readOnly', 'writeOnly', 'deprecated', 'uniqueItems'],
         number: ['minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf'],
         integer: ['minLength', 'maxLength', 'minProperties', 'maxProperties', 'minItems', 'maxItems', 'minContains', 'maxContains'],
-        object: ['properties', 'patternProperties', ...schemaDefinitionKeywords, 'dependentSchemas', 'dependentRequired', 'discriminator', 'xml', 'externalDocs'],
+        object: ['$vocabulary', 'properties', 'patternProperties', ...schemaDefinitionKeywords, 'dependentSchemas', 'dependentRequired', 'discriminator', 'xml', 'externalDocs'],
         array: ['required', 'enum', 'examples', 'allOf', 'anyOf', 'oneOf', 'prefixItems'],
         schema: ['items', 'contains', 'additionalProperties', 'unevaluatedProperties', 'unevaluatedItems', 'propertyNames', 'not', 'if', 'then', 'else', 'contentSchema'],
         any: ['type', 'const', 'default', 'example'],

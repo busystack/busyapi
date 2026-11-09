@@ -529,6 +529,16 @@ class _ReferenceObjectViewState extends State<ReferenceObjectView> {
             Text(l.referenceObjectMeaning),
           if (page['interpretation'] == 'schema-applicators')
             Text(l.referenceSchemaMeaning),
+          if (page['schemaContext'] case final Map schemaContext) ...[
+            link(
+              l.referenceSchemaResource,
+              schemaContext['resource'] as Map,
+              subtitle: schemaContext['base'] as String,
+            ),
+            plain('${contractFieldLabel(context, r'$schema')}: ${schemaContext['dialect'] ?? ''}'),
+            if (schemaContext['supported'] != true)
+              Text(l.schemaDialectIncomplete),
+          ],
           if (page['interpretation'] == 'path-item' &&
               (page['references'] as List).isNotEmpty)
             Text(l.referencePathMeaning),

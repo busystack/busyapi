@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { children, referenceKinds, standardOperationMethods } from './contexts';
 import { ReferenceGraph, supportedSchemaDialect, referenceMarkdownContext, schemaRoleContextRevision,type GraphReference } from './reference_graph';
 import { fieldsFor, fieldsForScope, removableField, allowsExtensions, componentFamily, componentLocation, authoringFieldRevision } from './authoring';
-import {sameSchemaValueForms, allowsSchemaValue} from './schema_value_forms';
+import {sameSchemaValueForms, allowsSchemaValue, schemaOccurrenceForms, schemaEntryForms} from './schema_value_forms';
 import type {SchemaValueForms} from './schema_value_forms';
 import { SourceDocument, SourceError, RawJsonValue, escape, segments, limits } from './document';
 import {structuralEvaluator as ajv, structuralValidators as validators, structuralRevisions, structuralSchema} from './structural_schema';
@@ -461,6 +461,8 @@ export function inspect(input: any) {
     const sharedTarget=!!componentFamily(scope.kind,family)&&graph.references.some(ref=>ref.resolution==='resolved'&&ref.targetResource===doc.id&&ref.targetPointer===node.pointer);
     return {version: 1, snapshot: input.snapshot, family, ...(isNativeFamily(family)?{capabilities:capabilitiesFor(family)}:{}), customSchemaKeywords: modernFamily(family), ...located(node, scope.kind), interpretations:graph.scopesAt(doc.id,node.pointer).map(({kind,family,dialect})=>({kind,family,dialect})), sharedTarget, componentDestination: graph.specifications.get(doc.id)?.family===family, componentDestinations, ...(componentFamily(scope.kind,family)?{componentFamily:componentFamily(scope.kind,family)}:{}), ...(schemaTreeRoot!==undefined?{schemaTreeRoot}:{}), removable, allowsExtensions: allowsExtensions(scope.kind, family, node.value, segments(node.pointer).at(-1),graph.allowsReference(scope)), fields, entries, offset, count: node.children.size, references,
         ...yamlOwnershipProjection(doc,node.pointer,scope.kind),
+        ...(scope.kind === 'schema' ? {schemaValueForms: schemaOccurrenceForms(graph, scope)} : {}),
+        ...(schemaEntryForms(graph, scope) ? {schemaEntryValueForms: schemaEntryForms(graph, scope)} : {}),
         ...(ownerSchema ? {ownerSchema: located(ownerSchema, 'schema')} : {}),
         schemaSuggestion:schemaInferenceSources(graph,scope),
         ...(binding?{securityBinding:binding}:{}),
@@ -530,10 +532,13 @@ export function propose(input: any) {
             const parts = segments(action.pointer), name = parts.pop();
             const parentPointer = parts.length ? '/' + parts.map(escape).join('/') : '';
             const {graph} = createGraph({...input, resources: input.resources.map((item: Resource) => item.id === doc.id ? {...item, text: doc.text} : item)});
-            const source = {resource: doc.id, pointer: parentPointer, range: doc.nodes.get(parentPointer)?.range ?? captured.range};
-            const scope = graph.selectedScope(doc.id,parentPointer,parentPointer===input.target.pointer?input.target.kind:undefined);
-            const field = scope && fieldsForScope(graph, scope, doc.node(parentPointer).value).find(field => field.name === name);
-            fieldForms = field?.schemaValueForms;
+            const wholeSchema = action.schemaValueForms?.field === '@schema';
+            const ownerPointer = wholeSchema ? action.pointer : parentPointer;
+            const source = {resource: doc.id, pointer: ownerPointer, range: doc.nodes.get(ownerPointer)?.range ?? captured.range};
+            const scope = graph.selectedScope(doc.id,ownerPointer,ownerPointer===input.target.pointer?input.target.kind:undefined);
+            fieldForms = scope && (wholeSchema ? schemaOccurrenceForms(graph, scope) :
+                action.schemaValueForms?.field === '@entry' ? schemaEntryForms(graph, scope) :
+                fieldsForScope(graph, scope, doc.node(parentPointer).value).find(field => field.name === name)?.schemaValueForms);
             if (!fieldForms || !sameSchemaValueForms(action.schemaValueForms, fieldForms))
                 throw new SourceError('edit.stale', 'The specification, schema dialect or captured field context changed; reopen the field before applying', source.range, undefined, source);
             if (!fieldForms.supported && action.kind !== 'remove')

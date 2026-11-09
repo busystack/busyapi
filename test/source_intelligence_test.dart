@@ -44,6 +44,10 @@ void main() {
     'schema-3.0.4',
     'schema-3.1.2',
     'schema-3.2.1',
+    'occurrence-2.0',
+    'occurrence-3.0.4',
+    'occurrence-3.1.2',
+    'occurrence-3.2.1',
     'composition',
     'stale',
     'dispose',
@@ -67,12 +71,13 @@ void main() {
         final reveals = <Map<String, dynamic>>[];
         BusyProject? project;
         late DocumentBuffer buffer;
-        final schemaVersion = behavior.startsWith('schema-') ? behavior.substring(7) : null;
+        final occurrence = behavior.startsWith('occurrence-');
+        final schemaVersion = occurrence ? behavior.substring(11) : behavior.startsWith('schema-') ? behavior.substring(7) : null;
         final schemaMarker = schemaVersion == null ? null :
             '{"${schemaVersion == '2.0' ? 'swagger' : 'openapi'}":"$schemaVersion",'
             '"info":{"title":"Source","version":"1"},"paths":{},'
             '${schemaVersion == '2.0' ? '"definitions"' : '"components":{"schemas"'}:'
-            '{"Value":{"additionalProperties":n§ull}}${schemaVersion == '2.0' ? '' : '}'}}';
+            '{"Value":{${occurrence ? '"properties":{"child":n§ull}' : '"additionalProperties":n§ull'}}}${schemaVersion == '2.0' ? '' : '}'}}';
         final marker = schemaMarker ?? (behavior == 'incomplete'
             ? r'{"openapi":"3.2.1","info":{"title":"Source", "version":"1", "summ§},"paths":{}}'
             : r'{"openapi":"3.2.1","info":{"title":"Source", § "version":"1"},"paths":{},"components":{"schemas":{"Model":{"$ref":"part.json#/Thing"}}}}');
@@ -273,6 +278,18 @@ void main() {
             return;
           }
           if (schemaVersion != null) {
+            if (occurrence && (schemaVersion == '2.0' || schemaVersion.startsWith('3.0.'))) {
+              await waitFor(() => find.text('{}').evaluate().isNotEmpty);
+              expect(find.text('true'), findsNothing);
+              expect(find.text('false'), findsNothing);
+              await tester.runAsync(() => tester.tap(find.text('{}')));
+              await tester.pumpAndSettle();
+              expect(buffer.text, original.replaceFirst('null', '{}'));
+              project!.store.undo();
+              expect(buffer.text, original);
+              expect(tester.takeException(), isNull);
+              return;
+            }
             await waitFor(() => find.text('false').evaluate().isNotEmpty);
             expect(find.text('{}'), findsOneWidget);
             expect(find.text('true'), findsOneWidget);

@@ -194,6 +194,32 @@ void main() {
     expect(await File(buffer.path).readAsBytes(), accepted);
   });
   for (final version in ['2.0', '3.0.4', '3.1.2', '3.2.1']) {
+    test('Source $version scalar schema occurrences share captured forms and reject stale edits', () async {
+      final swagger = version == '2.0';
+      final modern = version.startsWith('3.1.') || version.startsWith('3.2.');
+      for (final member in ['"properties":{"child":null}', '"allOf":[null]']) {
+        final source = '{"${swagger ? 'swagger' : 'openapi'}":"$version",'
+            '"info":{"title":"Kept","version":"unrelated"},"paths":{},'
+            '${swagger ? '"definitions"' : '"components":{"schemas"'}:'
+            '{"Value":{$member}}${swagger ? '' : '}'},"x-number":9007199254740993.00}';
+        project.store.replace(buffer.id, source);
+        caret = source.indexOf('null') + 1;
+        buffer.selection = SourceSelection(caret, caret);
+        final assistance = await capture();
+        expect(assistance.completions.map((entry) => entry['label']), modern ? ['{}', 'true', 'false'] : ['{}']);
+        final selected = modern ? 'false' : '{}';
+        final choice = assistance.completions.indexWhere((entry) => entry['label'] == selected);
+        final edit = assistance.completion(choice, buffer);
+        project.store.apply([edit], label: 'Schema occurrence');
+        expect(buffer.text, source.replaceFirst('null', selected));
+        expect((await project.check(project.roots.single.id))['status'], 'complete');
+        expect(() => assistance.completion(choice, buffer),
+            throwsA(isA<CoreFailure>().having((e) => e.code, 'code', 'assist.stale')));
+        project.store.undo();
+        expect(buffer.text, source);
+        expect(buffer.hasBom, true);
+      }
+    });
     test('Source schema forms $version apply, undo, save and reopen through Core', () async {
       final swagger = version == '2.0';
       final source = '{"${swagger ? 'swagger' : 'openapi'}":"$version",'

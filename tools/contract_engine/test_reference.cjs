@@ -2,6 +2,40 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const YAML=require('yaml');
 const {referencePage,referenceDocument}=require('./dist/reference_projection.cjs');
+for(const version of ['2.0','3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const json of [false,true])
+test(`Reference ${version} ${json?'JSON':'YAML'} retains schema reference meaning and canonical resource context`,()=>{
+ const swagger=version==='2.0',modern=/^3\.[12]\./.test(version),root='file:///reference/native.'+(json?'json':'yaml');
+ const base=swagger?'/definitions':'/components/schemas';
+ const schemas={Target:{type:'object',properties:{next:{$ref:'#'+base+'/Target'},values:{type:'array',items:{type:'number',minimum:'EXACT'}}}},
+  Use:{$ref:'#'+base+'/Target',description:'Authored annotation',properties:{ignoredOrApplied:{type:'string'}}}};
+ if(modern)schemas.Resource={$id:'https://schemas.example/tree',$schema:'https://json-schema.org/draft/2020-12/schema',$dynamicAnchor:'node',
+  type:'object',properties:{next:{$dynamicRef:'#node'}},if:{required:['flag']},then:{properties:{flag:{const:true}}},else:false,
+  $defs:{Child:{$id:'child',description:'Independent resource',type:['number','null']}}};
+ const value={...(swagger?{swagger:version,definitions:schemas}:{openapi:version,components:{schemas}}),info:{title:'Reference',version:'unrelated'},paths:{}};
+ const text=(json?JSON.stringify(value):'# Keep\r\n'+YAML.stringify(value).replaceAll('\n','\r\n')).replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const input={root,snapshot:'native-context',resources:[{id:root,text,generation:4}]},read=pointer=>referencePage({...input,resource:root,pointer});
+ const use=read(base+'/Use');
+ assert.equal(use.interpretation,modern?'schema-applicators':'reference-object');
+ assert.equal(use.entries.find(entry=>entry.name==='properties').contextual,modern);
+ assert.equal(use.references[0].target.pointer,base+'/Target');
+ const recursive=read(base+'/Target/properties/next');
+ assert.equal(recursive.references[0].target.pointer,base+'/Target');
+ assert.equal(read(base+'/Target/properties/values/items/minimum').text,'9007199254740993.00');
+ assert.equal(use.schemaContext.supported,true);assert.equal(use.schemaContext.base,root);
+ if(modern) {
+  const resource=read(base+'/Resource'),child=read(base+'/Resource/$defs/Child');
+  assert.equal(resource.schemaContext.dialect,'https://json-schema.org/draft/2020-12/schema');
+  assert.equal(child.schemaContext.base,'https://schemas.example/child');
+  assert.equal(child.schemaContext.resource.pointer,base+'/Resource/$defs/Child');
+  const dynamic=read(base+'/Resource/properties/next').references[0];
+  assert.equal(dynamic.target.pointer,base+'/Resource');assert.equal(dynamic.dynamic.anchor,'node');
+  assert(dynamic.dynamic.candidates.some(target=>target.pointer===base+'/Resource'));
+  assert.equal(read(base+'/Resource/else').boolean,false);
+  const offline=referenceDocument(input);
+  assert(offline.sections.some(section=>section.source.pointer===child.pointer&&section.base===child.schemaContext.base));
+ }
+ assert.equal(input.resources[0].text,text);
+});
 for(const version of ['3.1.2','3.2.1'])test(`Reference ${version} callback fields follow whole-occurrence graph interpretation`,()=>{
  const root='https://contracts.invalid/callback.json',value={openapi:version,info:{title:'Callback contexts',version:'1'},paths:{},components:{callbacks:{}}};
  value.components.callbacks.Target={'{$request.body#/url}':{post:{responses:{204:{description:'Bodyless'}}}}};

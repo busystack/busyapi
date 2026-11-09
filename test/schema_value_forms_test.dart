@@ -208,6 +208,53 @@ void main() {
               await controller.saveBuffers();
             });
             expect(file.readAsStringSync(), changed);
+            // The occurrence itself can be edited through the same captured
+            // form, including boolean -> object in modern families.
+            await tester.runAsync(() => controller.selectObject({
+              'root': controller.root,
+              'resource': controller.root,
+              'pointer': pointer,
+            }));
+            final whole = find.byWidgetPredicate((widget) =>
+                widget is BusyApiActionRow &&
+                widget.title == 'Edit the complete captured value' &&
+                widget.onTap != null).first;
+            await ready(() => whole.evaluate().isNotEmpty);
+            await tester.ensureVisible(whole);
+            await tester.runAsync(() => tester.tap(whole));
+            await ready(() => controller.form?.kind == 'object.value');
+            final modern = version.startsWith('3.1.') || version.startsWith('3.2.');
+            await tester.enterText(editor, 'false');
+            await apply();
+            if (!modern) {
+              expect(find.textContaining('Enter a JSON value of type'), findsOneWidget);
+              expect(controller.buffer!.text, changed);
+              await tester.enterText(editor, '{"description":"Complete schema"}');
+              await apply();
+            }
+            await ready(() => controller.form == null && !controller.checking);
+            await tester.runAsync(() => pending!);
+            await tester.runAsync(() async {
+              final reference = await controller.project!.referencePage(
+                controller.root!, controller.root!, pointer,
+              );
+              if (modern) expect(reference['boolean'], false);
+              expect(reference['schemaContext']['supported'], true);
+            });
+            if (modern) {
+              await ready(() => whole.evaluate().isNotEmpty);
+              await tester.ensureVisible(whole);
+              await tester.runAsync(() => tester.tap(whole));
+              await ready(() => controller.form?.kind == 'object.value');
+              await tester.enterText(editor, '{"description":"Complete schema"}');
+              await apply();
+              await ready(() => controller.form == null && !controller.checking);
+              await tester.runAsync(() => pending!);
+            }
+            expect(controller.buffer!.text, contains('Complete schema'));
+            expect(controller.buffer!.text, contains('9007199254740993.00'));
+            expect(controller.buffer!.text, contains('literal.json'));
+            expect(file.readAsStringSync(), changed);
             expect(tester.takeException(), isNull);
             expect(failures, isEmpty);
           } finally {

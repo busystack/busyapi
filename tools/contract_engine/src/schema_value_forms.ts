@@ -32,6 +32,20 @@ export function schemaValueForms(graph: ReferenceGraph, scope: GraphScope, field
     return {version: 2, context: schemaAuthoringContext(graph, scope), field: field.name, supported, forms};
 }
 
+/** Whole occurrences and collection members are Schema Objects too. Keep
+ * their controls bound to the graph, including native roots, tuple members,
+ * reusable definitions and schemas reached through approved references. The
+ * reserved field tags cannot be confused with a fixed keyword capability. */
+export function schemaOccurrenceForms(graph: ReferenceGraph, scope: GraphScope): SchemaValueForms | undefined {
+    if (scope.kind !== 'schema') return;
+    return schemaValueForms(graph, scope, {name: '@schema', type: 'schema'});
+}
+
+export function schemaEntryForms(graph: ReferenceGraph, scope: GraphScope): SchemaValueForms | undefined {
+    if (!['schema-map', 'schema-array'].includes(scope.kind)) return;
+    return schemaValueForms(graph, scope, {name: '@entry', type: 'schema'});
+}
+
 export function sameSchemaValueForms(expected: unknown, actual: SchemaValueForms): boolean {
     if (!expected || typeof expected !== 'object' || Array.isArray(expected)) return false;
     const value = expected as Record<string, unknown>;

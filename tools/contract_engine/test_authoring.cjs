@@ -212,3 +212,47 @@ test('absent nested component collections remain virtual until explicitly create
   if(version.startsWith('3.1'))assert.throws(()=>inspect({...input,resource:id,pointer:'/components/mediaTypes'}),e=>e.code==='inspect.context');
  }
 });
+for (const version of ['2.0','3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3.1.2','3.2.0','3.2.1']) for (const json of [false,true]) {
+ test(`${version} ${json?'JSON':'YAML'} schema fields follow native positions and resource boundaries`,()=>{
+  const swagger=version==='2.0',modern=/^3\.[12]\./.test(version),root='file:///authoring/positions.'+(json?'json':'yaml');
+  const schema={type:'object',properties:{child:{type:'string'}},allOf:[{}],items:swagger?[{}]:{},additionalProperties:false};
+  if(modern)Object.assign(schema,{if:{},then:{},else:{},prefixItems:[false],contains:true,$defs:{Local:{$id:'local',$schema:'https://json-schema.org/draft/2020-12/schema'}}});
+  const parameter=swagger?{name:'body',in:'body',schema}:{name:'p',in:'query',schema};
+  const response=swagger?{description:'Kept',schema,headers:{H:{type:'array',items:{type:'string'}}}}:
+   {description:'Kept',content:{'application/json':{schema,...(version.startsWith('3.2')?{itemSchema:schema}:{})}},headers:{H:{schema}}};
+  const value={...(swagger?{swagger:version,definitions:{Value:schema}}:{openapi:version,components:{schemas:{Value:schema}}}),
+   info:{title:'Positions',version:'unrelated'},paths:{'/p':{post:{parameters:[parameter],responses:{200:response},
+    ...(!swagger?{requestBody:{content:{'application/json':{schema}}}}:{})}}}};
+  const text=json?JSON.stringify(value):YAML.stringify(value),input={root,snapshot:'positions',resources:[{id:root,text,generation:1}]};
+  const graph=require('./dist/model.cjs').createGraph(input).graph;
+  for(const scope of graph.scopesFor('schema')) {
+   const page=inspect({...input,resource:root,pointer:scope.pointer});
+   const names=page.fields.map(f=>f.name);
+   assert.equal(names.includes('nullable'),!swagger&&!modern);
+   assert.equal(names.includes('if'),modern);assert.equal(names.includes('$id'),modern);
+   assert.equal(names.includes('writeOnly'),!swagger);
+   const exclusive=page.fields.find(f=>f.name==='exclusiveMinimum');
+   assert.equal(exclusive.type,modern?'number':'boolean');
+   if(modern) {
+    assert.equal(page.fields.find(f=>f.name==='$vocabulary').type,'object');
+    const dialect=page.fields.find(f=>f.name==='$schema');
+    assert.equal(dialect.prohibited===true,scope.schemaParent!==undefined&&scope.resourcePointer!==scope.pointer);
+   }
+  }
+  if(swagger)for(const pointer of ['/paths/~1p/post/responses/200/headers/H','/paths/~1p/post/responses/200/headers/H/items']) {
+   const page=inspect({...input,resource:root,pointer});
+   assert(!page.fields.some(f=>['properties','allOf','nullable','$ref'].includes(f.name)));
+  }
+  assert.equal(input.resources[0].text,text);
+ });
+}
+
+test('unknown dialect fields remain unavailable while the resource-root dialect declaration can be corrected',()=>{
+ const root='file:///authoring/dialect.json',pointer='/components/schemas/Value';
+ const input={root,snapshot:'unknown',resources:[{id:root,generation:1,text:JSON.stringify({openapi:'3.2.1',info:{title:'T',version:'1'},paths:{},
+  components:{schemas:{Value:{$schema:'https://unknown.invalid/dialect',minimum:1}}}})}]};
+ const page=inspect({...input,resource:root,pointer});
+ assert.equal(page.fields.find(f=>f.name==='minimum').prohibited,true);
+ assert.equal(page.fields.find(f=>f.name==='$schema').prohibited,undefined);
+ assert.equal(page.schemaValueForms.supported,false);
+});

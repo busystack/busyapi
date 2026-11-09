@@ -155,6 +155,8 @@ void main() {
             find.textContaining('Authored schema constraints apply together'),
             findsOneWidget,
           );
+          expect(find.text('Schema resource'), findsOneWidget);
+          expect(find.textContaining(r'$schema: https://spec.openapis.org/oas/'), findsOneWidget);
           await tester.runAsync(() async {
             final buffer = await c.project!.buffer(target);
             c.sourceEdit(

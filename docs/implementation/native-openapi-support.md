@@ -94,10 +94,9 @@ results. They are required native application work, not specification limits:
    resource and reference semantics; close W6 native maintenance gaps. Preserve
    declarations, unrelated bytes and review/Undo/Redo safety. Completion requires
    no known native authoring/maintenance gap; unexecuted coverage remains a
-   separate verification status. Current bounded implementation: Source schema
-   value forms described below. Next bounded inspection/implementation: close
-   W1 field/position gaps against actual native consumers, beginning with schema
-   and reference-maintenance contexts; record exact missing behavior before edits.
+   separate verification status. The bounded W1 schema/reference authoring
+   completion below extends the existing Source schema forms. Continue Phase 1
+   with W6 semantic maintenance; record actual missing behavior before edits.
 2. **Application functionality.** Complete the explicit wire/multipart/example,
    mock, streaming and documentation gaps above through every applicable native,
    Core and CLI consumer. Completion requires no required consumer to retain an
@@ -224,6 +223,69 @@ path. Those files are already selected by existing engine/Core/widget gates.
 Source inspection and `git diff --check` only were performed. This closes this
 specific Source metadata integration gap at source level, unverified; it does
 not certify the complete Source subsystem or any phase as complete.
+
+### W1 native Schema Object and Reference Object authoring completion
+
+The assigned schema/reference authoring portions of W1.08–W1.10 are
+source-complete on source inspection, with prepared regressions unexecuted.
+This does not mark all W1, Phase 1 or BusyAPI source-complete or accepted.
+Normative boundaries are the versioned specifications in Authorities above,
+particularly Swagger §6.4.18, OAS 3.0 §4.7.24, OAS 3.1 §4.8.24,
+OAS 3.2 Schema Object/Reference Object clauses and JSON Schema Core §8.
+
+Already implemented: shared family-specific field metadata, Swagger Schema
+versus Parameter/Items/Header traversal, restricted versus modern schema
+types, schema-valued field forms, reference choices/navigation, recursive and
+dynamic graph edges, resource identities/dialects, exact CST values and lazy
+schema/Reference trees. Core's captured inspect/propose, Source assistance,
+history, external-change detection and publication remain the editing owners.
+Their existing coverage was unverified, rather than evidence of missing code.
+
+Confirmed omissions corrected:
+
+- Design now exposes the existing captured data editor for complete schema
+  occurrences and navigable schema-valued fields. Object/boolean transitions
+  and Swagger tuple items no longer require abandoning Design. Schema map and
+  applicator-array creation accepts the engine's permitted entry forms.
+- Whole-schema edits, collection entries and boolean toggles use the same
+  context-bound schema-form descriptors and recheck the current graph after
+  earlier transaction actions. The existing field descriptors remain intact.
+- Source repairs scalar schema occurrences in maps and composition arrays
+  through those same forms. Payloads and unsupported dialects acquire no
+  guessed completions. The new Source schema-form implementation is retained.
+- Shared fields include `$vocabulary`; nested `$schema` insertion is unavailable
+  when the graph establishes an intrinsic subschema without its own resource
+  identity. Unknown dialects do not offer assumed keyword authoring. Design's
+  keyword picker respects these shared prohibitions.
+- Native Reference explains restricted-schema `$ref` as a Reference Object,
+  retaining ignored-sibling boundaries. Modern `$ref` remains a schema
+  applicator. Schema pages expose the graph's effective dialect, supported
+  status, resource identity, address and located resource owner. Dynamic
+  targets stay explicit; no resource is flattened or reference evaluated by UI.
+
+Prepared coverage extends the registered engine `test_authoring.cjs`,
+`test_source_type_choices.cjs`, `test_schema_value_forms.cjs` and
+`test_reference.cjs`; Core `source_assistance_test.dart` and
+`native_application_workflow_test.dart`; native `schema_value_forms_test.dart`,
+`source_intelligence_test.dart` and `reference_objects_test.dart`. Engine cases
+cover Swagger 2.0, 3.0.0–3.0.4, 3.1.0–3.1.2 and 3.2.0–3.2.1 in YAML/JSON,
+schema-bearing native/keyword positions, legal/illegal forms, dialect locations,
+references, recursion, independently identified resources and exact numbers.
+The combined Core journey edits an external schema through Design's production
+API and Source, reads Reference, validates, rejects a stale action, undoes/redoes,
+saves and cold reopens. It retains the native declaration, unrelated source,
+BOM, CRLF, YAML comments/aliases, extension payloads and exact numeric lexemes.
+Native cases exercise complete-value forms and Source popup acceptance.
+Existing assertions and source-fidelity controls remain present. All files
+remain covered by the existing engine/Core/widget directory gates.
+
+Verification is separate: only source inspection and `git diff --check` are
+authorized here. No compiler, analyzer, test, engine generation, graphical
+workload, build, CI, performance check or packaged acceptance has run. The
+execution hold remains active; Snapcraft remains skipped. No dependency or
+third-party source changed. B05 migration assignments remain suspended. The
+next Phase 1 work is W6 semantic maintenance; typed multipart, XML/Linkset,
+streaming and mocks retain their Phase 2 priority before advanced migration.
 
 ## B05-R3d-1b-4: Mixed-media reusable-owner specialization
 
@@ -3141,9 +3203,9 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W1.05 Parameter locations, `querystring`, inheritance, schema/content exclusivity, styles and Header objects; family Parameter/Items/Header clauses, O32 §§4.12/4.21 | `parameter_semantics.ts`, Swagger wire owners, authoring, Core request controls | A R E M S C | native20/native30, parameter/style/serialized/header suites | Partially implemented; keep Swagger non-body Parameter/Items/Header rules narrower than Schema Objects; finish W4 representations | H |
 | W1.06 Request bodies and response/status/media relationships; O20 body/Response, O30/O31 named objects, O32 §§4.13–4.14/4.16–4.18 | operation/response/media owners, `runtime_media_owner.ts`, Core request | A R E M S C | bodyless/operation-body/response-status/media-selection suites | Partially implemented; same-family shared operation media now use entry-owned variants; newer fields and remaining inherited representations still need W2/W3 closure | H |
 | W1.07 Media examples, reusable 3.2 media, `itemSchema`, named/positional/nested Encoding and example-value fields; O32 §§4.14–4.15/4.19 | media/form/multipart owners, `example_representation.ts`, `serialized_examples.ts` | A R E M S C | generic/positional multipart, data-value, example completeness and external-resource suites | Partially implemented; metadata and finite decoding exist; typed generation, streaming and XML/Linkset remain open | H |
-| W1.08 Reusable component families and reference eligibility; O20 reusable maps, O30/O31 Components, O32 §4.7 | `authoring.ts`, graph/reference choices, native object controls | A R E M S C | native family/reference position/component-name suites | Partially implemented; existing source for existing component contexts; qualify each applicable field and consumer, including media occurrences | H |
-| W1.09 Restricted schemas versus modern vocabularies, boolean schemas, exact numbers and annotations; O20 Schema, O30 Schema, O31/O32 Schema, J4/JC/JV | restricted/structural validators, `schema_evaluation.ts`, schema resource/access owners | A R E M S C | restricted-required, schema-role/definition/property-access/evaluation suites | Partially implemented; schema evaluation is implemented; authoring and mapping coverage must be closed independently of structural validity | H |
-| W1.10 Reference Objects, schema applicators, Path Item references and ignored siblings; family reference clauses, JC §8.2.3 | `contexts.ts`, `reference_graph.ts`, reference projections/choices | A R E M S C | reference-family/position/path-item/context suites | Partially implemented; existing source for existing contextual boundaries; retain negative payload/reference-lookalike controls | H |
+| W1.08 Reusable component families and reference eligibility; O20 reusable maps, O30/O31 Components, O32 §4.7 | `authoring.ts`, graph/reference choices, native object controls | A R E M S C | native family/reference position/component-name suites | Schema-authoring portion source-complete, unverified (bounded completion above); other reusable object/media field qualification remains independent | H |
+| W1.09 Restricted schemas versus modern vocabularies, boolean schemas, exact numbers and annotations; O20 Schema, O30 Schema, O31/O32 Schema, J4/JC/JV | restricted/structural validators, `schema_evaluation.ts`, schema resource/access owners | A R E M S C | restricted-required, schema-role/definition/property-access/evaluation suites | Schema-authoring portion source-complete, unverified (bounded completion above); full evaluation qualification and migration mapping remain independent | H |
+| W1.10 Reference Objects, schema applicators, Path Item references and ignored siblings; family reference clauses, JC §8.2.3 | `contexts.ts`, `reference_graph.ts`, reference projections/choices | A R E M S C | reference-family/position/path-item/context suites | Schema/reference-authoring portion source-complete, unverified (bounded completion above); non-schema Reference/Path Item qualification remains independent; payload controls retained | H |
 | W1.11 Links, runtime expressions, callbacks and webhooks; O30/O31/O32 named object clauses | runtime-expression/link/graph owners, authoring and reference projections | A R E M S C | graph/reference/operation-maintenance suites (existing) | Partially implemented; complete field/surface qualification and representable maintenance/migration coverage remain | H |
 | W1.12 Tags, summary/kind/parent, entry namespaces and cycles; O32 Tag Object | `authoring_relationships.ts`, authoring, native Reference | A R M S C | `test_relationships`, reference-family suites | Partially implemented; existing source for existing parent/duplicate/cycle rules; downstream migration still incomplete | H |
 | W1.13 Security URI bindings, roles, OAuth metadata/device flow and added fields; O32 Security Scheme/OAuth Flow/Security Requirement objects | security owners, graph connections, Core request/security controls | A R E M S C | security-role/selection/URI-binding suites | Partially implemented; native declarations exist; URI-to-name and standard OAuth flow splitting now use shared source owners, request proofs, Core execution and reviewed configuration projection; newer-field mappings and complete native OAuth/device-flow qualification remain | H |
