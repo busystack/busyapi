@@ -52,7 +52,7 @@ export function discriminatorBindings(graph:ReferenceGraph,source:GraphScope):{
  * proved by the canonical graph, including embedded ids and retrieval aliases.
  * Completion and native choices use this same operation. */
 export function referenceValue(graph:ReferenceGraph,from:GraphScope,to:GraphScope,keyword='$ref',excluded?:ReadonlySet<string>,
- options:Readonly<{absolute?:boolean;connection?:'security'|'discriminator'}>={}):string|undefined {
+ options:Readonly<{absolute?:boolean;connection?:'security'|'discriminator';retrieval?:boolean}>={}):string|undefined {
  if(to.kind==='schema'&&!supportedSchemaDialect(to))return;
  const dynamic=!options.connection&&keyword==='$dynamicRef';
  let target:URL,suffix:string;
@@ -96,8 +96,10 @@ export function referenceValue(graph:ReferenceGraph,from:GraphScope,to:GraphScop
   // last discoverable dependency. Core/graph resolution still establishes the
   // original $id/base/dialect at the selected location. JSON Schema Core 9.2.1
   // permits this physical-document addressing; moving the resource requires
-  // reviewed reference repairs. OAS 3.2's declared $self is never bypassed.
-  if((to.kind==='schema'||options.connection!==undefined)&&to.resource!==from.resource&&to.resource.startsWith('file:')&&
+  // reviewed reference repairs. An explicit ownership split may request the
+  // same-file retrieval route while old literal bytes still carry the copied
+  // ID in an intermediate graph. OAS 3.2's declared $self is never bypassed.
+  if((to.kind==='schema'||options.connection!==undefined)&&(to.resource!==from.resource||options.retrieval===true)&&to.resource.startsWith('file:')&&
     !(String(data?.openapi).startsWith('3.2.')&&typeof data?.$self==='string')&&
     (!dynamic||to.resourcePointer===''))
    append(resolveUri(to.resource,to.resource),dynamic?'#'+encodeURIComponent(suffix):fragment(to.pointer));

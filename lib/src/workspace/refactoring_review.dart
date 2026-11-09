@@ -15,6 +15,14 @@ String refactoringFailureMessage(
   String code,
 ) => switch (code) {
   'refactor.schema.dynamic-scope' => l.copySchemaResourceBlocked,
+  'refactor.literal.ownership' || 'file.move.literal.ownership' =>
+    l.refactoringLiteralOwnershipBlocked,
+  'refactor.literal.bytes' => l.refactoringByteOwnershipBlocked,
+  'refactor.byte-context' => l.refactoringByteContextBlocked,
+  'refactor.markdown.context' => l.sharedMarkdownOwnershipBlocked,
+  'refactor.markdown.mapping' => l.copyUriContextBlocked,
+  'refactor.markdown.ownership' =>
+    l.copyTypedContextBlocked,
   'file.move.case-file.content' => l.fileMoveCaseContent,
   'file.move.case-file.boundary' => l.fileMoveCaseBoundary,
   'file.configuration.conflict' => l.fileConfigurationConflict,
@@ -115,6 +123,9 @@ class _RefactoringReviewState extends State<_RefactoringReview> {
     final changes = (plan.result['changes'] as List? ?? []).cast<Map>();
     final references = (plan.result['usages'] as List).cast<Map>();
     final blockers = plan.result['blockers'] as List? ?? const [];
+    final separatedLiteral = (plan.result['sourceOwnership'] as List? ?? const []).any(
+      (entry) => entry is Map && entry['effect'] == 'retained-literal',
+    );
     final count = usages ? references.length : changes.length,
         pages = ((count + pageSize - 1) ~/ pageSize).clamp(1, 100000);
     final start = page * pageSize, end = (start + pageSize).clamp(0, count);
@@ -178,16 +189,20 @@ class _RefactoringReviewState extends State<_RefactoringReview> {
               ),
           ],
           if (plan.result['kind'] == 'component-extract')
-            Text(l.componentExtractionImpact),
+            Text(separatedLiteral ? l.literalContractSeparationImpact : l.componentExtractionImpact),
           if (plan.result['kind'] == 'response-example')
             Text(l.responseExampleImpact),
           if (plan.result['kind'] == 'component-extract-file') ...[
             Text(l.componentFileExtractionImpact),
+            if (separatedLiteral) Text(l.literalContractSeparationImpact),
             Text(l.componentFileBinding),
             SelectableText(
               '${location(plan.result['binding']['resource'])}#${plan.result['binding']['pointer']}',
             ),
           ],
+          if ((plan.result['sourceOwnership'] as List? ?? const []).any(
+            (entry) => entry is Map && entry['effect'] == 'separated-contract-use',
+          )) Text(l.referenceInliningImpact),
           if (plan.result['kind'] == 'component-move')
             Text(
               plan.result['removedBinding'] == null

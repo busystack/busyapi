@@ -5,6 +5,19 @@ const {planRename,planPropertyRename} = require('./dist/refactoring.cjs');
 const {createGraph,analyse} = require('./dist/model.cjs');
 const {SourceDocument}=require('./dist/document.cjs');
 const root='file:///project/root.yaml', part='file:///project/part.yaml';
+for(const version of ['2.0','3.0.4','3.1.2','3.2.1'])for(const format of ['yaml','json'])test(`${version} ${format} explicit contract separation enables property rename while literal bindings stay exact`,()=>{
+ const {planExtract}=require('./dist/refactoring_copy.cjs'),id='file:///project/owners.'+format,group=version==='2.0'?'/definitions':'/components/schemas',at=group+'/Holder/default';
+ const schemas={Holder:{default:{type:'object',properties:{old:{type:'integer',minimum:'EXACT'}},required:['old'],description:'[Guide](guide.md)','x-data':{$ref:'literal',bytes:'AAECA/7/AA=='}}},Use:{$ref:'#'+at}};
+ const data={...(version==='2.0'?{swagger:version}:{openapi:version}),info:{title:'Property owners',version:'1'},paths:{},...(version==='2.0'?{definitions:schemas}:{components:{schemas}})};
+ const text=(format==='json'?JSON.stringify(data):YAML.stringify(data)).replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const input={snapshot:'property-owners',resources:[{id,text,generation:1}],contexts:[{root:id,resources:[id]}],target:{root:id,resource:id,generation:1,pointer:at},name:'Independent'};
+ assert.throws(()=>planPropertyRename({...input,target:{...input.target,pointer:at+'/properties/old'},name:'new'}),error=>error.code==='refactor.literal.ownership');
+ const separated=apply(input,planExtract(input)),prepared={...input,resources:separated,target:{...input.target,pointer:group+'/Independent/properties/old'},name:'new'},output=apply(prepared,planPropertyRename(prepared));
+ const before=new SourceDocument(text,id),after=new SourceDocument(output[0].text,id);
+ assert.equal(after.dataJson(at),before.dataJson(at));assert.deepEqual(after.dataNode(group+'/Independent/required').value,['new']);
+ assert.equal(after.dataJson(group+'/Independent/properties/new/minimum'),'9007199254740993.00');
+ assert.equal(after.dataJson(group+'/Independent/x-data'),before.dataJson(at+'/x-data'));assert.equal(input.resources[0].text,text);
+});
 for(const version of ['3.1.2','3.2.1'])for(const json of [false,true])for(const explicit of [false,true])test(`ignored Reference Object siblings retain literal ownership ${version} ${json} explicit=${explicit}`,()=>{
  const id=root.replace('.yaml',json?'.json':'.yaml'),ignored='/components/responses/Ignored/content/application~1json/schema',value={openapi:version,info:{title:'Ignored ownership',version:'1'},paths:{},components:{schemas:{Old:{type:'string'},Use:{$ref:explicit?'#'+ignored:'#/components/schemas/Old'}},responses:{Bodyless:{description:'No body'},Ignored:{$ref:'#/components/responses/Bodyless',content:{'application/json':{schema:{$ref:'#/components/schemas/Old'}}}}}}},text=json?JSON.stringify(value):YAML.stringify(value),input={root:id,snapshot:'ignored-owner',resources:[{id,text,generation:1}],contexts:[{root:id,resources:[id]}],target:{resource:id,generation:1,pointer:'/components/schemas/Old'},name:'New'};
  if(explicit)assert.throws(()=>planRename(input),error=>error.code==='refactor.literal.ownership');

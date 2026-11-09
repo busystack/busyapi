@@ -1,11 +1,86 @@
 const assert=require('node:assert/strict');
 const {test}=require('node:test');
 const YAML=require('yaml');
-const {planExtract,planInline,planMoveDefinition}=require('./dist/refactoring_copy.cjs');
+const {planExtract,planExtractToFile,planInline,planMoveDefinition}=require('./dist/refactoring_copy.cjs');
 const {createGraph,analyse}=require('./dist/model.cjs');
 const {SourceDocument}=require('./dist/document.cjs');
 const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
 const pointer='/paths/~1items/get/responses/200/content/application~1json/schema';
+for(const version of ['2.0','3.0.4','3.1.2','3.2.1'])for(const format of ['yaml','json'])
+test(`${version} ${format} extraction to a new fragment retains the original literal and source provenance`,()=>{
+ const root='file:///project/source/api.'+format,destination='file:///project/target/model.'+format,group=version==='2.0'?'/definitions':'/components/schemas',at=group+'/Holder/default';
+ const schemas={Holder:{default:{type:'integer',minimum:'EXACT',description:'[Guide](guide.md) ![image][i]\n\n[i]: image.svg', 'x-bytes':'AAECA/7/AA=='}},Use:{$ref:'#'+at}};
+ const data={...(version==='2.0'?{swagger:version}:{openapi:version}),info:{title:'Fragment ownership',version:'1'},paths:{},...(version==='2.0'?{definitions:schemas}:{components:{schemas}})};
+ const text=(format==='json'?JSON.stringify(data):YAML.stringify(data)).replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const input={snapshot:'literal-fragment',resources:[{id:root,text,generation:1}],contexts:[{root,resources:[root]}],target:{root,resource:root,generation:1,pointer:at},name:'Independent',destinationResource:destination};
+ const plan=planExtractToFile(input),output=[...apply(input,plan),...plan.creations.map(value=>({...value,id:value.resource,generation:0}))];
+ const before=new SourceDocument(text,root),after=new SourceDocument(output[0].text,root),fragment=new SourceDocument(output[1].text,destination);
+ assert.equal(after.dataJson(at),before.dataJson(at));assert.equal(fragment.dataJson('/minimum'),'9007199254740993.00');assert.equal(fragment.dataNode('/x-bytes').value,'AAECA/7/AA==');
+ assert(fragment.dataNode('/description').value.includes('file:///project/source/guide.md'));
+ assert.equal(plan.sourceOwnership[0].pointer,at);assert.equal(plan.transitions[0].from,at);assert.equal(plan.transitions[0].toResource,destination);
+ const graph=createGraph({root,resources:output}).graph;assert.equal(graph.issues.length,0);assert.equal(graph.referenceAs(root,group+'/Independent','$ref','schema').targetResource,destination);
+ if(version!=='2.0'){
+  const pending={...data,components:{...data.components,examples:{Pending:{externalValue:destination}}}};
+  const pendingText=(format==='json'?JSON.stringify(pending):YAML.stringify(pending)).replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+  const blocked={...input,resources:[{...input.resources[0],text:pendingText}]};
+  assert.throws(()=>planExtractToFile(blocked),error=>error.code==='refactor.byte-context'&&error.kind==='unsupported'&&error.source?.pointer==='/components/examples/Pending/externalValue');
+  assert.equal(blocked.resources[0].text,pendingText);
+ }
+});
+for(const version of ['3.1.2','3.2.1'])for(const format of ['yaml','json'])for(const cross of [false,true])for(const dynamic of [false,true])
+test(`${version} ${format} literal specialization retains resource identity and evaluation scope cross=${cross} dynamic=${dynamic}`,async()=>{
+ const root='file:///project/source/dual.'+format,destination=cross?'file:///project/target/dual.'+format:root,at='/components/schemas/Holder/default',to='/components/schemas/Independent';
+ const payload={$id:'https://schemas.invalid/dual',$schema:'https://json-schema.org/draft/2020-12/schema',$anchor:'public',
+  ...(dynamic?{$dynamicAnchor:'node'}:{}),type:'object',required:['n'],
+  properties:{n:{type:'integer',minimum:'EXACT'},child:{[dynamic?'$dynamicRef':'$ref']:dynamic?'#node':'#public'}},
+  description:'[Guide](guide.md) ![image](image.svg)','x-bytes':'AAECA/7/AA=='};
+ const api=schemas=>({openapi:version,info:{title:'Dual resources',version:'1'},paths:{},components:{schemas}});
+ const encode=value=>(format==='json'?JSON.stringify(value):YAML.stringify(value)).replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const resources=[{id:root,text:encode(api({Holder:{default:payload},Use:{$ref:'#'+at},Static:{$dynamicRef:'#'+at},
+  ...(dynamic?{DynamicUse:{$dynamicRef:payload.$id+'#node'}}:{})})),generation:1},...(cross?[{id:destination,text:encode(api({})),generation:2}]:[])];
+ const input={root,snapshot:'identified-literal',resources,contexts:[{root,resources:[root]},...(cross?[{root:destination,resources:[destination]}]:[])],target:{root,resource:root,generation:1,pointer:at},name:'Independent',destinationResource:destination};
+ const samples=['{"n":9007199254740993,"child":{"n":9007199254740994}}','{"n":9007199254740992}','{"n":9007199254740993,"child":{"n":0}}'];
+ const evaluate=values=>evaluateSchemas({root,snapshot:'identified-literal-oracle',resources:values,runtimeInstances:samples.map(text=>({subject:'response-body',location:'json',text,schema:{resource:root,pointer:'/components/schemas/Use'}}))});
+ const before=await evaluate(resources),plan=planExtract(input),output=apply(input,plan),after=await evaluate(output),graph=createGraph({root,resources:output}).graph;
+ assert.equal(before.complete,true,JSON.stringify(before.findings));assert.equal(after.complete,true,JSON.stringify(after.findings));
+ assert.deepEqual(before.runtimeEvaluations.map(value=>value.valid),[true,false,false]);assert.deepEqual(after.runtimeEvaluations.map(value=>value.valid),[true,false,false]);
+ assert.equal(graph.identities.get(payload.$id).length,1);assert.equal(graph.identities.get(payload.$id)[0].pointer,to);
+ assert.equal(graph.scopeAs(destination,to,'schema').dialect,payload.$schema);
+ assert.equal(new SourceDocument(output[0].text,root).dataJson(at),new SourceDocument(resources[0].text,root).dataJson(at));
+ const copy=new SourceDocument(output.find(value=>value.id===destination).text,destination);assert.equal(copy.dataNode(to+'/description').value,payload.description);
+ assert.equal(copy.dataNode(to+'/x-bytes').value,payload['x-bytes']);
+ assert.equal(graph.referenceAs(destination,to+'/properties/child',dynamic?'$dynamicRef':'$ref','schema').targetPointer,to);
+ assert.equal(graph.referenceAs(root,'/components/schemas/Static','$dynamicRef','schema').targetPointer,to);
+ assert.equal(graph.referenceAs(root,'/components/schemas/Static','$dynamicRef','schema').dynamic,undefined);
+ if(dynamic){const entry=graph.referenceAs(root,'/components/schemas/DynamicUse','$dynamicRef','schema');assert.equal(entry.value,payload.$id+'#node');assert.equal(entry.targetPointer,to);assert(entry.dynamic);}
+});
+for(const version of ['2.0','3.0.4','3.1.2','3.2.1'])for(const format of ['yaml','json'])for(const cross of [false,true])
+test(`${version} ${format} extraction separates a contract from its exact literal owner cross=${cross}`,()=>{
+ const root='file:///project/source/api.'+format,destination=cross?'file:///project/target/api.'+format:root,other='file:///project/consumer.'+format;
+ const group=version==='2.0'?'/definitions':'/components/schemas',at=group+'/Holder/default',to=group+'/Independent';
+ const payload={type:'integer',minimum:'EXACT',description:'[Guide](guide.md) ![image](image.svg)',enum:['EXACT'],
+  'x-payload':{$ref:'literal only','x-bytes':'AAECA/7/AA=='}};
+ const api=schemas=>({...(version==='2.0'?{swagger:version}:{openapi:version}),info:{title:'Owners',version:'1'},paths:{},
+  ...(version==='2.0'?{definitions:schemas}:{components:{schemas}})});
+ const encode=value=>(format==='json'?JSON.stringify(value):'# Keep source 雪\r\n'+YAML.stringify(value).replaceAll('\n','\r\n'))
+  .replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const resources=[{id:root,text:encode(api({Holder:{default:payload},Use:{$ref:'#'+at}})),generation:1},
+  {id:other,text:encode(api({Use:{$ref:'source/api.'+format+'#'+at}})),generation:2},
+  ...(cross?[{id:destination,text:encode(api({})),generation:3}]:[])];
+ const input={snapshot:'literal-contract-separation',resources,contexts:[{root,resources:[root]},
+  {root:other,resources:[other,root]},...(cross?[{root:destination,resources:[destination]}]:[])],target:{root,resource:root,generation:1,pointer:at},name:'Independent',destinationResource:destination};
+ const original=new SourceDocument(resources[0].text,root),plan=planExtract(input),output=apply(input,plan),graph=createGraph({root,resources:output}).graph;
+ const retained=new SourceDocument(output[0].text,root),copy=new SourceDocument(output.find(value=>value.id===destination).text,destination);
+ assert.equal(retained.dataJson(at),original.dataJson(at));assert.equal(copy.dataJson(to+'/minimum'),'9007199254740993.00');
+ assert.equal(copy.dataJson(to+'/enum'),original.dataJson(at+'/enum'));assert.equal(copy.dataJson(to+'/x-payload'),original.dataJson(at+'/x-payload'));
+ assert.equal(graph.references.some(ref=>ref.resource===root&&ref.pointer===at),false);
+ for(const context of input.contexts.filter(context=>context.root!==destination||!cross)){
+  const next=createGraph({root:context.root,resources:output}).graph,edge=next.references.find(ref=>ref.resource===context.root&&ref.pointer===group+'/Use');
+  assert.equal(edge.targetResource,destination);assert.equal(edge.targetPointer,to);assert.equal(edge.resolution,'resolved');
+ }
+ assert.equal(copy.dataNode(to+'/description').value,cross?'[Guide](<file:///project/source/guide.md>) ![image](<file:///project/source/image.svg>)':payload.description);
+ assert.equal(plan.sourceOwnership[0].effect,'retained-literal');assert.equal(resources[0].text,encode(api({Holder:{default:payload},Use:{$ref:'#'+at}})));
+});
 for(const version of ['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const json of [false,true])for(const mode of ['ref','static-dynamic','dynamic'])for(const cross of [false,true])
 test(`${version} ${json?'JSON':'YAML'} reviewed schema applicator extraction preserves siblings ${mode} cross=${cross}`,async()=>{
  const ext=json?'json':'yaml',root='file:///project/applicators.'+ext,destination=cross?'file:///project/models.'+ext:root;

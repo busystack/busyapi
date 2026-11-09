@@ -3229,6 +3229,8 @@ class BusyProject {
           },
       ],
       'target': target,
+      if (snapshots.isNotEmpty && snapshots.first.configuration.isNotEmpty)
+        'manifest': snapshots.first.configuration.single,
       if (method == 'planRename' &&
           snapshots.isNotEmpty &&
           snapshots.first.configuration.isNotEmpty)

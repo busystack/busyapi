@@ -5,6 +5,20 @@ const {planFileMove,planFileDeletion}=require('./dist/refactoring_file.cjs');
 const {createGraph}=require('./dist/model.cjs');
 const {SourceDocument}=require('./dist/document.cjs');
 const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
+for(const version of ['2.0','3.0.4','3.1.2','3.2.1'])test(`${version} file movement owns a virtual alias description without mutating its data consumers`,()=>{
+ const root='file:///project/source/api.yaml',destination='file:///project/target/api.yaml';
+ const text=(version==='2.0'?'swagger: "2.0"':'openapi: '+version)+'\r\n'+
+  'x-original: &info {title: Aliased, version: "1", description: "[Guide](guide.md) ![image](image.svg)", x-number: 9007199254740993.00, x-bytes: "AAECA/7/AA=="}\r\n'+
+  'info: *info\r\npaths: {}\r\nx-history: *info # Keep alias text\r\n';
+ const resources=[{id:root,text,generation:4}],input={snapshot:'virtual-description',resources,contexts:[{root,resources:[root]}],target:{resource:root,generation:4},destinationResource:destination};
+ const before=new SourceDocument(text,root),plan=planFileMove(input),output=apply(input,plan),after=new SourceDocument(output[0].text,destination);
+ for(const pointer of ['/x-original','/x-history'])assert.equal(after.dataJson(pointer),before.dataJson(pointer));
+ assert(after.text.includes('x-history: *info # Keep alias text'));
+ assert.equal(after.dataNode('/info/description').value,'[Guide](<file:///project/source/guide.md>) ![image](<file:///project/source/image.svg>)');
+ assert.equal(after.dataJson('/info/x-number'),'9007199254740993.00');assert.equal(after.dataNode('/info/x-bytes').value,'AAECA/7/AA==');
+ assert.equal(createGraph({root:destination,resources:output}).graph.issues.length,0);
+ assert.throws(()=>planFileMove({...input,target:{resource:root,generation:3}}),error=>error.code==='edit.stale');assert.equal(resources[0].text,text);
+});
 for(const version of ['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const json of [false,true])test(`file relocation preserves statically resolved dynamicRef spelling and behavior ${version} ${json}`,async()=>{
  const ext=json?'json':'yaml',root='file:///project/source/api.'+ext,destination='file:///project/deep/nested/api.'+ext,shared='file:///project/shared.'+ext;
  const api={openapi:version,info:{title:'Static dynamic reference',version:'1'},paths:{},components:{schemas:{Use:{$dynamicRef:'../shared.'+ext+'#plain'}}}};

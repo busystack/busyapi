@@ -7,6 +7,62 @@ import 'package:test/test.dart';
 import 'test_support.dart';
 
 void main() {
+  for (final version in ['2.0', '3.0.4', '3.1.2', '3.2.1']) {
+    for (final format in ['yaml', 'json']) {
+      test('$version $format CLI reviews literal specialization and preserves cold Markdown destinations', () async {
+        final directory = await Directory.systemTemp.createTemp('busyapi-cli-shared-markdown-');
+        addTearDown(() => directory.delete(recursive: true));
+        final root = File('${directory.path}/api.$format'), moved = File('${directory.path}/nested/api.$format');
+        await moved.parent.create();
+        final group = version == '2.0' ? '/definitions' : '/components/schemas', pointer = '$group/Holder/default';
+        final schemas = <String, Object?>{'Holder': {'default': {'type': 'integer', 'minimum': 'EXACT', 'description': '[Guide](guide.md)', 'x-data': {r'$ref': 'literal', 'bytes': 'AAECA/7/AA=='}}}, 'Use': {r'$ref': '#$pointer'}};
+        final sharedRoles = version == '3.1.2' || version == '3.2.1';
+        if (sharedRoles) schemas['Owner'] = {r'$id': 'https://schema.invalid/unrelated/base', 'properties': {'Reply': {'description': '[Reply](reply.md)'}}};
+        final original = '${format == 'yaml' ? '# Keep source\n' : ''}${jsonEncode({
+          if (version == '2.0') 'swagger': version else 'openapi': version,
+          'info': {'title': 'CLI owners', 'version': '1'},
+          'paths': {if (sharedRoles) '/value': {'get': {'responses': {'200': {r'$ref': '#/components/schemas/Owner/properties/Reply'}}}}},
+          if (version == '2.0') 'definitions': schemas else 'components': {'schemas': schemas},
+        }).replaceFirst('"EXACT"', '9007199254740993.00')}';
+        await root.writeAsString(original);
+        final environment = {'PATH': '', 'LANG': 'C.UTF-8', 'HOME': directory.path, 'XDG_STATE_HOME': '${directory.path}/state'};
+        Future<(int, Map)> invoke(List<String> options) async {
+          final result = await Process.run('$testBundle/busyapi', ['refactor', root.path, '--json', ...options], environment: environment, includeParentEnvironment: false);
+          return (result.exitCode, jsonDecode(result.stdout as String) as Map);
+        }
+        final options = ['--action', 'extract', '--pointer', pointer, '--name', 'Independent'];
+        final review = await invoke([...options, '--review']);
+        expect(review.$1, 0, reason: '${review.$2}');
+        expect(review.$2['sourceOwnership'][0]['effect'], 'retained-literal');expect(root.readAsStringSync(), original);
+        await root.writeAsString('$original ');
+        final stale = await invoke([...options, '--apply', review.$2['reviewIdentity'] as String]);
+        expect(stale.$1, 3);expect(stale.$2['error']['code'], 'refactor.stale');
+        await root.writeAsString(original);
+        final applied = await invoke([...options, '--apply', review.$2['reviewIdentity'] as String]);
+        expect(applied.$1, 0, reason: '${applied.$2}');expect(applied.$2['contractValidation'], 'not-run');
+        final moving = ['--action', 'file-move', '--resource', root.path, '--destination', moved.path];
+        final movement = await invoke([...moving, '--review']);expect(movement.$1, 0, reason: '${movement.$2}');
+        if (sharedRoles) expect(movement.$2['sourceOwnership'][0]['effect'], 'separated-contract-use');
+        final published = await invoke([...moving, '--apply', movement.$2['reviewIdentity'] as String]);expect(published.$1, 0, reason: '${published.$2}');
+        expect(root.existsSync(), false);expect(moved.readAsStringSync(), contains('9007199254740993.00'));
+        final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);
+        addTearDown(engine.close);
+        final reopened = await BusyProject.open(moved.path, engine);
+        addTearDown(reopened.close);
+        final id = moved.uri.toString();
+        expect((await reopened.check(id))['complete'], true);
+        final literal = await reopened.inspectObject(id, id, '$group/Holder'), contract = await reopened.inspectObject(id, id, '$group/Independent');
+        expect(literal['value']['default']['description'], '[Guide](guide.md)');
+        expect(contract['value']['description'], '[Guide](<${root.uri.resolve('guide.md')}>)');
+        expect(literal['value']['default']['x-data'][r'$ref'], 'literal');
+        if (sharedRoles) {
+          final response = await reopened.inspectObject(id, id, '/paths/~1value/get/responses/200');
+          expect(response['value']['description'], '[Reply](<${root.uri.resolve('reply.md')}>)');
+          expect((await reopened.inspectObject(id, id, '/components/schemas/Owner/properties/Reply'))['value']['description'], '[Reply](reply.md)');
+        }
+      });
+    }
+  }
   test('file reviews bind content, permissions and BOM while ignoring restored generations', () async {
     final directory = await Directory.systemTemp.createTemp('busyapi-file-review-');
     addTearDown(() => directory.delete(recursive: true));

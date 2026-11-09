@@ -80,19 +80,86 @@ test(`${version} ${format} inline Reference Object description override retains 
  assert.equal(output[1].text,resources[1].text);
 });
 
-for(const format of ['yaml','json'])test(`${format} moving a rendered description that is also data retains its ownership refusal`,()=>{
+for(const format of ['yaml','json'])test(`${format} moving a rendered description separates its contract consumer from the literal data`,()=>{
  const root='file:///approved/api.'+format,model={type:'object',default:{description:'[Literal](./data.md)'}},source=document('3.1.2',{Model:model});
  source.paths={'/value':{get:{responses:{200:{$ref:'#/components/schemas/Model/default'}}}}};
  const text=render(source,format),input={root,snapshot:'dual-markdown',resources:[{id:root,text,generation:1}],contexts:[{root,resources:[root]}],target:{resource:root,generation:1},destinationResource:'file:///reviewed/api.'+format};
- assert.throws(()=>planFileMove(input),error=>error.code==='file.move.literal.ownership');assert.equal(input.resources[0].text,text);
+ const plan=planFileMove(input),output=apply(input.resources,plan),doc=new SourceDocument(output[0].text,input.destinationResource);
+ assert.equal(doc.dataNode('/components/schemas/Model/default/description').value,'[Literal](./data.md)');
+ assert.equal(doc.dataNode('/paths/~1value/get/responses/200/description').value,'[Literal](<file:///approved/data.md>)');
+ assert.equal(plan.sourceOwnership[0].effect,'separated-contract-use');assert.equal(input.resources[0].text,text);
 });
 for(const anchor of ['description: &docs "[Guide](./guide.md)"\nx-data: *docs\n','description: "[Guide](./guide.md)"\n'])
-test('file relocation keeps anchored Markdown ownership safeguards',()=>{
+test('file relocation separates anchored Markdown from its literal alias',()=>{
  const root='file:///approved/api.yaml',shared=anchor.includes('&docs');
  const text='openapi: 3.1.2\ninfo:\n  title: Shared\n  version: "1"\n  '+anchor+'paths: {}\n';
  const input={root,snapshot:'yaml-markdown',resources:[{id:root,text,generation:1}],contexts:[{root,resources:[root]}],target:{resource:root,generation:1},destinationResource:'file:///reviewed/api.yaml'};
- if(shared)assert.throws(()=>planFileMove(input),error=>error.code==='edit.shared');else assert(planFileMove(input).edits.length>0);
+ const plan=planFileMove(input),output=apply(input.resources,plan),doc=new SourceDocument(output[0].text,root);
+ assert.equal(doc.dataNode('/info/description').value,'[Guide](<file:///approved/guide.md>)');
+ if(shared)assert.equal(doc.dataNode('/x-data').value,'[Guide](./guide.md)');
  assert.equal(input.resources[0].text,text);
+});
+
+for(const version of ['3.1.2','3.2.1'])for(const format of ['yaml','json'])for(const compatible of [false,true])
+test(`${version} ${format} shared native/schema Markdown uses every rendered base compatible=${compatible}`,()=>{
+ const root='file:///approved/api.'+format,destination='file:///reviewed/api.'+format;
+ const pointer='/components/schemas/Owner/properties/Reply',description='[Guide](guide.md) ![image][image]\n\n[image]: image.svg "Title"\n\n`[code](code.md)`';
+ const source=document(version,{Owner:{$id:'https://schema.invalid/'+(compatible?'approved':'other')+'/base',properties:{Reply:{description}}}});
+ source.paths={'/value':{get:{responses:{200:{$ref:'#'+pointer}}}}};
+ const resources=[{id:root,text:render(source,format),generation:1}],input={snapshot:'shared-roles',resources,
+  contexts:[{root,resources:[root]}],target:{resource:root,generation:1},destinationResource:destination};
+ const original=createGraph({root,resources}).graph;
+ assert(original.scopeAs(root,pointer,'schema'));assert(original.scopeAs(root,pointer,'response'));
+ const plan=planFileMove(input),output=apply(resources,plan).map(value=>({...value,id:destination}));
+ const after=createGraph({root:destination,resources:output}).graph,value=after.docs.get(destination).dataNode(pointer+'/description').value;
+ if(compatible)assert(value.includes('../approved/guide.md'));
+ else {assert.equal(value,description);assert.equal(plan.sourceOwnership[0].effect,'separated-contract-use');}
+ assert(value.includes('`[code](code.md)`'));
+ for(const kind of ['schema','response']){
+  const nextPointer=kind==='response'&&!compatible?'/paths/~1value/get/responses/200':pointer;
+  const nextValue=after.docs.get(destination).dataNode(nextPointer+'/description').value;
+  assert.deepEqual(rendered(nextValue,documentUriBase(after,after.scopeAs(destination,nextPointer,kind))),
+  rendered(description,documentUriBase(original,original.scopeAs(root,pointer,kind))));
+ }
+ assert.equal(after.scopeAs(destination,pointer,'schema').base,original.scopeAs(root,pointer,'schema').base);
+ assert.equal(resources[0].text,render(source,format));
+});
+
+for(const format of ['yaml','json'])test(`${format} incompatible shared Markdown without an editable contract-use owner remains an unavailable proof`,()=>{
+ const root='file:///approved/api.'+format,pointer='/components/schemas/Owner/properties/Reply';
+ const source=document('3.2.1',{Owner:{$id:'https://schema.invalid/other/base',properties:{Reply:{description:'[Guide](guide.md)'}}},
+  Holder:{default:{NativeUse:{$ref:'#'+pointer}}}});
+ source.paths={'/value':{get:{responses:{200:{$ref:'#/components/schemas/Holder/default/NativeUse'}}}}};
+ const text=render(source,format),input={snapshot:'no-editable-owner',resources:[{id:root,text,generation:1}],contexts:[{root,resources:[root]}],target:{resource:root,generation:1},destinationResource:'file:///reviewed/api.'+format};
+ assert.throws(()=>planFileMove(input),error=>error.code==='refactor.markdown.context'&&error.kind==='unsupported'&&error.source?.pointer===pointer+'/description'&&error.message.includes('No independently editable incoming contract reference'));
+ assert.equal(input.resources[0].text,text);
+});
+
+for(const version of versions)for(const mode of ['extract','move-definition','inline','file-move'])
+test(`${version} YAML ${mode} specializes shared descriptions without changing literal and independent owners`,()=>{
+ const root='file:///approved/source/api.yaml',destination='file:///approved/target/api.yaml',legacy=version==='2.0';
+ const group=legacy?'/responses':'/components/responses',at='/paths/~1value/get/responses/200';
+ const response={description:rich,'x-exact':'EXACT','x-bytes':'AAECA/7/AA=='};
+ const source=document(version);source.paths={'/value':{get:{responses:{200:mode==='extract'?response:{$ref:'#'+group+'/Stored'}}}}};
+ if(mode!=='extract'){if(legacy)source.responses={Stored:response};else source.components.responses={Stored:response};}
+ let text=render(source,'yaml');
+ // Anchor the actual parsed scalar, not a regex match on Markdown content.
+ const parsed=new SourceDocument(text,root),description=(mode==='extract'?at:group+'/Stored')+'/description',field=parsed.node(description);
+ text=parsed.replace(field.range[0],field.range[0],'&docs ')+"x-literal: *docs\r\n";
+ if(!legacy&&/^3\.[12]/.test(version))text+='x-independent: &independent {description: *docs, type: string}\r\n';
+ const other=document(version);if(mode==='inline')other.paths={'/value':{get:{responses:{200:{$ref:'../source/api.yaml#'+group+'/Stored'}}}}};
+ const resources=[{id:root,text,generation:1},...(mode==='file-move'?[]:[{id:destination,text:render(other,'yaml'),generation:2}])];
+ const owning=mode==='inline'?destination:root,common={snapshot:'shared-markdown',resources,contexts:[{root:owning,resources:resources.map(value=>value.id)}]};
+ const plan=mode==='file-move'?planFileMove({...common,target:{resource:root,generation:1},destinationResource:destination}):
+  mode==='inline'?planInline({...common,target:{root:owning,resource:destination,generation:2,pointer:at}}):
+  (mode==='extract'?planExtract:planMoveDefinition)({...common,target:{root,resource:root,generation:1,pointer:mode==='extract'?at:group+'/Stored'},destinationResource:destination,name:'Copied'});
+ const output=apply(resources,plan),copied=new SourceDocument(output.find(value=>value.id===(mode==='file-move'?root:destination)).text,destination);
+ const pointer=mode==='inline'?at:mode==='file-move'?group+'/Stored':group+'/Copied';
+ assert.deepEqual(rendered(copied.dataNode(pointer+'/description').value,destination),rendered(rich,root));
+ const retained=new SourceDocument(output[0].text,root);assert.equal(retained.dataNode('/x-literal').value,rich);
+ assert.equal(copied.dataJson(pointer+'/x-exact'),'9007199254740993.00');assert.equal(copied.dataNode(pointer+'/x-bytes').value,'AAECA/7/AA==');
+ if(mode==='inline')assert.equal(output[0].text,text);
+ assert.equal(resources[0].text,text);
 });
 
 

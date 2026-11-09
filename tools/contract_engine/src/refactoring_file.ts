@@ -1,5 +1,5 @@
 import {assertRoleAnnotations} from './schema_role_annotations';
-import {captureRefactoringGraph as createGraph} from './refactoring_graph';
+import {captureRefactoringGraph as createGraph,assertRefactoringLiterals,assertRefactoringByteConsumers,assertRefactoringCaseFiles} from './refactoring_graph';
 import {posix} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {createHash} from 'node:crypto';
@@ -9,14 +9,15 @@ import {documentUriFields,documentUriOccurrences} from './document_uris';
 import {documentUriBase,GraphScope,implicitNameReference,resolveUri,type GraphReference} from './reference_graph';
 import {referenceValue} from './reference_choices';
 import {coldGraph} from './reference_selection';
-import {editsFor} from './refactoring_copy';
+import {editsFor,editBudget,planInline} from './refactoring_copy';
 import {serverTemplate} from './derived_bundle';
 import {resolveServerUrl} from './server_semantics';
 import {securityConfigurationCopies,type SecurityBindingChange} from './security_configuration';
 import {caseFileLocators,movedCaseFileSource} from './case_file_configuration';
 import {richTextField} from './authoring';
-import {relocateRefactoringMarkdown} from './refactoring_markdown';
+import {RefactoringMarkdownOwners} from './refactoring_markdown';
 import {assertDynamicRelocation} from './schema_relocation';
+import {MigrationSource} from './migration_source';
 
 const same=(a:any,b:any)=>a?.resource===b?.resource&&a?.pointer===b?.pointer;
 
@@ -217,7 +218,90 @@ function rebaseTemplate(value:string,before:string,after:string,variables:any,so
  * core owns destination permissions and all later filesystem publication.
  * Source values are edited through the existing CST, never serialized objects.
  */
+/** Compose established one-occurrence inlining with the ordinary file plan
+ * when a shared physical description needs incompatible role spellings. The
+ * original structural/literal owner stays put; only captured incoming contract
+ * occurrences acquire independent source. These are private planning buffers,
+ * published by the same original-coordinate file transaction as any move. */
 export function planFileMove(input:any) {
+ let prepared=input;
+ const ownership:any[]=[],inlineUsages:any[]=[],attempted=new Set<string>();
+ const admit=Array.isArray(input.resources)?editBudget(input.resources,'limit.refactor.ownership'):undefined;
+ const originalResources:Resource[]=Array.isArray(input.resources)?[...input.resources]:[];
+ if(input.moveSource&&!originalResources.some(resource=>resource.id===input.moveSource.id))originalResources.push(input.moveSource);
+ const all=input.manifest?[...originalResources,input.manifest]:originalResources;
+ const project=(resources:Resource[],edits:any[])=>resources.map(resource=>{
+  let text=resource.text;
+  for(const edit of edits.filter(edit=>edit.buffer===resource.id).sort((a,b)=>b.start-a.start)){
+   if(text.slice(edit.start,edit.end)!==edit.expected)throw new SourceError('edit.stale','The private ownership projection changed before file relocation');
+   text=text.slice(0,edit.start)+edit.replacement+text.slice(edit.end);
+  }
+  return text===resource.text?resource:{...resource,text};
+ });
+ for(let pass=0;pass<=128;pass++){
+  try{
+   const result:any=planOwnedFileMove(prepared);
+   if(!ownership.length)return result;
+   const current=all.map(resource=>prepared.resources.find((value:Resource)=>value.id===resource.id)??resource),final=project(current,result.edits);
+   const outputs=new Map(final.filter(resource=>resource.text!==all.find(value=>value.id===resource.id)!.text).map(resource=>[resource.id,resource.text]));
+   const finalDocs=new Map(final.map(resource=>[resource.id,new SourceDocument(resource.text,resource.id)]));
+   for(const context of input.contexts){
+    const {graph}=createGraph({root:context.root,resources:originalResources.filter(value=>context.resources.includes(value.id))});
+    assertRefactoringByteConsumers(graph,originalResources,id=>finalDocs.get(id)!,'file.move.example-content');
+   }
+   assertRefactoringCaseFiles(input.manifest,all,id=>finalDocs.get(id)!,'file.move.case-file.content');
+   const edits=editsFor(all,outputs),sourceOwnership=[...(result.sourceOwnership??[]),...ownership];
+   const changes:any[]=edits.map(edit=>({...result.changes.find(change=>change.resource===edit.buffer),resource:edit.buffer,
+    before:all.find(resource=>resource.id===edit.buffer)!.text,after:outputs.get(edit.buffer)!,pathOnly:false}));
+   for(const change of result.changes)if(!changes.some(value=>value.resource===change.resource))changes.push(change);
+   const data={...result,edits,changes,sourceOwnership,usages:[...inlineUsages,...result.usages]};
+   return {...data,identity:createHash('sha256').update(JSON.stringify(data)).digest('hex')};
+  }catch(error){
+   if(!(error instanceof SourceError)||!error.source||
+      !(error.code==='refactor.markdown.context'||error.code==='file.move.literal.ownership'&&error.source.pointer.endsWith('/description')))throw error;
+   const {resource,pointer}=error.source,ownerPointer=pointer.slice(0,-'/description'.length);
+   const candidates=new Map<string,{root:string;resource:string;pointer:string;generation:number;kind:string}>();
+   for(const context of prepared.contexts){
+    const {graph}=createGraph({root:context.root,resources:prepared.resources.filter((value:Resource)=>context.resources.includes(value.id))});
+    const literalTarget=graph.literalContainer(resource,ownerPointer)!==undefined;
+    for(const ref of graph.references){
+     if(ref.targetResource!==resource||ref.targetPointer!==ownerPointer||ref.keyword!=='$ref'||ref.connection||
+        !literalTarget&&ref.kind===graph.scopes.get(resource+'#'+ownerPointer)?.kind||graph.scopes.get(ref.resource+'#'+ref.pointer)?.kind!==ref.kind||
+        graph.literalContainer(ref.resource,ref.pointer)!==undefined)continue;
+     const key=ref.resource+'#'+ref.pointer;
+     if(!attempted.has(key))candidates.set(key,{root:context.root,resource:ref.resource,pointer:ref.pointer,kind:ref.kind,
+      generation:prepared.resources.find((value:Resource)=>value.id===ref.resource)!.generation});
+    }
+   }
+   let separated=false,reason:string|undefined;
+   for(const [key,target]of candidates){
+    if(attempted.size>=256)throw new SourceError('limit.refactor.ownership','Shared Markdown exceeds 256 captured contract-use ownership attempts');
+    attempted.add(key);
+    try{
+     const plan=planInline({...prepared,target});
+     if(!plan.edits.length)continue;
+     for(const edit of plan.edits)admit!(edit.buffer);
+     const projected=project(prepared.resources,plan.edits);
+     prepared={...prepared,resources:projected,...(prepared.moveSource?{moveSource:projected.find(value=>value.id===prepared.moveSource.id)??prepared.moveSource}:{})};
+     ownership.push({root:target.root,resource:target.resource,pointer:target.pointer,kind:target.kind,effect:'separated-contract-use'});
+     inlineUsages.push(...plan.usages);separated=true;break;
+    }catch(failure){
+     if(!(failure instanceof SourceError)||failure.code.startsWith('limit.'))throw failure;
+     reason=failure.code;
+    }
+   }
+   if(!separated){
+    const original=originalResources.find(value=>value.id===resource),doc=original&&new SourceDocument(original.text,resource);
+    if(doc?.dataNode(pointer)){error.range=doc.dataLocation(pointer).range;error.source={resource,pointer,range:error.range};}
+    error.message+=' '+(reason?'Contract-use separation was refused by '+reason+'.':'No independently editable incoming contract reference owns this occurrence.');
+    throw error;
+   }
+  }
+ }
+ throw new SourceError('limit.refactor.ownership','Shared Markdown needs more than 128 independent contract-use specializations');
+}
+
+function planOwnedFileMove(input:any) {
  const target=input.target,destination=input.destinationResource,manifest=input.manifest as Resource|undefined;
  if(input.retainIdentity!==undefined&&typeof input.retainIdentity!=='boolean')throw new SourceError('file.move.identity','Choose whether the original URI context is retained');
  const retain=input.retainIdentity===true;
@@ -270,18 +354,25 @@ export function planFileMove(input:any) {
  let count=0,cost=0,revision=0;
  const set=(id:string,pointer:string,value:string,reason:string,rename=false)=>{
   const resource=resources.find(r=>r.id===id)!,doc=new SourceDocument(outputs.get(id)??resource.text,id);
-  if(rename?segments(pointer).at(-1)===value:doc.node(pointer).value===value)return;
+  if(rename?segments(pointer).at(-1)===value:doc.dataNode(pointer)?.value===value)return;
   const literalOwner=graphs.find(g=>g.graph.literalContainer(id,pointer)!==undefined);
-  if(literalOwner)throw new SourceError('file.move.literal.ownership','A required file-move repair also changes literal data; retain the original URI context or resolve the dual source ownership explicitly',literalOwner.docs.get(id)?.dataNode(pointer)?.range);
+  if(literalOwner){
+   const range=literalOwner.docs.get(id)!.dataNode(pointer)!.range;
+   throw new SourceError('file.move.literal.ownership','A required file-move repair also changes literal data; retain the original URI context or resolve the dual source ownership explicitly',range,'unsupported',{resource:id,pointer,range});
+  }
   if(++count>512||(cost+=doc.text.length*2)>128*1024*1024)throw new SourceError('limit.refactor.file','The file-move edit review exceeds its bounded budget');
-  doc.assertSafe(pointer);
   if(rename){
    // A Security Requirement URI is a member name, with its scope/role array
    // untouched. Reuse the canonical CST writer and its collision/alias guards.
    const result=propose({snapshot:input.snapshot,resources:[{...resource,text:doc.text}],target:{resource:id,generation:resource.generation,pointer:''},actions:[{kind:'rename',pointer,name:value}]});
    let text=doc.text;for(const edit of [...result.edits].reverse())text=text.slice(0,edit.start)+edit.replacement+text.slice(edit.end);
    outputs.set(id,text);
-  }else outputs.set(id,doc.set(pointer,value));
+  }else {
+   // The physical contract occurrence owns this edit. Preserve other YAML
+   // consumers of its anchor/alias through the established exact-value token
+   // separation before invoking the ordinary CST writer.
+   const owned=new MigrationSource(doc);owned.set(pointer,value);outputs.set(id,owned.doc.text);
+  }
   revision++;
   changes.set(id+'#'+pointer,{resource:id,pointer,reason});
  };
@@ -292,12 +383,12 @@ export function planFileMove(input:any) {
  const rebuild=(g:typeof graphs[number],seed=true)=>{
   if(cached?.owner===g&&cached.seed===seed&&cached.revision===revision)return cached.result;
   const result=createGraph({root:move(g.context.root),resources:current().filter(r=>g.context.resources.map(move).includes(r.id)),
-   ...(seed?{occurrences:[...g.graph.scopes.values()].map(at=>({resource:move(at.resource),pointer:currentPointer(at.resource,at.pointer),kind:at.kind}))}:{})});
+   ...(seed?{occurrences:[...g.graph.interpretedScopes()].map(at=>({resource:move(at.resource),pointer:currentPointer(at.resource,at.pointer),kind:at.kind}))}:{})});
   cached={owner:g,seed,revision,result};return result;
  };
  if(destination!==source.id) {
   let serializedConsumer=false;
-  const markdownRepairs=new Map<string,string>();
+  const markdown=new RefactoringMarkdownOwners();
   // Retain authored resource identities, outer first. A relative identifier is
   // rebased, not replaced with a new identity at its new filesystem location.
   for(const g of graphs)if(g.docs.has(source.id)) {
@@ -314,25 +405,23 @@ export function planFileMove(input:any) {
    // Preserve each typed URI's actual base, not a universal retrieval base.
    // OAuth endpoints are Server-relative and deliberately absent here.
    const afterUris=rebuild(g).graph;
-   for(const at of g.graph.scopes.values())if(at.resource===source.id)for(const field of documentUriFields(at,before.node(at.pointer).value)) {
-    const pointer=at.pointer+'/'+escape(field),value=before.nodes.get(pointer)?.value;
-    const oldBase=documentUriBase(g.graph,at),newBase=documentUriBase(afterUris,afterUris.scopes.get(destination+'#'+at.pointer)!);
+   for(const at of g.graph.interpretedScopes())if(at.resource===source.id)for(const field of documentUriFields(at,before.dataNode(at.pointer)!.value)) {
+    const pointer=at.pointer+'/'+escape(field),value=before.dataNode(pointer)?.value;
+    const oldBase=documentUriBase(g.graph,at),newBase=documentUriBase(afterUris,afterUris.scopeAs(destination,at.pointer,at.kind)!);
     if(newBase!==oldBase&&typeof value==='string'&&!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(value)) {
      // Shared template semantics do not normalize before substitution.
-     const next=at.kind==='server'?rebaseTemplate(value,oldBase,newBase,before.node(at.pointer).value?.variables,{resource:source.id,pointer,range:before.node(pointer).range}):relative(resolveUri(value,oldBase).href,newBase);
+     const next=at.kind==='server'?rebaseTemplate(value,oldBase,newBase,before.dataNode(at.pointer)!.value?.variables,{resource:source.id,pointer,range:before.dataNode(pointer)!.range}):relative(resolveUri(value,oldBase).href,newBase);
      set(source.id,pointer,next,at.kind==='server'?'retrieval-relative-url':'description-relative-uri');
     }
    }
-   for(const at of g.graph.scopes.values())if(at.resource===source.id) {
+   for(const at of g.graph.interpretedScopes())if(at.resource===source.id) {
     const value=before.dataNode(at.pointer)?.value,description=value?.description;
     if(typeof description!=='string'||!richTextField(at.kind,at.family,value,'description',segments(at.pointer).at(-1)??'',g.graph.allowsReference(at)))continue;
-    const field=before.dataNode(at.pointer+'/description')!,next=afterUris.scopes.get(destination+'#'+at.pointer);
+    const field=before.dataNode(at.pointer+'/description')!,next=afterUris.scopeAs(destination,at.pointer,at.kind);
     if(!next||next.kind!==at.kind)throw new SourceError('file.move.documentation','The moved description has no surviving rendered context',field.range,'unsupported',{resource:source.id,pointer:at.pointer+'/description',range:field.range});
-    const wanted=relocateRefactoringMarkdown(description,documentUriBase(g.graph,at),documentUriBase(afterUris,next),{resource:source.id,pointer:at.pointer+'/description',range:field.range});
-    const pointer=at.pointer+'/description',previous=markdownRepairs.get(pointer);
-    if(previous!==undefined&&previous!==wanted)throw new SourceError('refactor.context.ambiguous','Configured roots require different Markdown repairs for this moved file');
-    markdownRepairs.set(pointer,wanted);
-    if(wanted!==description)set(source.id,pointer,wanted,'documentation-relative-links');
+    const pointer=at.pointer+'/description';
+    const wanted=markdown.relocate(pointer,description,documentUriBase(g.graph,at),documentUriBase(afterUris,next),{resource:source.id,pointer,range:field.range});
+    set(source.id,pointer,wanted,'documentation-relative-links');
    }
   }
   // externalValue locates opaque serialized bytes, not a schema/reference
@@ -352,7 +441,7 @@ export function planFileMove(input:any) {
    if(old.href!==source.id&&!aliases.includes(old.href))continue;
    serializedConsumer=true;
    after??=rebuild(g).graph;
-   const at=after.scopes.get(move(scope.resource)+'#'+scope.pointer)!;
+   const at=after.scopeAs(move(scope.resource),scope.pointer,scope.kind)!;
    const fragment=value.includes('#')?value.slice(value.indexOf('#')):'';
    const next=relative(!retained&&old.href===source.id?destination:old.href,documentUriBase(after,at))+fragment;
    const id=scope.resource+'#'+pointer,previous=dataRepairs.get(id);
@@ -362,7 +451,7 @@ export function planFileMove(input:any) {
    // the proved target; an equivalent absolute URI is not an automatic edit.
    let doc=currentDocs.get(scope.resource);
    if(!doc){doc=new SourceDocument(outputs.get(scope.resource)??g.docs.get(scope.resource)!.text,scope.resource);currentDocs.set(scope.resource,doc);}
-   const currentValue=doc.node(pointer).value;
+   const currentValue=doc.dataNode(pointer)!.value;
    const wanted=resolveUri(next,documentUriBase(after,at)).href;
    if(resolveUri(currentValue,documentUriBase(after,at)).href!==wanted){set(scope.resource,pointer,next,'external-example-locator');currentDocs.delete(scope.resource);}
    const usage=usages.get(id)??{resource:scope.resource,pointer,connection:'externalValue',target:{resource:source.id,pointer:''},roots:[]};
@@ -372,7 +461,9 @@ export function planFileMove(input:any) {
   const repairs=new Map<string,string>();
   for(const g of graphs)for(const ref of g.graph.references) {
    if(ref.resolution!=='resolved')throw new SourceError('refactor.graph','Every reviewed semantic connection must resolve');
-   const after=rebuild(g),from=after.graph.scopes.get(move(ref.resource)+'#'+currentPointer(ref.resource,ref.pointer))!,to=after.graph.scopes.get(move(ref.targetResource!)+'#'+currentPointer(ref.targetResource!,ref.targetPointer!))!;
+   const after=rebuild(g),from=after.graph.referenceOwner({...ref,resource:move(ref.resource),pointer:currentPointer(ref.resource,ref.pointer)}),
+    to=after.graph.scopeAs(move(ref.targetResource!),currentPointer(ref.targetResource!,ref.targetPointer!),ref.kind);
+   if(!from||!to)throw new SourceError('file.move.address','A captured contract role has no surviving source or target owner after relocation');
    const now=after.graph.references.find(r=>same(r,from)&&r.keyword===currentKeyword(ref));
    let value=now?.value??ref.value;
    // A physical locator must survive cold acquisition as well as a warm graph.
@@ -476,7 +567,17 @@ export function planFileMove(input:any) {
   }
   if(Buffer.byteLength(outputs.get(manifest.id)??manifest.text,'utf8')>65536)throw new SourceError('limit.refactor.configuration','The repaired project configuration would exceed 64 KiB',[0,manifest.text.length],'unsupported',{resource:manifest.id,pointer:'',range:[0,manifest.text.length]});
  }
- const all=manifest?[...resources,manifest]:resources,edits=editsFor(all,outputs),from={resource:source.id,pointer:''},to={resource:destination,pointer:''};
+ const all=manifest?[...resources,manifest]:resources;
+ const published=new Map(all.map(value=>[value.id,{text:outputs.get(value.id)??value.text}])),publishedDocs=new Map<string,SourceDocument>();
+ const readDoc=(id:string)=>{
+  let doc=publishedDocs.get(id);if(!doc){doc=new SourceDocument(published.get(id)!.text,id);publishedDocs.set(id,doc);}return doc;
+ };
+ for(const g of graphs){
+  assertRefactoringLiterals(g.graph,readDoc,(id,pointer)=>({resource:id,pointer:currentPointer(id,pointer)}));
+  assertRefactoringByteConsumers(g.graph,all,id=>published.get(id)!,'file.move.example-content');
+ }
+ assertRefactoringCaseFiles(manifest,all,id=>published.get(id)!,'file.move.case-file.content');
+ const edits=editsFor(all,outputs),from={resource:source.id,pointer:''},to={resource:destination,pointer:''};
  const data={version:1,kind:'file-move',snapshot:input.snapshot,checkedRoots:input.contexts.map((c:any)=>c.root),from,to,edits,
   changes:[...edits.map(edit=>({resource:edit.buffer,before:all.find(r=>r.id===edit.buffer)!.text,after:outputs.get(edit.buffer)!,fields:[...changes.values()].filter(c=>c.resource===edit.buffer)})),
    ...(!edits.some(e=>e.buffer===source.id)&&source.id!==destination?[{resource:source.id,before:source.text,after:source.text,pathOnly:true}]:[])],

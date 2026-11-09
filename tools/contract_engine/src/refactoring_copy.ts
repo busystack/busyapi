@@ -1,19 +1,19 @@
 import {assertRoleAnnotations} from './schema_role_annotations';
-import {captureRefactoringGraph as createGraph} from './refactoring_graph';
+import {captureRefactoringGraph as createGraph,assertRefactoringLiterals,assertRefactoringByteConsumers,assertRefactoringCaseFiles} from './refactoring_graph';
 import {createHash} from 'node:crypto';
 import {Resource} from './engine';
 import {SourceDocument,SourceError,escape,segments} from './document';
 import {referenceValue} from './reference_choices';
 import {fieldsForScope,componentFamily,componentLocation,richTextField} from './authoring';
 import {documentUriOccurrences} from './document_uris';
-import {documentUriBase,ReferenceGraph,resolveUri,pointerFragment} from './reference_graph';
+import {documentUriBase,ReferenceGraph,resolveUri,pointerFragment,type GraphScope} from './reference_graph';
 import {coldGraph} from './reference_selection';
 import {ParameterSemantics} from './parameter_semantics';
 import {standardOperationMethods,hasSchemaReferenceSiblings} from './contexts';
 import {serverTemplate} from './derived_bundle';
-import {relocateRefactoringMarkdown} from './refactoring_markdown';
+import {RefactoringMarkdownOwners} from './refactoring_markdown';
 import {componentNamePolicy,permitsMemberName,reusableDefinitionPointer} from './member_names';
-import {MigrationSource} from './migration_source';
+import {MigrationSource,migrationValueIdentity} from './migration_source';
 import {assertDynamicRelocation,establishedSchemaResource,type SchemaLocation} from './schema_relocation';
 
 const inside=(pointer:string,owner:string)=>pointer===owner||pointer.startsWith(owner+'/');
@@ -174,7 +174,10 @@ function withYamlOwnership(input:any,copyDestination:boolean,plan:(input:any)=>a
   if(!source){source=new MigrationSource(doc);sources.set(doc.id,source);}
   source.own(pointer,descendants,true);
  };
- own(before.doc,before.target.pointer,true);
+ const retainedLiteral=copyDestination&&before.owning.every(owner=>owner.graph.literalContainer(before.resource.id,before.target.pointer)!==undefined);
+ // A separated literal is read through a private owned copy below. Its
+ // original anchor and alias tokens do not need publication edits.
+ if(!retainedLiteral)own(before.doc,before.target.pointer,true);
  if(copyDestination){
   const destination=input.destinationResource??before.selected.context.root;
   const doc=sources.get(destination)?.doc??before.graphs.map(owner=>owner.docs.get(destination)).find(Boolean);
@@ -193,7 +196,20 @@ function withYamlOwnership(input:any,copyDestination:boolean,plan:(input:any)=>a
   return source&&source.doc.text!==resource.text?{...resource,text:source.doc.text}:resource;
  });
  const source=sources.get(before.resource.id)?.doc??before.doc,node=source.node(before.target.pointer);
- const result=plan({...input,resources:prepared,target:{...input.target,range:node.range,expected:source.text.slice(...node.range)}});
+ let result:any;
+ try{result=plan({...input,resources:prepared,target:{...input.target,range:node.range,expected:source.text.slice(...node.range)}});}
+ catch(error){
+  // Planning ownership can expand an alias and shift every subsequent offset.
+  // Located refusals still belong to the immutable review capture.
+  if(error instanceof SourceError&&error.source){
+   const original=before.graphs.map(owner=>owner.docs.get(error.source!.resource)).find(Boolean);
+   if(original?.dataNode(error.source.pointer)){
+    const range=original.dataLocation(error.source.pointer).range;
+    error.range=range;error.source={...error.source,range};
+   }
+  }
+  throw error;
+ }
  // A same-location move remains a true no-op, including its YAML tokens.
  if(!result.edits.length)return {...result,from:input.target,to:{...input.target,resource:result.to.resource,pointer:result.to.pointer}};
  const outputs=new Map<string,string>();
@@ -206,6 +222,9 @@ function withYamlOwnership(input:any,copyDestination:boolean,plan:(input:any)=>a
   if(text!==before.resources.find(original=>original.id===resource.id)!.text)outputs.set(resource.id,text);
  }
  const edits=editsFor(before.resources,outputs);
+ const finalDocs=new Map(before.resources.map(value=>[value.id,new SourceDocument(outputs.get(value.id)??value.text,value.id)]));
+ for(const owner of before.graphs)assertRefactoringByteConsumers(owner.graph,before.resources,id=>finalDocs.get(id)!);
+ assertRefactoringCaseFiles(input.manifest,before.resources,id=>finalDocs.get(id)!);
  return {...result,edits,changes:[...outputs].map(([resource,after])=>({resource,before:before.resources.find(original=>original.id===resource)!.text,after})),
   from:input.target,to:{...input.target,resource:result.to.resource,pointer:result.to.pointer},
   identity:createHash('sha256').update(JSON.stringify({proof:result.identity,snapshot:input.snapshot,target:input.target,edits})).digest('hex')};
@@ -225,34 +244,33 @@ export function editsFor(resources:Resource[],outputs:Map<string,string>) {
 /** Relocate only graph-established URI fields in an explicit copied object.
  * Original source data and shared definitions remain untouched. The graph
  * supplies each base; this neither follows externalValue nor resolves a new
- * dependency. Absolute spellings avoid guessing a destination-relative route. */
+ * dependency. Every Markdown spelling is proved in all captured contexts. */
 function relocateCopiedUris(before:ReferenceGraph,after:ReferenceGraph,from:{resource:string;pointer:string},to:{resource:string;pointer:string},
- outputs:Map<string,string>,repairs:Map<string,string>,admit:(id:string)=>void,intrinsicOnly=false,replacedDescription=false) {
+ outputs:Map<string,string>,repairs:Map<string,string>,admit:(id:string)=>void,markdown:RefactoringMarkdownOwners,intrinsicOnly=false,replacedDescription=false,ownsScope:(scope:GraphScope)=>boolean=()=>true) {
  let current=after.docs.get(to.resource)!;
- for(const scope of before.scopes.values()){
-  if(scope.resource!==from.resource||!inside(scope.pointer,from.pointer)||!intrinsic(before,scope.resource,scope.pointer,from.pointer))continue;
+ for(const scope of before.interpretedScopes()){
+  if(scope.resource!==from.resource||!inside(scope.pointer,from.pointer)||!ownsScope(scope)||intrinsicOnly&&!intrinsic(before,scope.resource,scope.pointer,from.pointer))continue;
   if(replacedDescription&&scope.pointer===from.pointer)continue;
   const data=before.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
   if(typeof data?.description!=='string'||!richTextField(scope.kind,scope.family,data,'description',segments(scope.pointer).at(-1)??'',before.allowsReference(scope)))continue;
   const field=before.docs.get(scope.resource)!.dataNode(scope.pointer+'/description')!;
-  const pointer=to.pointer+scope.pointer.slice(from.pointer.length),next=after.scopes.get(to.resource+'#'+pointer);
+  const pointer=to.pointer+scope.pointer.slice(from.pointer.length),next=after.scopeAs(to.resource,pointer,scope.kind);
   if(!next||next.kind!==scope.kind)throw new SourceError('refactor.copy.uri-context','A copied Markdown field has no matching rendered destination context',field.range,'unsupported',{resource:scope.resource,pointer:scope.pointer+'/description',range:field.range});
-  const wanted=relocateRefactoringMarkdown(data.description,documentUriBase(before,scope),documentUriBase(after,next),{resource:scope.resource,pointer:scope.pointer+'/description',range:field.range});
   const at=pointer+'/description',key='markdown:'+to.resource+'#'+at,previous=repairs.get(key);
-  if(previous!==undefined&&previous!==wanted)throw new SourceError('refactor.context.ambiguous','Configured roots require different Markdown destination mappings');
+  const wanted=markdown.relocate(key,data.description,documentUriBase(before,scope),documentUriBase(after,next),{resource:scope.resource,pointer:scope.pointer+'/description',range:field.range});
   const now=current.node(at).value;
   if(now!==data.description&&now!==previous)throw new SourceError('refactor.copy.uri-context','The copied description changed before its rendered context was mapped');
   repairs.set(key,wanted);
   if(now===wanted)continue;
-  if(before.literalContainer(scope.resource,scope.pointer+'/description')!==undefined||after.literalContainer(to.resource,at)!==undefined)
+  if(after.literalContainer(to.resource,at)!==undefined)
    throw new SourceError('refactor.literal.ownership','This documentation scalar is also literal data and needs separate context ownership',field.range,'unsupported',{resource:scope.resource,pointer:scope.pointer+'/description',range:field.range});
   admit(to.resource);const text=current.set(at,wanted);outputs.set(to.resource,text);current=new SourceDocument(text,to.resource);
  }
  for(const occurrence of documentUriOccurrences(before)){
   const {scope,pointer,value}=occurrence;
-  if(scope.resource!==from.resource||!inside(scope.pointer,from.pointer))continue;
+  if(scope.resource!==from.resource||!inside(scope.pointer,from.pointer)||!ownsScope(scope))continue;
   if(intrinsicOnly&&!intrinsic(before,scope.resource,scope.pointer,from.pointer))continue;
-  const nextPointer=to.pointer+pointer.slice(from.pointer.length),nextScope=after.scopes.get(to.resource+'#'+to.pointer+scope.pointer.slice(from.pointer.length));
+  const nextPointer=to.pointer+pointer.slice(from.pointer.length),nextScope=after.scopeAs(to.resource,to.pointer+scope.pointer.slice(from.pointer.length),scope.kind);
   if(!nextScope||nextScope.kind!==scope.kind)throw new SourceError('refactor.copy.uri-context','A copied URI field has no matching typed destination');
   const originalBase=documentUriBase(before,scope),nextBase=documentUriBase(after,nextScope);
   const meaning=(text:string,base:string)=>{
@@ -279,7 +297,7 @@ function planCopy(input:any,moving=false):any {
  return withYamlOwnership(input,true,prepared=>planOwnedCopy(prepared,moving));
 }
 function planOwnedCopy(input:any,moving=false) {
- const {resources,target,resource,graphs,owning,selected,doc,node,scope}=capture(input),family=componentFamily(scope.kind,scope.family);
+ const {resources,target,resource,graphs,owning,selected,doc,node,scope}=capture(input,true),family=componentFamily(scope.kind,scope.family);
  if(!family||scope.kind==='media'&&scope.family!=='3.2'||!permitsMemberName(componentNamePolicy(scope.family),input.name))
   throw new SourceError('refactor.copy.context','Choose an inline reusable object and a legal component name');
  const destinationId=input.destinationResource??resource.id,destinationResource=resources.find(r=>r.id===destinationId);
@@ -308,9 +326,11 @@ function planOwnedCopy(input:any,moving=false) {
  const destination=namedFragment?'/'+escape(input.name):fragment?'':componentLocation(family,scope.family)!+'/'+escape(input.name),move=(id:string,pointer:string)=>id===resource.id&&inside(pointer,target.pointer)?destination+pointer.slice(target.pointer.length):pointer;
  const movedResource=(id:string,pointer:string)=>id===resource.id&&inside(pointer,target.pointer)?destinationId:id;
  if(moving&&!cross&&destination===target.pointer)return {version:1,kind:'component-move',snapshot:input.snapshot,edits:[],changes:[],usages:[],transitions:[],from:target,to:target,checkedRoots:input.contexts.map((c:any)=>c.root)};
- semanticOwner(owning,resource.id,target.pointer,node.range);
+ const separated=owning.some(owner=>owner.graph.literalContainer(resource.id,target.pointer)!==undefined);
+ if(separated&&(moving||owning.some(owner=>owner.graph.literalContainer(resource.id,target.pointer)===undefined)))
+  throw new SourceError('refactor.literal.ownership','The selected contract occurrence has intrinsic or mixed ownership; it cannot leave its literal source unchanged',node.range,'unsupported',{resource:resource.id,pointer:target.pointer,range:node.range});
  if(cross)for(const g of graphs)for(const at of g.graph.scopes.values())if(at.resource===resource.id&&inside(at.pointer,target.pointer)){
-  const data=doc.node(at.pointer).value;
+  const data=doc.dataNode(at.pointer)!.value;
   if(at.kind==='schema'&&!inside(at.resourcePointer,target.pointer)){
    if(at.resourcePointer!==''||establishedSchemaResource(g.graph,at)||data&&typeof data==='object'&&['$anchor','$dynamicAnchor'].some(key=>Object.hasOwn(data,key))||
       g.graph.referenceAs(at.resource,at.pointer,'$dynamicRef','schema')?.dynamic)
@@ -318,7 +338,9 @@ function planOwnedCopy(input:any,moving=false) {
   }
  }
  const admit=editBudget(resources);admit(destinationId);admit(resource.id);
- let changed=fragment?replaceValue(destinationDoc,destination,doc,target.pointer):insertValue(destinationDoc,destination,doc,target.pointer);
+ let copyDoc=doc;
+ if(separated){const privateSource=new MigrationSource(doc);privateSource.own(target.pointer,true,true);copyDoc=privateSource.doc;}
+ let changed=fragment?replaceValue(destinationDoc,destination,copyDoc,target.pointer):insertValue(destinationDoc,destination,copyDoc,target.pointer);
  if(removeBinding)changed=retainOccurrenceComments(doc,changed,destination,target.pointer,true);
  const occurrenceValue={$ref:fragment?destinationId+(destination?pointerFragment(destination):''):pointerFragment(destination)};
  const parent=doc.node(target.pointer.slice(0,target.pointer.lastIndexOf('/')));
@@ -326,8 +348,12 @@ function planOwnedCopy(input:any,moving=false) {
   ?new SourceDocument(doc.emit(occurrenceValue),'occurrence.yaml')
   :new SourceDocument(JSON.stringify(occurrenceValue),'occurrence.json');
  const sourceDoc=cross?doc:changed;
- const sourceAfter=removeBinding?new SourceDocument(sourceDoc.remove(target.pointer),sourceDoc.id):replaceValue(sourceDoc,target.pointer,occurrence,'');
+ // An independently referenced literal retains its exact value. Move only its
+ // established contract interpretation and redirect captured contract edges.
+ // Payload strings never participate in the address-repair walk.
+ const sourceAfter=separated?sourceDoc:removeBinding?new SourceDocument(sourceDoc.remove(target.pointer),sourceDoc.id):replaceValue(sourceDoc,target.pointer,occurrence,'');
  const outputs=new Map<string,string>([[destinationId,changed.text],[resource.id,sourceAfter.text]]),repairs=new Map<string,string>(),usages=new Map<string,any>();
+ const markdown=new RefactoringMarkdownOwners();
  const conversions=new Map<string,{resource:string,from:string,to:string}>();
  const keywordFor=(ref:any)=>conversions.has(movedResource(ref.resource,ref.pointer)+'#'+move(ref.resource,ref.pointer)+'/operationId')&&ref.keyword==='operationId'?'operationRef':ref.keyword;
  const currentResources=()=>resources.map(r=>outputs.has(r.id)?{...r,text:outputs.get(r.id)!}:r);
@@ -346,6 +372,23 @@ function planOwnedCopy(input:any,moving=false) {
    // The final and cold proofs below must rediscover them without these seeds.
    ...(seedDestination?{occurrences:[...g.graph.interpretedScopes()].map(at=>({...relocated(at),kind:at.kind})).concat([{resource:destinationId,pointer:destination,kind:scope.kind}])}:{})});
  };
+ // Retire incoming uses of the literal before repairing a copied identified
+ // resource. During this private intermediate graph both copies may declare
+ // the same ID. The existing address owner can prove a physical pointer to the
+ // new occurrence; once the incoming edges move, the literal no longer owns
+ // that schema identity. Final resource/dynamic/cold proofs remain mandatory.
+ if(separated)for(const g of owning)for(const ref of [...g.graph.references].sort((a,b)=>Number(Boolean(a.dynamic))-Number(Boolean(b.dynamic)))){
+  if(ref.resource===resource.id&&inside(ref.pointer,target.pointer)||ref.targetResource!==resource.id||!inside(ref.targetPointer!,target.pointer))continue;
+  const after=rebuilt(g,true),from=after.graph.scopeAs(ref.resource,ref.pointer,ref.kind),to=after.graph.scopeAs(destinationId,move(resource.id,ref.targetPointer!),ref.kind);
+  const existing=after.graph.references.find(next=>same(next,ref)&&next.keyword===ref.keyword);
+  if(existing?.resolution==='resolved'&&existing.targetResource===destinationId&&existing.targetPointer===to?.pointer&&Boolean(existing.dynamic)===Boolean(ref.dynamic))continue;
+  if(ref.connection||!['$ref','$dynamicRef'].includes(ref.keyword)||ref.dynamic)
+   throw new SourceError('refactor.literal.ownership','Separating this literal requires a proved static incoming address; an implicit or dynamic entry that does not already retain its meaning needs explicit ownership',node.range,'unsupported',{resource:resource.id,pointer:target.pointer,range:node.range});
+  const address=from&&to&&referenceValue(after.graph,from,to,'$ref',undefined,{retrieval:true});
+  if(typeof address!=='string')throw new SourceError('refactor.copy.address','The contract interpretation has no unambiguous independent retrieval address',node.range,'unsupported',{resource:resource.id,pointer:target.pointer,range:node.range});
+  const original=resources.find(value=>value.id===ref.resource)!,current=new MigrationSource(new SourceDocument(outputs.get(ref.resource)??original.text,ref.resource));
+  admit(ref.resource);current.set(ref.pointer+'/'+escape(ref.keyword),address);outputs.set(ref.resource,current.doc.text);
+ }
  // Preserve complete identified resources in both same-file and cross-file
  // moves. A nested relative $id can inherit a different base even within one
  // physical document. Rebuild outer first and retain spellings that still
@@ -361,8 +404,7 @@ function planOwnedCopy(input:any,moving=false) {
   admit(destinationId);
   const after=rebuilt(identity.owner,true),pointer=move(resource.id,identity.pointer);
   if(after.graph.scopeAs(destinationId,pointer,'schema')?.base===identity.base)continue;
-  const field=identity.pointer+'/$id';
-  if(graphs.some(g=>g.graph.literalContainer(resource.id,field)!==undefined))
+  if(graphs.some(g=>rebuilt(g,true).graph.literalContainer(destinationId,pointer+'/$id')!==undefined))
    throw new SourceError('refactor.literal.ownership','Repairing this schema identifier would also change literal data; choose explicit source ownership before relocating it');
   admit(destinationId);
   const current=new SourceDocument(outputs.get(destinationId)!,destinationId);
@@ -372,11 +414,11 @@ function planOwnedCopy(input:any,moving=false) {
   const owns=owning.includes(g);
   let after=rebuilt(g,true);
   const nextScope=after.graph.scopes.get(destinationId+'#'+destination),from=removeBinding?scope:after.graph.scopes.get(resource.id+'#'+target.pointer);
-  if(!nextScope||owns&&!from||nextScope.kind!==scope.kind)throw new SourceError('refactor.extract.destination','This component family is not supported in every owning root');
-  relocateCopiedUris(g.graph,after.graph,{resource:resource.id,pointer:target.pointer},{resource:destinationId,pointer:destination},outputs,repairs,admit);
-  const address=removeBinding||!owns?undefined:referenceValue(after.graph,from!,nextScope);
-  if(!removeBinding&&owns&&!address)throw new SourceError('refactor.copy.address','The extracted definition has no unambiguous reference address');
-  const addresses:[string,string,any,string?][]= removeBinding||!owns?[]:[[resource.id,target.pointer+'/$ref',address]];
+  if(!nextScope||owns&&!separated&&!from||nextScope.kind!==scope.kind)throw new SourceError('refactor.extract.destination','This component family is not supported in every owning root');
+  relocateCopiedUris(g.graph,after.graph,{resource:resource.id,pointer:target.pointer},{resource:destinationId,pointer:destination},outputs,repairs,admit,markdown);
+  const address=removeBinding||separated||!owns?undefined:referenceValue(after.graph,from!,nextScope);
+  if(!removeBinding&&!separated&&owns&&!address)throw new SourceError('refactor.copy.address','The extracted definition has no unambiguous reference address');
+  const addresses:[string,string,any,string?][]= removeBinding||separated||!owns?[]:[[resource.id,target.pointer+'/$ref',address]];
   for(const ref of g.graph.references) {
    const sourcePointer=move(ref.resource,ref.pointer),targetPointer=move(ref.targetResource!,ref.targetPointer!);
    const targetResource=movedResource(ref.targetResource!,ref.targetPointer!),sourceResource=movedResource(ref.resource,ref.pointer);
@@ -426,7 +468,7 @@ function planOwnedCopy(input:any,moving=false) {
    if(previous!==undefined&&previous!==JSON.stringify(next))throw new SourceError('refactor.context.ambiguous','One physical reference needs different repairs in configured roots');
    repairs.set(key,JSON.stringify(next));
    let current=new SourceDocument(outputs.get(id)??resources.find(r=>r.id===id)!.text,id);
-   if(JSON.stringify(current.nodes.get(pointer)?.value)===JSON.stringify(next))continue;
+   if(JSON.stringify(current.dataNode(pointer)?.value)===JSON.stringify(next))continue;
    admit(id);
    if(removed&&current.nodes.has(removed)){
     const previous=current,parent=removed.slice(0,removed.lastIndexOf('/'));
@@ -435,7 +477,7 @@ function planOwnedCopy(input:any,moving=false) {
     current=retainOccurrenceComments(previous,current,parent);
     outputs.set(id,current.text);continue;
    }
-   outputs.set(id,current.set(pointer,next));
+   const owned=new MigrationSource(current);owned.set(pointer,next);outputs.set(id,owned.doc.text);
   }
  }
  const retainedBinding=(before:any,next:any,graph:any)=>{
@@ -444,10 +486,17 @@ function planOwnedCopy(input:any,moving=false) {
   const bridge=graph.references.find((r:any)=>r.resource===resource.id&&r.pointer===target.pointer&&r.keyword==='$ref');
   return bridge?.resolution==='resolved'&&bridge.targetResource===destinationId&&bridge.targetPointer===destination;
  };
+ const finalDocs=new Map(currentResources().map(value=>[value.id,new SourceDocument(value.text,value.id)]));
  for(const g of graphs){
   const after=rebuilt(g);
   if(after.graph.issues.length)throw new SourceError('refactor.proof','Extraction would introduce an unresolved or ambiguous connection');
-  assertDynamicRelocation(g.graph,after.graph,relocated,removeBinding?[]:[{resource:resource.id,pointer:target.pointer}]);
+  assertRefactoringByteConsumers(g.graph,resources,id=>finalDocs.get(id)!,'refactor.literal.bytes',fragment?new Set([destinationId]):undefined);
+  assertRefactoringCaseFiles(input.manifest,resources,id=>finalDocs.get(id)!);
+  assertRefactoringLiterals(g.graph,id=>finalDocs.get(id)!,
+   (id,pointer)=>separated?{resource:id,pointer}:relocated({resource:id,pointer}));
+  if(separated&&migrationValueIdentity(doc,target.pointer)!==migrationValueIdentity(after.docs.get(resource.id)!,target.pointer))
+   throw new SourceError('refactor.literal.ownership','Contract specialization would change the independently interpreted literal value',node.range,'unsupported',{resource:resource.id,pointer:target.pointer,range:node.range});
+  assertDynamicRelocation(g.graph,after.graph,relocated,removeBinding||separated?[]:[{resource:resource.id,pointer:target.pointer}]);
   for(const scope of g.graph.scopesFor('schema'))assertRoleAnnotations(g.graph,scope,after.docs.get(movedResource(scope.resource,scope.pointer))!,move(scope.resource,scope.pointer));
   if(cross)for(const old of selected.graph.references)if(old.resource===resource.id&&inside(old.pointer,target.pointer)){
    if(!after.graph.referenceOwner({...old,resource:destinationId,pointer:move(old.resource,old.pointer)}))continue;
@@ -472,7 +521,7 @@ function planOwnedCopy(input:any,moving=false) {
    const knownIssues=new Set(beforeCold.issues.map(issue=>JSON.stringify([issue.resource,issue.pointer,issue.code])));
    if(afterCold.issues.some(issue=>!knownIssues.has(JSON.stringify([issue.resource,issue.pointer,issue.code]))))
     throw new SourceError('refactor.copy.retrieval','The moved definition needs an explicit approved retrieval mapping before it can be reopened');
-   assertDynamicRelocation(g.graph,afterCold,relocated,removeBinding?[]:[{resource:resource.id,pointer:target.pointer}]);
+   assertDynamicRelocation(g.graph,afterCold,relocated,removeBinding||separated?[]:[{resource:resource.id,pointer:target.pointer}]);
    for(const old of g.graph.references){
     const next=afterCold.references.find(ref=>ref.resource===movedResource(old.resource,old.pointer)&&ref.pointer===move(old.resource,old.pointer)&&ref.keyword===keywordFor(old));
     if(!next||next.resolution!=='resolved'||!retainedBinding(old,next,afterCold)&&(next.targetResource!==movedResource(old.targetResource!,old.targetPointer!)||next.targetPointer!==move(old.targetResource!,old.targetPointer!)))
@@ -481,7 +530,7 @@ function planOwnedCopy(input:any,moving=false) {
   }
  }
  const edits=editsFor(resources,outputs);
- return {version:1,kind:moving?'component-move':'component-extract',...(moving?{[preserveBinding?'preservedBinding':'removedBinding']:{resource:resource.id,pointer:target.pointer}}:{}),snapshot:input.snapshot,identity:createHash('sha256').update(JSON.stringify({snapshot:input.snapshot,target,name:input.name,moving,edits})).digest('hex'),edits,
+ return {version:1,kind:moving?'component-move':'component-extract',...(separated?{sourceOwnership:[{resource:resource.id,pointer:target.pointer,effect:'retained-literal'}]}:{}),...(moving?{[preserveBinding?'preservedBinding':'removedBinding']:{resource:resource.id,pointer:target.pointer}}:{}),snapshot:input.snapshot,identity:createHash('sha256').update(JSON.stringify({snapshot:input.snapshot,target,name:input.name,moving,edits})).digest('hex'),edits,
   changes:[...outputs].map(([id,after])=>({resource:id,before:resources.find(r=>r.id===id)!.text,after})),usages:[...usages.values()],from:target,to:{...target,resource:destinationId,pointer:destination},
   transitions:[{resource:resource.id,from:target.pointer,to:destination,...(cross?{toResource:destinationId}:{})},...conversions.values()],checkedRoots:input.contexts.map((c:any)=>c.root)};
 }
@@ -506,12 +555,12 @@ export function planExtractToFile(input:any) {
   }
   return text===resource.text?resource:{...resource,text,identity:createHash('sha256').update(text).digest('hex')};
  });
- const proposal=(final:Resource[],binding:{resource:string;pointer:string},to:{resource:string;pointer:string},usages:any[],transitions:any[])=>{
+ const proposal=(final:Resource[],binding:{resource:string;pointer:string},to:{resource:string;pointer:string},usages:any[],transitions:any[],sourceOwnership:any[]=[])=>{
   const created=final.find(resource=>resource.id===id)!;
   const outputs=new Map(final.filter(resource=>resource.id!==id&&resource.text!==original.resources.find(before=>before.id===resource.id)!.text).map(resource=>[resource.id,resource.text]));
   const data={version:1,kind:'component-extract-file',snapshot:input.snapshot,checkedRoots:input.contexts.map((context:any)=>context.root),
    edits:editsFor(original.resources,outputs),changes:[...outputs].map(([resource,after])=>({resource,before:original.resources.find(value=>value.id===resource)!.text,after})).concat([{resource:id,before:'',after:created.text,fileAction:'create'}] as any),
-   creations:[{resource:id,text:created.text,identity:created.identity}],usages,from:input.target,to,binding,transitions};
+   creations:[{resource:id,text:created.text,identity:created.identity}],usages,from:input.target,to,binding,transitions,sourceOwnership};
   return {...data,identity:createHash('sha256').update(JSON.stringify(data)).digest('hex')};
  };
  // Swagger's global Parameters/Responses maps do not allow a forwarding
@@ -522,7 +571,7 @@ export function planExtractToFile(input:any) {
   const text=original.doc.emit({[input.name]:null}),slot:Resource={id,text,generation:0,identity:createHash('sha256').update(text).digest('hex')};
   const extracted=planCopy({...input,resources:[...original.resources,slot],destinationFragment:'named'});
   const to={resource:id,pointer:extracted.to.pointer};
-  return proposal(project([...original.resources,slot],extracted.edits),to,to,extracted.usages,extracted.transitions);
+  return proposal(project([...original.resources,slot],extracted.edits),to,to,extracted.usages,extracted.transitions,extracted.sourceOwnership);
  }
  const extracted=planCopy({...input,destinationResource:original.selected.context.root}),intermediate=project(original.resources,extracted.edits);
  // Extraction can make the selected entry's public binding newly reachable
@@ -537,7 +586,7 @@ export function planExtractToFile(input:any) {
  const conversions=extracted.transitions.slice(1).map(move=>move.resource===binding.resource&&inside(move.from,binding.pointer)
   ?{...move,resource:id,from:move.from.slice(binding.pointer.length),to:move.to.slice(binding.pointer.length)}:move);
  return proposal(final,binding,{resource:id,pointer:''},extracted.usages,
-  [{resource:original.resource.id,from:input.target.pointer,to:'',toResource:id},...conversions,...relocated.transitions.slice(1)]);
+  [{resource:original.resource.id,from:input.target.pointer,to:'',toResource:id},...conversions,...relocated.transitions.slice(1)],extracted.sourceOwnership);
 }
 
 /** Relocate exactly one physical Operation Object. Both standard and 3.2
@@ -737,6 +786,16 @@ function planOwnedInline(input:any) {
  // and other alias consumers are not publication edits of an inline review.
  definitionSource.own(definitionPointer,true,true);
  const definition=definitionSource.doc,definitionNode=definition.node(definitionPointer);
+ const roleKey=(at:{resource:string;pointer:string;kind:string})=>JSON.stringify([at.resource,at.pointer,at.kind]);
+ const ownedScopes=new Map<typeof selected,Set<string>>(owning.map(g=>{
+  const role=g.graph.scopeAs(definition.id,definitionPointer,scope.kind);
+  if(!role)throw new SourceError('refactor.inline.target','The referenced contract role has no captured structural owner');
+  return [g,new Set<string>(g.graph.containedScopes(role).map(roleKey))] as const;
+ }));
+ const ownsScope=(g:typeof selected,at:GraphScope)=>ownedScopes.get(g)?.has(roleKey(at))===true;
+ const ownsReference=(g:typeof selected,ref:typeof refs[number])=>{
+  const owner=ref&&g.graph.referenceOwner(ref);return owner!==undefined&&ownsScope(g,owner);
+ };
  if(ref.targetResource===resource.id&&inside(target.pointer,definitionPointer))
   throw new SourceError('refactor.inline.recursive','The definition contains this occurrence; recursive graphs cannot be silently inlined');
  for(const g of owning){
@@ -753,7 +812,8 @@ function planOwnedInline(input:any) {
    if(visited.has(key))return;visited.add(key);active.add(key);
    for(const edge of g.graph.references){
     if(++inspected>200000)throw new SourceError('limit.refactor.inline','The reference impact graph exceeds its bounded review budget');
-    if(edge.resource!==id||!inside(edge.pointer,pointer)||edge.connection||!intrinsic(g.graph,id,edge.pointer,pointer))continue;
+    if(edge.resource!==id||!inside(edge.pointer,pointer)||edge.connection||!intrinsic(g.graph,id,edge.pointer,pointer)||
+       id===definition.id&&inside(edge.pointer,definitionPointer)&&!ownsReference(g,edge))continue;
     if(edge.keyword==='$dynamicRef'&&edge.dynamic)throw new SourceError('refactor.inline.schema-resource','A reachable dynamic reference needs its resource evaluation scope; it cannot be proved by static navigation');
     visit(edge.targetResource!,edge.targetPointer!);
    }
@@ -764,7 +824,7 @@ function planOwnedInline(input:any) {
  // Duplicating an identified schema resource/anchor would create conflicting
  // identifiers; removing them would change meaning. Likewise, dynamic scope
  // cannot be proved merely by comparing possible navigation candidates.
- for(const g of owning)for(const at of g.graph.scopes.values())if(at.resource===definition.id&&inside(at.pointer,definitionPointer)&&at.kind==='schema'&&intrinsic(g.graph,at.resource,at.pointer,definitionPointer)){
+ for(const g of owning)for(const at of g.graph.interpretedScopes())if(ownsScope(g,at)&&at.kind==='schema'){
   const value=definition.node(at.pointer).value;
   if(value&&typeof value==='object'&&['$id','$anchor','$dynamicAnchor'].some(key=>Object.hasOwn(value,key)))
    throw new SourceError('refactor.inline.schema-resource','This definition declares a schema resource or anchor that cannot be duplicated by inlining');
@@ -804,17 +864,18 @@ function planOwnedInline(input:any) {
  }
  changed=retainOccurrenceComments(doc,changed,target.pointer);
  const outputs=new Map<string,string>([[resource.id,changed.text]]),repairs=new Map<string,string>(),usages:any[]=[];
+ const markdown=new RefactoringMarkdownOwners();
  const relocated=(pointer:string)=>destination+pointer.slice(definitionPointer.length);
  const rebuilt=(g:typeof selected)=>createGraph({root:g.context.root,resources:resources.filter(r=>g.context.resources.includes(r.id)).map(r=>outputs.has(r.id)?{...r,text:outputs.get(r.id)!}:r)});
  for(const g of owning){
   const after=rebuilt(g);
-  relocateCopiedUris(g.graph,after.graph,{resource:definition.id,pointer:definitionPointer},{resource:resource.id,pointer:destination},outputs,repairs,admit,true,scope.kind!=='schema'&&siblings.includes('description'));
+  relocateCopiedUris(g.graph,after.graph,{resource:definition.id,pointer:definitionPointer},{resource:resource.id,pointer:destination},outputs,repairs,admit,markdown,true,scope.kind!=='schema'&&siblings.includes('description'),at=>ownsScope(g,at));
   changed=new SourceDocument(outputs.get(resource.id)!,resource.id);
-  for(const at of g.graph.scopes.values())if(at.resource===definition.id&&inside(at.pointer,definitionPointer)&&at.kind==='schema'&&intrinsic(g.graph,at.resource,at.pointer,definitionPointer)){
+  for(const at of g.graph.interpretedScopes())if(ownsScope(g,at)&&at.kind==='schema'){
    const next=after.graph.scopes.get(resource.id+'#'+relocated(at.pointer));
    if(!next||next.dialect!==at.dialect)throw new SourceError('refactor.inline.dialect','The copied schema would inherit a different dialect');
   }
-  for(const old of g.graph.references)if(old.resource===definition.id&&inside(old.pointer,definitionPointer)&&intrinsic(g.graph,old.resource,old.pointer,definitionPointer)){
+  for(const old of g.graph.references)if(ownsReference(g,old)){
    // The copied occurrence retains its original shared target. Downstream
    // static recursion is not expanded; copied and retained addresses are
    // proved again below.
@@ -830,17 +891,27 @@ function planOwnedInline(input:any) {
   }
   usages.push({resource:resource.id,pointer:target.pointer+'/$ref',connection:'$ref',target:{resource:definition.id,pointer:definitionPointer},roots:[g.context.root]});
  }
+ const finalDocs=new Map(resources.map(value=>[value.id,value.id===resource.id?changed:new SourceDocument(value.text,value.id)]));
  for(const g of graphs){
   const after=rebuilt(g);
   if(after.graph.issues.length)throw new SourceError('refactor.proof','Inlining would introduce an unresolved or ambiguous connection');
+  assertRefactoringByteConsumers(g.graph,resources,id=>finalDocs.get(id)!);
+  assertRefactoringCaseFiles(input.manifest,resources,id=>finalDocs.get(id)!);
+  assertRefactoringLiterals(g.graph,id=>finalDocs.get(id)!);
   for(const old of g.graph.references){
    if(old.resource===resource.id&&old.pointer===target.pointer&&old.keyword==='$ref')continue;
-   if(owning.includes(g)&&old.resource===definition.id&&inside(old.pointer,definitionPointer)&&intrinsic(g.graph,old.resource,old.pointer,definitionPointer)){
+   if(ownsReference(g,old)){
     const copy=after.graph.references.find(r=>r.resource===resource.id&&r.pointer===relocated(old.pointer)&&r.keyword===old.keyword);
     if(!copy||copy.targetResource!==old.targetResource||copy.targetPointer!==old.targetPointer||Boolean(copy.dynamic)!==Boolean(old.dynamic))
      throw new SourceError('refactor.proof','An inlined semantic consumer would change target in one configured root');
    }
    const next=after.graph.references.find(r=>same(r,old)&&r.keyword===old.keyword);
+   // Inlining the final contract use of literal bytes retires only that
+   // interpretation. The exact literal proof above retains the original data;
+   // copied consumers have already proved their original targets. Another
+   // incoming contract edge would keep this role reachable and checked here.
+   if(!next&&ownsReference(g,old)&&
+      g.graph.literalContainer(old.resource,old.pointer)!==undefined&&!after.graph.scopeAs(old.resource,old.pointer,old.kind))continue;
    // Removing the last incoming edge can make an unchanged fragment no
    // longer reachable in this root. It remains canonical source, not a
    // deleted definition. Its copied consumers were proved above, and no byte

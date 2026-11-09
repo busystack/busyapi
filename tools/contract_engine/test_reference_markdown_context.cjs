@@ -1,6 +1,21 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),YAML=require('yaml');
 const {analyse}=require('./dist/model.cjs'),{referencePage,referenceDocument}=require('./dist/reference_projection.cjs');
 const patches=['2.0','3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'];
+for(const version of ['3.1.2','3.2.1'])for(const format of ['yaml','json'])test(`${version} ${format} native inlining selects its canonical role without adopting the target schema interpretation`,()=>{
+ const {planInline}=require('./dist/refactoring_copy.cjs'),{createGraph}=require('./dist/model.cjs');
+ const root='file:///approved/api.'+format,pointer='/components/schemas/Owner/properties/Reply',at='/paths/~1value/get/responses/200';
+ const value={openapi:version,info:{title:'Roles',version:'1'},paths:{'/value':{get:{responses:{200:{$ref:'#'+pointer}}}}},
+  components:{schemas:{Owner:{$id:'https://schema.invalid/models/base',properties:{Reply:{description:'[Guide](guide.md) ![image](image.svg)'}}}}}};
+ const text=format==='json'?JSON.stringify(value):YAML.stringify(value),resources=[{id:root,text,generation:1}];
+ const before=createGraph({root,resources}).graph,plan=planInline({snapshot:'inline-role',resources,contexts:[{root,resources:[root]}],target:{root,resource:root,generation:1,pointer:at}});
+ let output=text;for(const edit of [...plan.edits].reverse()){assert.equal(output.slice(edit.start,edit.end),edit.expected);output=output.slice(0,edit.start)+edit.replacement+output.slice(edit.end);}
+ const after=createGraph({root,resources:[{...resources[0],text:output}]}).graph;
+ assert.equal(after.scopeAs(root,pointer,'schema').base,before.scopeAs(root,pointer,'schema').base);
+ assert.equal(after.scopeAs(root,at,'schema'),undefined);assert.equal(after.scopeAs(root,at,'response').base,root);
+ assert.equal(after.docs.get(root).dataJson(pointer),before.docs.get(root).dataJson(pointer));
+ assert.equal(after.docs.get(root).dataNode(at+'/description').value,'[Guide](guide.md) ![image](image.svg)');
+ assert.equal(resources[0].text,text);
+});
 for(const version of patches)for(const format of ['yaml','json'])test(`${version} ${format} Reference captures logical Markdown context without changing source`,()=>{
  const root='file:///private/api.'+format,logical='https://docs.example.invalid/original/api.'+format;
  const value={...(version==='2.0'?{swagger:version}:{openapi:version}),info:{title:'雪',version:'1',description:'[Guide](../guide?zero=0&empty=)'},paths:{},'x-data':{description:'[Literal](../data)',n:'EXACT'}};

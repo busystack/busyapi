@@ -185,11 +185,55 @@ function normalizedDestination(raw:string,work:Work):string|undefined {
  * policy. Only URI spans change; source text is never regenerated from an AST.
  * No destination is retrieved. Whole-tree proofs include titles, literal code,
  * text, headings and list structure as well as every rendered link/image URI. */
+export type MarkdownContext=Readonly<{from:string;to:string}>;
+
+/** A relative spelling can preserve several distinct effective destinations.
+ * URI path segments stay encoded; decoding them here would change separators.
+ * The caller proves every candidate with the canonical URI owner below. */
+function relativeDestination(target:string,base:string):string|undefined {
+    const destination=new URL(target),origin=new URL(base);
+    if(destination.protocol!==origin.protocol||destination.host!==origin.host||
+        destination.username!==origin.username||destination.password!==origin.password)return;
+    const path=destination.pathname.split('/'),directory=origin.pathname.split('/');directory.pop();
+    while(path.length&&directory.length&&path[0]===directory[0]){path.shift();directory.shift();}
+    const value='../'.repeat(directory.length)+path.join('/');
+    return (value||'./').replace(/^(?=[^/]*:)/,'./')+destination.search+destination.hash;
+}
+
 export function relocateMarkdownLinks(source:string,from:string,to:string):string {
-    if(from===to)return source;
-    const work=new Work(),before=work.parse(source),original=shape(before,from),changes=new Map<string,string>();
-    for(const destination of destinations(before))if(relative(destination)&&resolved(destination,from)!==resolved(destination,to))
-        changes.set(destination,resolved(destination,from));
+    return relocateSharedMarkdownLinks(source,[{from,to}]);
+}
+
+/** Find one source spelling whose complete rendered tree retains its meaning
+ * in every captured context. Different absolute repairs are not themselves
+ * evidence of incompatibility: a shared relative repair may satisfy them all.
+ * Ownership-separated occurrences call this independently. */
+export function relocateSharedMarkdownLinks(source:string,contexts:readonly MarkdownContext[]):string {
+    if(!contexts.length||contexts.length>128)throw new SourceError('limit.migration.markdown','Documentation relocation requires between 1 and 128 captured contexts');
+    if(source.length*contexts.length>16*1024*1024)throw new SourceError('limit.migration.markdown','Shared documentation relocation exceeds its bounded context work');
+    if(contexts.every(context=>context.from===context.to))return source;
+    const work=new Work(),before=work.parse(source),original=contexts.map(context=>shape(before,context.from));
+    const faithful=(events:readonly Event[])=>contexts.every((context,index)=>shape(events,context.to)===original[index]);
+    const changes=new Map<string,string>();
+    for(const destination of new Set(destinations(before))){
+        if(!relative(destination)||contexts.every(context=>resolved(destination,context.from)===resolved(destination,context.to)))continue;
+        const alternatives=new Set<string>();
+        const targets=contexts.map(context=>resolved(destination,context.from));
+        for(const [index,context]of contexts.entries()){
+            const target=targets[index],uri=new URL(target);alternatives.add(target);
+            const relative=relativeDestination(target,context.to);if(relative!==undefined)alternatives.add(relative);
+            if(uri.pathname.startsWith('/'))alternatives.add(uri.pathname+uri.search+uri.hash);
+            if(uri.host)alternatives.add(target.slice(uri.protocol.length));
+        }
+        const replacement=[...alternatives].find(value=>contexts.every((context,index)=>{
+            work.scan();
+            try{return resolved(value,context.to)===targets[index];}
+            catch(error){if(!(error instanceof SourceError)||error.code!=='migration.description.uri')throw error;return false;}
+        }));
+        if(replacement===undefined)throw new SourceError('migration.description.shared-context',
+            'No common Markdown destination spelling was proved for these rendered URI bases; separate the contract occurrences before relocating them');
+        changes.set(destination,replacement);
+    }
     if(!changes.size)return source;
     const edits:Edit[]=[];
     for(const span of candidates(source,before,work)){
@@ -201,17 +245,25 @@ export function relocateMarkdownLinks(source:string,from:string,to:string):strin
         edits.push(edit);
     }
     const proposed=apply(source,edits),after=work.parse(proposed);
-    if(shape(after,to)===original)return proposed;
+    if(faithful(after))return proposed;
     // Ambiguous bracket text can produce harmless lexical candidates. Admit
-    // only those that change actual rendered destinations without changing
-    // any other original-context meaning, then prove the complete result.
+    // only actual URI changes with the identical non-URI tree. Every changed
+    // destination must already preserve all of its relocated meanings; other
+    // destinations may await their edits. This also admits relative repairs
+    // that cannot be evaluated in the old base after ownership has moved.
+    const structure=(events:readonly Event[])=>JSON.stringify(events.map(event=>[event.entering,event.type,event.attributes]));
+    const originalStructure=structure(before);
+    const partial=(events:readonly Event[])=>structure(events)===originalStructure&&events.every((event,index)=>{
+        const old=before[index].destination;
+        return event.destination===old||old!==undefined&&event.destination!==undefined&&contexts.every(context=>resolved(event.destination!,context.to)===resolved(old,context.from));
+    });
     let accepted=source,current=before;
     for(const edit of [...edits].sort((a,b)=>b.start-a.start)){
         const candidate=apply(accepted,[edit]),parsed=work.parse(candidate);
-        if(JSON.stringify(destinations(parsed))!==JSON.stringify(destinations(current))&&shape(parsed,from)===original){
+        if(JSON.stringify(destinations(parsed))!==JSON.stringify(destinations(current))&&partial(parsed)){
             accepted=candidate;current=parsed;
         }
     }
-    if(shape(current,to)!==original)throw new SourceError('migration.description.relative-links','No complete source-preserving destination mapping was proved for this Markdown field');
+    if(!faithful(current))throw new SourceError('migration.description.relative-links','No complete source-preserving destination mapping was proved for this Markdown field');
     return accepted;
 }

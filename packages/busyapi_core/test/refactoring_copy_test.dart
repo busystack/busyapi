@@ -7,6 +7,55 @@ import 'package:test/test.dart';
 import 'test_support.dart';
 
 void main() {
+  for (final version in ['2.0', '3.0.4', '3.1.2', '3.2.1']) {
+    for (final format in ['yaml', 'json']) {
+      test('$version $format extraction retains literal values and redirects configured contract consumers', () async {
+        final directory = await Directory.systemTemp.createTemp('busyapi-literal-extraction-');
+        addTearDown(() => directory.delete(recursive: true));
+        final source = File('${directory.path}/api.$format'), other = File('${directory.path}/other.$format');
+        final group = version == '2.0' ? '/definitions' : '/components/schemas';
+        final pointer = '$group/Holder/default';
+        Map<String, Object?> api(Map<String, Object?> schemas) => {
+          if (version == '2.0') 'swagger': version else 'openapi': version,
+          'info': {'title': 'Original', 'version': '1'}, 'paths': {},
+          if (version == '2.0') 'definitions': schemas else 'components': {'schemas': schemas},
+        };
+        String encode(Object value) => '${format == 'yaml' ? '# Keep source\r\n' : ''}${jsonEncode(value).replaceAll('"EXACT"', '9007199254740993.00')}\r\n';
+        final payload = {'type': 'integer', 'minimum': 'EXACT', 'description': '[Guide](guide.md)', 'x-data': {r'$ref': 'literal', 'bytes': 'AAECA/7/AA=='}};
+        await source.writeAsString('\ufeff${encode(api({'Holder': {'default': payload}, 'Use': {r'$ref': '#$pointer'}}))}');
+        await other.writeAsString(encode(api({'Use': {r'$ref': 'api.$format#$pointer'}})));
+        await File('${directory.path}/busyapi.yaml').writeAsString('version: 1\nroots: [{name: Main, path: api.$format}, {name: Other, path: other.$format}]\n');
+        final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);
+        addTearDown(engine.close);
+        final project = await BusyProject.open(directory.path, engine);
+        addTearDown(project.close);
+        final root = source.uri.toString(), buffer = await project.buffer(root), consumer = await project.buffer(other.uri.toString());
+        final before = buffer.bytes(), consumerBefore = consumer.bytes();
+        final plan = await project.planComponentExtraction({'root': root, 'resource': root, 'pointer': pointer, 'generation': buffer.generation}, 'Independent');
+        expect(plan.result['sourceOwnership'][0]['effect'], 'retained-literal');
+        await project.applyRefactoring(plan);
+        final accepted = buffer.bytes(), consumerAccepted = consumer.bytes();
+        final literal = await project.inspectObject(root, root, '$group/Holder');
+        expect(literal['value']['default']['description'], '[Guide](guide.md)');
+        expect(literal['value']['default']['x-data'][r'$ref'], 'literal');
+        expect(buffer.text, contains('9007199254740993.00'));
+        expect(buffer.text, contains('AAECA/7/AA=='));
+        for (final id in [root, consumer.id]) {
+          final page = await project.referencePage(id, id, '$group/Use');
+          expect(page['references'][0]['target']['pointer'], '$group/Independent');
+        }
+        project.store.undo();expect(buffer.bytes(), before);expect(consumer.bytes(), consumerBefore);
+        project.store.redo();expect(buffer.bytes(), accepted);expect(consumer.bytes(), consumerAccepted);
+        await expectLater(project.applyRefactoring(plan), throwsA(isA<CoreFailure>().having((e) => e.code, 'code', 'refactor.stale')));
+        expect((await PublicationStore('${directory.path}/state').save(project, project.store.buffers.values)).complete, true);
+        final reopened = await BusyProject.open(directory.path, engine);
+        addTearDown(reopened.close);
+        expect((await reopened.buffer(root)).bytes(), accepted);
+        expect((await reopened.buffer(consumer.id)).bytes(), consumerAccepted);
+        expect((await reopened.check(root))['complete'], true);
+      });
+    }
+  }
   for (final version in ['3.1.2', '3.2.1']) {
     for (final format in ['yaml', 'json']) {
       for (final keyword in [r'$ref', r'$dynamicRef']) {

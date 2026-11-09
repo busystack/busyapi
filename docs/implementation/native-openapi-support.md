@@ -64,7 +64,7 @@ acceptance must retain each exact authored patch declaration.
 | Reference inspection | U | U | U | U | `reference_projection.ts` referencePage/referenceDocument, native `reference_view.dart`/`reference_object.dart`; native family and reference-context fixtures. Complete native clause/rendered-field closure remains unverified. |
 | Version-specific validation | U | U | U | U | `structural_schema.ts`, restricted/Swagger validators, `schema_evaluation.ts`, graph dialect policy, Core check; existing restricted/modern/access/negative suites. Full normative coverage is not established by source review. |
 | Reference resolution/navigation | U | U | U | U | `reference_graph.ts`, `reference_choices.ts`, source assistance and Core resource capture; contextual/dynamic/native-connection suites exist. Full external/mixed-role qualification remains unverified. |
-| Reference maintenance/refactoring | P | P | P | P | `refactoring_copy.ts` extract/move/inline, file/property/Markdown owners, Core file/refactoring transactions and native review, CLI refactor. W6-M1 complete identified-resource relocation is source-complete, unverified; W6.01–03 retain unproved dynamic-scope, shared-rendering-base, overlapping-ownership and schema-position cases. |
+| Reference maintenance/refactoring | P | P | P | P | `refactoring_copy.ts` extract/move/inline, file/property/Markdown owners, Core file/refactoring transactions and native review, CLI refactor. W6-M1 resource relocation and W6-M2 shared Markdown/compatible ownership separation are source-complete, unverified within their stated proof boundaries. General schema-position and mixed-reference-role closure, unavailable dynamic proofs and full workflow qualification remain explicit. |
 | Native documentation/export | U | U | U | U | `reference_projection.ts`, `derived_bundle.ts`, Core `documentation.dart`/`documentation_sources.dart`, native documentation actions, CLI build-docs. Native offline HTML publication exists; complete relocation/rendering closure and pinned adapter compatibility remain unverified (W6.04). |
 | Requests/responses/authentication | P | P | P | P | Core `request.dart`/`execution.dart`, shared execution/security/runtime owners and native Request controls; existing HTTP/security/header/media suites. XML/Linkset mapping and stream integration remain missing; typed multipart restrictions below also apply. Standard implemented security flows are not missing because execution is held; full device-flow qualification remains unverified. |
 | Example interpretation/selection | P | P | P | P | `example_representation.ts`, serialized/external example owners and Core captured selections; native external-body and CLI saved-case paths exist. W4.07 retains binary Parameter/Header/part choice gaps; occurrence-free reusable media must not guess context. |
@@ -84,7 +84,7 @@ results. They are required native application work, not specification limits:
 | Incremental streaming | Finite JSON Lines, JSON sequences, SSE and multipart decoding plus transport byte accumulation exist. | W5.01–02: incremental transport evaluation, backpressure/progress, bounded retention, cancellation and terminal malformed/truncated results through Core/native/CLI. Transport chunks alone are not incremental conformance. |
 | CONNECT mocks | `mock_native_validation.ts` explicitly rejects CONNECT on the ordinary response transport. | W5.03: approved bounded peer/tunnel ownership, bidirectional bytes, cancellation and closure, native mock/CLI integration. |
 | Mock witnesses | Bounded exact candidate construction and final original-schema validation exist. | W5.04: remaining media/candidate paths must generate valid witnesses or accurately report unavailable search evidence; never equate exhaustion with unsatisfiability. |
-| Semantic maintenance | Ordinary reviewed rename/extract/inline/move/file actions exist in native and CLI consumers. | W6.01–03: close known identified/dynamic-resource and incompatible rendering-base/dual-role cases without weakening source preservation or transactional proofs. |
+| Semantic maintenance | Ordinary reviewed rename/extract/inline/move/file actions exist in native and CLI consumers. | W6-M1/M2 implement complete-resource relocation, shared Markdown specialization and compatible literal/contract separation. W6.01–03 still require general schema-position/mixed-reference-role qualification; precise unavailable proofs and actual independent-data conflicts remain refusals. |
 
 ### Ordered phases and completion criteria
 
@@ -95,8 +95,11 @@ results. They are required native application work, not specification limits:
    declarations, unrelated bytes and review/Undo/Redo safety. Completion requires
    no known native authoring/maintenance gap; unexecuted coverage remains a
    separate verification status. The bounded W1 schema/reference authoring
-   completion below extends the existing Source schema forms. Continue Phase 1
-   with W6 semantic maintenance; record actual missing behavior before edits.
+   completion below extends the existing Source schema forms. The bounded W6-M1/M2 increments below are source-complete, unverified.
+   Reconcile remaining Phase 1 clause/surface and proof boundaries against this
+   matrix; do not turn every unavailable refactoring proof into another narrow
+   assignment. The next concrete application implementation priority is typed
+   multipart generation (W4.01), with native professional workflow integration.
 2. **Application functionality.** Complete the explicit wire/multipart/example,
    mock, streaming and documentation gaps above through every applicable native,
    Core and CLI consumer. Completion requires no required consumer to retain an
@@ -3296,7 +3299,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | --- | --- | --- | --- | --- | --- |
 | W6.01 Rename/extract/copy/inline/relocate at every schema-bearing position; JC §§8–10, family Schema/Components clauses | refactoring/copy/file owners, canonical schema traversal, Core transactions | A R S C | refactoring/copy/extract/file/schema-definition suites | Partially implemented; reviewed extract, definition move, new-file extraction, inline and renames now share migration YAML token ownership, original-coordinate transactions and native controls. Rename reads alias-backed required/dependency/composition relationships through logical paths and owns only affected writes, including security fields/configuration. Explicit YAML independence retains all logical values and graph identities and enables subsequent ordinary native controls. CLI review/apply exposes existing object/file maintenance and operation/root moves through the same Core plans, captured file intents and grouped publication. Full schema-bearing-position and independently interpreted role coverage remains; current cold-reopen qualification is pending | H |
 | W6.02 Preserve resource/dialect/anchor and dynamic evaluation scope without weakening recursion/identity/Path Item guards; JC §§8–9 | `refactoring_copy.ts`, `schema_relocation.ts`, file/URI owners, reference choices/graph | A R S C | copy/file/graph/schema-resource-view suites; Core/native review and CLI regressions, including static dynamicRef, official dynamic binding, dialect and recursion controls | W6-M1 complete-resource extraction/definition movement/file relocation is source-complete, unverified: canonical IDs are repaired outer first across same-file and cross-file bases; dynamic approval requires resource/binding/evaluation-edge equivalence, including generated forwarding frames. Partial inherited resources, conflicting identities/anchors, literal identifier rewrites, identified-resource inlining, unproved dynamic scopes and non-schema chains remain refused; overlapping ownership and general schema-position closure remain outside M1 | H |
-| W6.03 Shared/conflicting Markdown and dual literal/contract owners; TEXT/URI, O32 URI-base clauses | refactoring Markdown/file/copy, migration shared-text, URI owners | A R M S C | Markdown identity/location/shared-text/refactoring suites, native-object-use migration controls | Partially implemented; reviewed copy/inline now separate YAML aliases before the existing Markdown/URI proofs and preserve literal alias values. Migration schema/data and native object/data owners are retained; general refactoring and incompatible entry/rendering-base specializations remain missing | H |
+| W6.03 Shared/conflicting Markdown and dual literal/contract owners; TEXT/URI, O32 URI-base clauses | refactoring Markdown/file/copy, migration shared-text, URI owners | A R M S C | Markdown identity/location/shared-text/refactoring suites, native-object-use migration controls | W6-M2 bounded shared Markdown and compatible semantic ownership separation is source-complete, unverified: copy/inline/file plans preserve every captured rendered role; shared spellings are proved jointly, and incompatible physical descriptions specialize editable incoming contract uses through existing inline/file proofs. Extraction can retain exact literal source while redirecting its contract interpretation, including complete identified/dynamic resources. Literal/opaque-byte conflicts, unavailable role/resource/inline proofs and work bounds remain precise refusals; see W6-M2 below | H |
 | W6.04 Complete native Reference/export and exact pinned external renderer/generator/comparator adapters; family clauses, PINS | native Reference, `derived_bundle.ts`, Core renderer/export adapters | R M S C | reference family/display/Markdown, bundle/resource-package/adapter suites | Partially implemented; native family paths exist; complete relocated/offline output and exact adapter limitation qualification remain; never strip/relabel source to satisfy an adapter | H |
 | W7.01 Creation, editing, unsaved Reference, request/example/mock/case, migration review, documentation and CLI integration for every capability; all applicable clauses above | shared engine, Core owners and native workspace controls | A R E M S C | engine/Core/widget/native journey suites | Partially implemented; applicable existing consumers inherit shared field/codec/routing changes; complete family journeys are not accepted | H |
 | W7.02 Stale-action invalidation on declaration/dialect/root/external/approval changes; coherent reviewed transactions, Undo/Redo and no buffer loss; Core transaction contract | Core project/store/capture and native review/request controllers | A R E M S C | stale capture/cancellation/publication/widget review suites | Partially implemented; existing source for existing safeguards; new paths require current integration qualification | H |
@@ -4747,3 +4750,153 @@ Snapcraft remains skipped, and no push is authorized. After this increment,
 continue the remaining W6 shared Markdown/overlapping ownership maintenance.
 Typed multipart, XML/Linkset, streaming and mocks remain later assignments and
 were not begun here.
+
+## W6-M2 — shared Markdown and compatible semantic ownership
+
+This bounded W6.03 increment is **source-complete, unverified**, starting from
+`3ae955ceb1f652df577e642ca6745b2cb80154df` on `release/v0.1.0`. This is a source
+implementation and prepared-regression status. It does not establish complete
+W6, Phase 1, BusyAPI SOURCE COMPLETE or ACCEPTED. W6-M1, completed native
+authoring, existing reviewed transactions and migration implementations remain
+in place. B05 migration development was not resumed.
+
+`markdown_relocation.ts` still edits only CommonMark destination token spans.
+The pinned parser proves the complete non-URI tree and all effective link/image
+destinations, including reference definitions, titles, code, HTML, literal text
+and fragment navigation. A bounded joint mapping now considers every captured
+rendering base. Absolute, relative, root-relative and network-path candidates
+use the canonical URI owner for their proofs. Different per-context absolute
+repairs do not imply incompatibility when one relative spelling preserves all
+contexts. Progressive token admission retains the full tree and each repaired
+destination's meanings before the final complete-tree proof.
+
+`refactoring_markdown.ts` accumulates original contexts for each destination
+occurrence; later roots re-prove earlier roots instead of repairing previously
+repaired text. Copy and file maintenance inspect every canonical interpreted
+role. Independently referenced schemas inside moved literal values also receive
+the Markdown proof: an unchanged payload alone cannot justify changed rendered
+destinations. URI fields use their corresponding typed roles and actual nested
+resource contexts. An inline copy selects only the selected contract role's
+canonical structural descendants through `ReferenceGraph.containedScopes`.
+It does not adopt another schema/native interpretation merely because that
+interpretation shares the definition's physical bytes. The graph's existing
+children and Reference Object policies remain the semantic authority.
+
+File repairs now give affected YAML fields independent source through
+`MigrationSource`, including descriptions reached through object aliases and
+reused scalar anchors. Other aliases retain their exact logical values; unused
+anchor definitions and unrelated bindings stay authored when no edit requires
+their separation. Compatible shared physical descriptions use one jointly
+proved spelling. When conflicting roles or a literal description require
+different text, the file planner can compose the existing `planInline` proof at
+editable incoming contract occurrences, then run the ordinary complete file
+move proof. It publishes one original-coordinate proposal containing the
+specialization and move. The original structural/schema/literal owner retains
+its meaning; the copied native occurrences get their own destination repairs.
+Configured roots, captured unsaved consumers and separately located consumers
+participate together. Attempts, CST edits and parsing remain bounded.
+
+Extraction can separate an independently referenced contract occurrence from
+literal data: copy the contract to the requested component or source fragment,
+redirect established contract edges, and retain the original exact literal.
+The retained literal's anchors and aliases are read through a private owned
+copy; they do not need publication edits just to supply copied bytes. No payload
+string scan discovers references. Complete identified schema interpretations
+may transfer their active identity while the same identifier text remains
+literal data at its original location. The existing address owner can prove a
+same-file physical retrieval pointer during that private separation; it cannot
+bypass a declared OpenAPI `$self`. Final graphs must rediscover the transferred
+identity without temporary seeds. Static, recursive, anchor, dialect and dynamic
+evaluation-scope checks remain separate and mandatory. Identified-resource
+inlining restrictions remain unchanged. Inlining the final ordinary contract
+use may retire that interpretation while the original literal stays exact;
+copied consumers and every remaining consumer must still pass their proofs.
+
+`refactoring_graph.ts` adds exact literal and independent byte-consumer checks.
+They retain numeric tokens, binary payload strings, assertions and annotations,
+and refuse changes to resources independently consumed as serialized examples
+or saved upload bytes. Opaque moved files remain opaque; the final byte check
+does not parse them as contracts. These checks also cover composed planning
+steps and configuration repairs against the original capture, so intermediate
+YAML ownership or inlining cannot hide a byte change. Core passes its already
+captured manifest to semantic plans for saved-file ownership; its existing
+configuration freshness checks still own external modification detection.
+Located copy refusals map back to original source coordinates after private
+alias expansion.
+
+Engine, Core, native review and CLI use the existing entry points and transaction
+owners. No second resolver, acquisition mechanism, semantic model or publication
+system was added. Native review explains retained literal extraction and any
+contract-use inlining included in a file move. Source changes, checked roots,
+working-buffer history and file intents remain one reviewed unit. Existing
+cancellation, stale-action checks, collisions, external modifications, grouped
+recoverable publication and cold reopening remain authoritative.
+
+The following refusals are deliberate and distinguish unavailable proof from
+a demonstrated change to an independent consumer:
+
+| Condition | Result and meaning |
+| --- | --- |
+| No common Markdown spelling and no editable incoming owner, or existing inline proof refuses the candidate | `refactor.markdown.context` retains the original source location and names the missing incoming ownership or the underlying inline refusal code. This is unavailable proof, not a claim that no equivalent transformation can exist. |
+| Destination token/complete CommonMark mapping cannot be proved, or bounded work is exhausted | `refactor.markdown.mapping` / `limit.refactor.markdown` / `limit.refactor.ownership`; no partial plan publishes. |
+| A selected structural/reference repair still changes independent literal data | `refactor.literal.ownership` / `file.move.literal.ownership`; ordinary data edits do not receive contract-edit permission. Explicit reviewed contract extraction or ordinary-use inlining can establish ownership where those proofs apply. |
+| Logical values are equal but a captured serialized-example or saved-upload resource's bytes change | `refactor.literal.bytes` or the existing file example/upload content refusal. This is an actual independent-byte conflict for the proposed edits. |
+| External example byte ownership cannot be established from its locator | `refactor.byte-context`; unavailable ownership proof, distinct from demonstrated changed bytes. |
+| One authored reference has multiple object meanings; a container/member also owns an independent schema interpretation | Existing `reference.edit.context`, `refactor.shared-role` or contextual source refusal. General role splitting beyond captured structural/ordinary-reference ownership is not inferred. |
+| Partial schema resource, duplicate identity/anchor, identified inline, recursive/ignored-sibling/Path Item ambiguity, or unproved dynamic scope | Existing W6-M1/inline/role-annotation guards. A successful Markdown proof never overrides these guards. |
+
+Prepared production-path coverage extends the already registered engine
+`test_refactoring_markdown.cjs`, `test_refactoring_copy.cjs`,
+`test_refactoring_file.cjs`, `test_refactoring_ownership.cjs`,
+`test_yaml_source_ownership.cjs`, literal maintenance `test_refactoring.cjs` and
+`test_reference_markdown_context.cjs`. Existing `tools/build_engine.sh`
+registration is retained. Cases include all native families and applicable
+published patch declarations, YAML/JSON, independent/shared scalar and object
+aliases, reused anchor names, literal/code/comment controls, relative links,
+images/reference definitions, nested resource bases, compatible shared text and
+conflicting role specialization, exact numeric/binary values, retained literal
+extraction to components/new files, identified/recursive/dynamic schema outcomes,
+and absent editable owners/independent byte-consumer refusals. Existing resource,
+dynamic-scope, recursion, ignored-sibling and direct literal-edit negatives stay
+registered. The previous blanket anchored-description refusal is now a positive
+ownership case; incompatible/unavailable owners still have negative controls.
+
+Core extends `markdown_refactoring_test.dart`, `refactoring_copy_test.dart`,
+`literal_refactoring_test.dart`, `refactoring_cli_test.dart` and
+`yaml_ownership_test.dart`. Native `test/refactoring_copy_test.dart` extends
+review explanation, cancellation, application and history for literal extraction
+and automatic shared-role file specialization. Existing Core/native directory
+gates register these sources. Prepared cases cover captured unsaved changes,
+multi-root specialization, stale plans/reviews and external configuration,
+Undo/Redo, injected publication failures/retry and cold reopen. CLI review/apply
+remains independent-process, stable-identity and source-preserving; reported
+contract validation stays `not-run`. These are regression sources, not passing
+evidence.
+
+Producer declarations remain Engine `0.1.0`, protocol `1`, CommonMark `0.31.2`
+and YAML `2.9.0`; the engine records `refactoringOwnershipRules: '1'`.
+Schema evaluator, migration and mock producer revisions are unchanged. The
+implementation producer is the local commit introducing this W6-M2 section;
+generated engine assets and localization outputs have not been regenerated.
+Actual checks were source inspection and `git diff --check`. No tests,
+compilers, analyzers, generation, builds, CI, graphical/native workloads,
+performance checks or packaging ran. The execution hold remains active,
+dependencies/SDK sources are unchanged, Snapcraft remains skipped, and nothing
+was pushed.
+
+### Phase 1 reconciliation after W6-M2
+
+The application matrix at the top remains the priority authority. Neither
+unexecuted coverage nor an explicit unavailable proof is relabeled as missing
+native controls. No additional refactoring ticket sequence is created.
+
+| Remaining area | Reconciled status and next boundary |
+| --- | --- |
+| Native authoring W1.08–W1.10 | Preserve the completed bounded schema/reference authoring implementation. Full native clause/field/position qualification across Design, Source and Reference remains U; the held execution gates establish no acceptance. |
+| Other W1 native surfaces | Existing family-specific metadata, controls and projections remain U where complete clause/surface closure has not been established. This increment supplies no evidence that those controls are absent. |
+| W6.01–W6.03 maintenance | W6-M1/M2 close their bounded resource/Markdown/compatible ownership cases. General schema-bearing-position closure, virtual occurrences needing explicit physical YAML ownership, independent container/member schema roles and shared-reference-role splitting retain their concrete eligibility/proof boundaries above. Do not automatically expand each boundary into a speculative conversion assignment. |
+| W6.04 Reference/export/adapters | Existing native/offline implementation remains U for complete rendered-field/relocation and pinned-adapter qualification. Maintenance Markdown equivalence alone does not establish complete export/native Reference acceptance. |
+| W7 native professional journeys | Existing capture/review/history/publication owners and new regressions are prepared; full authenticated native-family journeys and packaged acceptance remain held. |
+| Next concrete implementation priority | **W4.01 typed multipart generation:** one captured typed ordered/nested generation policy, native choice controls, saved-case/CLI preparation, and emitted-byte proof against the original declaration through request/response/mock consumers. Core's missing named-binding and structured positional-generation refusals remain actual production gaps. Complete this professional workflow before further speculative conversion/refactoring work. |
+| Other application gaps | XML/Linkset wire mapping, transport-integrated streaming, CONNECT mocks, remaining mock witnesses and example/part selection remain P/M as recorded in the application matrix. They were not implemented or declared complete here. |
+| Migration and acceptance | Existing migration work remains intact and separately reconciled in Phase 3; B05 is not resumed. Phase 4 still requires explicit authorization lifting the execution hold and complete current-revision verification. |

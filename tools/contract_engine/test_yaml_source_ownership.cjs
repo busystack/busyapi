@@ -2,6 +2,31 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const YAML=require('yaml');
 const {SourceDocument}=require('./dist/document.cjs');
+test('production contract extraction retains the literal anchor and aliases while independently owning the copied contract',()=>{
+ const {planExtract}=require('./dist/refactoring_copy.cjs'),{createGraph}=require('./dist/model.cjs'),root='file:///tokens/api.yaml',pointer='/components/schemas/Holder/default';
+ const text='openapi: 3.2.1\ninfo: {title: Separate, version: "1"}\npaths: {}\n'+
+  'x-data: &data {type: integer, minimum: 9007199254740993.00, description: "[Guide](guide.md)", x-bytes: "AAECA/7/AA=="}\n'+
+  'x-history: *data # Keep source binding\ncomponents:\n  schemas:\n    Holder: {default: *data}\n    Use: {$ref: "#/components/schemas/Holder/default"}\n';
+ const before=new SourceDocument(text,root),resources=[{id:root,text,generation:4}],plan=planExtract({snapshot:'literal-alias',resources,contexts:[{root,resources:[root]}],target:{root,resource:root,generation:4,pointer,range:before.node(pointer).range,expected:'*data'},name:'Independent'});
+ let output=text;for(const edit of [...plan.edits].reverse()){assert.equal(output.slice(edit.start,edit.end),edit.expected);output=output.slice(0,edit.start)+edit.replacement+output.slice(edit.end);}
+ const after=new SourceDocument(output,root);
+ for(const at of ['/x-data','/x-history',pointer])assert.equal(after.dataJson(at),before.dataJson(at));
+ assert(output.includes('x-data: &data'));assert(output.includes('x-history: *data # Keep source binding'));assert(output.includes('Holder: {default: *data}'));
+ assert.equal(after.dataJson('/components/schemas/Independent/minimum'),'9007199254740993.00');assert.equal(after.node('/components/schemas/Independent').shared,false);
+ assert.equal(createGraph({root,resources:[{...resources[0],text:output}]}).graph.referenceAs(root,'/components/schemas/Use','$ref','schema').targetPointer,'/components/schemas/Independent');
+});
+test('production file repair distinguishes reused scalar anchors and leaves literal/code tokens intact',()=>{
+ const {planFileMove}=require('./dist/refactoring_file.cjs'),root='file:///tokens/source/api.yaml';
+ const text='openapi: 3.2.1\ninfo: {title: Tokens, version: "1", description: &docs "[Guide](guide.md) `[Guide](guide.md)`"}\n'+
+  'x-first: *docs\nx-reused: &docs "[Second](second.md)"\nx-second: *docs\npaths: {}\n# *docs [Guide](guide.md)\n';
+ const input={snapshot:'reused-tokens',resources:[{id:root,text,generation:1}],contexts:[{root,resources:[root]}],target:{resource:root,generation:1},destinationResource:'file:///tokens/target/api.yaml'};
+ const plan=planFileMove(input);let output=text;
+ for(const edit of [...plan.edits].sort((a,b)=>b.start-a.start)){assert.equal(output.slice(edit.start,edit.end),edit.expected);output=output.slice(0,edit.start)+edit.replacement+output.slice(edit.end);}
+ const before=new SourceDocument(text,root),after=new SourceDocument(output,input.destinationResource);
+ for(const pointer of ['/x-first','/x-reused','/x-second'])assert.equal(after.dataNode(pointer).value,before.dataNode(pointer).value);
+ assert.equal(after.dataNode('/info/description').value,'[Guide](<file:///tokens/source/guide.md>) `[Guide](guide.md)`');
+ assert(output.includes('x-second: *docs'));assert(output.includes('# *docs [Guide](guide.md)'));assert.equal(input.resources[0].text,text);
+});
 
 const fixtures=[
  '&root\n# literal &decoy stays a comment\nvalue: 9007199254740993.00\n',

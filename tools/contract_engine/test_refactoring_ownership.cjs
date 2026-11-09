@@ -4,6 +4,29 @@ const {planYamlOwnership}=require('./dist/refactoring_ownership.cjs');
 const {SourceDocument}=require('./dist/document.cjs');
 const {inspect,createGraph}=require('./dist/model.cjs');
 const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
+for(const bytes of ['serialized-example','saved-upload'])test(`exact YAML value identity does not permit changing independently consumed ${bytes} bytes`,()=>{
+ const root='file:///owned/api.yaml';
+ const text='openapi: 3.2.1\ninfo: &info {title: Bytes, version: "1", description: "[Guide](guide.md)", x-number: 9007199254740993.00, x-bytes: "AAECA/7/AA=="}\n'+
+  'paths: {}\nx-data: *info\n'+(bytes==='serialized-example'?'components: {examples: {Raw: {externalValue: api.yaml}}}\n':'');
+ const resources=[{id:root,text,generation:1}],manifest={id:'file:///owned/busyapi.yaml',generation:2,text:'version: 1\nroots: [{name: API, path: api.yaml}]\ntests: [{name: Raw, body: {files: [{name: input, path: api.yaml}]}}]\n'};
+ const input={snapshot:'byte-owner',resources,contexts:[{root,resources:[root]}],target:{root,resource:root,generation:1,pointer:'/info'},...(bytes==='saved-upload'?{manifest}:{})};
+ assert.throws(()=>planYamlOwnership(input),error=>error.code==='refactor.literal.bytes'&&error.source?.pointer===(bytes==='saved-upload'?'/tests/0/body/files/0/path':'/components/examples/Raw/externalValue'));
+ assert.equal(resources[0].text,text);
+});
+test('explicit YAML independence composes with contract/literal extraction through original source coordinates',()=>{
+ const {planExtract}=require('./dist/refactoring_copy.cjs'),root='file:///owned/api.yaml',pointer='/components/schemas/Holder/default';
+ const text='openapi: 3.2.1\ninfo: {title: Owners, version: "1"}\npaths: {}\n'+
+  'x-data: &data {type: integer, enum: [9007199254740993.00], description: "[Guide](guide.md)", x-bytes: "AAECA/7/AA=="}\n'+
+  'components:\n  schemas:\n    Holder: {default: *data}\n    Use: {$ref: "#/components/schemas/Holder/default"}\n';
+ const resources=[{id:root,text,generation:5}],contexts=[{root,resources:[root]}],doc=new SourceDocument(text,root);
+ const owned=planYamlOwnership({snapshot:'ownership',resources,contexts,target:{root,resource:root,generation:5,pointer,range:doc.node(pointer).range}});
+ const prepared=apply(resources,owned),plan=planExtract({snapshot:'extraction',resources:prepared,contexts,target:{root,resource:root,generation:5,pointer},name:'Separate'}),output=apply(prepared,plan);
+ const after=new SourceDocument(output[0].text,root);
+ assert.equal(after.dataJson(pointer),doc.dataJson(pointer));assert.equal(after.dataJson('/x-data'),doc.dataJson('/x-data'));
+ assert.equal(after.dataJson('/components/schemas/Separate/enum'),doc.dataJson(pointer+'/enum'));
+ assert.equal(createGraph({root,resources:output}).graph.referenceAs(root,'/components/schemas/Use','$ref','schema').targetPointer,'/components/schemas/Separate');
+ assert.equal(resources[0].text,text);
+});
 const apply=(resources,plan)=>resources.map(resource=>{
  let text=resource.text;
  for(const edit of plan.edits.filter(edit=>edit.buffer===resource.id).sort((a,b)=>b.start-a.start)){

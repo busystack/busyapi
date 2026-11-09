@@ -1,14 +1,15 @@
 import {createHash} from 'node:crypto';
 import {createGraph,type Resource} from './engine';
-import {SourceError,type Range} from './document';
+import {SourceDocument,SourceError,type Range} from './document';
 import {MigrationSource,migrationValueIdentity} from './migration_source';
 import {editBudget,editsFor} from './refactoring_copy';
 import {type ReferenceGraph,type GraphScope,type GraphTarget} from './reference_graph';
+import {assertRefactoringByteConsumers,assertRefactoringCaseFiles} from './refactoring_graph';
 
 type Context={root:string;resources:string[]};
 type OwnershipInput={snapshot:string;resources:Resource[];contexts:Context[];target:{
     root?:string;resource:string;pointer:string;kind?:string;generation:number;range?:Range;expected?:string;
-}};
+};manifest?:Resource};
 const targetIdentity=(target:GraphTarget)=>[target.resource,target.pointer,target.kind];
 const scopeIdentity=(scope:GraphScope)=>[...targetIdentity(scope),scope.family,scope.dialect,scope.base,scope.resourcePointer,scope.sourceKind,scope.schemaParent];
 
@@ -58,6 +59,7 @@ export function planYamlOwnership(input:OwnershipInput) {
     if(migrationValueIdentity(doc,'')!==migrationValueIdentity(source.doc,''))
         throw new SourceError('refactor.ownership.value','Independent ownership would change a captured value; no edits were prepared');
     const outputs=new Map([[resource.id,source.doc.text]]),prepared=resources.map(value=>value.id===resource.id?{...value,text:source.doc.text}:value);
+    const finalDocs=new Map(prepared.map(value=>[value.id,new SourceDocument(value.text,value.id)]));
     let work=0,proofBytes=0;
     const admit=(size:number)=>{
         if(++work>2000000||(proofBytes+=size*2)>128*1024*1024)
@@ -67,7 +69,9 @@ export function planYamlOwnership(input:OwnershipInput) {
         const after=createGraph({root:before.context.root,resources:prepared.filter(resource=>before.context.resources.includes(resource.id))});
         if(semanticIdentity(before.graph,admit)!==semanticIdentity(after.graph,admit))
             throw new SourceError('refactor.ownership.context','Independent YAML ownership would change a captured interpretation or connection; no edits were prepared',node.range,'unsupported',{resource:resource.id,pointer:target.pointer,range:node.range});
+        assertRefactoringByteConsumers(before.graph,resources,id=>finalDocs.get(id)!);
     }
+    assertRefactoringCaseFiles(input.manifest,resources,id=>finalDocs.get(id)!);
     const edits=editsFor(resources,outputs);
     return {version:1,snapshot:input.snapshot,kind:'yaml-ownership',from:target,to:target,edits,transitions:[],usages:[],warnings:[],checkedRoots:contexts.map(context=>context.root),
         sourceOwnership:source.presentationChanges,

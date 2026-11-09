@@ -307,6 +307,24 @@ export class ReferenceGraph {
     *interpretedScopes():IterableIterator<GraphScope> {
         yield* this.scopes.values();yield* this.roleScopes.values();
     }
+    /** Captured structural ownership of one interpretation, without following
+     * reference edges or adopting independently referenced roles in its data.
+     * Refactoring uses the same child/reference-object policy as indexing. */
+    containedScopes(owner:GraphScope):readonly GraphScope[] {
+        const pending=[owner],selected=new Map<string,GraphScope>();let work=0;
+        for(let index=0;index<pending.length;index++){
+            if(++work>ReferenceGraph.scopeBudget)throw new SourceError('limit.graph.ownership','Structural ownership exceeds the bounded scope budget');
+            const scope=pending[index],id=this.useIdentity(scope);
+            if(selected.has(id))continue;selected.set(id,scope);
+            const value=this.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
+            if(this.referenceObject(value,scope))continue;
+            for(const [name,,kind]of children(value,scope.kind,scope.family)){
+                const child=this.scopeAs(scope.resource,scope.pointer+'/'+escape(name),kind);
+                if(child)pending.push(child);
+            }
+        }
+        return [...selected.values()];
+    }
     readonly references: GraphReference[] = [];
     private referenceRoles?:Map<string,GraphReference>;
     /** Select an established applicator by its object interpretation. A native

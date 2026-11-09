@@ -7,6 +7,55 @@ import 'package:test/test.dart';
 import 'test_support.dart';
 
 void main() {
+  for (final version in ['2.0', '3.0.4', '3.1.2', '3.2.1']) {
+    for (final format in ['yaml', 'json']) {
+      test('$version $format explicit inlining separates the last contract consumer before file relocation', () async {
+        final directory = await Directory.systemTemp.createTemp('busyapi-literal-inline-');
+        addTearDown(() => directory.delete(recursive: true));
+        final source = File('${directory.path}/api.$format'), model = File('${directory.path}/model.$format'), moved = File('${directory.path}/deep/model.$format');
+        await moved.parent.create();
+        final group = version == '2.0' ? '/definitions' : '/components/schemas';
+        final data = {
+          if (version == '2.0') 'swagger': version else 'openapi': version,
+          'info': {'title': 'Literal', 'version': '1'}, 'paths': {},
+          if (version == '2.0') 'definitions': {
+            'Holder': {'default': {r'$ref': 'model.$format', 'x-number': 'EXACT', 'x-bytes': 'AAECA/7/AA=='}},
+            'Use': {r'$ref': '#$group/Holder/default'},
+          } else 'components': {'schemas': {
+            'Holder': {'default': {r'$ref': 'model.$format', 'x-number': 'EXACT', 'x-bytes': 'AAECA/7/AA=='}},
+            'Use': {r'$ref': '#$group/Holder/default'},
+          }},
+        };
+        await source.writeAsString('${format == 'yaml' ? '# Keep literal\n' : ''}${jsonEncode(data).replaceFirst('"EXACT"', '9007199254740993.00')}');
+        await model.writeAsString('{"type":"string"}');
+        final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);
+        addTearDown(engine.close);
+        final project = await BusyProject.open(source.path, engine);
+        addTearDown(project.close);
+        final root = source.uri.toString(), buffer = await project.buffer(root), fragment = await project.buffer(model.uri.toString());
+        final original = buffer.bytes();
+        await expectLater(project.planFileMove(fragment.id, moved.path), throwsA(isA<CoreFailure>().having((e) => e.code, 'code', 'file.move.literal.ownership')));
+        final inline = await project.planReferenceInlining({'root': root, 'resource': root, 'pointer': '$group/Use', 'generation': buffer.generation});
+        await project.applyRefactoring(inline);
+        final detached = buffer.bytes();
+        final literal = (await project.inspectObject(root, root, '$group/Holder'))['value']['default'];
+        expect(literal[r'$ref'], 'model.$format');expect(literal['x-bytes'], 'AAECA/7/AA==');
+        expect(buffer.text, contains('9007199254740993.00'));
+        await project.applyRefactoring(await project.planFileMove(fragment.id, moved.path));
+        expect((await project.inspectObject(root, root, '$group/Holder'))['value']['default'], literal);
+        final page = await project.referencePage(root, root, '$group/Use');
+        expect(page['references'][0]['target']['resource'], moved.uri.toString());
+        project.store.undo();expect(buffer.bytes(), detached);
+        project.store.undo();expect(buffer.bytes(), original);
+        project.store.redo();project.store.redo();
+        expect((await PublicationStore('${directory.path}/state').save(project, project.store.buffers.values)).complete, true);
+        final reopened = await BusyProject.open(source.path, engine);
+        addTearDown(reopened.close);
+        expect((await reopened.check(root))['complete'], true);
+        expect((await reopened.inspectObject(root, root, '$group/Holder'))['value']['default'], literal);
+      });
+    }
+  }
   for (final version in ['3.1.2', '3.2.1']) {
     for (final json in [false, true]) {
       for (final stable in [false, true]) {

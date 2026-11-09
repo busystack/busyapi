@@ -2124,6 +2124,9 @@ String Function(String) _copyRefactoringFailure(BuildContext context) {
     'refactor.inline.schema-resource' ||
     'refactor.inline.dialect' => l.copySchemaResourceBlocked,
     'refactor.literal.ownership' => l.refactoringLiteralOwnershipBlocked,
+    'refactor.literal.bytes' => l.refactoringByteOwnershipBlocked,
+    'refactor.byte-context' => l.refactoringByteContextBlocked,
+    'refactor.markdown.context' => l.sharedMarkdownOwnershipBlocked,
     'refactor.inline.recursive' => l.inlineRecursiveBlocked,
     'refactor.inline.ignored' => l.inlineIgnoredBlocked,
     'refactor.inline.pathItem' => l.inlinePathItemBlocked,
@@ -2133,11 +2136,13 @@ String Function(String) _copyRefactoringFailure(BuildContext context) {
     'refactor.copy.value' ||
     'refactor.copy.final-newline' => l.copyRepresentationBlocked,
     'refactor.inline.uri-context' => l.inlineUriContextBlocked,
-    'refactor.copy.uri-context' => l.copyUriContextBlocked,
+    'refactor.copy.uri-context' ||
+    'refactor.markdown.mapping' => l.copyUriContextBlocked,
     'refactor.copy.retrieval' => l.copyRetrievalBlocked,
     'refactor.copy.resource-context' => l.copyRootContextBlocked,
     'refactor.copy.binding' => l.copyBindingBlocked,
     'refactor.context.ambiguous' ||
+    'refactor.markdown.ownership' ||
     'refactor.copy.implicit' => l.copyTypedContextBlocked,
     'refactor.extract.destination' => l.extractDestinationBlocked,
     _ => l.refactoringFailed(code),

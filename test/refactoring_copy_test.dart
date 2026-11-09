@@ -6,6 +6,7 @@ import 'package:busyapi/src/app/app_theme.dart';
 import 'package:busyapi/src/app/busyapi_design.dart';
 import 'package:busyapi/src/designer/designer.dart';
 import 'package:busyapi/src/workspace/workspace_controller.dart';
+import 'package:busyapi/src/workspace/refactoring_review.dart';
 import 'package:busyapi_core/busyapi_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -15,6 +16,99 @@ import '../packages/busyapi_core/test/test_support.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  testWidgets('native literal specialization review explains retained data and preserves cancel and history', (tester) async {
+    tester.view.physicalSize = const Size(1400, 1100);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    for (final channel in ['yaru_window', 'yaru_window/events']) {
+      messenger.setMockMethodCallHandler(MethodChannel(channel), (_) async => null);
+      addTearDown(() => messenger.setMockMethodCallHandler(MethodChannel(channel), null));
+    }
+    final directory = Directory.systemTemp.createTempSync('busyapi-native-literal-review-');
+    final file = File('${directory.path}/api.json');
+    final original = jsonEncode({
+      'openapi': '3.2.1', 'info': {'title': 'Owners', 'version': '1'},
+      'paths': {'/value': {'get': {'responses': {'200': {r'$ref': '#/components/schemas/Owner/properties/Reply'}}}}},
+      'components': {'schemas': {
+        'Owner': {r'$id': 'https://schema.invalid/unrelated/base', 'properties': {'Reply': {'description': '[Reply](reply.md)'}}},
+        'Holder': {'default': {'type': 'integer', 'minimum': 'EXACT', 'description': '[Guide](guide.md)', 'x-bytes': 'AAECA/7/AA=='}},
+        'Use': {r'$ref': '#/components/schemas/Holder/default'},
+      }},
+    }).replaceFirst('"EXACT"', '9007199254740993.00');
+    file.writeAsStringSync(original);
+    final c = WorkspaceController(EngineProcess(executable: runtimeNode, helper: runtimeHelper),
+      StateLocations(config: '${directory.path}/config', state: '${directory.path}/state', cache: '${directory.path}/cache'));
+    Future<void>? action;
+    RefactoringPlan? plan;
+    Future<void> ready(bool Function() condition) async {
+      final clock = Stopwatch()..start();
+      while (!condition() && clock.elapsed < const Duration(seconds: 12)) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      expect(condition(), true, reason: c.error);
+      await tester.pumpAndSettle();
+    }
+    try {
+      await tester.runAsync(() async {
+        await c.initialize();await c.open(file.path);
+        final buffer = c.buffer!;
+        plan = await c.project!.planComponentExtraction({'root': c.root, 'resource': buffer.id, 'generation': buffer.generation, 'pointer': '/components/schemas/Holder/default'}, 'Independent');
+      });
+      await tester.pumpWidget(MaterialApp(
+        theme: buildBusyApiTheme(brightness: Brightness.light, accentColor: Colors.blue),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Builder(builder: (context) => Scaffold(body: TextButton(
+          onPressed: () => action = showRefactoringReview(context, c, c.project!, plan!),
+          child: const Text('Open review'),
+        ))),
+      ));
+      for (final accept in [false, true]) {
+        await tester.tap(find.text('Open review'));
+        await ready(() => find.textContaining('The original literal value stays').evaluate().isNotEmpty);
+        expect(find.textContaining('replace this occurrence with a reference'), findsNothing);
+        expect(c.buffer!.text, original);expect(file.readAsStringSync(), original);
+        final button = find.widgetWithText(BusyApiDialogButton, accept ? 'Apply' : 'Cancel');
+        await tester.ensureVisible(button);
+        await tester.runAsync(() => tester.tap(button));
+        await ready(() => find.textContaining('The original literal value stays').evaluate().isEmpty);
+        await tester.runAsync(() => action!);
+        if (!accept) expect(c.buffer!.text, original);
+      }
+      final accepted = c.buffer!.bytes();
+      final data = jsonDecode(c.buffer!.text);
+      expect(data['components']['schemas']['Holder']['default']['description'], '[Guide](guide.md)');
+      expect(data['components']['schemas']['Use'][r'$ref'], '#/components/schemas/Independent');
+      expect(c.buffer!.text, contains('9007199254740993.00'));
+      await tester.runAsync(() async {
+        await c.undo();expect(c.buffer!.text, original);
+        await c.redo();expect(c.buffer!.bytes(), accepted);
+      });
+      final destination = File('${directory.path}/nested/api.json');
+      destination.parent.createSync();
+      await tester.runAsync(() async {plan = await c.project!.planFileMove(c.buffer!.id, destination.path);});
+      expect(plan!.result['sourceOwnership'][0]['effect'], 'separated-contract-use');
+      await tester.tap(find.text('Open review'));
+      await ready(() => find.textContaining('does not detach those dependencies').evaluate().isNotEmpty);
+      await tester.runAsync(() => tester.tap(find.widgetWithText(BusyApiDialogButton, 'Apply')));
+      await ready(() => find.textContaining('does not detach those dependencies').evaluate().isEmpty);
+      await tester.runAsync(() => action!);
+      final moved = c.buffer!.bytes(), movedData = jsonDecode(c.buffer!.text);
+      expect(movedData['components']['schemas']['Owner']['properties']['Reply']['description'], '[Reply](reply.md)');
+      expect(movedData['paths']['/value']['get']['responses']['200']['description'], '[Reply](<${file.uri.resolve('reply.md')}>)');
+      await tester.runAsync(() async {
+        await c.undo();expect(c.buffer!.bytes(), accepted);expect(c.buffer!.id, file.uri.toString());
+        await c.redo();expect(c.buffer!.bytes(), moved);await c.saveAll();
+      });
+      expect(destination.readAsBytesSync(), moved);expect(file.existsSync(), false);expect(tester.takeException(), isNull);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.runAsync(c.shutdown);c.dispose();directory.deleteSync(recursive: true);
+    }
+  });
   for (final version in ['3.1.0', '3.1.1', '3.1.2', '3.2.0', '3.2.1']) {
     for (final json in [false, true]) {
       for (final (cross, identified) in [(false, false), (true, false), (false, true), (true, true)]) {

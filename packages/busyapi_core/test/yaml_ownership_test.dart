@@ -7,6 +7,56 @@ import 'package:test/test.dart';
 import 'test_support.dart';
 
 void main() {
+  test('captured saved upload ownership refuses a YAML presentation change and detects external configuration edits', () async {
+    final directory = await Directory.systemTemp.createTemp('busyapi-yaml-upload-owner-');
+    addTearDown(() => directory.delete(recursive: true));
+    final source = File('${directory.path}/api.yaml'), manifest = File('${directory.path}/busyapi.yaml');
+    const text = 'openapi: 3.2.1\ninfo: &info {title: Bytes, version: "1", x-number: 9007199254740993.00, x-bytes: "AAECA/7/AA=="}\npaths: {}\nx-history: *info\n';
+    const configuration = 'version: 1\nroots: [{name: API, path: api.yaml}]\n';
+    await source.writeAsString(text);await manifest.writeAsString(configuration);
+    final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);
+    addTearDown(engine.close);
+    final project = await BusyProject.open(directory.path, engine);
+    addTearDown(project.close);
+    final buffer = await project.buffer(source.uri.toString());
+    final target = {'root': buffer.id, 'resource': buffer.id, 'pointer': '/info', 'generation': buffer.generation};
+    final stale = await project.planYamlOwnership(target);
+    await manifest.writeAsString('${configuration}tests: [{name: Raw, body: {files: [{name: input, path: api.yaml}]}}]\n');
+    await expectLater(project.applyRefactoring(stale), throwsA(isA<CoreFailure>()));
+    await expectLater(project.planYamlOwnership(target), throwsA(isA<CoreFailure>().having((failure) => failure.code, 'code', 'refactor.literal.bytes')));
+    expect(buffer.text, text);expect(source.readAsStringSync(), text);
+  });
+  test('YAML independence and Markdown relocation retain separate logical URI owners', () async {
+    final directory = await Directory.systemTemp.createTemp('busyapi-yaml-markdown-owners-');
+    addTearDown(() => directory.delete(recursive: true));
+    final source = File('${directory.path}/api.yaml'), destination = File('${directory.path}/nested/api.yaml');
+    await destination.parent.create();
+    const text = 'openapi: 3.2.1\ninfo: {title: Owners, version: "1", description: &docs "[Guide](guide.md) ![image](image.svg)"}\n'
+        'paths: {}\ncomponents:\n  schemas:\n    Independent:\n      \$id: https://schema.invalid/models/\n      type: string\n      description: *docs\nx-text: *docs\n';
+    await source.writeAsString(text);
+    final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);
+    addTearDown(engine.close);
+    final project = await BusyProject.open(source.path, engine);
+    addTearDown(project.close);
+    final root = source.uri.toString(), buffer = await project.buffer(root);
+    final ownership = await project.planYamlOwnership({'root': root, 'resource': root, 'pointer': '/info', 'generation': buffer.generation});
+    await project.applyRefactoring(ownership);
+    final independent = buffer.bytes();
+    await project.applyRefactoring(await project.planFileMove(root, destination.path));
+    final info = await project.inspectObject(buffer.id, buffer.id, '/info');
+    expect(info['value']['description'], contains(source.uri.resolve('guide.md').toString()));
+    final schema = await project.inspectObject(buffer.id, buffer.id, '/components/schemas/Independent');
+    expect(schema['value']['description'], '[Guide](guide.md) ![image](image.svg)');
+    final reference = await project.referencePage(buffer.id, buffer.id, '/components/schemas/Independent');
+    expect(reference['markdownBase'], 'https://schema.invalid/models/');
+    project.store.undo();expect(buffer.bytes(), independent);expect(buffer.id, root);
+    project.store.undo();expect(buffer.text, text);
+    project.store.redo();project.store.redo();
+    expect((await PublicationStore('${directory.path}/state').save(project, [buffer])).complete, true);
+    final reopened = await BusyProject.open(destination.path, engine);
+    addTearDown(reopened.close);
+    expect((await reopened.check(destination.uri.toString()))['complete'], true);
+  });
   for (final version in ['2.0', '3.0.4', '3.1.2', '3.2.1']) {
     test('reviewed YAML ownership $version keeps original bytes and history', () async {
       final directory = await Directory.systemTemp.createTemp('busyapi-yaml-owner-');
