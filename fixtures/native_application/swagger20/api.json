@@ -1,0 +1,142 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Warehouse inventory",
+    "version": "2026-11-inventory",
+    "description": "Maintain stock and create orders without changing the contract family."
+  },
+  "host": "127.0.0.1:18080",
+  "basePath": "/v1",
+  "schemes": [
+    "http"
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "security": [
+    {
+      "WarehouseKey": []
+    }
+  ],
+  "paths": {
+    "/inventory/{sku}": {
+      "parameters": [
+        {
+          "name": "sku",
+          "in": "path",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "get": {
+        "operationId": "getInventory",
+        "summary": "Read current stock",
+        "parameters": [
+          {
+            "name": "warehouse",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "X-Correlation-Id",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current stock",
+            "schema": {
+              "$ref": "#/definitions/Item"
+            },
+            "examples": {
+              "application/json": {
+                "sku": "雪-1",
+                "quantity": 2,
+                "amount": 9007199254740993
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown item",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            },
+            "examples": {
+              "application/json": {
+                "code": "not-found",
+                "message": "Unknown inventory item"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orders": {
+      "post": {
+        "operationId": "createOrder",
+        "summary": "Create a stock order",
+        "parameters": [
+          {
+            "name": "order",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Item"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created order",
+            "schema": {
+              "$ref": "#/definitions/Item"
+            },
+            "examples": {
+              "application/json": {
+                "sku": "雪-1",
+                "quantity": 2,
+                "amount": 9007199254740993
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid order",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            },
+            "examples": {
+              "application/json": {
+                "code": "invalid",
+                "message": "Check order fields"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "Item": {
+      "$ref": "models.json#/Item"
+    },
+    "Error": {
+      "$ref": "models.json#/Error"
+    }
+  },
+  "securityDefinitions": {
+    "WarehouseKey": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "X-Warehouse-Key"
+    }
+  },
+  "x-preserve": {
+    "$ref": "literal payload reference",
+    "exact": 9007199254740993,
+    "unicode": "雪😀"
+  }
+}

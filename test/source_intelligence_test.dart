@@ -40,6 +40,10 @@ void main() {
   for (final behavior in [
     'accept',
     'incomplete',
+    'schema-2.0',
+    'schema-3.0.4',
+    'schema-3.1.2',
+    'schema-3.2.1',
     'composition',
     'stale',
     'dispose',
@@ -63,9 +67,15 @@ void main() {
         final reveals = <Map<String, dynamic>>[];
         BusyProject? project;
         late DocumentBuffer buffer;
-        final marker = behavior == 'incomplete'
+        final schemaVersion = behavior.startsWith('schema-') ? behavior.substring(7) : null;
+        final schemaMarker = schemaVersion == null ? null :
+            '{"${schemaVersion == '2.0' ? 'swagger' : 'openapi'}":"$schemaVersion",'
+            '"info":{"title":"Source","version":"1"},"paths":{},'
+            '${schemaVersion == '2.0' ? '"definitions"' : '"components":{"schemas"'}:'
+            '{"Value":{"additionalProperties":n§ull}}${schemaVersion == '2.0' ? '' : '}'}}';
+        final marker = schemaMarker ?? (behavior == 'incomplete'
             ? r'{"openapi":"3.2.1","info":{"title":"Source", "version":"1", "summ§},"paths":{}}'
-            : r'{"openapi":"3.2.1","info":{"title":"Source", § "version":"1"},"paths":{},"components":{"schemas":{"Model":{"$ref":"part.json#/Thing"}}}}';
+            : r'{"openapi":"3.2.1","info":{"title":"Source", § "version":"1"},"paths":{},"components":{"schemas":{"Model":{"$ref":"part.json#/Thing"}}}}');
         final original = marker.replaceFirst('§', '');
         final caret = ['definition', 'usages'].contains(behavior)
             ? original.indexOf('part.json') + 3
@@ -259,6 +269,23 @@ void main() {
             );
             await tester.pump();
             expect(buffer.text, original);
+            expect(tester.takeException(), isNull);
+            return;
+          }
+          if (schemaVersion != null) {
+            await waitFor(() => find.text('false').evaluate().isNotEmpty);
+            expect(find.text('{}'), findsOneWidget);
+            expect(find.text('true'), findsOneWidget);
+            await tester.runAsync(() => tester.tap(find.text('false')));
+            await tester.pumpAndSettle();
+            final changed = original.replaceFirst('null', 'false');
+            expect(buffer.text, changed);
+            project!.store.undo();
+            expect(buffer.text, original);
+            project!.store.redo();
+            expect(buffer.text, changed);
+            await tester.runAsync(() => project!.save(buffer));
+            expect(File(buffer.path).readAsStringSync(), changed);
             expect(tester.takeException(), isNull);
             return;
           }

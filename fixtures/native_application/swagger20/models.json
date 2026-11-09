@@ -1,0 +1,44 @@
+{
+  "Item": {
+    "type": "object",
+    "required": [
+      "sku",
+      "quantity",
+      "amount"
+    ],
+    "properties": {
+      "sku": {
+        "type": "string",
+        "minLength": 1
+      },
+      "quantity": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "amount": {
+        "type": "integer",
+        "minimum": 9007199254740993
+      },
+      "note": {
+        "type": "string"
+      }
+    },
+    "additionalProperties": false
+  },
+  "Error": {
+    "type": "object",
+    "required": [
+      "code",
+      "message"
+    ],
+    "properties": {
+      "code": {
+        "type": "string"
+      },
+      "message": {
+        "type": "string"
+      }
+    },
+    "additionalProperties": false
+  }
+}

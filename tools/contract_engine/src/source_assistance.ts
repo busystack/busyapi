@@ -96,10 +96,10 @@ export function assistSource(input: any) {
         if (partial.length) {result.completions=partial;return result;}
     }
     if (!schemaDialectKnown || field?.prohibited || field?.blockedBy?.length) return result;
-    // Scalar values use only the legal field's explicit options. Arbitrary
-    // example strings are never mistaken for keys or reference applicators.
+    // Scalar replacements use legal field options or captured schema forms.
+    // Arbitrary example strings never become keys or reference applicators.
     if (!keyNode && field && node.kind !== 'object' && node.kind !== 'array') {
-        let values = field.options ?? (field.type === 'boolean' ? [true, false] : []);
+        let values = field.type === 'schema' ? completionValues(field) : field.options ?? (field.type === 'boolean' ? [true, false] : []);
         if (parentScope.kind === 'schema' && name === 'type') {
             values = field.schemaTypeChoices?.scalarTypes ?? [];
         }
@@ -167,13 +167,13 @@ export function assistSource(input: any) {
             continue;
         }
         const options = candidate.schemaTypeChoices?.scalarTypes ?? candidate.options;
-        const choices = options ?? (candidate.type === 'boolean' ? [true, false] : [candidate.type === 'string' ? '' : candidate.type === 'array' ? [] : candidate.type === 'object' || candidate.type === 'schema' ? {} : candidate.type === 'number' || candidate.type === 'integer' ? 0 : null]);
+        const choices = completionValues(candidate);
         for (const value of choices) {
             const insert = keyInsertion(doc, container, caret, candidate.name, value);
             if (!insert)
                 continue;
             const replacement = insert;
-            result.completions.push({ label: candidate.name + (options || candidate.type === 'boolean' ? ' = ' + JSON.stringify(value) : ''), type: candidate.type, standard: standard(family, context.kind), ...(candidate.target?{target:candidate.target}:{}), edits: [{ buffer: doc.id, generation: resource.generation, start: caret, end: caret, expected: '', replacement }], selection: [caret + replacement.length, caret + replacement.length] });
+            result.completions.push({ label: candidate.name + (options || candidate.type === 'boolean' || choices.length > 1 ? ' = ' + JSON.stringify(value) : ''), type: candidate.type, standard: standard(family, context.kind), ...(candidate.target?{target:candidate.target}:{}), edits: [{ buffer: doc.id, generation: resource.generation, start: caret, end: caret, expected: '', replacement }], selection: [caret + replacement.length, caret + replacement.length] });
         }
     }
     return result;
@@ -211,18 +211,32 @@ function incompleteKeyCompletions(doc:SourceDocument, graph:any, family:string, 
     for(const field of fieldsForScope(graph,context,container.value)) {
         if(!field.name.startsWith(prefix)||Object.hasOwn(container.value,field.name)||field.prohibited||field.blockedBy?.length)continue;
         const options=field.schemaTypeChoices?.scalarTypes??field.options;
-        const values=options??(field.type==='boolean'?[true,false]:[field.type==='string'?'':field.type==='array'?[]:['object','schema'].includes(field.type)?{}:['number','integer'].includes(field.type)?0:null]);
+        const values=completionValues(field);
         for(const value of values) {
             const replacement=(doc.format==='json'?JSON.stringify(field.name):field.name)+': '+JSON.stringify(value)+(doc.format==='json'&&/^\s*"/.test(doc.text.slice(end))?',':'');
             const text=doc.text.slice(0,start)+replacement+doc.text.slice(end);
             let repaired:SourceDocument;try{repaired=new SourceDocument(text,doc.id,true);}catch{continue;}
             const pointer=container.pointer+'/'+escape(field.name);
             if(!repaired.syntaxSafe(container.pointer)||!repaired.nodes.has(pointer))continue;
-            completions.push({label:field.name+(options||field.type==='boolean'?' = '+JSON.stringify(value):''),type:field.type,standard:standard(family,context.kind),edits:[{buffer:doc.id,generation,start,end,expected:doc.text.slice(start,end),replacement}],selection:[start+replacement.length,start+replacement.length]});
+            completions.push({label:field.name+(options||field.type==='boolean'||values.length>1?' = '+JSON.stringify(value):''),type:field.type,standard:standard(family,context.kind),edits:[{buffer:doc.id,generation,start,end,expected:doc.text.slice(start,end),replacement}],selection:[start+replacement.length,start+replacement.length]});
         }
     }
     return completions;
 }
+/** Reuse Design's captured occurrence policy for every Source insertion path.
+ * In particular, restricted Schema Objects and Swagger Items are not modern
+ * boolean schemas. Unknown dialects must not acquire guessed schema forms. */
+function completionValues(field: any): any[] {
+    if (field.schemaValueForms) {
+        if (!field.schemaValueForms.supported) return [];
+        return field.schemaValueForms.forms.flatMap((form: string) =>
+            form === 'object' ? [{}] : form === 'boolean' ? [true, false] : form === 'object-array' ? [[]] : []);
+    }
+    return field.schemaTypeChoices?.scalarTypes ?? field.options ??
+        (field.type === 'boolean' ? [true, false] : [field.type === 'string' ? '' : field.type === 'array' ? [] :
+            ['object', 'schema'].includes(field.type) ? {} : ['number', 'integer'].includes(field.type) ? 0 : null]);
+}
+
 function keyInsertion(doc: SourceDocument, container: any, caret: number, key: string, value: any): string | undefined {
     const entries = [...container.children.values()] as any[];
     if (entries.some(n => caret >= (n.keyRange?.[0] ?? n.range[0]) && caret <= n.range[1]))

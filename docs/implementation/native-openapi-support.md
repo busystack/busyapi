@@ -31,6 +31,200 @@ consume those shared results. Source-preserving transactions remain authoritativ
 Current changes require complete engine, Core, native and packaged verification;
 source inspection or a successful build is not runtime acceptance.
 
+## Active completion directive: application capabilities
+
+This source-inspection pass starts from `8e36f53775b702050d6307a81936c5782ca520a0`
+on `release/v0.1.0`. The revised completion directive supersedes every historical **next assignment**
+in this file. Do not start B05-R3d-1b-5 or resume the migration microtask sequence.
+Existing migration implementations, certificates and regression sources remain
+intact. The W register remains the single detailed inventory; the application
+matrix below controls priority. No additional tracking system is introduced.
+
+**Neither SOURCE COMPLETE nor ACCEPTED is achieved.** The execution hold remains
+active. This assessment uses production source and regression-source inspection;
+it establishes no compilation, runtime, native or packaged acceptance. All new
+coverage below is prepared and unexecuted. Installed SDK/dependencies remain
+unchanged and Snapcraft remains skipped.
+
+### Application implementation matrix
+
+**I** = implementation found for the stated bounded workflow; execution is
+unverified. **P** = concrete required implementation gaps found. **U** = existing
+implementation found, but full requirement closure is unverified by this source
+review; it is not classified as missing. **M** = required behavior absent in the
+inspected consumer. Every cell has execution status **held / not run**. An I cell
+does not establish full native-family acceptance. Patch recognition is by family;
+acceptance must retain each exact authored patch declaration.
+
+| Professional workflow | Swagger 2.0 | OAS 3.0.x | OAS 3.1.x | OAS 3.2.x | Production evidence and concrete boundary |
+| --- | --- | --- | --- | --- | --- |
+| Open/create YAML and JSON | I | I | I | I | `specification.ts`, Core `Initializer.create`/`BusyProject.open`; native20/native30, dialect and CLI fixtures. Creation writes the requested native declaration; opening does not migrate. |
+| Design editing | U | U | U | U | `authoring.ts`, `contexts.ts`, `engine.ts` inspect/propose, native `designer/object_page.dart`; shared schema-type/value-form controls already exist. Complete field/position closure still requires W1 qualification; absence of executed tests does not mean absent controls. |
+| Source editing/completion/diagnostics/navigation | U | U | U | U | `source_assistance.ts`, `document.ts`, Core `SourceAssistance`, native `source_editor.dart`/`source_intelligence.dart`; schema-form completion gap corrected below. Existing full-source manual editing, diagnostic and reference navigation paths are retained. |
+| Reference inspection | U | U | U | U | `reference_projection.ts` referencePage/referenceDocument, native `reference_view.dart`/`reference_object.dart`; native family and reference-context fixtures. Complete native clause/rendered-field closure remains unverified. |
+| Version-specific validation | U | U | U | U | `structural_schema.ts`, restricted/Swagger validators, `schema_evaluation.ts`, graph dialect policy, Core check; existing restricted/modern/access/negative suites. Full normative coverage is not established by source review. |
+| Reference resolution/navigation | U | U | U | U | `reference_graph.ts`, `reference_choices.ts`, source assistance and Core resource capture; contextual/dynamic/native-connection suites exist. Full external/mixed-role qualification remains unverified. |
+| Reference maintenance/refactoring | P | P | P | P | `refactoring_copy.ts` extract/move/inline, file/property/Markdown owners, Core file/refactoring transactions and native review, CLI refactor. W6.01–03 retain identified/dynamic-resource, shared-rendering-base and schema-position gaps; supported ordinary actions are implemented. |
+| Native documentation/export | U | U | U | U | `reference_projection.ts`, `derived_bundle.ts`, Core `documentation.dart`/`documentation_sources.dart`, native documentation actions, CLI build-docs. Native offline HTML publication exists; complete relocation/rendering closure and pinned adapter compatibility remain unverified (W6.04). |
+| Requests/responses/authentication | P | P | P | P | Core `request.dart`/`execution.dart`, shared execution/security/runtime owners and native Request controls; existing HTTP/security/header/media suites. XML/Linkset mapping and stream integration remain missing; typed multipart restrictions below also apply. Standard implemented security flows are not missing because execution is held; full device-flow qualification remains unverified. |
+| Example interpretation/selection | P | P | P | P | `example_representation.ts`, serialized/external example owners and Core captured selections; native external-body and CLI saved-case paths exist. W4.07 retains binary Parameter/Header/part choice gaps; occurrence-free reusable media must not guess context. |
+| Mock execution/response validation | P | P | P | P | `mock_server.ts`, `mock_native_validation.ts`, generation adapter and Core `mock.dart`; exact external-byte/status/header/schema checks exist. W5.04 witness generation/media coverage remains incomplete; 3.2 CONNECT has an explicit ordinary-transport refusal. |
+| Contract testing | P | P | P | P | Core `execution.dart` and CLI test use native request/response evaluation and saved cases. Existing conformance/HTTP/CLI fixtures are unexecuted; missing wire models and streaming constrain complete conformance. |
+| CLI headless workflows | P | P | P | P | `packages/busyapi_core/bin/busyapi.dart` dispatches init/check/lint/bundle/build-docs/refactor/migrate/diff/mock/test/import/generate to Core. Native family/reference/refactoring CLI suites exist. Shared execution/media/maintenance gaps also affect CLI; a desktop completion popup is not a separate CLI requirement. |
+| Save/reopen/source retention | I | I | I | I | Core document store/publication and engine CST edits retain declaration, exact numbers, extensions, BOM/newlines and unaffected source; no-op/ownership/transaction/publication fixtures exist. Current-revision execution remains held. |
+
+The following gaps have direct production evidence rather than just missing test
+results. They are required native application work, not specification limits:
+
+| Capability | Current implementation | Missing consumer behavior / completion criterion |
+| --- | --- | --- |
+| Typed multipart | Named generation and finite ordered/nested decoding exist. Core `request.dart` explicitly refuses a missing named binding and positional Encoding in structured generation. | W4.01: one captured typed ordered/nested generation policy, native choice controls and saved-case/CLI preparation; emitted bytes must pass the original declaration and response/mock evaluation. Raw-byte execution alone does not close it. |
+| XML wire model | XML authoring/metadata/relationship checks exist in `xml_semantics.ts`; runtime media has no modeled XML codec. | W4.04: shared modeled encoder/decoder, namespaces/order/escaping/node semantics, no external acquisition; requests, responses, examples, mocks and cases must consume it. |
+| Linkset wire model | `runtimeMediaKind` classifies `application/linkset` as opaque. | W4.05: shared Linkset/JSON-model mapping in runtime/header handling, request/response/example/mock/CLI integration and malformed-input handling. |
+| Incremental streaming | Finite JSON Lines, JSON sequences, SSE and multipart decoding plus transport byte accumulation exist. | W5.01–02: incremental transport evaluation, backpressure/progress, bounded retention, cancellation and terminal malformed/truncated results through Core/native/CLI. Transport chunks alone are not incremental conformance. |
+| CONNECT mocks | `mock_native_validation.ts` explicitly rejects CONNECT on the ordinary response transport. | W5.03: approved bounded peer/tunnel ownership, bidirectional bytes, cancellation and closure, native mock/CLI integration. |
+| Mock witnesses | Bounded exact candidate construction and final original-schema validation exist. | W5.04: remaining media/candidate paths must generate valid witnesses or accurately report unavailable search evidence; never equate exhaustion with unsatisfiability. |
+| Semantic maintenance | Ordinary reviewed rename/extract/inline/move/file actions exist in native and CLI consumers. | W6.01–03: close known identified/dynamic-resource and incompatible rendering-base/dual-role cases without weakening source preservation or transactional proofs. |
+
+### Ordered phases and completion criteria
+
+1. **Native OpenAPI support.** Complete native document authoring, validation and
+   maintenance for all four families. Establish explicit field/position closure
+   through shared metadata, Design, Source and Reference; handle family schema,
+   resource and reference semantics; close W6 native maintenance gaps. Preserve
+   declarations, unrelated bytes and review/Undo/Redo safety. Completion requires
+   no known native authoring/maintenance gap; unexecuted coverage remains a
+   separate verification status. Current bounded implementation: Source schema
+   value forms described below. Next bounded inspection/implementation: close
+   W1 field/position gaps against actual native consumers, beginning with schema
+   and reference-maintenance contexts; record exact missing behavior before edits.
+2. **Application functionality.** Complete the explicit wire/multipart/example,
+   mock, streaming and documentation gaps above through every applicable native,
+   Core and CLI consumer. Completion requires no required consumer to retain an
+   implementation refusal for supported native behavior and all corresponding
+   positive/negative acceptance procedures to be prepared. Existing safe
+   acquisition and source transactions remain authoritative.
+3. **Migration reconciliation.** Independently reconcile approved conversions
+   with the existing W2/W3 implementations. Preserve originals and representable
+   conversions; require located accurate incompatibility/unavailable-proof
+   diagnostics, no partial publication and stale/cancel/race safety. Classify
+   remaining cases as implemented, required mapping gap, proved target restriction
+   or extended coverage needing evaluation. Historical example/Header inverses,
+   saved raw/file inverses and other specialized conversion certificates remain
+   explicit evaluation items; they are not discarded or native-support gates.
+   Completion requires approved safe behavior accounted for, not arbitrary new
+   certificate coverage or treating a missing algorithm as a target restriction.
+4. **Acceptance.** After authorization lifts the execution hold, execute the
+   complete current-revision procedures below with official unmodified
+   dependencies. Completion requires passing automated, native and packaged
+   verification, with no hidden incomplete outcomes. No held gate can be marked
+   passed. SOURCE COMPLETE requires Phases 1–3 implemented and Phase 4 prepared;
+   ACCEPTED additionally requires Phase 4 to pass.
+
+### Application acceptance matrix and procedures (prepared; held)
+
+Use a customer-style inventory/order API in each native family, in both YAML and
+JSON: GET collection/item, POST creation, path/query/header parameters, reusable
+item/error schemas and references in a second file, required and optional fields,
+security, success/error responses, examples and a saved authenticated case. Keep
+an extension payload containing a literal `$ref`, a number beyond binary64,
+Unicode, `info.version` unrelated to the specification declaration, and comments,
+BOM/newline variants where applicable. Preserve original bytes for comparison.
+Concrete JSON baseline contracts are authored under
+`fixtures/native_application/{swagger20,openapi30,openapi31,openapi32}/api.json`,
+with independently referenced `models.json` in each directory. They retain
+family-specific bodies, responses and nullable schemas, API-key security and
+exact extension/example numbers. The prepared
+`packages/busyapi_core/test/native_application_workflow_test.dart` consumes them
+through open/check, Reference, Design's captured API, external-schema Source
+completion, component rename, offline documentation, save/cold-reopen, CLI check
+and invalid Source/Undo. It is included by the existing Core directory gate.
+This is partial combined journey coverage, not executed acceptance. The full
+authenticated byte-exchange/case/mock journey, YAML/comment/BOM counterparts,
+version-specific advanced media variants and native/packaged presentation still
+require the combined procedures and existing fixtures below.
+
+| Family | Required native contract features | Negative and version-specific controls | Existing regression starting points |
+| --- | --- | --- | --- |
+| Swagger 2.0 | host/basePath/schemes, consumes/produces, body and formData/file operations, collectionFormat, definitions/parameters/responses/securityDefinitions, Basic/API-key/OAuth declarations, schema/examples on responses | Reject modern-only native objects; distinguish flat Parameter/Items/Header from Schema; response file restrictions, tuple items, readOnly/required; no silent 3.x conversion | Core/native `native_swagger20_test.dart`, engine `test_native_families.cjs`, Swagger media/header/parameter suites |
+| OAS 3.0.x | servers, schema/content parameters, requestBody/content/encoding, components, links/callbacks, nullable, boolean additionalProperties, HTTP/Bearer/API-key/OAuth security | Reject boolean items, null type, modern-only schema keywords and reference siblings; required items for arrays; nullable versus enum behavior, read/write direction | Core/native `native_openapi30_test.dart`, restricted-schema, schema-value-form and native-family suites |
+| OAS 3.1.x | webhooks/reusable Path Items, boolean/union schemas, `$id`/anchors/dynamic references, dialect declarations, nullable represented natively as schema unions, modern Reference descriptions | Unknown/malformed dialects remain unavailable/invalid rather than defaulted; resource/dynamic scope and `$ref` sibling rules, exact numeric constraints, access annotations | dialect/schema-resource/reference/access suites, Core `reference_family_context_test.dart`, engine `test_reference_families.cjs` |
+| OAS 3.2.x | query/additionalOperations with exact spelling, querystring, reusable media/itemSchema, positional/nested Encoding, dataValue/serializedValue/externalValue, tag parent/kind and security URI additions | Illegal media/example combinations, conflicting Encoding forms, incorrect occurrence context, malformed/truncated streams, XML/Linkset models and CONNECT tunnel behavior after implementation | generic/positional/nested multipart, runtime-media, native-connection, external-example and custom-method suites |
+
+Run this complete sequence for **every family and format**, then exercise all
+published patch declarations represented by the existing fixtures without
+normalizing their spelling:
+
+1. Open the existing contract and separately create a new contract through native
+   creation and CLI init. Confirm family/declaration and independent API version.
+2. Validate with native diagnostics and CLI check; locate each expected negative
+   diagnostic in its authored resource. Unsupported evaluation must not pass.
+3. Inspect operations, schemas, security, examples and resolved cross-file
+   references in Reference from both saved and unsaved captures.
+4. Use Design to change a response schema/constraint, parameter and example.
+   Inspect effective family-specific fields; exercise Undo/Redo and validation.
+5. Use Source to make a semantic edit, complete legal schema values, navigate a
+   reference and repair an intentional invalid edit using located diagnostics.
+6. Review/apply a rename and definition/file move; check every affected reference
+   and Markdown base, unchanged payload lookalikes and stale-review rejection.
+7. Send local controlled HTTP requests with selected security/examples; compare
+   exact request/response bytes, repeated fields and original-schema conformance.
+   Execute saved cases through native and CLI; negative cases must fail without
+   false complete results. Exercise mocks and each applicable wire/stream model.
+8. Export native offline documentation and reopen its artifacts; inspect every
+   operation/schema/reference/example and relocated link. Qualify external
+   adapters separately and expose their limitations without rewriting source.
+9. Save, close and cold reopen the project and external files. Revalidate via
+   native and CLI; repeat the saved request/test from the reopened capture.
+10. Compare the exact specification declaration, unrelated API version, extension
+    data/numeric lexemes, BOM/newlines/comments and unaffected source ranges.
+    Include cancellation, stale resources, conflicting destinations and injected
+    publication failures; originals must survive every failed operation.
+
+Migration acceptance is independent: run all twelve directed family routes and
+same-family patch behavior over representative approved conversions. Compare
+source/target request, response, reference, security and schema behavior; check
+review diagnostics/decisions and target native reopen. Assert no outputs on
+unsupported/unproved conversions, cancellation, stale capture or atomic
+publication failure. Retain original contracts/configuration and use cold target
+reopening after moving/removing original locations to expose accidental ties.
+Existing migration engine/Core/native suites and `native_migration_preflight.py`
+provide starting coverage; this is not authorization for more specialized maps.
+
+**Exactly blocked by the execution hold:** TypeScript compilation and engine
+bundle generation/engine regressions (`tools/build_engine.sh`); test-runtime and
+CLI compilation (`tools/prepare_test_runtime.sh`); Core tests; Flutter code
+creation/analyze/widget/native graphical workloads; release build/package;
+current-revision CLI byte exchanges and export artifacts; native family journeys
+1–10; migration runtime equivalence/transaction journeys; installed/package
+qualification and performance gates. `tools/build_linux.sh` documents the current
+ordered engine/assets/runtime/analyze/widget/Core/release/package gates; it has
+not been invoked. Missing implementation and the remaining combined journey fixtures
+must still be completed while execution is held. Snapcraft remains skipped.
+
+### Source schema value-form integration
+
+Source insertion, incomplete-key repair and scalar-value replacement now consume
+the existing `schemaValueForms` metadata used by Design, rather than assuming
+all schema fields begin as objects. Modern schema-valued fields offer objects
+and booleans; restricted/Swagger fields retain their captured per-occurrence
+forms, including tuple items and boolean additionalProperties. Unsupported
+dialects offer no guessed forms. Field choices have distinct labels; the same
+immutable expected-text edits, Core capture validation and native Source input
+transaction retain stale checks and history. No migration code/protocol changed.
+
+Prepared unexecuted coverage extends the already registered
+`test_source_type_choices.cjs` for all published patches and both source formats,
+new/partial keys and scalar repair, legal native schemas, exact source retention,
+unknown dialect and payload controls. Core `source_assistance_test.dart` adds
+four-family completion/Undo/Redo/validation/save/cold-reopen with BOM and exact
+extension numbers. Native `source_intelligence_test.dart` adds four-family real
+completion-popup acceptance through the existing editor transaction/history/save
+path. Those files are already selected by existing engine/Core/widget gates.
+Source inspection and `git diff --check` only were performed. This closes this
+specific Source metadata integration gap at source level, unverified; it does
+not certify the complete Source subsystem or any phase as complete.
+
 ## B05-R3d-1b-4: Mixed-media reusable-owner specialization
 
 **B05-R3d-1b-4 is source-complete, unverified for the established named and
@@ -2890,8 +3084,8 @@ Continuation checkpoint for the current primary checkout:
 
 ## Finite completion register
 
-This register is the implementation queue. Its rows take precedence over the
-historical summaries below. **No work package is accepted or source-complete.**
+The active application phases above order this register. Its detailed rows
+remain the capability inventory and take precedence over historical summaries. **No work package is accepted or source-complete.**
 This continuation began at `62a6972` on `release/v0.1.0`, with a clean
 working tree tracking `origin/release/v0.1.0`. The earlier requested baseline
 `86fd001dfaacfcf9b93e899642da75238f7486dd` was unavailable during that investigation. No reset, replacement checkout, toolchain change or remote publication

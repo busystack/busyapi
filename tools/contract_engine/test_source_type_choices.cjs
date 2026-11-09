@@ -76,3 +76,55 @@ for(const kind of ['query','header','path','formData','response-header','items']
   assert.equal(input.resources[0].text,text);
  });
 }
+
+// Schema value completions consume the same occurrence policy as Design.
+for(const version of ['2.0','3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const json of [false,true])for(const mode of ['insert','partial','replace']) {
+ test(`${version} ${json?'JSON':'YAML'} ${mode} Source schema forms preserve native semantics`,()=>{
+  const swagger=version==='2.0',modern=/^3\.[12]\./.test(version);
+  for(const field of ['additionalProperties','items']) {
+   const schema='/'+(swagger?'definitions':'components/schemas')+'/Value';
+   const values=field==='additionalProperties'||modern?[{},true,false]:swagger?[{},[]]:[{}];
+   const marker=mode==='replace'?`"${field}": null`:mode==='partial'?`"${field.slice(0,4)}`:'§';
+   const head=swagger?'"swagger":"2.0"':`"openapi":"${version}"`;
+   const jsonText=`{${head},"info":{"title":"Keep 雪","version":"unrelated"},"paths":{},${swagger?'"definitions"':'"components":{"schemas"'}:{"Value":{${marker}}}${swagger?'':'}'},"x-literal":{"$ref":"payload","number":9007199254740993}}`;
+   let text,caret;
+   if(json){text=jsonText.replace('§','');caret=mode==='insert'?jsonText.indexOf('§'):mode==='partial'?text.indexOf(marker)+marker.length:text.indexOf('null')+2;}
+   else {
+    const key=mode==='replace'?`${field}: null`:mode==='partial'?field.slice(0,4):'§';
+    text=`# Keep comment\r\n${swagger?'swagger':'openapi'}: "${version}"\r\ninfo: {title: Keep 雪, version: unrelated}\r\npaths: {}\r\n${swagger?'definitions:':'components:\r\n  schemas:'}\r\n${swagger?'  ':'    '}Value:\r\n${swagger?'    ':'      '}type: object\r\n${swagger?'    ':'      '}${key}\r\nx-literal: {$ref: payload, number: 9007199254740993}\r\n`;
+    caret=mode==='insert'?text.indexOf('§'):mode==='partial'?text.indexOf(key)+key.length:text.indexOf('null')+2;
+    text=text.replace('§','');
+   }
+   const root='file:///approved/forms.'+(json?'json':'yaml');
+   const input={root,resource:root,caret,snapshot:'schema-forms',resources:[{id:root,text,generation:7,identity:'capture'}]};
+   const choices=assistSource(input).completions.filter(c=>mode==='replace'||c.label===field||c.label.startsWith(field+' = '));
+   assert.equal(choices.length,values.length,JSON.stringify({version,json,mode,field,choices}));
+   for(let i=0;i<choices.length;i++) {
+    let changed=text;
+    for(const edit of [...choices[i].edits].reverse()) {
+     assert.equal(edit.generation,7);assert.equal(edit.buffer,root);assert.equal(changed.slice(edit.start,edit.end),edit.expected);
+     changed=changed.slice(0,edit.start)+edit.replacement+changed.slice(edit.end);
+    }
+    const parsed=new SourceDocument(changed,root);
+    assert.deepEqual(parsed.dataNode(schema+'/'+field).value,values[i]);
+    assert.equal(parsed.dataNode(swagger?'/swagger':'/openapi').value,version);
+    assert.equal(parsed.dataNode('/info/version').value,'unrelated');
+    assert(changed.includes('9007199254740993'));
+    if(!json)assert(changed.startsWith('# Keep comment\r\n')&&!/(?<!\r)\n/.test(changed));
+    const report=analyse({...input,resources:[{...input.resources[0],text:changed,generation:8}]});
+    assert(!report.findings.some(f=>f.severity==='error'),JSON.stringify(report.findings));
+   }
+   assert.equal(input.resources[0].text,text);
+  }
+ });
+}
+
+test('Source schema form assistance does not infer custom dialects or payload contexts',()=>{
+ for(const pointer of ['schema','payload']) {
+  const text=pointer==='schema'
+   ? '{"openapi":"3.2.1","info":{"title":"Keep","version":"1"},"paths":{},"components":{"schemas":{"Value":{"$schema":"https://example.invalid/dialect", § }}}}'
+   : '{"openapi":"3.2.1","info":{"title":"Keep","version":"1"},"paths":{},"components":{"examples":{"Value":{"value":{ § }}}}}';
+  const root='file:///approved/root.json',caret=text.indexOf('§');
+  assert.deepEqual(assistSource({root,resource:root,caret,snapshot:'negative',resources:[{id:root,text:text.replace('§',''),generation:1}]}).completions,[]);
+ }
+});

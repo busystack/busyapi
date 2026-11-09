@@ -1,0 +1,158 @@
+{
+  "openapi": "3.2.1",
+  "info": {
+    "title": "Warehouse inventory",
+    "version": "2026-11-inventory",
+    "description": "Maintain stock and create orders without changing the contract family."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:18080/v1"
+    }
+  ],
+  "security": [
+    {
+      "WarehouseKey": []
+    }
+  ],
+  "paths": {
+    "/inventory/{sku}": {
+      "parameters": [
+        {
+          "name": "sku",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "get": {
+        "operationId": "getInventory",
+        "summary": "Read current stock",
+        "parameters": [
+          {
+            "name": "warehouse",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Correlation-Id",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Item"
+                },
+                "example": {
+                  "sku": "雪-1",
+                  "quantity": 2,
+                  "amount": 9007199254740993
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown item",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "code": "not-found",
+                  "message": "Unknown inventory item"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orders": {
+      "post": {
+        "operationId": "createOrder",
+        "summary": "Create a stock order",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Item"
+              },
+              "example": {
+                "sku": "雪-1",
+                "quantity": 2,
+                "amount": 9007199254740993
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Item"
+                },
+                "example": {
+                  "sku": "雪-1",
+                  "quantity": 2,
+                  "amount": 9007199254740993
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "code": "invalid",
+                  "message": "Check order fields"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Item": {
+        "$ref": "models.json#/Item"
+      },
+      "Error": {
+        "$ref": "models.json#/Error"
+      }
+    },
+    "securitySchemes": {
+      "WarehouseKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Warehouse-Key"
+      }
+    }
+  },
+  "x-preserve": {
+    "$ref": "literal payload reference",
+    "exact": 9007199254740993,
+    "unicode": "雪😀"
+  }
+}

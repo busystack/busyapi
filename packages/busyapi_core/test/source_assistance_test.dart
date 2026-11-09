@@ -193,6 +193,41 @@ void main() {
     await project.save(buffer);
     expect(await File(buffer.path).readAsBytes(), accepted);
   });
+  for (final version in ['2.0', '3.0.4', '3.1.2', '3.2.1']) {
+    test('Source schema forms $version apply, undo, save and reopen through Core', () async {
+      final swagger = version == '2.0';
+      final source = '{"${swagger ? 'swagger' : 'openapi'}":"$version",'
+          '"info":{"title":"Kept","version":"unrelated"},"paths":{},'
+          '${swagger ? '"definitions"' : '"components":{"schemas"'}:'
+          '{"Value":{"additionalProperties":null}}${swagger ? '' : '}'},'
+          '"x-literal":{"number":9007199254740993,"ref":"literal"}}';
+      project.store.replace(buffer.id, source);
+      caret = source.indexOf('null') + 2;
+      buffer.selection = SourceSelection(caret, caret);
+      final assistance = await capture();
+      expect(assistance.completions.map((c) => c['label']), ['{}', 'true', 'false']);
+      final choice = assistance.completions.indexWhere((c) => c['label'] == 'false');
+      project.store.apply([assistance.completion(choice, buffer)], label: 'Schema completion');
+      final changed = buffer.text;
+      expect(changed, source.replaceFirst('null', 'false'));
+      expect(buffer.hasBom, true);
+      project.store.undo();
+      expect(buffer.text, source);
+      project.store.redo();
+      expect(buffer.text, changed);
+      expect((await project.check(project.roots.single.id))['status'], 'complete');
+      await project.save(buffer);
+      final reopened = await BusyProject.open(buffer.path, engine);
+      try {
+        final saved = await reopened.buffer(reopened.roots.single.id);
+        expect(saved.text, changed);
+        expect(saved.hasBom, true);
+        expect((await reopened.check(reopened.roots.single.id))['status'], 'complete');
+      } finally {
+        reopened.close();
+      }
+    });
+  }
   test(
     'a moved caret or newer source cannot receive the captured suggestion',
     () async {
