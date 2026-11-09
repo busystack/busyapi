@@ -250,6 +250,12 @@ Confirmed omissions corrected:
 - Whole-schema edits, collection entries and boolean toggles use the same
   context-bound schema-form descriptors and recheck the current graph after
   earlier transaction actions. The existing field descriptors remain intact.
+  Proposals reselect an established matching graph role when Core's physical
+  property session omits the presentation role. This also covers schema-valued
+  fields whose Schema Object interpretation is not the physical primary; it
+  never invents a schema role at a data position. The schema-form regression
+  exercises that actual Core target shape and retains independent native
+  validation of the same shared content.
 - Source repairs scalar schema occurrences in maps and composition arrays
   through those same forms. Payloads and unsupported dialects acquire no
   guessed completions. The new Source schema-form implementation is retained.

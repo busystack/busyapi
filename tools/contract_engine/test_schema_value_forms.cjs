@@ -76,6 +76,28 @@ test('whole-schema and collection forms reject stale containing dialects without
     }
 });
 
+test('whole-schema forms reselect an established non-primary schema role without a view kind in the Core target', () => {
+    const input = packet('3.2.1', 'json', {Record: {$ref: '#'}});
+    const owner = inspect({...input, pointer: '', contextKind: 'schema'});
+    assert.equal(owner.kind, 'schema');
+    const doc = new SourceDocument(input.resources[0].text, input.root);
+    const raw = new SourceDocument(doc.set('/x-schema-note', 'Schema role annotation'), input.root).dataJson('');
+    // PropertySession.target() deliberately contains no presentation kind.
+    const captured = {resource: input.root, generation: 7, pointer: '', range: owner.range};
+    const changed = apply(input, propose({...input, target: captured, actions: [{kind: 'setData', pointer: '', raw,
+        schemaValueForms: owner.schemaValueForms}]}));
+    assert.equal(new SourceDocument(changed.resources[0].text, input.root).dataNode('/x-schema-note').value, 'Schema role annotation');
+    assert.equal(new SourceDocument(changed.resources[0].text, input.root).dataNode('/openapi').value, '3.2.1');
+    assert.equal(analyse(changed).status, 'complete');
+    const items = owner.fields.find(field => field.name === 'items');
+    const fieldEdit = apply(input, propose({...input, target: captured, actions: [{kind: 'setData', pointer: '/items', raw: 'false',
+        schemaValueForms: items.schemaValueForms}]}));
+    assert.equal(new SourceDocument(fieldEdit.resources[0].text, input.root).dataNode('/items').value, false);
+    // This deliberately changes shared physical content. The selected Schema
+    // role accepts boolean items; the OpenAPI root reports its illegal field.
+    assert.equal(analyse(fieldEdit).status, 'invalid');
+});
+
 for (const version of versions) for (const format of ['yaml', 'json']) test(`${version} ${format} native schema field forms retain their own valid data shapes`, () => {
     const input = packet(version, format), before = input.resources[0].text;
     const pointer = version === '2.0' ? '/definitions/Record' : '/components/schemas/Record';

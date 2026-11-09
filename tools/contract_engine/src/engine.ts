@@ -534,12 +534,25 @@ export function propose(input: any) {
             const parentPointer = parts.length ? '/' + parts.map(escape).join('/') : '';
             const {graph} = createGraph({...input, resources: input.resources.map((item: Resource) => item.id === doc.id ? {...item, text: doc.text} : item)});
             const wholeSchema = action.schemaValueForms?.field === '@schema';
+            const schemaEntry = action.schemaValueForms?.field === '@entry';
             const ownerPointer = wholeSchema ? action.pointer : parentPointer;
             const source = {resource: doc.id, pointer: ownerPointer, range: doc.nodes.get(ownerPointer)?.range ?? captured.range};
-            const scope = graph.selectedScope(doc.id,ownerPointer,ownerPointer===input.target.pointer?input.target.kind:undefined);
+            // Core's PropertySession captures physical ownership, not a view's
+            // selected role. These descriptors explicitly name a schema or
+            // schema collection; require that established graph role even
+            // when another native interpretation is the physical primary.
+            const scope = wholeSchema ? graph.scopeAs(doc.id,ownerPointer,'schema') : schemaEntry
+                ? graph.scopeAs(doc.id,ownerPointer,doc.nodes.get(ownerPointer)?.kind === 'array' ? 'schema-array' : 'schema-map')
+                : graph.selectedScope(doc.id,ownerPointer,ownerPointer===input.target.pointer?input.target.kind:undefined);
             fieldForms = scope && (wholeSchema ? schemaOccurrenceForms(graph, scope) :
-                action.schemaValueForms?.field === '@entry' ? schemaEntryForms(graph, scope) :
+                schemaEntry ? schemaEntryForms(graph, scope) :
                 fieldsForScope(graph, scope, doc.node(parentPointer).value).find(field => field.name === name)?.schemaValueForms);
+            if (!wholeSchema && !schemaEntry && (!fieldForms || !sameSchemaValueForms(action.schemaValueForms, fieldForms))) {
+                fieldForms = graph.scopesAt(doc.id, ownerPointer).flatMap(role =>
+                    fieldsForScope(graph, role, doc.node(ownerPointer).value).filter(field => field.name === name)
+                        .map(field => field.schemaValueForms).filter((forms): forms is SchemaValueForms => !!forms))
+                    .find(forms => sameSchemaValueForms(action.schemaValueForms, forms));
+            }
             if (!fieldForms || !sameSchemaValueForms(action.schemaValueForms, fieldForms))
                 throw new SourceError('edit.stale', 'The specification, schema dialect or captured field context changed; reopen the field before applying', source.range, undefined, source);
             if (!fieldForms.supported && action.kind !== 'remove')
