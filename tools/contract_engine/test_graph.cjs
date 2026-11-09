@@ -3,6 +3,23 @@ const {test} = require('node:test');
 const YAML = require('yaml');
 const {analyse} = require('./dist/model.cjs');
 
+for(const version of ['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const json of [false,true])
+test(`canonical resource and anchor indexes survive definition relocation ${version} ${json}`,()=>{
+ const {createGraph}=require('./dist/model.cjs'),{planMoveDefinition}=require('./dist/refactoring_copy.cjs');
+ const ext=json?'json':'yaml',root='file:///approved/source/api.'+ext,destination='file:///approved/destination/api.'+ext;
+ const api=schemas=>({openapi:version,info:{title:'Graph relocation',version:'1'},paths:{},components:{schemas}}),render=value=>json?JSON.stringify(value):YAML.stringify(value);
+ const resources=[{id:root,generation:1,text:render(api({Public:{$id:'node',$anchor:'node',$defs:{Leaf:{$id:'leaf',$anchor:'leaf',type:'integer'}},$ref:'leaf#leaf'},Consumer:{$ref:'node#node'}}))},
+  {id:destination,generation:1,text:render(api({}))}];
+ const input={root,resources,snapshot:'canonical-index',contexts:[{root,resources:[root]},{root:destination,resources:[destination]}],target:{root,resource:root,generation:1,pointer:'/components/schemas/Public'},destinationResource:destination,name:'Stored'};
+ const plan=planMoveDefinition(input),after=resources.map(resource=>{let text=resource.text;for(const edit of plan.edits.filter(edit=>edit.buffer===resource.id).sort((a,b)=>b.start-a.start))text=text.slice(0,edit.start)+edit.replacement+text.slice(edit.end);return {...resource,text};});
+ const graph=createGraph({root,resources:after}).graph;assert.equal(graph.issues.length,0);
+ for(const [identity,pointer]of [['file:///approved/source/node','/components/schemas/Stored'],['file:///approved/source/leaf','/components/schemas/Stored/$defs/Leaf']]){
+  assert.deepEqual(graph.identities.get(identity).map(target=>[target.resource,target.pointer]),[[destination,pointer]]);
+  const scope=graph.scope(root,'/components/schemas/Consumer'),anchor=identity.endsWith('node')?'node':'leaf';
+  const target=graph.resolveReference(identity+'#'+anchor,scope);assert.equal(target.targetResource,destination);assert.equal(target.targetPointer,pointer);
+ }
+});
+
 for(const version of ['3.1.2','3.2.1'])for(const json of [false,true])test(`containing document owns feature family and default dialect ${version} ${json?'JSON':'YAML'}`,()=>{
  const {createGraph,inspect}=require('./dist/model.cjs'),family=version.slice(0,3),entry=family==='3.1'?'3.2.1':'3.1.2';
  const suffix=json?'json':'yaml',root='file:///approved/entry.'+suffix,part='file:///approved/part.'+suffix;

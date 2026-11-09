@@ -346,10 +346,48 @@ void main() {
     expect(buffer.bytes(), before);
     expect(fragment.dirty, true);
   });
-  for (final version in ['3.1.2', '3.2.1']) {
-    for (final json in [false, true]) {
+  test('identified movement captures unsaved source and destination without losing their history', () async {
+    final temp = await Directory.systemTemp.createTemp('busyapi-unsaved-resource-');
+    addTearDown(() => temp.delete(recursive: true));
+    final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);
+    addTearDown(engine.close);
+    await Directory('${temp.path}/deep').create();
+    final root = File('${temp.path}/api.json'), destination = File('${temp.path}/deep/models.json');
+    Map<String, Object?> api(Map<String, Object?> schemas) => {
+      'openapi': '3.2.1', 'info': {'title': 'Original', 'version': '1'}, 'paths': {},
+      'components': {'schemas': schemas},
+    };
+    await root.writeAsString(jsonEncode(api({'Public': {
+      r'$id': 'node', r'$anchor': 'public', 'type': 'integer', 'minimum': 'EXACT',
+    }})).replaceFirst('"EXACT"', '9007199254740993.00'));
+    await destination.writeAsString(jsonEncode(api({})));
+    await File('${temp.path}/busyapi.yaml').writeAsString('version: 1\nroots: [{name: main, path: api.json}, {name: models, path: deep/models.json}]\n');
+    final project = await BusyProject.open(temp.path, engine);
+    addTearDown(project.close);
+    final source = await project.buffer(root.uri.toString()), target = await project.buffer(destination.uri.toString());
+    final diskSource = await root.readAsBytes(), diskTarget = await destination.readAsBytes();
+    project.store.replace(source.id, source.text.replaceFirst('Original', 'Unsaved source'));
+    project.store.replace(target.id, '${target.text.replaceFirst('Original', 'Unsaved destination')}\n');
+    final unsavedSource = source.bytes(), unsavedTarget = target.bytes();
+    final plan = await project.planComponentDefinitionMove({
+      'root': source.id, 'resource': source.id, 'pointer': '/components/schemas/Public', 'generation': source.generation,
+    }, 'Stored', destinationResource: target.id);
+    await expectLater(project.applyRefactoring(plan, current: () => false), throwsA(isA<CoreFailure>()));
+    expect(source.bytes(), unsavedSource);expect(target.bytes(), unsavedTarget);
+    await project.applyRefactoring(plan);
+    expect(source.text, contains('Unsaved source'));expect(target.text, contains('Unsaved destination'));
+    expect(target.text, contains('9007199254740993.00'));
+    expect(jsonDecode(target.text)['components']['schemas']['Stored'][r'$id'], root.uri.resolve('node').toString());
+    final acceptedSource = source.bytes(), acceptedTarget = target.bytes();
+    project.store.undo();expect(source.bytes(), unsavedSource);expect(target.bytes(), unsavedTarget);
+    project.store.redo();expect(source.bytes(), acceptedSource);expect(target.bytes(), acceptedTarget);
+    expect(await root.readAsBytes(), diskSource);expect(await destination.readAsBytes(), diskTarget);
+    expect(source.dirty, true);expect(target.dirty, true);
+  });
+  for (final version in ['3.1.0', '3.1.1', '3.1.2', '3.2.0', '3.2.1']) {
+    for (final (json, identified) in [(false, false), (true, false), (false, true), (true, true)]) {
       test(
-        'cross-file extraction $version $json captures destination, history and publication',
+        'cross-file extraction $version $json identified=$identified captures destination, history and publication',
         () async {
           final temp = await Directory.systemTemp.createTemp(
             'busyapi-extract-destination-',
@@ -372,11 +410,16 @@ void main() {
             'components': {
               'schemas': {
                 'Owner': {
+                  if (identified) r'$id': 'https://schemas.invalid/owner/',
                   'properties': {
                     'inline': {
+                      if (identified) r'$id': 'node',
+                      if (identified) r'$schema': 'https://json-schema.org/draft/2020-12/schema',
+                      if (identified) r'$anchor': 'public',
+                      if (identified) r'$defs': {'Leaf': {r'$id': 'leaf', r'$anchor': 'leaf', 'type': 'integer'}},
                       'type': 'object',
                       'description': '😀 preserved\n',
-                      'properties': {'n': false},
+                      'properties': {'n': identified ? {r'$dynamicRef': 'leaf#leaf'} : false},
                       'examples': ['EXACT'],
                     },
                   },
@@ -427,18 +470,29 @@ void main() {
               await File(Uri.parse(entry.key).toFilePath()).readAsBytes(),
               entry.value,
             );
+          await expectLater(project.applyRefactoring(plan, current: () => false), throwsA(isA<CoreFailure>()));
+          expect(buffer.text, source);
           await project.applyRefactoring(plan);
           expect(
             decode(
               buffer.text,
             )['components']['schemas']['Owner']['properties']['inline'][r'$ref'],
-            'b.$extension#/components/schemas/Copied',
+            identified ? '${destination.uri}#/components/schemas/Copied' : 'b.$extension#/components/schemas/Copied',
           );
           expect(
             project.store.get(destination.uri.toString()).text,
             contains('900719925474099312345'),
           );
           expect((await project.check(buffer.id))['status'], 'complete');
+          if (identified) {
+            final moved = decode(project.store.get(destination.uri.toString()).text)['components']['schemas']['Copied'];
+            expect(moved[r'$id'], 'https://schemas.invalid/owner/node');
+            expect(moved[r'$defs']['Leaf'][r'$id'], 'leaf');
+            final reference = await project.referencePage(buffer.id, destination.uri.toString(), '/components/schemas/Copied/properties/n');
+            expect(reference['references'][0]['target']['pointer'], '/components/schemas/Copied/\$defs/Leaf');
+            expect(reference['references'][0]['dynamic'], isNull);
+          }
+          await expectLater(project.applyRefactoring(plan), throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'refactor.stale')));
           final saved = {
             for (final b in project.store.buffers.values) b.id: b.bytes(),
           };

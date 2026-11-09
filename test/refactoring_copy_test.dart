@@ -15,11 +15,11 @@ import '../packages/busyapi_core/test/test_support.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  for (final version in ['3.1.2', '3.2.1']) {
+  for (final version in ['3.1.0', '3.1.1', '3.1.2', '3.2.0', '3.2.1']) {
     for (final json in [false, true]) {
-      for (final cross in [false, true]) {
+      for (final (cross, identified) in [(false, false), (true, false), (false, true), (true, true)]) {
         testWidgets(
-          'native extraction and explicit inlining $version $json cross=$cross review, cancel and preserve history',
+          'native extraction and explicit inlining $version $json cross=$cross identified=$identified review, cancel and preserve history',
           (tester) async {
             tester.view.physicalSize = const Size(1400, 1100);
             tester.view.devicePixelRatio = 1;
@@ -112,8 +112,12 @@ void main() {
                 'components': {
                   'schemas': {
                     'Owner': {
+                      if (identified) r'$id': 'https://schemas.invalid/owner/',
                       'properties': {
                         'child': {
+                          if (identified) r'$id': 'node',
+                          if (identified) r'$anchor': 'public',
+                          if (identified) r'$schema': 'https://json-schema.org/draft/2020-12/schema',
                           'type': 'object',
                           r'$defs': {
                             'Known': {'type': 'integer'},
@@ -121,7 +125,7 @@ void main() {
                           'properties': {
                             'value': false,
                             'shared': {
-                              r'$ref': '#/components/schemas/Owner/properties/child/\$defs/Known',
+                              r'$ref': identified ? r'#/$defs/Known' : '#/components/schemas/Owner/properties/child/\$defs/Known',
                             },
                           },
                           'examples': [
@@ -382,6 +386,9 @@ void main() {
               );
               final definition = c.store!.get(c.selectedResource!);
               expect(definition.text, contains('900719925474099312345'));
+              if (identified) {
+                expect(jsonDecode(definition.text.substring(definition.text.indexOf('{')))['components']['schemas']['Extracted'][r'$id'], 'https://schemas.invalid/owner/node');
+              }
               expect(buffer.hasBom, true);
               expect(
                 (c.layoutState['referenceText'] as Map).containsKey(readingKey),
@@ -516,6 +523,18 @@ void main() {
               await tester.runAsync(c.redo);
               expect(buffer.bytes(), extracted);
               expect(c.selectedPointer, '/components/schemas/Extracted');
+              if (identified) {
+                await tester.runAsync(() async {
+                  await expectLater(c.project!.planReferenceInlining({
+                    'root': c.root, 'resource': buffer.id, 'pointer': pointer,
+                    'generation': buffer.generation,
+                  }), throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'refactor.inline.schema-resource')));
+                  await c.saveAll();
+                });
+                expect(file.readAsBytesSync(), buffer.bytes());
+                expect(tester.takeException(), isNull);
+                return;
+              }
               await tester.runAsync(
                 () => c.selectObject({
                   'root': c.root,

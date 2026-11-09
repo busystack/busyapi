@@ -5,6 +5,20 @@ const {planFileMove,planFileDeletion}=require('./dist/refactoring_file.cjs');
 const {createGraph}=require('./dist/model.cjs');
 const {SourceDocument}=require('./dist/document.cjs');
 const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
+for(const version of ['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const json of [false,true])test(`file relocation preserves statically resolved dynamicRef spelling and behavior ${version} ${json}`,async()=>{
+ const ext=json?'json':'yaml',root='file:///project/source/api.'+ext,destination='file:///project/deep/nested/api.'+ext,shared='file:///project/shared.'+ext;
+ const api={openapi:version,info:{title:'Static dynamic reference',version:'1'},paths:{},components:{schemas:{Use:{$dynamicRef:'../shared.'+ext+'#plain'}}}};
+ const encode=data=>(json?JSON.stringify(data):YAML.stringify(data)).replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const resources=[{id:root,text:encode(api),generation:1},{id:shared,text:encode({$id:'https://schemas.invalid/scalar',$anchor:'plain',type:'integer',minimum:'EXACT'}),generation:1}];
+ const input={root,snapshot:'static-file',resources,contexts:[{root,resources:[root,shared]}],target:{resource:root,generation:1},destinationResource:destination},plan=planFileMove(input),after=apply(input,plan);
+ const graph=createGraph({root:destination,resources:after}).graph,edge=graph.referenceAs(destination,'/components/schemas/Use','$dynamicRef','schema');
+ assert.equal(graph.issues.length,0);assert.equal(edge.targetResource,shared);assert.equal(edge.targetPointer,'');assert.equal(edge.dynamic,undefined);
+ assert.equal(new SourceDocument(after.find(value=>value.id===shared).text,shared).node('/$anchor').value,'plain');
+ for(const [entry,values]of [[root,resources],[destination,after]]){
+  const result=await evaluateSchemas({root:entry,resources:values,snapshot:'static-file-oracle',runtimeInstances:['9007199254740993','9007199254740992'].map(text=>({subject:'response-body',location:'scalar',text,schema:{resource:entry,pointer:'/components/schemas/Use'}}))});
+  assert.equal(result.complete,true,JSON.stringify(result.findings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,false]);
+ }
+});
 for(const version of ['3.1.2','3.2.1'])for(const json of [false,true])test(`file move cannot rewrite a dual literal/schema value ${version} ${json}`,()=>{
  const ext=json?'json':'yaml',root='file:///project/root.'+ext,model='file:///project/model.'+ext,document={openapi:version,info:{title:'Dual move',version:'1'},paths:{},components:{schemas:{Literal:{const:{$ref:'model.'+ext}},Use:{$ref:'#/components/schemas/Literal/const'}}}},encode=value=>json?JSON.stringify(value):YAML.stringify(value),resources=[{id:root,text:encode(document),generation:1},{id:model,text:encode({type:'string'}),generation:2}],input={snapshot:'dual-file',resources,contexts:[{root,resources:[root,model]}],target:{resource:model,generation:2},destinationResource:'file:///project/deep/moved.'+ext},frozen=resources.map(value=>value.text);
  const range=createGraph({root,resources}).docs.get(root).dataNode('/components/schemas/Literal/const/$ref').range;

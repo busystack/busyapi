@@ -14,6 +14,7 @@ import {serverTemplate} from './derived_bundle';
 import {relocateRefactoringMarkdown} from './refactoring_markdown';
 import {componentNamePolicy,permitsMemberName,reusableDefinitionPointer} from './member_names';
 import {MigrationSource} from './migration_source';
+import {assertDynamicRelocation,establishedSchemaResource,type SchemaLocation} from './schema_relocation';
 
 const inside=(pointer:string,owner:string)=>pointer===owner||pointer.startsWith(owner+'/');
 
@@ -308,24 +309,17 @@ function planOwnedCopy(input:any,moving=false) {
  const movedResource=(id:string,pointer:string)=>id===resource.id&&inside(pointer,target.pointer)?destinationId:id;
  if(moving&&!cross&&destination===target.pointer)return {version:1,kind:'component-move',snapshot:input.snapshot,edits:[],changes:[],usages:[],transitions:[],from:target,to:target,checkedRoots:input.contexts.map((c:any)=>c.root)};
  semanticOwner(owning,resource.id,target.pointer,node.range);
- if(cross)for(const g of owning)for(const at of g.graph.scopes.values())if(at.resource===resource.id&&inside(at.pointer,target.pointer)){
+ if(cross)for(const g of graphs)for(const at of g.graph.scopes.values())if(at.resource===resource.id&&inside(at.pointer,target.pointer)){
   const data=doc.node(at.pointer).value;
   if(at.kind==='schema'&&!inside(at.resourcePointer,target.pointer)){
-   if(at.resourcePointer!==''||data&&typeof data==='object'&&['$anchor','$dynamicAnchor'].some(key=>Object.hasOwn(data,key))||
+   if(at.resourcePointer!==''||establishedSchemaResource(g.graph,at)||data&&typeof data==='object'&&['$anchor','$dynamicAnchor'].some(key=>Object.hasOwn(data,key))||
       g.graph.referenceAs(at.resource,at.pointer,'$dynamicRef','schema')?.dynamic)
     throw new SourceError('refactor.copy.schema-resource','Extraction would move only part of an inherited schema resource or dynamic scope');
-   if(g.graph.references.some(ref=>!ref.connection&&ref.keyword==='$dynamicRef'&&ref.dynamic))
-    throw new SourceError('refactor.copy.schema-resource','Anonymous-resource extraction cannot be proved by dynamic navigation candidates alone');
   }
  }
  const admit=editBudget(resources);admit(destinationId);admit(resource.id);
  let changed=fragment?replaceValue(destinationDoc,destination,doc,target.pointer):insertValue(destinationDoc,destination,doc,target.pointer);
  if(removeBinding)changed=retainOccurrenceComments(doc,changed,destination,target.pointer,true);
- // Relocation of an already authored $id retains its canonical identity. This
- // is a reviewed edit of that field, not an invented identifier/resource.
- if(cross)for(const at of selected.graph.scopes.values())if(at.kind==='schema'&&at.resource===resource.id&&inside(at.pointer,target.pointer)&&doc.nodes.has(at.pointer+'/$id')){
-  admit(destinationId);changed=new SourceDocument(changed.set(move(resource.id,at.pointer)+'/$id',at.base),destinationId);
- }
  const occurrenceValue={$ref:fragment?destinationId+(destination?pointerFragment(destination):''):pointerFragment(destination)};
  const parent=doc.node(target.pointer.slice(0,target.pointer.lastIndexOf('/')));
  const occurrence=doc.format==='yaml'&&!parent.flow
@@ -337,27 +331,57 @@ function planOwnedCopy(input:any,moving=false) {
  const conversions=new Map<string,{resource:string,from:string,to:string}>();
  const keywordFor=(ref:any)=>conversions.has(movedResource(ref.resource,ref.pointer)+'#'+move(ref.resource,ref.pointer)+'/operationId')&&ref.keyword==='operationId'?'operationRef':ref.keyword;
  const currentResources=()=>resources.map(r=>outputs.has(r.id)?{...r,text:outputs.get(r.id)!}:r);
+ const relocated=(at:SchemaLocation):SchemaLocation=>({resource:movedResource(at.resource,at.pointer),pointer:move(at.resource,at.pointer)});
+ const affected=graphs.filter(g=>owning.includes(g)||g.graph.references.some(ref=>
+  ref.resource===resource.id&&inside(ref.pointer,target.pointer)||ref.targetResource===resource.id&&inside(ref.targetPointer!,target.pointer)));
  const rebuilt=(g:typeof selected,seedDestination=false)=>{
   const current=currentResources(),ids=new Set<string>(g.context.resources);
-  if(owning.includes(g))ids.add(destinationId);
+  if(affected.includes(g))ids.add(destinationId);
   // Do not inject one entry description's entire resource set into unrelated
   // roots. Reuse canonical cold closure for genuinely new outgoing resources.
   for(const id of coldGraph(g.context.root,current).docs.keys())ids.add(id);
   return createGraph({root:g.context.root,resources:current.filter(r=>ids.has(r.id)),
-   ...(seedDestination?{occurrences:[{resource:destinationId,pointer:destination,kind:scope.kind}]}:{})});
+   // Seed only captured interpretations while repairing stale addresses,
+   // including independently referenced schemas inside an opaque annotation.
+   // The final and cold proofs below must rediscover them without these seeds.
+   ...(seedDestination?{occurrences:[...g.graph.interpretedScopes()].map(at=>({...relocated(at),kind:at.kind})).concat([{resource:destinationId,pointer:destination,kind:scope.kind}])}:{})});
  };
- for(const g of owning) {
-  let after=rebuilt(g,removeBinding);
+ // Preserve complete identified resources in both same-file and cross-file
+ // moves. A nested relative $id can inherit a different base even within one
+ // physical document. Rebuild outer first and retain spellings that still
+ // establish the original identity; never invent/remove an identifier.
+ const identities=new Map<string,{pointer:string;base:string;owner:typeof selected}>();
+ for(const g of graphs)for(const at of g.graph.scopesFor('schema')){
+  if(at.resource!==resource.id||!inside(at.pointer,target.pointer)||!['3.1','3.2'].includes(at.family)||at.resourcePointer!==at.pointer||typeof doc.dataNode(at.pointer)?.value?.$id!=='string')continue;
+  const previous=identities.get(at.pointer);
+  if(previous&&previous.base!==at.base)throw new SourceError('refactor.context.ambiguous','Configured roots establish different canonical identities for one authored schema resource');
+  identities.set(at.pointer,{pointer:at.pointer,base:at.base,owner:g});
+ }
+ for(const identity of [...identities.values()].sort((a,b)=>a.pointer.length-b.pointer.length)){
+  admit(destinationId);
+  const after=rebuilt(identity.owner,true),pointer=move(resource.id,identity.pointer);
+  if(after.graph.scopeAs(destinationId,pointer,'schema')?.base===identity.base)continue;
+  const field=identity.pointer+'/$id';
+  if(graphs.some(g=>g.graph.literalContainer(resource.id,field)!==undefined))
+   throw new SourceError('refactor.literal.ownership','Repairing this schema identifier would also change literal data; choose explicit source ownership before relocating it');
+  admit(destinationId);
+  const current=new SourceDocument(outputs.get(destinationId)!,destinationId);
+  outputs.set(destinationId,current.set(pointer+'/$id',identity.base));
+ }
+ for(const g of affected) {
+  const owns=owning.includes(g);
+  let after=rebuilt(g,true);
   const nextScope=after.graph.scopes.get(destinationId+'#'+destination),from=removeBinding?scope:after.graph.scopes.get(resource.id+'#'+target.pointer);
-  if(!nextScope||!from||nextScope.kind!==scope.kind)throw new SourceError('refactor.extract.destination','This component family is not supported in every owning root');
-  if(cross)relocateCopiedUris(g.graph,after.graph,{resource:resource.id,pointer:target.pointer},{resource:destinationId,pointer:destination},outputs,repairs,admit);
-  const address=removeBinding?undefined:referenceValue(after.graph,from,nextScope);
-  if(!removeBinding&&!address)throw new SourceError('refactor.copy.address','The extracted definition has no unambiguous reference address');
-  const addresses:[string,string,any,string?][]= removeBinding?[]:[[resource.id,target.pointer+'/$ref',address]];
+  if(!nextScope||owns&&!from||nextScope.kind!==scope.kind)throw new SourceError('refactor.extract.destination','This component family is not supported in every owning root');
+  relocateCopiedUris(g.graph,after.graph,{resource:resource.id,pointer:target.pointer},{resource:destinationId,pointer:destination},outputs,repairs,admit);
+  const address=removeBinding||!owns?undefined:referenceValue(after.graph,from!,nextScope);
+  if(!removeBinding&&owns&&!address)throw new SourceError('refactor.copy.address','The extracted definition has no unambiguous reference address');
+  const addresses:[string,string,any,string?][]= removeBinding||!owns?[]:[[resource.id,target.pointer+'/$ref',address]];
   for(const ref of g.graph.references) {
    const sourcePointer=move(ref.resource,ref.pointer),targetPointer=move(ref.targetResource!,ref.targetPointer!);
    const targetResource=movedResource(ref.targetResource!,ref.targetPointer!),sourceResource=movedResource(ref.resource,ref.pointer);
-   if(sourcePointer===ref.pointer&&targetPointer===ref.targetPointer&&sourceResource===ref.resource&&targetResource===ref.targetResource)continue;
+   const existing=after.graph.references.find(next=>next.resource===sourceResource&&next.pointer===sourcePointer&&next.keyword===ref.keyword);
+   if(sourcePointer===ref.pointer&&targetPointer===ref.targetPointer&&sourceResource===ref.resource&&targetResource===ref.targetResource&&existing?.base===ref.base)continue;
    const retained=preserveBinding&&!(ref.resource===resource.id&&inside(ref.pointer,target.pointer))&&ref.targetResource===resource.id&&ref.targetPointer===target.pointer;
    if(retained){
     const key=ref.resource+'#'+ref.pointer+'/'+escape(ref.keyword),usage=usages.get(key)??{resource:ref.resource,pointer:ref.pointer+'/'+escape(ref.keyword),connection:ref.connection??ref.keyword,target:{resource:ref.targetResource,pointer:ref.targetPointer},roots:[],unchangedIdentity:true,bindingRetained:true};
@@ -373,7 +397,8 @@ function planOwnedCopy(input:any,moving=false) {
    // 8.2.3.2). Construct a static address while retaining its authored keyword;
    // the final graph proof still checks targets and dynamic candidates.
    const addressKeyword=convert?'operationRef':ref.keyword==='$dynamicRef'&&!ref.dynamic?'$ref':ref.keyword;
-   const next=ref.connection==='operationId'&&!convert?ref.value:referenceValue(after.graph,at,to,addressKeyword,
+   const retainedTarget=existing?.resolution==='resolved'&&existing.targetResource===targetResource&&existing.targetPointer===targetPointer;
+   const next=ref.connection==='operationId'&&!convert?ref.value:retainedTarget&&!convert?existing!.value:referenceValue(after.graph,at,to,addressKeyword,
     undefined,ref.connection==='discriminator'?{connection:'discriminator'}:{});
    if(next===undefined)throw new SourceError('refactor.copy.address','A required consumer cannot retain its proven target');
    const field=sourcePointer+'/'+escape(convert?'operationRef':ref.keyword),removed=convert?sourcePointer+'/operationId':undefined;
@@ -391,7 +416,7 @@ function planOwnedCopy(input:any,moving=false) {
    const name=segments(target.pointer).at(-1)!;
    if(!parent?.discriminator||typeof parent.discriminator.propertyName!=='string'||Object.hasOwn(parent.discriminator.mapping??{},name))continue;
    const at=after.graph.scopes.get(ref.targetResource+'#'+ref.targetPointer);
-   const value=at&&referenceValue(after.graph,at,from);
+   const value=at&&from&&referenceValue(after.graph,at,from);
    if(value===undefined)throw new SourceError('refactor.copy.implicit','The inherited discriminator needs an unambiguous preserved component binding');
    const prefix=ref.targetPointer+'/discriminator/mapping';
    addresses.push([ref.targetResource!,parentDoc.nodes.has(prefix)?prefix+'/'+escape(name):prefix,parentDoc.nodes.has(prefix)?value:{[name]:value}]);
@@ -422,16 +447,18 @@ function planOwnedCopy(input:any,moving=false) {
  for(const g of graphs){
   const after=rebuilt(g);
   if(after.graph.issues.length)throw new SourceError('refactor.proof','Extraction would introduce an unresolved or ambiguous connection');
+  assertDynamicRelocation(g.graph,after.graph,relocated,removeBinding?[]:[{resource:resource.id,pointer:target.pointer}]);
   for(const scope of g.graph.scopesFor('schema'))assertRoleAnnotations(g.graph,scope,after.docs.get(movedResource(scope.resource,scope.pointer))!,move(scope.resource,scope.pointer));
   if(cross)for(const old of selected.graph.references)if(old.resource===resource.id&&inside(old.pointer,target.pointer)){
+   if(!after.graph.referenceOwner({...old,resource:destinationId,pointer:move(old.resource,old.pointer)}))continue;
    const next=after.graph.references.find(ref=>ref.resource===destinationId&&ref.pointer===move(old.resource,old.pointer)&&ref.keyword===keywordFor(old));
    if(!next||next.resolution!=='resolved'||next.targetResource!==movedResource(old.targetResource!,old.targetPointer!)||next.targetPointer!==move(old.targetResource!,old.targetPointer!))
     throw new SourceError('refactor.context.ambiguous','The copied definition would bind a semantic consumer differently in another root');
   }
   for(const before of g.graph.scopes.values())if(before.kind==='schema'&&inside(before.pointer,target.pointer)&&before.resource===resource.id){
    const next=after.graph.scopes.get(movedResource(resource.id,before.pointer)+'#'+move(resource.id,before.pointer));
-   const anonymousRelocation=cross&&before.resourcePointer==='';
-   if(!next||!anonymousRelocation&&next.base!==before.base||next.dialect!==before.dialect||move(resource.id,before.resourcePointer)!==next.resourcePointer)
+   const anonymousRelocation=cross&&before.resourcePointer===''&&!establishedSchemaResource(g.graph,before);
+   if(!next||!anonymousRelocation&&next.base!==before.base||next.dialect!==before.dialect||next.family!==before.family||move(resource.id,before.resourcePointer)!==next.resourcePointer)
     throw new SourceError('refactor.copy.schema-resource','Extraction would change an inherited schema resource, base identity or dialect');
   }
   for(const ref of g.graph.references){
@@ -445,6 +472,7 @@ function planOwnedCopy(input:any,moving=false) {
    const knownIssues=new Set(beforeCold.issues.map(issue=>JSON.stringify([issue.resource,issue.pointer,issue.code])));
    if(afterCold.issues.some(issue=>!knownIssues.has(JSON.stringify([issue.resource,issue.pointer,issue.code]))))
     throw new SourceError('refactor.copy.retrieval','The moved definition needs an explicit approved retrieval mapping before it can be reopened');
+   assertDynamicRelocation(g.graph,afterCold,relocated,removeBinding?[]:[{resource:resource.id,pointer:target.pointer}]);
    for(const old of g.graph.references){
     const next=afterCold.references.find(ref=>ref.resource===movedResource(old.resource,old.pointer)&&ref.pointer===move(old.resource,old.pointer)&&ref.keyword===keywordFor(old));
     if(!next||next.resolution!=='resolved'||!retainedBinding(old,next,afterCold)&&(next.targetResource!==movedResource(old.targetResource!,old.targetPointer!)||next.targetPointer!==move(old.targetResource!,old.targetPointer!)))
@@ -780,10 +808,8 @@ function planOwnedInline(input:any) {
  const rebuilt=(g:typeof selected)=>createGraph({root:g.context.root,resources:resources.filter(r=>g.context.resources.includes(r.id)).map(r=>outputs.has(r.id)?{...r,text:outputs.get(r.id)!}:r)});
  for(const g of owning){
   const after=rebuilt(g);
-  if(definition.id!==resource.id){
-   relocateCopiedUris(g.graph,after.graph,{resource:definition.id,pointer:definitionPointer},{resource:resource.id,pointer:destination},outputs,repairs,admit,true,scope.kind!=='schema'&&siblings.includes('description'));
-   changed=new SourceDocument(outputs.get(resource.id)!,resource.id);
-  }
+  relocateCopiedUris(g.graph,after.graph,{resource:definition.id,pointer:definitionPointer},{resource:resource.id,pointer:destination},outputs,repairs,admit,true,scope.kind!=='schema'&&siblings.includes('description'));
+  changed=new SourceDocument(outputs.get(resource.id)!,resource.id);
   for(const at of g.graph.scopes.values())if(at.resource===definition.id&&inside(at.pointer,definitionPointer)&&at.kind==='schema'&&intrinsic(g.graph,at.resource,at.pointer,definitionPointer)){
    const next=after.graph.scopes.get(resource.id+'#'+relocated(at.pointer));
    if(!next||next.dialect!==at.dialect)throw new SourceError('refactor.inline.dialect','The copied schema would inherit a different dialect');

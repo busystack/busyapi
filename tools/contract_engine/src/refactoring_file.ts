@@ -16,6 +16,7 @@ import {securityConfigurationCopies,type SecurityBindingChange} from './security
 import {caseFileLocators,movedCaseFileSource} from './case_file_configuration';
 import {richTextField} from './authoring';
 import {relocateRefactoringMarkdown} from './refactoring_markdown';
+import {assertDynamicRelocation} from './schema_relocation';
 
 const same=(a:any,b:any)=>a?.resource===b?.resource&&a?.pointer===b?.pointer;
 
@@ -304,7 +305,7 @@ export function planFileMove(input:any) {
    const self=before.nodes.get('/$self');
    if(g.graph.scope(source.id,'').family==='3.2'&&typeof self?.value==='string'&&resolveUri(self.value,retrieval).href!==resolveUri(self.value,rebuild(g).graph.retrievals.get(destination)!).href)
     set(source.id,'/$self',relative(resolveUri(self.value,retrieval).href,rebuild(g).graph.retrievals.get(destination)!),'document-identity');
-   for(const at of [...g.graph.scopes.values()].filter(at=>at.resource===source.id&&at.kind==='schema'&&before.nodes.has(at.pointer+'/$id')).sort((a,b)=>a.pointer.length-b.pointer.length)) {
+   for(const at of g.graph.scopesFor('schema').filter(at=>at.resource===source.id&&['3.1','3.2'].includes(at.family)&&at.resourcePointer===at.pointer&&typeof before.dataNode(at.pointer)?.value?.$id==='string').sort((a,b)=>a.pointer.length-b.pointer.length)) {
     const after=rebuild(g).graph,now=after.scopes.get(destination+'#'+at.pointer)!;
     if(now.base===at.base)continue;
     const parent=at.pointer?after.scope(destination,at.pointer.slice(0,at.pointer.lastIndexOf('/'))).base:after.retrievals.get(destination)!;
@@ -386,7 +387,7 @@ export function planFileMove(input:any) {
       throw new SourceError('file.move.self-routing','A declared OpenAPI identity needs a portable approved resource mapping before its physical retrieval route can move');
      value=relative(destination+hash,from.base);
     }
-    else if(!same({resource:now?.targetResource,pointer:now?.targetPointer},to)||now?.resolution!=='resolved')value=referenceValue(after.graph,from,to,ref.keyword,undefined,
+    else if(!same({resource:now?.targetResource,pointer:now?.targetPointer},to)||now?.resolution!=='resolved')value=referenceValue(after.graph,from,to,ref.keyword==='$dynamicRef'&&!ref.dynamic?'$ref':ref.keyword,undefined,
      ref.connection==='security'?{connection:'security'}:ref.connection==='discriminator'?{connection:'discriminator'}:{})??'';
    }
    if(!value)throw new SourceError('file.move.address','A connection has no proven address after the move');
@@ -397,7 +398,7 @@ export function planFileMove(input:any) {
     const relocating=value!==currentKeyword(ref)||proof.resolution!=='resolved'||!same({resource:proof.targetResource,pointer:proof.targetPointer},to);
     const occupied=ref.connection==='security'&&relocating?new Set([...new SourceDocument(outputs.get(ref.resource)??g.docs.get(ref.resource)!.text,ref.resource).node(ref.pointer).children.keys()].filter(name=>name!==currentKeyword(ref))):undefined;
     if(occupied?.has(value)||proof.resolution!=='resolved'||!same({resource:proof.targetResource,pointer:proof.targetPointer},to)){
-     const alternative=referenceValue(after.graph,{...from,kind:ref.kind},to,ref.keyword,occupied,
+     const alternative=referenceValue(after.graph,{...from,kind:ref.kind},to,ref.keyword==='$dynamicRef'&&!ref.dynamic?'$ref':ref.keyword,occupied,
       ref.connection==='security'?{connection:'security'}:ref.connection==='discriminator'?{connection:'discriminator'}:{});
      if(alternative!==undefined){value=alternative;proof=after.graph.resolveConnection({...ref,...from,kind:ref.kind,value});}
     }
@@ -420,6 +421,7 @@ export function planFileMove(input:any) {
   for(const g of graphs) {
    const after=rebuild(g,false).graph,cold=coldGraph(move(g.context.root),current());
    if(after.issues.length||cold.issues.length)throw new SourceError('file.move.retrieval','The moved project would not resolve after reopening from its configured roots');
+   for(const graph of [after,cold])assertDynamicRelocation(g.graph,graph,at=>({resource:move(at.resource),pointer:currentPointer(at.resource,at.pointer)}));
    for(const scope of g.graph.scopesFor('schema'))assertRoleAnnotations(g.graph,scope,after.docs.get(move(scope.resource))!,currentPointer(scope.resource,scope.pointer));
    for(const old of g.graph.references)for(const graph of [after,cold]) {
     const now=graph.references.find(r=>r.resource===move(old.resource)&&r.pointer===currentPointer(old.resource,old.pointer)&&r.keyword===currentKeyword(old));

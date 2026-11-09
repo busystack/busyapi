@@ -2120,6 +2120,7 @@ String Function(String) _copyRefactoringFailure(BuildContext context) {
   final l = context.l10n;
   return (code) => switch (code) {
     'refactor.copy.schema-resource' ||
+    'refactor.schema.dynamic-scope' ||
     'refactor.inline.schema-resource' ||
     'refactor.inline.dialect' => l.copySchemaResourceBlocked,
     'refactor.literal.ownership' => l.refactoringLiteralOwnershipBlocked,

@@ -64,7 +64,7 @@ acceptance must retain each exact authored patch declaration.
 | Reference inspection | U | U | U | U | `reference_projection.ts` referencePage/referenceDocument, native `reference_view.dart`/`reference_object.dart`; native family and reference-context fixtures. Complete native clause/rendered-field closure remains unverified. |
 | Version-specific validation | U | U | U | U | `structural_schema.ts`, restricted/Swagger validators, `schema_evaluation.ts`, graph dialect policy, Core check; existing restricted/modern/access/negative suites. Full normative coverage is not established by source review. |
 | Reference resolution/navigation | U | U | U | U | `reference_graph.ts`, `reference_choices.ts`, source assistance and Core resource capture; contextual/dynamic/native-connection suites exist. Full external/mixed-role qualification remains unverified. |
-| Reference maintenance/refactoring | P | P | P | P | `refactoring_copy.ts` extract/move/inline, file/property/Markdown owners, Core file/refactoring transactions and native review, CLI refactor. W6.01–03 retain identified/dynamic-resource, shared-rendering-base and schema-position gaps; supported ordinary actions are implemented. |
+| Reference maintenance/refactoring | P | P | P | P | `refactoring_copy.ts` extract/move/inline, file/property/Markdown owners, Core file/refactoring transactions and native review, CLI refactor. W6-M1 complete identified-resource relocation is source-complete, unverified; W6.01–03 retain unproved dynamic-scope, shared-rendering-base, overlapping-ownership and schema-position cases. |
 | Native documentation/export | U | U | U | U | `reference_projection.ts`, `derived_bundle.ts`, Core `documentation.dart`/`documentation_sources.dart`, native documentation actions, CLI build-docs. Native offline HTML publication exists; complete relocation/rendering closure and pinned adapter compatibility remain unverified (W6.04). |
 | Requests/responses/authentication | P | P | P | P | Core `request.dart`/`execution.dart`, shared execution/security/runtime owners and native Request controls; existing HTTP/security/header/media suites. XML/Linkset mapping and stream integration remain missing; typed multipart restrictions below also apply. Standard implemented security flows are not missing because execution is held; full device-flow qualification remains unverified. |
 | Example interpretation/selection | P | P | P | P | `example_representation.ts`, serialized/external example owners and Core captured selections; native external-body and CLI saved-case paths exist. W4.07 retains binary Parameter/Header/part choice gaps; occurrence-free reusable media must not guess context. |
@@ -3295,7 +3295,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | ID / requirement and authority | Production owner | Surfaces | Prepared regression coverage | Implementation status / remaining closure | Executed acceptance |
 | --- | --- | --- | --- | --- | --- |
 | W6.01 Rename/extract/copy/inline/relocate at every schema-bearing position; JC §§8–10, family Schema/Components clauses | refactoring/copy/file owners, canonical schema traversal, Core transactions | A R S C | refactoring/copy/extract/file/schema-definition suites | Partially implemented; reviewed extract, definition move, new-file extraction, inline and renames now share migration YAML token ownership, original-coordinate transactions and native controls. Rename reads alias-backed required/dependency/composition relationships through logical paths and owns only affected writes, including security fields/configuration. Explicit YAML independence retains all logical values and graph identities and enables subsequent ordinary native controls. CLI review/apply exposes existing object/file maintenance and operation/root moves through the same Core plans, captured file intents and grouped publication. Full schema-bearing-position and independently interpreted role coverage remains; current cold-reopen qualification is pending | H |
-| W6.02 Preserve resource/dialect/anchor and dynamic evaluation scope without weakening recursion/identity/Path Item guards; JC §§8–9 | `refactoring_copy.ts`, reference choices/graph | A R S C | copy suite static-dynamic/dialect controls plus existing genuine dynamic/recursive refusals | Partially implemented; static dynamic-reference starting points and retained explicit dialects now have a guarded inline path; identified/dynamic resources and non-schema chains still need specific algorithms | H |
+| W6.02 Preserve resource/dialect/anchor and dynamic evaluation scope without weakening recursion/identity/Path Item guards; JC §§8–9 | `refactoring_copy.ts`, `schema_relocation.ts`, file/URI owners, reference choices/graph | A R S C | copy/file/graph/schema-resource-view suites; Core/native review and CLI regressions, including static dynamicRef, official dynamic binding, dialect and recursion controls | W6-M1 complete-resource extraction/definition movement/file relocation is source-complete, unverified: canonical IDs are repaired outer first across same-file and cross-file bases; dynamic approval requires resource/binding/evaluation-edge equivalence, including generated forwarding frames. Partial inherited resources, conflicting identities/anchors, literal identifier rewrites, identified-resource inlining, unproved dynamic scopes and non-schema chains remain refused; overlapping ownership and general schema-position closure remain outside M1 | H |
 | W6.03 Shared/conflicting Markdown and dual literal/contract owners; TEXT/URI, O32 URI-base clauses | refactoring Markdown/file/copy, migration shared-text, URI owners | A R M S C | Markdown identity/location/shared-text/refactoring suites, native-object-use migration controls | Partially implemented; reviewed copy/inline now separate YAML aliases before the existing Markdown/URI proofs and preserve literal alias values. Migration schema/data and native object/data owners are retained; general refactoring and incompatible entry/rendering-base specializations remain missing | H |
 | W6.04 Complete native Reference/export and exact pinned external renderer/generator/comparator adapters; family clauses, PINS | native Reference, `derived_bundle.ts`, Core renderer/export adapters | R M S C | reference family/display/Markdown, bundle/resource-package/adapter suites | Partially implemented; native family paths exist; complete relocated/offline output and exact adapter limitation qualification remain; never strip/relabel source to satisfy an adapter | H |
 | W7.01 Creation, editing, unsaved Reference, request/example/mock/case, migration review, documentation and CLI integration for every capability; all applicable clauses above | shared engine, Core owners and native workspace controls | A R E M S C | engine/Core/widget/native journey suites | Partially implemented; applicable existing consumers inherit shared field/codec/routing changes; complete family journeys are not accepted | H |
@@ -4653,3 +4653,97 @@ negative control. No compiler, analyzer, test, build, generation, native or
 graphical workload, CI, performance check or packaged acceptance has executed.
 The existing register remains partially implemented; W1–W7 are not SOURCE
 COMPLETE or ACCEPTED. Snapcraft remains skipped.
+
+## W6-M1 — complete schema-resource relocation
+
+This bounded W6.01–W6.02 maintenance increment is **source-complete,
+unverified**. It does not close all W6 or declare BusyAPI SOURCE COMPLETE or
+ACCEPTED. The native authoring implementation, modern schema-reference sibling
+eligibility and static `$dynamicRef` relocation corrections are retained.
+No specification migration, B05 continuation or later execution work is included.
+
+`refactoring_copy.ts` now preserves complete identified schema resources when
+extracting an inline schema, moving a reusable definition or composing extraction
+to a new source file. Canonical IDs are captured across configured roots and
+checked outer first after the authored value has moved. A relative `$id` is
+repaired only when its effective identity changes, including relocation out of
+an enclosing identified resource within the same physical file. Unchanged
+absolute and relative spellings, nested resource IDs, explicit dialects, named
+anchors and static recursive references remain authored source. This also
+retains an independently referenced schema in a copied payload when its literal
+value and resource identity can both remain unchanged. Repairing a relative ID
+that is also literal data remains an ownership refusal.
+An empty resource pointer is checked against the graph's typed schema root:
+independently interpreted schema files, including explicit dialect roots,
+are not mistaken for anonymous native OpenAPI contexts when selecting a partial
+subschema. Complete independently referenced roots with a distinct authored ID
+retain that ID through extraction; partial file-root resources remain guarded.
+
+Temporary proof graphs seed captured typed occurrences at their mapped
+locations while stale reference addresses are repaired. Final graphs and cold
+closure must rediscover those occurrences without those seeds. Consumers in
+other files and configured entries use the existing canonical reference address
+owner and original-coordinate CST edits. Retained public component bindings
+remain distinct from extracted inline occurrences and physical file moves.
+No new resolver, retrieval mechanism or transaction owner was added.
+
+`schema_relocation.ts` supplies a bounded sufficient proof for genuine dynamic
+references. Every captured schema keeps its effective dialect and applicable
+dynamic-anchor binding frames; intrinsic applicator edges and schema
+reference edges must match under relocation. Generated reference-only forwarding
+nodes may be contracted only when any added resource frame has no binding for
+the dynamically used names. Anonymous frames with no relevant bindings may
+change retrieval base after ordinary reference repair; an unrelated identified
+dynamic schema no longer blocks a proved static extraction. These conditions
+preserve binding order for all
+captured evaluation walks, including recursion. Comparing navigation candidates
+remains an additional identity check, not the dynamic-scope proof. Complete
+resources with multiple nested dynamic bindings use this proof through existing
+copy and whole-file plans. A static `$dynamicRef` continues to use static address
+construction while retaining its keyword, including in whole-file moves.
+
+Actual semantic restrictions remain explicit: partial inherited resources may
+not silently acquire new identities; anchors may not change owner or conflict;
+an inline operation may not duplicate an identified resource retained in its
+shared definition; dialect declarations and recursion are not stripped or
+flattened. Unavailable proofs remain separate: `refactor.schema.dynamic-scope`
+reports that evaluation-scope equivalence is not established, including a new
+forwarding frame with a potentially relevant binding. Anonymous cross-resource
+dynamic extraction without a scope proof, ambiguous overlapping interpretations,
+incompatible
+rendering contexts, unavailable cold retrieval mappings and proof-budget
+exhaustion also retain explicit refusals. A refusal for unavailable proof is not
+a claim that no equivalent transformation could exist.
+
+The existing Core semantic/file plans, Store history, native Design/Source/
+Reference transitions, review/cancellation checks and CLI review/apply/publication
+remain the integration owners. Native copy and review failure mapping recognizes
+the new dynamic-scope refusal. Typed Markdown and passive URI relocation now
+also run for same-file copies when the containing schema base changes; general
+shared Markdown and overlapping semantic-ownership maintenance remain next.
+
+Prepared regressions extend the already registered engine copy, file, graph and
+schema-resource-view suites, Core `refactoring_copy_test.dart`, native
+`test/refactoring_copy_test.dart` and the applicable independent CLI suite.
+Engine cases cover 3.1.0/3.1.1/3.1.2/3.2.0/3.2.1 in YAML/JSON, relative/absolute
+IDs, same-file/cross-file moves, nested resources, plain and dynamic anchors,
+independent and cross-entry consumers, explicit dialects, exact numbers and
+positive/negative recursive-instance outcomes. Official vendored dynamicRef
+cases compare actual binding outcomes before/after extraction to a file. A
+negative control retains identical candidate declarations but refuses a newly
+introduced binding frame. Older-family literal controls and existing partial
+resource, recursion, identified-inline, ignored-sibling and URI-mapping negatives
+remain. Core/native identified-schema cases extend existing alias/comment/BOM,
+review/cancel, retired action, Undo/Redo, stale plan, failed publication and cold
+reopen fixtures; CLI covers identified extraction, relocation, static dynamicRef
+targets and identified-inline refusal through its production commands.
+
+Actual verification is source inspection and `git diff --check` only. No tests,
+compilers, analyzers, builds, generation, CI, graphical workloads, native
+acceptance or packaging ran. Prepared regressions are **not passed evidence**;
+runtime equivalence, publication recovery and cold reopening remain unverified.
+The execution hold remains active, installed SDK/dependencies are unchanged,
+Snapcraft remains skipped, and no push is authorized. After this increment,
+continue the remaining W6 shared Markdown/overlapping ownership maintenance.
+Typed multipart, XML/Linkset, streaming and mocks remain later assignments and
+were not begun here.

@@ -3033,6 +3033,9 @@ class BusyProject {
   /// Relocate an authored definition into an existing approved destination.
   /// The graph retains a public reference binding only where its family and
   /// position permit it; otherwise the review removes it and repairs consumers.
+  /// Complete schema resources retain their canonical IDs and dialects. The
+  /// engine proves reference and dynamic-scope equivalence before this existing
+  /// multi-buffer transaction can publish the proposed CST edits.
   Future<RefactoringPlan> planComponentDefinitionMove(
     Map<String, Object?> target,
     String name, {

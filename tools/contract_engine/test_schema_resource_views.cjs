@@ -11,6 +11,25 @@ const official=(file,description)=>{
 const cases=[official('dynamicRef','A $dynamicRef to a $dynamicAnchor in the same schema resource behaves like a normal $ref to an $anchor'),
  official('dynamicRef','A $dynamicRef resolves to the first $dynamicAnchor still in scope that is encountered when the schema is evaluated'),
  official('unevaluatedProperties','unevaluatedProperties with $ref')];
+for(const version of ['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const json of [false,true])
+test(`${version} ${json} complete-resource extraction to a file preserves official dynamic binding outcomes`,async()=>{
+ const {planExtractToFile}=require('./dist/refactoring_copy.cjs'),{coldGraph}=require('./dist/reference_selection.cjs');
+ const fixture=cases[1],ext=json?'json':'yaml',root='file:///approved/api.'+ext,destination='file:///approved/deep/resource.'+ext,at='/components/schemas/Owner/properties/inline';
+ const value={openapi:version,info:{title:'Official scope relocation',version:'1'},paths:{},components:{schemas:{Owner:{$id:'https://outer.invalid/container',properties:{inline:fixture.schema}}}}};
+ const text=json?JSON.stringify(value,null,2):'# Retain official resource 雪\n'+YAML.stringify(value),resources=[{id:root,text,generation:1}];
+ const input={root,resources,snapshot:'official-relocation',contexts:[{root,resources:[root]}],target:{root,resource:root,pointer:at,generation:1},name:'Stored',destinationResource:destination};
+ const evaluate=resources=>evaluateSchemas({root,resources,snapshot:'official-binding',runtimeInstances:fixture.tests.map(test=>({subject:'response-body',location:test.description,text:JSON.stringify(test.data),schema:{resource:root,pointer:at}}))});
+ const before=await evaluate(resources),plan=planExtractToFile(input);
+ const moved=resources.map(resource=>{let text=resource.text;for(const edit of plan.edits.filter(edit=>edit.buffer===resource.id).sort((a,b)=>b.start-a.start))text=text.slice(0,edit.start)+edit.replacement+text.slice(edit.end);return {...resource,text};})
+  .concat(plan.creations.map(resource=>({...resource,id:resource.resource,generation:0})));
+ const graph=coldGraph(root,moved);assert.equal(graph.issues.length,0);
+ assert.equal(graph.identities.get(fixture.schema.$id).length,1);
+ assert.equal(graph.scope(destination,'').dialect,fixture.schema.$schema);
+ assert.equal(new SourceDocument(moved.find(resource=>resource.id===destination).text,destination).node('/$defs/list/$id').value,'list');
+ const after=await evaluate(moved);
+ for(const result of [before,after]){assert.equal(result.complete,true,JSON.stringify(result.findings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),fixture.tests.map(test=>test.valid));}
+ assert.equal(resources[0].text,text);
+});
 for(const version of ['2.0','3.0.4'])for(const format of ['yaml','json'])
 test(`${version} ${format} native schema-map views keep restricted exclusive bounds`,async()=>{
  const legacy=version==='2.0',root='file:///approved/restricted-map.'+format,prefix=legacy?'/definitions':'/components/schemas';

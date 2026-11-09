@@ -14,6 +14,7 @@ String refactoringFailureMessage(
   AppLocalizations l,
   String code,
 ) => switch (code) {
+  'refactor.schema.dynamic-scope' => l.copySchemaResourceBlocked,
   'file.move.case-file.content' => l.fileMoveCaseContent,
   'file.move.case-file.boundary' => l.fileMoveCaseBoundary,
   'file.configuration.conflict' => l.fileConfigurationConflict,

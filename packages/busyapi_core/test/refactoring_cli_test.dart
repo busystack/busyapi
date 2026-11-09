@@ -126,7 +126,13 @@ void main() {
     await root.writeAsString(jsonEncode({
       'openapi': '3.2.1', 'info': {'title': 'Maintain', 'version': '1'},
       'paths': {'/old': {'get': {'operationId': 'read', 'responses': {'200': {
-        'description': 'Value', 'content': {'application/json': {'schema': {'type': 'integer', 'minimum': 'EXACT'}}},
+        'description': 'Value', 'content': {'application/json': {'schema': {
+          r'$id': 'https://schemas.invalid/stored',
+          r'$schema': 'https://json-schema.org/draft/2020-12/schema',
+          r'$anchor': 'public',
+          r'$defs': {'Leaf': {r'$id': 'leaf', r'$anchor': 'leaf', 'type': 'integer'}},
+          r'$dynamicRef': 'leaf#leaf', 'type': 'integer', 'minimum': 'EXACT',
+        }}},
       }}}}},
       'components': {'schemas': {'Unused': {'type': 'string'}}},
       'x-history': {r'$ref': '#$schemaPointer'},
@@ -158,6 +164,9 @@ void main() {
     await apply(['--action', 'extract-file', '--pointer', schemaPointer, '--name', 'Stored', '--destination', 'stored.json']);
     final stored = File('${directory.path}/stored.json');
     expect(await stored.exists(), true);expect(await stored.readAsString(), contains('9007199254740993.00'));
+    expect(jsonDecode(await stored.readAsString())[r'$id'], 'https://schemas.invalid/stored');
+    final inline = await invoke(['--action', 'inline', '--pointer', '/components/schemas/Stored', '--review']);
+    expect(inline.$1, 3);expect(inline.$2['error']['code'], 'refactor.inline.schema-resource');
     final blocked = await invoke(['--action', 'file-delete', '--resource', 'stored.json', '--review']);
     expect(blocked.$1, 2);expect(blocked.$2['blockers'], isNotEmpty);
     final denied = await invoke(['--action', 'file-delete', '--resource', 'stored.json', '--apply', blocked.$2['reviewIdentity'] as String]);
@@ -182,5 +191,9 @@ void main() {
     expect(check['status'], 'complete');
     final inspected = await project.inspectObject(root.uri.toString(), root.uri.toString(), '/components/schemas/Stored');
     expect(inspected['references'].single['targetResource'], File('${directory.path}/relocated.json').uri.toString());
+    final staticReference = await project.referencePage(root.uri.toString(), File('${directory.path}/relocated.json').uri.toString(), '');
+    expect(staticReference['references'][0]['keyword'], r'$dynamicRef');
+    expect(staticReference['references'][0]['dynamic'], isNull);
+    expect(staticReference['references'][0]['target']['pointer'], '/\$defs/Leaf');
   });
 }

@@ -136,6 +136,136 @@ function fixture(version,json=false){
  return {snapshot:'copy',root,resources:[{id:root,text,generation:4,identity:'root'},{id:part,text:json?JSON.stringify(external,null,2):YAML.stringify(external),generation:7,identity:'part'}],contexts:[{root,resources:[root,part]}],target:{root,resource:root,generation:4,pointer}};
 }
 function apply(input,plan){return input.resources.map(r=>{let text=r.text;for(const edit of plan.edits.filter(e=>e.buffer===r.id).sort((a,b)=>b.start-a.start)){assert.equal(text.slice(edit.start,edit.end),edit.expected);text=text.slice(0,edit.start)+edit.replacement+text.slice(edit.end);}return {...r,text};});}
+for(const version of ['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const json of [false,true])for(const cross of [false,true])for(const dynamic of [false,true])
+test(`complete nested resource extraction preserves canonical identities and evaluation ${version} json=${json} cross=${cross} dynamic=${dynamic}`,async()=>{
+ const {schemaAddress}=require('./dist/reference_graph.cjs'),{coldGraph}=require('./dist/reference_selection.cjs');
+ const ext=json?'json':'yaml',root='file:///project/source/api.'+ext,destination=cross?'file:///project/destination/models.'+ext:root,entry='file:///project/consumer.'+ext;
+ const at='/components/schemas/Owner/properties/child',to='/components/schemas/Stored',dialect='https://json-schema.org/draft/2020-12/schema';
+ const schema={$id:'node',$schema:dialect,$anchor:'public',...(dynamic?{$dynamicAnchor:'node'}:{}),type:'object',
+  $defs:{Leaf:{$id:'leaf',$schema:dialect,$anchor:'leaf',type:'integer',minimum:'EXACT'}},
+  properties:{n:{$dynamicRef:'leaf#leaf'},child:{[dynamic?'$dynamicRef':'$ref']:dynamic?'#node':'#public'}},required:['n'],unevaluatedProperties:false,
+  description:'[Guide](guide.md) 雪','x-unrelated':{$ref:'literal',n:'EXACT'}};
+ const api=schemas=>({openapi:version,info:{title:'Resources',version:'1'},paths:{},components:{schemas}});
+ const source=api({Owner:{$id:'https://schemas.invalid/parent/',type:'object',properties:{child:schema}}});
+ const render=value=>(json?JSON.stringify(value,null,2):'# Keep resource comments\r\n'+YAML.stringify(value).replaceAll('\n','\r\n')).replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const resources=[{id:root,text:render(source),generation:1},...(cross?[{id:destination,text:render({...api({}),jsonSchemaDialect:dialect}),generation:2}]:[]),
+  {id:entry,text:render(api({Independent:{$ref:'source/api.'+ext+'#'+at+'/$defs/Leaf'}})),generation:3}];
+ const input={root,snapshot:'nested-resource',resources,contexts:[{root,resources:[root]},...(cross?[{root:destination,resources:[destination]}]:[]),{root:entry,resources:[entry,root]}],target:{root,resource:root,pointer:at,generation:1},name:'Stored',destinationResource:destination};
+ const samples=['{"n":9007199254740993,"child":{"n":9007199254740994}}','{"n":9007199254740992}','{"n":9007199254740993,"child":{"n":"bad"}}'];
+ const evaluate=resources=>evaluateSchemas({root,resources,snapshot:'resource-oracle',runtimeInstances:samples.map(text=>({subject:'response-body',location:'resource',text,schema:{resource:root,pointer:at}}))});
+ const beforeGraph=createGraph({root,resources}).graph,before=await evaluate(resources);
+ assert.equal(before.complete,true,JSON.stringify(before.findings));assert.deepEqual(before.runtimeEvaluations.map(result=>result.valid),[true,false,false]);
+ const plan=planExtract(input),afterResources=apply(input,plan),afterGraph=createGraph({root,resources:afterResources}).graph;
+ assert.equal(afterGraph.issues.length,0);
+ for(const old of beforeGraph.scopesFor('schema').filter(scope=>scope.pointer===at||scope.pointer.startsWith(at+'/'))){
+  const next=afterGraph.scopeAs(destination,to+old.pointer.slice(at.length),'schema');
+  assert.equal(schemaAddress(next),schemaAddress(old));assert.equal(next.dialect,old.dialect);
+ }
+ const copied=new SourceDocument(afterResources.find(resource=>resource.id===destination).text,destination);
+ assert.equal(copied.node(to+'/$id').value,'https://schemas.invalid/parent/node');
+ assert.equal(copied.node(to+'/$defs/Leaf/$id').value,'leaf');assert.equal(copied.node(to+'/$schema').value,dialect);
+ assert.equal(copied.node(to+'/description').value,schema.description);assert(copied.dataJson(to+'/x-unrelated').includes('9007199254740993.00'));
+ assert.equal(afterGraph.identities.get('https://schemas.invalid/parent/node').length,1);
+ assert.equal(afterGraph.anchors.get('https://schemas.invalid/parent/node#public').length,1);
+ for(const rootId of [root,entry]){
+  const cold=coldGraph(rootId,afterResources);assert.equal(cold.issues.length,0);
+  if(rootId===entry){const edge=cold.referenceAs(entry,'/components/schemas/Independent','$ref','schema');assert.equal(edge.targetResource,destination);assert.equal(edge.targetPointer,to+'/$defs/Leaf');}
+ }
+ const after=await evaluate(afterResources);assert.equal(after.complete,true,JSON.stringify(after.findings));assert.deepEqual(after.runtimeEvaluations.map(result=>result.valid),[true,false,false]);
+ assert.equal(resources[0].text,render(source));
+});
+for(const version of ['3.1.2','3.2.1'])for(const json of [false,true])test(`dynamic candidates alone do not authorize an added binding frame ${version} ${json}`,()=>{
+ const root='file:///project/scope.'+(json?'json':'yaml'),at='/components/schemas/Owner/properties/child';
+ const data={openapi:version,info:{title:'Scope proof',version:'1'},paths:{},components:{schemas:{Owner:{$id:'https://schemas.invalid/owner',$dynamicAnchor:'node',
+  properties:{child:{$id:'child',$dynamicAnchor:'node',type:'object',properties:{next:{$dynamicRef:'#node'}}}}}}}};
+ const text=json?JSON.stringify(data):YAML.stringify(data),input={root,snapshot:'binding-frame',resources:[{id:root,text,generation:1}],contexts:[{root,resources:[root]}],target:{root,resource:root,pointer:at,generation:1},name:'Stored'};
+ const graph=createGraph(input).graph;assert.equal(graph.issues.length,0);assert.equal(graph.dynamicAnchors.get('node').length,2);
+ assert.throws(()=>planExtract(input),error=>error.code==='refactor.schema.dynamic-scope');assert.equal(input.resources[0].text,text);
+});
+for(const version of ['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const json of [false,true])for(const id of ['https://schemas.invalid/public','./public'])for(const cross of [false,true])
+test(`complete definition movement retains authored IDs, anchors and static recursion ${version} ${json} ${id} cross=${cross}`,async()=>{
+ const {coldGraph}=require('./dist/reference_selection.cjs'),ext=json?'json':'yaml',root='file:///project/source/api.'+ext,destination=cross?'file:///project/deep/models.'+ext:root;
+ const model={$id:id,$anchor:'public',type:'object',properties:{n:{type:'integer'},next:{$ref:'#public'}},required:['n']};
+ const api=schemas=>({openapi:version,info:{title:'Move identity',version:'1'},paths:{},components:{schemas}}),render=data=>json?JSON.stringify(data):YAML.stringify(data);
+ const resources=[{id:root,text:render(api({Public:model,Use:{$ref:'#/components/schemas/Public'}})),generation:1},...(cross?[{id:destination,text:render(api({})),generation:2}]:[])];
+ const input={root,resources,snapshot:'identified-move',contexts:[{root,resources:resources.map(resource=>resource.id)},...(cross?[{root:destination,resources:[destination]}]:[])],target:{root,resource:root,pointer:'/components/schemas/Public',generation:1},name:'Stored',destinationResource:destination};
+ const plan=planMoveDefinition(input),after=apply(input,plan),cold=coldGraph(root,after),stored=new SourceDocument(after.find(resource=>resource.id===destination).text,destination);
+ assert.equal(cold.issues.length,0);assert.equal(cold.scope(destination,'/components/schemas/Stored').base,new URL(id,root).href);
+ assert.equal(stored.node('/components/schemas/Stored/$id').value,cross&&id==='./public'?new URL(id,root).href:id);
+ assert.equal(stored.node('/components/schemas/Stored/properties/next/$ref').value,'#public');
+ assert.equal(cold.identities.get(new URL(id,root).href).length,1);assert.equal(cold.anchors.get(new URL(id,root).href+'#public').length,1);
+ const runtimeInstances=['{"n":1,"next":{"n":2}}','{"n":1,"next":{"n":"bad"}}'].map(text=>({subject:'response-body',location:'recursive',text,schema:{resource:root,pointer:'/components/schemas/Use'}}));
+ for(const values of [resources,after]){const result=await evaluateSchemas({root,resources:values,snapshot:'move-oracle',runtimeInstances});assert.equal(result.complete,true,JSON.stringify(result.findings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,false]);}
+});
+for(const version of ['3.1.2','3.2.1'])test(`same-resource named anchor extraction retains canonical binding ${version}`,()=>{
+ const root='file:///project/anchors.json',at='/components/schemas/Owner/properties/child',schema={$anchor:'named',type:'integer'};
+ const data={openapi:version,info:{title:'Anchors',version:'1'},paths:{},components:{schemas:{Owner:{properties:{child:schema}},Use:{$ref:'#named'}}}};
+ const input={root,snapshot:'anchor',resources:[{id:root,text:JSON.stringify(data),generation:1}],contexts:[{root,resources:[root]}],target:{root,resource:root,pointer:at,generation:1},name:'Stored'};
+ const after=apply(input,planExtract(input)),graph=createGraph({root,resources:after}).graph;
+ assert.equal(graph.anchors.get(root+'#named').length,1);assert.equal(graph.referenceAs(root,'/components/schemas/Use','$ref','schema').targetPointer,'/components/schemas/Stored');
+ const destination='file:///project/models.json',cross={...input,destinationResource:destination,resources:[...input.resources,{id:destination,text:JSON.stringify({...data,components:{schemas:{}}}),generation:1}]};
+ assert.throws(()=>planExtract(cross),error=>error.code==='refactor.copy.schema-resource');
+});
+for(const version of ['3.1.2','3.2.1'])for(const json of [false,true])for(const relative of [false,true])test(`independently interpreted literal resources require faithful identifier ownership ${version} ${json} relative=${relative}`,()=>{
+ const ext=json?'json':'yaml',root='file:///project/source/api.'+ext,destination='file:///project/destination/api.'+ext,at='/components/schemas/Container';
+ const payload={$id:relative?'data':'https://schemas.invalid/data',$anchor:'data',type:'integer'},api=schemas=>({openapi:version,info:{title:'Independent resource',version:'1'},paths:{},components:{schemas}}),render=data=>json?JSON.stringify(data):YAML.stringify(data);
+ const resources=[{id:root,text:render(api({Container:{const:payload},Independent:{$ref:'#'+at+'/const'}})),generation:1},{id:destination,text:render(api({})),generation:1}];
+ const input={root,resources,snapshot:'independent-identity',contexts:[{root,resources:[root]},{root:destination,resources:[destination]}],target:{root,resource:root,generation:1,pointer:at},destinationResource:destination,name:'Stored'};
+ if(relative){assert.throws(()=>planMoveDefinition(input),error=>error.code==='refactor.literal.ownership');return;}
+ const after=apply(input,planMoveDefinition(input)),graph=createGraph({root,resources:after}).graph;
+ assert.equal(graph.issues.length,0);assert.equal(graph.identities.get(payload.$id).length,1);
+ assert.equal(graph.referenceAs(root,'/components/schemas/Independent','$ref','schema').targetPointer,'/components/schemas/Stored/const');
+ assert.equal(new SourceDocument(after[1].text,destination).dataJson('/components/schemas/Stored/const'),new SourceDocument(resources[0].text,root).dataJson(at+'/const'));
+});
+for(const version of ['2.0','3.0.4'])for(const json of [false,true])test(`older families retain literal identifier-like payloads when extracting ${version} ${json}`,()=>{
+ const swagger=version==='2.0',root='file:///project/legacy.'+(json?'json':'yaml'),at='/paths/~1/get/responses/200'+(swagger?'/schema':'/content/application~1json/schema');
+ const schema={type:'integer','x-data':{$id:'literal',$anchor:'literal',$dynamicRef:'literal'}},response={description:'Value',...(swagger?{schema}:{content:{'application/json':{schema}}})};
+ const data={...(swagger?{swagger:version}:{openapi:version}),info:{title:'Legacy control',version:'1'},paths:{'/':{get:{responses:{200:response}}}}};
+ const input={root,resources:[{id:root,text:json?JSON.stringify(data):YAML.stringify(data),generation:1}],snapshot:'legacy-identity',contexts:[{root,resources:[root]}],target:{root,resource:root,generation:1,pointer:at},name:'Stored'};
+ const after=apply(input,planExtract(input)),graph=createGraph({root,resources:after}).graph;
+ assert.equal(graph.issues.length,0);assert.equal(graph.identities.has('file:///project/literal'),false);
+ assert.deepEqual(new SourceDocument(after[0].text,root).node((swagger?'/definitions':'/components/schemas')+'/Stored/x-data').value,schema['x-data']);
+});
+test('relocation cannot introduce conflicting identities from separately captured entry graphs',()=>{
+ const root='file:///project/a.json',destination='file:///project/b.json',schema={$id:'https://schemas.invalid/duplicate',$anchor:'public',type:'integer'};
+ const api=schemas=>JSON.stringify({openapi:'3.2.1',info:{title:'Collision',version:'1'},paths:{},components:{schemas}});
+ const resources=[{id:root,text:api({Public:schema}),generation:1},{id:destination,text:api({Existing:schema}),generation:1}],frozen=resources.map(resource=>resource.text);
+ const input={root,resources,snapshot:'collision',contexts:[{root,resources:[root]},{root:destination,resources:[destination]}],target:{root,resource:root,generation:1,pointer:'/components/schemas/Public'},name:'Stored',destinationResource:destination};
+ assert.throws(()=>planMoveDefinition(input),error=>error.code==='refactor.proof');assert.deepEqual(resources.map(resource=>resource.text),frozen);
+});
+for(const version of ['3.1.2','3.2.1'])for(const json of [false,true])test(`complete independently referenced schema roots can be extracted without duplicate IDs ${version} ${json}`,async()=>{
+ const {coldGraph}=require('./dist/reference_selection.cjs'),ext=json?'json':'yaml',root='file:///project/api.'+ext,external='file:///project/schemas/independent.'+ext;
+ const data={openapi:version,info:{title:'Independent root',version:'1'},paths:{},components:{schemas:{Use:{$ref:'schemas/independent.'+ext}}}};
+ const schema={$id:'https://schemas.invalid/independent',$schema:'https://json-schema.org/draft/2020-12/schema',$anchor:'public',type:'integer',minimum:1};
+ const render=value=>json?JSON.stringify(value):YAML.stringify(value),resources=[{id:root,text:render(data),generation:1},{id:external,text:render(schema),generation:1}];
+ const input={root,resources,snapshot:'independent-root',contexts:[{root,resources:[root,external]}],target:{root,resource:external,pointer:'',generation:1},name:'Stored',destinationResource:root};
+ const after=apply(input,planExtract(input)),graph=coldGraph(root,after);
+ assert.equal(graph.issues.length,0);assert.equal(graph.identities.get(schema.$id).length,1);
+ assert.equal(graph.referenceAs(root,'/components/schemas/Use','$ref','schema').targetPointer,'/components/schemas/Stored');
+ assert.equal(new SourceDocument(after[0].text,root).node('/components/schemas/Stored/$id').value,schema.$id);
+ for(const values of [resources,after]){const result=await evaluateSchemas({root,resources:values,snapshot:'independent-root-oracle',runtimeInstances:['1','0'].map(text=>({subject:'response-body',location:'independent',text,schema:{resource:root,pointer:'/components/schemas/Use'}}))});assert.equal(result.complete,true,JSON.stringify(result.findings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,false]);}
+});
+for(const identified of [false,true])test(`partial independent file-root resources are not anonymous native contexts identified=${identified}`,()=>{
+ const root='file:///project/api.json',external='file:///project/schema.json';
+ const resources=[{id:root,generation:1,text:JSON.stringify({openapi:'3.2.1',info:{title:'Boundary',version:'1'},paths:{},components:{schemas:{Use:{$ref:'schema.json'}}}})},
+  {id:external,generation:1,text:JSON.stringify({...(identified?{$id:'https://schemas.invalid/root'}:{$schema:'https://json-schema.org/draft/2020-12/schema'}),properties:{child:{type:'integer'}}})}];
+ const input={root,resources,snapshot:'independent-boundary',contexts:[{root,resources:[root,external]}],target:{root,resource:external,pointer:'/properties/child',generation:1},destinationResource:root,name:'Child'};
+ assert.throws(()=>planExtract(input),error=>error.code==='refactor.copy.schema-resource');
+});
+for(const version of ['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const json of [false,true])test(`unrelated dynamic resources do not block a proved static dynamicRef extraction ${version} ${json}`,async()=>{
+ const ext=json?'json':'yaml',root='file:///project/source/api.'+ext,destination='file:///project/deep/models.'+ext;
+ const schema={$dynamicRef:'#/components/schemas/Bound',maximum:10},api=schemas=>({openapi:version,info:{title:'Static and dynamic',version:'1'},paths:{},components:{schemas}});
+ const data={...api({Bound:{type:'integer',minimum:1},Dynamic:{$id:'https://schemas.invalid/dynamic',$dynamicAnchor:'node',properties:{next:{$dynamicRef:'#node'}}}}),paths:{'/items':{get:{responses:{200:{description:'Value',content:{'application/json':{schema}}}}}}}};
+ const render=value=>json?JSON.stringify(value):YAML.stringify(value),resources=[{id:root,text:render(data),generation:1},{id:destination,text:render(api({})),generation:1}];
+ const input={root,resources,snapshot:'static-with-unrelated-dynamic',contexts:[{root,resources:[root]},{root:destination,resources:[destination]}],target:{root,resource:root,generation:1,pointer},name:'Stored',destinationResource:destination};
+ const after=apply(input,planExtract(input)),graph=createGraph({root,resources:after}).graph;
+ assert.equal(graph.issues.length,0);assert.equal(graph.referenceAs(destination,'/components/schemas/Stored','$dynamicRef','schema').dynamic,undefined);
+ assert.equal(graph.referenceAs(root,'/components/schemas/Dynamic/properties/next','$dynamicRef','schema').dynamic.anchor,'node');
+ for(const values of [resources,after]){
+  const result=await evaluateSchemas({root,resources:values,snapshot:'static-oracle',runtimeInstances:['1','0','11','"1"'].map(text=>({subject:'response-body',location:'static',text,schema:{resource:root,pointer}}))});
+  assert.equal(result.complete,true,JSON.stringify(result.findings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,false,false,false]);
+ }
+});
 for(const version of ['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const json of [false,true])for(const dialect of [undefined,'https://json-schema.org/draft/2020-12/schema'])test(`${version} ${json?'JSON':'YAML'} inline preserves a static dynamicRef and explicit dialect=${dialect!==undefined}`,async()=>{
  const root='file:///project/api.'+(json?'json':'yaml'),data={openapi:version,info:{title:'Static reference',version:'api'},paths:{},components:{schemas:{
   Bound:{type:'integer',minimum:'EXACT'},Model:{...(dialect?{$schema:dialect}:{}),$dynamicRef:'#/components/schemas/Bound'},Use:{$ref:'#/components/schemas/Model'}
@@ -149,6 +279,17 @@ for(const version of ['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const json of
  const evaluate=resources=>evaluateSchemas({...input,resources,runtimeInstances:values.map(text=>({subject:'response-body',location:'application/json',text,schema:{resource:root,pointer:'/components/schemas/Use'}}))});
  const before=await evaluate(input.resources),converted=await evaluate(after);assert.equal(before.complete,true,JSON.stringify(before.findings));assert.equal(converted.complete,true,JSON.stringify(converted.findings));assert.deepEqual(converted.runtimeEvaluations.map(v=>v.valid),before.runtimeEvaluations.map(v=>v.valid));
  assert.equal(input.resources[0].text,text);assert.equal(analyse({...input,resources:after}).status,'complete');
+});
+for(const version of ['3.1.2','3.2.1'])for(const json of [false,true])test(`same-file inline preserves documentation across different schema URI bases ${version} ${json}`,async()=>{
+ const root='file:///project/api.'+(json?'json':'yaml'),at='/components/schemas/Owner/properties/child';
+ const data={openapi:version,info:{title:'Inline URI base',version:'1'},paths:{},components:{schemas:{Model:{type:'integer',description:'[Guide](guide.md)'},Owner:{$id:'https://schemas.invalid/owner',properties:{child:{$ref:root+'#/components/schemas/Model'}}}}}};
+ const text=json?JSON.stringify(data):YAML.stringify(data),input={root,resources:[{id:root,text,generation:1}],snapshot:'inline-base',contexts:[{root,resources:[root]}],target:{root,resource:root,generation:1,pointer:at}};
+ const after=apply(input,planInline(input)),doc=new SourceDocument(after[0].text,root);
+ assert(doc.node(at+'/description').value.includes('file:///project/guide.md'));assert.equal(doc.node('/components/schemas/Model/description').value,'[Guide](guide.md)');
+ for(const resources of [input.resources,after]){
+  const result=await evaluateSchemas({root,resources,snapshot:'inline-base-oracle',runtimeInstances:['1','"1"'].map(text=>({subject:'response-body',location:'inline',text,schema:{resource:root,pointer:at}}))});
+  assert.equal(result.complete,true,JSON.stringify(result.findings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,false]);
+ }
 });
 for(const version of ['3.1.2','3.2.1'])for(const json of [false,true])for(const external of [false,true])test(`inline preserves acyclic internal references without expanding their shared targets ${version} ${json} external=${external}`,async()=>{
  const ext=json?'json':'yaml',source='file:///project/source/root.'+ext,destination=external?'file:///project/destination/root.'+ext:source;
@@ -465,7 +606,7 @@ for(const version of ['3.1.2','3.2.1'])for(const json of [false,true])test(`cros
   assert.equal(graph.references.find(ref=>ref.resource===consumer).targetPointer,'/components/schemas/Node/properties/value');
   const copied=new SourceDocument(resources.find(r=>r.id===destination).text,destination);
   assert(copied.dataJson('/components/schemas/Node/examples').includes('900719925474099312345'));
-  if(identified)assert.equal(copied.node('/components/schemas/Node/$id').value,'file:///project/schemas/node');
+  if(identified)assert.equal(copied.node('/components/schemas/Node/$id').value,'schemas/node');
   const after=await evaluateSchemas({...input,resources});assert.equal(after.complete,true,JSON.stringify(after.findings));
   assert.deepEqual(after.evaluations.filter(e=>e.interpretation!=='schema-annotation').map(e=>e.valid),[true,false]);
   assert.equal(input.resources[1].text,render(b));
