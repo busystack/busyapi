@@ -1,5 +1,6 @@
+import {rawXmlBytes,xmlCharacters,parseXml} from './xml_wire';
 import {decodeXml,encodeXml,type XmlBinding} from './xml_model';
-import {parseLinkset,validateLinkset,encodeLinkset} from './linkset';
+import {parseLinkset,validateLinkset,encodeLinkset,validateLinksetProfile} from './linkset';
 import {SourceDocument,SourceError} from './document';
 import {mediaTypes} from './media_types';
 import {runtimeBinaryMedia,type BinaryDocuments} from './runtime_binary';
@@ -66,6 +67,7 @@ export function decodeRuntimeMedia(text:string,id:string,contentType?:string,bas
  const type=contentType===undefined?undefined:mediaTypes(contentType,false);
  if(type&&type.length!==1)throw new SourceError('runtime.media.type','Runtime content requires one concrete media type');
  const kind=contentType===undefined?'json':runtimeMediaKind(contentType);
+ if(kind==='linkset'||kind==='linkset-json')validateLinksetProfile(type?.[0].parameters.get('profile'));
  // OAS 3.2 §4.19.2.3 applies to each MIME leaf, including leaves decoded
  // from captured bytes. An octet projection is not a Unicode serialization.
  if(textSerialization==='unicode'){
@@ -79,12 +81,17 @@ export function decodeRuntimeMedia(text:string,id:string,contentType?:string,bas
   if(doc.issues.length)throw doc.issues[0];
   return doc;
  };
+ if(['xml','linkset','linkset-json'].includes(kind)&&opaque==='octets'){
+  const wire=bytes??(kind==='xml'?rawXmlBytes(text,type?.[0].parameters.get('charset')):runtimeMediaBytes(text,false));validateRuntimeMediaSyntax(wire,id,contentType!);
+  return {document:parse(JSON.stringify(wire.toString('latin1'))),kind:'octets'};
+ }
  if(kind==='xml'&&opaque!=='file'){
   if(!xmlBinding)throw new SourceError('runtime.xml.model.unsupported','XML requires its captured schema binding',[0,0],'unsupported');
-  return {document:decodeXml(bytes??runtimeMediaBytes(text,false),id,xmlBinding,type?.[0].parameters.get('charset')),kind};
+  return {document:decodeXml(bytes??rawXmlBytes(text,type?.[0].parameters.get('charset')),id,xmlBinding,type?.[0].parameters.get('charset')),kind};
  }
  if(opaque==='file'){
-  if(textSerialization==='unicode')decodeRuntimeMedia(text,id+'/file-media',contentType,base64,'unsupported',textSerialization);
+  if(['xml','linkset','linkset-json'].includes(kind))validateRuntimeMediaSyntax(bytes??(kind==='xml'?rawXmlBytes(text,type?.[0].parameters.get('charset')):runtimeMediaBytes(text,false)),id,contentType!);
+  if(textSerialization==='unicode')validateRuntimeMediaSyntax(bytes??runtimeMediaBytes(text,false),id+'/file-media',contentType!,textSerialization);
   if(bytes===undefined)runtimeMediaBytes(text,false);
   return {document:parse('null'),kind:'file'};
  }
@@ -177,17 +184,26 @@ export function decodeRuntimeMedia(text:string,id:string,contentType?:string,bas
 export function encodeRuntimeMedia(document:SourceDocument,contentType:string,header=false,xmlBinding?:XmlBinding):Buffer {
  if(document.issues.length)throw document.issues[0];
  const kind=runtimeMediaKind(contentType);
+ if(kind==='linkset'||kind==='linkset-json')validateLinksetProfile(mediaTypes(contentType,false)[0].parameters.get('profile'));
  if(kind==='xml'){
   if(!xmlBinding)throw new SourceError('runtime.xml.model.unsupported','XML requires its captured schema binding',[0,0],'unsupported');
   const charset=mediaTypes(contentType,false)[0].parameters.get('charset');
-  if(charset&&charset!=='utf-8'&&charset!=='utf8')throw new SourceError('runtime.xml.encoder.charset','Typed XML generation requires UTF-8',[0,0],'unsupported');
-  return encodeXml(document,xmlBinding);
+  return encodeXml(document,xmlBinding,charset,header);
  }
  if(kind==='linkset')return runtimeMediaBytes(encodeLinkset(document,header),false);
  if(kind==='linkset-json'){
-  if(header)throw new SourceError('runtime.linkset.header','Linkset JSON cannot be serialized as an HTTP Link field');
-  validateLinkset(document);return runtimeMediaBytes(document.dataJson(''),false);
+  validateLinkset(document);return runtimeMediaBytes(header?document.dataJson('').replace(/[^\x00-\x7f]/g,character=>'\\u'+character.charCodeAt(0).toString(16).padStart(4,'0')):document.dataJson(''),false);
  }
- if(kind==='json')return runtimeMediaBytes(document.dataJson(''),false);
+ if(kind==='json')return runtimeMediaBytes(header?document.dataJson('').replace(/[^\x00-\x7f]/g,character=>'\\u'+character.charCodeAt(0).toString(16).padStart(4,'0')):document.dataJson(''),false);
  throw new SourceError('runtime.media.encoder.unsupported','This media has no shared typed encoder',[0,0],'unsupported');
+}
+
+/** Encoded-string/file schemas own bytes rather than a modeled media projection.
+ * Prove document structure independently, then let their original schema check
+ * the encoded value. This never substitutes a successful opaque schema result. */
+export function validateRuntimeMediaSyntax(bytes:Buffer,id:string,contentType:string,textSerialization?:TextSerialization):void {
+ if(runtimeMediaKind(contentType)==='xml'){
+  parseXml(xmlCharacters(bytes,mediaTypes(contentType,false)[0].parameters.get('charset')));return;
+ }
+ decodeRuntimeMedia(bytes.toString('base64'),id,contentType,true,'unsupported',textSerialization);
 }

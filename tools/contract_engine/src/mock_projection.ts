@@ -9,8 +9,8 @@ import type {RuntimeHeaderTarget} from './runtime_headers';
 
 export type SchemaLocation={resource:string;pointer:string};
 export type SourceLocation=SchemaLocation&{range:Range};
-export type NativeMockCheck={complete:boolean;valid:boolean;findings:Record<string,unknown>[]};
-export type NativeRuntimeEvaluation={subject:string;location:string;complete:boolean;valid:boolean;chosen?:number};
+export type NativeMockCheck={complete:boolean;valid:boolean;findings:Record<string,unknown>[];evaluations?:NativeRuntimeEvaluation[]};
+export type NativeRuntimeEvaluation={subject:string;location:string;complete:boolean;valid:boolean;chosen?:number;modeledData?:string};
 export type NativeRuntimeCheck=NativeMockCheck&{evaluations:NativeRuntimeEvaluation[]};
 export type NativeMedia={mediaType:string;schema?:SchemaLocation;itemSchema?:SchemaLocation;mediaOwner?:RuntimeMediaTarget;formOwner?:RuntimeFormTarget};
 export type NativeRuntimeInstance={subject:string;location:string;text:string;schema?:SchemaLocation;itemSchema?:SchemaLocation;parameter?:SchemaLocation;media?:RuntimeMediaTarget;mediaType?:string;mediaBase64?:boolean;unicodeSerialization?:boolean;textSerialization?:TextSerialization;form?:RuntimeFormTarget;alternatives?:string[];swaggerHeader?:SwaggerHeaderTarget;header?:RuntimeHeaderTarget};

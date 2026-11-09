@@ -41,7 +41,7 @@ part 'external_examples.dart';
 
 // Semantic revisions are part of captured evaluator ownership, alongside the
 // wire protocol and snapshot identity.
-const _schemaProducerVersion = '1.18.0+63';
+const _schemaProducerVersion = '1.18.0+65';
 
 // Keep native-isolate IO wakeups bounded without serializing every resource.
 // Each batch finishes (including failures) before access can be released.
@@ -3333,6 +3333,7 @@ class BusyProject {
         'root-remove' => 'Remove contract root',
         'execution-environment' ||
         'execution-environment-create' => 'Set up request environment',
+        'execution-case' || 'execution-case-create' => 'Save request case',
         _ => 'Rename component',
       },
       transitions: plan.transitions,

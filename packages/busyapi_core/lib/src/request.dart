@@ -76,6 +76,7 @@ bool isInspectableTextMedia(String? contentType) {
     final type = ContentType.parse(contentType).mimeType;
     return type.startsWith('text/') ||
         type == 'application/json' ||
+        type == 'application/linkset' ||
         type.endsWith('+json') ||
         type.contains('xml') ||
         type.contains('jsonl') ||
@@ -149,6 +150,18 @@ class RequestFormField {
 
 class RequestBodyDraft {
   bool get modeled => false;
+  ProjectAccess? get fileAccess => null;
+  factory RequestBodyDraft.approvedFile({required String mediaType, required String file, required ProjectAccess access}) = _ApprovedFileRequestBody;
+  bool get materializePreview {
+    final essence = mediaType?.split(';').first.trim().toLowerCase();
+    return kind == RequestBodyKind.form || usesEngineMediaCodec || capturedExample != null ||
+        kind == RequestBodyKind.binaryFile && (essence == 'application/xml' || essence == 'text/xml' || essence?.endsWith('+xml') == true || essence == 'application/linkset' || essence == 'application/linkset+json') ||
+        kind == RequestBodyKind.raw && (essence == 'application/linkset' || essence == 'application/linkset+json');
+  }
+  bool get usesEngineMediaCodec {
+    final essence = mediaType?.split(';').first.trim().toLowerCase();
+    return modeled || kind == RequestBodyKind.raw && capturedExample == null && (essence == 'application/xml' || essence == 'text/xml' || essence?.endsWith('+xml') == true);
+  }
   factory RequestBodyDraft.modeled({required String mediaType, required String json}) = _ModeledRequestBody;
   const RequestBodyDraft.none()
     : kind = RequestBodyKind.none,
@@ -264,6 +277,13 @@ class _ModeledRequestBody extends RequestBodyDraft {
   bool get modeled => true;
 }
 
+class _ApprovedFileRequestBody extends RequestBodyDraft {
+  _ApprovedFileRequestBody({required String mediaType, required String file, required ProjectAccess access})
+      : fileAccess = access, super.binaryFile(mediaType:mediaType,file:file);
+  @override
+  final ProjectAccess fileAccess;
+}
+
 class OperationRequestDraft {
   const OperationRequestDraft({
     required this.planIdentity,
@@ -283,6 +303,7 @@ class OperationRequestDraft {
   final String? environment;
   final int? _selectedServer;
   int get server => _selectedServer ?? 0;
+  int? get selectedServer => _selectedServer;
   final int? securityAlternative;
   final Map<String, RequestValue> parameters;
   final List<RequestHeaderValue> headers;
@@ -311,6 +332,13 @@ class PreparedRequestBody {
        partSchemas = Map.unmodifiable(partSchemas),
        partMediaTypes = Map.unmodifiable(partMediaTypes);
   final int length;
+  final _inspection = BytesBuilder(copy: true);
+  int _inspectionLength = 0;
+  Uint8List get inspectionBytes => Uint8List.fromList(_inspection.toBytes());
+  void _recordInspection(List<int> bytes) {
+    final count = min(bytes.length, 16384 - _inspectionLength);
+    if (count > 0) { _inspection.add(bytes.take(count).toList());_inspectionLength += count; }
+  }
   final Stream<List<int>> Function() open;
   final String? mediaType;
   final String? formInstance;
@@ -343,7 +371,9 @@ class PreparedContractRequest {
     required this.inactivityTimeout,
     required this.securityAlternative,
     required this.tls,
+    this.mediaParameters = const {},
   });
+  final Map<String, String> mediaParameters;
   final String runId, method, displayUri;
   final OperationRequestPlan plan;
   final String? environment;
@@ -552,6 +582,13 @@ class ContractRequestBuilder {
         if (entry.value.present && entry.value.json)
           entry.key: entry.value.text,
     });
+    final contentParameters = await plan.contentParameterValues({
+      for (final entry in draft.parameters.entries)
+        if (entry.value.present && entry.value.json) entry.key: entry.value.text,
+    }, rawValues: {
+      for (final entry in draft.parameters.entries)
+        if (entry.value.present && !entry.value.json && entry.value.representation != RequestValueRepresentation.serializedParameter) entry.key: entry.value.text,
+    }, cancellation: cancellation);
     plan.ensureCurrentPreparation();
     for (final value
         in environment?.headers.entries ??
@@ -612,6 +649,8 @@ class ContractRequestBuilder {
               value,
               supplied.text,
               structured: supplied.json,
+              mediaValue: contentParameters[OperationRequestDraft.parameterKey(location, name)]?.$1,
+              mediaValueEncoded: contentParameters[OperationRequestDraft.parameterKey(location, name)]?.$2 ?? false,
             );
       if (serialized.isEmpty && raw['required'] == true) {
         throw CoreFailure(
@@ -666,7 +705,7 @@ class ContractRequestBuilder {
             name,
             serialized.single.$2,
             allowHorizontalTab:
-                raw['family'] == '2.0' && raw['collectionFormat'] == 'tsv',
+                raw['family'] == '2.0' && raw['collectionFormat'] == 'tsv' || contentParameters.containsKey(OperationRequestDraft.parameterKey(location,name)),
           );
           break;
         case 'cookie':
@@ -812,7 +851,7 @@ class ContractRequestBuilder {
       plan.ensureBodyExample(example);
     }
     if (draft.body.mediaType != null && draft.body.capturedExample == null &&
-        draft.body.kind != RequestBodyKind.binaryFile && !draft.body.modeled) {
+        draft.body.kind != RequestBodyKind.binaryFile && !draft.body.usesEngineMediaCodec) {
       final values = [
         draft.body.text ?? '',
         for (final field in draft.body.fields) ...[field.name, field.value],
@@ -825,11 +864,11 @@ class ContractRequestBuilder {
         validateTextCharset(draft.body.mediaType!, values);
       }
     }
-    if (previewOnly && draft.body.kind == RequestBodyKind.raw && !draft.body.modeled) {
+    if (previewOnly && draft.body.kind == RequestBodyKind.raw && !draft.body.materializePreview) {
       trace?.content(draft.body.capturedExample?.byteLength ??
           ((draft.body.text ?? '').isEmpty ? 0 : 1));
     }
-    final body = previewOnly && !draft.body.modeled
+    final body = previewOnly && !draft.body.materializePreview
         ? (draft.body.kind == RequestBodyKind.none
               ? null
               : PreparedRequestBody(
@@ -913,6 +952,7 @@ class ContractRequestBuilder {
         uri: uri,
         displayUri: displayUri,
         headers: List.unmodifiable(headers),
+        mediaParameters: {for (final entry in contentParameters.entries) entry.key: entry.value.$3},
         body: body,
         sensitiveHeaders: Set.unmodifiable(sensitiveHeaders),
         sensitiveQueryNames: Set.unmodifiable(sensitiveQuery),
@@ -1041,6 +1081,8 @@ class ContractRequestBuilder {
     Object? value,
     String original, {
     bool structured = false,
+    String? mediaValue,
+    bool mediaValueEncoded = false,
     String Function(String)? encodeValue,
   }) {
     final name = parameter['name'] as String;
@@ -1054,7 +1096,7 @@ class ContractRequestBuilder {
         );
       }
       try {
-        validateTextCharset(content.single['mediaType'] as String, [
+        if (mediaValue == null) validateTextCharset(content.single['mediaType'] as String, [
           original,
           if ((content.single['mediaType'] as String).toLowerCase().startsWith(
                 'application/x-www-form-urlencoded',
@@ -1069,9 +1111,9 @@ class ContractRequestBuilder {
           .split(';')
           .first
           .toLowerCase();
-      var representation = original;
+      var representation = mediaValue ?? original;
       final jsonMedia = media == 'application/json' || media.endsWith('+json');
-      if (structured &&
+      if (structured && mediaValue == null &&
           !jsonMedia &&
           media != 'application/x-www-form-urlencoded') {
         if (media != 'text/plain' || value is Map || value is List) {
@@ -1115,13 +1157,13 @@ class ContractRequestBuilder {
         }
         representation = fields.join('&');
       }
-      validateTextCharset(content.single['mediaType'] as String, [
+      if (mediaValue == null) validateTextCharset(content.single['mediaType'] as String, [
         representation,
       ]);
       return [
         (
           name,
-          parameter['in'] == 'path'
+          mediaValueEncoded ? representation : parameter['in'] == 'path'
               ? _encode(representation, false)
               : parameter['in'] == 'query'
               ? _encode(representation, parameter['allowReserved'] == true)
@@ -1813,6 +1855,7 @@ class ContractRequestBuilder {
         declaration!,
         multipart,
         plan.parameterValues,
+        encodeMedia: (name,index,text,media,structured) => plan.formContentValue(body.mediaType!,name,index,text,media,structured,bodyText:body.text,cancellation:cancellation),
         data: data,
         mediaTypes: partMediaTypes,
         transfers: transfers,
@@ -1824,9 +1867,10 @@ class ContractRequestBuilder {
       ];
       for (final (index, part) in form.content.indexed) {
         fieldTransfers[serialized[index]] = part.transfer;
+        if (part.percentEncoded) encodedFields.add(serialized[index]);
       }
       for (final part in form.content) {
-        validateRawTextCharset(part.contentType, [part.text]);
+        if (!part.percentEncoded) validateRawTextCharset(part.contentType, [part.text]);
         if (!multipart) validateTextCharset(body.mediaType!, [part.name, part.text]);
         partTypes[part.name] = part.contentType;
       }
@@ -1909,6 +1953,11 @@ class ContractRequestBuilder {
           _uploadLimit(bytes.length);
           return PreparedRequestBody(bytes.length, () => Stream.value(bytes), mediaType: body.mediaType);
         }
+        if (body.usesEngineMediaCodec) {
+          final bytes = await plan.rawMediaBytes(body.text ?? '', body.mediaType!, requestId: 'raw-media-${_runIdentity()}', cancellation: cancellation);
+          checkOwner();cancellation?.throwIfCancelled();_uploadLimit(bytes.length);
+          return PreparedRequestBody(bytes.length, () => Stream.value(bytes), mediaType: body.mediaType);
+        }
         final mediaType = RequestTextEncoding.rawMediaType(
           body.mediaType!,
           body.text ?? '',
@@ -1967,7 +2016,7 @@ class ContractRequestBuilder {
           body.file!,
           body.mediaType,
           cancellation,
-          checkOwner: checkOwner,
+          checkOwner: checkOwner, projectAccess: body.fileAccess,
         );
       case RequestBodyKind.multipart:
         if (fields.isEmpty && body.files.isEmpty) {
@@ -2346,10 +2395,15 @@ class ContractRequestBuilder {
               requestId: 'nested-form-${_runIdentity()}', cancellation: cancellation);
             final values = await prepareFormValues([], model['declaration'] as Map, false,
               plan.parameterValues, data: data,
+              encodeMedia: (name,index,text,media,structured) async {
+                final values = (model['mediaValues'] as Map?)?[name];
+                if (values is! List || index >= values.length || values[index] is! String) throw CoreFailure('request.multipart.protocol', 'A nested media field omitted its captured encoding.');
+                return values[index] as String;
+              },
               mediaTypes: (model['mediaTypes'] as Map).cast<String, String>());
             final pairs = <(String, String)>[
               for (final part in values.content)
-                (Uri.encodeQueryComponent(part.name), Uri.encodeQueryComponent(part.text)),
+                (Uri.encodeQueryComponent(part.name), part.percentEncoded ? part.text : Uri.encodeQueryComponent(part.text)),
             ];
             for (final group in values.styled) {
               final value = group.value;
@@ -3188,6 +3242,7 @@ class ContractHttpTransport {
                 upload.moveNext(),
                 limit: input.inactivityTimeout,
               )) {
+                input.body!._recordInspection(upload.current);
                 request.add(upload.current);
                 await deadline.wait(
                   request.flush(),
@@ -3834,7 +3889,9 @@ class ContractConformance {
     required this.producer,
     required this.producerVersion,
     required this.coverage,
+    this.modeledData,
   });
+  final String? modeledData;
   final bool complete, valid;
   final List<Map<String, Object?>> findings;
   final String producer, producerVersion;
@@ -4008,6 +4065,8 @@ class ContractRequestExecutor {
         draft,
         request.runId,
         preparedBody: request.body,
+        preparedMediaParameters: request.mediaParameters,
+        preparedHeaders: request.headers,
         cancellation: cancellation,
       );
       cancellation?.throwIfCancelled();
@@ -4104,6 +4163,7 @@ class ContractRequestExecutor {
       producer: value.producer,
       producerVersion: value.producerVersion,
       coverage: value.coverage,
+      modeledData: value.modeledData,
     );
   }
 
@@ -4112,6 +4172,8 @@ class ContractRequestExecutor {
     OperationRequestDraft draft,
     String runId, {
     PreparedRequestBody? preparedBody,
+    Map<String, String> preparedMediaParameters = const {},
+    List<(String,String)>? preparedHeaders,
     RunCancellation? cancellation,
   }) async {
     final instances = <RuntimeSchemaInstance>[];
@@ -4128,6 +4190,13 @@ class ContractRequestExecutor {
           name = parameter['name'] as String,
           value = draft
               .parameters[OperationRequestDraft.parameterKey(location, name)];
+      if (location == 'header' && preparedHeaders != null && (parameter['content'] is List || value?.representation == RequestValueRepresentation.serializedParameter)) {
+        final source = parameter['source'] as Map;
+        final lines = [for (final field in preparedHeaders) if (field.$1.toLowerCase() == name.toLowerCase()) field.$2];
+        if (lines.isNotEmpty) instances.add(RuntimeSchemaInstance(subject:'request-parameter',location:'$location:$name',text:'',parameter:RuntimeParameterTarget(
+          resource:source['resource'] as String,pointer:source['pointer'] as String,values:List.unmodifiable(lines))));
+        continue;
+      }
       if (value == null || !value.present) continue;
       if (value.representation == RequestValueRepresentation.serializedParameter) {
         if (utf8.encode(value.text).length > _evaluationLimit) {
@@ -4186,7 +4255,10 @@ class ContractRequestExecutor {
           _nativeMedia(contentMedia) &&
               value.representation !=
                   RequestValueRepresentation.serializedParameter) {
-        var text = value.text;
+        final nativeContent = ['xml','linkset','linkset-json'].contains(contentMedia?['dataModel']);
+        final bytes = preparedMediaParameters[OperationRequestDraft.parameterKey(location,name)];
+        if (nativeContent && bytes == null) throw CoreFailure('runtime.parameter.preparation', 'Modeled parameter evaluation requires its actual prepared media bytes.');
+        var text = nativeContent ? bytes! : value.text;
         if (value.json && contentMedia?['dataModel'] == 'text') {
           final trimmed = text.trim();
           // Only a JSON string needs decoding. Numeric spelling is already
@@ -4213,6 +4285,7 @@ class ContractRequestExecutor {
               location: '$location:$name',
               text: text,
               mediaType: contentMedia!['mediaType'] as String,
+              mediaBase64: nativeContent,
             ),
           );
         }
@@ -4395,7 +4468,7 @@ class ContractRequestExecutor {
               mediaType: preparedBody.mediaType ?? draft.body.mediaType,
               mediaBase64: true,
               formOccurrence: plan.operation['occurrence'] as String?,
-              rootSchemaAssertions: !dataChecked,
+              rootSchemaAssertions: !dataChecked || draft.body.kind == RequestBodyKind.form,
               fileShapes: preparedBody.fileShapes,
               partSchemas: preparedBody.partSchemas,
               partMediaTypes: preparedBody.partMediaTypes,
@@ -4620,9 +4693,12 @@ class ContractRequestExecutor {
     } on Object {
       validContentType = false;
     }
+    // XML byte decoding, including BOM precedence over MIME, belongs to the Engine.
+    final essence = contentType?.split(';').first.trim().toLowerCase();
+    final xmlMedia = media?['dataModel'] == 'xml' || essence == 'application/xml' || essence == 'text/xml' || essence?.endsWith('+xml') == true;
     final supportedCharset =
         validContentType &&
-        (declaresNoContent ||
+        (declaresNoContent || xmlMedia ||
             schema?['file'] == true ||
             schema?['fileIssue'] != null ||
             media?['dataModel'] == 'event-stream' ||
@@ -4657,7 +4733,7 @@ class ContractRequestExecutor {
         !declaresNoContent &&
         response.receiptComplete &&
         response.decodingComplete &&
-        supportedCharset &&
+        supportedCharset && !xmlMedia &&
         schema?['file'] != true &&
         schema?['fileIssue'] == null &&
         media?['dataModel'] != 'event-stream' &&
@@ -4779,6 +4855,7 @@ class ContractRequestExecutor {
         producer: evaluated.producer,
         producerVersion: evaluated.producerVersion,
         coverage: evaluated.coverage,
+        modeledData: evaluated.modeledData,
       );
     }
     return evaluated;
@@ -4904,6 +4981,7 @@ class ContractRequestExecutor {
   }) async {
     var complete = checksComplete;
     var producer = 'busyapi-runtime', producerVersion = '1';
+    String? modeledData;
     if (instances.isNotEmpty) {
       final result = await plan.evaluateRuntime(
         instances,
@@ -4913,6 +4991,11 @@ class ContractRequestExecutor {
       complete = complete && result['complete'] == true;
       producer = result['producer'] as String;
       producerVersion = result['producerVersion'] as String;
+      for (final value in (result['runtimeEvaluations'] as List).whereType<Map>()) {
+        if (value['subject'] == 'response-body' || value['subject'] == 'request-body') {
+          if (value['modeledData'] is String && utf8.encode(value['modeledData'] as String).length <= 1024 * 1024) modeledData = value['modeledData'] as String;
+        }
+      }
       for (final finding
           in (result['runtimeFindings'] as List).whereType<Map>()) {
         findings.add(Map<String, Object?>.from(finding));
@@ -4926,6 +5009,7 @@ class ContractRequestExecutor {
       producer: producer,
       producerVersion: producerVersion,
       coverage: Map.unmodifiable(coverage),
+      modeledData: modeledData,
     );
   }
 

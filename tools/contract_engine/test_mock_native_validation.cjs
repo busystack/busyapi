@@ -150,3 +150,56 @@ test('native validation retains the pinned callback string projection and origin
  try{assert.deepEqual(await received,{method:'POST',path:'/callback',body:'{"delivered":true}'});}finally{clearTimeout(timer);}
  assert.equal(JSON.stringify(input.capture),original);
 });
+
+for(const mediaType of ['application/xml','application/linkset','application/linkset+json'])test(`modeled mock ${mediaType} emits proved bytes and HTTP Link Header content`,{timeout:20000},async t=>{
+ const xml=mediaType==='application/xml';
+ const data={linkset:[{anchor:'/context',next:[{href:'/p',title:'a,b; c','title*':[{value:'雪',language:'ja'}]}]}]};
+ const schema=xml?{type:'object',xml:{name:'payload'},required:['value'],properties:{value:{type:'number',enum:['__exact__']}}}:{type:'object',enum:[data]};
+ const example=xml?{value:'__exact__'}:data;
+ const document={openapi:'3.2.1',info:{title:'Modeled mock',version:'1'},paths:{'/data':{post:{responses:{200:{description:'OK',
+  headers:{Link:{content:{'application/linkset':{schema:{type:'object',enum:[data]}}},examples:{authored:{dataValue:data}}}},
+  content:{[mediaType]:{schema,examples:{authored:{dataValue:example}}}}
+ }}}}}};
+ const source=JSON.stringify(document).replaceAll('"__exact__"','9007199254740993'),original=source;
+ const {port}=await start(t,mockStart(source)),response=await request(port,'/data');
+ assert.equal(response.status,200,response.text);assert.equal(response.headers['busyapi-response-validation-complete'],'true');
+ assert.match(response.headers.link,/title="a,b; c"/);assert.match(response.headers.link,/title\*=UTF-8'ja'%E9%9B%AA/);
+ if(xml)assert.match(response.text,/>9007199254740993</);
+ else if(mediaType==='application/linkset')assert.match(response.text,/^<\/p>; rel="next"/);
+ else assert.deepEqual(JSON.parse(response.text),data);
+ assert.equal(source,original);
+});
+for(const mediaType of ['application/xml','application/linkset','application/linkset+json'])test(`generated ${mediaType} mock bodies use captured constraints without authored media examples`,{timeout:20000},async t=>{
+ const xml=mediaType==='application/xml',value=xml?{value:'__exact__'}:{linkset:[{next:[{href:'/p'}]}]};
+ const schema=xml?{type:'object',xml:{name:'generated'},const:value,required:['value'],properties:{value:{type:'number'}}}:{type:'object',const:value};
+ const document={openapi:'3.2.1',info:{title:'Generated wire',version:'1'},paths:{'/data':{post:{responses:{200:{description:'OK',content:{[mediaType]:{schema}}}}}}}};
+ const {port}=await start(t,mockStart(JSON.stringify(document).replaceAll('"__exact__"','9007199254740993'))),response=await request(port,'/data');
+ assert.equal(response.status,200,response.text);assert.equal(response.headers['busyapi-response-validation-complete'],'true');
+ if(xml)assert.match(response.text,/<generated[^>]*><value[^>]*>9007199254740993<\/value>/);
+ else if(mediaType==='application/linkset')assert.equal(response.text,'</p>; rel="next"');
+ else assert.deepEqual(JSON.parse(response.text),value);
+});
+for(const authored of [false,true])test(`mock multipart XML/Linkset response uses shared captured generation (${authored?'authored data':'schema sample'})`,{timeout:20000},async t=>{
+ const value={xml:{n:'__exact__'},links:{linkset:[{next:[{href:'../p',title:'a,b','title*':[{value:'雪',language:'ja'}]}]}]}};
+ const link={type:'object',required:['linkset']},schema={type:'object',required:['xml','links'],properties:{xml:{type:'object',xml:{name:'Part'},required:['n'],properties:{n:{type:'number',enum:['__exact__']}}},links:link},...(!authored?{const:value}:{})};
+ const media={schema,...(authored?{examples:{authored:{dataValue:value}}}:{}),encoding:{xml:{contentType:'application/xml; charset=utf-16be',headers:{'Content-Type':{required:true,schema:false},Link:{required:true,content:{'application/linkset':{schema:link}},examples:{link:{dataValue:value.links}}}}},links:{contentType:'application/linkset'}}};
+ const document={openapi:'3.2.1',info:{title:'Mock parts',version:'1'},paths:{'/parts':{get:{responses:{200:{description:'OK',content:{'multipart/mixed':media}}}}}}};
+ const input=mockStart(JSON.stringify(document).replaceAll('"__exact__"','9007199254740993')),original=JSON.stringify(input.capture),{port}=await start(t,input);
+ const response=await new Promise((resolve,reject)=>{const call=http.get({hostname:'127.0.0.1',port,path:'/parts'},res=>{const chunks=[];res.on('data',chunk=>chunks.push(chunk));res.on('end',()=>resolve({status:res.statusCode,headers:res.headers,bytes:Buffer.concat(chunks)}));});call.on('error',reject);});
+ assert.equal(response.status,200,response.bytes.toString());assert.equal(response.headers['busyapi-response-validation-complete'],'true');assert.match(response.headers['content-type'],/boundary=/);
+ const wire=response.bytes.toString('latin1');assert.match(wire,/Content-Type: application\/xml; charset=utf-16be/);assert.match(wire,/title\*=UTF-8'ja'%E9%9B%AA/);assert(wire.includes('\0P\0a\0r\0t'));assert(wire.includes('9007199254740993'.split('').map(character=>'\0'+character).join('')));
+ assert.equal(JSON.stringify(input.capture),original);
+});
+test('generated URL-form mock response serializes XML and Linkset fields with their captured schemas',{timeout:20000},async t=>{
+ const data={xml:{n:'__exact__'},links:{linkset:[{next:[{href:'/n',title:'a,b'}]}]}};
+ const schema={type:'object',const:data,required:['xml','links'],properties:{xml:{type:'object',xml:{name:'Value'},required:['n'],properties:{n:{type:'number'}}},links:{type:'object',required:['linkset']}}};
+ const document={openapi:'3.2.1',info:{title:'Mock form media',version:'1'},paths:{'/form':{post:{responses:{200:{description:'OK',content:{'application/x-www-form-urlencoded':{schema,encoding:{xml:{contentType:'application/xml; charset=utf-16be'},links:{contentType:'application/linkset'}}}}}}}}}};
+ const input=mockStart(JSON.stringify(document).replaceAll('"__exact__"','9007199254740993')),original=JSON.stringify(input.capture),{port}=await start(t,input),response=await request(port,'/form');
+ assert.equal(response.status,200,response.text);assert.equal(response.headers['busyapi-response-validation-complete'],'true');assert.match(response.text,/xml=%00%3C/);assert.match(response.text,/links=%3C%2Fn%3E/);assert.equal(JSON.stringify(input.capture),original);
+});
+for(const mediaType of ['application/linkset','application/linkset+json'])test(`minimal ${mediaType} schema gets a format-valid original-schema-proved witness`,{timeout:20000},async t=>{
+ const schema={type:'object',required:['linkset']},document={openapi:'3.2.1',info:{title:'Minimal links',version:'1'},paths:{'/links':{post:{responses:{200:{description:'OK',headers:{Link:{required:true,content:{'application/linkset':{schema}}}},content:{[mediaType]:{schema}}}}}}}};
+ const {port}=await start(t,mockStart(document)),response=await request(port,'/links');assert.equal(response.status,200,response.text);assert.equal(response.headers['busyapi-response-validation-complete'],'true');
+ if(mediaType==='application/linkset+json')assert.deepEqual(JSON.parse(response.text),{linkset:[]});else assert.equal(response.text,'');
+ assert.equal(response.headers.link,'');
+});

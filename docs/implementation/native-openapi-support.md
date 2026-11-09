@@ -85,8 +85,8 @@ results. They are required native application work, not specification limits:
 
 | Capability | Current implementation | Missing consumer behavior / completion criterion |
 | --- | --- | --- |
-| XML wire model | Shared finite wire/parser and captured-schema codec sources now exist; source incomplete and unverified. | W4.04: see the 2026-11-09 codec increment and explicit remaining workflow/model gaps below. |
-| Linkset wire model | Shared RFC 9264 text/JSON codec sources and runtime integration now exist; source incomplete and unverified. | W4.05: see the 2026-11-09 codec increment; complete structured Header production and the workflow regression matrix remain required. |
+| XML wire model | SOURCE COMPLETE, unverified for captured, unambiguous XML 1.0 representations. | W4.04: shared codecs, canonical composition/reference proofs, native/Core/CLI workflows and registered regressions are recorded below. |
+| Linkset wire model | SOURCE COMPLETE, unverified for RFC 9264 text/JSON and HTTP-compatible Link content. | W4.05: shared model, actual Header production, native/Core/CLI workflows and registered regressions are recorded below. |
 | Incremental streaming | Finite JSON Lines, JSON sequences, SSE and multipart decoding plus transport byte accumulation exist. | W5.01–02: incremental transport evaluation, backpressure/progress, bounded retention, cancellation and terminal malformed/truncated results through Core/native/CLI. Transport chunks alone are not incremental conformance. |
 | CONNECT mocks | `mock_native_validation.ts` explicitly rejects CONNECT on the ordinary response transport. | W5.03: approved bounded peer/tunnel ownership, bidirectional bytes, cancellation and closure, native mock/CLI integration. |
 | Mock witnesses | Bounded exact candidate construction and final original-schema validation exist. | W5.04: remaining media/candidate paths must generate valid witnesses or accurately report unavailable search evidence; never equate exhaustion with unsatisfiability. |
@@ -3290,8 +3290,8 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W4.01 Named/ordered/nested multipart generation and decoding, typed/file/union choice, dynamic encoding, media/headers/transfers and exact bytes; O32 Encoding, MIME | runtime form/multipart/encoding owners; Core `request.dart`; native Request | A R E S C | generic/positional/nested/multipart-header/file-shape suites | SOURCE COMPLETE, unverified; captured named/ordered/nested generation, per-instance schema/media/Header choices, approved file captures, original-declaration byte proof, native controls and shared saved-case/CLI preparation are implemented. Specific unavailable codecs, ambiguous bindings and work limits remain located failures; see the W4.01 handoff | H |
 | W4.02 Parameter styles, collectionFormat, whole-query content, omission/empty/reserved/Unicode/exact numbers; family Parameter clauses, URI/WIRE | parameter/header codecs, Core request controls | A E S C | parameter/style/optional serialized/Swagger header suites, `test_runtime_parameter_serialization`, Core runtime-proof/external-parameter suites | Partially implemented; complete parameter serializations now evaluate through their captured declaration in Core execution; original Swagger flat/Items rules, exact numbers and header octets are retained; remaining occurrence-specific representations still need closure | H |
 | W4.03 Repeated content/style field lines and Set-Cookie; HTTP §§5.2–5.5, O32 §4.21, RFC 6265 | `http_field_lines.ts`, runtime/MIME/parameter owners; Core `response_field_capture.dart`, connection adapter, `proxy_tls_socket.dart`; exact mock proxy | A R E S C | runtime header, mock header/parameter/exact-proxy suites; Core `repeated_header_fields_test`, `response_field_capture_test`, `http_proxy_transport_test`, response-header/CLI suites | Source-complete, unverified; known field definitions authorize ordered list combination; known singleton repeats are invalid; unknown repeated extensions remain separate and incomplete. Core captures original fields before SDK replacement, including HTTP proxy forwarding and verified HTTPS proxy tunnels. SDK proxy resolution/authentication and HTTP parsing remain authoritative; selected trust, hostname/client certificates, cancellation and standard HEAD semantics remain owned. Capture above 64 KiB or unsupported folding is explicitly incomplete | H |
-| W4.04 OAS XML data/wire mapping, namespaces/order/escaping and disabled external acquisition; O32 §4.26, XML/Namespaces | XML semantics plus runtime-media/Core codec integration | A R E S C | XML metadata suites only; wire coverage still required | Source incomplete, unverified: finite shared codec increment recorded 2026-11-09; composition and complete workflow gaps remain | H |
-| W4.05 Linkset-to-JSON-model mapping; O32 §4.21.2, RFC 9264/8288/8187 | runtime-media/header codecs and request/mock integrations | A R E S C | wire regression coverage still required | Source incomplete, unverified: shared text/JSON model increment recorded 2026-11-09; structured Header production and workflow coverage remain | H |
+| W4.04 OAS XML data/wire mapping, namespaces/order/escaping and disabled external acquisition; O32 §4.26, XML/Namespaces | XML semantics plus runtime-media/Core codec integration | A R E S C | XML metadata, modeled wire/composition/charset, Core/native/CLI and mock suites | SOURCE COMPLETE, unverified: shared captured codecs and workflow regressions prepared 2026-11-09; precise refusals below | H |
+| W4.05 Linkset-to-JSON-model mapping; O32 §4.21.2, RFC 9264/8288/8187 | runtime-media/header codecs and request/mock integrations | A R E S C | Linkset wire/Header, examples, multipart, Core/native/CLI and mock suites | SOURCE COMPLETE, unverified: both representations and actual Header producers connected 2026-11-09 | H |
 | W4.06 Parameter/Header externalValue occurrence serialization through approved captured bytes; O30/O31/O32 Example/Parameter/Header objects | `serialized_examples.ts`, serialized-parameter evaluator, `execution.ts`, Core captured-resource owner | A R E S C | external-example-resource and serialized-parameter suites; Core `external_parameter_examples_test.dart` and existing external-resource controls | Partially implemented; evaluation, request-selection projection and Core outgoing validation now reuse captured resources and actual occurrences, including header octets/charsets; query/header production byte-exchange regressions are prepared; acceptance remains pending | H |
 | W4.07 Concrete occurrence context, approved external/binary example selection and cache/decision ownership; Example clauses, Core capture contract | external/media/example/request owners | A R E M S C | external-resource/media-identity/binary-selection suites | Partially implemented; reusable media without a concrete occurrence remains missing context, not a guessed format; native external body choices and saved-case/CLI execution now retain approved bytes through one owner-bound selection, including unchanged draft restoration and empty resources; captured external mock responses now retain the same approved byte ownership through negotiation and original response validation; binary Parameter/Header and part controls still need closure | H |
 | W5.01 Incremental JSON Lines/NDJSON, JSON text sequences and SSE framing/evaluation; O32 media/itemSchema, WIRE | runtime media plus transport/capture/Core/native/CLI stream owners | E S C | finite runtime-media suites only; incremental production regressions still required | Missing for transport-integrated incremental evaluation/backpressure/progress; complete-input accumulation is not streaming | H |
@@ -3310,7 +3310,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W7.01 Creation, editing, unsaved Reference, request/example/mock/case, migration review, documentation and CLI integration for every capability; all applicable clauses above | shared engine, Core owners and native workspace controls | A R E M S C | engine/Core/widget/native journey suites | Partially implemented; applicable existing consumers inherit shared field/codec/routing changes; complete family journeys are not accepted | H |
 | W7.02 Stale-action invalidation on declaration/dialect/root/external/approval changes; coherent reviewed transactions, Undo/Redo and no buffer loss; Core transaction contract | Core project/store/capture and native review/request controllers | A R E M S C | stale capture/cancellation/publication/widget review suites | Partially implemented; existing source for existing safeguards; new paths require current integration qualification | H |
 | W7.03 CST fidelity, no-op saves, exact values, aliases, extensions and source-only migration restructuring; TEXT | `document.ts`, graph/CST editing, Core store/transaction owners | A R M S C | source ownership/alias/exact-value/no-op suites | Partially implemented; existing source for existing boundaries; generated schema owners retain original provenance and reviewed restructuring | H |
-| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+63`, multipart projection `2`, migration producer `104`, response mock producer `5`, parameter mock producer `6`, sample producer is now `4`; no dependency versions/source changed | H |
+| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+65` (current W4.04/W4.05 increment), multipart projection `2`, migration producer `104`, response mock producer `5`, parameter mock producer `6`, sample producer is now `4`; no dependency versions/source changed | H |
 | W8.01 Explicit independent evidence input across SDK/build/CMake/CI/installed/package checks; PINS | `flutter_archive.py`, SDK verifier, `build_linux.sh`, CMake, package/native-distribution/artifact-smoke inputs | P | `tools/test_flutter_sdk.py`, source-wiring regressions | Partially implemented; existing source for archive-input propagation; same existing evidence reaches installed checks; independent member pins remain an alternative; no SDK acquisition/replacement | H; actual evidence availability/authenticity has not been qualified |
 | W8.02 Ordered gates, registration, source-version-valid fixtures and production-byte regressions; PINS and each row's authority | `tools/build_engine.sh`, Linux workflow, engine/Core/widget/native/package suites | P | new direct-Swagger/conditional/tuple-tail/constant-containment/property-name/runtime-parameter and URI-security/OAuth-flow/invariant regressions registered; existing TypeScript-before-bundle gate retained | Partially implemented; compilation and all suspended gates remain unexecuted; missing regression coverage identified in this register remains implementation work | H |
 | W8.03 Current automated/native/packaged/offline acceptance and normal Quit; all approved families and PINS | native acceptance tools, Core/package/CLI suites | A R E M S C P | existing native acceptance including historical Quit/focus failures; complete new journeys still required | Missing for accepted evidence; no driver/engine attribution established; Snapcraft remains skipped | H |
@@ -4903,7 +4903,7 @@ native controls. No additional refactoring ticket sequence is created.
 | W6.01–W6.03 maintenance | W6-M1/M2 close their bounded resource/Markdown/compatible ownership cases. General schema-bearing-position closure, virtual occurrences needing explicit physical YAML ownership, independent container/member schema roles and shared-reference-role splitting retain their concrete eligibility/proof boundaries above. Do not automatically expand each boundary into a speculative conversion assignment. |
 | W6.04 Reference/export/adapters | Existing native/offline implementation remains U for complete rendered-field/relocation and pinned-adapter qualification. Maintenance Markdown equivalence alone does not establish complete export/native Reference acceptance. |
 | W7 native professional journeys | Existing capture/review/history/publication owners and new regressions are prepared; full authenticated native-family journeys and packaged acceptance remain held. |
-| Next concrete implementation priority | **XML/Linkset wire mapping (W4.04/W4.05).** W4.01 is source-complete, unverified as recorded below. Continue application-capability work; do not automatically resume B05 migration or W6 refactoring microtasks. The execution hold remains active. |
+| Next concrete implementation priority | **Transport-integrated incremental streaming**, after the W4.04/W4.05 source handoff below. It has not been started. Do not automatically resume B05 migration or W6 refactoring microtasks. The execution hold remains active. |
 | Other application gaps | XML/Linkset wire mapping, transport-integrated streaming, CONNECT mocks, remaining mock witnesses and example/part selection remain P/M as recorded in the application matrix. They were not implemented or declared complete here. |
 | Migration and acceptance | Existing migration work remains intact and separately reconciled in Phase 3; B05 is not resumed. Phase 4 still requires explicit authorization lifting the execution hold and complete current-revision verification. |
 
@@ -5073,125 +5073,210 @@ execution authorization. The changes are to be committed locally without a push.
 **Next application capability: XML/Linkset wire mapping (W4.04/W4.05).** Do not
 automatically resume B05 migration, W6 refactoring, streaming or CONNECT work.
 
-## W4.04/W4.05 codec implementation increment — 2026-11-09
+## W4.04/W4.05 XML and Linkset wire support — 2026-11-09
 
-**W4.04 XML: SOURCE INCOMPLETE, unverified.**
-**W4.05 Linkset: SOURCE INCOMPLETE, unverified.**
-This increment does not satisfy the complete W4.04/W4.05 workflow acceptance
-criteria. It does not change overall BusyAPI completion or acceptance. The
-execution hold remains active; no tests, compilers, analyzers, builds,
-generation, CI, graphical workloads or performance checks were run. Snapcraft
-remains skipped. Only source inspection and `git diff --check` were performed.
+**W4.04 XML: SOURCE COMPLETE, unverified.**
+**W4.05 Linkset: SOURCE COMPLETE, unverified.**
+These statuses describe the production source and prepared regression coverage,
+not compilation, runtime acceptance, or overall BusyAPI completion. The execution
+hold remains active. No tests, compilers, analyzers, builds, generation, CI,
+graphical workloads or performance checks were run. Snapcraft remains skipped.
+Verification consists of source review, normative-source consultation and
+`git diff --check` only.
 
-The starting producer is `4386f5bcf60336c37e09e4e94a066ec33eacad6c` on
-`release/v0.1.0`. Schema evaluation producer advances from
-`hyperjump+busyapi-exact` `1.18.0+63` to `1.18.0+64`, with `xml-wire-v1`,
-`xml-model-v1`, and `linkset-codec-v1` configuration identities. Request
-representation revisions additionally capture `xml: 1` and `linkset: 1`.
-The existing exact-number schema evaluator remains the assertion owner.
+The original starting revision was
+`4386f5bcf60336c37e09e4e94a066ec33eacad6c`; the incomplete codec foundation was
+`a940fcbe8ab9a3efb5442c3b7a843cc55e249519`. This completes that same assignment
+in the primary `release/v0.1.0` checkout. No B05/W6, streaming or CONNECT work
+was started, and no publication or push was performed.
 
-### Implemented source boundaries
+### Producer admission and representation ownership
 
-- `xml_wire.ts`: finite XML 1.0 parsing, expanded namespace names, quoted
-  attributes, comments, processing instructions, text, CDATA, predefined and
-  numeric entities, and XML escaping. DTDs/general entities are denied without
-  any network/file/resource acquisition. Limits are 16 MiB and 128 element
-  levels, with a 400000 element limit; all text remains document-size bounded.
-  Fatal UTF-8/UTF-16LE/UTF-16BE, ASCII and ISO-8859-1 decoding is explicit.
-  BOM precedence follows RFC 7303; charset and XML declaration/autodetection
-  provide subsequent encoding information. Unsupported codecs fail explicitly.
-- `xml_model.ts`: captured canonical schema resources supply names, scalar
-  types, properties, attributes, wrapped/unwrapped arrays, finite positional
-  arrays, explicit 3.2 text/CDATA, namespace prefixes and nil elements. Numeric
-  tokens remain exact JSON CST lexemes. Older families do not activate
-  `nodeType`. Original schema assertions run after structural parsing.
-- `linkset.ts`: RFC 9264 JSON structure, Link-compatible text decoding and
-  encoding, context/relation/target grouping, quoted delimiters and escapes,
-  repeated links/hreflang/extensions, and UTF-8 RFC 8187 internationalized
-  attributes. Linksets are bounded to 2048 links/targets and the document limit.
-  JSON is UTF-8. `application/link-format` remains a separate representation.
-- `runtime_media.ts`, `runtime_evaluation.ts`, `runtime_headers.ts`,
-  `mime_header_content.ts`, `runtime_form.ts`, `runtime_multipart.ts`, and
-  `multipart_generation.ts`: shared representation dispatch and captured XML
-  schema binding, including typed multipart selections. HTTP Link JSON content
-  is refused; received repeated Link lines use existing HTTP field handling
-  before the quote-aware Linkset parser.
-- `execution.ts`, `server.ts`, Core `execution.dart` and `request.dart`:
-  `requestMediaBytes` generates typed ordinary-body bytes in Engine and checks
-  both original data and wire-decoded data against the captured schema. Core
-  retains cancellation/current-owner checks and consumes base64 bytes without
-  duplicating the codecs. `RequestBodyDraft.modeled` separates data JSON from
-  raw serialized input. The existing native Request structured-value control
-  is available for declared XML/Linkset media.
-- `example_representation.ts`, external example projection in `execution.ts`,
-  `mock_response_examples.ts`, `mock_generation_adapter.ts`, and
-  `mock_native_validation.ts`: shared modeled encoding for mock values,
-  serialized/approved external byte preservation, and original response
-  validation. Mock request validation uses the shared runtime decoder.
-- Core `contract_test.dart`: structured saved body objects for declared
-  XML/Linkset use the same preparation path consumed by independent CLI
-  execution. Existing literal string bodies remain raw serialized input.
+Core's admission mismatch was corrected to the then-current `1.18.0+64` before
+extending the codecs. The completed semantic increment now advances both the
+production Engine and Core to `hyperjump+busyapi-exact` **`1.18.0+65`**.
+Admission remains strict in
+`project.dart`, `execution.dart` and `mock.dart`; the partial `+64`, obsolete
+`+63` and malformed
+results are rejected. Positive fixtures were updated. The permanent regression
+in `test_mock_validation_revision.cjs` reads the actual Engine and Core source
+declarations and checks the admission owners, rather than comparing two test
+fixtures or trusting an old bundle.
 
-### Remaining required work — neither item may be promoted yet
+XML configuration identities are `xml-wire-v2` and `xml-model-v2`; Linkset is
+`linkset-codec-v2`. Request representation capture is `xml: 2`, `linkset: 2`,
+with existing multipart projection **2** and schema-example selection **3**
+unchanged. External-example bytes **2**, embedded MIME text **1**, native mock
+response **5**, parameter **6**, schema samples **4**, security **1** and methods
+**1** keep their existing identities. Their configuration still incorporates the
+strict captured schema producer/configuration. Contract-test report producer is
+**3**, reflecting explicit saved data/serialized representation modes.
 
-XML composition is conservatively refused for `allOf`, `anyOf`, `oneOf`,
-conditionals and dynamic references, including some combinations that could
-establish an unambiguous interpretation. Structural reference siblings and
-nested node-producing reference wrappers remain unsupported. Recursive schemas
-currently terminate at the bounded interpretation limit. Namespace propagation
-through reference wrappers, inherited default namespaces, collisions between
-wrapper/attribute prefixes, and nested unwrapped positional arrays need fuller
-coverage and reconciliation. Free-form/additional properties have no complete
-XML inversion; unknown nodes are currently mapping failures. Empty explicit
-text/CDATA properties, absent optional arrays versus empty arrays, nullable
-attribute omission, and adjacent text-node ambiguities need complete inversion
-policies and original-schema candidate proofs. XML 1.1 is not supported.
-Typed XML output currently requires UTF-8 even though received byte decoding
-supports the additional codecs listed above.
+The existing exact-number canonical schema evaluator is the only assertion
+owner. XML branch selection calls its compiled original schema resources,
+including captured dialects and dynamic scope. It does not generate replacement
+schemas, choose the first successful branch as an interpretation, or use a
+second schema evaluator. Generation validates original typed data, emitted
+representation and modeled correspondence. Actual received bytes have a
+separate structural check before schema conformance. No failed modeled check
+falls back to a successful opaque check.
 
-Structured content parameters, including HTTP Link request parameters, still
-encounter Core's existing JSON/text/form parameter serializer restrictions.
-The shared Linkset header encoder exists, but all authored/mock/request Header
-production routes have not been changed to call it. Full JSON extensibility,
-relation registry policy, and all RFC 8288 duplicate-parameter/extension cases
-need additional qualification. Internationalized text attributes with a codec
-other than UTF-8 are explicitly unsupported; non-ASCII ordinary attributes
-cannot be emitted as HTTP Link fields by this encoder. Multiple `title*`
-values and empty relation arrays are refused when they cannot retain their
-meaning in the HTTP-compatible representation.
+### Completed production paths
 
-Native structured selection and ordinary execution are connected, but parsed
-XML/Linkset Inspector presentation, exact serialized-content preview, draft
-mode persistence through every cold reopen path, and the full saved-case/CLI
-workflow regression matrix are not complete. Named multipart paths without a
-unique captured representation must still refuse XML rather than borrow an
-unrelated parent schema. Broad authored/external example, mock/header emission,
-unsaved-change, cancellation and cold-reopen regressions remain to be prepared.
-These are implementation/coverage gaps, not failures attributed to the hold.
+| Path | Source behavior and owners |
+| --- | --- |
+| XML interpretation | `xml_model.ts`, canonical graph/reference projections and `xml_semantics.ts`: allOf assertions, applicable alternatives/conditionals/dependent schemas, reference siblings, dynamic references, node-producing wrappers and lazy finite recursive instances. Names, namespace inheritance/prefixes, attributes, wrapped/unwrapped/repeated and positional arrays, primitive text, explicit text/CDATA and mixed ordered content retain captured ownership. Older families do not activate 3.2-only node types. |
+| XML wire | `xml_wire.ts`: XML 1.0 parsing/escaping and exact numeric lexemes; fatal UTF-8, UTF-16LE/BE, ASCII and ISO-8859-1 codecs in both directions. BOM, MIME charset, declaration and autodetection precedence are explicit. Raw Unicode XML is transcoded without repairing its markup; approved external bytes bypass transcoding. |
+| Linkset wire | `linkset.ts`: RFC 9264 JSON model and ASCII HTTP-Link-compatible text share contexts, relation types, targets and attributes. Quoted commas/semicolons, escapes, repeats, relative references and RFC 8187 UTF-8 attributes retain meaning. JSON Unicode/extension metadata stays intact; no JSON-LD context or profile URL is fetched. Registered relation structure is pinned to the IANA 2026-06-12 snapshot. |
+| Actual Header production | Engine `requestContentParameters`, Core `_serializeParameter`, native mock Header generation, and MIME Header generation consume shared codecs. Structured JSON model input produces textual `application/linkset` fields. Existing HTTP field-line combination handles repeated Link lines without splitting quoted commas; controls are rejected. Actual named Link fields cannot declare the JSON wire representation. |
+| Requests and responses | `runtime_media.ts`, `runtime_evaluation.ts`, `runtime_headers.ts`, Core `execution.dart`/`request.dart`: captured preparation bytes, original-schema predispatch proof, actual HTTP bytes, media selection, decoding, conformance and located diagnostics. Core delegates XML charset/BOM decisions to Engine rather than pre-rejecting or UTF-8-decoding those bytes. Malformed, invalid representation, schema-invalid, unavailable and bounded-limit results remain distinct. |
+| Forms and multipart | `form_serialization.dart` uses an Engine callback for XML/Linkset media fields, including nested URL forms. `multipart_generation.ts`, `runtime_form.ts`, `runtime_multipart.ts`, `mime_header_content.ts` and `embedded_mime_text.ts` keep each field/part's original schema and media. XML/Linkset named parts enter the existing typed tree; no unrelated parent schema is borrowed. Canonical multipart inversion runs inside evaluator lifetime, with original typed/root assertions, actual emitted bytes, binary identities and correspondence all retained. |
+| Examples | Existing Example field interpretation and approved external-resource owners are preserved. Structured examples use modeled preparation; serialized examples keep wire semantics; approved external bytes retain exact content identities. Embedded XML MIME text uses the shared charset transcoder. Changed approved bytes fail freshness checks. |
+| Mocks | Native body, parameter, response and Header validation use the same codecs and original schema resources. Authored and generated XML/Linkset bodies are proved before emission. `mock_multipart_generation.ts` consumes the existing captured part directives for bounded response framing, including XML charset bytes, Linkset parts/Headers and nested forms; standalone URL-form mock generation uses that form writer. Both typed data and actual generated response bytes are checked, including correspondence. Existing mock routing/security and approved external-byte boundaries remain in place. |
+| Native Request and Inspector | Existing media/structured/raw controls, Header controls and prepared multipart inspection are retained. Serialized body and redacted Header previews are capture-bound and cancelled when stale. Raw/structured/media drafts are independently retained within the existing bounded draft lifetime. Inspector retains original response bytes/export and adds Engine-modeled XML/Linkset data; the outgoing view retains the actual enqueued byte prefix plus modeled data. No editing architecture was replaced. |
+| Saved cases and CLI | Engine CST edits use existing configuration proposal/review/publication transactions. Cases preserve exact values, data/serialized/literal-row body and parameter modes, media, part/Header choices, standalone and multipart approved project-relative file references, environment/server/security selections, variables and timeouts. Native reopening and independent CLI use Core's same decoder/builder; no desktop state or duplicate Dart XML/Linkset codec is required. |
 
-### Prepared regressions and gates
+### Explicit inversion policies and refused classes
 
-`test_runtime_media.cjs` extends the existing Engine gate with all supported
-published patches in JSON/YAML, exact XML numbers, attributes/names/arrays,
-UTF-16 BOM and authoritative encoding cases, malformed/DTD/entity denial,
-3.2 mixed positional text/CDATA, Linkset text/JSON equivalence, quoted
-attributes, internationalization, invalid structures, and typed production
-request encoding. `test_runtime_headers.cjs` adds repeated Link-field and
-quoted-comma/internationalized-value cases and rejects JSON Link fields.
-Both suites are already registered in `tools/build_engine.sh`.
-`native_media_execution_test.dart` adds Core HTTP round trips for typed XML
-and both Linkset media in all four families using the existing integration
-suite. **Prepared only; none has been executed or reported as passing.**
+- Element null uses an empty `xsi:nil="true"` element. Nullable attributes are
+  omitted on output. On input, optional absent nullable attributes normalize to
+  omission; required or schema-necessary ones become null only through full
+  original-schema proof. These are documented normalization equivalences, not
+  invented distinct wire markers. Both original and normalized data must satisfy
+  the original schema.
+- Absent optional unwrapped arrays/groups and empty optional character nodes
+  normalize to omission when permitted by the original schema; required or
+  schema-necessary empty values remain present through whole-schema proof.
+  Required empty unwrapped arrays become `[]`. Wrapped
+  arrays retain their element. Positional schemas, inline group boundaries and modeled fixed character
+  lengths disambiguate text where possible. Empty optional text array positions
+  with distinct valid inversions are refused, rather than invented as a unique list. Bounded complete candidates are
+  checked against the full original schema. Distinct schema-valid inversions
+  beyond those normalization policies are unavailable proof.
+- Primitive text uses exact JSON decimal spelling, `true`/`false`, literal
+  `null`, or the string itself. CDATA preserves character data and splits `]]>`
+  safely. XML 1.0 line-ending normalization applies to CDATA; input requiring an
+  incompatible character/CDATA inverse is refused by correspondence/schema
+  proof. Object/array-to-character-node conversion without a captured primitive
+  interpretation, primitive `nodeType: none`, missing node names, conflicting
+  applicable XML metadata and unmodeled free-form content have precise located
+  unsupported results.
+- Namespace prefixes may differ on received documents; expanded names govern
+  interpretation. Names are taken from XML metadata and applicable schema
+  positions, never operation names, filenames or examples. A root/array item
+  with no applicable inferred or authored name is unavailable proof.
+- XML 1.1, UTF-32 and other unsupported codecs are explicitly refused. UTF-16
+  without an explicit endian MIME label requires its BOM. Authoritative BOMs
+  take precedence over conflicting MIME/declaration labels. ASCII/Latin-1 text
+  can use numeric references; unrepresentable names or explicit CDATA cannot be
+  silently replaced. Raw mode does not repair malformed content.
+- DTDs/general entities and all external XML acquisition are denied. Only
+  predefined/numeric entities are expanded. Limits remain finite: 16 MiB XML,
+  128 instance levels, 400000 total element/character nodes, 200000 model steps, 2048 branch proofs,
+  2048 adjacent text positions,
+  256 alternatives/inversions, and bounded canonical proof work (200000 steps
+  per proof, 2000000 per media-evaluation job). Same-instance schema cycles
+  cannot masquerade as finite recursive data. Multipart retains eight nesting
+  levels, 2048 parts, framing/transfer controls and approved file identity checks.
+- Linkset text is ASCII only. Ordinary non-ASCII quoted attributes are invalid;
+  supported internationalized attributes use RFC 8187 UTF-8. JSON Unicode is
+  separate and valid. Unknown JSON metadata is preserved and may be validated
+  by the captured schema; defined internationalized members retain RFC 5646
+  language-tag syntax (bounded to 1024 characters). Profile parameters require
+  nonempty URI lists without acquiring those URIs. Metadata lacking a lossless textual equivalent is
+  explicitly refused for text/Header output. Empty relation arrays, multiple
+  `title*` values and unsupported extended charsets are refused where text
+  cannot preserve their meaning. Relative references and absent/explicit
+  anchors are retained rather than resolved against an invented context.
+- Actual HTTP/MIME field controls and separate-field rules remain enforced.
+  JSON Linkset is not emitted as an HTTP Link field. Original received field
+  bytes are retained. Mock file acquisition is not invented: file-bearing mock
+  bodies use approved serialized external examples. Unresolved/ambiguous
+  representation choices and unsupported dialects remain unavailable proof.
+- Inspection is bounded (modeled body data up to 1 MiB; outgoing byte preview up
+  to 16384 bytes). Preview/export status does not imply full receipt or complete
+  conformance. Literal rows authored outside the native line controls with
+  embedded line breaks or `=` in a field name remain executable through Core/CLI,
+  but native reopening
+  refuses an unrepresentable line edit before replacing the current draft.
+  Body interpretation is kept in memory for inspection and is not
+  added to contract-test report JSON. No credentials are written by preview.
 
-Normative basis:
-[OpenAPI 3.2.1 XML](https://spec.openapis.org/oas/v3.2.1.html#xml-object),
+These are representation/inversion and resource boundaries. There is no known
+required XML/Linkset workflow retaining an implementation-wide opaque-only
+restriction. No further XML/Linkset production integration gap is recorded by
+this source review. Compilation and actual behavior remain unverified, including
+all newly prepared tests; execution authorization is still required for those
+claims.
+
+### Production files changed in this completion increment
+
+- Engine (`tools/contract_engine/src/`): `xml_model.ts`, `xml_wire.ts`,
+  `linkset.ts`, `modeled_media.ts` (new), `runtime_media.ts`,
+  `runtime_evaluation.ts`, `schema_evaluation.ts`, `execution.ts`, `server.ts`,
+  `runtime_form.ts`, `runtime_multipart.ts`, `multipart_generation.ts`,
+  `embedded_mime_text.ts`, `serialized_parameter_examples.ts`,
+  `mock_native_validation.ts`, `mock_multipart_generation.ts` (new),
+  `mock_generation_adapter.ts`, `mock_projection.ts`, `mock_request_parameters.ts`,
+  `mock_response_examples.ts`, `mock_schema_samples.ts`, `mock_server.ts`.
+- Core (`packages/busyapi_core/lib/src/`): `project.dart`, `execution.dart`,
+  `request.dart`, `contract_test.dart`, `form_serialization.dart`,
+  `multipart_encoding.dart`.
+- Native (`lib/src/workspace/`): `request_run.dart`,
+  `request_part_headers.dart`. Existing Request/Inspector controls and lifecycle
+  remain the workflow owners.
+- Gate: `tools/build_engine.sh` registers the new dedicated Engine suite.
+  Existing Core/widget discovery gates include the new journeys. The regression
+  files and producer fixtures are part of this same local change.
+
+### Prepared production regressions and established gates
+
+- Engine `test_modeled_xml_linkset.cjs`, registered in `tools/build_engine.sh`:
+  all four families/published patches in YAML/JSON; composed/referenced and
+  dynamic/recursive XML; alternatives/conditionals/dependencies; wrappers,
+  namespaces/attributes/groups; ordered arrays, text/CDATA, null/empty policies,
+  exact numbers and inversion ambiguity; separate schema-valid but different
+  values/bytes as correspondence negative controls; outbound/raw charset/BOM rules;
+  invalid neighbors; JSON extensibility; ASCII/RFC8187 controls; actual Header
+  preparation/combination; named/ordered multipart and URL-form wire proof.
+- Existing Engine gates `test_runtime_media.cjs`, XML names/namespaces,
+  `test_runtime_headers.cjs`, MIME Header content, literal/serialized examples,
+  multipart encoding and `test_embedded_mime_text.cjs` retain their controls.
+  The latter now covers XML MIME-leaf charset materialization.
+- Existing `test_mock_native_validation.cjs` and
+  `test_mock_mime_header_content.cjs` add actual HTTP modeled bodies, generated
+  bodies, generated multipart/URL-form responses, Link Headers, XML/Linkset
+  parts with their own schemas, internationalization, invalid values and entity
+  denial. `test_mock_validation_revision.cjs` adds production-source producer
+  consistency. All are already in the Engine gate.
+- Core `native_media_execution_test.dart` prepares composed/referenced XML and
+  both Linkset journeys through actual HTTP, byte inspection, strict original
+  schema evaluation, cancellation, actual custom Header lines without a
+  parameter draft, saved proposal/publication, cold reopening
+  and independent CLI replay. Charset/raw-mode, standalone approved file/CLI, literal field-row reopening and URL-form journeys extend it.
+  `multipart_header_generation_execution_test.dart` adds XML charset bytes,
+  structured Link MIME Headers, original schema proof and saved-case reopening.
+  `external_body_examples_test.dart` adds approved XML/Linkset byte fidelity,
+  cancellation and freshness failures. Existing metadata/Header/example/case
+  negative controls remain. Positive producer fixtures advance only to `+65`;
+  obsolete/malformed rejection tests remain, including explicit `+63`/`+64` rejection.
+- Native `test/xml_linkset_request_test.dart` prepares existing controls,
+  preview, raw/structured draft retention, actual dispatch/inspection, saved
+  reopening and stale unsaved-contract refusal. Existing Core/widget discovery
+  gates include these tests; no separate execution path or placeholder test was
+  added.
+
+**Prepared only: no test has been executed or reported as passing.**
+
+Normative basis: [OpenAPI 3.2.1 XML](https://spec.openapis.org/oas/v3.2.1.html#xml-object),
 [Header Linkset modeling](https://spec.openapis.org/oas/v3.2.1.html#modeling-link-headers),
 [RFC 9264](https://www.rfc-editor.org/rfc/rfc9264.html),
 [RFC 7303](https://www.rfc-editor.org/rfc/rfc7303.html),
-[RFC 8288](https://www.rfc-editor.org/rfc/rfc8288.html), and
-[RFC 8187](https://www.rfc-editor.org/rfc/rfc8187.html).
+[RFC 8288](https://www.rfc-editor.org/rfc/rfc8288.html),
+[RFC 8187](https://www.rfc-editor.org/rfc/rfc8187.html), and the
+[IANA Link Relations registry](https://www.iana.org/assignments/link-relations/).
 
-W4.01 typed multipart remains in scope for preservation; its existing safeguards
-and tests were not removed. B05, W6, streaming and CONNECT were not started.
-After completing W4.04/W4.05, the next priority remains transport-integrated
-incremental streaming, without an automatic migration/refactoring sequence.
+The next application capability is transport-integrated incremental streaming.
+It has not been started. Do not automatically create another B05/W6 migration or
+refactoring sequence. This entry does not declare BusyAPI SOURCE COMPLETE or
+ACCEPTED.

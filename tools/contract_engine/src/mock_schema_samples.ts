@@ -120,6 +120,13 @@ export class MockSchemaSamples {
         return selected;
     }
 
+    async value(schema:SchemaLocation,signal:AbortSignal,mediaType?:string):Promise<string|undefined> {
+        const authored=this.candidates(schema,false);
+        if(mediaType&&['application/linkset','application/linkset+json'].includes(mediaType.split(';')[0].trim().toLowerCase()))authored.samples.push({raw:'{"linkset":[]}',source:{...schema,range:this.graph.docs.get(schema.resource)!.dataNode(schema.pointer)!.range}});
+        const candidates=this.shapes.candidates(schema,location=>this.candidates(location,false),authored.samples);
+        return (await this.prove([...authored.samples,...candidates.samples],schema,false,undefined,signal))?.raw;
+    }
+
     async response(plan:unknown,status:string,actual:string,dynamic:boolean,signal:AbortSignal):Promise<string|undefined> {
         if(signal.aborted)throw new SourceError('cancelled','Mock schema sample selection was cancelled');
         const rawMedia=capturedMockResponseMedia(plan,status,actual);
@@ -139,6 +146,7 @@ export class MockSchemaSamples {
         const proved=this.proved.get(key);
         if(proved!==undefined&&(!dynamic||!proved.length))return proved[0]?.raw;
         const authored=this.candidates(schema,dynamic);
+        if(['application/linkset','application/linkset+json'].includes(actual.split(';')[0].trim().toLowerCase()))authored.samples.push({raw:'{"linkset":[]}',source:{...schema,range:this.graph.docs.get(schema.resource)!.dataNode(schema.pointer)!.range}});
         let limit=authored.limit;
         let selected=await this.prove(authored.samples,schema,dynamic,proved,signal);
         if(signal.aborted)throw new SourceError('cancelled','Mock schema sample selection was cancelled');

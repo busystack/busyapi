@@ -1,3 +1,6 @@
+import {bindXmlProof,sameMediaData,xmlCorresponds} from './xml_model';
+import {encodeRuntimeMedia,decodeRuntimeMedia} from './runtime_media';
+import {linksetCorresponds} from './linkset';
 import {isSchemaDefinitionKeyword} from './schema_definitions';
 import {children} from './contexts';
 import {discriminatorContextRevision} from './discriminator_semantics';
@@ -36,9 +39,9 @@ import {externalExampleRevision} from './external_examples';
 import {exampleRepresentation,mediaExampleRepresentations,type ExampleValueField} from './example_representation';
 import {embeddedMimeTextRevision} from './embedded_mime_text';
 
-export const schemaProducer={name:'hyperjump+busyapi-exact',version:'1.18.0+64',configuration:[
+export const schemaProducer={name:'hyperjump+busyapi-exact',version:'1.18.0+65',configuration:[
  `external-example-bytes-v${externalExampleRevision}`,
- 'xml-wire-v1','xml-model-v1','linkset-codec-v1',
+ 'xml-wire-v2','xml-model-v2','linkset-codec-v2',
  'parameter-runtime-serialization-v1',
  'literal-cookie-content-v1',
  'whole-body-encoded-string-v1',
@@ -122,6 +125,7 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
  running=true;
  const exact=createExactNumericAdapter(standardIds),schemes=new Set<string>(),ownedIds=new Set<string>(),documents=new Map<string,any>();
  let open=true,complete=true,limited=false;
+ let releaseXml=()=>{};
  const findings:any[]=[],evaluations:any[]=[],runtimeEvaluations:any[]=[],runtimeFindings:any[]=[],skipped:any[]=[],invalid:any[]=[],compiled=new Map<string,any>(),metas=new Map<string,any>();
  let schemas=0,instances=0;
  const add=(doc:SourceDocument,pointer:string,code:string,message:string,severity='error',details:any={})=>{
@@ -308,6 +312,75 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
    if(limited)break;
    try{await getCompiled(scope);}catch(error){invalid.push(scope);failed(docs.get(scope.resource)!,scope.pointer,error);}
   }
+  // The XML codec consumes compiled canonical assertions, never implements
+  // branch validation itself. Precompile captured scopes once for this lifetime.
+  const xmlAsts=new Map<string,any>(),xmlMerged=new Map<string,any>();
+  const needsXml=(Array.isArray(input.mediaPreparations)&&input.mediaPreparations.some(item=>typeof item?.mediaType==='string'&&/(?:\/xml|\+xml)(?:;|$)/i.test(item.mediaType)))||(Array.isArray(input.runtimeInstances)&&input.runtimeInstances.some(item=>item?.form!==undefined||typeof item?.mediaType==='string'&&/(?:\/xml|\+xml)(?:;|$)/i.test(item.mediaType)))||[...graph.entryScopes()].some(scope=>scope.kind==='xml'||scope.kind==='media'&&/xml/i.test(scope.pointer));
+  if(needsXml)for(const scope of all){
+   try{const ast=await getCompiled(scope);if(ast)xmlAsts.set(scopeId(scope),ast);}catch(error){observeFailure?.(error);}
+  }
+  if(!needsXml&&Array.isArray(input.mediaPreparations))for(const item of input.mediaPreparations){
+   if(typeof item?.schema?.resource!=='string'||typeof item?.schema?.pointer!=='string')continue;
+   const scope=graph.scopeAs(item.schema.resource,item.schema.pointer,'schema');if(!scope)continue;
+   const ast=await getCompiled(scope);if(ast)xmlAsts.set(scopeId(scope),ast);
+  }
+  let mediaProofWork=0;
+  const mediaProof=(target:{resource:string;pointer:string},document:SourceDocument,stack?:{resource:string;pointer:string}[]):boolean|undefined=>{
+   const scope=graph.scopeAs(target.resource,target.pointer,'schema');if(!scope)return;
+   const ast=xmlAsts.get(scopeId(scope));if(!ast)return;
+   const active=new Set<string>();let steps=0;
+   const bounded={
+    beforeSchema(url:string,instance:any){
+     if(++steps>200000||++mediaProofWork>2000000)throw new SourceError('limit.xml.schema-work','Captured media schema proofs exceed their finite evaluation budget');
+     const key=url+'\0'+instance.pointer;
+     if(active.has(key))throw new SourceError('runtime.xml.model.unsupported','A same-instance schema reference cycle has no finite XML proof',[0,0],'unsupported');
+     active.add(key);
+    },
+    afterSchema(url:string,instance:any){active.delete(url+'\0'+instance.pointer);}
+   };
+   if(!stack?.length)return interpret(ast,exact.exactInstance(document,''),{outputFormat:BASIC,plugins:[bounded]}).valid;
+   const root=xmlAsts.get(scopeId(stack[0]));
+   if(!root)return;
+   const key=root.schemaUri+'\0'+ast.schemaUri;
+   let shared:any=xmlMerged.get(key);
+   if(!shared){shared={...root.ast,...ast.ast,metaData:{...root.ast.metaData,...ast.ast.metaData},plugins:new Set([...root.ast.plugins,...ast.ast.plugins])};if(xmlMerged.size>=16)xmlMerged.delete(xmlMerged.keys().next().value);xmlMerged.set(key,shared);}
+   const anchors:Record<string,string>=Object.create(null);
+   for(const owner of stack){
+    const compiled=xmlAsts.get(scopeId(owner));if(!compiled)return;
+    for(const [name,uri]of Object.entries(compiled.ast.metaData[compiled.schemaUri.split('#')[0]]?.dynamicAnchors??{}))if(!Object.hasOwn(anchors,name))anchors[name]=uri as string;
+   }
+   let seeded=false;
+   return interpret({...ast,ast:shared},exact.exactInstance(document,''),{outputFormat:BASIC,plugins:[bounded,{
+    beforeSchema(_url,_instance,context:any){if(!seeded){context.dynamicAnchors={...context.dynamicAnchors,...anchors};seeded=true;}}
+   }]}).valid;
+  };
+  releaseXml=bindXmlProof(graph,mediaProof);
+  const mediaPreparations:any[]=[];
+  if(input.mediaPreparations!==undefined){
+   if(!Array.isArray(input.mediaPreparations)||input.mediaPreparations.length>2048)throw new SourceError('limit.media.preparation','Expected at most 2048 captured media preparations');
+   for(const item of input.mediaPreparations){
+    if(!item||typeof item.text!=='string'||typeof item.mediaType!=='string'||item.header!==undefined&&typeof item.header!=='boolean'||item.direction!==undefined&&!['request','response'].includes(item.direction))throw new SourceError('runtime.media.preparation','Malformed media preparation');
+    const schema=item.schema;
+    if(schema&&(typeof schema.resource!=='string'||typeof schema.pointer!=='string'||!graph.scopeAs(schema.resource,schema.pointer,'schema')))throw new SourceError('runtime.media.owner','Media preparation requires an original captured schema');
+    const mediaSource=schema?{...schema,range:graph.docs.get(schema.resource)!.dataNode(schema.pointer)!.range}:undefined;
+    const document=new SourceDocument(item.text,'urn:busyapi:media-preparation',true,'json');if(document.issues.length)throw document.issues[0];
+    exact.setDirection(item.direction);
+    try{
+    const inputValid=schema?mediaProof(schema,document):true;
+    if(inputValid===undefined)throw new SourceError('runtime.media.schema.unavailable','The original media schema cannot supply a complete evaluation',mediaSource?.range??[0,0],'unsupported',mediaSource);
+    if(!inputValid)throw new SourceError('request.media.conformance','Typed media input does not completely satisfy its original schema',mediaSource?.range??[0,0],undefined,mediaSource);
+    const binding=schema?{graph,schema}:undefined;
+    const bytes=encodeRuntimeMedia(document,item.mediaType,item.header===true,binding);
+    const decoded=decodeRuntimeMedia(bytes.toString('base64'),'urn:busyapi:media-correspondence',item.mediaType,true,'unsupported',undefined,binding);
+    const outputValid=schema?mediaProof(schema,decoded.document):true;
+    if(outputValid===undefined)throw new SourceError('runtime.media.schema.unavailable','The original media schema cannot supply a complete wire evaluation',mediaSource?.range??[0,0],'unsupported',mediaSource);
+    if(!outputValid)throw new SourceError('request.media.conformance','Encoded media does not completely satisfy its original schema',mediaSource?.range??[0,0],undefined,mediaSource);
+    const corresponds=decoded.kind==='xml'&&binding?xmlCorresponds(document,decoded.document,binding):decoded.kind==='linkset'?linksetCorresponds(document,decoded.document):sameMediaData(document,decoded.document);
+    if(!corresponds)throw new SourceError('runtime.media.correspondence','Encoded media does not preserve the typed value under the documented inversion policy',[0,0],'unsupported');
+    mediaPreparations.push({mediaType:item.mediaType,base64:bytes.toString('base64'),byteLength:bytes.length,text:decoded.document.dataJson(''),complete:true,valid:true});
+    }finally{exact.setDirection(undefined);}
+   }
+  }
   const examples:{schema:GraphScope,doc:SourceDocument,pointer:string,interpretation:string}[]=[];
   const mediaForms=mediaExampleRepresentations(graph);
   const skip=(value:any)=>{if(skipped.length>=20000){limited=true;complete=false;}else skipped.push(value);};
@@ -423,9 +496,9 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
   runtimeEvaluations.push(...checkedRuntime.evaluations);runtimeFindings.push(...checkedRuntime.findings);
   if(limited)add(root,'','limit.schema.findings','Schema evaluation reached its bounded work or finding limit. Shown results are not exhaustive.','warning');
   return {version:1,snapshot:input.snapshot,root:input.root,producer:schemaProducer.name,producerVersion:schemaProducer.version,configuration:schemaProducer.configuration+(input.policyAnnotations===true?':policy-annotations':''),
-   complete,findings,evaluations,serializedEvaluations:serialized.evaluations,runtimeEvaluations,runtimeFindings,skipped,schemas,instances,coverage:{schemaKeywords:'dated-oas-and-draft2020-12-meta',instances:runtime.length?'selected-runtime-values-and-authored-examples':'authored-examples',schemaAssertions,authoredData,serializedMediaExamples:{complete:serialized.complete,evaluated:serialized.evaluations.length},unboundExampleSerializations:serialized.unbound,numbers:'exact-cst-decimal',dynamicScope:'validator-evaluation-stack',format:'annotation-only',runtime:runtime.length?'selected-operation-values':'not-requested'}};
+   complete,findings,evaluations,mediaPreparations,serializedEvaluations:serialized.evaluations,runtimeEvaluations,runtimeFindings,skipped,schemas,instances,coverage:{schemaKeywords:'dated-oas-and-draft2020-12-meta',instances:runtime.length?'selected-runtime-values-and-authored-examples':'authored-examples',schemaAssertions,authoredData,serializedMediaExamples:{complete:serialized.complete,evaluated:serialized.evaluations.length},unboundExampleSerializations:serialized.unbound,numbers:'exact-cst-decimal',dynamicScope:'validator-evaluation-stack',format:'annotation-only',runtime:runtime.length?'selected-operation-values':'not-requested'}};
  }finally {
-  open=false;documents.clear();exact.dispose();
+  releaseXml();open=false;documents.clear();exact.dispose();
   for(const uri of ownedIds)unloadDialect(uri);
   for(const scheme of schemes)addUriSchemePlugin(scheme,{retrieve:async()=>{throw new SourceError('schema.owner','No schema evaluation owns this resource request');}});
   addMediaTypePlugin('application/vnd.busyapi.schema-snapshot+json',{fileMatcher:async()=>false,parse:async()=>{throw new SourceError('schema.owner','No schema snapshot is active');}});

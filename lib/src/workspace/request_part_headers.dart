@@ -58,6 +58,12 @@ class RequestPartHeadersEditor extends StatelessWidget {
             enabled: editable,
             onChanged: (value) => run.partHeaderName = value,
           ),
+          BusyApiSwitchRow(
+            title: l.requestStructuredValue,
+            value: run.partHeaderModeled,
+            enabled: editable,
+            onChanged: (value) { run.partHeaderModeled = value; run.refresh(); },
+          ),
           RequestDraftEntry(
             run: run,
             label: l.requestHeaderValue,

@@ -50,7 +50,7 @@ export function parameterSerializationEvaluator(graph:ReferenceGraph,evaluate:Ev
  }
  const representation=(instance:NativeRuntimeInstance):NativeRuntimeInstance=>!instance.mediaType?instance:
   wireBytes?(wireHeader&&!instance.mediaBase64?{...instance,text:Buffer.from(instance.text,'latin1').toString('base64'),mediaBase64:true}:instance):
-   {...instance,unicodeSerialization:true};
+   instance.mediaBase64?instance:{...instance,unicodeSerialization:true};
 
  if(owner.kind==='header'){
   const name=exampleHeaderName(graph,owner);

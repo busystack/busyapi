@@ -95,6 +95,7 @@ class RequestRunController extends ChangeNotifier {
   final Map<String, MultipartFileShape> fileShapes = {};
   final List<RequestPartHeaderValue> partHeaders = [];
   String partHeaderPart = '', partHeaderName = '', partHeaderValue = '';
+  bool partHeaderModeled = false;
   bool get hasPartHeaderOwner => partHeaderPart.isNotEmpty ||
       plan?.formMediaOptions(bodyMediaType).any((option) => option.name.isEmpty) == true;
   int _epoch = 0;
@@ -118,6 +119,8 @@ class RequestRunController extends ChangeNotifier {
   final Set<String> omittedValues = {};
   final Map<String, RequestValueRepresentation> exampleRepresentations = {};
   final List<RequestHeaderValue> customHeaders = [];
+  final Map<String, String> requestVariables = {};
+  final Map<(String?, RequestBodyKind, bool), _RequestBodyState> _bodyDrafts = {};
   RequestBodyKind bodyKind = RequestBodyKind.raw;
   CapturedRequestBodyExample? bodyExample;
   final Map<RequestTimeoutKind, String> timeoutInputs = {};
@@ -125,8 +128,9 @@ class RequestRunController extends ChangeNotifier {
   Duration connectTimeout = const Duration(seconds: 15),
       overallTimeout = const Duration(seconds: 60),
       inactivityTimeout = const Duration(seconds: 15);
-  String? effectiveRequest, previewFailure, failureMessage;
+  String? effectiveRequest, effectiveHeaders, serializedContent, previewFailure, failureMessage;
   Timer? _previewTimer;
+  RunCancellation? _previewCancellation;
   int _previewEpoch = 0;
   bool get timeoutsValid =>
       [connectTimeout, overallTimeout, inactivityTimeout].every(
@@ -226,8 +230,9 @@ class RequestRunController extends ChangeNotifier {
     }
     if (draftChanged) { ++_draftRevision; multipartPrepared = null; }
     _previewTimer?.cancel();
+    _previewCancellation?.cancel();
     final epoch = ++_previewEpoch;
-    effectiveRequest = previewFailure = null;
+    effectiveRequest = effectiveHeaders = serializedContent = previewFailure = null;
     _previewTimer = Timer(const Duration(milliseconds: 120), () async {
       final captured = plan;
       if (captured == null ||
@@ -237,20 +242,42 @@ class RequestRunController extends ChangeNotifier {
         return;
       }
       try {
+        final token = RunCancellation();
+        _previewCancellation = token;
         final prepared = await const ContractRequestBuilder().build(
           captured,
           draft(),
           resolveSecret: (_) async => '[REDACTED]',
-          previewOnly: true,
+          previewOnly: true, cancellation: token,
         );
+        try {
         if (_disposed || epoch != _previewEpoch || !identical(captured, plan)) {
           return;
         }
+        String? content;
+        if (draft().body.materializePreview && prepared.body != null) {
+          final bytes = <int>[];
+          await for (final chunk in prepared.body!.open()) {
+            if (_disposed || epoch != _previewEpoch || !identical(captured, plan)) return;
+            bytes.addAll(chunk.take(16384 - bytes.length));
+            if (bytes.length >= 16384) break;
+          }
+          try { content = utf8.decode(bytes); }
+          on FormatException { content = bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join(' '); }
+        }
+        if (_disposed || epoch != _previewEpoch || !identical(captured, plan)) return;
+        if (content != null && prepared.body!.length > 16384) content += '\n… (16384 / ${prepared.body!.length} bytes)';
+        serializedContent = content;
+        effectiveHeaders = _preparedHeaderPreview(prepared);
         effectiveRequest = '${prepared.method} ${prepared.displayUri}';
         previewFailure = null;
+        } finally { await prepared.body?.close(); }
       } on CoreFailure catch (error) {
         if (_disposed || epoch != _previewEpoch) return;
         previewFailure = error.message;
+      } on Object {
+        if (_disposed || epoch != _previewEpoch) return;
+        previewFailure = 'The serialized preview could not be prepared.';
       } finally {
         if (!_disposed && epoch == _previewEpoch) _notify();
       }
@@ -307,7 +334,7 @@ class RequestRunController extends ChangeNotifier {
                           RequestPartHeaderValue(
                             partHeaderPart,
                             partHeaderName,
-                            partHeaderValue,
+                            partHeaderValue, modeled: partHeaderModeled,
                           ),
                       ],
                     )
@@ -324,21 +351,18 @@ class RequestRunController extends ChangeNotifier {
                           RequestPartHeaderValue(
                             partHeaderPart,
                             partHeaderName,
-                            partHeaderValue,
+                            partHeaderValue, modeled: partHeaderModeled,
                           ),
                       ],
                     ),
             RequestBodyKind.binaryFile =>
               bodyFiles.length == 1
-                  ? RequestBodyDraft.binaryFile(
-                      mediaType: bodyMediaType!,
-                      file: bodyFiles.single.path,
-                    )
+                  ? bodyFiles.single.access == null ? RequestBodyDraft.binaryFile(mediaType:bodyMediaType!,file:bodyFiles.single.path) : RequestBodyDraft.approvedFile(mediaType:bodyMediaType!,file:bodyFiles.single.path,access:bodyFiles.single.access!)
                   : throw CoreFailure(
                       'request.file',
                       'Select one binary file or choose text input.',
                     ),
-            _ => bodyStructured
+            _ => bodyStructured && (bodyMediaType!.split(';').first.trim().toLowerCase() == 'application/xml' || bodyMediaType!.split(';').first.trim().toLowerCase() == 'text/xml' || bodyMediaType!.split(';').first.trim().toLowerCase().endsWith('+xml') || bodyMediaType!.split(';').first.trim().toLowerCase() == 'application/linkset' || bodyMediaType!.split(';').first.trim().toLowerCase() == 'application/linkset+json')
                 ? RequestBodyDraft.modeled(mediaType: bodyMediaType!, json: bodyText)
                 : RequestBodyDraft.raw(mediaType: bodyMediaType!, text: bodyText),
           };
@@ -353,6 +377,7 @@ class RequestRunController extends ChangeNotifier {
         if (headerName.isNotEmpty) RequestHeaderValue(headerName, headerValue),
       ],
       body: body,
+      variables: Map.of(requestVariables),
       tlsFiles: Map.of(tlsFiles),
       connectTimeout: connectTimeout,
       overallTimeout: overallTimeout,
@@ -362,6 +387,7 @@ class RequestRunController extends ChangeNotifier {
 
   void selectBodyMedia(String? media) {
     if (busy || hasComposingInput) return;
+    if (!_rememberBody()) return;
     bodyMediaType = media;
     bodyExample = null;
     bodyFiles.clear();
@@ -375,6 +401,34 @@ class RequestRunController extends ChangeNotifier {
         bodyKind != RequestBodyKind.multipart) {
       bodyStructured = false;
     }
+    final remembered = _bodyDrafts.keys.where((key) => key.$1 == media).lastOrNull;
+    if (remembered != null) { bodyKind = remembered.$2;bodyStructured = remembered.$3; }
+    final retained = _bodyDrafts[(bodyMediaType, bodyKind, bodyStructured)];
+    if (retained != null) {
+      retained.restore(this);
+    } else {
+      bodyText = bodyKind == RequestBodyKind.multipart && multipartTree ? '[]' : '';
+      partHeaders.clear();partSchemas.clear();fileShapes.clear();
+    }
+    refresh();
+  }
+
+  bool _rememberBody() {
+    final key = (bodyMediaType, bodyKind, bodyStructured);
+    final value = _RequestBodyState(this);
+    if (value.bytes > 16 * 1024 * 1024) {failure = 'request.draft.limit';phase = 'failed';_notify();return false;}
+    _bodyDrafts.remove(key);_bodyDrafts[key] = value;
+    while (_bodyDrafts.length > 32 || _bodyDrafts.values.fold<int>(0, (n, item) => n + item.bytes) > 16 * 1024 * 1024) {
+      _bodyDrafts.remove(_bodyDrafts.keys.first);
+    }
+    return true;
+  }
+
+  void selectStructuredBody(bool value) {
+    if (busy || hasComposingInput || value == bodyStructured) return;
+    if (!_rememberBody()) return;bodyStructured = value;bodyExample = null;
+    final retained = _bodyDrafts[(bodyMediaType, bodyKind, bodyStructured)];
+    if (retained != null) { retained.restore(this); } else { bodyText = '';bodyFiles.clear();partHeaders.clear();partMediaTypes.clear();partSchemas.clear();fileShapes.clear(); }
     refresh();
   }
 
@@ -398,8 +452,11 @@ class RequestRunController extends ChangeNotifier {
     if (busy || hasComposingInput || bodyKind == RequestBodyKind.binaryFile) {
       return;
     }
+    if (!_rememberBody()) return;
     bodyKind = serialized ? RequestBodyKind.raw : _kindForMedia(bodyMediaType);
     bodyExample = null;
+    final retained = _bodyDrafts[(bodyMediaType, bodyKind, bodyStructured)];
+    if (retained != null) { retained.restore(this); } else { bodyText = '';bodyFiles.clear();partHeaders.clear();partMediaTypes.clear();partSchemas.clear();fileShapes.clear(); }
     refresh();
   }
 
@@ -470,6 +527,49 @@ class RequestRunController extends ChangeNotifier {
     }
   }
 
+  String? selectedCase;
+  final _caseDrafts = <String, _RequestDraftState>{};
+  Future<void> reopenCase(String? name) async {
+    final captured = plan, project = owner, revision = _draftRevision;
+    if (captured == null || project == null || busy || hasComposingInput) return;
+    final key = '${captured.identity}:${selectedCase ?? ''}';
+    final current = _RequestDraftState(this);
+    if (current.bytes > 16 * 1024 * 1024) throw CoreFailure('request.draft.limit', 'The current draft exceeds the retained input limit.');
+    _caseDrafts.remove(key);_caseDrafts[key] = current;
+    while (_caseDrafts.length > 32 || _caseDrafts.values.fold<int>(0, (n, item) => n + item.bytes) > 16 * 1024 * 1024) _caseDrafts.remove(_caseDrafts.keys.first);
+    final retained = _caseDrafts['${captured.identity}:${name ?? ''}'];
+    if (retained != null) {
+      if (environment != retained.environment) selectEnvironment(retained.environment);
+      _initializeFreshDraft();retained.restore(this);selectedCase = name;refresh();return;
+    }
+    if (name == null) return;
+    final loaded = await ContractTestRunner.reopenCase(captured, name, project.access);
+    if (_disposed || revision != _draftRevision || !identical(captured, plan)) return;
+    if (loaded.body.fields.any((field) => field.name.isEmpty || field.name.contains('=') || field.name.contains('\n') || field.value.contains('\n'))) throw CoreFailure('request.case.fields', 'These literal rows cannot be displayed as name=value lines; reopen them in the saved case source.');
+    if (environment != loaded.environment) selectEnvironment(loaded.environment);
+    _initializeFreshDraft();
+    exampleRepresentations..clear()..addAll({for (final entry in loaded.parameters.entries)
+      if (entry.value.representation == RequestValueRepresentation.serializedParameter || entry.value.representation == RequestValueRepresentation.serializedMedia) entry.key: entry.value.representation});
+    values..clear()..addAll({for (final entry in loaded.parameters.entries) entry.key: entry.value.text});
+    structuredValues..clear()..addAll(loaded.parameters.entries.where((entry) => entry.value.json).map((entry) => entry.key));
+    omittedValues.clear();customHeaders..clear()..addAll(loaded.headers);
+    final body = loaded.body;
+    bodyKind = body.kind;bodyText = body.text ?? body.fields.map((field) => '${field.name}=${field.value}').join('\n');bodyMediaType = body.mediaType;
+    bodyStructured = body.modeled || (body.kind == RequestBodyKind.multipart || body.kind == RequestBodyKind.form) && body.text != null;
+    bodyExample = body.capturedExample;bodyEnabled = body.kind != RequestBodyKind.none;
+    bodyFiles..clear()..addAll(body.files);
+    if (body.kind == RequestBodyKind.binaryFile && body.file != null) bodyFiles.add(MultipartFileValue(name:'file',path:body.file!,mediaType:body.mediaType!,access:body.fileAccess));
+    partHeaders..clear()..addAll(body.partHeaders);
+    partMediaTypes..clear()..addAll(body.partMediaTypes);partSchemas..clear()..addAll(body.partSchemas);fileShapes..clear()..addAll(body.fileShapes);
+    environment = loaded.environment;server = loaded.selectedServer ?? server;
+    if (loaded.securityAlternative != null) securityAlternative = loaded.securityAlternative;
+    requestVariables.addAll(loaded.variables);tlsFiles.addAll(loaded.tlsFiles);
+    connectTimeout = loaded.connectTimeout;overallTimeout = loaded.overallTimeout;inactivityTimeout = loaded.inactivityTimeout;
+    selectedCase = name;
+    while (_caseDrafts.length > 32) _caseDrafts.remove(_caseDrafts.keys.first);
+    refresh();
+  }
+
   void addPartHeader() {
     if (busy ||
         hasComposingInput ||
@@ -484,7 +584,7 @@ class RequestRunController extends ChangeNotifier {
       );
     }
     partHeaders.add(
-      RequestPartHeaderValue(partHeaderPart, partHeaderName, partHeaderValue),
+      RequestPartHeaderValue(partHeaderPart, partHeaderName, partHeaderValue, modeled: partHeaderModeled),
     );
     partHeaderName = partHeaderValue = '';
     refresh();
@@ -570,6 +670,7 @@ class RequestRunController extends ChangeNotifier {
     omittedValues.clear();
     exampleRepresentations.clear();
     customHeaders.clear();
+    requestVariables.clear();_bodyDrafts.clear();selectedCase = null;
     timeoutInputs.clear();
     bodyKind = RequestBodyKind.raw;
     bodyExample = null;
@@ -582,6 +683,7 @@ class RequestRunController extends ChangeNotifier {
     multipartArrayPointer = '';
     multipartNewValue = 'null';
     partHeaders.clear();
+    partHeaderModeled = false;
     partHeaderPart = partHeaderName = partHeaderValue = '';
     connectTimeout = const Duration(seconds: 15);
     overallTimeout = const Duration(seconds: 60);
@@ -1375,8 +1477,9 @@ class RequestRunController extends ChangeNotifier {
   void clear({bool retainProjectDrafts = false}) {
     if (retainProjectDrafts) _remember();
     _previewTimer?.cancel();
+    _previewCancellation?.cancel();
     ++_previewEpoch;
-    effectiveRequest = previewFailure = null;
+    effectiveRequest = effectiveHeaders = serializedContent = previewFailure = null;
     ++_epoch;
     cancellation?.cancel();
     cancellation = null;
@@ -1389,6 +1492,7 @@ class RequestRunController extends ChangeNotifier {
       _drafts.clear();
       _setupDrafts.clear();
       _lastEnvironment.clear();
+      _caseDrafts.clear();
     }
     _resetValues();
     phase = 'idle';
@@ -1405,7 +1509,9 @@ class RequestRunController extends ChangeNotifier {
     if (_disposed) return;
     _disposed = true;
     _setupDrafts.clear();
+    _caseDrafts.clear();_bodyDrafts.clear();
     _previewTimer?.cancel();
+    _previewCancellation?.cancel();
     ++_previewEpoch;
     workspace.removeListener(_observe);
     cancellation?.cancel();
@@ -1520,9 +1626,36 @@ String? _securityIdentity(RequestRunController run, int? index) {
   });
 }
 
+/// Body input modes use the same existing controls and bounded draft lifetime.
+/// A raw edit never replaces the retained structured input (or its file choices).
+class _RequestBodyState {
+  _RequestBodyState(RequestRunController run)
+      : text = run.bodyText, example = run.bodyExample,
+        files = List.of(run.bodyFiles), headers = List.of(run.partHeaders),
+        media = Map.of(run.partMediaTypes), schemas = Map.of(run.partSchemas), shapes = Map.of(run.fileShapes);
+  final String text;
+  final CapturedRequestBodyExample? example;
+  final List<MultipartFileValue> files;
+  final List<RequestPartHeaderValue> headers;
+  final Map<String, String> media, schemas;
+  final Map<String, MultipartFileShape> shapes;
+  int get bytes => text.length * 2 + (example?.byteLength ?? 0) +
+      files.fold<int>(0, (n, file) => n + 2 * (file.path.length + file.name.length + file.mediaType.length + (file.filename?.length ?? 0))) +
+      headers.fold<int>(0, (n, field) => n + 2 * (field.part.length + field.name.length + field.value.length)) +
+      [...media.entries, ...schemas.entries].fold<int>(0, (n, entry) => n + 2 * (entry.key.length + entry.value.length));
+  void restore(RequestRunController run) {
+    run.bodyText = text;run.bodyExample = example == null ? null : run.plan?.restoreBodyExample(example!) ?? example;
+    run.bodyFiles..clear()..addAll(files);run.partHeaders..clear()..addAll(headers);
+    run.partMediaTypes..clear()..addAll(media);run.partSchemas..clear()..addAll(schemas);run.fileShapes..clear()..addAll(shapes);
+  }
+}
+
 class _RequestDraftState {
   _RequestDraftState(RequestRunController run)
     : identity = run._draftIdentity,
+      environment = run.environment,
+      variables = Map.of(run.requestVariables),
+      bodyDrafts = Map.of(run._bodyDrafts),
       serverIdentity = _serverIdentity(run, run.server),
       securityIdentity = _securityIdentity(run, run.securityAlternative),
       omitted = Set.of(run.omittedValues),
@@ -1531,12 +1664,14 @@ class _RequestDraftState {
       kind = run.bodyKind,
       bodyExample = run.bodyExample,
       bodyStructured = run.bodyStructured,
+      selectedCase = run.selectedCase,
       partMediaTypes = Map.of(run.partMediaTypes),
       partSchemas = Map.of(run.partSchemas),
       multipartArrayPointer = run.multipartArrayPointer,
       multipartNewValue = run.multipartNewValue,
       fileShapes = Map.of(run.fileShapes),
       partHeaders = List.of(run.partHeaders),
+      partHeaderModeled = run.partHeaderModeled,
       partHeaderDraft = (
         run.partHeaderPart,
         run.partHeaderName,
@@ -1560,18 +1695,22 @@ class _RequestDraftState {
       media = run.bodyMediaType,
       server = run.server,
       security = run.securityAlternative;
-  final String? identity, media, serverIdentity, securityIdentity;
+  final String? identity, media, serverIdentity, securityIdentity, environment;
+  final Map<String, String> variables;
+  final Map<(String?, RequestBodyKind, bool), _RequestBodyState> bodyDrafts;
   final Set<String> omitted;
   final Map<String, RequestValueRepresentation> representations;
   final List<RequestHeaderValue> headers;
   final RequestBodyKind kind;
   final CapturedRequestBodyExample? bodyExample;
   final bool bodyStructured;
+  final String? selectedCase;
   final Map<String, String> partMediaTypes, partSchemas;
   final String multipartArrayPointer, multipartNewValue;
   final Map<String, MultipartFileShape> fileShapes;
   final List<RequestPartHeaderValue> partHeaders;
   final (String, String, String) partHeaderDraft;
+  final bool partHeaderModeled;
   final (Duration, Duration, Duration) timeouts;
   final Map<RequestTimeoutKind, String> timeoutInputs;
   final Map<String, String> values, tls;
@@ -1582,7 +1721,7 @@ class _RequestDraftState {
   final int server;
   final int? security;
   int get bytes =>
-      (body.length +
+      (body.length + variables.entries.fold<int>(0, (n, entry) => n + entry.key.length + entry.value.length) +
           multipartArrayPointer.length + multipartNewValue.length +
           partSchemas.entries.fold<int>(0, (n, entry) => n + entry.key.length + entry.value.length) +
           fileShapes.keys.fold<int>(0, (size, name) => size + name.length + 5) +
@@ -1619,8 +1758,9 @@ class _RequestDraftState {
             0,
             (n, e) => n + e.key.length + e.value.length,
           )) *
-      2 + (bodyExample?.byteLength ?? 0);
+      2 + (bodyExample?.byteLength ?? 0) + bodyDrafts.values.fold<int>(0, (n, item) => n + item.bytes);
   void restore(RequestRunController run) {
+    run.requestVariables.addAll(variables);run._bodyDrafts.addAll(bodyDrafts);
     run.values.addAll(values);
     run.omittedValues.addAll(omitted);
     run.exampleRepresentations.addAll(representations);
@@ -1628,12 +1768,14 @@ class _RequestDraftState {
     run.bodyKind = kind;
     run.bodyExample = bodyExample == null ? null : run.plan?.restoreBodyExample(bodyExample!) ?? bodyExample;
     run.bodyStructured = bodyStructured;
+    run.selectedCase = selectedCase;
     run.partMediaTypes.addAll(partMediaTypes);
     run.partSchemas.addAll(partSchemas);
     run.multipartArrayPointer = multipartArrayPointer;
     run.multipartNewValue = multipartNewValue;
     run.fileShapes.addAll(fileShapes);
     run.partHeaders.addAll(partHeaders);
+    run.partHeaderModeled = partHeaderModeled;
     run.partHeaderPart = partHeaderDraft.$1;
     run.partHeaderName = partHeaderDraft.$2;
     run.partHeaderValue = partHeaderDraft.$3;
@@ -2202,6 +2344,27 @@ class RequestRunPanel extends StatelessWidget {
     await response.export(location.path);
   }
 
+  Future<void> saveCase(BuildContext context) async {
+    final captured = run.plan, owner = run.owner, revision = run._draftRevision;
+    if (captured == null || owner == null || run.busy || run.hasComposingInput) return;
+    final input = TextEditingController();
+    var composing = false;
+    final accepted = await showBusyApiModalDialog<String>(context: context,
+      builder: (dialogContext) => StatefulBuilder(builder: (context, setState) => BusyApiDialogShell(
+        title: 'Save request case', closable: true,
+        actions: [
+          BusyApiDialogButton(label: context.l10n.cancel, onPressed: () => Navigator.pop(context)),
+          BusyApiDialogButton(label: 'Review case', suggested: true,
+            onPressed: composing ? null : () => Navigator.pop(context, input.text.trim())),
+        ], children: [FormValueEditor(label: 'Case name', controller: input, enabled: true, multiline: false, json: false, onCompositionChanged: (value) => setState(() => composing = value))],
+      )));
+    input.dispose();
+    if (accepted == null || !context.mounted || run._disposed || revision != run._draftRevision || !identical(captured, run.plan)) return;
+    final edit = await captured.planCase(accepted, run.draft());
+    if (!context.mounted || run._disposed || revision != run._draftRevision || !identical(captured, run.plan)) return;
+    await showRefactoringReview(context, run.workspace, owner, edit);
+  }
+
   Future<void> saveExample(BuildContext context) async {
     final captured = run.result;
     if (captured == null) return;
@@ -2434,6 +2597,19 @@ class RequestRunPanel extends StatelessWidget {
                         subtitle:
                             '${run.environment ?? l.requestDefaultEnvironment} · ${plan.configuration.environments[run.environment]?.baseUrl != null ? l.requestEnvironmentOverride : l.requestAuthoredServer}',
                       ),
+                      if (plan.configuration.tests.any((item) => item['operation'] is Map && (item['operation'] as Map)['path'] == plan.operation['path']))
+                        BusyApiComboRow<String?>(title: 'Saved request case', selected: run.selectedCase,
+                          values: [null, for (final item in plan.configuration.tests)
+                            if (item['operation'] is Map && (item['operation'] as Map)['path'] == plan.operation['path'] &&
+                                '${(item['operation'] as Map)['method']}'.toLowerCase() == '${plan.operation['method']}'.toLowerCase()) item['name'] as String],
+                          labelFor: (value) => value ?? 'Current draft', enabled: !run.busy && !run.hasComposingInput,
+                          onSelected: (value) => _performRequestAction(context, run, () => run.reopenCase(value))),
+                      BusyApiActionRow(title: 'Save request case', enabled: !run.busy && !run.hasComposingInput && !run.outdated,
+                        onTap: () => _performRequestAction(context, run, () => saveCase(context))),
+                      if (run.effectiveHeaders case final String fields)
+                        BusyApiDisclosure(title: Text(l.requestHeaders), children: [BusyApiRawSourceView(source: fields)]),
+                      if (run.serializedContent case final String wire)
+                        BusyApiDisclosure(title: Text(l.requestExactBody), children: [BusyApiRawSourceView(source: wire)]),
                       if (BusyApiCommandRegistryScope.maybeOf(
                             context,
                           )?['request-send']?.shortcut?.label
@@ -3337,10 +3513,7 @@ class _BodyEditor extends StatelessWidget {
               title: l.requestStructuredValue,
               value: run.bodyStructured,
               enabled: !run.busy && !run.hasComposingInput && (!run.multipartTree || !run.bodyStructured),
-              onChanged: (value) {
-                run.bodyStructured = value;
-                run.refresh();
-              },
+              onChanged: run.selectStructuredBody,
             ),
           if (run.bodyExample case final example?)
             BusyApiActionRow(title: l.examples,
@@ -3855,6 +4028,13 @@ class _ResponseInspectorState extends State<_ResponseInspector> {
     query.addListener(_searchChanged);
     headerQuery.addListener(_headerSearchChanged);
     final response = widget.result.response;
+    final modeled = widget.result.received.modeledData;
+    if (modeled != null) {
+      widget.result.request.plan.inspectJson(modeled).then((value) {
+        if (!mounted) return;
+        setState(() { pretty = value['pretty'] as String; entries = value['entriesComplete'] == true ? (value['entries'] as List).cast<Map>() : const []; });
+      }, onError: (Object _) {});
+    }
     if (!widget.result.bodyPermitted) return;
     final contentType = response.headers
         .where((h) => h.$1.toLowerCase() == 'content-type')
@@ -3923,6 +4103,10 @@ class _ResponseInspectorState extends State<_ResponseInspector> {
       }
     } on Object {
       invalidText = true;
+    }
+    if (modeled != null && invalidText) {
+      text = response.displayBytes.take(pageSize).map((byte) => byte.toRadixString(16).padLeft(2, '0')).join(' ');
+      binary = true; invalidText = false;
     }
   }
 
@@ -4042,12 +4226,12 @@ class _ResponseInspectorState extends State<_ResponseInspector> {
         BusyApiComboRow<String>(
           title: l.responses,
           selected: view,
-          values: const ['body', 'headers', 'validation'],
+          values: const ['body', 'headers', 'validation', 'request'],
           labelFor: (value) => value == 'body'
               ? l.responseBody
               : value == 'headers'
               ? '${l.requestHeaders} (${response.headers.length})'
-              : l.responseValidation,
+              : value == 'request' ? l.responseOutgoing : l.responseValidation,
           onSelected: (value) => setState(() => view = value),
         ),
         if (actionFailure != null)
@@ -4065,6 +4249,18 @@ class _ResponseInspectorState extends State<_ResponseInspector> {
                 : l.responsePartialDecodedExport,
             onTap: () => exportResponse(decoded: true),
           ),
+        if (view == 'request') ...[
+          SectionLabel(l.requestHeaders),
+          BusyApiRawSourceView(source: _preparedHeaderPreview(result.request)),
+          if (result.request.body case final body?) ...[
+            SectionLabel(l.requestExactBody),
+            Text('${body.inspectionBytes.length} / ${body.length} bytes'),
+            BusyApiRawSourceView(source: _wirePreview(body.inspectionBytes)),
+          ],
+          if (result.outgoing.modeledData case final String data) ...[
+            SectionLabel(l.requestStructuredValue),BusyApiRawSourceView(source: data),
+          ],
+        ],
         if (view == 'body') ...[
           if (binary) BusyApiStatusBox(message: l.responseBinary),
           if (invalidText)
@@ -4222,6 +4418,16 @@ int _scalarBoundary(String text, int offset) {
     return end - 1;
   }
   return end;
+}
+
+String _wirePreview(List<int> bytes) {
+  try { return utf8.decode(bytes); }
+  on FormatException { return bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join(' '); }
+}
+
+String _preparedHeaderPreview(PreparedContractRequest request) {
+  final text = request.headers.map((field) => '${field.$1}: ${request.sensitiveHeaders.contains(field.$1.toLowerCase()) ? '[REDACTED]' : field.$2}').join('\n');
+  return text.length <= 16384 ? text : '${text.substring(0,16384)}\n…';
 }
 
 String _inspectionText(Object? value, [int maximum = 4096]) {

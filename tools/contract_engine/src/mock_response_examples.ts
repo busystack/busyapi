@@ -1,3 +1,6 @@
+import {embeddedMimeTextBytes} from './embedded_mime_text';
+import {rawXmlBytes} from './xml_wire';
+import {mediaTypes} from './media_types';
 import {encodeRuntimeMedia,runtimeMediaKind,runtimeMediaBytes} from './runtime_media';
 import {schemaLocation} from './mock_projection';
 import {SourceDocument,SourceError} from './document';
@@ -35,10 +38,14 @@ export function authoredMockResponseBytes(plan:unknown,status:string,actual:stri
     if(selected?.external===undefined){
         if(!selected||typeof selected.raw!=='string')return;
         const kind=runtimeMediaKind(actual);
+        if(actual.split(';')[0].trim().toLowerCase().startsWith('multipart/')&&selected.representation==='serialized'){
+            const source=sourceLocation(selected.source);
+            return source?.pointer.endsWith('/serializedValue')?runtimeMediaBytes(selected.raw,false):embeddedMimeTextBytes(selected.raw,actual);
+        }
         if(!['xml','linkset','linkset-json'].includes(kind))return;
-        if(selected.representation==='serialized')return runtimeMediaBytes(selected.raw,false);
-        const media=capturedMockResponseMedia(plan,status,actual),schema=media&&schemaLocation(media.schema);
-        return encodeRuntimeMedia(new SourceDocument(selected.raw,'urn:busyapi:mock-example',true,'json'),actual,false,schema?{graph,schema}:undefined);
+        if(selected.representation==='serialized')return kind==='xml'?rawXmlBytes(selected.raw,mediaTypes(actual,false)[0].parameters.get('charset')):runtimeMediaBytes(selected.raw,false);
+        return; // Structured values pass through asynchronous canonical preparation.
+
     }
     if(!record(selected.external))throw new SourceError('mock.validation.protocol','The external response example omitted its captured byte identity');
     const source=sourceLocation(selected.source);

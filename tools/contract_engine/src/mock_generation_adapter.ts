@@ -43,9 +43,9 @@ export function defaultSwaggerResponseMedia(document:Record<string,unknown>,oper
  * the authored schema nor the native validator receives this derived view. */
 export class MockGenerationAdapter {
     private readonly values=new WeakMap<IMediaTypeContent,string>();
-    private readonly wires=new WeakMap<IMediaTypeContent,{bytes:Buffer;value:GeneratorData;path:string;method:string}>();
+    private readonly wires=new WeakMap<IMediaTypeContent,{bytes:Buffer;value:GeneratorData;path:string;method:string;mediaType?:string}>();
 
-    constructor(private readonly native:Pick<MockNativeValidation,'responseBytes'|'authoredResponse'|'authoredResponseBytes'|'generatedResponse'|'generationFailure'>) {}
+    constructor(private readonly native:Pick<MockNativeValidation,'responseMediaType'|'responseBytes'|'authoredResponse'|'authoredResponseBytes'|'generatedResponse'|'generationFailure'>) {}
 
     async prepare(operation:IHttpOperation,configuration:Configuration,diagnostics:readonly Diagnostic[],logger:Logger,signal:AbortSignal):Promise<{operation:IHttpOperation;configuration:Configuration}> {
         const unchanged={operation,configuration};
@@ -62,7 +62,7 @@ export class MockGenerationAdapter {
         if(!response||!content)return unchanged;
         const essence=content.mediaType.split(';')[0].trim().toLowerCase();
         const json=essence==='application/json'||essence.endsWith('+json');
-        const modeled=essence==='application/xml'||essence==='text/xml'||essence.endsWith('+xml')||essence==='application/linkset'||essence==='application/linkset+json';
+        const modeled=essence==='application/x-www-form-urlencoded'||essence.startsWith('multipart/')||essence==='application/xml'||essence==='text/xml'||essence.endsWith('+xml')||essence==='application/linkset'||essence==='application/linkset+json';
         const dynamic=configuration.dynamic&&selected.bodyExample===undefined;
         // Invalid-input negotiation can suppress the requested example key.
         // Preserve its actual choice before skipping synthesized schema defaults.
@@ -74,7 +74,7 @@ export class MockGenerationAdapter {
             keys,signal);
         const raw=bytes===undefined?authored??await this.native.generatedResponse(operation.path,operation.method,response.code,content.mediaType,dynamic,signal):undefined;
         if(raw===undefined&&bytes===undefined)return unchanged;
-        if(modeled&&raw!==undefined)bytes=this.native.responseBytes(operation.path,operation.method,response.code,content.mediaType,raw);
+        if(modeled&&raw!==undefined)bytes=await this.native.responseBytes(operation.path,operation.method,response.code,content.mediaType,raw,signal);
         // Prism negotiates status/headers against this request-owned view.
         // External wire bytes bypass its body serializer; original native
         // response validation below remains mandatory before emission.
@@ -84,7 +84,7 @@ export class MockGenerationAdapter {
         const key=configuration.exampleKey||'busyapi:captured-schema-sample';
         const generated:IMediaTypeContent={...content,
             examples:[{id:content.id+':native-sample',key,value}]};
-        if(bytes!==undefined)this.wires.set(generated,{bytes,value,path:operation.path,method:operation.method});
+        if(bytes!==undefined)this.wires.set(generated,{bytes,value,path:operation.path,method:operation.method,mediaType:this.native.responseMediaType(bytes)});
         else this.values.set(generated,raw!);
         return {
             operation:{...operation,responses:operation.responses.map(candidate=>candidate===response
@@ -99,6 +99,8 @@ export class MockGenerationAdapter {
     rawBody(content:IMediaTypeContent|undefined):string|undefined {
         return content&&this.values.get(content);
     }
+
+    wireMediaType(content:IMediaTypeContent|undefined):string|undefined {return content&&this.wires.get(content)?.mediaType;}
 
     wireBody(content:IMediaTypeContent|undefined,actual:unknown):Buffer|undefined {
         const selected=content&&this.wires.get(content);

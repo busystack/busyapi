@@ -358,6 +358,7 @@ class OperationRequestPlan {
   final bool saved;
   final int _revision;
   bool _closed = false;
+  int _contentPreparationSerial = 0;
   bool get closed => _closed;
   bool get outdated =>
       _owner._closed ||
@@ -559,7 +560,7 @@ class OperationRequestPlan {
       'headers': {
         for (final part in headers.map((header) => header.part).toSet())
           part: [for (final header in headers.where((header) => header.part == part))
-            {'name': header.name, 'value': header.value}],
+            {'name': header.name, 'value': header.value, if (header.modeled) 'modeled': true}],
       },
       if (wire != null) 'wire': wire,
       if (wireType != null) 'wireType': wireType,
@@ -793,7 +794,7 @@ class OperationRequestPlan {
               for (final header in capturedHeaders.where(
                 (header) => header.part == name,
               ))
-                {'name': header.name, 'value': header.value},
+                {'name': header.name, 'value': header.value, if (header.modeled) 'modeled': true},
             ],
         },
       },
@@ -874,6 +875,59 @@ class OperationRequestPlan {
     return Map.unmodifiable(parsed);
   }
 
+  Future<Map<String, (String, bool, String)>> contentParameterValues(Map<String, String> values, {Map<String, String> rawValues = const {}, RunCancellation? cancellation}) async {
+    if (values.isEmpty && rawValues.isEmpty) return const {};
+    final inputs = {...values, ...rawValues};
+    final projected = await _formProjection('requestContentParameters', {
+      ...snapshot.toJson(), 'resource': (operation['source'] as Map)['resource'],
+      'pointer': (operation['source'] as Map)['pointer'], 'occurrence': operation['occurrence'], 'values': values, 'rawValues': rawValues,
+    }, 'content-${identity}-${DateTime.now().microsecondsSinceEpoch}-${_contentPreparationSerial++}', cancellation);
+    if (projected['version'] != 1 || projected['snapshot'] != snapshot.identity || projected['identity'] != identity || projected['values'] is! Map ||
+        (projected['values'] as Map).entries.any((entry) => !inputs.containsKey(entry.key) || entry.value is! String)) {
+      throw CoreFailure('request.parameter.protocol', 'The generated content parameters differ from their capture.');
+    }
+    final expected = <String>{};
+    for (final parameter in (result['parameters'] as List? ?? const []).whereType<Map>()) {
+      final content = parameter['content'];
+      if (content is! List || content.length != 1 || content.single is! Map) continue;
+      final media = ((content.single as Map)['mediaType'] as String).split(';').first.trim().toLowerCase();
+      final key = OperationRequestDraft.parameterKey(parameter['in'] as String, parameter['name'] as String);
+      if ((media == 'application/linkset' || media == 'application/linkset+json' || media == 'application/xml' || media == 'text/xml' || media.endsWith('+xml')) && inputs.containsKey(key)) expected.add(key);
+    }
+    if ((projected['values'] as Map).length != expected.length || !(projected['values'] as Map).keys.every(expected.contains) ||
+        projected['percentEncoded'] is! Map || (projected['percentEncoded'] as Map).length != expected.length ||
+        !(projected['percentEncoded'] as Map).keys.every(expected.contains) || (projected['percentEncoded'] as Map).values.any((value) => value is! bool) ||
+        projected['inputs'] is! Map || (projected['inputs'] as Map).length != expected.length ||
+        expected.any((key) => (projected['inputs'] as Map)[key] != textIdentity(inputs[key]!))) {
+      throw CoreFailure('request.parameter.protocol', 'Generated content parameters omitted or replaced their captured inputs.');
+    }
+    if (projected['bodies'] is! Map || (projected['bodies'] as Map).length != expected.length ||
+        !(projected['bodies'] as Map).keys.every(expected.contains)) throw CoreFailure('request.parameter.protocol', 'Content parameters omitted their actual media bytes.');
+    for (final body in (projected['bodies'] as Map).values) {
+      if (body is! String || body.length > 24 * 1024 * 1024 || base64Encode(base64Decode(body)) != body) throw CoreFailure('request.parameter.protocol', 'Content parameter bytes are malformed or exceed their bounded limit.');
+    }
+    return {for (final entry in (projected['values'] as Map).entries) entry.key as String: (entry.value as String, (projected['percentEncoded'] as Map)[entry.key] == true, (projected['bodies'] as Map)[entry.key] as String)};
+  }
+
+  Future<String> formContentValue(String formType, String name, int index, String text, String mediaType, bool structured, {String? bodyText, RunCancellation? cancellation}) async {
+    final result = await _formProjection('requestFormContentValue', {
+      ...snapshot.toJson(), 'resource': (operation['source'] as Map)['resource'], 'pointer': (operation['source'] as Map)['pointer'],
+      'occurrence': operation['occurrence'], 'formType': formType, 'name': name, 'index': index, 'text': text, 'mediaType': mediaType, 'structured': structured,
+      if (bodyText != null) 'bodyText': bodyText,
+    }, 'form-content-${identity}-${_contentPreparationSerial++}', cancellation);
+    if (result['version'] != 1 || result['snapshot'] != snapshot.identity || result['identity'] != identity || result['name'] != name || result['index'] != index || result['mediaType'] != mediaType || result['input'] != textIdentity(text) || result['value'] is! String ||
+        (result['value'] as String).length > 48 * 1024 * 1024 || !RegExp(r'^(?:[A-Za-z0-9._~+\-]|%[0-9A-F]{2})*$').hasMatch(result['value'] as String)) throw CoreFailure('request.form.protocol', 'The encoded media field differs from its captured input.');
+    return result['value'] as String;
+  }
+
+  Future<Uint8List> rawMediaBytes(String text, String mediaType, {required String requestId, RunCancellation? cancellation}) async {
+    final prepared = await _formProjection('requestRawMediaBytes', {...snapshot.toJson(), 'text': text, 'mediaType': mediaType}, requestId, cancellation);
+    if (prepared['version'] != 1 || prepared['snapshot'] != snapshot.identity || prepared['input'] != textIdentity(text) || prepared['mediaType'] != mediaType || prepared['base64'] is! String) throw CoreFailure('request.media.protocol', 'Literal XML materialization differs from its captured input.');
+    final bytes = base64Decode(prepared['base64'] as String);
+    if (base64Encode(bytes) != prepared['base64'] || bytes.length != prepared['byteLength']) throw CoreFailure('request.media.protocol', 'Literal XML materialization has inconsistent bytes.');
+    return bytes;
+  }
+
   Future<Uint8List> mediaBytes(String text, String mediaType, {
     required String requestId, RunCancellation? cancellation,
   }) async {
@@ -882,12 +936,12 @@ class OperationRequestPlan {
       'pointer': (operation['source'] as Map)['pointer'],
       'occurrence': operation['occurrence'], 'text': text, 'mediaType': mediaType,
     }, requestId, cancellation);
-    if (result['snapshot'] != snapshot.identity || result['identity'] != identity ||
+    if (result['version'] != 1 || result['snapshot'] != snapshot.identity || result['identity'] != identity || result['input'] != textIdentity(text) ||
         result['mediaType'] != mediaType || result['base64'] is! String) {
       throw CoreFailure('request.media.protocol', 'The typed body materialization differs from its capture.');
     }
     final bytes = base64Decode(result['base64'] as String);
-    if (bytes.length != result['byteLength']) {
+    if (base64Encode(bytes) != result['base64'] || bytes.length != result['byteLength']) {
       throw CoreFailure('request.media.protocol', 'The typed body byte length is inconsistent.');
     }
     return bytes;
@@ -946,6 +1000,70 @@ class OperationRequestPlan {
     }
     ensureCurrentPreparation();
     return result;
+  }
+
+  Future<RefactoringPlan> planCase(String name, OperationRequestDraft draft) async {
+    ensureCurrentPreparation();
+    if (draft.planIdentity != identity) throw CoreFailure('request.stale', 'The saved draft differs from its current capture.');
+    final body = draft.body;
+    String relativePath(String path) {
+      final relative = p.relative(path, from: _owner.access.boundary);
+      if (p.isAbsolute(relative) || relative == '..' || relative.startsWith('..${p.separator}')) {
+        throw CoreFailure('test.configuration', 'Saved file references must remain inside the approved project boundary.');
+      }
+      return relative;
+    }
+    final parameters = <String, Map<String, Object?>>{}, modes = <String, Map<String, Object?>>{};
+    for (final entry in draft.parameters.entries) {
+      if (!entry.value.present) continue;
+      final split = entry.key.indexOf('\u0000');
+      if (split < 0) throw CoreFailure('test.configuration', 'Invalid parameter identity.');
+      (parameters[entry.key.substring(0, split)] ??= {})[entry.key.substring(split + 1)] = entry.value.json ? {'dataJson': entry.value.text} : entry.value.text;
+      (modes[entry.key.substring(0, split)] ??= {})[entry.key.substring(split + 1)] = entry.value.json ? 'data' : entry.value.representation.name;
+    }
+    final definition = <String, Object?>{
+      'operation': {'path': operation['path'], 'method': operation['method']},
+      if (draft.environment != null) 'environment': draft.environment,
+      if (draft.selectedServer != null) 'server': draft.selectedServer,
+      if (draft.securityAlternative != null) 'securityAlternative': draft.securityAlternative,
+      if (parameters.isNotEmpty) 'parameters': parameters,
+      if (draft.headers.any((header) => header.enabled)) 'headers': [for (final header in draft.headers) if (header.enabled) {'name': header.name, 'value': header.value}],
+      if (draft.variables.isNotEmpty) 'variables': draft.variables,
+      if (draft.tlsFiles.isNotEmpty) 'tlsFiles': {for (final entry in draft.tlsFiles.entries) entry.key: entry.value.isEmpty ? '' : relativePath(entry.value)},
+      'connectTimeoutMs': draft.connectTimeout.inMilliseconds, 'overallTimeoutMs': draft.overallTimeout.inMilliseconds, 'inactivityTimeoutMs': draft.inactivityTimeout.inMilliseconds,
+      'parameterModes': modes,
+      if (body.kind != RequestBodyKind.none) 'body': {
+        'mediaType': body.mediaType,
+        if (body.capturedExample != null) 'externalExample': body.capturedExample!.name ?? '',
+        if (body.kind == RequestBodyKind.binaryFile) 'file': relativePath(body.file!),
+        if (body.capturedExample == null && body.kind != RequestBodyKind.binaryFile) ...{
+          'representation': (body.kind == RequestBodyKind.multipart || body.kind == RequestBodyKind.form) && body.text == null ? 'fields' : body.modeled || body.kind == RequestBodyKind.multipart || body.kind == RequestBodyKind.form ? 'data' : 'serialized',
+          'value': (body.kind == RequestBodyKind.multipart || body.kind == RequestBodyKind.form) && body.text == null ? [for (final field in body.fields) {'name':field.name,'value':field.value}] : body.text ?? '',
+        },
+        if (body.partMediaTypes.isNotEmpty) 'partMediaTypes': body.partMediaTypes,
+        if (body.partSchemas.isNotEmpty) 'partSchemas': body.partSchemas,
+        if (body.fileShapes.isNotEmpty) 'fileShapes': {for (final entry in body.fileShapes.entries) entry.key: entry.value.name},
+        if (body.partHeaders.isNotEmpty) 'partHeaders': [for (final header in body.partHeaders) header.toJson()],
+        if (body.files.isNotEmpty) 'files': [for (final file in body.files) {'name': file.name, 'path': relativePath(file.path), if (file.filename != null) 'filename': file.filename, 'mediaType': file.selectedMediaType ?? file.mediaType}],
+      },
+    };
+    final prepared = await _owner.engine.request('planExecutionCase', {
+      ...snapshot.toJson(), 'source': configuration.source, 'name': name, 'definition': definition,
+      'roots': [for (final root in _owner.roots) {'name': root.name, 'path': p.relative(Uri.parse(root.id).toFilePath(), from: _owner.access.boundary)}],
+    });
+    ensureCurrentPreparation();
+    if (prepared['snapshot'] != snapshot.identity) throw CoreFailure('refactor.stale', 'Case preparation returned an unrelated capture.');
+    if (configuration.source != null) return RefactoringPlan._(_owner, _revision, [snapshot], prepared);
+    final text = prepared['text'] as String, id = _owner._manifestResource;
+    await BusyProject.validateGeneratedConfiguration(_owner.access, _owner.engine, text: text, id: id);
+    final creation = FileCreationPlan._(_owner, _revision, [snapshot], {
+      'version': 1, 'snapshot': snapshot.identity, 'kind': 'execution-case-create', 'checkedRoots': [snapshot.root],
+      'edits': <Object?>[], 'usages': <Object?>[],
+      'changes': [{'resource': id, 'before': '', 'after': text, 'fileAction': 'create'}],
+      'from': {'resource': id, 'pointer': ''}, 'to': {'resource': id, 'pointer': '/tests'},
+    }, BufferCreation(id: id, path: Uri.parse(id).toFilePath(), text: text));
+    await _owner._verifyFileCreation(creation);
+    return creation;
   }
 
   Future<RefactoringPlan> planEnvironment(
@@ -1248,9 +1366,10 @@ class RuntimeMediaTarget {
 /// A complete parameter serialization interpreted by its captured declaration.
 /// No caller-supplied family, style, schema or reference target is admitted.
 class RuntimeParameterTarget {
-  const RuntimeParameterTarget({required this.resource, required this.pointer});
+  const RuntimeParameterTarget({required this.resource, required this.pointer, this.values});
   final String resource, pointer;
-  Map<String, String> toJson() => {'resource': resource, 'pointer': pointer};
+  final List<String>? values;
+  Map<String, Object?> toJson() => {'resource': resource, 'pointer': pointer, if (values != null) 'values': List<String>.of(values!)};
 }
 
 /// Actual field lines and their captured response-header occurrence. The
@@ -1415,6 +1534,8 @@ extension RequestPlanning on BusyProject {
         result['representationRevisions'] is! Map ||
         (result['representationRevisions'] as Map)['multipart'] != '2' ||
         (result['representationRevisions'] as Map)['schemaExamples'] != '3' ||
+        (result['representationRevisions'] as Map)['xml'] != '2' ||
+        (result['representationRevisions'] as Map)['linkset'] != '2' ||
         result['operation'] is! Map ||
         result['servers'] is! List ||
         result['parameters'] is! List ||

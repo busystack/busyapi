@@ -7,7 +7,7 @@ import {MultipartEncoding,type MultipartSchemaStep,type MultipartTransfer} from 
 import {mediaTypes,mediaTypeChoice} from './media_types';
 import {mimeParts,mimeSingleton,mimePartDecodingType} from './mime_parts';
 import {decodeMultipartTransfer,multipartTextSerialization} from './multipart_transfer';
-import {decodeRuntimeMedia,runtimeMediaBytes,runtimeMediaKind,type TextSerialization} from './runtime_media';
+import {validateRuntimeMediaSyntax,decodeRuntimeMedia,runtimeMediaBytes,runtimeMediaKind,type TextSerialization} from './runtime_media';
 import {mimeHeaders} from './mime_headers';
 import type {MimeHeaderFormDecoder} from './mime_header_content';
 import {prefixBinary,type BinaryLocations} from './runtime_binary';
@@ -180,11 +180,11 @@ export function decodeRuntimeMultipart(text:string,id:string,contentType:string,
             let raw:string;
             let partBinary:BinaryLocations=new Map();
             if(transfer.schemaEncoded){
-                if(partSerialization||runtimeMediaKind(actual)!=='opaque')decodeMedia(payload.bytes.toString('base64'),id+'/encoded-media/'+serial++,decodingType,true,'unsupported',partSerialization);
+                if(partSerialization||runtimeMediaKind(actual)!=='opaque')validateRuntimeMediaSyntax(payload.bytes,id+'/encoded-media/'+serial++,decodingType,partSerialization);
                 raw=JSON.stringify(payload.encoded??decodeMedia(payload.bytes.toString('base64'),id+'/encoded/'+serial++,'text/plain; charset=utf-8',true).document.root.value);
             }
             else if(transfer.instanceEncoding==='octets'){
-                if(partSerialization)decodeMedia(payload.bytes.toString('base64'),id+'/octet-media/'+serial++,decodingType,true,'octets',partSerialization);
+                if(partSerialization||['xml','linkset','linkset-json'].includes(runtimeMediaKind(decodingType))){if(['xml','linkset','linkset-json'].includes(runtimeMediaKind(decodingType)))validateRuntimeMediaSyntax(payload.bytes,id+'/octet-media/'+serial++,decodingType,partSerialization);else decodeMedia(payload.bytes.toString('base64'),id+'/octet-media/'+serial++,decodingType,true,'octets',partSerialization);}
                 raw=JSON.stringify(payload.bytes.toString('latin1'));
             }
             else if(mediaTypes(actual,false)[0].type==='multipart'){

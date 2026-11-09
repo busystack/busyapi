@@ -6,9 +6,10 @@ import 'multipart_encoding.dart';
 import 'request_form_values.dart';
 
 class FormContentPart {
-  const FormContentPart(this.name, this.text, this.contentType, this.transfer);
+  const FormContentPart(this.name, this.text, this.contentType, this.transfer, {this.percentEncoded = false});
   final String name, text, contentType;
   final MultipartTransferEncoding? transfer;
+  final bool percentEncoded;
 }
 
 class FormStyleValue {
@@ -32,6 +33,7 @@ Future<PreparedFormValues> prepareFormValues(
   Map declaration,
   bool multipart,
   Future<Map<String, dynamic>> Function(Map<String, String>) parseJson, {
+  Future<String> Function(String name, int index, String text, String mediaType, bool structured)? encodeMedia,
   RequestFormData? data,
   Map<String, String> mediaTypes = const {},
   Map<String, MultipartPartEncoding> transfers = const {},
@@ -154,8 +156,9 @@ Future<PreparedFormValues> prepareFormValues(
             : actual.kind == RequestDataKind.string,
       );
       final encodedInput = transfer?.schemaEncoded == true;
+      final modeledMedia = !multipart && !styled && !encodedInput && (literalMedia == 'application/xml' || literalMedia == 'text/xml' || literalMedia?.endsWith('+xml') == true || literalMedia == 'application/linkset' || literalMedia == 'application/linkset+json');
       if (actual != null) {
-        if (!styled &&
+        if (!styled && !modeledMedia &&
             !jsonMedia &&
             ![
               'text/plain',
@@ -173,7 +176,7 @@ Future<PreparedFormValues> prepareFormValues(
         values.add(
           _FormScalar(
             '${definitions.length}:$index',
-            jsonMedia && !encodedInput ? actual.raw : actual.text,
+            (jsonMedia || modeledMedia) && !encodedInput ? actual.raw : actual.text,
             actual.raw,
             false,
             supplied: true,
@@ -183,6 +186,7 @@ Future<PreparedFormValues> prepareFormValues(
         );
         continue;
       }
+      if (modeledMedia && !jsonMedia) complete = false;
       final undecoded =
           !styled &&
           !jsonMedia &&
@@ -265,11 +269,16 @@ Future<PreparedFormValues> prepareFormValues(
       );
     } else {
       for (final (index, value) in definition.values.indexed) {
+        final media = definition.mediaType!.split(';').first.trim().toLowerCase();
+        final modeled = !multipart && value.transfer?.schemaEncoded != true &&
+            (media == 'application/xml' || media == 'text/xml' || media.endsWith('+xml') || media == 'application/linkset' || media == 'application/linkset+json');
+        if (modeled && encodeMedia == null) throw CoreFailure('request.form.media.unsupported', 'This content field requires its captured Engine media encoder.');
+        final wire = modeled ? await encodeMedia!(entry.key,index,value.text,definition.mediaType!,value.supplied) : value.text;
         final part = FormContentPart(
           entry.key,
-          value.text,
+          wire,
           definition.mediaType!,
-          value.transfer,
+          value.transfer, percentEncoded: modeled,
         );
         content.add(part);
         if (data == null) contentOrder[part] = fieldOrder[entry.key]![index];

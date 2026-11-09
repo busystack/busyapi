@@ -1,7 +1,8 @@
+import {rawXmlBytes} from './xml_wire';
 import {SourceError} from './document';
 import {mediaTypes} from './media_types';
 import {mimeParts,mimeSingleton,mimePartDecodingType} from './mime_parts';
-import {runtimeMediaBytes} from './runtime_media';
+import {runtimeMediaBytes,runtimeMediaKind} from './runtime_media';
 import {declaredPlainTextBytes} from './text_encoding';
 
 export const embeddedMimeTextRevision='1';
@@ -41,12 +42,13 @@ export function embeddedMimeTextBytes(text:string,contentType:string):Buffer {
             if(['base64','quoted-printable'].includes(transfer))continue;
             if(!['binary','7bit','8bit'].includes(transfer))
                 throw new SourceError('runtime.mime-text.transfer.unsupported','This MIME transfer encoding has no text materializer',[0,0],'unsupported');
-            if(selected[0].type!=='text'||selected[0].subtype!=='plain')continue;
+            const xml=runtimeMediaKind(actual)==='xml';
+            if(!xml&&(selected[0].type!=='text'||selected[0].subtype!=='plain'))continue;
             const decoding=mediaTypes(mimePartDecodingType(actual,form),false)[0];
             let logical:string;
             try{logical=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(part.bytes);}
             catch(error){if(error instanceof TypeError)throw new SourceError('runtime.media.encoding','Embedded MIME text contains invalid UTF-8');throw error;}
-            const encoded=declaredPlainTextBytes(logical,decoding.parameters.get('charset'));
+            const encoded=xml?rawXmlBytes(logical,selected[0].parameters.get('charset')):declaredPlainTextBytes(logical,decoding.parameters.get('charset'));
             if(!part.bytes.equals(encoded))replacements.push({start,end,bytes:encoded});
         }
     };

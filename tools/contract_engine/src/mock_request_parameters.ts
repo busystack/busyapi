@@ -23,6 +23,14 @@ function decode(value:string,form=false):string {
     try{return decodeURIComponent(form?value.replace(/\+/g,' '):value);}
     catch{return malformed('A parameter contains malformed percent-encoding or UTF-8');}
 }
+function mediaOctets(value:string,form=false):Buffer {
+ const bytes=Buffer.from(value,'utf8'),output:number[]=[];
+ for(let index=0;index<bytes.length;index++){
+  const byte=bytes[index];
+  if(byte===37){const hex=bytes.subarray(index+1,index+3).toString('ascii');if(!/^[0-9a-fA-F]{2}$/.test(hex))malformed('A media parameter contains malformed percent-encoding');output.push(parseInt(hex,16));index+=2;}
+  else output.push(form&&byte===43?32:byte);
+ }return Buffer.from(output);
+}
 function pairs(text:string,delimiter:string,encoded:boolean,form=false):Pair[] {
     if(text==='')return [];
     const parts=text.split(delimiter);
@@ -189,7 +197,7 @@ export async function validateMockParameters(graph:ReferenceGraph,plan:unknown,t
             let values:string[]=[],fields:Pair[]=[],raw=false;
             if(parameter.in==='query'||parameter.in==='querystring'){
                 queryFields??=pairs(query,'&',false).map(([name,value])=>[decode(name,true),value]);
-                fields=queryFields.map(([name,value])=>[name,decode(value,true)]);
+                fields=parameter.content.length?[]:queryFields.filter(([name])=>!parameters.some(other=>other.in==='query'&&other.content.length&&other.name===name)).map(([name,value])=>[name,decode(value,true)]);
                 values=parameter.in==='querystring'?(query===''?[]:[query]):queryFields.filter(([name])=>name===parameter.name).map(([,value])=>value);
                 raw=true;
             }else if(parameter.in==='path'){
@@ -212,15 +220,17 @@ export async function validateMockParameters(graph:ReferenceGraph,plan:unknown,t
             }else unsupported('The parameter location has no native mock codec');
             if(parameter.family==='2.0'&&parameter.in==='query'&&!parameter.allowEmptyValue&&values.includes(''))malformed('An empty Swagger query value requires allowEmptyValue: true');
             const location=parameter.in+':'+parameter.name,reserved=new Set(parameters.filter(other=>other.in===parameter.in).map(other=>other.name));
-            let texts:string[],mediaType:string|undefined;
+            let texts:string[],mediaType:string|undefined,contentBytes:Buffer|undefined;
             if(parameter.content.length){
                 if(!values.length){if(parameter.required)issue(parameter,'runtime.request.parameter.required','A required parameter is absent');continue;}
                 if(parameter.content.length!==1||values.length!==1)unsupported('A content-based parameter needs one media type and one wire value');
                 const media=parameter.content[0];
                 if(!media.schema&&!media.itemSchema&&runtimeMediaKind(media.mediaType)==='opaque')continue;
                 mediaType=media.mediaType;
+                if(parameter.in==='header'&&parameter.name.toLowerCase()==='link'&&runtimeMediaKind(mediaType)==='linkset-json')malformed('An HTTP Link field cannot contain the JSON Linkset representation');
                 const form=parameter.in==='querystring'&&mediaType.split(';')[0].trim().toLowerCase()==='application/x-www-form-urlencoded';
-                texts=[raw&&!form?decode(values[0],parameter.in==='query'):values[0]];
+                if(raw&&!form&&runtimeMediaKind(mediaType)==='xml')contentBytes=mediaOctets(values[0],parameter.in==='query');
+                texts=[contentBytes?'':raw&&!form?decode(values[0],parameter.in==='query'):values[0]];
             }else{
                 const decoded=data(parameter,values,raw,fields,reserved);
                 if(!decoded.present){
@@ -235,7 +245,7 @@ export async function validateMockParameters(graph:ReferenceGraph,plan:unknown,t
             const media=parameter.content[0],form=mediaType&&runtimeFormMedia(mediaType)?media?.formOwner:undefined;
             const octets=mediaType!==undefined&&parameter.in==='header'&&headerInput==='octets';
             if(octets&&/[^\x00-\xff]/u.test(texts[0]))malformed('The received header has no octet-preserving field representation');
-            instances.push({subject:'request-parameter',location,text:octets?Buffer.from(texts[0],'latin1').toString('base64'):texts[0],schema:media?.schema??parameter.schema,...(texts.length>1?{alternatives:texts.slice(1)}:{}),...(mediaType?{mediaType,itemSchema:media?.itemSchema}:{}),...(octets?{mediaBase64:true}:{}),...(form?{form}:{})});
+            instances.push({subject:'request-parameter',location,text:contentBytes?contentBytes.toString('base64'):octets?Buffer.from(texts[0],'latin1').toString('base64'):texts[0],schema:media?.schema??parameter.schema,...(texts.length>1?{alternatives:texts.slice(1)}:{}),...(mediaType?{mediaType,itemSchema:media?.itemSchema}:{}),...(octets||contentBytes?{mediaBase64:true}:{}),...(form?{form}:{})});
             sources.set(location,parameter.source);
         }catch(error){
             if(!(error instanceof SourceError))throw error;

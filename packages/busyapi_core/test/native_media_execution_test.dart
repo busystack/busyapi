@@ -23,9 +23,11 @@ openMedia(
   Map<String, Object?> headers = const {},
   Map<String, Object?> schemas = const {},
   String contentType = 'text/plain',
+  List<Map<String, Object?>> parameters = const [],
 }) async {
   final legacy = version == '2.0';
   final operation = <String, Object?>{
+    if (!legacy && parameters.isNotEmpty) 'parameters': parameters,
     if (legacy)
       'parameters': [
         {'in': 'body', 'name': 'payload', 'schema': media['schema']},
@@ -100,6 +102,9 @@ openMedia(
 }
 
 void main() {
+  modeledCharsetJourneys();
+  modeledFormJourneys();
+  modeledHeaderJourneys();
   for (final version in ['2.0', '3.0.4', '3.1.2', '3.2.1']) {
     for (final contentType in ['application/xml', 'application/linkset', 'application/linkset+json']) {
       test('$version typed $contentType reaches HTTP and original response evaluation', () async {
@@ -107,10 +112,11 @@ void main() {
         addTearDown(() => temp.delete(recursive: true));
         final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
         addTearDown(() => server.close(force: true));
-        final seen = <List<int>>[];
+        final seen = <List<int>>[];final seenLinks = <String?>[];
         server.listen((request) async {
           final bytes = await request.fold<List<int>>([], (all, chunk) => all..addAll(chunk));
-          seen.add(bytes);
+          seen.add(bytes);seenLinks.add(request.headers.value('link'));
+          if (version != '2.0') {request.response.headers.add('Link','</one>; rel=next; title="a,b"');request.response.headers.add('Link',"</two>; rel=next; title*=UTF-8'ja'%E9%9B%AA");}
           request.response.headers.set('content-type', contentType);
           request.response.add(bytes);
           await request.response.close();
@@ -119,12 +125,17 @@ void main() {
         final fixture = await openMedia(temp, server, version, 'yaml', {
           'schema': xml ? {
             'type': 'object', 'xml': {'name': 'payload'},
-            'required': ['value'], 'properties': {'value': {'type': 'number'}},
+            'allOf': [
+              {r'$ref': version == '2.0' ? '#/definitions/Base' : '#/components/schemas/Base'},
+              {'required': ['value'], 'properties': {'value': {'type': 'number', 'enum': ['EXACT_VALUE']}}},
+            ],
           } : {'type': 'object', 'required': ['linkset']},
-        }, contentType: contentType);
+        }, headers: version == '2.0' ? const {} : {'Link':{'content':{'application/linkset':{'schema':{'type':'object','required':['linkset']}}}}}, contentType: contentType, schemas: {'Base': {'type': 'object', 'required': ['id'], 'properties': {'id': {'type': 'string', 'xml': {'attribute': true}}}}},
+          parameters: version == '2.0' ? const [] : [{'in': 'header', 'name': 'Link', 'content': {'application/linkset': {'schema': {'type': 'object', 'required': ['linkset']}}}}]);
         final draft = OperationRequestDraft(planIdentity: fixture.plan.identity,
+          parameters: version == '2.0' ? const {} : {'header\u0000Link': const RequestValue.json('{"linkset":[{"next":[{"href":"/next","title":"a,b"}]}]}')},
           body: RequestBodyDraft.modeled(mediaType: contentType, json: xml
-            ? '{"value":9007199254740993}'
+            ? '{"id":"a&b","value":9007199254740993}'
             : '{"linkset":[{"next":[{"href":"https://example.org/p","title":"a,b"}]}]}'));
         final result = await const ContractRequestExecutor().execute(fixture.plan, draft,
           resolveSecret: (_) async => null);
@@ -142,6 +153,38 @@ void main() {
         } else {
           expect(jsonDecode(wire)['linkset'], isA<List>());
         }
+        expect(result.received.modeledData, isNotNull);
+        expect(result.request.body!.inspectionBytes,seen.single);
+        if (version != '2.0') expect(seenLinks.single,'</next>; rel="next"; title="a,b"');
+        final cancelled = RunCancellation()..cancel();
+        await expectLater(const ContractRequestBuilder().build(fixture.plan, draft,
+          resolveSecret: (_) async => null, cancellation: cancelled),
+          throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'cancelled')));
+        expect(seen, hasLength(1));
+        final saved = await fixture.plan.planCase('modeled', draft);
+        final changes = await fixture.project.applyRefactoring(saved);
+        final publication = await PublicationStore('${temp.path}/publication').save(fixture.project,
+          [for (final id in changes) fixture.project.store.get(id)]);
+        expect(publication.complete, true, reason: '${publication.failed}');
+        final coldEngine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);
+        addTearDown(coldEngine.close);
+        final cold = await BusyProject.open(temp.path, coldEngine);
+        addTearDown(cold.close);
+        final reopened = await cold.prepareRequest(fixture.source.uri.toString(), resource: fixture.source.uri.toString(), pointer: '/paths/~1data/post');
+        addTearDown(reopened.close);
+        final loaded = await ContractTestRunner.reopenCase(reopened, 'modeled', cold.access);
+        expect(loaded.body.modeled, true);
+        expect(loaded.body.text, draft.body.text);
+        expect(loaded.body.mediaType, contentType);
+        final replay = await const ContractRequestExecutor().execute(reopened, loaded, resolveSecret: (_) async => null);
+        addTearDown(replay.close);
+        expect(replay.conforming, true, reason: '${replay.received.findings}');
+        expect(seen.last, seen.first);
+        final cli = await Process.run('$testBundle/busyapi', ['test', temp.path, '--case', 'modeled', '--json'],
+          environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
+        expect(cli.exitCode, 0, reason: '${cli.stdout}\n${cli.stderr}');
+        expect((jsonDecode(cli.stdout as String) as Map)['cases'][0]['dispatched'], true);
+        expect(seen.last, seen.first);
         expect(await fixture.source.readAsString(), fixture.original);
       });
     }
@@ -579,5 +622,111 @@ components:
       fixture.source.uri.toString(),
     );
     expect(await fixture.source.readAsString(), fixture.original);
+  });
+}
+
+void modeledCharsetJourneys() {
+  for (final charset in ['utf-8','utf-16','utf-16le','utf-16be','us-ascii','iso-8859-1']) {
+    test('Engine XML $charset bytes survive Core preview, transport and response evaluation', () async {
+      final directory = await Directory.systemTemp.createTemp('busyapi-xml-charset-');
+      addTearDown(() => directory.delete(recursive: true));
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      final media = 'application/xml; charset=$charset', seen = <List<int>>[];
+      server.listen((request) async {
+        final bytes = await request.fold<List<int>>([], (all, chunk) => all..addAll(chunk));seen.add(bytes);
+        request.response.headers.set('content-type', media);request.response.add(bytes);await request.response.close();
+      });
+      final fixture = await openMedia(directory,server,'3.2.1','json',{'schema':{'type':'string','enum':['雪'],'xml':{'name':'value'}}},contentType:media);
+      final draft = OperationRequestDraft(planIdentity:fixture.plan.identity,body:RequestBodyDraft.modeled(mediaType:media,json:'"雪"'));
+      final preview = await const ContractRequestBuilder().build(fixture.plan,draft,resolveSecret:(_) async=>null,previewOnly:true);
+      final previewBytes = await preview.body!.open().fold<List<int>>([], (all, chunk) => all..addAll(chunk));
+      final result = await const ContractRequestExecutor().execute(fixture.plan,draft,resolveSecret:(_) async=>null);addTearDown(result.close);
+      expect(seen.single,previewBytes);expect(result.conforming,true,reason:'${result.outgoing.findings} ${result.received.findings}');
+      expect(result.received.modeledData,'"雪"');expect(await result.response.decodedBytes(),previewBytes);
+      if (charset == 'utf-16') expect(previewBytes.take(2),[255,254]);
+      if (charset == 'us-ascii' || charset == 'iso-8859-1') expect(previewBytes.every((byte)=>byte<128),true);
+      expect(await fixture.source.readAsString(),fixture.original);
+    });
+  }
+  test('saved raw XML retains its mode, declaration and exact Latin-1 bytes after cold reopen', () async {
+    final directory = await Directory.systemTemp.createTemp('busyapi-raw-xml-case-');addTearDown(() => directory.delete(recursive:true));
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4,0);addTearDown(() => server.close(force:true));
+    final seen = <List<int>>[];
+    server.listen((request) async {final bytes=await request.fold<List<int>>([], (all,chunk)=>all..addAll(chunk));seen.add(bytes);request.response.headers.set('content-type','application/xml');request.response.add(bytes);await request.response.close();});
+    final fixture=await openMedia(directory,server,'3.2.1','yaml',{'schema':{'type':'string','enum':['é'],'xml':{'name':'value'}}},contentType:'application/xml');
+    const text='<?xml version="1.0" encoding="ISO-8859-1"?><value>é</value>';
+    final draft=OperationRequestDraft(planIdentity:fixture.plan.identity,body:RequestBodyDraft.raw(mediaType:'application/xml',text:text),variables:const {'unused':'kept'},connectTimeout:const Duration(seconds:9));
+    final change=await fixture.project.applyRefactoring(await fixture.plan.planCase('raw',draft));
+    expect((await PublicationStore('${directory.path}/publication').save(fixture.project,[for(final id in change)fixture.project.store.get(id)])).complete,true);
+    final engine=EngineProcess(executable:runtimeNode,helper:runtimeHelper);addTearDown(engine.close);
+    final project=await BusyProject.open(directory.path,engine);addTearDown(project.close);
+    final plan=await project.prepareRequest(fixture.source.uri.toString(),resource:fixture.source.uri.toString(),pointer:'/paths/~1data/post');addTearDown(plan.close);
+    final loaded=await ContractTestRunner.reopenCase(plan,'raw',project.access);
+    expect(loaded.body.modeled,false);expect(loaded.body.text,text);expect(loaded.variables,{'unused':'kept'});expect(loaded.connectTimeout,const Duration(seconds:9));
+    final result=await const ContractRequestExecutor().execute(plan,loaded,resolveSecret:(_) async=>null);addTearDown(result.close);
+    expect(result.conforming,true,reason:'${result.received.findings}');expect(seen.single,latin1.encode(text));expect(result.received.modeledData,'"é"');
+    final literal=File('${directory.path}/literal.xml');await literal.writeAsBytes(latin1.encode(text));
+    final fileDraft=OperationRequestDraft(planIdentity:plan.identity,body:RequestBodyDraft.approvedFile(mediaType:'application/xml',file:literal.path,access:project.access));
+    final fileChange=await project.applyRefactoring(await plan.planCase('file',fileDraft));
+    expect((await PublicationStore('${directory.path}/file-publication').save(project,[for(final id in fileChange)project.store.get(id)])).complete,true);
+    final filePlan=await project.prepareRequest(fixture.source.uri.toString(),resource:fixture.source.uri.toString(),pointer:'/paths/~1data/post');addTearDown(filePlan.close);
+    final fileCase=await ContractTestRunner.reopenCase(filePlan,'file',project.access);
+    expect(fileCase.body.kind,RequestBodyKind.binaryFile);expect(fileCase.body.file,literal.path);
+    final fileResult=await const ContractRequestExecutor().execute(filePlan,fileCase,resolveSecret:(_) async=>null);addTearDown(fileResult.close);
+    expect(fileResult.conforming,true,reason:'${fileResult.outgoing.findings}');expect(seen.last,latin1.encode(text));
+    final cli=await Process.run('$testBundle/busyapi',['test',directory.path,'--case','file','--json'],environment:const {'PATH':'','LANG':'C.UTF-8'},includeParentEnvironment:false);
+    expect(cli.exitCode,0,reason:'${cli.stdout} ${cli.stderr}');expect(seen,hasLength(3));expect(seen.last,latin1.encode(text));
+    expect(await fixture.source.readAsString(),fixture.original);
+  });
+}
+
+void modeledFormJourneys() {
+  test('Core URL-form preparation serializes typed XML/Linkset fields through Engine codecs', () async {
+    final directory=await Directory.systemTemp.createTemp('busyapi-modeled-form-');addTearDown(() => directory.delete(recursive:true));
+    final server=await HttpServer.bind(InternetAddress.loopbackIPv4,0);addTearDown(() => server.close(force:true));
+    final seen=<List<int>>[];
+    server.listen((request) async {seen.add(await request.fold<List<int>>([], (all,chunk)=>all..addAll(chunk)));request.response.statusCode=204;await request.response.close();});
+    final engine=EngineProcess(executable:runtimeNode,helper:runtimeHelper);addTearDown(engine.close);
+    final source=File('${directory.path}/api.json');
+    final xml={'type':'object','xml':{'name':'Value'},'required':['n'],'properties':{'n':{'type':'number','enum':['EXACT']}}},link={'type':'object','required':['linkset']};
+    final original=jsonEncode({'openapi':'3.2.1','info':{'title':'Form media','version':'1'},'servers':[{'url':'http://127.0.0.1:${server.port}'}],
+      'paths':{'/p':{'post':{'requestBody':{'content':{'application/x-www-form-urlencoded':{'schema':{'type':'object','required':['xml','links'],'properties':{'xml':xml,'links':link}},'encoding':{'xml':{'contentType':'application/xml; charset=utf-16be'},'links':{'contentType':'application/linkset'}}}}},'responses':{'204':{'description':'OK'}}}}}}).replaceAll('"EXACT"','9007199254740993');
+    await source.writeAsString(original);
+    final project=await BusyProject.open(source.path,engine);addTearDown(project.close);
+    final plan=await project.prepareRequest(source.uri.toString(),resource:source.uri.toString(),pointer:'/paths/~1p/post');addTearDown(plan.close);
+    const data='{"xml":{"n":9007199254740993},"links":{"linkset":[{"next":[{"href":"/p","title":"a,b"}]}]}}';
+    final result=await const ContractRequestExecutor().execute(plan,OperationRequestDraft(planIdentity:plan.identity,body:RequestBodyDraft.formValue(json:data)),resolveSecret:(_) async=>null);addTearDown(result.close);
+    expect(result.conforming,true,reason:'${result.outgoing.findings}');expect(ascii.decode(seen.single),contains('%00%3C'));expect(ascii.decode(seen.single),contains('links=%3C%2Fp%3E'));
+    final rows=OperationRequestDraft(planIdentity:plan.identity,body:RequestBodyDraft.form(const [RequestFormField('xml','<Value><n>9007199254740993</n></Value>'),RequestFormField('links','</p>; rel=next; title="a,b"')]));
+    final changes=await project.applyRefactoring(await plan.planCase('rows',rows));
+    expect((await PublicationStore('${directory.path}/publication').save(project,[for(final id in changes)project.store.get(id)])).complete,true);
+    final reopened=await project.prepareRequest(source.uri.toString(),resource:source.uri.toString(),pointer:'/paths/~1p/post');addTearDown(reopened.close);
+    final loaded=await ContractTestRunner.reopenCase(reopened,'rows',project.access);expect(loaded.body.text,isNull);expect(loaded.body.fields.map((field)=>field.value),rows.body.fields.map((field)=>field.value));
+    final replay=await const ContractRequestExecutor().execute(reopened,loaded,resolveSecret:(_) async=>null);addTearDown(replay.close);
+    expect(replay.conforming,true,reason:'${replay.outgoing.findings}');expect(seen,hasLength(2));
+    expect(await source.readAsString(),original);
+  });
+}
+
+void modeledHeaderJourneys() {
+  test('actual custom Link field lines retain captured Header schema evaluation without a parameter draft', () async {
+    final directory=await Directory.systemTemp.createTemp('busyapi-actual-link-fields-');addTearDown(() => directory.delete(recursive:true));
+    final server=await HttpServer.bind(InternetAddress.loopbackIPv4,0);addTearDown(() => server.close(force:true));
+    final fixture=await openMedia(directory,server,'3.2.1','json',{'schema':{'type':'string','xml':{'name':'value'}}},contentType:'application/xml',parameters:[
+      {'in':'header','name':'Link','content':{'application/linkset':{'schema':{'type':'object','required':['linkset'],'properties':{'linkset':{'type':'array','minItems':1,'maxItems':1,'items':{'type':'object','properties':{'next':{'type':'array','minItems':2,'maxItems':2}}}}}}}}}
+    ]);
+    for(final invalid in [false,true]) {
+      final draft=OperationRequestDraft(planIdentity:fixture.plan.identity,headers:[
+        const RequestHeaderValue('Link','</one>; rel=next; title="a,b"'),
+        const RequestHeaderValue('Link',"</two>; rel=next; title*=UTF-8'ja'%E9%9B%AA"),
+        if(invalid) const RequestHeaderValue('Link','</three>; rel=next'),
+      ]);
+      final prepared=await const ContractRequestBuilder().build(fixture.plan,draft,resolveSecret:(_) async=>null);
+      final proof=await const ContractRequestExecutor().validateOutgoing(fixture.plan,draft,prepared.runId,preparedHeaders:prepared.headers);
+      expect(proof.complete,true);expect(proof.valid,!invalid,reason:'${proof.findings}');
+      expect(prepared.headers.where((field)=>field.$1.toLowerCase()=='link'),hasLength(invalid?3:2));
+    }
+    expect(await fixture.source.readAsString(),fixture.original);
   });
 }

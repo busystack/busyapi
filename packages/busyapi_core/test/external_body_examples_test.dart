@@ -7,6 +7,7 @@ import 'package:test/test.dart';
 import 'test_support.dart';
 
 void main() {
+  modeledExternalExamples();
   for (final version in ['3.0.4', '3.1.2', '3.2.0', '3.2.1']) {
     test('$version captured body examples retain binary/empty bytes, ownership and CLI cases', () async {
       final directory = await Directory.systemTemp.createTemp('busyapi-external-body-');
@@ -100,6 +101,41 @@ void main() {
       expect(await file.readAsString(), text);
       project.store.replace(root, text.replaceFirst('External body', 'Edited body'));
       expect(() => plan.captureBodyExample(media, name: 'Bytes'), throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'request.draft.stale')));
+    });
+  }
+}
+
+// Kept in the existing external-byte suite and gate; no new acquisition path.
+void modeledExternalExamples() {
+  for (final media in ['application/xml', 'application/linkset', 'application/linkset+json']) {
+    test('approved external $media preserves bytes and rejects changed/cancelled captures', () async {
+      final directory = await Directory.systemTemp.createTemp('busyapi-external-modeled-');
+      addTearDown(() => directory.delete(recursive: true));
+      final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);addTearDown(engine.close);
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);addTearDown(() => server.close(force: true));
+      final seen = <List<int>>[];
+      server.listen((request) async {final bytes = await request.fold<List<int>>([], (all, chunk) => all..addAll(chunk));seen.add(bytes);request.response.headers.set('content-type', media);request.response.add(bytes);await request.response.close();});
+      final xml = media == 'application/xml';
+      final text = xml ? '<payload><value>9007199254740993</value></payload>' : media == 'application/linkset'
+          ? '</p>; rel=next; title="a,b"' : '{"linkset":[{"next":[{"href":"/p","title":"雪"}]}]}';
+      final payload = File('${directory.path}/payload.bin')..writeAsBytesSync(utf8.encode(text));
+      final schema = xml ? {'type':'object','xml':{'name':'payload'},'required':['value'],'properties':{'value':{'type':'number'}}} : {'type':'object','required':['linkset']};
+      final source = File('${directory.path}/api.yaml');
+      final original = jsonEncode({'openapi':'3.2.1','info':{'title':'Approved wire','version':'1'},'servers':[{'url':'http://127.0.0.1:${server.port}'}],
+        'paths':{'/p':{'post':{'requestBody':{'content':{media:{'schema':schema,'examples':{'Approved':{'externalValue':'payload.bin'}}}}},
+          'responses':{'200':{'description':'OK','content':{media:{'schema':schema}}}}}}}});
+      await source.writeAsString(original);
+      final project = await BusyProject.open(source.path, engine);addTearDown(project.close);
+      final plan = await project.prepareRequest(source.uri.toString(),resource:source.uri.toString(),pointer:'/paths/~1p/post');addTearDown(plan.close);
+      final selected = plan.captureBodyExample(media,name:'Approved');
+      final draft = OperationRequestDraft(planIdentity:plan.identity,body:RequestBodyDraft.example(selected));
+      final result = await const ContractRequestExecutor().execute(plan,draft,resolveSecret:(_) async=>null);addTearDown(result.close);
+      expect(result.conforming,true,reason:'${result.received.findings}');expect(seen.single,utf8.encode(text));expect(result.received.modeledData,isNotNull);
+      final token = RunCancellation()..cancel();
+      await expectLater(plan.bodyExampleBytes(selected,cancellation:token),throwsA(isA<CoreFailure>().having((error)=>error.code,'code','cancelled')));
+      await payload.writeAsString('changed');
+      await expectLater(plan.bodyExampleBytes(selected),throwsA(isA<CoreFailure>().having((error)=>error.code,'code','runtime.request.example.stale')));
+      expect(seen,hasLength(1));expect(await source.readAsString(),original);
     });
   }
 }

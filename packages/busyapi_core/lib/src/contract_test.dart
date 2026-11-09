@@ -7,7 +7,7 @@ import 'form_media_types.dart';
 import 'multipart_encoding.dart';
 import 'storage.dart';
 
-const contractTestProducerVersion = '2';
+const contractTestProducerVersion = '3';
 
 class ContractCaseResult {
   const ContractCaseResult({
@@ -407,6 +407,15 @@ class ContractTestRunner {
           (value[key] is! String || (value[key] as String).isEmpty))
         invalid(key, 'Expected a non-empty string.');
     }
+    if (value.containsKey('tlsFiles')) {
+      final files = value['tlsFiles'];
+      if (files is! Map || files.length > 3 || files.entries.any((entry) =>
+          !['caFile','clientCertificateFile','clientKeyFile'].contains(entry.key) || entry.value is! String ||
+          (entry.value as String).length > 4096 || (entry.value as String).contains('\u0000') ||
+          p.isAbsolute(entry.value as String) || p.split(entry.value as String).contains('..'))) {
+        invalid('tlsFiles', 'Expected approved project-relative TLS file selections.');
+      }
+    }
     final servers = value['servers'];
     if (servers != null && (servers is! Map || servers.length > 2048 ||
         servers.entries.any((entry) => entry.key is! String || entry.value is! int || (entry.value as int) < -1 || (entry.value as int) > 2048))) {
@@ -433,6 +442,16 @@ class ContractTestRunner {
     for (final key in ['headers', 'variables']) {
       if (value.containsKey(key)) strings(value[key], key, allowEmpty: true);
     }
+    if (value.containsKey('parameterModes')) {
+      final modes = value['parameterModes'];
+      if (modes is! Map || modes.length > 5) invalid('parameterModes', 'Expected bounded parameter representation modes.');
+      for (final location in (modes as Map).entries) {
+        if (!['path','query','querystring','header','cookie'].contains(location.key) || location.value is! Map || (location.value as Map).length > 512 ||
+            (location.value as Map).entries.any((entry) => entry.key is! String || !['data','text','serializedParameter','serializedMedia'].contains(entry.value) || value['parameters'] is! Map || (value['parameters'] as Map)[location.key] is! Map || !((value['parameters'] as Map)[location.key] as Map).containsKey(entry.key) || entry.value != 'data' && ((value['parameters'] as Map)[location.key] as Map)[entry.key] is! String)) {
+          invalid('parameterModes', 'Expected captured data, text or serialized parameter modes.');
+        }
+      }
+    }
     if (value.containsKey('parameters')) {
       final parameters = value['parameters'];
       if (parameters is! Map)
@@ -458,8 +477,20 @@ class ContractTestRunner {
       if (body is! Map ||
           body['mediaType'] is! String ||
           (body['mediaType'] as String).isEmpty ||
-          body.containsKey('value') == body.containsKey('externalExample'))
-        invalid('body', 'Expected mediaType and exactly one typed value or external example name.');
+          ['value','externalExample','file'].where(body.containsKey).length != 1)
+        invalid('body', 'Expected mediaType and exactly one value, external example name or approved file reference.');
+      if (body.containsKey('representation') && !['data', 'serialized', 'fields'].contains(body['representation'])) invalid('body/representation', 'Expected data, serialized or literal field-row body mode.');
+      if (body['representation'] == 'serialized' && body.containsKey('value') && body['value'] is! String) invalid('body/value', 'Serialized body mode requires a string.');
+      if (body.containsKey('file')) {
+        final file = body['file'];
+        if (file is! String || file.isEmpty || file.length > 4096 || file.contains('\u0000') || p.isAbsolute(file) || p.split(file).contains('..') || body['representation'] == 'data' || body['representation'] == 'fields') invalid('body/file', 'Expected an approved project-relative serialized file reference.');
+      }
+      if (body['representation'] == 'fields') {
+        final fields = body['value'];
+        if (fields is! List || fields.length > 2048 || fields.any((field) => field is! Map || field['name'] is! String || field['value'] is! String || (field['name'] as String).length > 4096 || (field['value'] as String).length > 16 * 1024 * 1024)) invalid('body/value', 'Expected bounded literal name/value field rows.');
+        final media = (body['mediaType'] as String).split(';').first.trim().toLowerCase();
+        if (media != 'application/x-www-form-urlencoded' && !media.startsWith('multipart/')) invalid('body/representation', 'Literal field rows require a captured form representation.');
+      }
       if (body.containsKey('externalExample') &&
           (body['externalExample'] is! String || (body['externalExample'] as String).length > 8192)) {
         invalid('body/externalExample', 'Expected a bounded example name from the selected media occurrence.');
@@ -620,6 +651,22 @@ class ContractTestRunner {
     }
   }
 
+  /// Native reopening and headless execution share the same saved-case decoder.
+  static Future<OperationRequestDraft> reopenCase(OperationRequestPlan plan, String name, ProjectAccess access) async {
+    plan.ensureCurrentPreparation();
+    final cases = plan.configuration.tests.where((item) => item['name'] == name).toList();
+    if (cases.length != 1) throw CoreFailure('test.configuration', 'Choose one current saved request case.');
+    final definition = cases.single, operation = definition['operation'];
+    if (operation is! Map || operation['path'] != plan.operation['path'] ||
+        '${operation['method']}'.toLowerCase() != '${plan.operation['method']}'.toLowerCase()) {
+      throw CoreFailure('request.case.operation', 'The saved case belongs to another captured operation.');
+    }
+    _validateDefinition(definition, plan.configuration.tests.indexOf(definition));
+    final exact = await plan.caseValues(name);
+    plan.ensureCurrentPreparation();
+    return _draft(plan, definition, null, exact, access);
+  }
+
   static OperationRequestDraft _draft(
     OperationRequestPlan plan,
     Map<String, Object?> definition,
@@ -644,11 +691,15 @@ class ContractTestRunner {
       final value = entry.value as Map;
       parameters[entry.key as String] = value['json'] == true
           ? RequestValue.json(value['text'] as String)
+          : value['representation'] == 'serializedParameter' ? RequestValue.serialized(value['text'] as String)
+          : value['representation'] == 'serializedMedia' ? RequestValue.serialized(value['text'] as String, mediaLevel: true)
           : RequestValue.text(value['text'] as String);
     }
-    if (rawBody is Map && rawBody['externalExample'] is String) {
+    if (rawBody is Map && rawBody['file'] is String) {
+      body = RequestBodyDraft.approvedFile(mediaType:rawBody['mediaType'] as String,file:access.pathFor(p.join(access.boundary,rawBody['file'] as String)),access:access);
+    } else if (rawBody is Map && rawBody['externalExample'] is String) {
       body = RequestBodyDraft.example(plan.captureBodyExample(rawBody['mediaType'] as String,
-        name: rawBody['externalExample'] as String));
+        name: rawBody['externalExample'] == '' ? null : rawBody['externalExample'] as String));
     } else if (rawBody is Map && exact['body'] is Map) {
       final media = rawBody['mediaType'] as String,
           text = exact['body']['text'] as String;
@@ -688,7 +739,10 @@ class ContractTestRunner {
           'The captured body no longer supports these part inputs.',
         );
       }
-      body = exact['body']['json'] == true
+      final rows = rawBody['representation'] == 'fields' ? [for (final field in rawBody['value'] as List) RequestFormField(field['name'] as String,field['value'] as String)] : const <RequestFormField>[];
+      body = rawBody['representation'] == 'fields'
+          ? binding == RequestFormBinding.urlEncoded ? RequestBodyDraft.form(rows,mediaType:media,partMediaTypes:partMediaTypes) : RequestBodyDraft.multipart(rows,files,mediaType:media,partMediaTypes:partMediaTypes,partHeaders:partHeaders,fileShapes:fileShapes,partSchemas:(rawBody['partSchemas'] as Map? ?? const {}).cast<String,String>())
+          : exact['body']['json'] == true
           ? switch (plan.formBindingForMedia(media)) {
               RequestFormBinding.urlEncoded => RequestBodyDraft.formValue(
                 json: text,
@@ -731,6 +785,8 @@ class ContractTestRunner {
             })
           : const {},
       body: body,
+      tlsFiles: {for (final entry in (definition['tlsFiles'] as Map? ?? const {}).entries)
+        entry.key as String: entry.value == '' ? '' : access.pathFor(p.join(access.boundary, entry.value as String))},
       connectTimeout: Duration(
         milliseconds: definition['connectTimeoutMs'] is int
             ? definition['connectTimeoutMs'] as int

@@ -1,10 +1,13 @@
+import {rawXmlBytes} from './xml_wire';
+import {mediaTypes} from './media_types';
+import {httpFieldLines} from './http_field_lines';
 import {ExternalExampleError} from './external_examples';
 import {multipartProjectionRevision} from './schema_reference_projection';
 import {embeddedMimeTextBytes,embeddedMimeTextRevision} from './embedded_mime_text';
 import {createHash} from 'node:crypto';
 
 import {createGraph, propose, Resource} from './engine';
-import {escape,SourceDocument,SourceError,type Range} from './document';
+import {escape,SourceDocument,SourceError,RawJsonValue,type Range} from './document';
 import {GraphTarget, ReferenceGraph, supportedSchemaDialect} from './reference_graph';
 import {decimal} from './exact_numbers';
 import {headerShapes} from './header_serialization';
@@ -24,7 +27,7 @@ import {children} from './contexts';
 import {mediaTypeChoice,mediaTypeOptions} from './media_types';
 import {externalParameterText} from './serialized_parameter_examples';
 import {MultipartEncoding,supportsMultipartTransfer,type MultipartTransfer,type MultipartHeaderCandidate} from './multipart_encoding';
-import {evaluateSchemas} from './schema_evaluation';
+import {evaluateSchemas,schemaProducer} from './schema_evaluation';
 import {encodeRuntimeMedia,runtimeMediaDescription,runtimeFormMedia,runtimeMediaBytes,decodeRuntimeMedia,runtimeMediaKind} from './runtime_media';
 import {capturedMimeHeaderContent} from './mime_header_content';
 import {multipartHeaderValues,type MultipartHeaderLine} from './multipart_header_values';
@@ -36,6 +39,66 @@ import {multipartStructure,multipartGeneration,proveMultipartGeneration,proveNam
 
 /** Captured ordinary-body generation. Encoding never substitutes a schema;
  * both the input data and resulting wire inversion must pass original assertions. */
+export function requestRawMediaBytes(input:any){
+ if(typeof input.text!=='string'||typeof input.mediaType!=='string'||typeof input.snapshot!=='string'||runtimeMediaKind(input.mediaType)!=='xml')throw new SourceError('request.media.input','Expected literal XML text and a concrete XML media type');
+ const type=mediaTypes(input.mediaType,false)[0],bytes=rawXmlBytes(input.text,type.parameters.get('charset'));
+ return {version:1,snapshot:input.snapshot,mediaType:input.mediaType,input:createHash('sha256').update(input.text).digest('hex'),base64:bytes.toString('base64'),byteLength:bytes.length};
+}
+
+export async function requestContentParameters(input:any){
+ if(!input.values||typeof input.values!=='object'||Array.isArray(input.values)||Object.keys(input.values).length>2048)throw new SourceError('request.parameter.input','Expected bounded typed parameter values');
+ const rawValues=input.rawValues??{};
+ if(!rawValues||typeof rawValues!=='object'||Array.isArray(rawValues)||Object.keys(rawValues).length>2048||Object.values(rawValues).some(value=>typeof value!=='string')||Object.keys(rawValues).some(key=>Object.hasOwn(input.values,key)))throw new SourceError('request.parameter.input','Expected disjoint bounded literal media values');
+ const capture=createGraph(input),plan=requestOperation(input,capture),values:Record<string,string>={},percentEncoded:Record<string,boolean>={},inputs:Record<string,string>={},bodies:Record<string,string>={};
+ const {prepareModeledMedia}=await import('./modeled_media');
+ for(const parameter of plan.parameters){
+  const key=parameter.in+'\u0000'+parameter.name,literal=Object.hasOwn(rawValues,key),text=literal?rawValues[key]:input.values[key];
+  if(text===undefined)continue;
+  if(typeof text!=='string')throw new SourceError('request.parameter.input','Typed parameter values require exact JSON text');
+  const content=parameter.content;
+  if(!Array.isArray(content)||content.length!==1||!['xml','linkset','linkset-json'].includes(runtimeMediaKind(content[0].mediaType)))continue;
+  inputs[key]=createHash('sha256').update(text).digest('hex');
+  const media=content[0],header=parameter.in==='header';
+  if(header&&parameter.name.toLowerCase()==='link'&&runtimeMediaKind(media.mediaType)==='linkset-json')throw new SourceError('runtime.linkset.header','HTTP Link content must declare application/linkset');
+  const bytes=literal?(runtimeMediaKind(media.mediaType)==='xml'?rawXmlBytes(text,mediaTypes(media.mediaType,false)[0].parameters.get('charset')):runtimeMediaBytes(text,false)):(await prepareModeledMedia(input,text,media.mediaType,media.schema,header,'request')).bytes;
+  bodies[key]=bytes.toString('base64');
+  if(header||parameter.in==='cookie'){
+   const wire=bytes.toString('latin1');
+   if(/[\x00-\x08\x0a-\x1f\x7f]/.test(wire))throw new SourceError('request.parameter.header','Generated Header contains prohibited HTTP field content');
+   values[key]=wire;percentEncoded[key]=false;
+  }else{
+   values[key]=Array.from(bytes,byte=>/[A-Za-z0-9._~-]/.test(String.fromCharCode(byte))?String.fromCharCode(byte):'%'+byte.toString(16).toUpperCase().padStart(2,'0')).join('');
+   percentEncoded[key]=true;
+  }
+ }
+ return {version:1,snapshot:input.snapshot,identity:plan.identity,values,percentEncoded,inputs,bodies};
+}
+
+/** A URL-form field retains its own captured schema and declared media. */
+export async function requestFormContentValue(input:any){
+ if(typeof input.text!=='string'||typeof input.name!=='string'||typeof input.mediaType!=='string'||typeof input.formType!=='string'||!Number.isSafeInteger(input.index)||input.index<0||input.index>=2048||typeof input.structured!=='boolean')throw new SourceError('request.form.media','Expected a bounded captured form field');
+ const captured=createGraph(input),plan=requestOperation(input,captured);
+ const response=input.status===undefined?undefined:plan.responses.find(value=>value.status===String(input.status))??plan.responses.find(value=>value.status===String(input.status)[0]+'XX')??plan.responses.find(value=>value.status==='default');
+ const content=selectRequestMedia<Record<string,any>&{mediaType:string}>(input.status===undefined?plan.requestBody?.content??[]:response?.content??[],input.formType);
+ if(!content?.schema||content.formBinding!=='urlencoded')throw new SourceError('request.form.owner','Select the captured URL-encoded media owner');
+ const forms=new FormSemantics(captured.graph),shape=forms.shape(content.schema.resource,content.schema.pointer),rule=input.status!==undefined&&content.family!=='3.2'?{}:content.encoding?.[input.name]??{};
+ if(['style','explode','allowReserved'].some(key=>Object.hasOwn(rule,key)))throw new SourceError('request.form.media','Style serialization does not use a content media codec');
+ const property=shape.properties?.[input.name],declared=rule.contentType??(property?.types?.includes('array')?property.items:property)?.defaultContentType??'text/plain';
+ mediaTypeChoice(declared,input.mediaType);
+ const root=input.bodyText===undefined?undefined:new SourceDocument(input.bodyText,'urn:busyapi:form-input',true,'json');
+ if(root?.issues.length)throw root.issues[0];
+ const array=root?root.dataNode('/'+escape(input.name))?.kind==='array':property?.types?.includes('array');
+ const path=[{property:input.name},...(array?[{item:input.index}]:[])];
+ const representations=forms.partRepresentations({...content.definition,kind:'media'},{...content.schema,kind:'schema'},path);
+ if(representations.length!==1)throw new SourceError('request.form.media.unsupported','This field requires an explicit, unambiguous captured representation',[0,0],'unsupported',content.definition);
+ const {prepareModeledMedia}=await import('./modeled_media');
+ const prepared=input.structured?await prepareModeledMedia(input,input.text,input.mediaType,representations[0].schema,false,input.status===undefined?'request':'response'):undefined;
+ const bytes=prepared?prepared.bytes:
+  runtimeMediaKind(input.mediaType)==='xml'?rawXmlBytes(input.text,mediaTypes(input.mediaType,false)[0].parameters.get('charset')):runtimeMediaBytes(input.text,false);
+ const value=Array.from(bytes,byte=>byte===32?'+':/[A-Za-z0-9._~-]/.test(String.fromCharCode(byte))?String.fromCharCode(byte):'%'+byte.toString(16).toUpperCase().padStart(2,'0')).join('');
+ return {version:1,snapshot:input.snapshot,identity:plan.identity,name:input.name,index:input.index,mediaType:input.mediaType,input:createHash('sha256').update(input.text).digest('hex'),value,...(prepared?{modeledData:prepared.text}:{})};
+}
+
 export async function requestMediaBytes(input:any){
  if(typeof input.text!=='string'||typeof input.mediaType!=='string')throw new SourceError('request.media.input','Expected typed JSON and a concrete media selection');
  const captured=createGraph(input),plan=requestOperation(input,captured);
@@ -43,13 +106,9 @@ export async function requestMediaBytes(input:any){
  if(!content)throw new SourceError('request.media.owner','Select a captured request media declaration');
  const document=new SourceDocument(input.text,'urn:busyapi:typed-body',true,'json');
  if(document.issues.length)throw document.issues[0];
- const bytes=encodeRuntimeMedia(document,input.mediaType,false,content.schema?{graph:captured.graph,schema:content.schema}:undefined);
- const instances=[{text:document.dataJson(''),schema:content.schema,subject:'request-body',location:'typed-input'},
-  {text:bytes.toString('base64'),mediaBase64:true,mediaType:input.mediaType,schema:content.schema,subject:'request-body',location:input.mediaType}];
- const proof=await evaluateSchemas({...input,runtimeInstances:instances});
- if(!proof.runtimeEvaluations.length||proof.runtimeEvaluations.some(value=>!value.complete||!value.valid)||proof.runtimeFindings.some(value=>value.severity==='error'))
-  throw new SourceError('request.media.conformance','Typed body or its wire representation does not completely satisfy the captured schema',content.definition?.range??[0,0],undefined,content.definition);
- return {version:1,snapshot:input.snapshot,identity:plan.identity,mediaType:input.mediaType,base64:bytes.toString('base64'),byteLength:bytes.length};
+ const proof=await evaluateSchemas({...input,mediaPreparations:[{text:document.dataJson(''),schema:content.schema,mediaType:input.mediaType,direction:'request'}]});
+ const prepared=proof.mediaPreparations[0];
+ return {version:1,snapshot:input.snapshot,identity:plan.identity,input:createHash('sha256').update(input.text).digest('hex'),...prepared};
 }
 
 export async function requestMultipartNamedProof(input:any){
@@ -84,6 +143,52 @@ export async function requestMultipartPlan(input:any){
     if(!(error instanceof SourceError)||error.source)throw error;
     throw new SourceError(error.code,error.message,error.range[1]>error.range[0]?error.range:content.definition.range,error.kind,content.definition);
   }
+}
+
+/** URL-form mock generation retains original typed/root and emitted schemas. */
+export async function mockFormBytes(input:any){
+ const captured=createGraph(input),plan=requestOperation(input,captured),response=plan.responses.find(value=>value.status===String(input.status))??plan.responses.find(value=>value.status===String(input.status)[0]+'XX')??plan.responses.find(value=>value.status==='default');
+ const content=selectRequestMedia<Record<string,any>&{mediaType:string}>(response?.content??[],input.mediaType);
+ if(!content?.schema||content.formBinding!=='urlencoded')throw new SourceError('mock.form.owner','Select a captured URL-form response');
+ const doc=new SourceDocument(input.text,'urn:busyapi:mock-form',true,'json');if(doc.issues.length)throw doc.issues[0];
+ if(doc.root.kind!=='object')throw new SourceError('mock.form.shape','URL-form response data must be an object');
+ const forms=new FormSemantics(captured.graph),shape=forms.shape(content.schema.resource,content.schema.pointer),encoding=content.family==='3.2'?content.encoding??{}:{},mediaTypesByName:Record<string,string>={},mediaValues:Record<string,string[]>={},normalizations:{pointer:string;text:string}[]=[];
+ for(const [name,physical]of doc.root.children){
+  const field=doc.dataNode(physical.pointer)!,rule=encoding[name]??{},property=shape.properties?.[name],item=property?.types?.includes('array')?property.items:property;
+  const type=mediaTypeChoice(rule.contentType??item?.defaultContentType??'text/plain');mediaTypesByName[name]=type;
+  if(['style','explode','allowReserved'].some(key=>Object.hasOwn(rule,key))||!['xml','linkset','linkset-json'].includes(runtimeMediaKind(type)))continue;
+  const values=field.kind==='array'?[...field.children.values()].map(node=>doc.dataNode(node.pointer)!):[field];
+  mediaValues[name]=[];
+  for(const [index,node]of values.entries()){
+   const prepared=await requestFormContentValue({...input,formType:input.mediaType,bodyText:input.text,name,index,text:doc.dataJson(node.pointer),mediaType:type,structured:true});
+   mediaValues[name].push(prepared.value);normalizations.push({pointer:node.pointer,text:prepared.modeledData!});
+  }
+ }
+ const {mockUrlEncodedWire}=await import('./mock_multipart_generation');
+ const bytes=mockUrlEncodedWire({raw:input.text,declaration:{encoding},mediaTypes:mediaTypesByName,mediaValues});
+ const result=await evaluateSchemas({...input,runtimeInstances:[{subject:'response-body',location:input.mediaType,text:bytes.toString('base64'),mediaBase64:true,mediaType:input.mediaType,form:content.definition,schema:content.schema,captureData:true,originalData:input.text}]});
+ const checked=result.runtimeEvaluations.find(value=>typeof value.projectionData==='string');
+ if(!checked||result.runtimeEvaluations.some(value=>!value.complete||!value.valid)||result.runtimeFindings.some(value=>value.severity==='error'))throw new SourceError('mock.form.conformance','Generated URL-form response violates its captured original schema');
+ let expected=input.text;for(const change of normalizations.sort((a,b)=>doc.dataNode(b.pointer)!.range[0]-doc.dataNode(a.pointer)!.range[0])){const node=doc.dataNode(change.pointer)!;expected=expected.slice(0,node.range[0])+change.text+expected.slice(node.range[1]);}
+ const {sameMediaData}=await import('./xml_model');
+ if(!sameMediaData(new SourceDocument(expected,'urn:busyapi:mock-form-expected',true,'json'),new SourceDocument(checked.projectionData as string,'urn:busyapi:mock-form-actual',true,'json')))throw new SourceError('mock.form.correspondence','Generated form values differ from their modeled inputs',[0,0],'unsupported');
+ return {version:1,snapshot:input.snapshot,identity:plan.identity,producer:schemaProducer.name,producerVersion:schemaProducer.version,configuration:schemaProducer.configuration,base64:bytes.toString('base64'),byteLength:bytes.length,mediaType:input.mediaType,proof:{complete:true,valid:true}};
+}
+
+/** Native mock multipart responses consume the same captured part preparation
+ * and whole-data/actual-wire proof as the native request writer. */
+export async function mockMultipartBytes(input:any){
+ const captured=createGraph(input),plan=requestOperation(input,captured);
+ const response=plan.responses.find(value=>value.status===String(input.status))??plan.responses.find(value=>value.status===String(input.status)[0]+'XX')??plan.responses.find(value=>value.status==='default');
+ const content=selectRequestMedia<Record<string,any>&{mediaType:string}>(response?.content??[],input.mediaType);
+ if(!content||!input.mediaType?.toLowerCase().startsWith('multipart/'))throw new SourceError('mock.multipart.owner','Select a captured multipart response');
+ const options={...input,direction:'response',files:[]},generated=await multipartGeneration(captured.graph,content,options);
+ const base={version:1,snapshot:input.snapshot,identity:plan.identity,producer:schemaProducer.name,producerVersion:schemaProducer.version,configuration:schemaProducer.configuration};
+ if(input.inspect)return {...base,tree:generated.tree};
+ const {mockMultipartWire}=await import('./mock_multipart_generation');
+ const wire=mockMultipartWire(generated.tree,input.text);
+ const proof=await proveMultipartGeneration(captured.graph,content,{...options,wire:wire.bytes.toString('base64'),wireType:wire.mediaType},generated);
+ return {...base,base64:wire.bytes.toString('base64'),byteLength:wire.bytes.length,mediaType:wire.mediaType,proof};
 }
 
 /** Exact array editing for the native ordered-part control. The caller owns
@@ -196,10 +301,18 @@ export function executionCaseValues(input:any) {
   for(const [location,physical] of groups?.children??[]) {
     const group=doc.dataNode(physical.pointer)!;
     if(group.kind!=='object')throw new SourceError('test.configuration','Selected parameter location '+location+' must be an object',group.range);
-    for(const [name,node] of group.children) parameters[location+'\u0000'+name]=exact(node);
+    for(const [name,node] of group.children){
+     const item=exact(node),mode=doc.dataNode(selected.pointer+'/parameterModes/'+escape(location)+'/'+escape(name))?.value;
+     if(mode==='data'){item.text=doc.dataJson(node.pointer);item.json=true;}
+     parameters[location+'\u0000'+name]={...item,...(mode?{representation:mode}:{})};
+    }
   }
   const body=doc.dataNode(selected.pointer+'/body/value');
-  return {version:1,parameters,body:body?exact(body):undefined};
+  const bodyValue=body?exact(body):undefined;
+  const representation=doc.dataNode(selected.pointer+'/body/representation')?.value;
+  if(bodyValue&&representation==='data'){bodyValue.text=doc.dataJson(body!.pointer);bodyValue.json=true;}
+  if(bodyValue&&representation==='serialized')bodyValue.json=false;
+  return {version:1,parameters,body:bodyValue};
 }
 
 export function inspectExecutionJson(input:any) {
@@ -215,6 +328,39 @@ export function inspectExecutionJson(input:any) {
     return (object?'{':'[')+'\n'+children.map(([name,child])=>bounded('  '.repeat(depth+1)+(object?JSON.stringify(name)+': ':''))+pretty(child,depth+1)).join(',\n')+'\n'+'  '.repeat(depth)+(object?'}':']');
   };
   return {version:1,pretty:pretty(doc.root),entries:[...doc.root.children.entries()].slice(0,2048).map(([name,node])=>({name,text:doc.dataJson(node.pointer)})),entriesComplete:doc.root.children.size<=2048};
+}
+
+/** Save exact request data using the existing configuration proposal transaction. */
+export function planExecutionCase(input:any){
+ if(typeof input.name!=='string'||!input.name.trim()||input.name.length>128||!input.definition)throw new SourceError('test.configuration','Choose a bounded saved-case name');
+ const definition={...input.definition,name:input.name};
+ if(Array.isArray(definition.headers)){
+  const groups=new Map<string,{name:string;values:string[]}>();
+  for(const field of definition.headers){if(typeof field.name!=='string'||typeof field.value!=='string'||/[\r\n\0]/.test(field.value))throw new SourceError('test.configuration','Invalid saved Header');const key=field.name.toLowerCase(),group=groups.get(key)??{name:field.name,values:[]};group.values.push(field.value);groups.set(key,group);}
+  definition.headers=Object.fromEntries([...groups.values()].map(group=>{const values=httpFieldLines(group.name,group.values);if(values.length!==1)throw new SourceError('test.configuration','These separate Header lines have no single saved field representation',[0,0],'unsupported');return [group.name,values[0]];}));
+ }
+ const exact=(raw:any)=>{if(typeof raw!=='string')throw new SourceError('test.configuration','Expected exact saved data');const value=new SourceDocument(raw,'urn:busyapi:case-value',true,'json');if(value.issues.length)throw value.issues[0];return new RawJsonValue(value.dataJson(''));};
+ if(definition.body?.representation==='data')definition.body={...definition.body,value:exact(definition.body.value)};
+ for(const location of Object.keys(definition.parameters??{}))for(const [name,value]of Object.entries(definition.parameters[location])){
+  if(value&&typeof value==='object'&&Object.hasOwn(value,'dataJson'))definition.parameters[location][name]=exact((value as any).dataJson);
+ }
+ const render=(value:any):string=>value instanceof RawJsonValue?value.text:Array.isArray(value)?'['+value.map(render).join(',')+']':value&&typeof value==='object'?'{'+Object.entries(value).filter(([,item])=>item!==undefined).map(([key,item])=>JSON.stringify(key)+':'+render(item)).join(',')+'}':JSON.stringify(value);
+ const raw=render(definition),source=input.source;
+ if(!source){
+  const text=render({version:1,roots:input.roots,tests:[new RawJsonValue(raw)]})+'\n';
+  if(Buffer.byteLength(text)>65536)throw new SourceError('limit.manifest','Saved configuration exceeds 64 KiB');
+  return {version:1,snapshot:input.snapshot,text};
+ }
+ if(typeof source.text!=='string'||Buffer.byteLength(source.text)>65536)throw new SourceError('test.configuration','Expected captured configuration');
+ const doc=new SourceDocument(source.text,source.id),tests=doc.dataNode('/tests');
+ const members=[...(tests?.children.values()??[])].map(node=>doc.dataNode(node.pointer)!);
+ const matches=members.filter(node=>node.value?.name===input.name);if(matches.length>1)throw new SourceError('test.configuration','Saved case name is ambiguous');
+ const values=members.map(node=>node.value?.name===input.name?raw:doc.dataJson(node.pointer));if(!matches.length)values.push(raw);
+ const target={resource:source.id,pointer:'',generation:source.generation,range:doc.root.range};
+ const result=propose({...input,resources:[source],target,actions:[{kind:'set',pointer:'/tests',value:new RawJsonValue('['+values.join(',')+']')}]});
+ let after=source.text;for(const edit of [...result.edits].reverse())after=after.slice(0,edit.start)+edit.replacement+after.slice(edit.end);
+ if(Buffer.byteLength(after)>65536)throw new SourceError('limit.manifest','Saved configuration exceeds 64 KiB');
+ return {version:1,snapshot:input.snapshot,kind:'execution-case',edits:result.edits,changes:[{resource:source.id,before:source.text,after}],usages:[],checkedRoots:[input.root],from:target,to:{resource:source.id,pointer:'/tests'}};
 }
 
 export function planExecutionEnvironment(input:any) {
@@ -450,9 +596,10 @@ export function requestOperation(input:any,captured?:ReturnType<typeof createGra
         const rule=level==='media'?value?.encoding?.[name]:undefined;
         const styled=rule&&['style','explode','allowReserved'].some(k=>Object.hasOwn(rule,k));
         const type=styled?undefined:rule?.contentType?.split(';')[0].toLowerCase();
-        if(rule&&(rule.encoding||rule.prefixEncoding||rule.itemEncoding)||type&&type!=='text/plain'&&type!=='application/json'&&!type.endsWith('+json'))
+        const modeled=type!==undefined&&(type==='application/linkset'||type==='application/linkset+json'||type==='application/xml'||type==='text/xml'||type.endsWith('+xml'));
+        if(rule&&(rule.encoding||rule.prefixEncoding||rule.itemEncoding)||type&&!modeled&&type!=='text/plain'&&type!=='application/json'&&!type.endsWith('+json'))
           conversionError='This data example requires an unsupported field encoding. Choose a serialized example or edit the literal representation.';
-        if(type==='application/json'||type?.endsWith('+json'))return fieldRaw(r,child.pointer);
+        if(modeled||type==='application/json'||type?.endsWith('+json'))return fieldRaw(r,child.pointer);
         if(child.kind==='object'||child.kind==='array'){
           const property=level==='media'?forms.shape(resource,pointer+'/schema').properties?.[name]:undefined;
           const field=docs.get(r)!.dataNode(p+'/'+escape(name));
@@ -679,7 +826,7 @@ export function requestOperation(input:any,captured?:ReturnType<typeof createGra
     responses.push({status,source:location(input.resource,at),definition:selected.source,description:v?.description,headers,bodyAllowed:responseAllowsContent(family,v),content:family==='2.0'?swaggerResponseContent(graph,selected.resource,selected.pointer,swaggerMedia(graph,input.resource,input.pointer,'produces'),location).map(item=>({...item,...runtimeMediaDescription(item.mediaType)})):media(selected.resource,selected.pointer+'/content',v?.content)});
   }
   const identity=createHash('sha256').update(JSON.stringify([multipartProjectionRevision,schemaExamplesRevision,input.snapshot,input.resource,input.pointer,context.occurrence])).digest('hex');
-  return {version:1,snapshot:input.snapshot,root:input.root,identity,family,representationRevisions:{multipart:multipartProjectionRevision,schemaExamples:schemaExamplesRevision,xml:'1',linkset:'1'},operation:{method,customMethod:context.customMethod===true,path:context.path,
+  return {version:1,snapshot:input.snapshot,root:input.root,identity,family,representationRevisions:{multipart:multipartProjectionRevision,schemaExamples:schemaExamplesRevision,xml:'2',linkset:'2'},operation:{method,customMethod:context.customMethod===true,path:context.path,
     operationId:typeof node.value.operationId==='string'?node.value.operationId:undefined,summary:typeof node.value.summary==='string'?node.value.summary:undefined,
     source:location(input.resource,input.pointer),occurrence:context.occurrence,pathItem:location(context.pathItem.resource,context.pathItem.pointer)},
     servers,parameters:parameters.visible.filter(entry=>family!=='2.0'||!['body','formData'].includes(entry.location!)).map(parameter),security:{requirements,schemes:Object.fromEntries(schemes),anonymous:requirements.some(requirement=>requirement.schemes.length===0)||!securityField},requestBody,ignoredRequestBody,responses,responseStatusNamePolicy:responseStatusNamePolicy(family),

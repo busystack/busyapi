@@ -17,16 +17,17 @@ enum MultipartFileShape {
 /// One explicit MIME field line attached to a logical multipart field.
 /// Repeated body parts retain their order and receive the same supplied lines.
 class RequestPartHeaderValue {
-  const RequestPartHeaderValue(this.part, this.name, this.value);
+  const RequestPartHeaderValue(this.part, this.name, this.value, {this.modeled = false});
+  final bool modeled;
   final String part, name, value;
 
   factory RequestPartHeaderValue.fromJson(Object? raw) {
     if (raw
         case {'part': String part, 'name': String name, 'value': String value}
-        when part.length <= 1024 &&
+        when (!(raw as Map).containsKey('modeled') || raw['modeled'] is bool) && part.length <= 1024 &&
             name.length <= 1024 &&
             value.length <= 8192) {
-      return RequestPartHeaderValue(part, name, value);
+      return RequestPartHeaderValue(part, name, value, modeled: (raw as Map)['modeled'] == true);
     }
     throw CoreFailure(
       'request.multipart.headers',
@@ -34,7 +35,7 @@ class RequestPartHeaderValue {
     );
   }
 
-  Map<String, String> toJson() => {'part': part, 'name': name, 'value': value};
+  Map<String, Object?> toJson() => {'part': part, 'name': name, 'value': value, if (modeled) 'modeled': true};
 }
 
 enum MultipartInstanceEncoding { octets }

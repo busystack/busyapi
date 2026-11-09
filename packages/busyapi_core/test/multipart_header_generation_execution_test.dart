@@ -27,6 +27,7 @@ String _wire(
     '--$boundary--\r\n';
 
 void main() {
+  modeledMultipartJourneys();
   for (final version in ['3.2.0', '3.2.1']) {
     test('$version nested URL form uses the existing codec inside MIME framing', () async {
       final directory = await Directory.systemTemp.createTemp('busyapi-nested-form-');
@@ -540,4 +541,44 @@ paths:
       );
     }
   }
+}
+
+void modeledMultipartJourneys() {
+  test('native multipart writer consumes XML charset bytes and modeled Link Headers, then reopens the same case', () async {
+    final directory=await Directory.systemTemp.createTemp('busyapi-modeled-parts-');addTearDown(() => directory.delete(recursive:true));
+    final engine=EngineProcess(executable:runtimeNode,helper:runtimeHelper);addTearDown(engine.close);
+    final server=await HttpServer.bind(InternetAddress.loopbackIPv4,0);addTearDown(() => server.close(force:true));
+    final seen=<List<int>>[];
+    server.listen((request) async {seen.add(await request.fold<List<int>>([], (all,chunk)=>all..addAll(chunk)));request.response.statusCode=204;await request.response.close();});
+    final xml={'type':'object','xml':{'name':'Part'},'required':['n'],'properties':{'n':{'type':'number','enum':['EXACT']}}},link={'type':'object','required':['linkset']};
+    final media={'schema':{'type':'object','required':['xml','links'],'properties':{'xml':xml,'links':link}},'encoding':{
+      'xml':{'contentType':'application/xml; charset=utf-16be','headers':{'Link':{'required':true,'content':{'application/linkset':{'schema':link}}}}},
+      'links':{'contentType':'application/linkset'}}};
+    final source=File('${directory.path}/api.json');
+    final original=jsonEncode({'openapi':'3.2.1','info':{'title':'Native parts','version':'1'},'servers':[{'url':'http://127.0.0.1:${server.port}'}],
+      'paths':{'/parts':{'post':{'requestBody':{'content':{'multipart/mixed':media}},'responses':{'204':{'description':'OK'}}}}}}).replaceAll('"EXACT"','9007199254740993');
+    await source.writeAsString(original);
+    final project=await BusyProject.open(source.path,engine);addTearDown(project.close);
+    final plan=await project.prepareRequest(source.uri.toString(),resource:source.uri.toString(),pointer:'/paths/~1parts/post');addTearDown(plan.close);
+    const data='{"xml":{"n":9007199254740993},"links":{"linkset":[{"next":[{"href":"/p","title":"a,b"}]}]}}';
+    const headers=[RequestPartHeaderValue('/xml','Link','{"linkset":[{"next":[{"href":"/n","title*":[{"value":"雪","language":"ja"}]}]}]}',modeled:true)];
+    final draft=OperationRequestDraft(planIdentity:plan.identity,body:RequestBodyDraft.multipartValue(mediaType:'multipart/mixed',json:data,partHeaders:headers));
+    final result=await const ContractRequestExecutor().execute(plan,draft,resolveSecret:(_) async=>null);addTearDown(result.close);
+    expect(result.conforming,true,reason:'${result.outgoing.findings}');
+    final raw=String.fromCharCodes(seen.single);
+    expect(raw,contains("Link: </n>; rel=\"next\"; title*=UTF-8'ja'%E9%9B%AA"));
+    expect(raw,contains('</p>; rel="next"; title="a,b"'));
+    // The XML leaf remains UTF-16BE inside the MIME entity, with no UTF-8 round trip.
+    expect(raw,contains('\u0000P\u0000a\u0000r\u0000t'));expect(raw,contains('\u00009\u00000\u00000\u00007'));
+    final changed=await project.applyRefactoring(await plan.planCase('parts',draft));
+    expect((await PublicationStore('${directory.path}/publication').save(project,[for(final id in changed)project.store.get(id)])).complete,true);
+    final coldEngine=EngineProcess(executable:runtimeNode,helper:runtimeHelper);addTearDown(coldEngine.close);
+    final cold=await BusyProject.open(directory.path,coldEngine);addTearDown(cold.close);
+    final reopened=await cold.prepareRequest(source.uri.toString(),resource:source.uri.toString(),pointer:'/paths/~1parts/post');addTearDown(reopened.close);
+    final loaded=await ContractTestRunner.reopenCase(reopened,'parts',cold.access);
+    expect(loaded.body.partHeaders.single.modeled,true);expect(loaded.body.text,data);
+    final replay=await const ContractRequestExecutor().execute(reopened,loaded,resolveSecret:(_) async=>null);addTearDown(replay.close);
+    expect(replay.conforming,true,reason:'${replay.outgoing.findings}');expect(seen,hasLength(2));
+    expect(await source.readAsString(),original);
+  });
 }

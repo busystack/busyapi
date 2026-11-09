@@ -96,7 +96,7 @@ test('a late framing failure preserves the whole literal input without partial t
  assert.throws(()=>prepare(unknown),error=>error.code==='runtime.mime-text.transfer.unsupported');
 });
 test('embedded MIME changes own a distinct evaluator identity',()=>{
- assert.equal(schemaProducer.version,'1.18.0+63');
+ assert.equal(schemaProducer.version,'1.18.0+65');
  assert(schemaProducer.configuration.includes('embedded-mime-text-v1'));
  assert(schemaProducer.configuration.includes('compound-unicode-v1'));
 });
@@ -141,4 +141,10 @@ for(const version of ['3.2.0','3.2.1'])for(const format of ['yaml','json'])for(c
   assert.equal(finding.resource,root);assert(finding.pointer.endsWith('/serializedValue'));assert(finding.range[1]>finding.range[0]);
  }
  assert.equal(resources[0].text,source);
+});
+test('embedded XML leaves use the shared XML charset transcoder without changing MIME framing',()=>{
+ const {requestMimeTextBytes}=require('./dist/execution.cjs');
+ const mediaType='multipart/mixed; boundary=Xml',prefix='--Xml\r\nContent-Type: application/xml; charset=iso-8859-1\r\n\r\n',suffix='\r\n--Xml--\r\n';
+ const text=prefix+'<V>é</V>'+suffix,result=requestMimeTextBytes({snapshot:'xml-leaf',mediaType,text});
+ assert.equal(result.mode,'encoded');assert.deepEqual(Buffer.from(result.base64,'base64'),Buffer.concat([Buffer.from(prefix),Buffer.from('<V>é</V>','latin1'),Buffer.from(suffix)]));
 });

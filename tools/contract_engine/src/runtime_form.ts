@@ -3,7 +3,7 @@ import type {GraphTarget,ReferenceGraph} from './reference_graph';
 import {FormSemantics,formLiteralType,namedFileShapeSelection,type FormShape} from './form_semantics';
 import {ParameterSemantics} from './parameter_semantics';
 import {mediaTypeChoice,mediaTypes} from './media_types';
-import {decodeRuntimeMedia,runtimeMediaBytes,runtimeMediaKind,type RuntimeMediaData,type TextSerialization} from './runtime_media';
+import {validateRuntimeMediaSyntax,decodeRuntimeMedia,runtimeMediaBytes,runtimeMediaKind,type RuntimeMediaData,type TextSerialization} from './runtime_media';
 import {MultipartEncoding,type MultipartSchemaStep} from './multipart_encoding';
 import {decodeMultipartTransfer,multipartTextSerialization} from './multipart_transfer';
 import {embeddedMimeTextBytes} from './embedded_mime_text';
@@ -152,7 +152,8 @@ export function decodeRuntimeForm(text:string,id:string,contentType:string,base6
                 if(!multipart)failure('runtime.form.file.unsupported','File parameters require a multipart representation',definition);
                 if(values.length!==1)return syntax('A file parameter occurs more than once');
                 const value=payload(values[0]);
-                if(value.serialization)decodeRuntimeMedia(value.bytes.toString('base64'),id+'/file',mimePartDecodingType(singleton(values[0].headers,'content-type')??'application/octet-stream',true),true,'unsupported',value.serialization);
+                const contentType=mimePartDecodingType(singleton(values[0].headers,'content-type')??'application/octet-stream',true);
+                if(value.serialization||['xml','linkset','linkset-json'].includes(runtimeMediaKind(contentType)))validateRuntimeMediaSyntax(value.bytes,id+'/file',contentType,value.serialization);
                 checks.push({document:document('null','file/'+checks.length),prefix:'/'+escape(name),file:true});continue;
             }
             if(value.allowEmptyValue!==true&&values.some(part=>payload(part).bytes.length===0))issue('runtime.request.form.empty','This parameter does not allow an empty decoded field value',name,definition);
@@ -228,16 +229,16 @@ export function decodeRuntimeForm(text:string,id:string,contentType:string,base6
             const transferEncoding=actual??expected??'binary',decoded=decodeMultipartTransfer(part.bytes,transferEncoding),bytes=decoded.bytes;
             const serialization=multipartTextSerialization(part.bytes,transferEncoding,decoded,unicode!==undefined);
             if(transfer.schemaEncoded){
-                if(serialization||runtimeMediaKind(concrete)!=='opaque')decodeRuntimeMedia(bytes.toString('base64'),id+'/encoded-media',decodingType,true,'unsupported',serialization);
+                if(serialization||runtimeMediaKind(concrete)!=='opaque')validateRuntimeMediaSyntax(bytes,id+'/encoded-media',decodingType,serialization);
                 return JSON.stringify(decoded.encoded??bytesText(bytes,'text/plain; charset=utf-8',serialization));
             }
             if(transfer.instanceEncoding==='octets'){
-                if(serialization)decodeRuntimeMedia(bytes.toString('base64'),id+'/octet-media',decodingType,true,'octets',serialization);
+                if(serialization||['xml','linkset','linkset-json'].includes(runtimeMediaKind(decodingType))){if(['xml','linkset','linkset-json'].includes(runtimeMediaKind(decodingType)))validateRuntimeMediaSyntax(bytes,id+'/octet-media',decodingType,serialization);else decodeRuntimeMedia(bytes.toString('base64'),id+'/octet-media',decodingType,true,'octets',serialization);}
                 return JSON.stringify(bytes.toString('latin1'));
             }
             const essence=mediaTypes(concrete,false)[0],json=essence.subtype==='json'||essence.subtype.endsWith('+json');
             if(['xml','linkset','linkset-json'].includes(runtimeMediaKind(concrete))){
-                const path=[...(model?.path??[]),{property:name},...(array?[{item:0}]:[])];
+                const path=[...(model?.path??[]),{property:name},...(array?[{item:Number(segments(pointer).at(-1))}]:[])];
                 const representations=forms.partRepresentations({...target,kind:'media'},schema,path);
                 if(representations.length!==1)return failure('runtime.xml.model.unsupported','This MIME part has no unique captured representation schema',schema);
                 return decodeRuntimeMedia(bytes.toString('base64'),id+'/modeled',concrete,true,'unsupported',serialization,{graph,schema:representations[0].schema}).document.dataJson('');

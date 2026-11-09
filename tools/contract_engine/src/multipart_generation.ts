@@ -1,3 +1,4 @@
+import {prepareModeledMedia} from './modeled_media';
 import {createHash} from 'node:crypto';
 import {SourceDocument,SourceError,escape} from './document';
 import type {GraphTarget,ReferenceGraph} from './reference_graph';
@@ -19,7 +20,7 @@ import {MultipartFileShapes} from './multipart_file_shapes';
 type Hint={schema:GraphTarget;path:({property:string}|{item:number|undefined})[];shape:FormShape;selection?:GraphTarget};
 type Content=Record<string,any>;
 type Part={pointer:string;name?:string;contentType:string;rule:GraphTarget;schemas:GraphTarget[];transfer:MultipartTransfer;
-    headers:{name:string;value:string}[];allowDisposition:boolean;bytes?:string;text?:string;file?:number;children?:Entity;urlencoded?:{raw:string;declaration:Content;mediaTypes:Record<string,string>}};
+    headers:{name:string;value:string}[];allowDisposition:boolean;bytes?:string;text?:string;file?:number;children?:Entity;urlencoded?:{raw:string;declaration:Content;mediaTypes:Record<string,string>;mediaValues?:Record<string,string[]>}};
 type Entity={contentType:string;parts:Part[]};
 const object=(v:unknown):v is Content=>v!==null&&typeof v==='object'&&!Array.isArray(v);
 const hash=(bytes:Buffer)=>createHash('sha256').update(bytes).digest('hex');
@@ -46,12 +47,21 @@ export async function proveNamedMultipart(graph:ReferenceGraph,content:Content,i
         const payload=decodeMultipartTransfer(part.bytes,mimeSingleton(part.headers,'content-transfer-encoding')??'binary');
         if(hash(payload.bytes)!==file.identity)fail('request.multipart.file.identity','The emitted file bytes differ from the approved capture');
     }
-    const decoded=decodeRuntimeForm(input.wire,'file:///busyapi-generated-named',input.wireType,true,{...at,occurrence:input.occurrence,fileShapes:input.fileShapes},'request-body',graph);
+    const result=await evaluateSchemas({...input,runtimeInstances:[{subject:'request-body',location:input.mediaType,
+        text:input.wire,captureData:true,mediaBase64:true,mediaType:input.wireType,form:{...at,occurrence:input.occurrence,fileShapes:input.fileShapes},
+        schema:content.schema,itemSchema:content.itemSchema}]});
+    if(!result.runtimeEvaluations.length||result.runtimeEvaluations.some(value=>!value.complete||!value.valid)||result.runtimeFindings.some(value=>value.severity==='error')){
+        const first=result.runtimeFindings.find(value=>value.severity==='error')??result.runtimeFindings[0];
+        transfers.failure('request.multipart.conformance',first?.message??'Generated named multipart does not completely satisfy the original captured declaration',first?.schema??first?.source??at);
+    }
+    const projection=result.runtimeEvaluations.find(value=>value.subject==='request-body'&&typeof value.projectionData==='string');
+    if(!projection)fail('request.multipart.protocol','The canonical decoder omitted its captured form projection');
+    const decoded={document:new SourceDocument(projection.projectionData,'urn:busyapi:proved-named',true,'json')};
+    const actualBinary=new Set<string>(projection.projectionBinary??[]);
     if(typeof input.expected==='string'){
         const intended=new SourceDocument(input.expected,'file:///busyapi-intended-named',true,'json');
         if(intended.issues.length)throw intended.issues[0];
         const skipped=new Set<string>(input.partialFiles?input.files.map(file=>'/'+escape(file.name)):[]);
-        const actualBinary=decoded.binaryInstances?.get(decoded.document);
         const equal=(pointer:string):boolean=>{
             if(skipped.has(pointer))return true;
             const left=intended.dataNode(pointer),right=decoded.document.dataNode(pointer);
@@ -64,13 +74,6 @@ export async function proveNamedMultipart(graph:ReferenceGraph,content:Content,i
             return left.value===right.value;
         };
         if(!equal(''))fail('request.multipart.roundtrip','The generated named body does not decode to its intended typed values');
-    }
-    const result=await evaluateSchemas({...input,runtimeInstances:[{subject:'request-body',location:input.mediaType,
-        text:input.wire,mediaBase64:true,mediaType:input.wireType,form:{...at,occurrence:input.occurrence,fileShapes:input.fileShapes},
-        schema:content.schema,itemSchema:content.itemSchema}]});
-    if(!result.runtimeEvaluations.length||result.runtimeEvaluations.some(value=>!value.complete||!value.valid)||result.runtimeFindings.some(value=>value.severity==='error')){
-        const first=result.runtimeFindings.find(value=>value.severity==='error')??result.runtimeFindings[0];
-        transfers.failure('request.multipart.conformance',first?.message??'Generated named multipart does not completely satisfy the original captured declaration',first?.schema??first?.source??at);
     }
     return {complete:true,valid:true};
 }
@@ -108,7 +111,9 @@ export function multipartStructure(graph:ReferenceGraph,content:Content){
     });
     const encoding=Object.values(forms.namedEncoding(rule.encoding,content.schema?[{schema:{...content.schema,kind:'schema'},path:[]}]:[]));
     const nestedForm=encoding.some(value=>object(value)&&mediaMatches(value.contentType,type=>type.type==='application'&&type.subtype==='x-www-form-urlencoded'));
-    const usesTree=binding==='multipart-ordered'||rootChoices.length>1||needsChoices||shape.additionalProperties!==undefined||Object.keys(shape.patternProperties??{}).length>0||nestedForm||content.family==='3.2'&&encoding.some(value=>object(value)&&(value.encoding!==undefined||value.prefixEncoding!==undefined||value.itemEncoding!==undefined||mediaMatches(value.contentType,type=>type.type==='multipart')));
+    const modeledParts=encoding.some(rule=>object(rule)&&(mediaMatches(rule.contentType,type=>type.subtype==='xml'||type.subtype.endsWith('+xml')||['linkset','linkset+json','*'].includes(type.subtype)||type.subtype.startsWith('*+'))||
+        Object.values(rule.headers??{}).some(header=>object(header)&&(header.content!==undefined||header.$ref!==undefined))));
+    const usesTree=modeledParts||binding==='multipart-ordered'||rootChoices.length>1||needsChoices||shape.additionalProperties!==undefined||Object.keys(shape.patternProperties??{}).length>0||nestedForm||content.family==='3.2'&&encoding.some(value=>object(value)&&(value.encoding!==undefined||value.prefixEncoding!==undefined||value.itemEncoding!==undefined||mediaMatches(value.contentType,type=>type.type==='multipart')));
     const typedTree=usesTree||Object.values(content.form?.parts??{}).some((part:any)=>part.fileShapes?.length>0);
     return {binding,usesTree,typedTree,rootChoices,
         schema:content.schema,itemSchema:content.itemSchema,source:at,parts,
@@ -135,12 +140,12 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
     if(Object.values(choices).some(value=>typeof value!=='string')||Object.values(selections).some(value=>typeof value!=='string'))
         fail('request.multipart.input','Part choices must be captured strings');
     if(Object.values(rawShapes).some(value=>!['single','array'].includes(value as string)))fail('request.multipart.file-shape','Expected captured single or array file choices');
-    if(Object.values(headers).some(fields=>!Array.isArray(fields)||fields.length>61||fields.some(field=>!object(field)||typeof field.name!=='string'||typeof field.value!=='string')))
+    if(Object.values(headers).some(fields=>!Array.isArray(fields)||fields.length>61||fields.some(field=>!object(field)||typeof field.name!=='string'||typeof field.value!=='string'||field.modeled!==undefined&&typeof field.modeled!=='boolean')))
         fail('request.multipart.headers','Expected bounded explicit MIME header fields');
     const groups=new Map<string,boolean>(),fileShapes:Record<string,'single'|'array'>={},literalOrder=new Map<string,number>();
     const rootShape=forms.shape(at.resource,at.pointer+'/schema');
     const literals=input.literalFields??[];
-    if(!Array.isArray(literals)||literals.length>2048||literals.some(field=>!object(field)||typeof field.name!=='string'||typeof field.value!=='string'))fail('request.multipart.input','Expected bounded literal fields');
+    if(!Array.isArray(literals)||literals.length>2048||literals.some(field=>!object(field)||typeof field.name!=='string'||typeof field.value!=='string'||field.modeled!==undefined&&typeof field.modeled!=='boolean'))fail('request.multipart.input','Expected bounded literal fields');
     if(literals.length){
         if(content.formBinding!=='multipart-named')fail('request.multipart.shape','Ordered multipart requires an explicit typed JSON array');
         const members=new Map<string,string[]>(),orders=new Map<string,number[]>();
@@ -182,6 +187,7 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
     if(Object.keys(input.fileShapes??{}).some(name=>!groups.has(name)))fail('request.multipart.file-shape.stale','A file shape choice has no selected named file group');
     const byFile=new Map<string,number>();
     files.forEach((file,index)=>{if(byFile.has(file.name))fail('request.multipart.files','Each ordered file needs its own instance position');byFile.set(file.name,index);});
+    const normalizations=new Map<string,string>();
     const used=new Set<string>(),usedFiles=new Set<number>(),controls:any[]=[],selectedChecks:{pointer:string;schema:GraphTarget}[]=[],intentOmissions=new Set<string>();
     const descend=(hint:Hint,step:Hint['path'][number]):Hint=>({...hint,path:[...hint.path,step],
         shape:forms.pathShape(hint.schema,[...hint.path,step],'property' in step?hint.shape.properties?.[step.property]??{}:step.item===undefined?hint.shape.items??{}:hint.shape.prefixItems?.[step.item]??hint.shape.items??{})});
@@ -324,7 +330,23 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
             }
             if(transfer.encoding!==undefined&&!supportsMultipartTransfer(transfer.encoding))fail('request.multipart.encoding.unsupported','The selected transfer encoding has no native codec',transfer.source?{...transfer.source,kind:'schema'}:entry.at,true);
             const allowDisposition=!form&&entry.name===undefined&&file===undefined;
-            const lines=input.inspect?[]:multipartHeaderValues(graph,at,new Set([pointer]),headerInput!==undefined?{[pointer]:headerInput}:{},form,()=>entry.at,allowDisposition).get(pointer)??[];
+            let preparedHeaders=headerInput;
+            if(!input.inspect&&Array.isArray(headerInput)){
+                preparedHeaders=[];
+                for(const field of headerInput){
+                    if(field.modeled!==true){preparedHeaders.push(field);continue;}
+                    const declaration=Object.keys(entry.rule.headers??{}).find(name=>name.toLowerCase()===field.name.toLowerCase());
+                    if(!declaration)fail('request.multipart.header.owner','Structured Header has no captured declaration',entry.at);
+                    const owner=transfers.follow({...entry.at,pointer:entry.at.pointer+'/headers/'+escape(declaration!),kind:'header'},'header');
+                    const captured=capturedMimeHeaderContent(graph,transfers)(owner);
+                    if(field.name.toLowerCase()==='link'&&runtimeMediaKind(captured.type)==='linkset-json')fail('runtime.linkset.header','HTTP Link must declare application/linkset',owner);
+                    const prepared=await prepareModeledMedia(input,field.value,captured.type,captured.captured.schema,true,input.direction==='response'?'response':'request');
+                    const value=prepared.bytes.toString('latin1');
+                    if(/[^\x20-\x7e]/.test(value))fail('request.multipart.header.codec','The selected charset or node content cannot produce a printable ASCII MIME Header',owner,true);
+                    preparedHeaders.push({name:field.name,value});
+                }
+            }
+            const lines=input.inspect?[]:multipartHeaderValues(graph,at,new Set([pointer]),preparedHeaders!==undefined?{[pointer]:preparedHeaders}:{},form,()=>entry.at,allowDisposition).get(pointer)??[];
             const part:Part={pointer,name:entry.name,contentType:selectedType!,rule:entry.at,schemas:candidates,transfer,headers:lines,allowDisposition};
             if(media.type==='multipart'){
                 if(file!==undefined)fail('request.multipart.file.entity','A nested typed multipart entity needs structured child values',entry.at);
@@ -334,7 +356,7 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
                 if(entry.node.kind!=='object'||file!==undefined)fail('request.multipart.form.shape','A typed nested URL-encoded form requires a named JSON object',entry.at);
                 if(Object.entries(headers).some(([name,fields])=>name.startsWith(pointer+'/')&&(fields as any[]).length))
                     fail('request.multipart.form.headers','URL-encoded values do not have MIME part headers',entry.at);
-                const types:Record<string,string>={},encoding=content.family==='3.2'?forms.namedEncoding(entry.rule.encoding,partHints):{};
+                const types:Record<string,string>={},mediaValues:Record<string,string[]>={},encoding=content.family==='3.2'?forms.namedEncoding(entry.rule.encoding,partHints):{};
                 const fieldShapes:Record<string,FormShape>={...shape.properties};
                 for(const [name,physical]of entry.node.children){
                     const field=doc.dataNode(physical.pointer)!,pointer=field.pointer;used.add(pointer);
@@ -374,8 +396,21 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
                     if(styled){if(Object.hasOwn(choices,pointer)&&!input.inspect)fail('request.multipart.media.ignored','Style serialization ignores this field contentType choice',fieldAt);continue;}
                     try{types[name]=mediaTypeChoice(declared,choices[pointer]);}
                     catch(error){if(!(error instanceof SourceError))throw error;if(!input.inspect)fail(error.code,error.message,fieldAt,error.kind==='unsupported');}
+                    if(!input.inspect&&types[name]&&['xml','linkset','linkset-json'].includes(runtimeMediaKind(types[name]))){
+                        const values=field.kind==='array'?[...field.children.values()].map(node=>doc.dataNode(node.pointer)!):[field];
+                        const encoded:string[]=[];
+                        for(const [index,node]of values.entries()){
+                            const candidates=hint?forms.partRepresentations(at,hint.schema,[...hint.path,...(field.kind==='array'?[{item:index}]:[])]):[];
+                            const selected=candidates.find(choice=>choice.id===selections[node.pointer])??(candidates.length===1?candidates[0]:undefined);
+                            if(!selected)fail('request.multipart.schema','The nested form media field needs its own captured representation',fieldAt,true);
+                            const prepared=await prepareModeledMedia(input,doc.dataJson(node.pointer),types[name],selected.schema,false,input.direction==='response'?'response':'request');
+                            encoded.push(Array.from(prepared.bytes,byte=>byte===32?'+':/[A-Za-z0-9._~-]/.test(String.fromCharCode(byte))?String.fromCharCode(byte):'%'+byte.toString(16).toUpperCase().padStart(2,'0')).join(''));
+                            normalizations.set(node.pointer,prepared.text);
+                        }
+                        mediaValues[name]=encoded;
+                    }
                 }
-                part.urlencoded={raw:doc.dataJson(pointer),mediaTypes:types,declaration:{encoding,
+                part.urlencoded={raw:doc.dataJson(pointer),mediaTypes:types,mediaValues,declaration:{encoding,
                     form:{shape:{...shape,properties:fieldShapes},defaultContentType:'text/plain',multipartStyle:content.family!=='3.0',legacyBinary:content.family==='3.0',styles:['form','spaceDelimited','pipeDelimited','deepObject']}}};
             }else if(input.inspect){if(file!==undefined)usedFiles.add(file);parts.push(part);continue;}
             else if(file!==undefined){
@@ -385,8 +420,14 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
                 const kind=runtimeMediaKind(selectedType!);
                 if(!['xml','json','linkset','linkset-json','text'].includes(kind)&&!transfer.schemaEncoded&&transfer.instanceEncoding!=='octets')fail('request.multipart.codec.unsupported','This typed part media has no native data encoder; select a declared JSON/text representation or a file',entry.at,true);
                 if(!styled&&kind==='text'&&['array','object'].includes(entry.node.kind))fail('request.multipart.text.shape','Structured values require a declared structured media codec',entry.at);
+                if(!styled&&!transfer.schemaEncoded&&transfer.instanceEncoding!=='octets'&&['xml','linkset','linkset-json'].includes(kind)){
+                    const schema=selected??(candidates.length===1?candidates[0]:undefined);
+                    if(kind==='xml'&&!schema)fail('request.multipart.schema','XML part requires its own unique captured schema',entry.at,true);
+                    const prepared=await prepareModeledMedia(input,doc.dataJson(pointer),selectedType!,schema,false,input.direction==='response'?'response':'request');
+                    part.bytes=prepared.bytes.toString('base64');normalizations.set(pointer,prepared.text);parts.push(part);continue;
+                }
                 let text:string;
-                try{text=styled&&!entry.expanded?multipartStyleText(doc,entry.node,entry.rule):['xml','linkset','linkset-json'].includes(kind)?encodeRuntimeMedia(new SourceDocument(doc.dataJson(pointer),'urn:busyapi:linkset-part',true,'json'),selectedType!,false,selected?{graph,schema:selected}:undefined).toString('utf8'):kind==='json'?doc.dataJson(pointer):entry.node.kind==='string'?entry.node.value:doc.dataJson(pointer);}
+                try{text=styled&&!entry.expanded?multipartStyleText(doc,entry.node,entry.rule):kind==='json'?doc.dataJson(pointer):entry.node.kind==='string'?entry.node.value:doc.dataJson(pointer);}
                 catch(error){if(!(error instanceof SourceError))throw error;fail(error.code,error.message,entry.at,error.kind==='unsupported');}
                 part.text=text;
                 try{
@@ -424,7 +465,13 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
         for(const map of [choices,headers,selections])for(const pointer of Object.keys(map))if(!used.has(pointer))fail('request.multipart.choice.stale','Part input '+pointer+' has no emitted position');
         if(usedFiles.size!==files.length)fail('request.multipart.file.stale','A selected file has no emitted instance position');
     }
-    return {tree,controls,selectedChecks,input:hash(Buffer.from(input.text)),raw:doc.dataJson(''),partSchemas:selections,files,fileShapes,intentOmissions:[...intentOmissions]};
+    let normalized=doc.text;
+    for(const [pointer,value]of [...normalizations].sort((a,b)=>doc.dataNode(b[0])!.range[0]-doc.dataNode(a[0])!.range[0])){
+        const node=doc.dataNode(pointer)!;normalized=normalized.slice(0,node.range[0])+value+normalized.slice(node.range[1]);
+    }
+    const normalizedDocument=new SourceDocument(normalized,'urn:busyapi:normalized-multipart',true,'json');
+    if(normalizedDocument.issues.length)throw normalizedDocument.issues[0];
+    return {tree,controls,selectedChecks,input:hash(Buffer.from(input.text)),original:doc.dataJson(''),raw:normalizedDocument.dataJson(''),partSchemas:selections,files,fileShapes,intentOmissions:[...intentOmissions]};
 }
 
 /** A MIME body and a simplified schema are insufficient evidence. Decode the
@@ -474,8 +521,19 @@ export async function proveMultipartGeneration(graph:ReferenceGraph,content:Cont
         });
     };
     check(generated.tree,wire,input.wireType);
-    const form={...at,partSchemas:generated.partSchemas,fileShapes:generated.fileShapes,partMediaTypes:input.choices??{}};
-    const decoded=decodeRuntimeForm(input.wire,'file:///busyapi-generated-multipart',input.wireType,true,form,'request-body',graph);
+    const form={...at,partSchemas:generated.partSchemas,...(input.direction==='response'?{}:{fileShapes:generated.fileShapes}),partMediaTypes:input.choices??{}};
+    const subject=input.direction==='response'?'response-body':'request-body';
+    const runtimeInstances:any[]=[{subject,location:input.mediaType,text:input.wire,captureData:true,mediaBase64:true,mediaType:input.wireType,form,
+        schema:content.schema,itemSchema:content.itemSchema,originalData:generated.original,originalFiles:generated.files.map(file=>file.name)}];
+    const result=await evaluateSchemas({...input,runtimeInstances});
+    if(!result.runtimeEvaluations.length||result.runtimeEvaluations.some(value=>!value.complete||!value.valid)||result.runtimeFindings.some(value=>value.severity==='error')){
+        const first=result.runtimeFindings.find(value=>value.severity==='error')??result.runtimeFindings[0];
+        const source=first?.schema??first?.source??at;
+        fail('request.multipart.conformance',first?.message??'Generated multipart does not completely satisfy the original captured declaration',source);
+    }
+    const projection=result.runtimeEvaluations.find(value=>value.subject===subject&&typeof value.projectionData==='string');
+    if(!projection)fail('request.multipart.protocol','The canonical decoder omitted its captured form projection');
+    const decoded={document:new SourceDocument(projection.projectionData,'urn:busyapi:proved-multipart',true,'json')};
     const intended=new SourceDocument(generated.raw,'file:///busyapi-intended-multipart',true,'json');
     const files=new Set<string>(generated.files.map(file=>file.name));
     const octets=new Map<string,string>();
@@ -496,14 +554,6 @@ export async function proveMultipartGeneration(graph:ReferenceGraph,content:Cont
         return left.value===right.value;
     };
     if(!equal(''))fail('request.multipart.roundtrip','The emitted body does not decode to the intended typed input');
-    const runtimeInstances:any[]=[{subject:'request-body',location:input.mediaType,text:input.wire,mediaBase64:true,mediaType:input.wireType,form,
-        schema:content.schema,itemSchema:content.itemSchema}];
-    const result=await evaluateSchemas({...input,runtimeInstances});
-    if(!result.runtimeEvaluations.length||result.runtimeEvaluations.some(value=>!value.complete||!value.valid)||result.runtimeFindings.some(value=>value.severity==='error')){
-        const first=result.runtimeFindings.find(value=>value.severity==='error')??result.runtimeFindings[0];
-        const source=first?.schema??first?.source??at;
-        fail('request.multipart.conformance',first?.message??'Generated multipart does not completely satisfy the original captured declaration',source);
-    }
     return {complete:true,valid:true,...(content.formBinding==='multipart-named'&&!content.itemSchema&&
-        !(decoded.binaryInstances?.get(decoded.document)?.size)?{instance:decoded.document.dataJson('')}:{})};
+        !projection.projectionBinary?.length?{instance:decoded.document.dataJson('')}:{})};
 }

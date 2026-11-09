@@ -372,7 +372,7 @@ async function main(): Promise<void> {
           const exact=wire!==undefined?undefined:generation.rawBody(content)??
             (declaration&&(!options.config.dynamic||options.config.exampleKey!==undefined)
               ?exactBody(examples,resource.method,resource.path,declaration.code,content,projected):undefined);
-          if(wire!==undefined)rawResponses.set(output,wire);
+          if(wire!==undefined){rawResponses.set(output,wire);const type=generation.wireMediaType(content);if(type){const name=Object.keys(output.headers??{}).find(name=>name.toLowerCase()==='content-type')??'content-type';(output.headers??={})[name]=type;}}
           else if(exact!==undefined) {
             // Preserve lexemes only for the example Prism actually returned.
             // Its validation still sees the same projected value as these bytes.
@@ -439,6 +439,8 @@ async function main(): Promise<void> {
           // after native framing/evaluation. These machine numbers never feed
           // the canonical validator or replace the retained request bytes.
           const essence=headers['content-type']?.split(';')[0].trim().toLowerCase();
+          const modeled=bodyCheck.evaluations?.find(value=>typeof value.modeledData==='string')?.modeledData;
+          if(check.valid&&typeof modeled==='string')prismRequest.body=JSON.parse(modeled);
           if(captured.raw?.length&&(essence==='application/json'||essence?.endsWith('+json'))&&
               !check.findings.some(finding=>['runtime.body.syntax','runtime.request.content-type'].includes(String(finding.code))))
             prismRequest.body=JSON.parse(captured.raw.toString('utf8'));
@@ -478,6 +480,7 @@ async function main(): Promise<void> {
         }
         const result = outcome.right;
         const checked=nativeChecks.get(prismRequest),notes=checked?nativeDiagnostics(checked,'warning').map(value=>violation(value,'request')):[];
+        if(native&&selected._tag==='Right')result.output.headers=await native.responseHeaders(selected.right.path,selected.right.method,result.output.statusCode,result.output.headers??{},cancellation.signal) as Record<string,string>;
         for (const [name, value] of Object.entries(result.output.headers ?? {}))
           if(!['sl-violations','busyapi-response-validation-complete','busyapi-request-security-complete'].includes(name.toLowerCase()))reply.setHeader(name, value);
         const mediaType = String(reply.getHeader('content-type') ?? '').split(';')[0].trim().toLowerCase() || undefined;

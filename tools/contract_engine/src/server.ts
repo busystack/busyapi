@@ -26,7 +26,7 @@ import {PolicyProcessWorker} from './policy_process_worker';
 import {join} from 'node:path';
 import {policyRuntime} from './policy_runtime';
 import {planMigration} from './migration';
-import {requestMediaBytes,requestMultipartPlan,requestMultipartAppend,requestMultipartNamedProof} from './execution';
+import {mockFormBytes,mockMultipartBytes,requestFormContentValue,requestRawMediaBytes,planExecutionCase,requestContentParameters,requestMediaBytes,requestMultipartPlan,requestMultipartAppend,requestMultipartNamedProof} from './execution';
 const MAX = 64 * 1024 * 1024;
 const encode = (message: any) => {
     // TextEncoder owns this ArrayBuffer; pooled Buffer allocations cannot safely
@@ -55,6 +55,12 @@ if (!isMainThread) {
             methods.requestMimeTextBytes = requestMimeTextBytes;
             methods.requestFormMediaTypes = requestFormMediaTypes;
             methods.requestMultipartEncoding = requestMultipartEncoding;
+            methods.mockFormBytes = mockFormBytes;
+            methods.mockMultipartBytes = mockMultipartBytes;
+            methods.requestFormContentValue = requestFormContentValue;
+            methods.requestRawMediaBytes = requestRawMediaBytes;
+            methods.planExecutionCase = planExecutionCase;
+            methods.requestContentParameters = requestContentParameters;
             methods.requestMediaBytes = requestMediaBytes;
             methods.requestMultipartPlan = requestMultipartPlan;
             methods.requestMultipartAppend = requestMultipartAppend;

@@ -210,7 +210,7 @@ void main() {
                 'sourceRetained': true,
               },
           ]);
-          expect(good.toJson()['producerVersion'], '2');
+          expect(good.toJson()['producerVersion'], '3');
           final invalidBytes = file.readAsBytesSync();
           project.store.replace(root, valid);
           expect((await run('held')).passed, true);

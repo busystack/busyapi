@@ -1,3 +1,4 @@
+import {ParameterSemantics} from './parameter_semantics';
 import type {TextSerialization} from './runtime_media';
 import {createHash} from 'node:crypto';
 import {interpret,BASIC} from '@hyperjump/json-schema/experimental';
@@ -21,7 +22,7 @@ import {wholeBodyEncoding} from './whole_body_encoding';
 import {runtimeMediaKind} from './runtime_media';
 
 type SchemaLocation={resource:string;pointer:string};
-type RuntimeInstance={text:string;subject:string;location:string;schema?:SchemaLocation;itemSchema?:SchemaLocation;parameter?:SchemaLocation;media?:RuntimeMediaTarget;mediaType?:string;mediaBase64?:boolean;unicodeSerialization?:boolean;textSerialization?:TextSerialization;form?:RuntimeFormTarget;alternatives?:string[];swaggerHeader?:SwaggerHeaderTarget;header?:RuntimeHeaderTarget};
+type RuntimeInstance={captureData?:boolean;originalData?:string;originalFiles?:string[];text:string;subject:string;location:string;schema?:SchemaLocation;itemSchema?:SchemaLocation;parameter?:SchemaLocation&{values?:string[]};media?:RuntimeMediaTarget;mediaType?:string;mediaBase64?:boolean;unicodeSerialization?:boolean;textSerialization?:TextSerialization;form?:RuntimeFormTarget;alternatives?:string[];swaggerHeader?:SwaggerHeaderTarget;header?:RuntimeHeaderTarget};
 type Finding=Record<string,unknown>;
 type Owner={snapshot:string;graph:ReferenceGraph;scopes:ReadonlyMap<string,SchemaEvaluationScope>;
  exact:ReturnType<typeof createExactNumericAdapter>;compile:(scope:SchemaEvaluationScope)=>Promise<CompiledSchema|undefined>;schemaReady:(scope:SchemaEvaluationScope)=>boolean;
@@ -36,13 +37,16 @@ function suppliedInstance(value:unknown):RuntimeInstance {
   'values' in value&&Array.isArray(value.values)&&value.values.length>0&&value.values.length<=2048&&value.values.every(value=>typeof value==='string');
  const shapes=(value:unknown)=>value!==null&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length<=2048&&Object.values(value).every(shape=>shape==='single'||shape==='array');
  const partSchemas=(value:unknown)=>value!==null&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length<=2048&&Object.entries(value).every(([key,value])=>key.length<=8192&&typeof value==='string'&&value.length<=16384);
- if(typeof item.text!=='string'||item.text.length>64*1024*1024||typeof item.subject!=='string'||item.subject.length>1024||
+ if(item.captureData!==undefined&&(typeof item.captureData!=='boolean'||item.form===undefined||!['request-body','response-body'].includes(item.subject as string))||
+  item.originalData!==undefined&&(typeof item.originalData!=='string'||item.originalData.length>16*1024*1024||item.form===undefined||!['request-body','response-body'].includes(item.subject as string))||
+  item.originalFiles!==undefined&&(!Array.isArray(item.originalFiles)||item.originalFiles.length>2048||item.originalFiles.some(pointer=>typeof pointer!=='string'||pointer.length>4096)||item.originalData===undefined)||
+  typeof item.text!=='string'||item.text.length>64*1024*1024||typeof item.subject!=='string'||item.subject.length>1024||
   typeof item.location!=='string'||item.location.length>4096||item.schema!==undefined&&!schema(item.schema)||
-  item.parameter!==undefined&&(!schema(item.parameter)||Object.keys(item.parameter).some(name=>!['resource','pointer'].includes(name))||item.subject!=='request-parameter'||
+  item.parameter!==undefined&&(!schema(item.parameter)||Object.keys(item.parameter).some(name=>!['resource','pointer','values'].includes(name))||'values' in item.parameter&&(!Array.isArray(item.parameter.values)||item.parameter.values.length<1||item.parameter.values.length>2048||item.parameter.values.some(value=>typeof value!=='string'||value.length>65536))||item.subject!=='request-parameter'||
    ['schema','itemSchema','media','mediaType','form','alternatives','swaggerHeader','header','textSerialization','unicodeSerialization','mediaBase64'].some(name=>item[name]!==undefined))||
   item.itemSchema!==undefined&&!schema(item.itemSchema)||item.mediaType!==undefined&&(typeof item.mediaType!=='string'||item.mediaType.length>16384)||
   item.media!==undefined&&(!schema(item.media)||item.mediaType===undefined&&item.subject!=='response-body'||item.form!==undefined||!['request-body','response-body'].includes(item.subject))||
-  item.form!==undefined&&(!schema(item.form)||'occurrence' in item.form&&(typeof item.form.occurrence!=='string'||item.form.occurrence.length>4096)||'fileShapes' in item.form&&(!shapes(item.form.fileShapes)||item.subject!=='request-body')||'partSchemas' in item.form&&(!partSchemas(item.form.partSchemas)||item.subject!=='request-body')||'partMediaTypes' in item.form&&(!partSchemas(item.form.partMediaTypes)||item.subject!=='request-body')||item.mediaType===undefined)||
+  item.form!==undefined&&(!schema(item.form)||'occurrence' in item.form&&(typeof item.form.occurrence!=='string'||item.form.occurrence.length>4096)||'fileShapes' in item.form&&(!shapes(item.form.fileShapes)||item.subject!=='request-body')||'partSchemas' in item.form&&(!partSchemas(item.form.partSchemas)||!['request-body','response-body'].includes(item.subject as string))||'partMediaTypes' in item.form&&(!partSchemas(item.form.partMediaTypes)||!['request-body','response-body'].includes(item.subject as string))||item.mediaType===undefined)||
   item.mediaBase64!==undefined&&typeof item.mediaBase64!=='boolean'||item.mediaBase64===true&&item.mediaType===undefined&&item.media===undefined||
   item.textSerialization!==undefined&&(item.textSerialization!=='embedded'&&item.textSerialization!=='unicode'||item.unicodeSerialization!==true)||
   item.unicodeSerialization!==undefined&&typeof item.unicodeSerialization!=='boolean'||item.unicodeSerialization===true&&(item.mediaType===undefined||item.mediaBase64===true)||
@@ -85,6 +89,7 @@ async function evaluateRuntimeValues(runtime:unknown,owner:Owner,diagnostics?:{o
   let fileSchema:SchemaEvaluationScope|undefined;
   let form:RuntimeFormData|undefined;
   try{
+   owner.exact.setDirection(supplied.subject.startsWith('request-')?'request':supplied.subject.startsWith('response-')?'response':undefined);
    const captured=supplied.media&&mediaOwner(supplied.media);
    if(captured){
     for(const key of ['schema','itemSchema'] as const){
@@ -127,10 +132,10 @@ async function evaluateRuntimeValues(runtime:unknown,owner:Owner,diagnostics?:{o
    if(limited||unsupported||!known)complete=false;
    if(!known)owner.observeFailure?.(error);
    evaluations.push({subject:supplied.subject,location:supplied.location,complete:known&&!limited&&!unsupported,valid:false,
-    reason:limited?'instance-limit':unsupported?'unsupported-representation':known?(supplied.mediaType===undefined?'invalid-json':'invalid-media'):'decoding-failed'});
+    reason:limited?'instance-limit':unsupported?'unsupported-representation':error instanceof SourceError&&error.code==='runtime.xml.schema'?'schema-invalid':error instanceof SourceError&&error.code==='runtime.xml.syntax'?'malformed-content':error instanceof SourceError&&error.code==='runtime.xml.mapping'?'invalid-representation':known?(supplied.mediaType===undefined?'invalid-json':'invalid-media'):'decoding-failed'});
    const limitation=unsupported?(supplied.subject==='request-body'?'runtime.request.body.unchecked':supplied.subject==='response-body'?'runtime.response.body.unchecked':'runtime.media.unsupported'):undefined;
    const source=supplied.schema??supplied.itemSchema,formSource=supplied.form;
-   add({code:limited?'runtime.body.limit':unsupported?limitation:known?'runtime.body.syntax':'runtime.media.incomplete',
+   add({code:limited?'runtime.body.limit':unsupported?limitation:error instanceof SourceError&&error.code==='runtime.xml.schema'?'runtime.schema.incompatible':error instanceof SourceError&&error.code==='runtime.xml.mapping'?'runtime.body.mapping':known?'runtime.body.syntax':'runtime.media.incomplete',
     ...(unsupported?{kind:'unsupported',reason:'unsupported-representation'}:{}),
     ...(source?{schema:{...source,range:owner.graph.docs.get(source.resource)?.dataNode(source.pointer)?.range}}:{}),
     ...(!source&&formSource?{source:{resource:formSource.resource,pointer:formSource.pointer,range:owner.graph.docs.get(formSource.resource)?.dataNode(formSource.pointer)?.range}}:{}),
@@ -138,11 +143,27 @@ async function evaluateRuntimeValues(runtime:unknown,owner:Owner,diagnostics?:{o
     severity:limited||unsupported||!known?'warning':'error',subject:supplied.subject,location:supplied.location,
     pointer:'',range:error instanceof SourceError?error.range:[0,0],
     message:limited?'The runtime representation exceeds a bounded decoding limit; its schema check was not performed.':
-     unsupported?'This media representation has no native decoder; no complete schema result is claimed.':
+     unsupported?'The captured schema does not establish a supported, unambiguous media interpretation: '+(error instanceof SourceError?error.message:'unavailable proof'):
      known?'The runtime representation is not valid for its selected media type.':'Runtime decoding did not complete; no clean schema result is claimed.'});
    continue;
-  }
+  }finally{owner.exact.setDirection(undefined);}
+  const modeledData=['xml','linkset','linkset-json'].includes(decoded.kind)&&Buffer.byteLength(decoded.document.dataJson(''))<=1024*1024?decoded.document.dataJson(''):undefined;
+  if(supplied.captureData===true&&Buffer.byteLength(decoded.document.dataJson(''))>16*1024*1024)throw new SourceError('limit.runtime.projection','Captured form projection exceeds 16 MiB');
+  const projection=supplied.captureData===true?{projectionData:decoded.document.dataJson(''),projectionBinary:[...(decoded.binaryInstances?.get(decoded.document)?.keys()??[])]}:{};
   const checks:FormCheck[]=[{document:decoded.document,schema:supplied.schema,prefix:''},...(form?.checks??[])];
+  if(supplied.originalData!==undefined){
+   let original=new SourceDocument(supplied.originalData,'urn:busyapi:original-multipart',true,'json');
+   if(original.issues.length)throw original.issues[0];
+   let text=original.text;
+   const replacements=(supplied.originalFiles??[]).map(pointer=>({node:original.dataNode(pointer),actual:decoded.document.dataNode(pointer)}));
+   for(const {node,actual}of replacements.sort((a,b)=>(b.node?.range[0]??0)-(a.node?.range[0]??0))){
+    if(!node||node.kind!=='null'||!actual)throw new SourceError('runtime.multipart.original','Original file inputs require captured null placeholders and decoded file values');
+    text=text.slice(0,node.range[0])+decoded.document.dataJson(actual.pointer)+text.slice(node.range[1]);
+   }
+   original=new SourceDocument(text,'urn:busyapi:original-multipart-data',true,'json');
+   checks.unshift({document:original,schema:supplied.schema,prefix:'',binary:decoded.binaryInstances?.get(decoded.document)});
+  }
+
   for(const issue of form?.issues??[]){
    if(issue.severity==='error')evaluations.push({subject:supplied.subject,location:supplied.location,pointer:issue.pointer,complete:true,valid:false,representation:decoded.kind});
    add({...issue,subject:supplied.subject,location:supplied.location});
@@ -158,7 +179,7 @@ async function evaluateRuntimeValues(runtime:unknown,owner:Owner,diagnostics?:{o
    if(++work>2048){
     complete=false;add({code:'runtime.body.limit',severity:'warning',subject:supplied.subject,location:supplied.location,pointer:check.prefix,range:[0,0],message:'Runtime evaluation exceeds 2048 whole-value and item checks.'});break;
    }
-   if(check.schema===undefined){evaluations.push({subject:supplied.subject,location:supplied.location,pointer:check.prefix,complete:true,valid:true,syntax:check.file?'file-part-presence-and-framing':decoded.kind});instances++;continue;}
+   if(check.schema===undefined){evaluations.push({subject:supplied.subject,location:supplied.location,pointer:check.prefix,complete:true,valid:true,...(check.prefix===''&&modeledData!==undefined?{modeledData}:{}),...(check.prefix===''?projection:{}),syntax:check.file?'file-part-presence-and-framing':decoded.kind});instances++;continue;}
    const scope=owner.scopes.get(check.schema.resource+'#'+check.schema.pointer);
    if(scope?.kind!=='schema'){
     complete=false;evaluations.push({subject:supplied.subject,location:supplied.location,pointer:check.prefix,complete:false,valid:false,reason:'schema-unavailable'});continue;
@@ -181,7 +202,7 @@ async function evaluateRuntimeValues(runtime:unknown,owner:Owner,diagnostics?:{o
       message:'The selected else representation is not applicable to this instance.',schema:{...check.schema,range:owner.graph.docs.get(scope.resource)?.dataNode(scope.pointer)?.range}});
      continue;
     }
-    evaluations.push({subject:supplied.subject,location:supplied.location,pointer:check.prefix,complete:true,valid:result.valid,representation:decoded.kind,schema:check.schema});
+    evaluations.push({subject:supplied.subject,location:supplied.location,pointer:check.prefix,complete:true,valid:result.valid,...(check.prefix===''&&modeledData!==undefined?{modeledData}:{}),...(check.prefix===''?projection:{}),representation:decoded.kind,schema:check.schema});
     if(result.valid===false){
      if(!result.errors?.length)throw new SourceError('runtime.protocol','Invalid schema output omitted its findings');
      for(const error of result.errors.slice(0,32)){
@@ -230,7 +251,17 @@ export async function evaluateRuntimeInstances(runtime:unknown,owner:Owner) {
     if(parameterWork>64*1024*1024)throw new SourceError('limit.runtime.parameters','Serialized parameter evaluation exceeds its 64 MiB byte-work budget',[0,0],'unsupported');
     // This wire string comes from native request controls. HTTP fields retain
     // their octet view; the canonical occurrence supplies every other rule.
-    const serialized=await decodeParameter(scope,entry.text,'octets');
+    let text=entry.text;
+    if(entry.parameter.values){
+     const occurrence=new ParameterSemantics(owner.graph).occurrence(scope);
+     if(occurrence.location!=='header'||!occurrence.name)throw new SourceError('runtime.instance','Field-line inputs require a captured Header parameter');
+     if(entry.parameter.values.some(value=>/[^\x09\x20-\xff]|[\x7f]/.test(value)))throw new SourceError('runtime.parameter.header.syntax','Prohibited HTTP Header octets');
+     const lines=httpFieldLines(occurrence.name,entry.parameter.values);
+     if(lines.length!==1)throw new SourceError('runtime.parameter.header.unsupported','These Header field lines have no single content representation',[0,0],'unsupported');
+     text=lines[0];parameterWork+=Buffer.byteLength(text,'latin1');
+     if(parameterWork>64*1024*1024)throw new SourceError('limit.runtime.parameters','Header field-line evaluation exceeds 64 MiB',[0,0],'unsupported');
+    }
+    const serialized=await decodeParameter(scope,text,'octets');
     groups.push({entry,serialized});
    }catch(error){
     if(!(error instanceof SourceError)||error.code==='runtime.instance')throw error;
@@ -285,12 +316,12 @@ export async function evaluateRuntimeInstances(runtime:unknown,owner:Owner) {
  }
  let complete=result.complete;
  for(const group of groups){
-  const {entry}=group;
+  const {entry}=group,parameter=entry.parameter?{resource:entry.parameter.resource,pointer:entry.parameter.pointer}:undefined;
   if('serialized' in group){
    const checked=group.serialized;
    complete=complete&&checked.complete;
-   evaluations.push({subject:entry.subject,location:entry.location,pointer:'',parameter:entry.parameter,complete:checked.complete,valid:checked.valid});
-   const source=entry.parameter&&{...entry.parameter,range:owner.graph.docs.get(entry.parameter.resource)?.dataNode(entry.parameter.pointer)?.range};
+   evaluations.push({subject:entry.subject,location:entry.location,pointer:'',parameter,complete:checked.complete,valid:checked.valid});
+   const source=parameter&&{...parameter,range:owner.graph.docs.get(entry.parameter.resource)?.dataNode(entry.parameter.pointer)?.range};
    findings.push(...checked.findings.map(finding=>({version:1,category:'runtime',producer:owner.producer.name,producerVersion:owner.producer.version,snapshot:owner.snapshot,
     ...finding,subject:entry.subject,location:entry.location,...(source?{source}:{})})));
    continue;
@@ -302,8 +333,8 @@ export async function evaluateRuntimeInstances(runtime:unknown,owner:Owner) {
    const failure=group.failure,unsupported=failure.kind==='unsupported'||failure.code.startsWith('limit.')||failure.code==='mock.validation.protocol';
    const header=entry.swaggerHeader!==undefined||entry.header!==undefined;
    if(unsupported)complete=false;
-   const target=entry.header??entry.swaggerHeader??entry.parameter??entry.schema;
-   evaluations.push({subject:entry.subject,location:entry.location,pointer:'',...(entry.parameter?{parameter:entry.parameter}:{}),complete:!unsupported,valid:false,reason:unsupported?'unsupported-representation':header?'invalid-header':entry.parameter?'invalid-parameter':'incompatible-alternatives'});
+   const target=entry.header??entry.swaggerHeader??parameter??entry.schema;
+   evaluations.push({subject:entry.subject,location:entry.location,pointer:'',...(parameter?{parameter}:{}),complete:!unsupported,valid:false,reason:unsupported?'unsupported-representation':header?'invalid-header':entry.parameter?'invalid-parameter':'incompatible-alternatives'});
    findings.push({version:1,category:'runtime',producer:owner.producer.name,producerVersion:owner.producer.version,snapshot:owner.snapshot,
     code:header?(unsupported?'runtime.response.header.unchecked':'runtime.response.header.serialization'):entry.parameter?(unsupported?'runtime.request.parameter.unchecked':'runtime.request.parameter.serialization'):'runtime.schema.alternatives.unchecked',severity:unsupported?'warning':'error',...(unsupported?{kind:'unsupported'}:{}),
     subject:entry.subject,location:entry.location,pointer:'',message:failure.message,detailCode:failure.code,

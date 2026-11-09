@@ -1,15 +1,16 @@
 import {SourceError,limits} from './document';
 
-export const xmlWireRevision='1';
+export const xmlWireRevision='2';
 export type XmlText={kind:'text'|'cdata';value:string};
 export type XmlElement={kind:'element';name:string;namespace:string;attributes:{name:string;namespace:string;value:string}[];children:(XmlElement|XmlText)[]};
 function syntax(message:string):never {throw new SourceError('runtime.xml.syntax',message);}
 function unsupported(message:string):never {throw new SourceError('runtime.xml.unsupported',message,[0,0],'unsupported');}
 const validCharacter=(n:number)=>n===9||n===10||n===13||n>=32&&n<=0xd7ff||n>=0xe000&&n<=0xfffd||n>=0x10000&&n<=0x10ffff;
 function characters(text:string):string {for(const c of text)if(!validCharacter(c.codePointAt(0)!))syntax('XML contains a prohibited character');return text;}
-export function xmlEscape(text:string,attribute=false):string {
+export function xmlEscape(text:string,attribute=false,ascii=false):string {
  characters(text);
- return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,attribute?'&quot;':'"').replace(/\r/g,'&#13;').replace(/\n/g,attribute?'&#10;':'\n').replace(/\t/g,attribute?'&#9;':'\t');
+ const escaped=text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,attribute?'&quot;':'"').replace(/\r/g,'&#13;').replace(/\n/g,attribute||ascii?'&#10;':'\n').replace(/\t/g,attribute||ascii?'&#9;':'\t');
+ return ascii?escaped.replace(/[^\x00-\x7f]/gu,character=>'&#'+character.codePointAt(0)+';'):escaped;
 }
 function entities(text:string):string {
  if(/&(?!(?:amp|lt|gt|apos|quot|#[0-9]+|#x[0-9a-fA-F]+);)/.test(text))syntax('Only predefined and numeric XML entities are permitted');
@@ -28,9 +29,9 @@ export function xmlCharacters(bytes:Buffer,charset?:string):string {
  const bom=bytes.subarray(0,3).equals(Buffer.from([239,187,191]))?'utf-8':bytes[0]===255&&bytes[1]===254?'utf-16le':bytes[0]===254&&bytes[1]===255?'utf-16be':undefined;
  if(bytes.subarray(0,4).equals(Buffer.from([0,0,254,255]))||bytes.subarray(0,4).equals(Buffer.from([255,254,0,0])))unsupported('UTF-32 XML is not supported by the native codecs');
  const detected=bom??(bytes[0]===0&&bytes[1]===60?'utf-16be':bytes[0]===60&&bytes[1]===0?'utf-16le':undefined);
- const normalize=(label:string)=>({utf8:'utf-8',utf16:'utf-16','iso-8859-1':'iso-8859-1'}[label.toLowerCase()]??label.toLowerCase());
+ const normalize=(label:string)=>({utf8:'utf-8',utf16:'utf-16',latin1:'iso-8859-1','iso-8859-1':'iso-8859-1'}[label.toLowerCase()]??label.toLowerCase());
  let encoding=bom??(charset&&normalize(charset));
- if(encoding==='utf-16')encoding=detected??unsupported('UTF-16 XML requires a byte order indication');
+ if(encoding==='utf-16')encoding=bom??syntax('UTF-16 XML requires a byte order mark');
  const declaration=bytes.subarray(0,1024).toString('latin1').match(/^<\?xml\s[^?]*encoding\s*=\s*['"]([^'"]+)['"]/i)?.[1];
  encoding??=detected??(declaration?normalize(declaration):'utf-8');
  if(!['utf-8','utf-16le','utf-16be','us-ascii','iso-8859-1'].includes(encoding))unsupported('The declared XML encoding has no supported native codec');
@@ -40,6 +41,7 @@ export function xmlCharacters(bytes:Buffer,charset?:string):string {
   else if(encoding==='iso-8859-1')text=bytes.toString('latin1');
   else text=new TextDecoder(encoding,{fatal:true}).decode(bytes);
  }catch(error){if(error instanceof TypeError)return syntax('Malformed XML encoding');throw error;}
+ if(!bom&&encoding.startsWith('utf-16')&&!['utf-16le','utf-16be'].includes(charset?normalize(charset):''))syntax('Unlabelled UTF-16 XML requires a byte order mark');
  const declared=text.match(/^<\?xml\s[^?]*encoding\s*=\s*['"]([^'"]+)['"]/i)?.[1];
  if(!bom&&!charset&&declared){const label=normalize(declared);if(label!==encoding&&!(label==='utf-16'&&encoding.startsWith('utf-16')))syntax('The XML encoding declaration conflicts with its detected encoding');}
  return characters(text).replace(/\r\n?/g,'\n');
@@ -63,6 +65,7 @@ export function parseXml(text:string):XmlElement {
  if(text.startsWith('\ufeff'))p++;
  if(/^<\?xml[ \t\r\n]/.test(text.slice(p))){
   const end=text.indexOf('?>',p);if(end<0)syntax('Unterminated XML declaration');
+  if(/^<\?xml\s+version\s*=\s*['"]1\.1['"]/.test(text.slice(p,end+2)))unsupported('XML 1.1 is outside the supported representation');
   if(!/^<\?xml\s+version\s*=\s*(['"])1\.0\1(?:\s+encoding\s*=\s*(['"])[A-Za-z][A-Za-z0-9._-]*\2)?(?:\s+standalone\s*=\s*(['"])(?:yes|no)\3)?\s*\?>$/.test(text.slice(p,end+2)))syntax('Unsupported or malformed XML declaration');p=end+2;
  }
  const element=(inherited:Map<string,string>,depth:number):XmlElement=>{
@@ -91,11 +94,62 @@ export function parseXml(text:string):XmlElement {
   while(p<text.length){
    if(text.startsWith('</',p)){p+=2;const close=name();space();if(text[p++]!=='>'||close!==tag)syntax('Mismatched closing element');return result;}
    if(misc())continue;
-   if(text.startsWith('<![CDATA[',p)){const end=text.indexOf(']]>',p+9);if(end<0)syntax('Unterminated CDATA');result.children.push({kind:'cdata',value:text.slice(p+9,end)});p=end+3;}
+   if(text.startsWith('<![CDATA[',p)){const end=text.indexOf(']]>',p+9);if(end<0)syntax('Unterminated CDATA');if(++nodes>400000)throw new SourceError('limit.xml.nodes','XML exceeds 400000 nodes');result.children.push({kind:'cdata',value:text.slice(p+9,end)});p=end+3;}
    else if(text[p]==='<')result.children.push(element(ns,depth+1));
-   else{const next=text.indexOf('<',p),end=next<0?text.length:next;const value=text.slice(p,end);if(value.includes(']]>'))syntax('Text cannot contain ]]>');result.children.push({kind:'text',value:entities(value)});p=end;}
+   else{const next=text.indexOf('<',p),end=next<0?text.length:next;const value=text.slice(p,end);if(value.includes(']]>'))syntax('Text cannot contain ]]>');const decoded=entities(value),previous=result.children.at(-1);if(previous?.kind==='text')previous.value+=decoded;else{if(++nodes>400000)throw new SourceError('limit.xml.nodes','XML exceeds 400000 nodes');result.children.push({kind:'text',value:decoded});}p=end;}
   }
   return syntax('Unterminated element');
  };
  space();while(misc())space();const root=element(new Map([['xml','http://www.w3.org/XML/1998/namespace']]),0);space();while(misc())space();if(p!==text.length)syntax('XML requires exactly one document element');return root;
+}
+
+/** Output uses the declared MIME charset and an agreeing XML declaration.
+ * Unrepresentable character data fails rather than using replacement bytes. */
+export function xmlBytes(text:string,charset='utf-8'):Buffer {
+ const label=charset.toLowerCase(),encoding=label==='utf8'?'utf-8':label==='utf16'?'utf-16':label;
+ if(!['utf-8','utf-16','utf-16le','utf-16be','us-ascii','iso-8859-1','latin1'].includes(encoding))unsupported('The declared XML output encoding has no native codec');
+ characters(text);
+ const declaration=encoding==='utf-8'?'':'<?xml version="1.0" encoding="'+(encoding==='latin1'?'ISO-8859-1':encoding.toUpperCase())+'"?>';
+ let value=declaration+text;
+ if(['us-ascii','iso-8859-1','latin1'].includes(encoding)){
+  const ceiling=encoding==='us-ascii'?127:255;let tag=false,quote='',cdata=false,escaped='';
+  for(let index=0;index<value.length;){
+   if(value.startsWith('<![CDATA[',index)){cdata=true;escaped+='<![CDATA[';index+=9;continue;}
+   if(cdata&&value.startsWith(']]>',index)){cdata=false;escaped+=']]>';index+=3;continue;}
+   const point=value.codePointAt(index)!,character=String.fromCodePoint(point);index+=character.length;
+   if(!cdata){if(character==='<'&&!quote)tag=true;else if(character==='>'&&!quote)tag=false;else if(tag&&['\"',"'"].includes(character))quote=quote===character?'':quote||character;}
+   if(point>ceiling){if(cdata||tag&&!quote)unsupported('An XML name or explicit CDATA value is unavailable in the declared output encoding');escaped+='&#'+point+';';}
+   else escaped+=character;
+  }
+  value=escaped;
+ }
+ let bytes:Buffer;
+ if(encoding==='utf-16'||encoding==='utf-16le'){
+  bytes=Buffer.from(value,'utf16le');if(encoding==='utf-16')bytes=Buffer.concat([Buffer.from([255,254]),bytes]);
+ }else if(encoding==='utf-16be')bytes=Buffer.from(value,'utf16le').swap16();
+ else bytes=Buffer.from(value,encoding==='us-ascii'?'ascii':encoding==='utf-8'?'utf8':'latin1');
+ if(bytes.length>limits.bytes)throw new SourceError('limit.xml.bytes','Encoded XML exceeds 16 MiB');
+ return bytes;
+}
+
+/** Literal Unicode XML entry is transcoded without parsing, fixing, escaping,
+ * or replacing its authored markup. Raw bytes from files bypass this method. */
+export function rawXmlBytes(text:string,charset?:string):Buffer {
+ const declaration=text.replace(/^\ufeff/,'').match(/^<\?xml\s[^?]*encoding\s*=\s*['"]([^'"]+)['"]/i)?.[1];
+ let encoding=(charset??declaration??'utf-8').toLowerCase();if(encoding==='utf8')encoding='utf-8';if(encoding==='utf16')encoding='utf-16';
+ if(!['utf-8','utf-16','utf-16le','utf-16be','us-ascii','iso-8859-1','latin1'].includes(encoding))unsupported('The literal XML encoding has no supported native codec');
+ if(Buffer.from(text,'utf8').toString('utf8')!==text)syntax('Literal XML contains an unpaired Unicode surrogate');
+ let bytes:Buffer;
+ if(encoding==='utf-16'||encoding==='utf-16le'||encoding==='utf-16be'){
+  const bom=encoding==='utf-16'||charset===undefined;
+  const value=text.replace(/^\ufeff/,'');
+  bytes=Buffer.from(value,'utf16le');
+  if(encoding==='utf-16be')bytes.swap16();
+  if(bom)bytes=Buffer.concat([encoding==='utf-16be'?Buffer.from([254,255]):Buffer.from([255,254]),bytes]);
+ }else{
+  if(encoding!=='utf-8')text=text.replace(/^\ufeff/,'');
+  if(encoding!=='utf-8'&&[...text].some(character=>character.codePointAt(0)!>(encoding==='us-ascii'?127:255)))unsupported('Literal XML contains characters unavailable in its declared encoding');
+  bytes=Buffer.from(text,encoding==='utf-8'?'utf8':encoding==='us-ascii'?'ascii':'latin1');
+ }
+ if(bytes.length>limits.bytes)throw new SourceError('limit.xml.bytes','Literal XML exceeds 16 MiB');return bytes;
 }
