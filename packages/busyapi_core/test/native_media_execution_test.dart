@@ -22,6 +22,7 @@ openMedia(
   Map<String, Object?> media, {
   Map<String, Object?> headers = const {},
   Map<String, Object?> schemas = const {},
+  String contentType = 'text/plain',
 }) async {
   final legacy = version == '2.0';
   final operation = <String, Object?>{
@@ -31,7 +32,7 @@ openMedia(
       ]
     else
       'requestBody': {
-        'content': {'text/plain': media},
+        'content': {contentType: media},
       },
     'responses': {
       '200': {
@@ -39,7 +40,7 @@ openMedia(
         if (legacy)
           'schema': media['schema']
         else
-          'content': {'text/plain': media},
+          'content': {contentType: media},
         if (headers.isNotEmpty) 'headers': headers,
       },
     },
@@ -51,8 +52,8 @@ openMedia(
       'host': '127.0.0.1:${server.port}',
       'basePath': '/v1',
       'schemes': ['http'],
-      'consumes': ['text/plain'],
-      'produces': ['text/plain'],
+      'consumes': [contentType],
+      'produces': [contentType],
       'definitions': schemas,
     } else ...{
       'servers': [
@@ -99,6 +100,53 @@ openMedia(
 }
 
 void main() {
+  for (final version in ['2.0', '3.0.4', '3.1.2', '3.2.1']) {
+    for (final contentType in ['application/xml', 'application/linkset', 'application/linkset+json']) {
+      test('$version typed $contentType reaches HTTP and original response evaluation', () async {
+        final temp = await Directory.systemTemp.createTemp('busyapi-modeled-wire-');
+        addTearDown(() => temp.delete(recursive: true));
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        addTearDown(() => server.close(force: true));
+        final seen = <List<int>>[];
+        server.listen((request) async {
+          final bytes = await request.fold<List<int>>([], (all, chunk) => all..addAll(chunk));
+          seen.add(bytes);
+          request.response.headers.set('content-type', contentType);
+          request.response.add(bytes);
+          await request.response.close();
+        });
+        final xml = contentType == 'application/xml';
+        final fixture = await openMedia(temp, server, version, 'yaml', {
+          'schema': xml ? {
+            'type': 'object', 'xml': {'name': 'payload'},
+            'required': ['value'], 'properties': {'value': {'type': 'number'}},
+          } : {'type': 'object', 'required': ['linkset']},
+        }, contentType: contentType);
+        final draft = OperationRequestDraft(planIdentity: fixture.plan.identity,
+          body: RequestBodyDraft.modeled(mediaType: contentType, json: xml
+            ? '{"value":9007199254740993}'
+            : '{"linkset":[{"next":[{"href":"https://example.org/p","title":"a,b"}]}]}'));
+        final result = await const ContractRequestExecutor().execute(fixture.plan, draft,
+          resolveSecret: (_) async => null);
+        addTearDown(result.close);
+        expect(result.outgoing.valid, true, reason: '${result.outgoing.findings}');
+        expect(result.received.valid, true, reason: '${result.received.findings}');
+        expect(result.outgoing.complete, true);
+        expect(result.received.complete, true);
+        final wire = utf8.decode(seen.single);
+        if (xml) {
+          expect(wire, contains('9007199254740993'));
+          expect(wire, startsWith('<payload'));
+        } else if (contentType == 'application/linkset') {
+          expect(wire, '<https://example.org/p>; rel="next"; title="a,b"');
+        } else {
+          expect(jsonDecode(wire)['linkset'], isA<List>());
+        }
+        expect(await fixture.source.readAsString(), fixture.original);
+      });
+    }
+  }
+
   for (final version in ['2.0', '3.0.0', '3.0.4', '3.1.2', '3.2.1']) {
     for (final format in ['yaml', 'json']) {
       test(

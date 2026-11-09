@@ -1,3 +1,6 @@
+import {capturedMockResponseMedia} from './mock_projection';
+import {encodeRuntimeMedia} from './runtime_media';
+import {SourceDocument} from './document';
 import {createGraph,type Resource} from './engine';
 import {requestOperation} from './execution';
 import {authoredMockResponseExample,authoredMockResponseBytes} from './mock_response_examples';
@@ -162,6 +165,12 @@ export class MockNativeValidation {
 
     generatedResponse(path:string,method:string,status:string,actual:string,dynamic:boolean,signal:AbortSignal):Promise<string|undefined> {
         return this.samples.response(this.plan(path,method).description,status,actual,dynamic,signal);
+    }
+
+    responseBytes(path:string,method:string,status:string,actual:string,raw:string):Buffer {
+        const media=capturedMockResponseMedia(this.plan(path,method).description,status,actual);
+        const schema=media&&schemaLocation(media.schema);
+        return encodeRuntimeMedia(new SourceDocument(raw,'urn:busyapi:mock-body',true,'json'),actual,false,schema?{graph:this.context.graph,schema}:undefined);
     }
 
     authoredResponse(path:string,method:string,status:string,actual:string,keys:readonly string[],signal:AbortSignal):string|undefined {

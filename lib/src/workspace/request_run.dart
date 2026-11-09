@@ -338,10 +338,9 @@ class RequestRunController extends ChangeNotifier {
                       'request.file',
                       'Select one binary file or choose text input.',
                     ),
-            _ => RequestBodyDraft.raw(
-              mediaType: bodyMediaType!,
-              text: bodyText,
-            ),
+            _ => bodyStructured
+                ? RequestBodyDraft.modeled(mediaType: bodyMediaType!, json: bodyText)
+                : RequestBodyDraft.raw(mediaType: bodyMediaType!, text: bodyText),
           };
     return OperationRequestDraft(
       planIdentity: _draftIdentity ?? '',
@@ -894,6 +893,7 @@ class RequestRunController extends ChangeNotifier {
       return;
     }
     final mime = ContentType.parse(type).mimeType;
+    final modeled = mime == 'application/xml' || mime == 'text/xml' || mime.endsWith('+xml') || mime == 'application/linkset' || mime == 'application/linkset+json';
     // Exact data input bypasses the literal-row projection. The shared builder
     // retains its kinds and owns the applicable serialization checks.
     final formData =
@@ -903,7 +903,7 @@ class RequestRunController extends ChangeNotifier {
     if (!formData && example['conversionError'] is String ||
         example['representation'] != 'serialized' &&
             kind == RequestBodyKind.raw &&
-            !(mime == 'application/json' || mime.endsWith('+json')) &&
+            !modeled && !(mime == 'application/json' || mime.endsWith('+json')) &&
             example['dataKind'] != 'string') {
       failure = 'request.example.conversion';
       failureMessage = example['conversionError'] as String? ?? 'This media type has no supported conversion for this data example. Choose a serialized example or edit the literal body.';
@@ -942,7 +942,7 @@ class RequestRunController extends ChangeNotifier {
           for (final entry in fields.entries)
             for (final value in entry.value as List) '${entry.key}=$value',
         ].join('\n');
-      } else if (!(mime == 'application/json' || mime.endsWith('+json'))) {
+      } else if (!modeled && !(mime == 'application/json' || mime.endsWith('+json'))) {
         text = example['text'] as String;
       }
     }
@@ -958,7 +958,7 @@ class RequestRunController extends ChangeNotifier {
     bodyMediaType = type;
     bodyExample = null;
     bodyText = text;
-    bodyStructured = formData;
+    bodyStructured = formData || modeled && example['representation'] != 'serialized';
     bodyKind = example['representation'] == 'serialized'
         ? RequestBodyKind.raw
         : kind;
@@ -3241,6 +3241,10 @@ class _BodyEditor extends StatelessWidget {
     final formInput =
         run.bodyKind == RequestBodyKind.form ||
         run.bodyKind == RequestBodyKind.multipart;
+    final modeledMedia = selectedMedia == 'application/linkset' ||
+        selectedMedia == 'application/linkset+json' ||
+        selectedMedia == 'application/xml' || selectedMedia == 'text/xml' ||
+        selectedMedia?.endsWith('+xml') == true;
     final entityInput =
         run.bodyKind == RequestBodyKind.raw ||
         run.bodyKind == RequestBodyKind.binaryFile;
@@ -3285,7 +3289,7 @@ class _BodyEditor extends StatelessWidget {
             RequestDraftEntry(run: run, label: l.requestPartMediaConcrete,
               value: run.bodyMediaType ?? '', enabled: !run.busy,
               onChanged: run.editBodyMedia),
-          if (run.bodyExample == null && (run.bodyStructured && formInput ||
+          if (run.bodyExample == null && (run.bodyStructured && (formInput || modeledMedia) ||
               selectedMedia == 'application/json' ||
               selectedMedia?.endsWith('+json') == true))
             BusyApiActionRow(
@@ -3306,7 +3310,7 @@ class _BodyEditor extends StatelessWidget {
             title: l.requestBodySource,
             subtitle: run.bodyExample != null
                 ? l.examples
-                : run.bodyStructured && formInput
+                : run.bodyStructured && (formInput || modeledMedia)
                 ? l.requestStructuredValue
                 : switch (run.bodyKind) {
                     RequestBodyKind.none => l.requestBodyMediaChoose,
@@ -3328,7 +3332,7 @@ class _BodyEditor extends StatelessWidget {
                   run.bodyKind != RequestBodyKind.binaryFile,
               onChanged: run.selectBodySerialization,
             ),
-          if (formInput)
+          if (formInput || modeledMedia && run.bodyExample == null && run.bodyKind == RequestBodyKind.raw)
             BusyApiSwitchRow(
               title: l.requestStructuredValue,
               value: run.bodyStructured,
@@ -3354,7 +3358,7 @@ class _BodyEditor extends StatelessWidget {
               value: run.bodyText,
               multiline: true,
               enabled: !run.busy,
-              label: run.bodyStructured && formInput
+              label: run.bodyStructured && (formInput || modeledMedia)
                   ? l.requestStructuredValue
                   : formInput
                   ? l.requestLiteralFields

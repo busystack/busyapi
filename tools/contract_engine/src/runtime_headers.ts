@@ -117,6 +117,7 @@ function decodeRuntimeHeader(shapeFor:ReturnType<typeof headerShapes>,declaratio
         const text=contentHeaderValue(name,lines,family);
         if(!example&&/[^\x00-\xff]/u.test(text))malformed('The received header has no octet-preserving field representation');
         const media=content[0];
+        if(name.toLowerCase()==='link'&&runtimeMediaKind(media.mediaType)==='linkset-json')malformed('An HTTP Link field cannot contain the JSON linkset representation');
         if(!example&&!media.schema&&!media.itemSchema&&runtimeMediaKind(media.mediaType)==='opaque')return;
         return {complete:true,instance:{subject:'response-header',location:name,text:example?text:Buffer.from(text,'latin1').toString('base64'),...(!example?{mediaBase64:true}:{}),mediaType:media.mediaType,schema:media.schema,itemSchema:media.itemSchema,
             ...(runtimeFormMedia(media.mediaType)&&media.formOwner?{form:media.formOwner}:{})}};

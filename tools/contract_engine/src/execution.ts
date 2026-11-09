@@ -25,7 +25,7 @@ import {mediaTypeChoice,mediaTypeOptions} from './media_types';
 import {externalParameterText} from './serialized_parameter_examples';
 import {MultipartEncoding,supportsMultipartTransfer,type MultipartTransfer,type MultipartHeaderCandidate} from './multipart_encoding';
 import {evaluateSchemas} from './schema_evaluation';
-import {runtimeMediaDescription,runtimeFormMedia,runtimeMediaBytes,decodeRuntimeMedia,runtimeMediaKind} from './runtime_media';
+import {encodeRuntimeMedia,runtimeMediaDescription,runtimeFormMedia,runtimeMediaBytes,decodeRuntimeMedia,runtimeMediaKind} from './runtime_media';
 import {capturedMimeHeaderContent} from './mime_header_content';
 import {multipartHeaderValues,type MultipartHeaderLine} from './multipart_header_values';
 import {MultipartFileShapes} from './multipart_file_shapes';
@@ -33,6 +33,24 @@ import {ignoresRequestBody} from './operation_semantics';
 import {annotationOnlySchema} from './schema_boundaries';
 import {serverContextProblem,serverContextError,serverVariableValues,serverHttpFragmentPolicy} from './server_semantics';
 import {multipartStructure,multipartGeneration,proveMultipartGeneration,proveNamedMultipart} from './multipart_generation';
+
+/** Captured ordinary-body generation. Encoding never substitutes a schema;
+ * both the input data and resulting wire inversion must pass original assertions. */
+export async function requestMediaBytes(input:any){
+ if(typeof input.text!=='string'||typeof input.mediaType!=='string')throw new SourceError('request.media.input','Expected typed JSON and a concrete media selection');
+ const captured=createGraph(input),plan=requestOperation(input,captured);
+ const content=selectRequestMedia<Record<string,any>&{mediaType:string}>(plan.requestBody?.content??[],input.mediaType);
+ if(!content)throw new SourceError('request.media.owner','Select a captured request media declaration');
+ const document=new SourceDocument(input.text,'urn:busyapi:typed-body',true,'json');
+ if(document.issues.length)throw document.issues[0];
+ const bytes=encodeRuntimeMedia(document,input.mediaType,false,content.schema?{graph:captured.graph,schema:content.schema}:undefined);
+ const instances=[{text:document.dataJson(''),schema:content.schema,subject:'request-body',location:'typed-input'},
+  {text:bytes.toString('base64'),mediaBase64:true,mediaType:input.mediaType,schema:content.schema,subject:'request-body',location:input.mediaType}];
+ const proof=await evaluateSchemas({...input,runtimeInstances:instances});
+ if(!proof.runtimeEvaluations.length||proof.runtimeEvaluations.some(value=>!value.complete||!value.valid)||proof.runtimeFindings.some(value=>value.severity==='error'))
+  throw new SourceError('request.media.conformance','Typed body or its wire representation does not completely satisfy the captured schema',content.definition?.range??[0,0],undefined,content.definition);
+ return {version:1,snapshot:input.snapshot,identity:plan.identity,mediaType:input.mediaType,base64:bytes.toString('base64'),byteLength:bytes.length};
+}
 
 export async function requestMultipartNamedProof(input:any){
   const captured=createGraph(input),plan=requestOperation(input,captured);
@@ -482,7 +500,8 @@ export function requestOperation(input:any,captured?:ReturnType<typeof createGra
             const text=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(bytes);
             return {...base,raw:text,text};
           }
-          if(kind==='json'){
+          if(kind==='xml')return {...base,raw:'',text:''};
+          if(kind==='json'||kind==='linkset-json'||kind==='linkset'){
             const text=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(bytes);
             return {...base,raw:text,text};
           }
@@ -660,7 +679,7 @@ export function requestOperation(input:any,captured?:ReturnType<typeof createGra
     responses.push({status,source:location(input.resource,at),definition:selected.source,description:v?.description,headers,bodyAllowed:responseAllowsContent(family,v),content:family==='2.0'?swaggerResponseContent(graph,selected.resource,selected.pointer,swaggerMedia(graph,input.resource,input.pointer,'produces'),location).map(item=>({...item,...runtimeMediaDescription(item.mediaType)})):media(selected.resource,selected.pointer+'/content',v?.content)});
   }
   const identity=createHash('sha256').update(JSON.stringify([multipartProjectionRevision,schemaExamplesRevision,input.snapshot,input.resource,input.pointer,context.occurrence])).digest('hex');
-  return {version:1,snapshot:input.snapshot,root:input.root,identity,family,representationRevisions:{multipart:multipartProjectionRevision,schemaExamples:schemaExamplesRevision},operation:{method,customMethod:context.customMethod===true,path:context.path,
+  return {version:1,snapshot:input.snapshot,root:input.root,identity,family,representationRevisions:{multipart:multipartProjectionRevision,schemaExamples:schemaExamplesRevision,xml:'1',linkset:'1'},operation:{method,customMethod:context.customMethod===true,path:context.path,
     operationId:typeof node.value.operationId==='string'?node.value.operationId:undefined,summary:typeof node.value.summary==='string'?node.value.summary:undefined,
     source:location(input.resource,input.pointer),occurrence:context.occurrence,pathItem:location(context.pathItem.resource,context.pathItem.pointer)},
     servers,parameters:parameters.visible.filter(entry=>family!=='2.0'||!['body','formData'].includes(entry.location!)).map(parameter),security:{requirements,schemes:Object.fromEntries(schemes),anonymous:requirements.some(requirement=>requirement.schemes.length===0)||!securityField},requestBody,ignoredRequestBody,responses,responseStatusNamePolicy:responseStatusNamePolicy(family),

@@ -80,3 +80,21 @@ test('header wire cannot replace captured context, field identity or evaluator i
  ])await assert.rejects(evaluateSchemas({...fixture,runtimeInstances:[mutation]}),{code:'runtime.instance'});
  const clean=await evaluateSchemas({...fixture,runtimeInstances:[original]});assert.equal(clean.complete,true);assert.equal(clean.runtimeEvaluations[0].valid,true);
 });
+
+for(const version of ['3.0.4','3.1.2','3.2.1'])for(const format of ['yaml','json'])test(`${version} ${format} Link field lines preserve quoted commas and repeated links`,async()=>{
+ const data={linkset:[{anchor:'https://example.org/context',next:[
+  {href:'https://example.org/one',title:'a,b; c'},
+  {href:'https://example.org/two','title*':[{value:'雪',language:'ja'}]}
+ ]}]};
+ const fixture=input(version,format,{Link:{content:{'application/linkset':{schema:{type:'object',enum:[data]}}}}});
+ const lines=['<https://example.org/one>; rel="next"; anchor="https://example.org/context"; title="a,b; c"',
+  '<https://example.org/two>; rel=next; anchor="https://example.org/context"; title*=UTF-8\'ja\'%E9%9B%AA'];
+ const result=await evaluateSchemas({...fixture,runtimeInstances:[fixture.wire('Link',lines)]});
+ assert.equal(result.complete,true,JSON.stringify(result.runtimeFindings));
+ assert.equal(result.runtimeEvaluations.every(v=>v.valid),true,JSON.stringify(result.runtimeFindings));
+});
+test('HTTP Link field cannot serialize the JSON Linkset representation',async()=>{
+ const fixture=input('3.2.1','json',{Link:{content:{'application/linkset+json':{schema:{}}}}});
+ const result=await evaluateSchemas({...fixture,runtimeInstances:[fixture.wire('Link',['{"linkset":[]}'])]});
+ assert.equal(result.runtimeEvaluations.every(v=>v.valid),false);
+});

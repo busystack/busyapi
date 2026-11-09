@@ -148,6 +148,8 @@ class RequestFormField {
 }
 
 class RequestBodyDraft {
+  bool get modeled => false;
+  factory RequestBodyDraft.modeled({required String mediaType, required String json}) = _ModeledRequestBody;
   const RequestBodyDraft.none()
     : kind = RequestBodyKind.none,
       capturedExample = null,
@@ -253,6 +255,13 @@ class RequestBodyDraft {
   final List<RequestPartHeaderValue> partHeaders;
   final Map<String, String> partSchemas;
   final Map<String, MultipartFileShape> fileShapes;
+}
+
+class _ModeledRequestBody extends RequestBodyDraft {
+  _ModeledRequestBody({required String mediaType, required String json})
+      : super.raw(mediaType: mediaType, text: json);
+  @override
+  bool get modeled => true;
 }
 
 class OperationRequestDraft {
@@ -803,7 +812,7 @@ class ContractRequestBuilder {
       plan.ensureBodyExample(example);
     }
     if (draft.body.mediaType != null && draft.body.capturedExample == null &&
-        draft.body.kind != RequestBodyKind.binaryFile) {
+        draft.body.kind != RequestBodyKind.binaryFile && !draft.body.modeled) {
       final values = [
         draft.body.text ?? '',
         for (final field in draft.body.fields) ...[field.name, field.value],
@@ -816,11 +825,11 @@ class ContractRequestBuilder {
         validateTextCharset(draft.body.mediaType!, values);
       }
     }
-    if (previewOnly && draft.body.kind == RequestBodyKind.raw) {
+    if (previewOnly && draft.body.kind == RequestBodyKind.raw && !draft.body.modeled) {
       trace?.content(draft.body.capturedExample?.byteLength ??
           ((draft.body.text ?? '').isEmpty ? 0 : 1));
     }
-    final body = previewOnly
+    final body = previewOnly && !draft.body.modeled
         ? (draft.body.kind == RequestBodyKind.none
               ? null
               : PreparedRequestBody(
@@ -1887,6 +1896,14 @@ class ContractRequestBuilder {
       case RequestBodyKind.raw:
         if (body.capturedExample case final example?) {
           final bytes = await plan.bodyExampleBytes(example, cancellation: cancellation);
+          checkOwner();
+          cancellation?.throwIfCancelled();
+          _uploadLimit(bytes.length);
+          return PreparedRequestBody(bytes.length, () => Stream.value(bytes), mediaType: body.mediaType);
+        }
+        if (body.modeled) {
+          final bytes = await plan.mediaBytes(body.text ?? '', body.mediaType!,
+              requestId: 'modeled-media-${_runIdentity()}', cancellation: cancellation);
           checkOwner();
           cancellation?.throwIfCancelled();
           _uploadLimit(bytes.length);

@@ -156,7 +156,12 @@ export function decodeRuntimeMultipart(text:string,id:string,contentType:string,
             const actualType=mediaTypes(actual,false)[0];
             const decodingType=mimePartDecodingType(actual,form);
             const decodeMedia=(...args:Parameters<typeof decodeRuntimeMedia>)=>{
-                try{return decodeRuntimeMedia(...args);}
+                try{
+                    const choices=itemHints.flatMap(hint=>forms.partRepresentations({...target,kind:'media'},hint.schema,hint.path));
+                    const schema=selected??(choices.length===1?choices[0].schema:undefined);
+                    if(runtimeMediaKind(args[2]??'application/json')==='xml'&&schema)args[6]={graph,schema};
+                    return decodeRuntimeMedia(...args);
+                }
                 catch(error){if(!(error instanceof SourceError)||error.source)throw error;return fail(error.code,error.message,entryAt,error.kind==='unsupported');}
             };
             const checkedHeaders=headers(part.headers,encoding.headers,entryAt,partPrefix,form);

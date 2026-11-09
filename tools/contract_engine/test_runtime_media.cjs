@@ -129,3 +129,63 @@ test('repeated media parameters retain unsupported interpretation rather than a 
  assert.equal(result.result.complete,false);assert.ok(result.findings.some(f=>f.kind==='unsupported'&&f.code==='runtime.response.body.unchecked'&&f.schema.resource===source.root));
  assert.ok(result.findings.every(f=>f.severity!=='error'));
 });
+
+// W4.04/W4.05: prepared under execution hold; production decoder/evaluator only.
+const {requestMediaBytes}=require('./dist/execution.cjs');
+for(const version of versions)for(const yaml of [false,true])test(`${version} ${yaml?'YAML':'JSON'} XML preserves names, attributes, arrays and exact numbers`,async()=>{
+ const schema={type:'object',xml:{name:'record',namespace:'urn:busyapi:xml',prefix:'r'},required:['id','amount','names'],properties:{
+  id:{type:'string',enum:['a&"b'],xml:{attribute:true}},amount:{type:'number',enum:['EXACT_BIG']},
+  names:{type:'array',minItems:2,maxItems:2,items:{type:'string'},xml:{wrapped:true,name:'names'}}}};
+ const source=packet(version,schema,{yaml});
+ // Wrapping names do not rename the inferred item property name.
+ const xml='<r:record xmlns:r="urn:busyapi:xml" id="a&amp;&quot;b"><amount>9007199254740993</amount><names><names>A&lt;B</names><names>C</names></names></r:record>';
+ const good=await run(source,'application/xml',Buffer.from(xml).toString('base64'),{mediaBase64:true});
+ assert.equal(good.valid,true,JSON.stringify(good.findings));assert.equal(good.result.complete,true);
+ const bad=await run(source,'application/xml',xml.replace('9007199254740993','9007199254740992'));
+ assert.equal(bad.valid,false);assert(bad.findings.some(f=>f.code==='runtime.schema.incompatible'));
+});
+for(const wire of ['<record>','<record/><second/>','<!DOCTYPE record SYSTEM "file:///etc/passwd"><record/>','<!DOCTYPE record [<!ENTITY x "payload">]><record>&x;</record>','<record a="one" a="two"/>','<record>&unknown;</record>'])test(`XML malformed/entity denial: ${wire.slice(0,40)}`,async()=>{
+ const result=await run(packet('3.2.1',{type:'string',xml:{name:'record'}}),'application/xml',wire);
+ assert.equal(result.valid,false);assert(result.findings.some(f=>f.detailCode==='runtime.xml.syntax'));
+});
+test('XML UTF-16 BOM and authoritative Latin-1 bytes use fatal codecs',async()=>{
+ const source=packet('3.2.1',{type:'string',enum:['é'],xml:{name:'record'}});
+ const utf16=Buffer.concat([Buffer.from([255,254]),Buffer.from('<?xml version="1.0" encoding="UTF-16"?><record>é</record>','utf16le')]);
+ assert.equal((await run(source,'application/xml',utf16.toString('base64'),{mediaBase64:true})).valid,true);
+ assert.equal((await run(source,'application/xml; charset=iso-8859-1',utf16.toString('base64'),{mediaBase64:true})).valid,true);
+ assert.equal((await run(source,'application/xml; charset=iso-8859-1',Buffer.from('<record>é</record>','latin1').toString('base64'),{mediaBase64:true})).valid,true);
+ const invalid=await run(source,'application/xml; charset=utf-8',Buffer.from('<record>é</record>','latin1').toString('base64'),{mediaBase64:true});
+ assert.equal(invalid.valid,false);
+ const unsupported=await run(source,'application/xml; charset=x-unavailable',Buffer.from('<record/>').toString('base64'),{mediaBase64:true});
+ assert.equal(unsupported.result.complete,false);
+});
+test('3.2 explicit CDATA, mixed ordered content and text retain separate nodes',async()=>{
+ const source=packet('3.2.1',{type:'array',xml:{nodeType:'element',name:'report'},prefixItems:[
+  {type:'string',const:'before',xml:{nodeType:'text'}},
+  {type:'number',const:'EXACT_BIG',xml:{name:'amount'}},
+  {type:'string',const:'<after>',xml:{nodeType:'cdata'}}],items:false,minItems:3,maxItems:3});
+ assert.equal((await run(source,'application/xml','<report>before<amount>9007199254740993</amount><![CDATA[<after>]]></report>')).valid,true);
+ assert.equal((await run(source,'application/xml','<report>before<amount>9007199254740993</amount>&lt;after&gt;</report>')).valid,false);
+});
+for(const version of versions)for(const yaml of [false,true])test(`${version} ${yaml?'YAML':'JSON'} Linkset text and JSON share schema data`,async()=>{
+ const data={linkset:[{anchor:'https://example.org/context',next:[{href:'https://example.org/a,b',title:'a,b; c',hreflang:['en','fr'],'title*':[{value:'雪',language:'ja'}],custom:['first','second']}]}]};
+ const source=packet(version,{type:'object',required:['linkset'],properties:{linkset:{type:'array',minItems:1,maxItems:1}}},{yaml});
+ const text='<https://example.org/a,b>; anchor="https://example.org/context"; rel="next"; title="a,b; c"; hreflang=en; hreflang=fr; title*=UTF-8\'ja\'%E9%9B%AA; custom=first; custom=second';
+ const json=await run(source,'application/linkset+json',JSON.stringify(data));
+ const link=await run(source,'application/linkset',text);
+ assert.equal(json.valid,true,JSON.stringify(json.findings));assert.equal(link.valid,true,JSON.stringify(link.findings));
+});
+for(const data of [{},{linkset:{}},{linkset:[{next:{href:'/p'}}]},{linkset:[{next:[{}]}]},{linkset:[{next:[{href:'/p',hreflang:'en'}]}]}])test(`invalid RFC 9264 model ${JSON.stringify(data)}`,async()=>{
+ const result=await run(packet('3.2.1',{}),'application/linkset+json',JSON.stringify(data));
+ assert.equal(result.valid,false);assert(result.findings.some(f=>f.detailCode==='runtime.linkset.syntax'));
+});
+for(const mediaType of ['application/xml','application/linkset','application/linkset+json'])test(`typed ${mediaType} generation proves input and actual encoded bytes`,async()=>{
+ const xml=mediaType==='application/xml',schema=xml?{type:'object',xml:{name:'payload'},properties:{value:{type:'number',enum:['EXACT_BIG']}}}:{type:'object',required:['linkset']};
+ const root='file:///typed-wire/api.json',raw={openapi:'3.2.1',info:{title:'Typed wire',version:'1'},paths:{'/p':{post:{requestBody:{content:{[mediaType]:{schema}}},responses:{200:{description:'OK'}}}}}};
+ const input={root,snapshot:'typed-wire',resource:root,pointer:'/paths/~1p/post',resources:[{id:root,text:JSON.stringify(raw).replaceAll('"EXACT_BIG"','9007199254740993'),generation:1}],mediaType,text:xml?'{"value":9007199254740993}':'{"linkset":[{"next":[{"href":"https://example.org/p","title":"a,b"}]}]}'};
+ const result=await requestMediaBytes(input),bytes=Buffer.from(result.base64,'base64');
+ assert.equal(bytes.length,result.byteLength);
+ if(xml)assert.match(bytes.toString(),/<value[^>]*>9007199254740993<\/value>/);
+ else if(mediaType==='application/linkset')assert.equal(bytes.toString(),'<https://example.org/p>; rel="next"; title="a,b"');
+ else assert.deepEqual(JSON.parse(bytes.toString()),JSON.parse(input.text));
+});

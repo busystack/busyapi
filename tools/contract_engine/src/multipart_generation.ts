@@ -6,7 +6,7 @@ import {MultipartEncoding,supportsMultipartTransfer,type MultipartTransfer} from
 import {mediaTypes,mediaTypeChoice,mediaTypeOptions} from './media_types';
 import {multipartHeaderValues} from './multipart_header_values';
 import {declaredPlainTextBytes,encodePlainText} from './text_encoding';
-import {runtimeMediaKind,runtimeMediaBytes} from './runtime_media';
+import {encodeRuntimeMedia,runtimeMediaKind,runtimeMediaBytes} from './runtime_media';
 import {mimeParts,mimeSingleton} from './mime_parts';
 import {decodeMultipartTransfer} from './multipart_transfer';
 import {decodeRuntimeForm} from './runtime_form';
@@ -383,10 +383,10 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
                 part.file=file;usedFiles.add(file);
             }else{
                 const kind=runtimeMediaKind(selectedType!);
-                if(kind!=='json'&&kind!=='text'&&!transfer.schemaEncoded&&transfer.instanceEncoding!=='octets')fail('request.multipart.codec.unsupported','This typed part media has no native data encoder; select a declared JSON/text representation or a file',entry.at,true);
+                if(!['xml','json','linkset','linkset-json','text'].includes(kind)&&!transfer.schemaEncoded&&transfer.instanceEncoding!=='octets')fail('request.multipart.codec.unsupported','This typed part media has no native data encoder; select a declared JSON/text representation or a file',entry.at,true);
                 if(!styled&&kind==='text'&&['array','object'].includes(entry.node.kind))fail('request.multipart.text.shape','Structured values require a declared structured media codec',entry.at);
                 let text:string;
-                try{text=styled&&!entry.expanded?multipartStyleText(doc,entry.node,entry.rule):kind==='json'?doc.dataJson(pointer):entry.node.kind==='string'?entry.node.value:doc.dataJson(pointer);}
+                try{text=styled&&!entry.expanded?multipartStyleText(doc,entry.node,entry.rule):['xml','linkset','linkset-json'].includes(kind)?encodeRuntimeMedia(new SourceDocument(doc.dataJson(pointer),'urn:busyapi:linkset-part',true,'json'),selectedType!,false,selected?{graph,schema:selected}:undefined).toString('utf8'):kind==='json'?doc.dataJson(pointer):entry.node.kind==='string'?entry.node.value:doc.dataJson(pointer);}
                 catch(error){if(!(error instanceof SourceError))throw error;fail(error.code,error.message,entry.at,error.kind==='unsupported');}
                 part.text=text;
                 try{

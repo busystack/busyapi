@@ -115,7 +115,7 @@ async function evaluateRuntimeValues(runtime:unknown,owner:Owner,diagnostics?:{o
     // transfer header exists to decode here. UTF-8/ASCII wire text, including
     // the empty string, remains subject to the original string assertions.
     decoded=decodeRuntimeMedia(supplied.text,'urn:busyapi:runtime:'+identity,'text/plain; charset=utf-8',supplied.mediaBase64,'unsupported',textSerialization);
-   else decoded=decodeRuntimeMedia(supplied.text,'urn:busyapi:runtime:'+identity,supplied.mediaType,supplied.mediaBase64,fileSchema?'file':octets?'octets':family==='2.0'||family==='3.0'?'legacy-octets':family==='3.1'||family==='3.2'?'binary':'unsupported',textSerialization);
+   else decoded=decodeRuntimeMedia(supplied.text,'urn:busyapi:runtime:'+identity,supplied.mediaType,supplied.mediaBase64,fileSchema?'file':octets?'octets':family==='2.0'||family==='3.0'?'legacy-octets':family==='3.1'||family==='3.2'?'binary':'unsupported',textSerialization,supplied.schema?{graph:owner.graph,schema:supplied.schema}:undefined);
    // Strict form decoding proves each leaf's wire representation, including
    // ASCII MIME transfer formats. Other opaque instances supply no Unicode proof.
    if(supplied.unicodeSerialization===true&&(!form||textSerialization!=='unicode')&&((decoded.binaryInstances?.size??0)>0||form?.checks.some(check=>(check.binary?.size??0)>0)))

@@ -236,6 +236,12 @@ export function decodeRuntimeForm(text:string,id:string,contentType:string,base6
                 return JSON.stringify(bytes.toString('latin1'));
             }
             const essence=mediaTypes(concrete,false)[0],json=essence.subtype==='json'||essence.subtype.endsWith('+json');
+            if(['xml','linkset','linkset-json'].includes(runtimeMediaKind(concrete))){
+                const path=[...(model?.path??[]),{property:name},...(array?[{item:0}]:[])];
+                const representations=forms.partRepresentations({...target,kind:'media'},schema,path);
+                if(representations.length!==1)return failure('runtime.xml.model.unsupported','This MIME part has no unique captured representation schema',schema);
+                return decodeRuntimeMedia(bytes.toString('base64'),id+'/modeled',concrete,true,'unsupported',serialization,{graph,schema:representations[0].schema}).document.dataJson('');
+            }
             if(json)return decodeRuntimeMedia(bytes.toString('base64'),id+'/json',concrete,true,'unsupported',serialization).document.dataJson('');
             if(essence.type==='text'&&essence.subtype==='plain')return scalar(bytesText(bytes,decodingType,serialization),type);
             if(scope.family==='3.0')return decodeRuntimeMedia(bytes.toString('base64'),id+'/octets',concrete,true,'legacy-octets',serialization).document.dataJson('');

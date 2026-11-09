@@ -13,7 +13,7 @@ export function exampleRepresentation(field:ExampleValueField,value:unknown,medi
  if(field==='serializedValue')return 'serialized';
  if(field==='dataValue'||typeof value!=='string'||mediaType===undefined)return 'json';
  const media=runtimeMediaDescription(mediaType);
- return media.dataModelStatus==='classified'&&media.dataModel==='json'?'json':'serialized';
+ return media.dataModelStatus==='classified'&&['json','linkset-json'].includes(media.dataModel)?'json':'serialized';
 }
 
 /** Reusable Media Type names carry no format. Classify their literal values

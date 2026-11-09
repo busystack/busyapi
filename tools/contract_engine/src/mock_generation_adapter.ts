@@ -45,7 +45,7 @@ export class MockGenerationAdapter {
     private readonly values=new WeakMap<IMediaTypeContent,string>();
     private readonly wires=new WeakMap<IMediaTypeContent,{bytes:Buffer;value:GeneratorData;path:string;method:string}>();
 
-    constructor(private readonly native:Pick<MockNativeValidation,'authoredResponse'|'authoredResponseBytes'|'generatedResponse'|'generationFailure'>) {}
+    constructor(private readonly native:Pick<MockNativeValidation,'responseBytes'|'authoredResponse'|'authoredResponseBytes'|'generatedResponse'|'generationFailure'>) {}
 
     async prepare(operation:IHttpOperation,configuration:Configuration,diagnostics:readonly Diagnostic[],logger:Logger,signal:AbortSignal):Promise<{operation:IHttpOperation;configuration:Configuration}> {
         const unchanged={operation,configuration};
@@ -62,17 +62,19 @@ export class MockGenerationAdapter {
         if(!response||!content)return unchanged;
         const essence=content.mediaType.split(';')[0].trim().toLowerCase();
         const json=essence==='application/json'||essence.endsWith('+json');
+        const modeled=essence==='application/xml'||essence==='text/xml'||essence.endsWith('+xml')||essence==='application/linkset'||essence==='application/linkset+json';
         const dynamic=configuration.dynamic&&selected.bodyExample===undefined;
         // Invalid-input negotiation can suppress the requested example key.
         // Preserve its actual choice before skipping synthesized schema defaults.
         const keys=content.examples?.map(example=>example.key)??[];
         if(selected.bodyExample!==undefined)keys.unshift(selected.bodyExample.key);
-        const bytes=dynamic?undefined:this.native.authoredResponseBytes(operation.path,operation.method,response.code,content.mediaType,keys,signal);
-        if(!json&&bytes===undefined)return unchanged;
+        let bytes=dynamic?undefined:this.native.authoredResponseBytes(operation.path,operation.method,response.code,content.mediaType,keys,signal);
+        if(!json&&!modeled&&bytes===undefined)return unchanged;
         const authored=bytes!==undefined?undefined:dynamic?undefined:this.native.authoredResponse(operation.path,operation.method,response.code,content.mediaType,
             keys,signal);
         const raw=bytes===undefined?authored??await this.native.generatedResponse(operation.path,operation.method,response.code,content.mediaType,dynamic,signal):undefined;
         if(raw===undefined&&bytes===undefined)return unchanged;
+        if(modeled&&raw!==undefined)bytes=this.native.responseBytes(operation.path,operation.method,response.code,content.mediaType,raw);
         // Prism negotiates status/headers against this request-owned view.
         // External wire bytes bypass its body serializer; original native
         // response validation below remains mandatory before emission.

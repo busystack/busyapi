@@ -874,6 +874,25 @@ class OperationRequestPlan {
     return Map.unmodifiable(parsed);
   }
 
+  Future<Uint8List> mediaBytes(String text, String mediaType, {
+    required String requestId, RunCancellation? cancellation,
+  }) async {
+    final result = await _formProjection('requestMediaBytes', {
+      ...snapshot.toJson(), 'resource': (operation['source'] as Map)['resource'],
+      'pointer': (operation['source'] as Map)['pointer'],
+      'occurrence': operation['occurrence'], 'text': text, 'mediaType': mediaType,
+    }, requestId, cancellation);
+    if (result['snapshot'] != snapshot.identity || result['identity'] != identity ||
+        result['mediaType'] != mediaType || result['base64'] is! String) {
+      throw CoreFailure('request.media.protocol', 'The typed body materialization differs from its capture.');
+    }
+    final bytes = base64Decode(result['base64'] as String);
+    if (bytes.length != result['byteLength']) {
+      throw CoreFailure('request.media.protocol', 'The typed body byte length is inconsistent.');
+    }
+    return bytes;
+  }
+
   Future<MimeTextMaterialization> mimeTextBytes(
     String text,
     String mediaType, {

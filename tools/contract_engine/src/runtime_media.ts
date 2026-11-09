@@ -1,10 +1,12 @@
+import {decodeXml,encodeXml,type XmlBinding} from './xml_model';
+import {parseLinkset,validateLinkset,encodeLinkset} from './linkset';
 import {SourceDocument,SourceError} from './document';
 import {mediaTypes} from './media_types';
 import {runtimeBinaryMedia,type BinaryDocuments} from './runtime_binary';
 import {plainTextCharset,validatePlainText} from './text_encoding';
 
 export type TextSerialization='embedded'|'unicode';
-export type RuntimeMediaKind='json'|'text'|'json-lines'|'json-sequence'|'event-stream'|'opaque';
+export type RuntimeMediaKind='xml'|'json'|'linkset-json'|'linkset'|'text'|'json-lines'|'json-sequence'|'event-stream'|'opaque';
 export type RuntimeMediaData={document:SourceDocument;items?:SourceDocument[];binaryInstances?:BinaryDocuments;kind:RuntimeMediaKind|'binary'|'file'|'octets'|'form-urlencoded'|'multipart-form'|'multipart-sequence'};
 export type RuntimeMediaDescription=
  {dataModelStatus:'classified'|'opaque';dataModel:RuntimeMediaKind}|
@@ -49,6 +51,9 @@ export function runtimeMediaKind(contentType:string,ranges=false):RuntimeMediaKi
  const type=mediaTypes(contentType,ranges);
  if(type.length!==1)throw new SourceError('runtime.media.type','Runtime content requires one concrete media type');
  const {type:primary,subtype}=type[0];
+ if((primary==='application'||primary==='text')&&subtype==='xml'||subtype.endsWith('+xml'))return 'xml';
+ if(primary==='application'&&subtype==='linkset')return 'linkset';
+ if(primary==='application'&&subtype==='linkset+json')return 'linkset-json';
  if(primary==='application'&&subtype==='json'||subtype.endsWith('+json'))return 'json';
  if(primary==='text'&&subtype==='plain')return 'text';
  if(primary==='application'&&['jsonl','x-ndjson'].includes(subtype))return 'json-lines';
@@ -57,7 +62,7 @@ export function runtimeMediaKind(contentType:string,ranges=false):RuntimeMediaKi
  return 'opaque';
 }
 
-export function decodeRuntimeMedia(text:string,id:string,contentType?:string,base64=false,opaque:'unsupported'|'octets'|'binary'|'legacy-octets'|'file'='unsupported',textSerialization?:TextSerialization):RuntimeMediaData {
+export function decodeRuntimeMedia(text:string,id:string,contentType?:string,base64=false,opaque:'unsupported'|'octets'|'binary'|'legacy-octets'|'file'='unsupported',textSerialization?:TextSerialization,xmlBinding?:XmlBinding):RuntimeMediaData {
  const type=contentType===undefined?undefined:mediaTypes(contentType,false);
  if(type&&type.length!==1)throw new SourceError('runtime.media.type','Runtime content requires one concrete media type');
  const kind=contentType===undefined?'json':runtimeMediaKind(contentType);
@@ -74,6 +79,10 @@ export function decodeRuntimeMedia(text:string,id:string,contentType?:string,bas
   if(doc.issues.length)throw doc.issues[0];
   return doc;
  };
+ if(kind==='xml'&&opaque!=='file'){
+  if(!xmlBinding)throw new SourceError('runtime.xml.model.unsupported','XML requires its captured schema binding',[0,0],'unsupported');
+  return {document:decodeXml(bytes??runtimeMediaBytes(text,false),id,xmlBinding,type?.[0].parameters.get('charset')),kind};
+ }
  if(opaque==='file'){
   if(textSerialization==='unicode')decodeRuntimeMedia(text,id+'/file-media',contentType,base64,'unsupported',textSerialization);
   if(bytes===undefined)runtimeMediaBytes(text,false);
@@ -109,6 +118,8 @@ export function decodeRuntimeMedia(text:string,id:string,contentType?:string,bas
   throw error;
  }
  if(textSerialization&&kind==='text')validatePlainText(text,type?.[0].parameters.get('charset'),textSerialization==='unicode');
+ if(kind==='linkset')return {document:parseLinkset(text,id),kind};
+ if(kind==='linkset-json'){const document=parse(text);validateLinkset(document);return {document,kind};}
  if(kind==='json')return {document:parse(text),kind};
  if(kind==='text')return {document:parse(JSON.stringify(text)),kind};
  const items:SourceDocument[]=[];
@@ -160,4 +171,23 @@ export function decodeRuntimeMedia(text:string,id:string,contentType?:string,bas
   }
  }
  return {document:parse('['+items.map(item=>item.dataJson('')).join(',')+']'),items,kind};
+}
+
+/** Shared typed encoder; callers retain original-schema validation before dispatch. */
+export function encodeRuntimeMedia(document:SourceDocument,contentType:string,header=false,xmlBinding?:XmlBinding):Buffer {
+ if(document.issues.length)throw document.issues[0];
+ const kind=runtimeMediaKind(contentType);
+ if(kind==='xml'){
+  if(!xmlBinding)throw new SourceError('runtime.xml.model.unsupported','XML requires its captured schema binding',[0,0],'unsupported');
+  const charset=mediaTypes(contentType,false)[0].parameters.get('charset');
+  if(charset&&charset!=='utf-8'&&charset!=='utf8')throw new SourceError('runtime.xml.encoder.charset','Typed XML generation requires UTF-8',[0,0],'unsupported');
+  return encodeXml(document,xmlBinding);
+ }
+ if(kind==='linkset')return runtimeMediaBytes(encodeLinkset(document,header),false);
+ if(kind==='linkset-json'){
+  if(header)throw new SourceError('runtime.linkset.header','Linkset JSON cannot be serialized as an HTTP Link field');
+  validateLinkset(document);return runtimeMediaBytes(document.dataJson(''),false);
+ }
+ if(kind==='json')return runtimeMediaBytes(document.dataJson(''),false);
+ throw new SourceError('runtime.media.encoder.unsupported','This media has no shared typed encoder',[0,0],'unsupported');
 }

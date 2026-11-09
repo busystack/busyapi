@@ -29,7 +29,8 @@ export function mimeHeaderContent(graph:ReferenceGraph,id:string,transfers:Multi
     let serial=0;
     return (header:GraphTarget,values:readonly string[],prefix:string):{checks:FormCheck[];issues:FormIssue[]}=>{
         const {type,captured}=capture(header),source=captured.source;
-        if(values.length!==1)transfers.failure('runtime.form.header.unsupported','A content-based MIME header has multiple wire values',header);
+        if(values.length!==1&&type.split(';')[0].trim().toLowerCase()!=='application/linkset')transfers.failure('runtime.form.header.unsupported','A content-based MIME header has multiple wire values',header);
+        if(header.pointer.split('/').at(-1)?.toLowerCase()==='link'&&type.split(';')[0].trim().toLowerCase()==='application/linkset+json')transfers.failure('runtime.linkset.header','An HTTP Link field cannot contain JSON linkset content',header,false);
         const schema=captured.schema,shape=schema&&captured.family==='3.0'?forms.shape(schema.resource,schema.pointer):undefined;
         const octets=shape?.types?.includes('string')===true&&shape.format==='binary';
         let decoded:ReturnType<typeof decodeRuntimeMedia>|RuntimeFormData;
@@ -37,7 +38,7 @@ export function mimeHeaderContent(graph:ReferenceGraph,id:string,transfers:Multi
         try{
             if(runtimeFormMedia(type)){
                 form=decodeForm(values[0],id+'/'+serial++,type,source);decoded=form;
-            }else decoded=decodeRuntimeMedia(values[0],id+'/'+serial++,type,false,octets?'octets':captured.family==='3.0'?'legacy-octets':'binary');
+            }else decoded=decodeRuntimeMedia(values.join(', '),id+'/'+serial++,type,false,octets?'octets':captured.family==='3.0'?'legacy-octets':'binary',undefined,schema?{graph,schema}:undefined);
         }catch(error){
             if(!(error instanceof SourceError))throw error;
             throw new SourceError(error.code,error.message,error.range,error.kind,error.source??source);

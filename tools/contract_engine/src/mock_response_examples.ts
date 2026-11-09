@@ -1,4 +1,6 @@
-import {SourceError} from './document';
+import {encodeRuntimeMedia,runtimeMediaKind,runtimeMediaBytes} from './runtime_media';
+import {schemaLocation} from './mock_projection';
+import {SourceDocument,SourceError} from './document';
 import {capturedMockResponseMedia,sourceLocation} from './mock_projection';
 import type {ReferenceGraph} from './reference_graph';
 import type {CapturedExampleResources} from './external_examples';
@@ -30,7 +32,14 @@ export function authoredMockResponseExample(plan:unknown,status:string,actual:st
 export function authoredMockResponseBytes(plan:unknown,status:string,actual:string,keys:readonly string[],
     graph:ReferenceGraph,examples:CapturedExampleResources):Buffer|undefined {
     const selected=selectedExample(plan,status,actual,keys);
-    if(selected?.external===undefined)return;
+    if(selected?.external===undefined){
+        if(!selected||typeof selected.raw!=='string')return;
+        const kind=runtimeMediaKind(actual);
+        if(!['xml','linkset','linkset-json'].includes(kind))return;
+        if(selected.representation==='serialized')return runtimeMediaBytes(selected.raw,false);
+        const media=capturedMockResponseMedia(plan,status,actual),schema=media&&schemaLocation(media.schema);
+        return encodeRuntimeMedia(new SourceDocument(selected.raw,'urn:busyapi:mock-example',true,'json'),actual,false,schema?{graph,schema}:undefined);
+    }
     if(!record(selected.external))throw new SourceError('mock.validation.protocol','The external response example omitted its captured byte identity');
     const source=sourceLocation(selected.source);
     if(!source)throw new SourceError('mock.validation.protocol','The captured external example omitted its native source');
