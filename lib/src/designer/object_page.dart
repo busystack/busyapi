@@ -696,11 +696,12 @@ class _NativeObjectPageState extends State<_NativeObjectPage> {
                   ),
                 if (item['componentFamily'] is String &&
                     item['componentDefinition'] == true &&
-                    !(item['references'] as List).any(
-                      (ref) =>
-                          ref['keyword'] == r'$ref' ||
-                          ref['keyword'] == r'$dynamicRef',
-                    ))
+                    (item['schemaReferenceSiblings'] == true ||
+                        !(item['references'] as List).any(
+                          (ref) =>
+                              ref['keyword'] == r'$ref' ||
+                              ref['keyword'] == r'$dynamicRef',
+                        )))
                   BusyApiActionRow(
                     title: l.moveComponentDefinition,
                     onTap: c.scopeSafe(item, reviewedCopy: true)
@@ -716,11 +717,12 @@ class _NativeObjectPageState extends State<_NativeObjectPage> {
                   ),
                 if (item['componentFamily'] is String &&
                     item['componentDefinition'] != true &&
-                    !(item['references'] as List).any(
-                      (ref) =>
-                          ref['keyword'] == r'$ref' ||
-                          ref['keyword'] == r'$dynamicRef',
-                    ))
+                    (item['schemaReferenceSiblings'] == true ||
+                        !(item['references'] as List).any(
+                          (ref) =>
+                              ref['keyword'] == r'$ref' ||
+                              ref['keyword'] == r'$dynamicRef',
+                        )))
                   BusyApiActionRow(
                     title: l.extractComponent,
                     onTap: c.scopeSafe(item, reviewedCopy: true)
@@ -864,6 +866,7 @@ class _NativeObjectPageState extends State<_NativeObjectPage> {
                     selected: item['boolean'] as bool,
                     labelFor: (v) => '$v',
                     enabled: c.scopeSafe(item) &&
+                        item['schemaValueForms'] != null &&
                         SchemaValueForms.fromJson(item['schemaValueForms'])
                             .forms.contains(SchemaValueForm.boolean),
                     onSelected: (v) {

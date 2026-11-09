@@ -6,6 +6,38 @@ const {createGraph,analyse}=require('./dist/model.cjs');
 const {SourceDocument}=require('./dist/document.cjs');
 const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
 const pointer='/paths/~1items/get/responses/200/content/application~1json/schema';
+for(const version of ['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const json of [false,true])for(const mode of ['ref','static-dynamic','dynamic'])for(const cross of [false,true])
+test(`${version} ${json?'JSON':'YAML'} reviewed schema applicator extraction preserves siblings ${mode} cross=${cross}`,async()=>{
+ const ext=json?'json':'yaml',root='file:///project/applicators.'+ext,destination=cross?'file:///project/models.'+ext:root;
+ const keyword=mode==='ref'?'$ref':'$dynamicRef',reference=mode==='dynamic'?'#node':'#/components/schemas/Bound';
+ const schema={[keyword]:reference,maximum:'MAX',description:'Keep sibling 雪',examples:['MIN'],'x-payload':{$ref:'literal',n:'MIN'}};
+ const data={openapi:version,info:{title:'Applicator extraction',version:'unrelated'},paths:{'/items':{get:{responses:{200:{description:'Kept',content:{'application/json':{schema}}}}}}},
+  components:{schemas:{Bound:{type:'integer',minimum:'MIN',...(mode==='dynamic'?{$dynamicAnchor:'node'}:{})}}}};
+ const encode=value=>(json?JSON.stringify(value,null,2):'# Keep comments\r\n'+YAML.stringify(value).replaceAll('\n','\r\n'))
+  .replaceAll('"MIN"','9007199254740993.00').replaceAll('MIN','9007199254740993.00').replaceAll('"MAX"','9007199254740994.00').replaceAll('MAX','9007199254740994.00');
+ const resources=[{id:root,generation:2,text:encode(data)},...(cross?[{id:destination,generation:1,text:encode({openapi:version,info:{title:'Models',version:'1'},paths:{}})}]:[])];
+ const input={root,snapshot:'schema-applicator-copy',resources,contexts:[{root,resources:resources.map(r=>r.id)}],target:{root,resource:root,pointer,generation:2},name:'Extracted',destinationResource:destination};
+ const frozen=resources.map(r=>r.text),page=require('./dist/model.cjs').inspect({...input,resource:root,pointer});
+ assert.equal(page.schemaReferenceSiblings,true);
+ if(cross&&mode==='dynamic') {
+  assert.throws(()=>planExtract(input),error=>error.code==='refactor.copy.schema-resource');
+  assert.deepEqual(resources.map(r=>r.text),frozen);return;
+ }
+ const samples=['9007199254740992.00','9007199254740993.00','9007199254740994.00','9007199254740995.00','"wrong"'];
+ const evaluate=resources=>evaluateSchemas({root,snapshot:'applicator-oracle',resources,runtimeInstances:samples.map(text=>({subject:'response-body',location:'application/json',text,schema:{resource:root,pointer}}))});
+ const before=await evaluate(resources);assert.equal(before.complete,true,JSON.stringify(before.findings));
+ assert.deepEqual(before.runtimeEvaluations.map(e=>e.valid),[false,true,true,false,false]);
+ const plan=planExtract(input),after=apply(input,plan),graph=createGraph({root,resources:after}).graph;
+ const copied=new SourceDocument(after.find(r=>r.id===destination).text,destination),at='/components/schemas/Extracted';
+ assert.equal(copied.dataJson(at+'/maximum'),'9007199254740994.00');
+ assert.equal(copied.dataJson(at+'/x-payload'),new SourceDocument(resources[0].text,root).dataJson(pointer+'/x-payload'));
+ const edge=graph.referenceAs(destination,at,keyword,'schema');
+ assert.equal(edge.targetResource,root);assert.equal(edge.targetPointer,'/components/schemas/Bound');
+ assert.equal(!!edge.dynamic,mode==='dynamic');
+ const checked=await evaluate(after);assert.equal(checked.complete,true,JSON.stringify(checked.findings));
+ assert.deepEqual(checked.runtimeEvaluations.map(e=>e.valid),[false,true,true,false,false]);
+ assert.deepEqual(resources.map(r=>r.text),frozen);
+});
 for(const kind of ['response','parameter'])for(const cross of [false,true])test(`Swagger definition move retains binding comments ${kind} cross=${cross}`,()=>{
  const root='file:///project/api.yaml',destination=cross?'file:///project/other.yaml':root,group=kind==='response'?'responses':'parameters';
  const text='swagger: "2.0"\ninfo: {title: Comments, version: "1"}\npaths:\n  /p:\n    get:\n'+(kind==='response'?'      responses:\n        "200": {$ref: "#/responses/Stored"}\n':'      parameters: [{$ref: "#/parameters/Stored"}]\n      responses: {"204": {description: Empty}}\n')+group+':\n  # named definition documentation\n  Stored: # binding note 雪\n'+(kind==='response'?'    description: Kept # value note\n':'    name: q # value note\n    in: query\n    type: string\n');

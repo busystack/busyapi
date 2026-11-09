@@ -287,6 +287,45 @@ third-party source changed. B05 migration assignments remain suspended. The
 next Phase 1 work is W6 semantic maintenance; typed multipart, XML/Linkset,
 streaming and mocks retain their Phase 2 priority before advanced migration.
 
+### Phase 1 continuation: schema applicator maintenance
+
+After the bounded authoring completion, W6 source inspection confirmed that
+`planOwnedCopy` rejected every object with `$ref`/`$dynamicRef`, and native
+Design hid extraction/definition-move review for all such occurrences. Modern
+schema applicators with authored siblings are now eligible for the existing
+reviewed operation. `contexts.ts` supplies that distinction to inspect, Design
+and the refactoring owner; Flutter has no version/schema rule of its own.
+Pure forwarding objects and restricted/non-schema Reference Objects keep
+their previous boundary.
+
+Relocation also treated all `$dynamicRef` fields as dynamic-anchor addresses,
+even when the canonical graph establishes a static starting target without
+`$dynamicAnchor` (Core §8.2.3.2). It now builds that target's static address and
+retains the authored `$dynamicRef` keyword. Anonymous cross-resource extraction
+distinguishes these static edges from genuine dynamic edges. The existing
+checks still compare every repaired target, resource/dialect context and
+dynamic candidate set, and prove cold retrieval closure. Genuine inherited
+dynamic resources, ambiguous literal/role owners, independent identities and
+incompatible rendering bases retain their existing proof/refusal paths.
+
+Prepared unexecuted engine regressions extend `test_refactoring_copy.cjs` for
+modern published patches, YAML/JSON, same/cross-resource extraction, static and
+dynamic references, exact sibling constraints and independent positive/negative
+instance oracles. Genuine cross-resource dynamic-scope refusal is retained.
+Core `refactoring_copy_test.dart` adds review-without-mutation, captured Apply,
+Reference, stale rejection, Undo/Redo, exact source/BOM and save/cold reopening.
+The native schema-form suite checks that modern applicator siblings expose
+the existing extraction and move review actions. Existing assertions remain.
+All suites were already registered; none ran. Source inspection and
+`git diff --check` are the only verification performed.
+
+This closes these specific W6 omissions at source level, unverified. W6 is
+still partial: independently identified/dynamic inlining, general inherited
+resource relocation, shared Markdown rendering contexts and dual-role/literal
+ownership specializations remain Phase 1 work. Phase 2 wire/multipart,
+XML/Linkset, streaming and mock gaps still precede advanced migration. The
+execution hold, skipped Snapcraft and no-push policy remain in force.
+
 ## B05-R3d-1b-4: Mixed-media reusable-owner specialization
 
 **B05-R3d-1b-4 is source-complete, unverified for the established named and

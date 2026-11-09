@@ -9,7 +9,7 @@ import {documentUriOccurrences} from './document_uris';
 import {documentUriBase,ReferenceGraph,resolveUri,pointerFragment} from './reference_graph';
 import {coldGraph} from './reference_selection';
 import {ParameterSemantics} from './parameter_semantics';
-import {standardOperationMethods} from './contexts';
+import {standardOperationMethods,hasSchemaReferenceSiblings} from './contexts';
 import {serverTemplate} from './derived_bundle';
 import {relocateRefactoringMarkdown} from './refactoring_markdown';
 import {componentNamePolicy,permitsMemberName,reusableDefinitionPointer} from './member_names';
@@ -297,7 +297,8 @@ function planOwnedCopy(input:any,moving=false) {
  const definition=reusableDefinitionPointer(target.pointer,scope.family);
  if(moving?!definition:definition)
   throw new SourceError('refactor.extract.definition',moving?'Choose an authored component definition to move':'Choose an inline object, not an existing component definition');
- if(typeof node.value?.$ref==='string'||typeof node.value?.$dynamicRef==='string')
+ if((typeof node.value?.$ref==='string'||typeof node.value?.$dynamicRef==='string')&&
+    !hasSchemaReferenceSiblings(node.value,scope.kind,scope.family))
   throw new SourceError('refactor.extract.definition','Choose an inline object, not an existing definition or reference occurrence');
  if(!selected.graph.allowsReference(scope)&&(!moving||scope.kind==='security'))
   throw new SourceError('refactor.copy.binding','This authored position cannot be replaced by a Reference Object; Swagger security definitions must remain in their owning document',node.range);
@@ -310,9 +311,10 @@ function planOwnedCopy(input:any,moving=false) {
  if(cross)for(const g of owning)for(const at of g.graph.scopes.values())if(at.resource===resource.id&&inside(at.pointer,target.pointer)){
   const data=doc.node(at.pointer).value;
   if(at.kind==='schema'&&!inside(at.resourcePointer,target.pointer)){
-   if(at.resourcePointer!==''||data&&typeof data==='object'&&['$anchor','$dynamicAnchor','$dynamicRef'].some(key=>Object.hasOwn(data,key)))
+   if(at.resourcePointer!==''||data&&typeof data==='object'&&['$anchor','$dynamicAnchor'].some(key=>Object.hasOwn(data,key))||
+      g.graph.referenceAs(at.resource,at.pointer,'$dynamicRef','schema')?.dynamic)
     throw new SourceError('refactor.copy.schema-resource','Extraction would move only part of an inherited schema resource or dynamic scope');
-   if(g.graph.references.some(ref=>!ref.connection&&ref.keyword==='$dynamicRef'))
+   if(g.graph.references.some(ref=>!ref.connection&&ref.keyword==='$dynamicRef'&&ref.dynamic))
     throw new SourceError('refactor.copy.schema-resource','Anonymous-resource extraction cannot be proved by dynamic navigation candidates alone');
   }
  }
@@ -367,7 +369,11 @@ function planOwnedCopy(input:any,moving=false) {
     throw new SourceError('refactor.copy.implicit','An implicit connection needs an explicit ownership decision before extraction');
    const convert=ref.connection==='operationId'&&sourceResource!==ref.resource;
    if(convert&&g.docs.get(ref.resource)!.nodes.has(ref.pointer+'/operationRef'))throw new SourceError('edit.collision','The Link already authors both mutually exclusive target fields');
-   const next=ref.connection==='operationId'&&!convert?ref.value:referenceValue(after.graph,at,to,convert?'operationRef':ref.keyword,
+   // A $dynamicRef without a dynamic-anchor starting point is static (Core
+   // 8.2.3.2). Construct a static address while retaining its authored keyword;
+   // the final graph proof still checks targets and dynamic candidates.
+   const addressKeyword=convert?'operationRef':ref.keyword==='$dynamicRef'&&!ref.dynamic?'$ref':ref.keyword;
+   const next=ref.connection==='operationId'&&!convert?ref.value:referenceValue(after.graph,at,to,addressKeyword,
     undefined,ref.connection==='discriminator'?{connection:'discriminator'}:{});
    if(next===undefined)throw new SourceError('refactor.copy.address','A required consumer cannot retain its proven target');
    const field=sourcePointer+'/'+escape(convert?'operationRef':ref.keyword),removed=convert?sourcePointer+'/operationId':undefined;

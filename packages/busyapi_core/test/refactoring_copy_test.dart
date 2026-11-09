@@ -7,6 +7,71 @@ import 'package:test/test.dart';
 import 'test_support.dart';
 
 void main() {
+  for (final version in ['3.1.2', '3.2.1']) {
+    for (final format in ['yaml', 'json']) {
+      for (final keyword in [r'$ref', r'$dynamicRef']) {
+        test('$version $format $keyword with schema siblings uses the existing extraction transaction', () async {
+          final temp = await Directory.systemTemp.createTemp('busyapi-applicator-extract-');
+          addTearDown(() => temp.delete(recursive: true));
+          final file = File('${temp.path}/api.$format');
+          const pointer = '/components/schemas/Owner/properties/child';
+          final data = {
+            'openapi': version,
+            'info': {'title': 'Extraction', 'version': 'unrelated'},
+            'paths': {},
+            'components': {'schemas': {
+              'Bound': {'type': 'integer'},
+              'Owner': {'properties': {'child': {
+                keyword: '#/components/schemas/Bound',
+                'minimum': 'EXACT', 'description': 'Sibling annotation',
+                'x-payload': {r'$ref': 'literal'},
+              }}},
+            }},
+          };
+          final original = '${format == 'yaml' ? '# Keep source\r\n' : ''}'
+              '${jsonEncode(data).replaceFirst('"EXACT"', '9007199254740993.00')}\r\n';
+          await file.writeAsString('\ufeff$original');
+          final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);
+          addTearDown(engine.close);
+          var project = await BusyProject.open(file.path, engine);
+          addTearDown(() => project.close());
+          final root = file.uri.toString(), buffer = await project.buffer(file.uri.toString());
+          final target = <String, Object?>{
+            'root': root, 'resource': root, 'pointer': pointer, 'generation': buffer.generation,
+          };
+          final page = await project.inspectObject(root, root, pointer);
+          expect(page['schemaReferenceSiblings'], true);
+          final plan = await project.planComponentExtraction(target, 'Extracted');
+          expect(buffer.text, original);
+          await project.applyRefactoring(plan);
+          final accepted = buffer.bytes();
+          final reference = await project.referencePage(root, root, '/components/schemas/Extracted');
+          final edge = (reference['references'] as List).single as Map;
+          expect(edge['keyword'], keyword);
+          expect(edge['target']['pointer'], '/components/schemas/Bound');
+          expect(edge['dynamic'], isNull);
+          expect(buffer.text, contains('9007199254740993.00'));
+          expect(buffer.text, contains('Sibling annotation'));
+          expect(buffer.text, contains('literal'));
+          expect((await project.check(root))['status'], 'complete');
+          project.store.undo();
+          expect(buffer.text, original);
+          project.store.redo();
+          expect(buffer.bytes(), accepted);
+          await expectLater(project.applyRefactoring(plan), throwsA(
+            isA<CoreFailure>().having((e) => e.code, 'code', 'refactor.stale'),
+          ));
+          expect(buffer.bytes(), accepted);
+          await project.save(buffer);
+          project.close();
+          project = await BusyProject.open(file.path, engine);
+          expect((await project.buffer(root)).bytes(), accepted);
+          expect((await project.check(root))['status'], 'complete');
+          expect((await project.referencePage(root, root, '/components/schemas/Extracted'))['references'][0]['keyword'], keyword);
+        });
+      }
+    }
+  }
   dynamic decode(String text) => jsonDecode(text.substring(text.indexOf('{')));
   test('semantic resource transitions are scoped, reversible and do not retarget siblings', () {
     const transition = SemanticTransition(

@@ -194,3 +194,12 @@ export function isReferenceObject(value:any,kind:string,family:string):boolean {
     return supportsReference(kind,family) && (kind !== 'schema' || !modernFamily(family)) && kind !== 'path-item' &&
         (kind !== 'media' || family === '3.2') && typeof value?.$ref === 'string';
 }
+
+/** Modern schema references are applicators. Siblings remain authored schema
+ * content, so a reviewed extraction/definition move may relocate that whole
+ * object. This is eligibility for review, never a resource/dynamic-scope proof. */
+export function hasSchemaReferenceSiblings(value:any,kind:string,family:string):boolean {
+    return kind === 'schema' && modernFamily(family) &&
+        (typeof value?.$ref === 'string' || typeof value?.$dynamicRef === 'string') &&
+        Object.keys(value).some(name => name !== '$ref' && name !== '$dynamicRef');
+}

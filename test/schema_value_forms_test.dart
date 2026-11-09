@@ -246,10 +246,22 @@ void main() {
               await tester.ensureVisible(whole);
               await tester.runAsync(() => tester.tap(whole));
               await ready(() => controller.form?.kind == 'object.value');
-              await tester.enterText(editor, '{"description":"Complete schema"}');
+              await tester.enterText(editor,
+                  r'{"description":"Complete schema","$ref":"#/components/schemas/Record/allOf/0","allOf":[{}],"properties":{"child":{"$ref":"#/components/schemas/Record/allOf/0","minimum":1}}}');
               await apply();
               await ready(() => controller.form == null && !controller.checking);
               await tester.runAsync(() => pending!);
+              final move = find.widgetWithText(BusyApiActionRow, 'Move definition…');
+              await ready(() => move.evaluate().any((entry) =>
+                  (entry.widget as BusyApiActionRow).onTap != null));
+              await tester.runAsync(() => controller.selectObject({
+                'root': controller.root,
+                'resource': controller.root,
+                'pointer': '$pointer/properties/child',
+              }));
+              final extract = find.widgetWithText(BusyApiActionRow, 'Extract to component…');
+              await ready(() => extract.evaluate().any((entry) =>
+                  (entry.widget as BusyApiActionRow).onTap != null));
             }
             expect(controller.buffer!.text, contains('Complete schema'));
             expect(controller.buffer!.text, contains('9007199254740993.00'));
