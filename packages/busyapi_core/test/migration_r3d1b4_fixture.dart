@@ -60,7 +60,7 @@ void mixedMediaMultipartMigrationRegressions(String group) {
           final review = await project.prepareMigration(root, '${directory.path}/output', targetVersion: target);addTearDown(review.close);
           expect(review.unsaved, true);
           if (group == 'swagger') {expect(review.publishable, false);expect(review.result['outputs'], isEmpty);return;}
-          expect(review.publishable, true, reason: '${review.result}');expect(review.result['producerVersion'], '105');
+          expect(review.publishable, true, reason: '${review.result}');expect(review.result['producerVersion'], '106');
           expect(review.changes.any((change) => change.before.contains('itemEncoding')), true);
           if (binary) expect(review.result['manifest']['tests'][0]['body']['value'], {'tag': ['AP8=']});
           expect(review.result['manifest']['tests'][0]['body']['value']['tag'], isA<List>());
@@ -84,7 +84,7 @@ void mixedMediaMultipartMigrationRegressions(String group) {
           final preview = await Process.run('$testBundle/busyapi', ['migrate', directory.path, '--target', target, '--output', '${directory.path}/cli', '--json'],
             environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
           expect(preview.exitCode, 0, reason: '${preview.stdout} ${preview.stderr}');
-          final report = jsonDecode(preview.stdout as String) as Map;expect(report['producerVersion'], '105');expect(report['published'], false);
+          final report = jsonDecode(preview.stdout as String) as Map;expect(report['producerVersion'], '106');expect(report['published'], false);
           expect(await Directory('${directory.path}/cli').exists(), false);
           await source.delete();await library.delete();await manifest.delete();
           final cold = await BusyProject.open(review.destination, engine);addTearDown(cold.close);

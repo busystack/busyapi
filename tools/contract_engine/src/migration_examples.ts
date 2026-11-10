@@ -8,6 +8,9 @@ import {MigrationSource,type MigrationLocation} from './migration_source';
 import {runtimeMediaKind} from './runtime_media';
 import {declaredPlainTextBytes} from './text_encoding';
 import {mediaTypes} from './media_types';
+import {rawXmlBytes} from './xml_wire';
+import {prepareModeledMedia} from './modeled_media';
+import {isNativeFamily} from './specification';
 
 type CapturedBytes=ReturnType<CapturedExampleResources['read']>;
 type SourceLocation=MigrationLocation&Readonly<{range:[number,number]}>;
@@ -32,7 +35,19 @@ const key=(location:MigrationLocation)=>JSON.stringify([location.resource,locati
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
 const parent=(pointer:string)=>pointer.slice(0,pointer.lastIndexOf('/'));
 export function migrationExampleBytes(raw:string,media:string):Buffer {
-    return runtimeMediaKind(media)==='text'?declaredPlainTextBytes(raw,mediaTypes(media)[0].parameters.get('charset')):Buffer.from(raw,'utf8');
+    const kind=runtimeMediaKind(media),charset=mediaTypes(media)[0].parameters.get('charset');
+    return kind==='text'?declaredPlainTextBytes(raw,charset):kind==='xml'?rawXmlBytes(raw,charset):Buffer.from(raw,'utf8');
+}
+
+/** Conversion uses the same original-schema evaluator and codec as Request.
+ * Reuse this captured graph, including retrieval aliases and secondary roles;
+ * reconstructing it from document text would lose those authorizations. */
+export async function migrationModeledExampleBytes(graph:ReferenceGraph,media:string,text:string,
+    schema?:MigrationLocation,header=false,packets:readonly ExternalExampleResourcePacket[]=[]):Promise<Buffer> {
+    const family=graph.family;if(!isNativeFamily(family))throw new SourceError('migration.example.family','The captured example has no native family',[0,0],'unsupported');
+    const resources=[...graph.docs.values()].map(doc=>({id:doc.id,text:doc.text,generation:0}));
+    return (await prepareModeledMedia({root:graph.root,resources,snapshot:'migration-example',exampleResources:packets},text,media,schema,header,undefined,
+        {docs:graph.docs,graph,family,exampleResources:new CapturedExampleResources([...packets])})).bytes;
 }
 const captureIdentity=(capture:Capture)=>capture.state==='available'?
     JSON.stringify([capture.bytes.id,capture.bytes.identity,capture.bytes.generation]):JSON.stringify([capture.code,capture.message]);

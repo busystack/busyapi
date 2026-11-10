@@ -124,8 +124,8 @@ Schema producer is now `hyperjump+busyapi-exact` **1.18.0+69**, with
 `parameter-media-octets-v1` and `parameter-empty-expansion-v1`;
 Parameter producer is **8**, `parameter-wire-v8`.
 Request Parameter example representation is now **2**, and part example
-representation is **1**, strictly admitted by Core. Migration is now **105**
-for the XML applicability correction below; multipart **2**, stream **2** and
+representation is **1**, strictly admitted by Core. Migration is now **106**
+for the XML applicability and modeled Example corrections below; multipart **2**, stream **2** and
 other existing identities are retained.
 
 The same continuation additionally connects approved captured bytes to the
@@ -342,8 +342,10 @@ now materializes the already implied literal `type: array` beside legacy
 `wrapped`. OAS 3.1.2 §4.8.26.1 makes wrapping effective only alongside that
 literal type. The existing assertion/domain proof establishes redundancy; no
 instance sample or new certificate algorithm supplies this conversion.
-Migration producer is **105**, strictly admitted by Core; **104** remains a
-prepared negative control. Existing regression expectations are synchronized.
+That correction first advanced migration producer to **105**. The modeled
+Example integration below advances it to **106**, strictly admitted by Core;
+**104** and **105** remain prepared negative controls. Existing regression
+expectations are synchronized.
 Prepared, **not run**: the registered object-use suite covers both 3.2 patches,
 YAML/JSON, reference/conjunction/singleton-type array declarations, all older
 target families and exact native XML codec bytes. Core
@@ -352,14 +354,40 @@ publication, moved-output cold reopen, saved cases/independent CLI and rejection
 of the obsolete producer without output creation. Original source bytes remain
 asserted throughout.
 
+The same existing Example converter now lowers captured XML and Linkset
+data/wire examples through the canonical media preparation owner. Non-string
+models retain their exact CST values; scalar XML data becomes an older embedded
+wire string only after original-schema encoding and exact charset inversion.
+The original scalar remains literal history. Paired serialized or approved
+external choices require identical effective bytes for every actual media
+consumer. Reusable media without a content-type occurrence is still missing
+context, never guessed. Linkset JSON uses the established JSON literal rule.
+This follows O32 §4.19's data/wire distinction and O31 §4.8.19.1's older
+embedded-string representation. The request invariant now compares these
+modeled choices by the same canonical bytes, including XML charsets, rather
+than treating model JSON text as entity bytes. Existing incompatible authored
+data remains a distinct exact-data/unprepared state; it cannot equal successful
+codec output. Original schema and media conversion proofs remain independent.
+
+Prepared, **not run**: the registered object-use suite covers both 3.2 patches,
+YAML/JSON, XML objects/scalars/UTF-16 and both Linkset forms, data/serialized/
+paired/external choices, reusable media/Example references and older modern
+targets. It retains unbound-context and differing-byte controls. Core
+`migration_media_examples_test.dart` prepares actual HTTP, reviewed publication,
+moved-output cold reopen, approved byte copies, saved-case replay and independent
+CLI. The existing native external-example review suite adds XML data paired
+with approved external bytes, publication and stale-review rejection. Swagger's
+existing body/response/example ownership and target restrictions remain
+separate; this change does not invent a flat Parameter/Header example slot.
+
 This does **not** close migration reconciliation. W3.05's competing-dynamic-target
 lowering is still an unimplemented representation algorithm, not an older-spec
 restriction. W3.08/W3.09 retain confirmed missing generalized Example
-conversion: `migration_example_versions.ts` currently admits JSON/plain-text,
-established form/Parameter inverses and simple string Headers; XML/Linkset and
-other supported native codec examples are still stopped at
-`migration.example.representation-codec`, and generalized Header inverses are
-not implemented there. Non-default Encoding conversions outside the existing
+conversion beyond captured JSON/plain-text/XML/Linkset paths, established
+form/Parameter inverses and simple string Headers. Sequence example conversion,
+generalized Header inverses and independently owned variants for incompatible
+shared data/wire choices remain missing implementation/equivalence work, not
+proved target-spec restrictions. Non-default Encoding conversions outside the existing
 positional/named multipart classes and mixed XML/fallback domain transformations
 remain unreconciled; unavailable equivalence is not reclassified as impossible.
 Actual absent target categories (for example independent Webhooks in 3.0 or
@@ -1943,7 +1971,7 @@ Known remaining R3 implementation/proof gaps:
 | Reusable Media Type categories targeting Swagger | R3b above completes established occurrence/child-owner conversion; independently unbound definitions retain the precise `migration.media.unbound-owner` final-target restriction. |
 | Whole-query parameters | R3c-1/2/3 above are source-complete, unverified: finite identity/extraction/factorization, grouped presence, actual codec comparisons, raw/structured saved projections, examples and shared ownership are implemented. Precise target restrictions and unavailable-evidence cases remain as reconciled above. |
 | Positional/nested multipart and response part instructions | Non-default instructions still need complete shape-specific conversion, including any equivalent older Schema annotations; current unavailable-proof/target boundaries do not establish that every such source is impossible. |
-| General newer Example serialization | Other parameter/Header serializations, non-JSON/plain-text codecs and unbound reusable examples still lack the required equality/ownership certificates. Simple string Header, JSON and plain-text conversions do not close this matrix. |
+| General newer Example serialization | The active continuation connects captured XML/Linkset codecs and exact modeled request profiles. Other Parameter/Header inverses, sequence example conversion and independent older choices for incompatible shared representations remain implementation/equivalence gaps. Unbound reusable examples retain a missing-context proof boundary. |
 | Other newer parameter/XML/fallback specializations | R3c above completes established finite query/cookie projections and their examples/configuration, unverified. Mixed XML domains/reference-forwarding cases and fallback relationships outside the established required finite-string certificate remain unreconciled. |
 | Combined R3 regression coverage | New coverage is prepared below, but the complete requested Engine/Core/native/CLI and transaction matrix is not yet prepared for every remaining conversion. |
 

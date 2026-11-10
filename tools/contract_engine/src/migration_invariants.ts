@@ -21,7 +21,8 @@ import {swaggerMedia,swaggerFlat} from './swagger_operation';
 import {inactiveReservedExpansion} from './migration_object_metadata';
 import {MigrationSchemaProofs} from './migration_schema_proofs';
 import {isNativeFamily} from './specification';
-import {migrationExampleBytes} from './migration_examples';
+import {migrationExampleBytes,migrationModeledExampleBytes} from './migration_examples';
+import type {ExternalExampleResourcePacket} from './external_examples';
 import {runtimeMediaKind} from './runtime_media';
 import {inactiveMigrationHeader} from './migration_media_schema';
 import type {ParameterWireProfiles} from './migration_parameter_serialization';
@@ -272,11 +273,42 @@ function effectiveUrl(value:string,path:string):string {
 
 /** Representation-sensitive checks supplement native target validation. The
  * signature contains API declarations, never environments or credentials. */
-export function migrationRequestProfiles(graph:ReferenceGraph,resources:Resource[],wire?:ParameterWireProfiles,namedTarget?:string):ReadonlyMap<string,string> {
+const mediaExampleKey=(media:any,example:any)=>JSON.stringify([media.mediaType,media.schema?.resource,media.schema?.pointer,
+    example.source?.resource,example.source?.pointer,example.representation,example.raw]);
+
+export async function prepareMigrationRequestProfiles(graph:ReferenceGraph,resources:Resource[],wire?:ParameterWireProfiles,
+    namedTarget?:string,exampleResources:readonly ExternalExampleResourcePacket[]=[]):Promise<ReadonlyMap<string,string>> {
+    const bytes=new Map<string,string>();
+    // Codec preparations share one canonical evaluator lifetime, so keep them
+    // sequential. This is a byte projection of actual choices, not a sample
+    // witness for equivalence of the surrounding schemas.
+    for(const operation of graph.operations().filter(operation=>operation.role==='operation')){
+        const plan=requestOperation({root:graph.root,resources,exampleResources,snapshot:'migration-invariant',resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
+        const media=[...(plan.requestBody?.content??[]),...plan.responses.filter((response:any)=>response.bodyAllowed!==false).flatMap((response:any)=>response.content)];
+        for(const value of media)if(['xml','linkset','linkset-json'].includes(runtimeMediaKind(value.mediaType)))for(const example of value.examples??[]){
+            if(example.representation!=='json'||example.wireBase64!==undefined)continue;
+            const key=mediaExampleKey(value,example);if(bytes.has(key))continue;
+            if(bytes.size>=20000)throw new SourceError('limit.migration.examples','Modeled example profiles exceed 20000 captured choices');
+            try{
+                bytes.set(key,(await migrationModeledExampleBytes(graph,value.mediaType,example.raw,value.schema,false,exampleResources)).toString('base64'));
+            }catch(error){
+                if(!(error instanceof SourceError))throw error;
+                // Existing authored examples can remain incompatible advice.
+                // Keep that state and exact data in the comparison; it cannot
+                // equal a successful byte preparation on the other side.
+                bytes.set(key,'unprepared:'+JSON.stringify([error.code,example.raw]));
+            }
+        }
+    }
+    return migrationRequestProfiles(graph,resources,wire,namedTarget,bytes,exampleResources);
+}
+
+export function migrationRequestProfiles(graph:ReferenceGraph,resources:Resource[],wire?:ParameterWireProfiles,namedTarget?:string,
+    exampleBytes?:ReadonlyMap<string,string>,exampleResources:readonly ExternalExampleResourcePacket[]=[]):ReadonlyMap<string,string> {
     const securityBindings=new Map(graph.references.filter(reference=>reference.connection==='security').map(reference=>[
         JSON.stringify([reference.resource,reference.pointer,reference.keyword]),reference]));
     return new Map(graph.operations().filter(operation=>operation.role==='operation').map(operation=>{
-        const plan=requestOperation({root:graph.root,resources,snapshot:'migration-invariant',resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
+        const plan=requestOperation({root:graph.root,resources,exampleResources,snapshot:'migration-invariant',resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
         const normalize=(value:any):any=>Array.isArray(value)?value.map(normalize):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).filter(name=>!['source','definition','base','origin','sources'].includes(name)).sort().map(name=>[name,normalize(value[name])])):value;
         const groups=new Map<string,Set<string>>();
         const parameters:any[]=plan.parameters.flatMap((parameter:any):any[]=>{
@@ -314,7 +346,7 @@ export function migrationRequestProfiles(graph:ReferenceGraph,resources:Resource
         const media=(values:any[])=>values.map(value=>value.mediaType).sort();
         const examples=(values:any[],includeSchema:boolean)=>values.map(value=>({mediaType:value.mediaType,
             values:[...new Set((value.examples??[]).filter((value:any)=>includeSchema||value.origin!=='schema')
-                .map((example:any)=>example.wireBase64??migrationExampleBytes(runtimeMediaKind(value.mediaType)==='text'&&example.representation==='json'&&example.dataKind==='string'?example.text:example.raw,value.mediaType).toString('base64')))].sort()})).sort((a,b)=>a.mediaType.localeCompare(b.mediaType));
+                .map((example:any)=>example.wireBase64??exampleBytes?.get(mediaExampleKey(value,example))??migrationExampleBytes(runtimeMediaKind(value.mediaType)==='text'&&example.representation==='json'&&example.dataKind==='string'?example.text:example.raw,value.mediaType).toString('base64')))].sort()})).sort((a,b)=>a.mediaType.localeCompare(b.mediaType));
         // A 3.2 URI security key is a contract locator, rather than an HTTP
         // authentication name. Its relocation may change spelling. Keep
         // entry-component names, every declaration field and each required

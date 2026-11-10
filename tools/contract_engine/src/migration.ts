@@ -21,7 +21,7 @@ import {documentUriBase,resolveUri,pointerFragment as fragment,schemaDialectIden
 import {documentUriOccurrences} from './document_uris';
 import {serverTemplate} from './derived_bundle';
 import {captureMigrationMarkdown,rewriteMigrationMarkdown,proveMigrationMarkdown} from './migration_markdown';
-import {proveMigrationPositionalEncoding,migrationRequestProfiles,migrationOperationPairs,migrationSecurityAlternativeProjection,proveMigrationOperationMedia,proveMigrationObjectMetadata,proveMigrationServerSelections} from './migration_invariants';
+import {proveMigrationPositionalEncoding,prepareMigrationRequestProfiles,migrationOperationPairs,migrationSecurityAlternativeProjection,proveMigrationOperationMedia,proveMigrationObjectMetadata,proveMigrationServerSelections} from './migration_invariants';
 import {migrateEncodings} from './migration_encoding';
 import {migrateNamedMultipart,prepareNamedMultipart} from './migration_named_multipart';
 import {projectMigrationMultipartConfiguration} from './migration_multipart_configuration';
@@ -54,7 +54,7 @@ import {migrateParameterSerialization,proveMigrationParameterSerialization,type 
 import {projectMigrationParameterConfiguration} from './migration_parameter_configuration';
 
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
-const migrationProducerVersion='105';
+const migrationProducerVersion='106';
 const key=(resource:string,pointer:string)=>JSON.stringify([resource,pointer]);
 const referenceLocator=(reference:GraphReference)=>!reference.connection&&['$ref','$dynamicRef'].includes(reference.keyword)||
     reference.connection==='operationRef'&&reference.keyword==='operationRef';
@@ -348,7 +348,7 @@ export async function planMigration(input:MigrationInput) {
             }
             if(problems.length)break;
             if(await migrateExampleVersions(contexts.map(context=>context.graph),sources,stage.sources,after,owners,issue,
-                (location,namespace)=>externalExamples!.inlineCapture(sourceLocation(location.resource,location.pointer),namespace),parametersChanged?parameterExampleContexts:[])){
+                (location,namespace)=>externalExamples!.inlineCapture(sourceLocation(location.resource,location.pointer),namespace),parametersChanged?parameterExampleContexts:[],input.exampleResources)){
                 const examplesInput=preparationInput(),examplesGraph=createGraph(examplesInput);
                 contexts=migrationDocumentContexts(examplesInput,examplesGraph,issue);graph=examplesGraph.graph;
             }
@@ -799,7 +799,8 @@ export async function planMigration(input:MigrationInput) {
                 parameterChanges.set(JSON.stringify(change),change);
             }
             await prepareNamedMultipart([context.graph],target.family,input.exampleResources);
-            const beforeProfiles=migrationRequestProfiles(context.graph,input.resources,parameterProfiles.before,target.family),afterProfiles=migrationRequestProfiles(targetGraph,outputResources,parameterProfiles.after);
+            const beforeProfiles=await prepareMigrationRequestProfiles(context.graph,input.resources,parameterProfiles.before,target.family,input.exampleResources),
+                afterProfiles=await prepareMigrationRequestProfiles(targetGraph,outputResources,parameterProfiles.after,undefined,outputExampleResources);
             for(const {before,after}of operationPairs)if(before.role==='operation'&&
                 beforeProfiles.get(before.occurrence)!==afterProfiles.get(after.occurrence))
                 issue(before.source,'migration.invariant.request','The captured operation changed effective URLs, serialization, authentication, request media or responses','implementation');

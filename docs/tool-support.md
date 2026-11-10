@@ -1006,12 +1006,16 @@ destination object kind; canonical graph checks retain all original connections,
 schema identities, Markdown contexts and source values. Separating just one
 role remains unavailable when independent ownership has not been established.
 
-Migration producer **105** retains the existing conversion owners and adds a
+Migration producer **106** retains the existing conversion owners and adds a
 literal `type: array` when an already proved array domain needs older XML
 `wrapped` applicability. Source originals remain independent of the transactional
-output; obsolete migration producer **104** is rejected by Core. Generalized
-Example/Encoding/XML conversions and competing dynamic-target lowering retain
-their separately recorded implementation/proof boundaries.
+output. Captured XML/Linkset Example conversions reuse the original-schema
+media codecs and exact modeled request-byte profiles. Paired or approved
+external choices require identical bytes; scalar XML data retains literal
+history when represented by an older wire string. Obsolete migration producers
+**104** and **105** are rejected by Core. Other Example/Encoding/XML conversions
+and competing dynamic-target lowering retain their separately recorded
+implementation/proof boundaries.
 
 `swagger_content.mjs` uses supported component hooks and exact Reference values
 for schema constraints, inherited parameters and additional operations. Its

@@ -5,7 +5,12 @@ import type {MigrationSchemaOwners} from './migration_schema_owners';
 import type {MigrationIssue} from './migration_schema';
 import {migrationScopes} from './migration_documents';
 import {runtimeMediaKind} from './runtime_media';
-import {migrationExampleBytes} from './migration_examples';
+import {migrationExampleBytes,migrationModeledExampleBytes} from './migration_examples';
+import type {ExternalExampleResourcePacket} from './external_examples';
+import {capturedRuntimeMedia} from './runtime_media_owner';
+import {exampleRepresentation} from './example_representation';
+import {xmlCharacters} from './xml_wire';
+import {mediaTypes} from './media_types';
 import {MigrationSchemaProofs} from './migration_schema_proofs';
 import {decodeMigrationParameterExample,migrationParameterExampleWire,migrationFormExampleWire} from './migration_parameter_serialization';
 
@@ -18,7 +23,7 @@ const identity=(at:MigrationLocation)=>JSON.stringify([at.resource,at.pointer]);
 export async function migrateExampleVersions(graphs:readonly ReferenceGraph[],sources:Map<string,MigrationSource>,
  families:readonly string[],target:string,owners:MigrationSchemaOwners,issue:MigrationIssue,
  external:(location:MigrationLocation,namespace:string)=>Readonly<{base64:string}>|undefined,
- originalContexts:readonly ReferenceGraph[]=[]):Promise<boolean> {
+ originalContexts:readonly ReferenceGraph[]=[],exampleResources:readonly ExternalExampleResourcePacket[]=[]):Promise<boolean> {
  if(target==='3.2'||!families.includes('3.2'))return false;
  const uses=new Map<string,Use[]>(),currentUses=new Set<string>();let work=0,changed=false;
  const follow=(graph:ReferenceGraph,scope:GraphScope):GraphScope|undefined=>{
@@ -54,6 +59,67 @@ export async function migrateExampleVersions(graphs:readonly ReferenceGraph[],so
   const field=(name:string)=>({...scope,pointer:scope.pointer+'/'+name});
   if(!consumers.length){issue(scope,'migration.example.representation-context','No captured media or parameter consumer establishes an older value representation for this reusable Example','unavailable-proof');continue;}
   const kinds=consumers.map(use=>use.media?.split(';')[0].trim().toLowerCase()==='application/x-www-form-urlencoded'?'form':use.media?runtimeMediaKind(use.media):'parameter');
+  if(kinds.some(kind=>kind==='xml'||kind==='linkset')){
+   if(consumers.some((use,index)=>!use.media||!['xml','linkset','linkset-json','json'].includes(kinds[index]))){
+    issue(scope,'migration.example.shared-representation','The captured data/wire consumers still need independently owned older Example representations','unavailable-proof');continue;
+   }
+   try{
+    if(!data){
+     if(kinds.some(kind=>kind==='json'||kind==='linkset-json')){
+      issue(scope,'migration.example.shared-representation','A shared serialized Example needs an established common literal representation for its JSON and non-JSON consumers','unavailable-proof');continue;
+     }
+     // These older media examples are embedded wire strings too. Source and
+     // target validation retain the same concrete media and original schema.
+     source.move(pointer+'/serializedValue',pointer+'/value');changed=true;continue;
+    }
+    const raw=source.doc.dataJson(pointer+'/dataValue'),bytes:Buffer[]=[];
+    for(const use of consumers){
+     const media=capturedRuntimeMedia(use.graph)(use.owner);
+     let parent=use.owner.pointer,header=false;
+     while(parent){
+      const parameter=use.graph.scopeAs(use.owner.resource,parent,'parameter');
+      if(use.graph.scopeAs(use.owner.resource,parent,'header')||parameter&&use.graph.docs.get(parameter.resource)!.dataNode(parameter.pointer+'/in')?.value==='header'){header=true;break;}
+      parent=parent.slice(0,parent.lastIndexOf('/'));
+     }
+     bytes.push(await migrationModeledExampleBytes(use.graph,use.media!,raw,media.schema,header,exampleResources));
+    }
+    if(serialized&&consumers.some((use,index)=>!bytes[index].equals(migrationExampleBytes(serialized.value,use.media!)))){
+     issue(scope,'migration.example.paired-bytes','The independently authored data and serialized choices select different bytes; preserving both still needs independently owned older Examples','unavailable-proof');continue;
+    }
+    if(Object.hasOwn(value,'externalValue')){
+     if(consumers.some((use,index)=>external(field('externalValue'),use.graph.root)?.base64!==bytes[index].toString('base64'))){
+      issue(scope,'migration.example.external-equivalence','Approved external bytes do not establish the same modeled example for every captured media consumer','unavailable-proof');continue;
+     }
+     owners.retainNativeHistory(field('dataValue'),source,pointer+'/dataValue','example_data_value',graph);
+     if(serialized)owners.retainNativeHistory(field('serializedValue'),source,pointer+'/serializedValue','example_serialization',graph);
+    }else{
+     let olderString:string|undefined;
+     if(typeof data.value==='string'){
+      const candidates=consumers.map((use,index)=>exampleRepresentation('value',data.value,use.media)==='json'?data.value:
+       kinds[index]==='xml'?xmlCharacters(bytes[index],mediaTypes(use.media!)[0].parameters.get('charset')):
+       new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(bytes[index]));
+      if(new Set(candidates).size!==1||consumers.some((use,index)=>exampleRepresentation('value',candidates[index],use.media)==='serialized'&&
+       !migrationExampleBytes(candidates[index],use.media!).equals(bytes[index]))){
+       issue(scope,'migration.example.shared-representation','The scalar data example needs independently owned older values for its captured media consumers','unavailable-proof');continue;
+      }
+      olderString=candidates[0];
+     }
+     if(serialized)owners.retainNativeHistory(field('serializedValue'),source,pointer+'/serializedValue','example_serialization',graph);
+     if(olderString!==undefined&&olderString!==data.value){
+      owners.retainNativeHistory(field('dataValue'),source,pointer+'/dataValue','example_data_value',graph);
+      source.set(pointer+'/value',olderString);
+     }else source.move(pointer+'/dataValue',pointer+'/value');
+    }
+    changed=true;
+   }catch(error){
+    if(!(error instanceof SourceError)&&!(error instanceof TypeError))throw error;
+    issue(scope,'migration.example.representation-codec','The existing canonical media owner could not establish exact older example bytes: '+error.message,'unavailable-proof');
+   }
+   continue;
+  }
+  // Linkset JSON has the same literal embedding rule as JSON, while its
+  // native profile and model constraints remain checked by the shared codec.
+  for(let index=0;index<kinds.length;index++)if(kinds[index]==='linkset-json')kinds[index]='json';
   if(kinds.some(kind=>!['json','text','parameter','form'].includes(kind))){issue(scope,'migration.example.representation-codec','The captured consumers need a data-to-wire decoder or encoder outside the established JSON/plain-text/form example proof','unavailable-proof');continue;}
   const formWire=(use:Use):string|undefined=>{
    const raw=source.doc.dataJson(pointer+'/dataValue');

@@ -34,6 +34,55 @@ const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
 const {SourceDocument}=require('./dist/document.cjs');
 const {resolveUri}=require('./dist/reference_graph.cjs');
 
+for(const format of ['yaml','json'])for(const version of ['3.2.0','3.2.1'])for(const targetVersion of ['3.1.2','3.0.4'])
+test(`${version} ${format} XML and Linkset Example choices retain canonical bytes in ${targetVersion}`,async()=>{
+ const {requestMediaBytes}=require('./dist/execution.cjs'),{prepareMigrationRequestProfiles}=require('./dist/migration_invariants.cjs');
+ for(const kind of ['xml-object','xml-string','xml-utf16','linkset','linkset-json'])for(const choice of ['data','serialized','paired','external']){
+  const root='file:///modeled-examples/api.'+format,xml=kind.startsWith('xml'),scalar=xml&&kind!=='xml-object';
+  const mediaType=kind==='xml-utf16'?'application/xml; charset=utf-16':xml?'application/xml':kind==='linkset'?'application/linkset':'application/linkset+json';
+  const sample=xml?scalar?'雪 & value':{n:'EXACT',label:'雪'}:{linkset:[{anchor:'https://example.org/context',next:[{href:'https://example.org/a,b','title*':[{value:'雪',language:'ja'}]}]}]};
+  const schema=xml?{type:scalar?'string':'object',xml:{name:'payload',nodeType:'element'},...(!scalar?{required:['n','label'],properties:{n:{type:'integer'},label:{type:'string'}}}:{})}:{type:'object'};
+  const value={openapi:version,info:{title:'Modeled choices',version:'1'},servers:[{url:'https://api.invalid'}],
+   paths:{'/p':{post:{requestBody:{content:{[mediaType]:{$ref:'#/components/mediaTypes/Payload'}}},responses:{200:{description:'Echo',content:{[mediaType]:{$ref:'#/components/mediaTypes/Payload'}}}}}}},
+   components:{mediaTypes:{Payload:{schema}},examples:{Choice:{dataValue:sample}}},'x-literal':{dataValue:sample,$ref:'literal-only'}};
+  const render=()=> (format==='yaml'?YAML.stringify(value):JSON.stringify(value)).replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+  const input={root,snapshot:kind+'-'+choice,resources:[{id:root,text:render(),generation:0}],targetVersion,destination:'file:///delivered/modeled/'};
+  const raw=new SourceDocument(input.resources[0].text,root).dataJson('/components/examples/Choice/dataValue');
+  const prepared=await requestMediaBytes({...input,resource:root,pointer:'/paths/~1p/post',mediaType,text:raw});
+  const bytes=Buffer.from(prepared.base64,'base64'),wire=new TextDecoder(kind==='xml-utf16'?'utf-16le':'utf-8',{fatal:true}).decode(bytes);
+  if(choice==='serialized')value.components.examples.Choice={serializedValue:wire};
+  if(choice==='paired')value.components.examples.Choice.serializedValue=wire;
+  if(choice==='external'){
+   value.components.examples.Choice.externalValue='payload.bin';
+   input.exampleResources=[{version:1,id:'file:///modeled-examples/payload.bin',generation:1,aliases:[],state:'available',base64:prepared.base64,byteLength:bytes.length,identity:createHash('sha256').update(bytes).digest('hex')}];
+  }
+  value.components.mediaTypes.Payload.examples={Choice:{$ref:'#/components/examples/Choice'}};
+  input.resources[0].text=render();const before=JSON.stringify(input);
+  const review=await planMigration(input);assert.equal(review.complete,true,kind+' '+choice+' '+JSON.stringify(review.problems));
+  const cold={root:review.outputRoot,snapshot:'cold-'+input.snapshot,resources:review.outputs.map(output=>({...output,generation:0})),
+   exampleResources:review.exampleOutputs.map(output=>({version:1,id:output.id,aliases:[],identity:output.identity,generation:0,state:'available',base64:output.base64,byteLength:output.byteLength}))};
+  const original=await prepareMigrationRequestProfiles(createGraph(input).graph,input.resources,undefined,undefined,input.exampleResources);
+  const delivered=await prepareMigrationRequestProfiles(createGraph(cold).graph,cold.resources,undefined,undefined,cold.exampleResources);
+  assert.deepEqual([...delivered.values()].sort(),[...original.values()].sort());
+  assert.equal(JSON.stringify(input),before);assert.equal((await evaluateSchemas(cold)).complete,true);
+  const projection=requestOperation({...cold,resource:cold.root,pointer:'/paths/~1p/post'}).requestBody.content[0];
+  assert.equal(projection.examples.length,1);assert.equal(projection.examples[0].name,'Choice');
+  if(choice==='external')assert.equal(projection.examples[0].wireBase64,prepared.base64);
+ }
+});
+
+test('modeled Example conversion retains context and differing-byte refusals without output',async()=>{
+ const root='file:///example-controls/api.json';
+ const base={openapi:'3.2.1',info:{title:'Controls',version:'1'},paths:{},components:{examples:{Unused:{dataValue:'雪'}}}};
+ const capture=value=>({root,snapshot:'controls',resources:[{id:root,text:JSON.stringify(value),generation:0}],targetVersion:'3.1.2',destination:'file:///example-controls/output/'});
+ const unbound=await planMigration(capture(base));assert.equal(unbound.complete,false);assert.deepEqual(unbound.outputs,[]);
+ assert(unbound.problems.some(problem=>problem.code==='migration.example.representation-context'&&problem.reason==='unavailable-proof'));
+ delete base.components.examples;
+ base.paths={'/p':{post:{requestBody:{content:{'application/xml':{schema:{type:'string',xml:{name:'payload',nodeType:'element'}},examples:{Choice:{dataValue:'雪',serializedValue:'<payload>雪</payload>\n'}}}}},responses:{204:{description:'Empty'}}}}};
+ const mismatch=await planMigration(capture(base));assert.equal(mismatch.complete,false);assert.deepEqual(mismatch.outputs,[]);
+ assert(mismatch.problems.some(problem=>problem.code==='migration.example.paired-bytes'&&problem.reason==='unavailable-proof'));
+});
+
 for(const format of ['yaml','json'])for(const version of ['3.2.0','3.2.1'])for(const targetVersion of ['3.1.2','3.0.4','2.0'])
 test(`${version} ${format} inferred XML array instructions retain their literal older applicability in ${targetVersion}`,async()=>{
  const {requestMediaBytes}=require('./dist/execution.cjs');
@@ -195,7 +244,7 @@ test(`${version} ${format} native objects and literal values share one specializ
  const input=fixture(version,format),original=input.resources[0].text,doc=new SourceDocument(original,input.root);
  assert.equal(analyse(input).status,'complete');await wire(input);
  const review=await planMigration(input);
- assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'105');
+ assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'106');
  assert.equal(review.exampleOutputs.length,2);assert.equal(input.resources[0].text,original);
  const output=delivered(review),{graph}=createGraph(output);
  assert.equal(analyse(output).status,'complete');await wire(output);

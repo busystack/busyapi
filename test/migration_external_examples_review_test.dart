@@ -26,17 +26,18 @@ void main() {
     for (final channel in ['yaru_window', 'yaru_window/events']) messenger.setMockMethodCallHandler(MethodChannel(channel), null);
   });
   _r3bUnusedReviews();
-  for (final format in ['yaml', 'json']) for (final targetVersion in ['3.2.1', '2.0']) for (final stale in [false, true])
+  for (final format in ['yaml', 'json']) for (final targetVersion in ['3.2.1', '3.1.2', '2.0']) for (final stale in [false, true])
   for (final reusable in targetVersion == '2.0' ? [false, true] : [false]) {
     testWidgets('$format $targetVersion ${reusable ? 'R3b reusable' : 'ordinary'} native example review ${stale ? 'rejects stale source' : 'publishes exact bytes'}', (tester) async {
       tester.view.physicalSize = const Size(1400, 1200);tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);
       final directory = Directory.systemTemp.createTempSync('busyapi-example-review-');
       final file = File('${directory.path}/api.$format'), payload = File('${directory.path}/payload.bin');
-      const type = 'text/plain; charset=iso-8859-1';
-      const bytes = [99, 97, 102, 233];
+      final modeled = targetVersion == '3.1.2';
+      final type = modeled ? 'application/xml' : 'text/plain; charset=iso-8859-1';
+      final bytes = modeled ? utf8.encode('<value>café</value>') : [99, 97, 102, 233];
       final value = {
-        'openapi': '3.0.4',
+        'openapi': modeled ? '3.2.1' : '3.0.4',
         'info': {'title': 'Original', 'version': 'business'},
         'servers': [{'url': 'https://api.invalid'}],
         'paths': {
@@ -47,8 +48,8 @@ void main() {
                   'description': 'Reply',
                   'content': {
                     type: {
-                      'schema': {'type': 'string', 'enum': ['café']},
-                      'examples': {'External': {'externalValue': './payload.bin'}},
+                      'schema': {'type': 'string', 'enum': ['café'], if(modeled)'xml':{'name':'value','nodeType':'element'}},
+                      'examples': {'External': {'externalValue': './payload.bin', if(modeled)'dataValue':'café'}},
                     },
                   },
                 },
@@ -106,12 +107,12 @@ void main() {
         await tester.runAsync(() => tester.tap(find.text('Migrate')));
         final review = find.widgetWithText(BusyApiDialogButton, 'Review migration');
         await ready(() => review.evaluate().isNotEmpty);
-        if (targetVersion == '2.0') {
+        if (targetVersion != '3.2.1') {
           const channel = MethodChannel('busyapi/native_menus');
           final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
           messenger.setMockMethodCallHandler(channel, (call) async {
             if (call.method != 'show') return null;
-            return ((call.arguments as Map)['entries'] as List).indexWhere((entry) => entry['label'] == '2.0');
+            return ((call.arguments as Map)['entries'] as List).indexWhere((entry) => entry['label'] == targetVersion);
           });
           addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
           await tester.tap(find.byWidgetPredicate((widget) => widget is BusyApiComboRow<String> && widget.title == 'Target specification'));await tester.pumpAndSettle();
@@ -120,7 +121,7 @@ void main() {
         final destination = find.widgetWithText(BusyApiDialogButton, 'Review output');
         await ready(() => destination.evaluate().isNotEmpty);await tester.runAsync(() => tester.tap(destination));
         final copy = find.byWidgetPredicate((widget) => widget is SelectableText &&
-          widget.data?.startsWith('Copy 4 bytes unchanged: ${payload.uri} → ') == true);
+          widget.data?.startsWith('Copy ${bytes.length} bytes unchanged: ${payload.uri} → ') == true);
         final publish = find.widgetWithText(BusyApiDialogButton, 'Create migrated copy');
         if (targetVersion == '2.0') {
           await ready(() => publish.evaluate().isNotEmpty && tester.widget<BusyApiDialogButton>(publish).onPressed != null);

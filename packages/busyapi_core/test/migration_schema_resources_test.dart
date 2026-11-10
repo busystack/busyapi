@@ -54,7 +54,7 @@ void main() {
         } else { expect(Directory(review.destination).existsSync(), false); }
       }
       final review = await source.prepareMigration(roots.first, '${directory.path}/output', targetVersion: target);addTearDown(review.close);
-      expect(review.publishable, true, reason: '${review.result}');expect(review.result['producerVersion'], '105');
+      expect(review.publishable, true, reason: '${review.result}');expect(review.result['producerVersion'], '106');
       await expectLater(review.publish(cancelled: () => true), throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'cancelled')));
       expect(Directory(review.destination).existsSync(), false);await review.publish();
       final names = [for (final root in roots) Uri.parse(review.changes.singleWhere((change) => change.resource == root).destination).pathSegments.last];
@@ -69,7 +69,7 @@ void main() {
       final cli = await Process.run('$testBundle/busyapi', ['migrate', moved.path, '--root', 'migrated', '--target', target, '--output', '${directory.path}/cli-review', '--review', '--json'],
         environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
       expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');final report = jsonDecode(cli.stdout as String) as Map;
-      expect(report['producerVersion'], '105');expect(report['complete'], true);expect(report['published'], false);
+      expect(report['producerVersion'], '106');expect(report['complete'], true);expect(report['published'], false);
       expect(Directory('${directory.path}/cli-review').existsSync(), false);
     });
   }

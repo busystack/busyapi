@@ -34,7 +34,7 @@ void finiteTupleMultipartMigrationRegressions(String group) {
         final review = await project.prepareMigration(root, '${directory.path}/output', targetVersion: target);addTearDown(review.close);
         expect(review.unsaved, true);
         if (group == 'swagger') {expect(review.publishable, false);expect(review.result['outputs'], isEmpty);return;}
-        expect(review.publishable, true, reason: '${review.result}');expect(review.result['producerVersion'], '105');
+        expect(review.publishable, true, reason: '${review.result}');expect(review.result['producerVersion'], '106');
         expect(review.result['manifestText'], contains('9007199254740993.00'));
         expect(review.result['manifest']['tests'][0]['body']['partMediaTypes'], {'tag': 'application/json'});
         expect(review.result['manifest']['tests'][1]['body']['value'], {'tag': []});expect(review.result['manifest']['tests'][2]['body'], isNull);
@@ -52,7 +52,7 @@ void finiteTupleMultipartMigrationRegressions(String group) {
         final preview = await Process.run('$testBundle/busyapi', ['migrate', directory.path, '--target', target, '--output', '${directory.path}/cli', '--json'],
           environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
         expect(preview.exitCode, 0, reason: '${preview.stdout} ${preview.stderr}');
-        final report = jsonDecode(preview.stdout as String) as Map;expect(report['producerVersion'], '105');expect(report['published'], false);
+        final report = jsonDecode(preview.stdout as String) as Map;expect(report['producerVersion'], '106');expect(report['published'], false);
         expect(report['configurationProjections'], isNotEmpty);
         await file.delete();await manifest.delete();
         final cold = await BusyProject.open(review.destination, engine);addTearDown(cold.close);

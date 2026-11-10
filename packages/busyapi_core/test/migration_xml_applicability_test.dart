@@ -8,11 +8,11 @@ import 'test_support.dart';
 
 class _XmlMigrationEngine extends EngineProcess {
   _XmlMigrationEngine():super(executable:runtimeNode,helper:runtimeHelper);
-  bool oldProducer=false;
+  String? oldProducer;
   @override
   Future<Map<String,dynamic>> request(String method,Map<String,Object?> params,{String? requestId}) async {
     final result=await super.request(method,params,requestId:requestId);
-    return method=='planMigration'&&oldProducer?{...result,'producerVersion':'104'}:result;
+    return method=='planMigration'&&oldProducer!=null?{...result,'producerVersion':oldProducer}:result;
   }
 }
 
@@ -54,13 +54,16 @@ void main() {
         } finally {plan.close();}
       }
       await send(project);final before=await source.readAsBytes();
-      engine.oldProducer=true;
-      await expectLater(project.prepareMigration(root,'${temp.path}/obsolete',targetVersion:target),
-        throwsA(isA<CoreFailure>().having((error)=>error.code,'code','migration.protocol')));
-      expect(Directory('${temp.path}/obsolete').existsSync(),false);engine.oldProducer=false;
+      for(final obsolete in ['104','105']) {
+        engine.oldProducer=obsolete;
+        await expectLater(project.prepareMigration(root,'${temp.path}/obsolete-$obsolete',targetVersion:target),
+          throwsA(isA<CoreFailure>().having((error)=>error.code,'code','migration.protocol')));
+        expect(Directory('${temp.path}/obsolete-$obsolete').existsSync(),false);
+      }
+      engine.oldProducer=null;
       final review=await project.prepareMigration(root,'${temp.path}/converted',targetVersion:target);
       addTearDown(review.close);expect(review.publishable,true,reason:'${review.result}');
-      expect(review.result['producerVersion'],'105');expect(await source.readAsBytes(),before);
+      expect(review.result['producerVersion'],'106');expect(await source.readAsBytes(),before);
       await review.publish();expect(await source.readAsBytes(),before);
       final moved=await Directory(review.destination).rename('${temp.path}/moved 雪');
       final cold=await BusyProject.open(moved.path,engine);addTearDown(cold.close);
