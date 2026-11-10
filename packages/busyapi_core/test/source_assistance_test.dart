@@ -10,6 +10,7 @@ import 'test_support.dart';
 class HeldAssistance extends EngineProcess {
   HeldAssistance() : super(executable: runtimeNode, helper: runtimeHelper);
   Completer<void>? entered, release;
+  bool priorProducer = false;
   @override
   Future<Map<String, dynamic>> request(
     String method,
@@ -20,7 +21,9 @@ class HeldAssistance extends EngineProcess {
       entered!.complete();
       await release!.future;
     }
-    return super.request(method, params, requestId: requestId);
+    final result = await super.request(method, params, requestId: requestId);
+    return method == 'assistSource' && priorProducer
+        ? {...result, 'producerVersion': '1'} : result;
   }
 }
 
@@ -57,6 +60,40 @@ void main() {
     buffer.id,
     buffer.selection,
   );
+  test('Source role choices share captured edits, history and stale guards', () async {
+    const pointer = '/components/schemas/Owner/properties/Shared';
+    final text = jsonEncode({
+      'openapi': '3.2.1', 'info': {'title': 'Roles', 'version': '1'},
+      'paths': <String, Object?>{},
+      'components': {
+        'schemas': {
+          'Owner': {'properties': {'Shared': {'description': 'Kept', 'schema': {'type': 'string'}}}},
+          'Use': {r'$ref': '#$pointer'},
+        },
+        'headers': {'Use': {r'$ref': '#$pointer'}},
+      },
+    }).replaceFirst('"type":"string"}}', '"type":"string"} }');
+    project.store.replace(buffer.id, text);
+    final at = text.indexOf('} }') + 2;
+    buffer.selection = SourceSelection(at, at);
+    final selected = await project.assistSource(project.roots.single.id,
+        buffer.id, buffer.selection, contextPointer: pointer, contextKind: 'header');
+    expect(selected.result['contextKind'], 'header');
+    expect(selected.result['producerVersion'], '2');
+    final index = selected.completions.indexWhere((choice) => choice['label'] == 'required = true');
+    expect(index, greaterThanOrEqualTo(0));
+    project.store.apply([selected.completion(index, buffer)], label: 'Source Header required');
+    expect(buffer.text, contains('"required": true'));
+    expect(selected.current, false);
+    project.store.undo();expect(buffer.text, text);
+    project.store.redo();expect(buffer.text, contains('"required": true'));
+    await expectLater(project.assistSource(project.roots.single.id,
+        buffer.id, buffer.selection, contextPointer: '/info', contextKind: 'header'),
+        throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'assist.context.stale')));
+    engine.priorProducer = true;
+    await expectLater(capture(), throwsA(isA<CoreFailure>().having(
+        (error) => error.code, 'code', 'assist.protocol')));
+  });
   test(
     'assistance snapshot collection notifies clean physical reloads',
     () async {

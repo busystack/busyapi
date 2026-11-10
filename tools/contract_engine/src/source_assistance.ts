@@ -67,15 +67,31 @@ export function assistSource(input: any) {
     }
     const pointer = node.pointer, parts = segments(pointer), name = parts.at(-1) ?? '';
     const parentPointer = parts.length > 1 ? '/' + parts.slice(0, -1).map(escape).join('/') : '';
-    const scope = graph.scope(doc.id, pointer), parentScope = graph.scope(doc.id, parentPointer);
-    const exact = graph.scopes.get(doc.id + '#' + pointer), parent = doc.nodes.get(parentPointer);
-    const parentContext = graph.scopes.get(doc.id + '#' + parentPointer);
+    // A physical spelling can have independently captured native/schema roles.
+    // Select only an established enclosing interpretation, never infer a new
+    // grammar from a payload's keys or retain a choice after its owner changes.
+    let contextPointer=pointer;
+    while(contextPointer&&graph.scopesAt(doc.id,contextPointer).length<2)
+        contextPointer=contextPointer.slice(0,contextPointer.lastIndexOf('/'));
+    const interpretations=graph.scopesAt(doc.id,contextPointer);
+    const selectable=interpretations.length>1;
+    if(input.contextKind!==undefined&&(!selectable||input.contextPointer!==contextPointer||
+        !interpretations.some(scope=>scope.kind===input.contextKind)))
+        throw new SourceError('assist.context.stale','The selected source interpretation is no longer captured at this caret');
+    const chosen=selectable?graph.selectedScope(doc.id,contextPointer,input.contextKind):undefined;
+    const scopeAt=(at:string)=>at===chosen?.pointer?chosen:graph.scopes.get(doc.id+'#'+at);
+    const enclosing=(at:string)=>{const scope=graph.scope(doc.id,at);return chosen&&scope.pointer===chosen.pointer?chosen:scope;};
+    const scope = enclosing(pointer), parentScope = enclosing(parentPointer);
+    const exact = scopeAt(pointer), parent = doc.nodes.get(parentPointer);
+    const parentContext = scopeAt(parentPointer);
     const field = parent && parentContext && fieldsForScope(graph,parentScope,parent.value).find(f => f.name === name);
     const schemaDialectKnown = scope.kind !== 'schema' || supportedSchemaDialect(scope);
     const customKeyword = !field && parentContext?.kind === 'schema';
-    const reference = graph.references.find(r => r.resource === doc.id && inRange(caret, refLocation(doc, r)));
-    const definition = reference?.resolution === 'resolved' ? located(input, docs.get(reference.targetResource!)!, reference.targetPointer!, { dynamic: reference.dynamic }) : undefined;
-    const result: any = { version: 1, snapshot: input.snapshot, root: input.root, resource: doc.id, generation: resource.generation, caret, pointer, kind: scope.kind,
+    const reference = graph.references.find(r => r.resource === doc.id && inRange(caret, refLocation(doc, r))&&
+        graph.referencesAt(r.resource,r.pointer,enclosing(r.pointer).kind).includes(r));
+    const definition = reference?.resolution === 'resolved' ? located(input, docs.get(reference.targetResource!)!, reference.targetPointer!, { kind:reference.kind,dynamic: reference.dynamic }) : undefined;
+    const result: any = { version: 1, producer:'busyapi-source-assistance',producerVersion:'2',snapshot: input.snapshot, root: input.root, resource: doc.id, generation: resource.generation, caret, pointer, kind: scope.kind,
+        ...(chosen?{contextPointer,contextKind:chosen.kind,interpretations:interpretations.map(({kind,family,base,dialect})=>({kind,family,base,dialect}))}:{interpretations:[]}),
         help: { name: field?.name ?? name, kind: customKeyword ? 'custom-keyword' : field ? parentScope.kind : exact?.kind ?? 'data', type: schemaDialectKnown ? field?.type ?? exact?.kind ?? node.kind : 'unknown', authored: true, ...(field ? {required: field.required === true, blockedBy: field.blockedBy, prohibited: field.prohibited === true} : {}), dialect: scope.dialect, dialectKnown: schemaDialectKnown, ...(schemaDialectKnown && (field || exact) ? { standard: standard(family, field ? parentScope.kind : scope.kind) } : {}), ...(field?.effectiveDefault !== undefined ? { effectiveDefault: field.effectiveDefault } : {}) },
         definition, resolution: reference?.resolution, dynamic: reference?.dynamic, candidates: reference?.candidateTargets?.map(target=>located(input,docs.get(target.resource)!,target.pointer,{kind:target.kind})), completions: [] };
     if(keyNode&&parentContext?.kind==='security-requirement')
@@ -89,11 +105,11 @@ export function assistSource(input: any) {
         }
         const target = definition ?? located(input, doc, scope.pointer);
         result.target = target;
-        result.usages = graph.references.filter(r => r.resolution === 'resolved' && r.targetResource === target.resource && r.targetPointer === target.pointer).map(r => located(input, docs.get(r.resource)!, r.pointer + '/' + escape(r.keyword), { range: refLocation(docs.get(r.resource)!, r), connection: r.connection ?? r.keyword, value: r.value, dynamic: r.dynamic }));
+        result.usages = graph.references.filter(r => r.resolution === 'resolved' && r.targetResource === target.resource && r.targetPointer === target.pointer&&r.kind===(definition?.kind??exact?.kind??scope.kind)).map(r => located(input, docs.get(r.resource)!, r.pointer + '/' + escape(r.keyword), { range: refLocation(docs.get(r.resource)!, r), connection: r.connection ?? r.keyword, value: r.value, dynamic: r.dynamic }));
         return result;
     }
     if (doc.issues.length && (!input.action || input.action === 'completion')) {
-        const partial = incompleteKeyCompletions(doc, graph, family, caret, resource.generation);
+        const partial = incompleteKeyCompletions(doc, graph, family, caret, resource.generation,scopeAt);
         if (partial.length) {result.completions=partial;return result;}
     }
     if (!schemaDialectKnown || field?.prohibited || field?.blockedBy?.length) return result;
@@ -120,12 +136,12 @@ export function assistSource(input: any) {
             const expectedKind = parentScope.kind;
             const compatible = (kind: string) => expectedKind === 'schema' ? kind === 'schema' : kind === expectedKind;
             const suggestions: any[] = [];
-            for (const target of graph.scopes.values()) {
+            for (const target of graph.interpretedScopes()) {
                 if (!compatible(target.kind) || name==='$ref'&&!/^(?:\/components\/[^/]+|\/(?:definitions|parameters|responses|securityDefinitions))\/[^/]+$/.test(target.pointer))
                     continue;
                 const value=referenceValue(graph,parentScope,target,name);
                 if(value===undefined)continue;
-                suggestions.push({ value, label: segments(target.pointer).at(-1), target: located(input, docs.get(target.resource)!, target.pointer) });
+                suggestions.push({ value, label: segments(target.pointer).at(-1), target: located(input, docs.get(target.resource)!, target.pointer,{kind:target.kind}) });
             }
             for (const suggestion of suggestions)
                 addValue(suggestion.value, suggestion.label, suggestion.target);
@@ -148,7 +164,7 @@ export function assistSource(input: any) {
     let container = keyNode ? parent : node, containerPointer = keyNode ? parentPointer : pointer;
     if (container?.kind !== 'object' || container.shared || keyNode?.shared || keyNode?.keyShared || !doc.syntaxSafe(containerPointer))
         return result;
-    const context = graph.scopes.get(doc.id + '#' + containerPointer);
+    const context = scopeAt(containerPointer);
     if (!context || context.kind.endsWith('-map') || context.kind.endsWith('-array'))
         return result;
     if (!keyNode && doc.format === 'yaml' && !container.flow && !/^\s*$/.test(doc.text.slice(Math.max(container.range[0] + 1, doc.text.lastIndexOf('\n', caret - 1) + 1), caret)))
@@ -172,7 +188,7 @@ export function assistSource(input: any) {
         if (keyNode) {
             const range=keyNode.keyRange!, expected=doc.text.slice(...range);
             const replacement=expected.startsWith("'")?"'"+candidate.name.replaceAll("'","''")+"'":expected.startsWith('"')||doc.format==='json'?JSON.stringify(candidate.name):doc.emit(candidate.name);
-            result.completions.push({label:candidate.name,type:candidate.type,standard:standard(family,context.kind),...(candidate.target?{target:candidate.target}:{}),edits:[{buffer:doc.id,generation:resource.generation,start:range[0],end:range[1],expected,replacement}],selection:[range[0]+replacement.length,range[0]+replacement.length]});
+            result.completions.push({label:candidate.name,type:candidate.type,standard:standard(context.family,context.kind),...(candidate.target?{target:candidate.target}:{}),edits:[{buffer:doc.id,generation:resource.generation,start:range[0],end:range[1],expected,replacement}],selection:[range[0]+replacement.length,range[0]+replacement.length]});
             continue;
         }
         const options = candidate.schemaTypeChoices?.scalarTypes ?? candidate.options;
@@ -182,7 +198,7 @@ export function assistSource(input: any) {
             if (!insert)
                 continue;
             const replacement = insert;
-            result.completions.push({ label: candidate.name + (options || candidate.type === 'boolean' || choices.length > 1 ? ' = ' + JSON.stringify(value) : ''), type: candidate.type, standard: standard(family, context.kind), ...(candidate.target?{target:candidate.target}:{}), edits: [{ buffer: doc.id, generation: resource.generation, start: caret, end: caret, expected: '', replacement }], selection: [caret + replacement.length, caret + replacement.length] });
+            result.completions.push({ label: candidate.name + (options || candidate.type === 'boolean' || choices.length > 1 ? ' = ' + JSON.stringify(value) : ''), type: candidate.type, standard: standard(context.family, context.kind), ...(candidate.target?{target:candidate.target}:{}), edits: [{ buffer: doc.id, generation: resource.generation, start: caret, end: caret, expected: '', replacement }], selection: [caret + replacement.length, caret + replacement.length] });
         }
     }
     return result;
@@ -194,7 +210,7 @@ export const sourceFolds=(input:any)=>assistSource({...input,action:'folds'});
 // identified mapping hole, then prove that mapping's syntax and field context
 // before offering its captured edit. The hypothetical parse is immutable;
 // neither invalid siblings nor canonical source are normalized or replaced.
-function incompleteKeyCompletions(doc:SourceDocument, graph:any, family:string, caret:number, generation:number) {
+function incompleteKeyCompletions(doc:SourceDocument, graph:any, family:string, caret:number, generation:number,scopeAt:(pointer:string)=>any) {
     const before=doc.text.slice(0,caret), line=doc.text.slice(doc.lineStart(caret),caret);
     let start=caret,end=caret,prefix='';
     if(doc.format==='yaml') {
@@ -212,7 +228,7 @@ function incompleteKeyCompletions(doc:SourceDocument, graph:any, family:string, 
     }
     const containers=[...doc.nodes.values()].filter(n=>n.kind==='object'&&n.range[0]<start&&(n.range[1]>=start||doc.format==='yaml'&&/^\s*$/.test(doc.text.slice(n.end,doc.lineStart(start))))).sort((a,b)=>b.range[0]-a.range[0]);
     const container=containers[0];if(!container||container.shared)return [];
-    const context=graph.scopes.get(doc.id+'#'+container.pointer);
+    const context=scopeAt(container.pointer);
     if(!context||context.kind.endsWith('-map')||context.kind.endsWith('-array'))return [];
     if(doc.format==='yaml'&&(container.flow||doc.indent(container.children.values().next().value?.keyRange?.[0]??container.range[0])!==line.length-prefix.length))return [];
     if(context.kind==='schema'&&!supportedSchemaDialect(context))return [];
@@ -227,7 +243,7 @@ function incompleteKeyCompletions(doc:SourceDocument, graph:any, family:string, 
             let repaired:SourceDocument;try{repaired=new SourceDocument(text,doc.id,true);}catch{continue;}
             const pointer=container.pointer+'/'+escape(field.name);
             if(!repaired.syntaxSafe(container.pointer)||!repaired.nodes.has(pointer))continue;
-            completions.push({label:field.name+(options||field.type==='boolean'||values.length>1?' = '+JSON.stringify(value):''),type:field.type,standard:standard(family,context.kind),edits:[{buffer:doc.id,generation,start,end,expected:doc.text.slice(start,end),replacement}],selection:[start+replacement.length,start+replacement.length]});
+            completions.push({label:field.name+(options||field.type==='boolean'||values.length>1?' = '+JSON.stringify(value):''),type:field.type,standard:standard(context.family,context.kind),edits:[{buffer:doc.id,generation,start,end,expected:doc.text.slice(start,end),replacement}],selection:[start+replacement.length,start+replacement.length]});
         }
     }
     return completions;

@@ -972,6 +972,11 @@ third-party packages are unchanged. Older display and adapter identities are
 rejected. Asset preparation and runtime verification remain subject to the
 execution hold.
 
+Native Source assistance uses `busyapi-source-assistance` **2**. The Source popup
+can select each captured interpretation of a shared physical object for field
+help, completions and reference navigation. Choices are tied to the same caret,
+generation and approved source graph; edits use the existing source transaction.
+
 `swagger_content.mjs` uses supported component hooks and exact Reference values
 for schema constraints, inherited parameters and additional operations. Its
 browser-module build uses upstream React/React DOM **18.3.1**. Exact imported and

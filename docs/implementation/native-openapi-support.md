@@ -218,6 +218,22 @@ roles in 3.1.2/3.2.0/3.2.1, distinct source actions and targets, Markdown bases,
 offline publication, exact source retention and rejection of producer **2**.
 Full rendered-field/relocation and packaged adapter acceptance remain held.
 
+W1.08–W1.10 Source assistance now selects the captured enclosing role for a
+multiply interpreted physical object. Design and Reference already offered
+their canonical role controls; Source previously used only the primary scope.
+The existing assistance owner now supplies role-specific field help, complete
+and partial-key completions, reference candidates/definitions and incoming
+usages. Native Source's existing popup offers the captured interpretations;
+changing roles reruns the same job and expected-text writer. Source actions
+reject obsolete caret/generation/snapshot/role choices; history, full-source
+editing and physical source ownership remain unchanged. Core strictly admits
+`busyapi-source-assistance` **2**; fold metadata remains its existing protocol.
+Prepared, **not run**: the registered Source type suite adds 3.1.2/3.2.0/3.2.1
+YAML/JSON role help, completions, usages and unavailable-role controls; Core and
+native Source suites cover explicit choice, expected edits, Undo/Redo, save,
+stale action rejection and obsolete producer refusal. W1's remaining complete
+field/position reconciliation is not replaced by this confirmed omission fix.
+
 No boundary is reclassified as a target-specification restriction. Only source
 inspection, official specification/RFC reads, Git inspection and
 `git diff --check` have been performed. The execution hold and Snapcraft skip

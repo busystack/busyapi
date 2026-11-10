@@ -5,6 +5,7 @@ import 'dart:ui' show PointerDeviceKind;
 
 import 'package:busyapi/l10n/generated/app_localizations.dart';
 import 'package:busyapi/src/app/app_theme.dart';
+import 'package:busyapi/src/app/busyapi_design.dart';
 import 'package:busyapi/src/source/source_editor.dart';
 import 'package:busyapi_core/busyapi_core.dart';
 import 'package:flutter/material.dart';
@@ -39,6 +40,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   for (final behavior in [
     'accept',
+    'roles',
     'incomplete',
     'schema-2.0',
     'schema-3.0.4',
@@ -78,7 +80,9 @@ void main() {
             '"info":{"title":"Source","version":"1"},"paths":{},'
             '${schemaVersion == '2.0' ? '"definitions"' : '"components":{"schemas"'}:'
             '{"Value":{${occurrence ? '"properties":{"child":n§ull}' : '"additionalProperties":n§ull'}}}${schemaVersion == '2.0' ? '' : '}'}}';
-        final marker = schemaMarker ?? (behavior == 'incomplete'
+        final marker = schemaMarker ?? (behavior == 'roles'
+            ? r'{"openapi":"3.2.1","info":{"title":"Source","version":"1"},"paths":{},"components":{"schemas":{"Owner":{"properties":{"Shared":{"description":"Kept","schema":{"type":"string"} §}}}},"headers":{"Use":{"$ref":"#/components/schemas/Owner/properties/Shared"}}}}'
+            : behavior == 'incomplete'
             ? r'{"openapi":"3.2.1","info":{"title":"Source", "version":"1", "summ§},"paths":{}}'
             : r'{"openapi":"3.2.1","info":{"title":"Source", § "version":"1"},"paths":{},"components":{"schemas":{"Model":{"$ref":"part.json#/Thing"}}}}');
         final original = marker.replaceFirst('§', '');
@@ -275,6 +279,24 @@ void main() {
             await tester.pump();
             expect(buffer.text, original);
             expect(tester.takeException(), isNull);
+            return;
+          }
+          if (behavior == 'roles') {
+            final selector = find.byKey(const ValueKey('source-interpretation'));
+            await waitFor(() => selector.evaluate().isNotEmpty);
+            tester.widget<BusyApiComboRow<String>>(selector).onSelected('header');
+            await waitFor(() => find.text('required = true').evaluate().isNotEmpty);
+            final staleSelect = tester.widget<BusyApiComboRow<String>>(selector).onSelected;
+            await tester.runAsync(() => tester.tap(find.text('required = true')));
+            await tester.pumpAndSettle();
+            expect(buffer.text, contains('"required": true'));
+            final changed = buffer.text;
+            project!.store.undo();expect(buffer.text, original);
+            project!.store.redo();expect(buffer.text, changed);
+            staleSelect('schema');await tester.pump();
+            expect(buffer.text, changed);expect(engine.calls, 2);
+            await tester.runAsync(() => project!.save(buffer));
+            expect(File(buffer.path).readAsStringSync(), changed);
             return;
           }
           if (schemaVersion != null) {

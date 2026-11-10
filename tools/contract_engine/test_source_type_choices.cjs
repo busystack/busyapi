@@ -7,6 +7,32 @@ const {analyse}=require(path.join(engine,'dist/model.cjs'));
 const {SourceDocument}=require(path.join(engine,'dist/document.cjs'));
 const YAML=require(path.join(engine,'node_modules/yaml'));
 
+for(const version of ['3.1.2','3.2.0','3.2.1'])for(const format of ['json','yaml'])test(`Source selects captured overlapping roles for help, completions and usages ${version} ${format}`,()=>{
+ const root='file:///approved/roles.'+format,pointer='/components/schemas/Owner/properties/Shared';
+ const value={openapi:version,info:{title:'Roles',version:'1'},paths:{},components:{
+  schemas:{Owner:{properties:{Shared:{description:'Kept',schema:{type:'string'}}}},Use:{$ref:'#'+pointer}},
+  headers:{Use:{$ref:'#'+pointer}}}};
+ // JSON flow syntax remains YAML, with a source gap owned by the same writer.
+ const text=(format==='yaml'?'# Keep role source\r\n':'')+JSON.stringify(value).replace('"type":"string"}}','"type":"string"} }');
+ const doc=new SourceDocument(text,root),input={root,resource:root,snapshot:'source-roles',resources:[{id:root,text,generation:3}]};
+ const helpCaret=doc.dataNode(pointer+'/description').range[0]+2;
+ const initial=assistSource({...input,caret:helpCaret,action:'help'});
+ assert.equal(initial.producer,'busyapi-source-assistance');assert.equal(initial.producerVersion,'2');
+ assert.deepEqual(new Set(initial.interpretations.map(role=>role.kind)),new Set(['schema','header']));
+ for(const contextKind of ['schema','header']){
+  const selected={...input,contextPointer:pointer,contextKind};
+  assert.equal(assistSource({...selected,caret:helpCaret,action:'help'}).help.kind,contextKind);
+  const choices=assistSource({...selected,caret:doc.dataNode(pointer).range[1]-1,action:'completion'}).completions;
+  assert(choices.some(choice=>choice.label.startsWith(contextKind==='schema'?'properties':'required')));
+  assert(!choices.some(choice=>choice.label.startsWith(contextKind==='schema'?'style':'properties')));
+  const usages=assistSource({...selected,caret:helpCaret,action:'usages'}).usages;
+  assert.equal(usages.length,1);assert.equal(usages[0].pointer,contextKind==='schema'?'/components/schemas/Use/$ref':'/components/headers/Use/$ref');
+ }
+ assert.throws(()=>assistSource({...input,caret:helpCaret,contextPointer:'/info',contextKind:'schema'}),error=>error.code==='assist.context.stale');
+ assert.throws(()=>assistSource({...input,caret:helpCaret,contextPointer:pointer,contextKind:'response'}),error=>error.code==='assist.context.stale');
+ assert.equal(input.resources[0].text,text);
+});
+
 for(const version of ['2.0','3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const json of [false,true]){
  test(`${version} ${json?'JSON':'YAML'} Source type choices produce legal original-family schemas`,()=>{
   const swagger=version==='2.0',nullType=version==='2.0'||version.startsWith('3.1.')||version.startsWith('3.2.');

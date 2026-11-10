@@ -29,6 +29,7 @@ class _SourceIntelligenceState extends State<_SourceIntelligence> {
   Timer? hover;
   int epoch = 0, selected = 0, capturedGeneration = -1;
   SourceSelection? capturedSelection;
+  int? requestedCaret;
   String? action, error;
   bool pending = false, hovering = false;
   double rowHeight = 40;
@@ -170,12 +171,15 @@ class _SourceIntelligenceState extends State<_SourceIntelligence> {
     return KeyEventResult.handled;
   }
 
-  Future<void> request(String next, {int? caret}) async {
+  Future<void> request(String next, {
+    int? caret, String? contextPointer, String? contextKind,
+  }) async {
     if (!owns || editor._composing) return;
     hide();
     final requestEpoch = ++epoch;
     capturedGeneration = buffer.generation;
     capturedSelection = editor.selection;
+    requestedCaret = caret;
     hovering = caret != null;
     action = next;
     pending = true;
@@ -186,7 +190,9 @@ class _SourceIntelligenceState extends State<_SourceIntelligence> {
         caret == null ? editor.selection : SourceSelection(caret, caret),
       );
       job = currentJob;
-      final found = await currentJob.run(next);
+      final found = await currentJob.run(next,
+        contextPointer: contextPointer, contextKind: contextKind,
+      );
       if (!owns ||
           requestEpoch != epoch ||
           !sameCaret ||
@@ -199,6 +205,8 @@ class _SourceIntelligenceState extends State<_SourceIntelligence> {
       final definition = found.result['definition'];
       if (next == 'definition' &&
           definition is Map &&
+          (contextKind != null ||
+              (found.result['interpretations'] as List).length < 2) &&
           found.result['dynamic'] == null) {
         reveal(Map<String, dynamic>.from(definition));
         return;
@@ -207,7 +215,8 @@ class _SourceIntelligenceState extends State<_SourceIntelligence> {
       if (mounted && owns && requestEpoch == epoch) {
         final code = failure is CoreFailure ? failure.code : 'assist.failure';
         if (code != 'cancelled') {
-          error = code == 'assist.stale' || code == 'inspect.stale'
+          error = code == 'assist.stale' || code == 'inspect.stale' ||
+              code == 'assist.context.stale'
               ? context.l10n.sourceAssistanceStale
               : context.l10n.sourceAssistanceFailed(code);
         }
@@ -382,6 +391,42 @@ class _SourceIntelligenceState extends State<_SourceIntelligence> {
                             Padding(
                               padding: const EdgeInsets.all(BusyApiSpacing.sm),
                               child: Text(l.checking),
+                            ),
+                          if (!pending && error == null && captured != null &&
+                              (captured.result['interpretations'] as List).length > 1)
+                            BusyApiComboRow<String>(
+                              key: const ValueKey('source-interpretation'),
+                              title: l.type,
+                              values: [for (final role in captured.result['interpretations'] as List)
+                                (role as Map)['kind'] as String],
+                              selected: captured.result['contextKind'] as String,
+                              labelFor: (kind) => switch (kind) {
+                                'schema' => l.schema,
+                                'header' => l.header,
+                                'parameter' => l.parameter,
+                                'response' => l.response,
+                                'request-body' => l.requestBody,
+                                'media' => l.mediaType,
+                                'operation' => l.operation,
+                                'path-item' => l.pathItem,
+                                'callback' => l.callback,
+                                'example' => l.example,
+                                'security' => l.securityScheme,
+                                _ => l.specificationField(kind),
+                              },
+                              enabled: owns && captured.current && sameCaret,
+                              onSelected: (kind) {
+                                if (!owns || !captured.current || !sameCaret ||
+                                    !identical(result, captured)) {
+                                  hide();
+                                  return;
+                                }
+                                unawaited(request(
+                                  action!, caret: requestedCaret,
+                                  contextPointer: captured.result['contextPointer'] as String,
+                                  contextKind: kind,
+                                ));
+                              },
                             ),
                           if (error != null)
                             Padding(

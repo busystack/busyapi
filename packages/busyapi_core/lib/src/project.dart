@@ -639,6 +639,8 @@ class SourceAssistanceJob {
   bool _cancelled = false, _started = false, _done = false;
   Future<SourceAssistance> run(
     String action, {
+    String? contextPointer,
+    String? contextKind,
     SourceRange? viewport,
     List<String> foldedPointers = const [],
   }) async {
@@ -651,6 +653,8 @@ class SourceAssistanceJob {
         resource,
         selection,
         action: action,
+        contextPointer: contextPointer,
+        contextKind: contextKind,
         requestId: _id,
         cancelled: () => _cancelled,
         viewport: viewport,
@@ -2715,7 +2719,11 @@ class BusyProject {
     String resource,
     SourceSelection selection, {
     String action = 'completion',
-  }) => sourceAssistance(root, resource, selection).run(action);
+    String? contextPointer,
+    String? contextKind,
+  }) => sourceAssistance(root, resource, selection).run(
+    action, contextPointer: contextPointer, contextKind: contextKind,
+  );
 
   SourceAssistanceJob sourceAssistance(
     String root,
@@ -2737,6 +2745,8 @@ class BusyProject {
     required String action,
     required String requestId,
     required bool Function() cancelled,
+    String? contextPointer,
+    String? contextKind,
     SourceRange? viewport,
     List<String> foldedPointers = const [],
     void Function(String resource)? onResourceRefreshed,
@@ -2757,6 +2767,8 @@ class BusyProject {
         'resource': resource,
         'caret': selection.extent,
         'action': action,
+        if (contextPointer != null) 'contextPointer': contextPointer,
+        if (contextKind != null) 'contextKind': contextKind,
         if (viewport != null) ...{'from': viewport.start, 'to': viewport.end},
         if (action == 'folds') 'folded': foldedPointers,
       },
@@ -2781,6 +2793,26 @@ class BusyProject {
         'assist.protocol',
         'Source assistance returned an unrelated or malformed location',
       );
+    }
+    if (action != 'folds' &&
+        (result['version'] != 1 ||
+            result['producer'] != 'busyapi-source-assistance' ||
+            result['producerVersion'] != '2' ||
+            result['interpretations'] is! List ||
+            (result['interpretations'] as List).length > 128 ||
+            (result['interpretations'] as List).any((role) =>
+                role is! Map || role['kind'] is! String ||
+                (role['kind'] as String).isEmpty) ||
+            ((result['interpretations'] as List).isNotEmpty &&
+                (result['contextPointer'] is! String ||
+                    result['contextKind'] is! String ||
+                    !(result['interpretations'] as List).any((role) =>
+                        role['kind'] == result['contextKind']))) ||
+            (contextKind != null &&
+                (result['contextKind'] != contextKind ||
+                    result['contextPointer'] != contextPointer)))) {
+      throw CoreFailure('assist.protocol',
+          'Source assistance returned an unowned interpretation or producer');
     }
     if (action == 'folds') {
       final source = snapshot.resources.firstWhere((r) => r['id'] == resource);
