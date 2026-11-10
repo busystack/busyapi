@@ -47,8 +47,8 @@ _DocumentationSourceIndex _documentationSourceIndex(
     'documentation.source',
     'Documentation source ownership is absent or ambiguous',
   );
-  String key(String resource, String pointer) =>
-      jsonEncode([resource, pointer]);
+  String key(String resource, String pointer, [Object? viewKind]) =>
+      jsonEncode([resource, pointer, viewKind]);
   String signature(Map source) => jsonEncode([
     source['resource'],
     source['pointer'],
@@ -56,6 +56,8 @@ _DocumentationSourceIndex _documentationSourceIndex(
     source['range'],
     source['physicalPointer'],
     source['occurrenceRange'],
+    source['viewKind'],
+    source['markdownBase'],
   ]);
   final originals = <String, Map<String, Map>>{
     'node': {},
@@ -78,13 +80,14 @@ _DocumentationSourceIndex _documentationSourceIndex(
     final coordinate = key(
       source['resource'] as String,
       source['pointer'] as String,
+      source['viewKind'],
     );
     final previous = originals[role]![coordinate];
     if (previous != null && signature(previous) != signature(source)) invalid();
     originals[role]![coordinate] = source;
   }
-  Map? known(String resource, String pointer, String role) {
-    final coordinate = key(resource, pointer);
+  Map? known(String resource, String pointer, String role, Object? viewKind) {
+    final coordinate = key(resource, pointer, viewKind);
     return originals[role]![coordinate] ??
         originals['node']![coordinate] ??
         originals['field']![coordinate];
@@ -96,6 +99,7 @@ _DocumentationSourceIndex _documentationSourceIndex(
       key(
         section['source']['resource'] as String,
         section['source']['pointer'] as String,
+        section['source']['viewKind'],
       ): section['kind'],
   };
   final displayLocations = {
@@ -106,6 +110,7 @@ _DocumentationSourceIndex _documentationSourceIndex(
     final coordinate = key(
       source['resource'] as String,
       source['pointer'] as String,
+      source['viewKind'],
     );
     if (record['kind'] == 'reference'
         ? !originals['reference']!.containsKey(coordinate)
@@ -141,7 +146,7 @@ _DocumentationSourceIndex _documentationSourceIndex(
       final resource = source['resource'] as String;
       final originalPointer =
           (source['pointer'] as String) + pointer.substring(ancestor.length);
-      final target = known(resource, originalPointer, role);
+      final target = known(resource, originalPointer, role, source['viewKind']);
       if (target == null ||
           selected != null && signature(selected) != signature(target)) {
         invalid();
@@ -176,7 +181,7 @@ void _documentationDisplayWorker(List<Object?> input) {
     final packet = input[1] as Map<String, dynamic>;
     if (packet['version'] != 1 ||
         packet['producer'] != 'busyapi-reference-display-packet' ||
-        packet['producerVersion'] != '2' ||
+        packet['producerVersion'] != '3' ||
         packet['encoding'] != 'json' ||
         packet['content'] is! String ||
         (packet['content'] as String).length > 48 * 1024 * 1024) {
@@ -202,7 +207,7 @@ void _documentationDisplayWorker(List<Object?> input) {
     if (result['version'] != 1 ||
         result['complete'] != true ||
         result['producer'] != 'busyapi-reference-display' ||
-        result['producerVersion'] != '2' ||
+        result['producerVersion'] != '3' ||
         result['representation'] != 'graph-addressed-display-only' ||
         result['root'] != snapshot.root ||
         result['snapshot'] != snapshot.identity ||

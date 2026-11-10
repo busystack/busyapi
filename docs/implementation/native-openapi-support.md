@@ -202,6 +202,22 @@ schema proof and independent CLI review/publication. Native
 review Cancel/Apply, retained recursive targets, exact values and history in
 all four families. No refactoring producer/protocol or semantic engine was
 replaced. General mixed-role/ownership reconciliation is still unfinished.
+
+W6.04 native documentation/export now enumerates the canonical graph's complete
+interpreted scopes, including a physical object used as both Schema and another
+native object. Each section, reference target and incoming usage retains its
+actual interpretation and Markdown base. Secondary views receive separate
+read-only display coordinates; native source actions and portable export
+provenance retain the original pointer and optional `viewKind`. Source, API
+bundling and semantic owners are unchanged. Reference document, display and
+display-packet producers are **3**, strictly admitted by Core and the existing
+renderer owner. First-party Redoc/Swagger adapter identities are **9**/**8**;
+third-party package pins are unchanged. Prepared, **not run**: registered
+Reference display and Core documentation suites cover overlapping Schema/Header
+roles in 3.1.2/3.2.0/3.2.1, distinct source actions and targets, Markdown bases,
+offline publication, exact source retention and rejection of producer **2**.
+Full rendered-field/relocation and packaged adapter acceptance remain held.
+
 No boundary is reclassified as a target-specification restriction. Only source
 inspection, official specification/RFC reads, Git inspection and
 `git diff --check` have been performed. The execution hold and Snapcraft skip

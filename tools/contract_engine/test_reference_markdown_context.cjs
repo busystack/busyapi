@@ -72,7 +72,7 @@ for(const version of patches)for(const format of ['yaml','json'])test(`${version
   assert.equal(source.resource,root);assert.equal(source.markdownBase,true);
   assert.equal(new URL('../guide',source.resource).href,'https://docs.example.invalid/guide');
  }
- assert.equal(document.producerVersion,'2');assert.equal(input.resources[0].text,text);
+ assert.equal(document.producerVersion,'3');assert.equal(input.resources[0].text,text);
  const mapped={...input,resources:[{...input.resources[0],aliases:['https://other.example.invalid/model/api.'+format]}]};
  assert.equal(referencePage({...mapped,resource:root,pointer:'/info'}).markdownBase,mapped.resources[0].aliases[0]);
  assert.equal(referencePage({...input,resource:root,pointer:'/info'}).markdownBase,true);

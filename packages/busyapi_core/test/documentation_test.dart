@@ -21,7 +21,7 @@ class _DocumentationEngine extends EngineProcess {
   Map<String, dynamic> displayPacket(Map<String, dynamic> content) => {
     'version': 1,
     'producer': 'busyapi-reference-display-packet',
-    'producerVersion': '2',
+    'producerVersion': '3',
     'encoding': 'json',
     'content': jsonEncode(content),
   };
@@ -40,6 +40,8 @@ class _DocumentationEngine extends EngineProcess {
           return {...packet, 'producer': 'other'};
         case 'packet-producer-version':
           return {...packet, 'producerVersion': '1'};
+        case 'packet-prior-producer-version':
+          return {...packet, 'producerVersion': '2'};
         case 'packet-encoding':
           return {...packet, 'encoding': 'yaml'};
         case 'packet-shape':
@@ -57,6 +59,8 @@ class _DocumentationEngine extends EngineProcess {
           result['producer'] = 'other';
         case 'producer-version':
           result['producerVersion'] = '1';
+        case 'prior-producer-version':
+          result['producerVersion'] = '2';
         case 'representation':
           result['representation'] = 'openapi-bundle';
         case 'root':
@@ -258,6 +262,75 @@ void main() {
     );
     project = await BusyProject.open(source.path, engine);
     return source;
+  }
+
+  for (final version in ['3.1.2', '3.2.0', '3.2.1']) {
+    test('documentation keeps overlapping Schema and Header roles $version', () async {
+      final source = File('${temp.path}/api.json');
+      const pointer = '/components/schemas/Outer/properties/Shared';
+      final text = jsonEncode({
+        'openapi': version,
+        'info': {'title': 'Multiple roles', 'version': '1'},
+        'paths': <String, Object?>{},
+        'components': {
+          'schemas': {
+            'Outer': {
+              r'$id': 'https://schemas.invalid/root/',
+              'type': 'object',
+              'properties': {
+                'Shared': {
+                  'description': '[Guide](guide.md)',
+                  'schema': {'type': 'string'},
+                  'example': 'unchanged',
+                },
+              },
+            },
+            'Use': {r'$ref': '#$pointer'},
+          },
+          'headers': {
+            'Shared': {r'$ref': '#$pointer'},
+          },
+        },
+      });
+      await source.writeAsString(text);
+      project = await BusyProject.open(source.path, engine);
+      final presentation = await project!.captureDocumentationPresentation(
+        source.uri.toString(),
+      );
+      final nodes = presentation.sourceActions.where(
+        (action) => action.role == 'node' && action.source['pointer'] == pointer,
+      ).toList();
+      expect(nodes, hasLength(2));
+      expect(nodes.map((action) => action.pointer).toSet(), hasLength(2));
+      final roles = nodes.map((action) => action.source['viewKind']).toSet();
+      expect(roles, contains(null));
+      expect(roles, hasLength(2));
+      for (final node in nodes) {
+        expect(presentation.sourceActionFor(node.pointer), same(node));
+        final field = presentation.sourceActionFor(
+          '${node.pointer}/description', role: 'field',
+        )!;
+        expect(field.source['pointer'], '$pointer/description');
+        expect(field.source['viewKind'], node.source['viewKind']);
+        expect(field.source['markdownBase'], node.source['markdownBase']);
+      }
+      final output = await project!.prepareDocumentation(
+        source.uri.toString(), '${temp.path}/roles',
+      );
+      addTearDown(output.close);
+      await output.publish();
+      final metadata = jsonDecode(
+        await File('${output.destination}/provenance.json').readAsString(),
+      );
+      final records = (metadata['provenance'] as List).where(
+        (entry) => entry['source']['pointer'] == pointer,
+      ).toList();
+      expect(records, hasLength(2));
+      expect(records.map((entry) => entry['source']['viewKind']).toSet(), roles);
+      final html = await File('${output.destination}/index.html').readAsString();
+      expect(html, contains('https://schemas.invalid/root/guide.md'));
+      expect(await source.readAsString(), text);
+    });
   }
 
   for (final version in ['3.1.2', '3.2.1'])
@@ -737,6 +810,7 @@ void main() {
       'packet-version',
       'packet-producer',
       'packet-producer-version',
+      'packet-prior-producer-version',
       'packet-encoding',
       'packet-shape',
       'packet-syntax',
@@ -744,6 +818,7 @@ void main() {
       'version',
       'producer',
       'producer-version',
+      'prior-producer-version',
       'representation',
       'root',
       'snapshot',

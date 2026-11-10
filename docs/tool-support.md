@@ -963,6 +963,15 @@ produces offline assets and notices. CMake installs compiled assets rather than
 npm trees, browser harnesses or CLI probes. Native read-only windows and the
 `redoc`/`swagger` export presets use the same captured graph and safe publication.
 
+Reference document and display producers are version **3**. Distinct canonical
+interpretations of one physical source object retain separate documentation
+sections, Markdown bases and reference targets. Read-only renderer copies have
+unique display pointers and source actions retain the original role and source
+coordinates. The first-party Redoc/Swagger adapters are **9**/**8**; the pinned
+third-party packages are unchanged. Older display and adapter identities are
+rejected. Asset preparation and runtime verification remain subject to the
+execution hold.
+
 `swagger_content.mjs` uses supported component hooks and exact Reference values
 for schema constraints, inherited parameters and additional operations. Its
 browser-module build uses upstream React/React DOM **18.3.1**. Exact imported and

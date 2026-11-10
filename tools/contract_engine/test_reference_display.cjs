@@ -7,10 +7,40 @@ const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
 const {deriveBundle}=require('./dist/derived_bundle.cjs');
 const {mixed}=require('../../fixtures/compatibility/reference_display.cjs');
 const output='https://display.invalid/reference.json';
+for(const version of ['3.1.2','3.2.0','3.2.1'])test(`documentation retains both canonical interpretations and Markdown bases ${version}`,async()=>{
+ const {referencePage}=require('./dist/reference_projection.cjs');
+ const root='https://docs.invalid/api.json',pointer='/components/schemas/Outer/properties/Shared';
+ const value={openapi:version,info:{title:'Multiple roles',version:'1'},paths:{},components:{
+  schemas:{Outer:{$id:'https://schemas.invalid/root/',type:'object',properties:{Shared:{description:'[Guide](guide.md)',schema:{type:'string'},example:'unchanged'}}},Use:{$ref:'#'+pointer}},
+  headers:{Shared:{$ref:'#'+pointer}}}};
+ const text=JSON.stringify(value),input={root,snapshot:'roles-'+version,resources:[{id:root,text,generation:4}]};
+ const result=referenceDisplay(input,output),sections=result.original.sections.filter(s=>s.source.pointer===pointer);
+ assert.deepEqual(new Set(sections.map(s=>s.kind)),new Set(['schema','header']));
+ const schema=sections.find(s=>s.kind==='schema'),header=sections.find(s=>s.kind==='header');
+ assert.equal(sections.filter(s=>s.source.viewKind===undefined).length,1);
+ for(const section of sections)if(section.source.viewKind!==undefined)assert.equal(section.source.viewKind,section.kind);
+ for(const section of sections){
+  const page=referencePage({...input,resource:root,pointer,contextKind:section.kind});
+  assert.equal(section.entries.find(e=>e.name==='description').source.markdownBase,page.entries.find(e=>e.name==='description').markdownBase);
+ }
+ assert.notEqual(schema.source.markdownBase,header.source.markdownBase);
+ assert.equal(schema.entries.find(e=>e.name==='schema').kind,'data');
+ assert.equal(header.entries.find(e=>e.name==='schema').kind,'schema');
+ const views=result.projection.sections.filter(s=>['schema','header'].includes(s.kind)&&result.provenance.some(p=>p.kind===s.kind&&p.source.pointer===pointer&&p.derived.pointer===s.source.pointer));
+ assert.equal(views.length,2);assert.notEqual(views[0].source.pointer,views[1].source.pointer);
+ for(const [kind,use] of [['schema','/components/schemas/Use'],['header','/components/headers/Shared']]){
+  const target=result.projection.sections.find(s=>s.kind===kind&&s.source.pointer===use).references[0].target.pointer;
+  assert.equal(target,views.find(s=>s.kind===kind).source.pointer);
+ }
+ const {graphAddressedDisplay}=await import('../documentation_renderers/graph_display.mjs');
+ assert.doesNotThrow(()=>graphAddressedDisplay(result.output.text,result.projection,'https://display.invalid/index.html',{addresses:'document-pointer'}));
+ assert.throws(()=>graphAddressedDisplay(result.output.text,{...result.projection,producerVersion:'2'},'https://display.invalid/index.html',{addresses:'document-pointer'}));
+ assert.equal(input.resources[0].text,text);assert(result.output.text.includes('"example":"unchanged"'));
+});
 test('the versioned display wire packet round-trips exact text rather than authored numbers',()=>{
  const {referenceDisplayPacket}=require('./dist/reference_display.cjs'),input=mixed('3.2.1');
  const packet=referenceDisplayPacket({...input,outputId:output});
- assert.equal(packet.version,1);assert.equal(packet.producerVersion,'2');assert.equal(packet.producer,'busyapi-reference-display-packet');assert.equal(packet.encoding,'json');
+ assert.equal(packet.version,1);assert.equal(packet.producerVersion,'3');assert.equal(packet.producer,'busyapi-reference-display-packet');assert.equal(packet.encoding,'json');
  const decoded=JSON.parse(packet.content);assert.deepEqual(decoded,referenceDisplay(input,output));
  assert(decoded.output.text.includes('9007199254740993.00'));
 });

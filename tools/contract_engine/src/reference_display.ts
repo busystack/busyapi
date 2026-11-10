@@ -13,7 +13,7 @@ const escape=value=>value.replaceAll('~','~0').replaceAll('/','~1');
 // isolate, deep-copying it to another, and freezing it repeatedly on the UI.
 // This is a wire envelope, never source/API object serialization.
 export function referenceDisplayPacket(input:any) {
- return {version:1,producer:'busyapi-reference-display-packet',producerVersion:'2',encoding:'json',content:JSON.stringify(referenceDisplay(input))};
+ return {version:1,producer:'busyapi-reference-display-packet',producerVersion:'3',encoding:'json',content:JSON.stringify(referenceDisplay(input))};
 }
 
 export function referenceDisplay(input:any) {
@@ -25,7 +25,7 @@ export function referenceDisplay(input:any) {
   throw new SourceError('documentation.display-input','Display coordinates must be independent of original resources');
  let name='x-busyapi-display-resources',suffix=0;
  while(root.root.children.has(name))name='x-busyapi-display-resources-'+hash(input.root)+'-'+(++suffix);
- const prefix=new Map([[input.root,'']]),values=[],copies=new Map<string,{resource:string;from:string;to:string}>();
+ const prefix=new Map([[input.root,'']]),values=[],copies=new Map<string,{resource:string;from:string;to:string;viewKind?:string}>();
  const raw=root.dataJson('');let cost=Buffer.byteLength(raw);
  const retain=(key,text)=>{
   cost+=Buffer.byteLength(key)+Buffer.byteLength(text)+4;
@@ -40,21 +40,21 @@ export function referenceDisplay(input:any) {
  // A reference into instance/extension data gets a distinct presentation copy;
  // never rewrite the literal occurrence to make the renderer resolve it.
  const literalScopes=new Map<string,{section:any;container:string}>();
- const sourceKey=(resource,pointer)=>JSON.stringify([resource,pointer]);
+ const sourceKey=(resource,pointer,viewKind?:string)=>JSON.stringify([resource,pointer,viewKind??null]);
  for(const section of original.sections) {
-  const {resource,pointer}=section.source,container=graph.literalContainer(resource,pointer);
-  if(container!==undefined)literalScopes.set(sourceKey(resource,pointer),{section,container});
+  const {resource,pointer,viewKind}=section.source,container=viewKind?'view:'+viewKind:graph.literalContainer(resource,pointer);
+  if(container!==undefined)literalScopes.set(sourceKey(resource,pointer,viewKind),{section,container});
  }
  for(const {section,container} of literalScopes.values()) {
-  const {resource,pointer}=section.source;let ancestor=pointer,owned=false;
+  const {resource,pointer,viewKind}=section.source;let ancestor=pointer,owned=false;
   while(ancestor) {
    ancestor=ancestor.slice(0,ancestor.lastIndexOf('/'));
-   if(literalScopes.get(sourceKey(resource,ancestor))?.container===container){owned=true;break;}
+   if(literalScopes.get(sourceKey(resource,ancestor,viewKind))?.container===container){owned=true;break;}
   }
   if(owned)continue;
   const key='s_'+hash(JSON.stringify([resource,pointer,section.kind]));
   retain(key,docs.get(resource).dataJson(pointer));
-  copies.set(sourceKey(resource,pointer),{resource,from:pointer,to:'/'+escape(name)+'/'+key});
+  copies.set(sourceKey(resource,pointer,viewKind),{resource,from:pointer,to:'/'+escape(name)+'/'+key,viewKind});
  }
  const text=values.length?raw.slice(0,-1)+(root.root.children.size?',':'')+JSON.stringify(name)+':{'+values.join(',')+'}}':raw;
  if(Buffer.byteLength(text)>16*1024*1024)throw new SourceError('limit.documentation.display','The bounded renderer display exceeds 16 MiB');
@@ -64,12 +64,13 @@ export function referenceDisplay(input:any) {
  const display=new SourceDocument(text,outputId);
  const placement=source=>{
   let at=source.pointer;
-  while(true){const found=copies.get(sourceKey(source.resource,at));if(found)return found;if(!at)break;at=at.slice(0,at.lastIndexOf('/'));}
-  return {resource:source.resource,from:'',to:prefix.get(source.resource)};
+  while(true){const found=copies.get(sourceKey(source.resource,at,source.viewKind));if(found)return found;if(!at)break;at=at.slice(0,at.lastIndexOf('/'));}
+  return {resource:source.resource,from:'',to:prefix.get(source.resource),viewKind:undefined};
  };
  const locate=(source,owner=placement(source))=>{
   if(!prefix.has(source.resource))throw new SourceError('documentation.display-source','A renderer source is not in the approved snapshot');
   if(source.resource!==owner.resource||source.pointer!==owner.from&&!source.pointer.startsWith(owner.from+'/'))throw new SourceError('documentation.display-owner','A renderer field lost its captured occurrence owner');
+  if(source.viewKind!==owner.viewKind)throw new SourceError('documentation.display-owner','A renderer field lost its captured interpretation');
   const pointer=owner.to+source.pointer.slice(owner.from.length),node=display.nodes.get(pointer);
   if(!node)throw new SourceError('documentation.display-pointer','A renderer coordinate lost its exact source value');
   return {resource:outputId,pointer,markdownBase:true,generation:0,range:node.range};
@@ -99,7 +100,7 @@ export function referenceDisplay(input:any) {
   };
  });
  const identity=hash(text);
- const result={version:1,complete:true,producer:'busyapi-reference-display',producerVersion:'2',root:input.root,snapshot:input.snapshot,
+ const result={version:1,complete:true,producer:'busyapi-reference-display',producerVersion:'3',root:input.root,snapshot:input.snapshot,
   representation:'graph-addressed-display-only',output:{id:outputId,text,identity},original,
   projection:{...original,root:outputId,snapshot:identity,sections,displayOnly:true,coordinateSpace:'display-document'},provenance};
  if(Buffer.byteLength(JSON.stringify(result))>48*1024*1024)throw new SourceError('limit.documentation.display','The combined renderer coordinates exceed 48 MiB');

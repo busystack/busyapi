@@ -286,7 +286,7 @@ class DocumentationPresentation {
     'root': displayCoordinates.root,
     'representation': 'graph-addressed-display-only',
     'displayProducer': 'busyapi-reference-display',
-    'displayProducerVersion': '2',
+    'displayProducerVersion': '3',
     'text': text,
     'identity': identity,
     'projection': projection,
@@ -581,7 +581,7 @@ extension DocumentationBuild on BusyProject {
           'derivedRepresentation':
               'graph-addressed-display-only (not an OpenAPI bundle)',
           'displayProducer': 'busyapi-reference-display',
-          'displayProducerVersion': '2',
+          'displayProducerVersion': '3',
           'derivedIdentity': presentation.identity,
           'derivedProvenance': _portableDerivedProvenance(
             presentation.sourceProvenance,
@@ -709,6 +709,8 @@ List<Map<String, Object?>> _portableDerivedProvenance(
       'source': {
         'resource': portable(entry['source']['resource'] as String),
         'pointer': entry['source']['pointer'],
+        if (entry['source']['viewKind'] != null)
+          'viewKind': entry['source']['viewKind'],
         if ((entry['source'] as Map).containsKey('physicalPointer'))
           'physicalPointer': entry['source']['physicalPointer'],
         if ((entry['source'] as Map).containsKey('range'))
@@ -726,13 +728,18 @@ List<Map<String, Object?>> _portableDerivedProvenance(
 ];
 
 String _referenceAnchor(Map location) =>
-    's-${textIdentity(jsonEncode([location['resource'], location['pointer']]))}';
+    's-${textIdentity(jsonEncode([
+      location['resource'],
+      location['pointer'],
+      if (location['viewKind'] != null) location['viewKind'],
+    ]))}';
 Map<String, Object?> _portableLocation(
   Map location,
   String Function(String) portable,
 ) => {
   'resource': portable(location['resource'] as String),
   'pointer': location['pointer'],
+  if (location['viewKind'] != null) 'viewKind': location['viewKind'],
   'range': location['range'],
   if (location['physicalPointer'] != null)
     'physicalPointer': location['physicalPointer'],
@@ -750,7 +757,7 @@ void _verifyReferenceDocument(
   );
   if (document['version'] != 1 ||
       document['producer'] != 'busyapi-native-reference' ||
-      document['producerVersion'] != '2' ||
+      document['producerVersion'] != '3' ||
       document['root'] != snapshot.root ||
       document['snapshot'] != snapshot.identity ||
       document['complete'] != true ||
@@ -772,6 +779,10 @@ void _verifyReferenceDocument(
     if (value is! Map ||
         value['resource'] is! String ||
         value['pointer'] is! String ||
+        value['viewKind'] != null &&
+            (value['viewKind'] is! String ||
+                (value['viewKind'] as String).isEmpty ||
+                (value['viewKind'] as String).length > 128) ||
         referenceMarkdownBase(value) == null)
       return false;
     final source = resources[value['resource']];

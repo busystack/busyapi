@@ -5,7 +5,7 @@ import {serverContextProblem} from './server_semantics';
 import {fieldsForScope,richTextField} from './authoring';
 import {escape, segments, SourceError} from './document';
 import {ParameterSemantics} from './parameter_semantics';
-import {GraphTarget,ReferenceGraph,referenceMarkdownContext,supportedSchemaDialect,schemaAddress} from './reference_graph';
+import {GraphTarget,type GraphScope,ReferenceGraph,referenceMarkdownContext,supportedSchemaDialect,schemaAddress} from './reference_graph';
 import {createHash} from 'node:crypto';
 import {isNativeFamily} from './specification';
 import {ignoresRequestBody} from './operation_semantics';
@@ -14,7 +14,7 @@ import {ignoresRequestBody} from './operation_semantics';
 // into the UTF-8 replacement character. This is a view ID, not a resource URI.
 const operationNavigationId=(root:string,occurrence:string)=>createHash('sha256').update(Buffer.from(occurrence.slice(root.length),'utf16le')).digest('hex');
 
-function operationEffective(graph:ReferenceGraph,resource:string,pointer:string,path:GraphTarget|undefined,located:(resource:string,pointer:string)=>any,parameterOffset=0,all=false,parameterSemantics=new ParameterSemantics(graph),method?:string) {
+function operationEffective(graph:ReferenceGraph,resource:string,pointer:string,path:GraphTarget|undefined,located:(resource:string,pointer:string,kind?:string)=>any,parameterOffset=0,all=false,parameterSemantics=new ParameterSemantics(graph),method?:string) {
     const doc=graph.docs.get(resource)!,node=doc.dataNode(pointer)!,root=graph.docs.get(graph.root)!,effective:any[]=[];
     if(!path){
         const parts=segments(pointer);parts.splice(parts.at(-2)==='additionalOperations'?-2:-1);
@@ -46,8 +46,8 @@ function operationEffective(graph:ReferenceGraph,resource:string,pointer:string,
             ...(chosen?{source:located(chosen.resource,chosen.pointer)}:{}),...(!chosen&&!unknown&&name==='servers'?{default:[{url:'/'}]}:{})});
     }
     const parameters=parameterSemantics.operation(resource,pointer,path);
-    const visible=parameters.visible.map(parameter=>({...parameter,source:located(parameter.source.resource,parameter.source.pointer),
-        ...(parameter.definition?{definition:located(parameter.definition.resource,parameter.definition.pointer)}:{})}));
+    const visible=parameters.visible.map(parameter=>({...parameter,source:located(parameter.source.resource,parameter.source.pointer,'parameter'),
+        ...(parameter.definition?{definition:located(parameter.definition.resource,parameter.definition.pointer,'parameter')}:{})}));
     const offset=all?0:Math.min(Math.max(0,Number.isSafeInteger(parameterOffset)?parameterOffset:0),Math.max(0,(Math.ceil(visible.length/50)-1)*50));
     effective.push({name:'parameters',entries:all?visible:visible.slice(offset,offset+50),count:visible.length,offset,
         complete:parameters.complete,invalid:!parameters.valid,overriddenCount:parameters.entries.length-visible.length});
@@ -251,24 +251,23 @@ export function referenceDocument(input:any) {
     if(graph.issues.length||[...docs.values()].some(doc=>doc.issues.length))
         throw new SourceError('documentation.incomplete','Documentation requires a coherent, unambiguous approved source graph');
     const generations=new Map((input.resources as Resource[]).map(resource=>[resource.id,resource.generation]));
-    const location=(resource:string,pointer:string)=>{
+    const location=(resource:string,pointer:string,interpretation?:GraphScope|string)=>{
         const doc=docs.get(resource)!,physical=doc.dataNode(pointer);
         if(!physical)throw new SourceError('documentation.source','A documentation source occurrence is unavailable');
         let occurrence=pointer;
         while(occurrence&&!doc.nodes.has(occurrence))occurrence=occurrence.slice(0,occurrence.lastIndexOf('/'));
-        return {resource,pointer,markdownBase:referenceMarkdownContext(graph,resource,pointer),generation:generations.get(resource),range:physical.range,
+        const owner=typeof interpretation==='string'?graph.scopeAs(resource,pointer,interpretation):interpretation;
+        const viewKind=owner&&graph.scopes.get(owner.resource+'#'+owner.pointer)?.kind!==owner.kind?owner.kind:undefined;
+        return {resource,pointer,...(viewKind?{viewKind}:{}),markdownBase:referenceMarkdownContext(graph,resource,pointer,owner),generation:generations.get(resource),range:physical.range,
             ...(physical.pointer!==pointer?{physicalPointer:physical.pointer,occurrenceRange:doc.nodes.get(occurrence)!.range}:{})};
     };
-    const referenceIndex=new Map<string,typeof graph.references>();
     const incoming=new Map<string,typeof graph.references>();
     for(const reference of graph.references) {
-        const key=JSON.stringify([reference.resource,reference.pointer]),values=referenceIndex.get(key)??[];
-        values.push(reference);referenceIndex.set(key,values);
-        const target=JSON.stringify([reference.targetResource,reference.targetPointer]),usages=incoming.get(target)??[];
+        const target=JSON.stringify([reference.targetResource,reference.targetPointer,reference.kind]),usages=incoming.get(target)??[];
         usages.push(reference);incoming.set(target,usages);
     }
-    const scopes=[...graph.scopes.values()].sort((a,b)=>a.resource<b.resource?-1:a.resource>b.resource?1:
-        docs.get(a.resource)!.dataNode(a.pointer)!.range[0]-docs.get(b.resource)!.dataNode(b.pointer)!.range[0]||a.pointer.length-b.pointer.length);
+    const scopes=[...graph.interpretedScopes()].sort((a,b)=>a.resource<b.resource?-1:a.resource>b.resource?1:
+        docs.get(a.resource)!.dataNode(a.pointer)!.range[0]-docs.get(b.resource)!.dataNode(b.pointer)!.range[0]||a.pointer.length-b.pointer.length||a.kind.localeCompare(b.kind));
     if(scopes.length>40000)throw new SourceError('limit.documentation.sections','Documentation exceeds 40000 semantic sections');
     let bytes=0,fields=0;
     const retain=(text:string)=>{
@@ -292,34 +291,34 @@ export function referenceDocument(input:any) {
             // in real specification objects remain data even when referenced.
             const kind=contexts.get(name)??(scope.kind==='root'&&!graph.specifications.has(doc.id)?
                 graph.scopes.get(scope.resource+'#'+pointer)?.kind:undefined);
-            const target=kind!==undefined&&graph.scopes.has(scope.resource+'#'+pointer);
-            return {name,source:location(scope.resource,pointer),kind:kind??'data',
-                ...(target?{target:location(scope.resource,pointer)}:
+            const target=kind===undefined?undefined:graph.scopeAs(scope.resource,pointer,kind);
+            return {name,source:location(scope.resource,pointer,scope),kind:kind??'data',
+                ...(target?{target:location(scope.resource,pointer,target)}:
                     {text:retain(typeof child.value==='string'?child.value:doc.dataJson(pointer)),
                      representation:typeof child.value==='string'?'text':'json',
                      richText:richTextField(scope.kind,family,node.value,name,segments(scope.pointer).at(-1),graph.allowsReference(scope))}),
             };
         });
-        const references=(referenceIndex.get(JSON.stringify([scope.resource,scope.pointer]))??[]).map(reference=>({
-            keyword:reference.keyword,value:reference.value,source:location(scope.resource,scope.pointer+'/'+escape(reference.keyword)),
+        const references=graph.referencesAt(scope.resource,scope.pointer,scope.kind).map(reference=>({
+            keyword:reference.keyword,value:reference.value,source:location(scope.resource,scope.pointer+'/'+escape(reference.keyword),scope),
             ...(reference.connection?{connection:reference.connection}:{}),
-            target:location(reference.targetResource!,reference.targetPointer!),
-            ...(reference.dynamic?{dynamic:{anchor:reference.dynamic.anchor,candidates:reference.dynamic.candidates.map(target=>location(target.resource,target.pointer))}}:{}),
+            target:location(reference.targetResource!,reference.targetPointer!,graph.scopeAs(reference.targetResource!,reference.targetPointer!,reference.kind)),
+            ...(reference.dynamic?{dynamic:{anchor:reference.dynamic.anchor,candidates:reference.dynamic.candidates.map(target=>location(target.resource,target.pointer,graph.scopeAs(target.resource,target.pointer,'schema')))}}:{}),
         }));
         // The native page supplies effective declarations through the same
         // parameter/ownership implementation. Read every page, not previews.
         const operationContexts=scope.kind==='operation'?graph.operationContexts(scope.resource,scope.pointer).map(occurrence=>({
             occurrence:occurrence.occurrence,path:occurrence.path,method:occurrence.method,customMethod:occurrence.customMethod===true,role:occurrence.role,
             navigationId:operationNavigationId(input.root,occurrence.occurrence),
-            pathItem:location(occurrence.pathItem.resource,occurrence.pathItem.pointer),
+            pathItem:location(occurrence.pathItem.resource,occurrence.pathItem.pointer,graph.scopeAs(occurrence.pathItem.resource,occurrence.pathItem.pointer,'path-item')),
             effective:operationEffective(graph,scope.resource,scope.pointer,occurrence.pathItem,location,0,true,parameterSemantics,occurrence.method),
         })):[];
         const effective=scope.kind==='operation'&&operationContexts.length===1?operationContexts[0].effective:[];
-        const usages=(incoming.get(JSON.stringify([scope.resource,scope.pointer]))??[]).map(reference=>({
-            source:location(reference.resource,reference.pointer),keyword:reference.keyword,
+        const usages=(incoming.get(JSON.stringify([scope.resource,scope.pointer,scope.kind]))??[]).map(reference=>({
+            source:location(reference.resource,reference.pointer,graph.referenceOwner(reference)),keyword:reference.keyword,
             ...(reference.connection?{connection:reference.connection}:{}),dynamic:!!reference.dynamic,
         }));
-        return {source:location(scope.resource,scope.pointer),kind:scope.kind,base:scope.base,dialect:scope.dialect,
+        return {source:location(scope.resource,scope.pointer,scope),kind:scope.kind,base:scope.base,dialect:scope.dialect,
             interpretations:graph.scopesAt(scope.resource,scope.pointer).map(({kind,family,base,dialect})=>({kind,family,base,dialect})),usages,...(scope.kind==='operation'?{contexts:operationContexts}:{}),
             retrieval:graph.retrievals.get(scope.resource),entries,references,effective,
             defaults:definitions.filter(field=>!node.children.has(field.name)&&Object.hasOwn(field,'effectiveDefault')).map(field=>({name:field.name,value:field.effectiveDefault})),
@@ -328,7 +327,7 @@ export function referenceDocument(input:any) {
     });
     const complete=sections.every(section=>section.effective.every(field=>field.complete!==false&&!field.invalid)&&
         (section.contexts??[]).every(context=>context.effective.every(field=>field.complete!==false&&!field.invalid)));
-    const result={version:1,producer:'busyapi-native-reference',producerVersion:'2',snapshot:input.snapshot,root:input.root,family,complete,sections};
+    const result={version:1,producer:'busyapi-native-reference',producerVersion:'3',snapshot:input.snapshot,root:input.root,family,complete,sections};
     if(Buffer.byteLength(JSON.stringify(result))>48*1024*1024)throw new SourceError('limit.documentation.projection','Documentation exceeds its bounded projection size');
     return result;
 }
