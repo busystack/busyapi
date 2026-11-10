@@ -258,6 +258,25 @@ CONNECT, migration publication, recovery and native graphical suites remain
 separate registered acceptance infrastructure; this extension does not establish
 those journeys or current-revision acceptance by implication.
 
+W4.02/W4.06 ordinary content Parameter production now extends the existing
+`requestContentParameters` owner beyond modeled XML/Linkset. Literal media inputs
+and JSON/plain-text scalar models retain actual media octets, including declared
+ISO-8859-1, UTF-8 Header JSON, exact scalar numbers and whole-query content.
+Plain-text defaults/charset limits remain normative; unrepresentable characters
+and structured non-scalar text are refused. Embedded MIME strings reuse the
+existing materializer; structured form fields retain the existing Core style
+serializer. Outgoing media validation now consumes those prepared bytes through
+the original captured media/schema owner rather than reporting a serialized
+input unchecked or reinterpreting its Unicode spelling. Native drafts, saved
+cases and CLI already share this preparation owner. Content-Parameter producer
+is `busyapi-request-content-parameters` **2**, request representation
+`parameterMedia` is **2**, and plan identity includes `parameter-media-v2`;
+Core rejects obsolete or missing byte results. Existing schema/mock producers
+are unchanged. Prepared, **not run**: registered runtime-parameter Engine/Core
+suites cover declared charset URI/Header bytes, exact text scalar numbers,
+whole-query text, original-schema proof, actual HTTP, save/cold replay,
+independent CLI and malformed/obsolete projection controls.
+
 No boundary is reclassified as a target-specification restriction. Only source
 inspection, official specification/RFC reads, Git inspection and
 `git diff --check` have been performed. The execution hold and Snapcraft skip

@@ -1082,7 +1082,8 @@ class OperationRequestPlan {
       ...snapshot.toJson(), 'resource': (operation['source'] as Map)['resource'],
       'pointer': (operation['source'] as Map)['pointer'], 'occurrence': operation['occurrence'], 'values': values, 'rawValues': rawValues,
     }, 'content-${identity}-${DateTime.now().microsecondsSinceEpoch}-${_contentPreparationSerial++}', cancellation);
-    if (projected['version'] != 1 || projected['snapshot'] != snapshot.identity || projected['identity'] != identity || projected['values'] is! Map ||
+    if (projected['version'] != 1 || projected['producer'] != 'busyapi-request-content-parameters' ||
+        projected['producerVersion'] != '2' || projected['snapshot'] != snapshot.identity || projected['identity'] != identity || projected['values'] is! Map ||
         (projected['values'] as Map).entries.any((entry) => !inputs.containsKey(entry.key) || entry.value is! String)) {
       throw CoreFailure('request.parameter.protocol', 'The generated content parameters differ from their capture.');
     }
@@ -1090,9 +1091,9 @@ class OperationRequestPlan {
     for (final parameter in (result['parameters'] as List? ?? const []).whereType<Map>()) {
       final content = parameter['content'];
       if (content is! List || content.length != 1 || content.single is! Map) continue;
-      final media = ((content.single as Map)['mediaType'] as String).split(';').first.trim().toLowerCase();
       final key = OperationRequestDraft.parameterKey(parameter['in'] as String, parameter['name'] as String);
-      if ((media == 'application/linkset' || media == 'application/linkset+json' || media == 'application/xml' || media == 'text/xml' || media.endsWith('+xml')) && inputs.containsKey(key)) expected.add(key);
+      if (rawValues.containsKey(key) || values.containsKey(key) &&
+          ['xml','linkset','linkset-json','json','text'].contains((content.single as Map)['dataModel'])) expected.add(key);
     }
     if ((projected['values'] as Map).length != expected.length || !(projected['values'] as Map).keys.every(expected.contains) ||
         projected['percentEncoded'] is! Map || (projected['percentEncoded'] as Map).length != expected.length ||
@@ -1761,6 +1762,7 @@ extension RequestPlanning on BusyProject {
         (result['representationRevisions'] as Map)['parameterExamples'] != '2' ||
         (result['representationRevisions'] as Map)['partExamples'] != '1' ||
         (result['representationRevisions'] as Map)['oauth'] != '1' ||
+        (result['representationRevisions'] as Map)['parameterMedia'] != '2' ||
         result['operation'] is! Map ||
         result['servers'] is! List ||
         result['parameters'] is! List ||

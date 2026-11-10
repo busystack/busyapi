@@ -4321,15 +4321,16 @@ class ContractRequestExecutor {
       }
       final wireFormParameter =
           _formMedia(contentMedia?['mediaType'] as String?) && !value.json;
-      if (wireFormParameter ||
+      final preparedParameterBytes = preparedMediaParameters[OperationRequestDraft.parameterKey(location,name)];
+      if (preparedParameterBytes != null || wireFormParameter ||
           _nativeMedia(contentMedia) &&
               value.representation !=
                   RequestValueRepresentation.serializedParameter) {
-        final nativeContent = ['xml','linkset','linkset-json'].contains(contentMedia?['dataModel']);
-        final bytes = preparedMediaParameters[OperationRequestDraft.parameterKey(location,name)];
-        if (nativeContent && bytes == null) throw CoreFailure('runtime.parameter.preparation', 'Modeled parameter evaluation requires its actual prepared media bytes.');
-        var text = nativeContent ? bytes! : value.text;
-        if (value.json && contentMedia?['dataModel'] == 'text') {
+        final nativeContent = preparedParameterBytes != null;
+        if (['xml','linkset','linkset-json'].contains(contentMedia?['dataModel']) && !nativeContent)
+          throw CoreFailure('runtime.parameter.preparation', 'Modeled parameter evaluation requires its actual prepared media bytes.');
+        var text = nativeContent ? preparedParameterBytes! : value.text;
+        if (!nativeContent && value.json && contentMedia?['dataModel'] == 'text') {
           final trimmed = text.trim();
           // Only a JSON string needs decoding. Numeric spelling is already
           // the exact scalar representation used by the request serializer.

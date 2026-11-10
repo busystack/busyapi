@@ -1,4 +1,5 @@
 import {rawXmlBytes} from './xml_wire';
+import {declaredPlainTextBytes} from './text_encoding';
 import {mediaTypes} from './media_types';
 import {httpFieldLines} from './http_field_lines';
 import {multipartProjectionRevision} from './schema_reference_projection';
@@ -53,17 +54,35 @@ export async function requestContentParameters(input:any){
   if(text===undefined)continue;
   if(typeof text!=='string')throw new SourceError('request.parameter.input','Typed parameter values require exact JSON text');
   const content=parameter.content;
-  if(!Array.isArray(content)||content.length!==1||!['xml','linkset','linkset-json'].includes(runtimeMediaKind(content[0].mediaType)))continue;
+  if(!Array.isArray(content)||content.length!==1)continue;
+  const media=content[0],kind=runtimeMediaKind(media.mediaType),header=parameter.in==='header';
+  // Structured forms retain the existing Core field/style serializer. Every
+  // literal media input and the established scalar/JSON models use this same
+  // byte materialization and occurrence framing owner.
+  if(!literal&&!['xml','linkset','linkset-json','json','text'].includes(kind))continue;
   inputs[key]=createHash('sha256').update(text).digest('hex');
-  const media=content[0],header=parameter.in==='header';
-  if(header&&parameter.name.toLowerCase()==='link'&&runtimeMediaKind(media.mediaType)==='linkset-json')throw new SourceError('runtime.linkset.header','HTTP Link content must declare application/linkset');
-  const bytes=literal?(runtimeMediaKind(media.mediaType)==='xml'?rawXmlBytes(text,mediaTypes(media.mediaType,false)[0].parameters.get('charset')):runtimeMediaBytes(text,false)):(await prepareModeledMedia(input,text,media.mediaType,media.schema,header,'request')).bytes;
+  if(header&&parameter.name.toLowerCase()==='link'&&kind==='linkset-json')throw new SourceError('runtime.linkset.header','HTTP Link content must declare application/linkset');
+  let bytes:Buffer;
+  if(['xml','linkset','linkset-json'].includes(kind)&&!literal)
+   bytes=(await prepareModeledMedia(input,text,media.mediaType,media.schema,header,'request')).bytes;
+  else if(kind==='xml')bytes=rawXmlBytes(text,mediaTypes(media.mediaType,false)[0].parameters.get('charset'));
+  else if(kind==='text'){
+   let scalar=text;
+   if(!literal){
+    const data=new SourceDocument(text,'urn:busyapi:parameter-input',true,'json');
+    if(data.issues.length)throw data.issues[0];
+    if(data.root.kind==='object'||data.root.kind==='array')throw new SourceError('request.parameter.media','Plain-text parameter data requires a scalar value');
+    scalar=data.root.kind==='string'?data.root.value:data.dataJson('');
+   }
+   bytes=declaredPlainTextBytes(scalar,mediaTypes(media.mediaType,false)[0].parameters.get('charset'));
+  }else bytes=media.mediaType.split(';')[0].trim().toLowerCase().startsWith('multipart/')?
+   embeddedMimeTextBytes(text,media.mediaType):runtimeMediaBytes(text,false);
   bodies[key]=bytes.toString('base64');
   const serialized=parameterMediaSerialization(parameter.in,parameter.name,media.mediaType,bytes);
   values[key]=parameter.in==='query'?serialized.slice(serialized.indexOf('=')+1):parameter.in==='cookie'?serialized.slice(parameter.name.length+1):serialized;
   percentEncoded[key]=!header&&parameter.in!=='cookie';
  }
- return {version:1,snapshot:input.snapshot,identity:plan.identity,values,percentEncoded,inputs,bodies};
+ return {version:1,producer:'busyapi-request-content-parameters',producerVersion:'2',snapshot:input.snapshot,identity:plan.identity,values,percentEncoded,inputs,bodies};
 }
 
 /** A URL-form field retains its own captured schema and declared media. */
@@ -716,8 +735,8 @@ export function requestOperation(input:any,captured?:ReturnType<typeof createGra
     }
     responses.push({status,source:location(input.resource,at),definition:selected.source,description:v?.description,headers,bodyAllowed:responseAllowsContent(family,v),content:family==='2.0'?swaggerResponseContent(graph,selected.resource,selected.pointer,swaggerMedia(graph,input.resource,input.pointer,'produces'),location).map(item=>({...item,...runtimeMediaDescription(item.mediaType)})):media(selected.resource,selected.pointer+'/content',v?.content)});
   }
-  const identity=createHash('sha256').update(JSON.stringify(['request-examples-v2','oauth-device-v1',multipartProjectionRevision,schemaExamplesRevision,input.snapshot,input.resource,input.pointer,context.occurrence])).digest('hex');
-  return {version:1,snapshot:input.snapshot,root:input.root,identity,family,representationRevisions:{multipart:multipartProjectionRevision,schemaExamples:schemaExamplesRevision,xml:'2',linkset:'2',stream:'2',parameterExamples:'2',partExamples:'1',oauth:'1'},operation:{method,customMethod:context.customMethod===true,path:context.path,
+  const identity=createHash('sha256').update(JSON.stringify(['request-examples-v2','oauth-device-v1','parameter-media-v2',multipartProjectionRevision,schemaExamplesRevision,input.snapshot,input.resource,input.pointer,context.occurrence])).digest('hex');
+  return {version:1,snapshot:input.snapshot,root:input.root,identity,family,representationRevisions:{multipart:multipartProjectionRevision,schemaExamples:schemaExamplesRevision,xml:'2',linkset:'2',stream:'2',parameterExamples:'2',partExamples:'1',oauth:'1',parameterMedia:'2'},operation:{method,customMethod:context.customMethod===true,path:context.path,
     operationId:typeof node.value.operationId==='string'?node.value.operationId:undefined,summary:typeof node.value.summary==='string'?node.value.summary:undefined,
     source:location(input.resource,input.pointer),occurrence:context.occurrence,pathItem:location(context.pathItem.resource,context.pathItem.pointer)},
     servers,parameters:parameters.visible.filter(entry=>family!=='2.0'||!['body','formData'].includes(entry.location!)).map(parameter),security:{requirements,schemes:Object.fromEntries(schemes),anonymous:requirements.some(requirement=>requirement.schemes.length===0)||!securityField},requestBody,ignoredRequestBody,responses,responseStatusNamePolicy:responseStatusNamePolicy(family),

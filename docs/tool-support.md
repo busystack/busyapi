@@ -982,6 +982,12 @@ retain an empty example name. Existing nonempty string names remain supported;
 the legacy empty string still selects an unnamed occurrence. Native saves and
 independent CLI reopening use the same captured example owner.
 
+Content Parameter preparation uses `busyapi-request-content-parameters` **2** and
+request representation `parameterMedia` **2**. Literal media and JSON/plain-text
+scalar inputs retain the actual declared charset bytes through URI/Header
+framing and original-schema validation. This includes whole-query content;
+structured form fields continue to use the established form/style serializer.
+
 `swagger_content.mjs` uses supported component hooks and exact Reference values
 for schema constraints, inherited parameters and additional operations. Its
 browser-module build uses upstream React/React DOM **18.3.1**. Exact imported and

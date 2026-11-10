@@ -1,6 +1,35 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),YAML=require('yaml');
 const {evaluateSchemas,schemaProducer}=require('./dist/schema_evaluation.cjs');
 
+for(const version of ['3.0.4','3.1.2','3.2.0','3.2.1'])test(`${version} native content Parameter materialization retains charset bytes and exact scalar spellings`,async()=>{
+ const {requestContentParameters}=require('./dist/execution.cjs');
+ const root='file:///approved/content.json',latin='text/plain; charset=iso-8859-1';
+ const parameters=[{name:'q',in:'query',content:{[latin]:{schema:{type:'string',enum:['café']}}}},
+  {name:'p',in:'path',required:true,content:{[latin]:{schema:{type:'string',enum:['café']}}}},
+  {name:'X-Json',in:'header',content:{'application/json':{schema:{type:'string',enum:['雪']}}}},
+  {name:'n',in:'query',content:{'text/plain':{schema:{type:'string',enum:['9007199254740993.00']}}}}];
+ const value={openapi:version,info:{title:'Content bytes',version:'1'},paths:{'/p/{p}':{get:{parameters,responses:{204:{description:'Empty'}}}},
+  ...(version.startsWith('3.2')?{'/whole':{get:{parameters:[{name:'all',in:'querystring',content:{[latin]:{schema:{type:'string',enum:['café']}}}}],responses:{204:{description:'Empty'}}}}}:{})}};
+ const text=JSON.stringify(value),input={root,resource:root,pointer:'/paths/~1p~1{p}/get',snapshot:'media-input',resources:[{id:root,text,generation:1}]};
+ const prepared=await requestContentParameters({...input,rawValues:{'query\0q':'café'},values:{'path\0p':'"café"','header\0X-Json':'"雪"','query\0n':'9007199254740993.00'}});
+ assert.equal(prepared.producer,'busyapi-request-content-parameters');assert.equal(prepared.producerVersion,'2');
+ assert.equal(prepared.values['query\0q'],'caf%E9');assert.equal(prepared.values['path\0p'],'caf%E9');
+ assert.equal(prepared.values['query\0n'],'9007199254740993.00');
+ assert(Buffer.from(prepared.bodies['header\0X-Json'],'base64').equals(Buffer.from('"雪"','utf8')));
+ const runtimeInstances=parameters.map((parameter,index)=>({subject:'request-parameter',location:String(index),
+  text:(parameter.in==='query'?parameter.name+'=':'')+prepared.values[parameter.in+'\0'+parameter.name],
+  parameter:{resource:root,pointer:input.pointer+'/parameters/'+index}}));
+ const checked=await evaluateSchemas({...input,runtimeInstances});assert.equal(checked.complete,true,JSON.stringify(checked.runtimeFindings));
+ assert(checked.runtimeEvaluations.every(proof=>proof.valid),JSON.stringify(checked.runtimeFindings));
+ if(version.startsWith('3.2')){
+  const whole=await requestContentParameters({...input,pointer:'/paths/~1whole/get',values:{},rawValues:{'querystring\0all':'café'}});
+  assert.equal(whole.values['querystring\0all'],'caf%E9');
+ }
+ await assert.rejects(requestContentParameters({...input,values:{'query\0n':'"雪"'}}),error=>error.code==='runtime.media.charset');
+ await assert.rejects(requestContentParameters({...input,values:{'path\0p':'{}'}}),error=>error.code==='request.parameter.media');
+ assert.equal(input.resources[0].text,text);
+});
+
 test('R3c-3 present empty exploded fields cannot witness omitted empty arrays',async()=>{
  const input=require('./migration_b05_r3c3_fixture.cjs')();input.schema.properties.q.items.enum=['a+b'];input.refresh();
  const plan=await require('./dist/migration.cjs').planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));
