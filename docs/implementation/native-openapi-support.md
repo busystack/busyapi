@@ -116,18 +116,49 @@ fields; empty strings remain explicit values, including matrix `;name`.
 Prepared, **not run**: the registered runtime-parameter engine suite adds binary
 query/path/Header/whole-query, charset, malformed-escape and byte-length cases;
 Core `external_parameter_selection_test.dart` adds actual HTTP, saved review,
-cold reopening, independent CLI, denied/missing/stale choices and cancellation
+cold reopening, independent CLI, missing/stale choices and cancellation
 in YAML/JSON for 3.0.4/3.1.2/3.2.0/3.2.1. The existing native external-body
 journey also selects and sends a binary query example. Existing producer
 fixtures retain obsolete controls and add prior-octet-producer rejection.
 Schema producer is `hyperjump+busyapi-exact` **1.18.0+68**, with
 `parameter-media-octets-v1`; Parameter producer is **7**, `parameter-wire-v7`.
-Request example representation is **1**, strictly admitted by Core. Migration
+Request Parameter example representation is now **2**, and part example
+representation is **1**, strictly admitted by Core. Migration
 **104**, multipart **2**, stream **2** and other existing identities are retained.
 
-Overall **INCOMPLETE, unaccepted**. Multipart part/Header example selection,
-remaining W1/W6 production-consumer reconciliation, documentation integration,
+The same continuation additionally connects approved captured bytes to the
+existing multipart file/MIME pipeline. Native part controls require an explicit
+concrete media choice; preparation checks token/project/operation/part/media
+ownership and current approved bytes. Saved `files` retain their relative path
+with `capturedExample: true`; cold reopening refuses absent captured resources
+instead of falling back to upload acquisition. Generic MIME Header controls
+project actual Header occurrences and select external/serialized examples through
+the shared capture and original body/Header proof. Data Header examples use the
+existing Core Parameter serializer. Legal ASCII horizontal tabs are retained;
+structural and ignored form-data fields keep their existing owners.
+
+`request_examples.ts` contains the existing request example projection moved
+from `execution.ts`, shared with multipart controls. It also preserves both
+native choices when 3.2 `dataValue` coexists with external/serialized content;
+no reusable component media type is inferred. External control metadata omits
+duplicate payload bytes. Response Header projections now include their native
+examples. Source-only preparation adds Core `external_part_selection_test.dart`
+(actual multipart exchange, byte identity, Header examples, stale/cancelled
+inputs, saved review, cold reopen and independent CLI), native
+`external_part_example_request_test.dart` (actual part/Header selection and HTTP),
+and cases in the registered multipart-header and external-example engine suites
+(empty names, separate data/wire choices, byte ownership and negative original
+proof). These are all **unexecuted**. A mistaken buffer-ID argument in the
+prepared Parameter save regression was corrected by source review.
+
+Overall **INCOMPLETE, unaccepted**. Remaining W1/W6 production-consumer
+reconciliation, documentation integration,
 W2/W3 reconciliation and the complete W7 acceptance journeys remain unfinished.
+One additional confirmed W1.13/application omission is the device authorization
+flow: metadata recognizes it, but the request flow projection omits
+`deviceAuthorizationUrl` and Core/native have no device authorization execution
+method/control. That is missing implementation, not held qualification or a
+specification restriction. No device-flow implementation has yet been written.
 No boundary is reclassified as a target-specification restriction. Only source
 inspection, official specification/RFC reads, Git inspection and
 `git diff --check` have been performed. The execution hold and Snapcraft skip

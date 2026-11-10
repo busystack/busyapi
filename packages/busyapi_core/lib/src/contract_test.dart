@@ -591,6 +591,7 @@ class ContractTestRunner {
                   'path',
                   'filename',
                   'mediaType',
+                  'capturedExample',
                 ].contains(key),
               ) ||
               file['name'] is! String ||
@@ -600,6 +601,8 @@ class ContractTestRunner {
               (file['path'] as String).length > 8192 ||
               p.isAbsolute(file['path'] as String) ||
               p.split(p.normalize(file['path'] as String)).contains('..') ||
+              file.containsKey('capturedExample') && file['capturedExample'] is! bool ||
+              file['capturedExample'] == true && (file['mediaType'] is! String || (file['mediaType'] as String).isEmpty) ||
               ['filename', 'mediaType'].any(
                 (key) =>
                     file.containsKey(key) &&
@@ -723,7 +726,7 @@ class ContractTestRunner {
         final choice = entry.value as Map;
         parameters[OperationRequestDraft.parameterKey(location.key as String, entry.key as String)] =
             RequestValue.example(plan.captureParameterExample(location.key as String, entry.key as String,
-                name: choice['name'] == '' ? null : choice['name'] as String,
+                name: choice['name'] as String,
                 mediaType: choice['mediaType'] as String?));
       }
     }
@@ -744,7 +747,11 @@ class ContractTestRunner {
       ];
       final files = [
         for (final value in rawBody['files'] as List? ?? const [])
-          MultipartFileValue(
+          if (value['capturedExample'] == true)
+            MultipartFileValue.example(plan.capturePartExample(media, value['name'] as String,
+                value['mediaType'] as String, Uri.file(access.pathFor(p.join(access.boundary, value['path'] as String))).toString()),
+                filename: value['filename'] as String?)
+          else MultipartFileValue(
             name: value['name'] as String,
             path: access.pathFor(
               p.join(access.boundary, value['path'] as String),

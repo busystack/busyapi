@@ -606,6 +606,35 @@ class RequestRunController extends ChangeNotifier {
     refresh();
   }
 
+  Future<void> usePartHeaderExample(Map part, Map header, Map example) async {
+    if (busy || hasComposingInput || header['editable'] != true) return;
+    final captured = plan!, revision = _draftRevision;
+    try {
+      final owner = part['name'] as String, name = header['name'] as String;
+      late RequestPartHeaderValue value;
+      if (example['representation'] == 'serialized') {
+        value = example['name'] == null
+            ? RequestPartHeaderValue(owner, name, example['raw'] as String)
+            : RequestPartHeaderValue.example(owner, name, example['name'] as String,
+                exampleMediaType: example['mediaType'] as String?);
+      } else if (example['level'] == 'media') {
+        value = RequestPartHeaderValue(owner, name, example['raw'] as String, modeled: true);
+      } else {
+        final parsed = await captured.parameterValues({'example': example['raw'] as String});
+        value = RequestPartHeaderValue(owner, name,
+            ContractRequestBuilder.headerExampleRepresentation(header, parsed['example'], example['raw'] as String));
+      }
+      if (_disposed || !identical(captured, plan) || revision != _draftRevision || captured.outdated) return;
+      partHeaders.removeWhere((field) => field.part == owner && field.name.toLowerCase() == name.toLowerCase());
+      if (partHeaders.length >= 2048) throw CoreFailure('request.multipart.headers', 'Multipart Header inputs exceed their bounded size.');
+      partHeaders.add(value);refresh();
+    } on CoreFailure catch (error) {
+      if (!_disposed && identical(captured, plan) && revision == _draftRevision) {
+        failure = error.code;failureMessage = error.message;_notify();
+      }
+    }
+  }
+
   void selectPartMedia(String name, String? media) {
     if (busy) return;
     if (media == null || media.isEmpty) {
@@ -629,6 +658,15 @@ class RequestRunController extends ChangeNotifier {
   void selectFileMedia(int index, String? media) {
     if (busy || index < 0 || index >= bodyFiles.length) return;
     final file = bodyFiles[index];
+    if (file.capturedExample case final example?) {
+      try {
+        bodyFiles[index] = MultipartFileValue.example(plan!.capturePartExample(
+            bodyMediaType!, file.name, media == null || media.isEmpty ? file.mediaType : media,
+            example.resource), filename: file.filename);
+        refresh();
+      } on CoreFailure catch (error) { failure = error.code;failureMessage = error.message;_notify(); }
+      return;
+    }
     bodyFiles[index] = MultipartFileValue(
       name: file.name,
       path: file.path,
@@ -638,6 +676,25 @@ class RequestRunController extends ChangeNotifier {
       access: file.access,
     );
     refresh();
+  }
+
+  void usePartExample(String part, String mediaType, String resource) {
+    if (busy || hasComposingInput || bodyKind != RequestBodyKind.multipart || bodyMediaType == null) return;
+    try {
+      final example = plan!.capturePartExample(bodyMediaType!, part, mediaType, resource);
+      bodyFiles.removeWhere((file) => file.name == part);
+      bodyFiles.add(MultipartFileValue.example(example));
+      bodyEnabled = true;bodyExample = null;
+      multipartControls = const [];multipartPrepared = null;
+      refresh();
+    } on CoreFailure catch (error) { failure = error.code;failureMessage = error.message;_notify(); }
+  }
+
+  MultipartFileValue restorePartFile(MultipartFileValue file) {
+    final example = file.capturedExample;
+    if (example == null) return file;
+    final restored = plan?.restorePartExample(example);
+    return restored == null ? file : MultipartFileValue.example(restored, filename: file.filename);
   }
 
   void _observe() {
@@ -1677,12 +1734,12 @@ class _RequestBodyState {
   final Map<String, String> media, schemas;
   final Map<String, MultipartFileShape> shapes;
   int get bytes => text.length * 2 + (example?.byteLength ?? 0) +
-      files.fold<int>(0, (n, file) => n + 2 * (file.path.length + file.name.length + file.mediaType.length + (file.filename?.length ?? 0))) +
+      files.fold<int>(0, (n, file) => n + (file.capturedExample?.byteLength ?? 0) + 2 * (file.path.length + file.name.length + file.mediaType.length + (file.filename?.length ?? 0))) +
       headers.fold<int>(0, (n, field) => n + 2 * (field.part.length + field.name.length + field.value.length)) +
       [...media.entries, ...schemas.entries].fold<int>(0, (n, entry) => n + 2 * (entry.key.length + entry.value.length));
   void restore(RequestRunController run) {
     run.bodyText = text;run.bodyExample = example == null ? null : run.plan?.restoreBodyExample(example!) ?? example;
-    run.bodyFiles..clear()..addAll(files);run.partHeaders..clear()..addAll(headers);
+    run.bodyFiles..clear()..addAll(files.map(run.restorePartFile));run.partHeaders..clear()..addAll(headers);
     run.partMediaTypes..clear()..addAll(media);run.partSchemas..clear()..addAll(schemas);run.fileShapes..clear()..addAll(shapes);
   }
 }
@@ -1798,7 +1855,7 @@ class _RequestDraftState {
             0,
             (n, e) => n + e.key.length + e.value.length,
           )) *
-      2 + (bodyExample?.byteLength ?? 0) + parameterExamples.values.fold<int>(0, (n, item) => n + item.byteLength) + bodyDrafts.values.fold<int>(0, (n, item) => n + item.bytes);
+      2 + (bodyExample?.byteLength ?? 0) + files.fold<int>(0, (n, file) => n + (file.capturedExample?.byteLength ?? 0)) + parameterExamples.values.fold<int>(0, (n, item) => n + item.byteLength) + bodyDrafts.values.fold<int>(0, (n, item) => n + item.bytes);
   void restore(RequestRunController run) {
     run.streamStopAfterRecords=streamStopAfterRecords;run.requestVariables.addAll(variables);run._bodyDrafts.addAll(bodyDrafts);
     run.values.addAll(values);
@@ -1826,7 +1883,7 @@ class _RequestDraftState {
     run.overallTimeout = timeouts.$2;
     run.inactivityTimeout = timeouts.$3;
     run.structuredValues.addAll(structured);
-    run.bodyFiles.addAll(files);
+    run.bodyFiles.addAll(files.map(run.restorePartFile));
     run.tlsFiles.addAll(tls);
     run.bodyText = body;
     run.bodyFilePart = part;
@@ -3671,7 +3728,8 @@ class _BodyEditor extends StatelessWidget {
                   .whereType<Map>())
             BusyApiActionRow(
               title:
-                  '${l.examples} · ${media['mediaType']} · ${example['name'] ?? example['representation']}',
+                  '${l.examples} · ${media['mediaType']} · ${example['name'] ?? example['representation']}'
+                  '${(media['examples'] as List? ?? const []).whereType<Map>().where((value) => value['name'] == example['name']).length > 1 ? ' · ${example['representation']}' : ''}',
               enabled: !run.busy && !run.hasComposingInput,
               onTap: run.busy || run.hasComposingInput
                   ? null

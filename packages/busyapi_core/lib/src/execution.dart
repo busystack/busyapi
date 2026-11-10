@@ -356,6 +356,17 @@ final class CapturedRequestParameterExample {
   final int byteLength;
 }
 
+/// Explicit use of approved external example bytes as a multipart part input.
+/// The existing multipart planner and original body schema prove its occurrence.
+final class CapturedRequestPartExample {
+  CapturedRequestPartExample._(this._owner, this.bodyMediaType, this.part,
+      this.mediaType, this.resource, this.contentIdentity, this._bytes);
+  final OperationRequestPlan _owner;
+  final String bodyMediaType, part, mediaType, resource, contentIdentity;
+  final Uint8List _bytes;
+  int get byteLength => _bytes.length;
+}
+
 class OperationRequestPlan {
   OperationRequestPlan._(
     this._owner,
@@ -489,6 +500,48 @@ class OperationRequestPlan {
         name: previous.name, mediaType: previous.mediaType);
     return selected.resource == previous.resource && selected.contentIdentity == previous.contentIdentity &&
         selected.serialization == previous.serialization ? selected : null;
+  }
+
+  List<CapturedExternalExample> get availablePartExamples {
+    ensureCurrentPreparation();
+    return List.unmodifiable(snapshot.exampleResources.where((resource) => resource.available));
+  }
+
+  CapturedRequestPartExample capturePartExample(String bodyMediaType, String part,
+      String mediaType, String resource) {
+    ensureCurrentPreparation();
+    if (formBindingForMedia(bodyMediaType)?.multipart != true || part.isEmpty || part.length > 8192 ||
+        selectDeclaredMedia([{'mediaType': mediaType}], mediaType) == null || ContentType.parse(mediaType).mimeType.contains('*')) {
+      throw CoreFailure('request.example.occurrence', 'Choose a multipart part and its concrete media type.');
+    }
+    final captured = snapshot.exampleResources.where((value) => value.id == resource && value.available).toList();
+    if (captured.length != 1) throw CoreFailure('request.example.external',
+        'Choose an available external example from the approved current capture.');
+    return CapturedRequestPartExample._(this, bodyMediaType, part, mediaType,
+        resource, captured.single.identity, captured.single.bytes!);
+  }
+
+  CapturedRequestPartExample? restorePartExample(CapturedRequestPartExample previous) {
+    ensureCurrentPreparation();
+    if (!identical(_owner, previous._owner._owner) || identity != previous._owner.identity ||
+        snapshot.identity != previous._owner.snapshot.identity) return null;
+    final selected = capturePartExample(previous.bodyMediaType, previous.part, previous.mediaType, previous.resource);
+    return selected.contentIdentity == previous.contentIdentity ? selected : null;
+  }
+
+  Future<Uint8List> partExampleBytes(CapturedRequestPartExample example, String bodyMediaType,
+      String part, String mediaType, {RunCancellation? cancellation}) async {
+    ensureCurrentPreparation();
+    if (!identical(example._owner, this) || example.bodyMediaType != bodyMediaType ||
+        example.part != part || example.mediaType != mediaType) {
+      throw CoreFailure('request.example.stale', 'Select the captured bytes again for this multipart occurrence.');
+    }
+    cancellation?.throwIfCancelled();
+    final current = await _owner._externalExampleInputsCurrent(snapshot, saved: saved,
+        cancelled: () { ensureCurrentPreparation();cancellation?.throwIfCancelled();return false; });
+    ensureCurrentPreparation();cancellation?.throwIfCancelled();
+    if (!current) throw CoreFailure('runtime.request.example.stale', 'An approved external example changed during multipart preparation.');
+    return example._bytes;
   }
 
   CapturedRequestBodyExample captureBodyExample(
@@ -652,7 +705,7 @@ class OperationRequestPlan {
       'headers': {
         for (final part in headers.map((header) => header.part).toSet())
           part: [for (final header in headers.where((header) => header.part == part))
-            {'name': header.name, 'value': header.value, if (header.modeled) 'modeled': true}],
+            header.wireInput],
       },
       if (wire != null) 'wire': wire,
       if (wireType != null) 'wireType': wireType,
@@ -886,7 +939,7 @@ class OperationRequestPlan {
               for (final header in capturedHeaders.where(
                 (header) => header.part == name,
               ))
-                {'name': header.name, 'value': header.value, if (header.modeled) 'modeled': true},
+                header.wireInput,
             ],
         },
       },
@@ -907,7 +960,7 @@ class OperationRequestPlan {
           for (var i = 0; i < headers.length; i++)
             headers[i].part != capturedHeaders[i].part ||
                 headers[i].name != capturedHeaders[i].name ||
-                headers[i].value != capturedHeaders[i].value,
+                jsonEncode(headers[i].toJson()) != jsonEncode(capturedHeaders[i].toJson()),
         ].any((changed) => changed)) {
       throw CoreFailure(
         'request.multipart.header.stale',
@@ -1155,6 +1208,14 @@ class OperationRequestPlan {
     await ensureParameterExampleInputs(draft.parameters.values
         .where((value) => value.present && value.capturedExample != null).map((value) => value.capturedExample!));
     final body = draft.body;
+    if (body.capturedExample case final example?) await bodyExampleBytes(example);
+    for (final file in body.files) {
+      if (file.capturedExample case final example?) {
+        if (Uri.file(file.path).toString() != example.resource) throw CoreFailure('request.example.stale',
+            'The saved part path must identify its selected captured resource.');
+        await partExampleBytes(example, body.mediaType!, file.name, file.selectedMediaType ?? file.mediaType);
+      }
+    }
     String relativePath(String path) {
       final relative = p.relative(path, from: _owner.access.boundary);
       if (p.isAbsolute(relative) || relative == '..' || relative.startsWith('..${p.separator}')) {
@@ -1203,7 +1264,7 @@ class OperationRequestPlan {
         if (body.partSchemas.isNotEmpty) 'partSchemas': body.partSchemas,
         if (body.fileShapes.isNotEmpty) 'fileShapes': {for (final entry in body.fileShapes.entries) entry.key: entry.value.name},
         if (body.partHeaders.isNotEmpty) 'partHeaders': [for (final header in body.partHeaders) header.toJson()],
-        if (body.files.isNotEmpty) 'files': [for (final file in body.files) {'name': file.name, 'path': relativePath(file.path), if (file.filename != null) 'filename': file.filename, 'mediaType': file.selectedMediaType ?? file.mediaType}],
+        if (body.files.isNotEmpty) 'files': [for (final file in body.files) {'name': file.name, 'path': relativePath(file.path), if (file.capturedExample != null) 'capturedExample': true, if (file.filename != null) 'filename': file.filename, 'mediaType': file.selectedMediaType ?? file.mediaType}],
       },
     };
     final prepared = await _owner.engine.request('planExecutionCase', {
@@ -1696,7 +1757,8 @@ extension RequestPlanning on BusyProject {
         (result['representationRevisions'] as Map)['xml'] != '2' ||
         (result['representationRevisions'] as Map)['linkset'] != '2' ||
         (result['representationRevisions'] as Map)['stream'] != '2' ||
-        (result['representationRevisions'] as Map)['parameterExamples'] != '1' ||
+        (result['representationRevisions'] as Map)['parameterExamples'] != '2' ||
+        (result['representationRevisions'] as Map)['partExamples'] != '1' ||
         result['operation'] is! Map ||
         result['servers'] is! List ||
         result['parameters'] is! List ||

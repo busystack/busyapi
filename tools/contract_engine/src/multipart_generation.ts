@@ -16,6 +16,8 @@ import {evaluateSchemas} from './schema_evaluation';
 import {capturedMimeHeaderContent} from './mime_header_content';
 import {runtimeFormMedia} from './runtime_media';
 import {MultipartFileShapes} from './multipart_file_shapes';
+import {CapturedExampleResources} from './external_examples';
+import {requestExampleProjection} from './request_examples';
 
 type Hint={schema:GraphTarget;path:({property:string}|{item:number|undefined})[];shape:FormShape;selection?:GraphTarget};
 type Content=Record<string,any>;
@@ -112,7 +114,7 @@ export function multipartStructure(graph:ReferenceGraph,content:Content){
     const encoding=Object.values(forms.namedEncoding(rule.encoding,content.schema?[{schema:{...content.schema,kind:'schema'},path:[]}]:[]));
     const nestedForm=encoding.some(value=>object(value)&&mediaMatches(value.contentType,type=>type.type==='application'&&type.subtype==='x-www-form-urlencoded'));
     const modeledParts=encoding.some(rule=>object(rule)&&(mediaMatches(rule.contentType,type=>type.subtype==='xml'||type.subtype.endsWith('+xml')||['linkset','linkset+json','*'].includes(type.subtype)||type.subtype.startsWith('*+'))||
-        Object.values(rule.headers??{}).some(header=>object(header)&&(header.content!==undefined||header.$ref!==undefined))));
+        Object.values(rule.headers??{}).some(header=>object(header)&&(header.content!==undefined||header.$ref!==undefined||header.example!==undefined||header.examples!==undefined))));
     const usesTree=modeledParts||binding==='multipart-ordered'||rootChoices.length>1||needsChoices||shape.additionalProperties!==undefined||Object.keys(shape.patternProperties??{}).length>0||nestedForm||content.family==='3.2'&&encoding.some(value=>object(value)&&(value.encoding!==undefined||value.prefixEncoding!==undefined||value.itemEncoding!==undefined||mediaMatches(value.contentType,type=>type.type==='multipart')));
     const typedTree=usesTree||Object.values(content.form?.parts??{}).some((part:any)=>part.fileShapes?.length>0);
     return {binding,usesTree,typedTree,rootChoices,
@@ -126,6 +128,15 @@ export function multipartStructure(graph:ReferenceGraph,content:Content){
  * existing MIME serializer and transfer codecs, retaining resource ownership. */
 export async function multipartGeneration(graph:ReferenceGraph,content:Content,input:any){
     const forms=new FormSemantics(graph),transfers=new MultipartEncoding(graph),at:GraphTarget={...content.definition,kind:'media'};
+    const examples=requestExampleProjection(graph,new CapturedExampleResources(input.exampleResources));
+    const headerExamples=(owner:GraphTarget,value:any)=>{
+        const direct=examples.examplesWithSchema(owner.resource,owner.pointer,value,'header',undefined,'header').examples;
+        if(value?.content===undefined)return direct;
+        const captured=capturedMimeHeaderContent(graph,transfers)(owner),source=captured.captured.source;
+        const media=graph.docs.get(source.resource)!.dataNode(source.pointer)!.value;
+        return [...direct,...examples.examplesWithSchema(source.resource,source.pointer,media,'media',captured.type).examples
+            .map(example=>({...example,mediaType:captured.type}))];
+    };
     const fail=(code:string,message:string,source=at,unsupported=false):never=>transfers.failure(code,message,source,unsupported);
     if(typeof input.text!=='string'||Buffer.byteLength(input.text)>16*1024*1024)fail('limit.request.form','Typed multipart JSON exceeds 16 MiB');
     let doc=new SourceDocument(input.text,'file:///busyapi-multipart-input.json',true,'json');
@@ -140,7 +151,9 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
     if(Object.values(choices).some(value=>typeof value!=='string')||Object.values(selections).some(value=>typeof value!=='string'))
         fail('request.multipart.input','Part choices must be captured strings');
     if(Object.values(rawShapes).some(value=>!['single','array'].includes(value as string)))fail('request.multipart.file-shape','Expected captured single or array file choices');
-    if(Object.values(headers).some(fields=>!Array.isArray(fields)||fields.length>61||fields.some(field=>!object(field)||typeof field.name!=='string'||typeof field.value!=='string'||field.modeled!==undefined&&typeof field.modeled!=='boolean')))
+    if(Object.values(headers).some(fields=>!Array.isArray(fields)||fields.length>61||fields.some(field=>!object(field)||typeof field.name!=='string'||typeof field.value!=='string'||field.modeled!==undefined&&typeof field.modeled!=='boolean'||
+        field.example!==undefined&&(!object(field.example)||typeof field.example.name!=='string'||field.example.name.length>4096||
+            Object.keys(field.example).some(key=>!['name','mediaType'].includes(key))||field.example.mediaType!==undefined&&typeof field.example.mediaType!=='string'||field.modeled===true||field.value!==''))))
         fail('request.multipart.headers','Expected bounded explicit MIME header fields');
     const groups=new Map<string,boolean>(),fileShapes:Record<string,'single'|'array'>={},literalOrder=new Map<string,number>();
     const rootShape=forms.shape(at.resource,at.pointer+'/schema');
@@ -289,7 +302,16 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
                 if(ignored)return {name,editable:false,reason:lower==='content-type'?'Content-Type uses the part media control':'RFC 7578 requires this form-data Header to be ignored',source};
                 const owner=transfers.follow(source,'header'),value=graph.docs.get(owner.resource)!.dataNode(owner.pointer)!.value;
                 const controlled=lower==='content-transfer-encoding'||lower==='content-disposition'&&(form||entry.name!==undefined||file!==undefined);
-                return {name,required:value?.required===true,editable:!controlled,source:owner,schema:value?.schema,content:value?.content,
+                const projectedExamples=controlled?[]:headerExamples(owner,value).map((example:any)=>{
+                    if(!example.external)return example;
+                    const {wireBase64,raw,text,...metadata}=example;
+                    const bytes=typeof wireBase64==='string'?Buffer.from(wireBase64,'base64'):undefined;
+                    return {...metadata,raw:'',conversionError:!bytes?'The approved example bytes are unavailable':
+                        bytes.length>8192?'The example exceeds the 8 KiB MIME Header bound':
+                        /[^\x09\x20-\x7e]/.test(bytes.toString('latin1'))?'The example bytes cannot be emitted in an ASCII MIME Header':undefined};
+                });
+                return {name,required:value?.required===true,editable:!controlled,source:owner,schema:value?.schema,content:value?.content,family:graph.scopeAs(owner.resource,owner.pointer,'header')?.family,
+                    explode:value?.explode===true,examples:projectedExamples,
                     ...(controlled?{reason:lower==='content-transfer-encoding'?'The captured transfer policy prepares this Header':'The name/file control prepares Content-Disposition'}:{})};
             });
             controls.push(control);
@@ -334,6 +356,21 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
             if(!input.inspect&&Array.isArray(headerInput)){
                 preparedHeaders=[];
                 for(const field of headerInput){
+                    if(field.example!==undefined){
+                        const declaration=Object.keys(entry.rule.headers??{}).find(name=>name.toLowerCase()===field.name.toLowerCase());
+                        if(!declaration)fail('request.multipart.header.owner','The selected example has no captured Header declaration',entry.at);
+                        const owner=transfers.follow({...entry.at,pointer:entry.at.pointer+'/headers/'+escape(declaration!),kind:'header'},'header');
+                        const value=graph.docs.get(owner.resource)!.dataNode(owner.pointer)!.value;
+                        const selected=headerExamples(owner,value).filter(example=>example.representation==='serialized'&&example.name===field.example.name&&
+                            (('mediaType' in example?example.mediaType:undefined)===field.example.mediaType));
+                        if(selected.length!==1)fail('request.multipart.header.example','Choose one captured Header example occurrence',owner);
+                        const example=selected[0];
+                        if(example.representation!=='serialized'||example.conversionError&&!('wireBase64' in example))
+                            fail('request.multipart.header.example','This Header example requires data serialization through the native value control',owner,true);
+                        const wire='wireBase64' in example&&typeof example.wireBase64==='string'?Buffer.from(example.wireBase64,'base64').toString('latin1'):example.raw;
+                        if(typeof wire!=='string'||/[^\x09\x20-\x7e]/.test(wire))fail('request.multipart.header.codec','The selected bytes cannot produce an ASCII MIME Header field',owner,true);
+                        preparedHeaders.push({name:field.name,value:wire});continue;
+                    }
                     if(field.modeled!==true){preparedHeaders.push(field);continue;}
                     const declaration=Object.keys(entry.rule.headers??{}).find(name=>name.toLowerCase()===field.name.toLowerCase());
                     if(!declaration)fail('request.multipart.header.owner','Structured Header has no captured declaration',entry.at);
@@ -342,7 +379,7 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
                     if(field.name.toLowerCase()==='link'&&runtimeMediaKind(captured.type)==='linkset-json')fail('runtime.linkset.header','HTTP Link must declare application/linkset',owner);
                     const prepared=await prepareModeledMedia(input,field.value,captured.type,captured.captured.schema,true,input.direction==='response'?'response':'request');
                     const value=prepared.bytes.toString('latin1');
-                    if(/[^\x20-\x7e]/.test(value))fail('request.multipart.header.codec','The selected charset or node content cannot produce a printable ASCII MIME Header',owner,true);
+                    if(/[^\x09\x20-\x7e]/.test(value))fail('request.multipart.header.codec','The selected charset or node content cannot produce an ASCII MIME Header field',owner,true);
                     preparedHeaders.push({name:field.name,value});
                 }
             }

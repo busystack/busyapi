@@ -17,9 +17,13 @@ enum MultipartFileShape {
 /// One explicit MIME field line attached to a logical multipart field.
 /// Repeated body parts retain their order and receive the same supplied lines.
 class RequestPartHeaderValue {
-  const RequestPartHeaderValue(this.part, this.name, this.value, {this.modeled = false});
+  const RequestPartHeaderValue(this.part, this.name, this.value, {this.modeled = false})
+      : exampleName = null, exampleMediaType = null;
+  const RequestPartHeaderValue.example(this.part, this.name, this.exampleName,
+      {this.exampleMediaType}) : value = '', modeled = false;
   final bool modeled;
   final String part, name, value;
+  final String? exampleName, exampleMediaType;
 
   factory RequestPartHeaderValue.fromJson(Object? raw) {
     if (raw
@@ -27,6 +31,17 @@ class RequestPartHeaderValue {
         when (!(raw as Map).containsKey('modeled') || raw['modeled'] is bool) && part.length <= 1024 &&
             name.length <= 1024 &&
             value.length <= 8192) {
+      final example = (raw as Map)['example'];
+      if ((raw as Map).containsKey('example')) {
+        if (example is! Map || example['name'] is! String || (example['name'] as String).length > 4096 ||
+            example.keys.any((key) => !['name','mediaType'].contains(key)) ||
+            example.containsKey('mediaType') && example['mediaType'] is! String ||
+            value.isNotEmpty || raw['modeled'] == true) {
+          throw CoreFailure('request.multipart.headers', 'Invalid captured Header example choice.');
+        }
+        return RequestPartHeaderValue.example(part, name, example['name'] as String,
+            exampleMediaType: example['mediaType'] as String?);
+      }
       return RequestPartHeaderValue(part, name, value, modeled: (raw as Map)['modeled'] == true);
     }
     throw CoreFailure(
@@ -35,7 +50,9 @@ class RequestPartHeaderValue {
     );
   }
 
-  Map<String, Object?> toJson() => {'part': part, 'name': name, 'value': value, if (modeled) 'modeled': true};
+  Map<String, Object?> toJson() => {'part': part, 'name': name, 'value': value, if (modeled) 'modeled': true,
+    if (exampleName != null) 'example': {'name': exampleName, if (exampleMediaType != null) 'mediaType': exampleMediaType}};
+  Map<String, Object?> get wireInput => toJson()..remove('part');
 }
 
 enum MultipartInstanceEncoding { octets }
@@ -110,7 +127,7 @@ class MultipartHeaderLine {
     if (name.length > 1024 ||
         value.length > 8192 ||
         !RegExp(r"^[!#\$%&'*+.^_`|~0-9A-Za-z-]+$").hasMatch(name) ||
-        RegExp(r'[^\x20-\x7e]').hasMatch(value) ||
+        RegExp(r'[^\x09\x20-\x7e]').hasMatch(value) ||
         const [
           'content-type',
           'content-transfer-encoding',

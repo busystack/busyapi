@@ -71,7 +71,7 @@ void main() {
         await expectLater(const ContractRequestBuilder().build(plan, draft, cancellation: token, resolveSecret: (_) async => null),
           throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'cancelled')));
         final changes = await project.applyRefactoring(await plan.planCase('Approved bytes', draft));
-        for (final buffer in changes) await project.save(buffer);
+        for (final id in changes) await project.save(project.store.get(id));
         final manifest = jsonDecode(await File('${directory.path}/busyapi.yaml').readAsString()) as Map;
         expect(manifest['tests'][0]['parameterExamples']['query']['q'], {'name': 'Approved', 'mediaType': media});
         expect(manifest['tests'][0]['parameters'], isNull);

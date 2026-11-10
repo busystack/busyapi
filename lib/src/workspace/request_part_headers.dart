@@ -28,13 +28,21 @@ class RequestPartHeadersEditor extends StatelessWidget {
           for (final part in run.multipartControls)
             if (part['emitted'] != false)
               for (final header in part['headerControls'] as List? ?? const [])
+                ...[
                 BusyApiStatusBox(message: '${part['name']} · ${header['name']}'
                   '${header['required'] == true ? ' · required' : ''}'
                   '${header['reason'] is String ? ': ${header['reason']}' : ''}'),
+                for (final example in header['examples'] as List? ?? const [])
+                  BusyApiActionRow(title: '${part['name']} · ${header['name']} · ${l.examples} · ${example['name'] ?? example['representation']}'
+                    '${(header['examples'] as List? ?? const []).whereType<Map>().where((value) => value['name'] == example['name']).length > 1 ? ' · ${example['representation']}' : ''}',
+                    subtitle: example['conversionError'] as String?,
+                    enabled: editable && header['editable'] == true && example['conversionError'] == null,
+                    onTap: () => run.usePartHeaderExample(part, header as Map, example as Map)),
+                ],
         for (final (index, header) in run.partHeaders.indexed)
           BusyApiActionRow(
             title: '${header.part} · ${header.name}',
-            subtitle: header.value,
+            subtitle: header.exampleName == null ? header.value : '${l.examples} · ${header.exampleName}',
             trailing: BusyApiCompactIconButton(
               tooltip: l.requestRemove,
               icon: BusyApiGlyphs.delete,

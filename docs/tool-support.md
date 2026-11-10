@@ -645,6 +645,20 @@ example is resolved again from the approved current capture on cold reopening
 and CLI execution; no competing literal Parameter value is allowed. These
 choices use the original occurrence's runtime schema validation and mock codec.
 
+Multipart part controls can explicitly select bytes from the approved external
+example capture and a concrete declared part media type. The existing file/MIME
+planner applies transfers and validates the emitted body against its original
+schema. Saved file entries retain their relative `path` with
+`capturedExample: true`; reopening requires that resource to be present in the
+approved example capture and never falls back to a fresh upload read. Generic
+MIME Header controls also expose concrete external/serialized example choices,
+saved with `example: {name: Approved}` and an optional content `mediaType`.
+Selection retains original Header/schema/media ownership. MIME fields admit
+ASCII text and horizontal tabs; incompatible binary field bytes remain explicit
+unavailable representations. Structural and ignored form-data Headers continue
+to use their existing media, name and transfer controls. OAS 3.2 examples that
+declare both data and external/serialized values expose both choices separately.
+
 Mocks retain these approved external example packets in their captured child
 input. The pinned negotiator chooses the response and named example; the exact
 byte path preserves its original entity and content type. Native validation

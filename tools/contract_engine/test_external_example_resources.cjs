@@ -19,6 +19,19 @@ function fixture(version,format,mediaType='application/json',schema={type:'objec
  return {root,payload,value,input,source,mediaType,pointer:'/paths/~1example/post/requestBody/content/'+escape(mediaType)};
 }
 function assertValid(result){assert.equal(result.complete,true,JSON.stringify(result.findings));assert(result.serializedEvaluations.length>0);assert(result.serializedEvaluations.every(value=>value.complete&&value.valid),JSON.stringify(result.findings));}
+for(const version of ['3.2.0','3.2.1'])for(const format of ['yaml','json'])
+test(`${version} ${format} dataValue and externalValue remain separate native choices`,()=>{
+ const f=fixture(version,format),value=f.value.paths['/example'].post;
+ value.requestBody.content['application/json'].examples.Local.dataValue={n:9007199254740992};
+ value.parameters=[{name:'q',in:'query',schema:{type:'integer'},examples:{'':{dataValue:9007199254740992,externalValue:'./data/query.bin'}}}];
+ const text=render(f.value,format),input={...f.input,resources:[{id:f.root,text,generation:0}],exampleResources:[resource(f.payload,Buffer.from('{"n":9007199254740992}')),resource('file:///approved/data/query.bin',Buffer.from('q=9007199254740993'))]};
+ const plan=requestOperation({...input,resource:f.root,pointer:'/paths/~1example/post'});
+ assert.deepEqual(plan.requestBody.content[0].examples.map(value=>value.representation),['json','serialized']);
+ assert.equal(plan.requestBody.content[0].examples[1].external.resource,f.payload);
+ assert.deepEqual(plan.parameters[0].examples.map(value=>value.representation),['json','serialized']);
+ assert.equal(plan.parameters[0].examples[1].name,'');assert.equal(plan.parameters[0].examples[1].raw,'q=9007199254740993');
+ assert.equal(input.resources[0].text,text);
+});
 for(const version of versions)for(const format of ['yaml','json'])test(`${version} ${format} external Parameter/Header examples use occurrence bytes and enter native request selection`,async()=>{
  const root='file:///approved/api.'+format,query='file:///approved/query.bin',header='file:///approved/header.bin';
  const value={openapi:version,info:{title:'External fields',version:'business'},paths:{'/p':{get:{

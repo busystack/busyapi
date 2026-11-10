@@ -145,13 +145,19 @@ class MultipartFileValue {
     this.mediaType = 'application/octet-stream',
     this.selectedMediaType,
     this.access,
+    this.capturedExample,
   });
+  MultipartFileValue.example(CapturedRequestPartExample example, {this.filename})
+    : name = example.part, path = Uri.parse(example.resource).toFilePath(),
+      mediaType = example.mediaType, selectedMediaType = example.mediaType,
+      access = null, capturedExample = example;
   final String name, path, mediaType;
   final String? filename;
   final String? selectedMediaType;
 
   /// Borrowed project capability for saved inputs. Capture never closes it.
   final ProjectAccess? access;
+  final CapturedRequestPartExample? capturedExample;
 }
 
 class RequestFormField {
@@ -1098,6 +1104,12 @@ class ContractRequestBuilder {
     // query mask also escapes literal brackets from reserved expansion.
     return Uri.parse('?$text').query;
   }
+
+  /// Header examples reuse the request serializer, including exact numeric
+  /// leaves returned by the captured parameter-value projection.
+  static String headerExampleRepresentation(Map header, Object? value, String original) =>
+      _serializeParameter({'family': header['family'], 'in': 'header', 'name': header['name'],
+        'style': 'simple', 'explode': header['explode'] == true}, value, original, structured: true).single.$2;
 
   static List<(String, String)> _serializeParameter(
     Map parameter,
@@ -2158,14 +2170,8 @@ class ContractRequestBuilder {
             final mediaType = resolvedMediaTypes.files[index];
             _mediaType(mediaType);
             _uploadLimit(length);
-            final captured = await _fileBody(
-              item.path,
-              mediaType,
-              cancellation,
-              projectAccess: item.access,
-              remainingBytes: maximumUploadBytes - length,
-              checkOwner: checkOwner,
-            );
+            final captured = await _multipartInput(plan, body.mediaType!, item, mediaType,
+                cancellation, checkOwner, maximumUploadBytes - length);
             captures.add(captured);
             final identity = await sha256.bind(captured.open()).first;
             checkOwner();
@@ -2341,6 +2347,21 @@ class ContractRequestBuilder {
 
   /// Framing is shared with the existing named serializer. The captured
   /// Engine part tree owns all interpretation; this walker owns only bytes.
+  Future<PreparedRequestBody> _multipartInput(OperationRequestPlan plan, String bodyMediaType,
+      MultipartFileValue file, String mediaType, RunCancellation? cancellation,
+      void Function() checkOwner, int remainingBytes) async {
+    final example = file.capturedExample;
+    if (example == null) return _fileBody(file.path, mediaType, cancellation,
+        projectAccess: file.access, remainingBytes: remainingBytes, checkOwner: checkOwner);
+    if (Uri.file(file.path).toString() != example.resource) throw CoreFailure('request.example.stale',
+        'The selected multipart resource no longer matches its captured bytes.');
+    final bytes = await plan.partExampleBytes(example, bodyMediaType, file.name, mediaType,
+        cancellation: cancellation);
+    checkOwner();cancellation?.throwIfCancelled();
+    if (bytes.length > remainingBytes) throw CoreFailure('request.upload.limit', 'Multipart example bytes exceed the remaining upload limit.');
+    return PreparedRequestBody(bytes.length, () => Stream.value(bytes), mediaType: mediaType);
+  }
+
   Future<PreparedRequestBody> _multipartTreeBody(
     OperationRequestPlan plan,
     RequestBodyDraft body,
@@ -2371,9 +2392,9 @@ class ContractRequestBuilder {
     try {
       var acquired = 0;
       for (final (index, file) in files.indexed) {
-        final captured = await _fileBody(file.path, null, cancellation,
-          projectAccess: file.access, remainingBytes: maximumUploadBytes - acquired,
-          checkOwner: checkOwner);
+        final captured = await _multipartInput(plan, body.mediaType!, file,
+            file.selectedMediaType ?? file.mediaType, cancellation, checkOwner,
+            maximumUploadBytes - acquired);
         captures.add(captured);
         fileBodies.add(captured);
         acquired += captured.length;

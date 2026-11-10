@@ -6,6 +6,27 @@ const YAML=require(path.join(engine,'node_modules/yaml'));
 const {requestMultipartEncoding}=require(path.join(engine,'dist/execution.cjs'));
 const versions=['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'];
 const meta='{"id":9007199254740993.00,"flag":false,"empty":""}';
+
+for(const version of ['3.0.4','3.1.2','3.2.0','3.2.1'])for(const format of ['yaml','json'])
+test(`${version} ${format} concrete MIME Header example selection retains approved bytes and original proof`,async()=>{
+ const {requestMultipartPlan}=require(path.join(engine,'dist/execution.cjs'));
+ const input=fixture(version,format),shared=YAML.parse(input.resources[1].text);
+ shared.Actual.examples={Approved:{externalValue:'header.bin'},'':{externalValue:'header.bin'}};
+ input.resources[1].text=YAML.stringify(shared);
+ const bytes=Buffer.from(meta),id='file:///generated-headers/header.bin';
+ input.exampleResources=[{version:1,id,generation:0,identity:require('node:crypto').createHash('sha256').update(bytes).digest('hex'),state:'available',aliases:[],byteLength:bytes.length,base64:bytes.toString('base64')}];
+ const selection={...input,text:'{"value":"value"}',files:[],headers:{'/value':[{name:'X-Meta',value:'',example:{name:'Approved'}}]}};
+ const inspected=await requestMultipartPlan({...selection,inspect:true}),header=inspected.controls.find(value=>value.name==='/value').headerControls[0];
+ assert.equal(header.examples[0].external.resource,id);assert.equal(header.examples[0].wireBase64,undefined);
+ const prepared=await requestMultipartPlan(selection);assert.equal(prepared.tree.parts[0].headers[0].value,meta);
+ const emptyName=await requestMultipartPlan({...selection,headers:{'/value':[{name:'X-Meta',value:'',example:{name:''}}]}});
+ assert.equal(emptyName.tree.parts[0].headers[0].value,meta);
+ const wire=value=>'--Example\r\nContent-Disposition: form-data; name="value"\r\nContent-Type: text/plain\r\nX-Meta: '+value+'\r\n\r\nvalue\r\n--Example--\r\n';
+ assert.equal((await requestMultipartPlan({...selection,wire:Buffer.from(wire(meta)).toString('base64'),wireType:'multipart/mixed; boundary=Example'})).proof.valid,true);
+ await assert.rejects(requestMultipartPlan({...selection,wire:Buffer.from(wire(meta.replace('9007199254740993.00','9007199254740992'))).toString('base64'),wireType:'multipart/mixed; boundary=Example'}),error=>error.code==='request.multipart.conformance');
+ await assert.rejects(requestMultipartPlan({...selection,exampleResources:[]}),error=>error.code==='request.multipart.header.example');
+ await assert.rejects(requestMultipartPlan({...selection,headers:{'/value':[{name:'X-Meta',value:'literal',example:{name:'Approved'}}]}}),error=>error.code==='request.multipart.headers');
+});
 function fixture(version,format,transfer=false){
  const root='file:///generated-headers/api.'+format,mediaType=transfer?'multipart/form-data':'multipart/mixed';
  const header=transfer?{content:{'text/plain':{schema:{type:'string',enum:['base64']}}}}:{required:true,content:{'application/json':{schema:{type:'object',required:['id','flag','empty'],properties:{id:{type:'integer',enum:['EXACT']},flag:{type:'boolean',enum:[false]},empty:{type:'string',maxLength:0}}}}}};

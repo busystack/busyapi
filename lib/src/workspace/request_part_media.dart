@@ -57,6 +57,13 @@ class RequestPartMediaEditor extends StatelessWidget {
                 enabled: enabled, onSelected: (value) => run.selectPartSchema(part['name'] as String, value)),
         ],
         for (final option in options) ...[
+          if (!option.styled && option.error == null)
+            for (final example in run.plan!.availablePartExamples)
+              BusyApiActionRow(title: '${option.name} · ${l.examples} · ${Uri.parse(example.id).pathSegments.lastOrNull ?? example.id}',
+                subtitle: '${example.bytes!.length} bytes · ${run.partMediaTypes[option.name] ?? (option.concreteTypes.length == 1 ? option.concreteTypes.single : l.requestPartMediaChoose)}',
+                enabled: enabled && (run.partMediaTypes.containsKey(option.name) || option.concreteTypes.length == 1),
+                onTap: () => run.usePartExample(option.name,
+                    run.partMediaTypes[option.name] ?? option.concreteTypes.single, example.id)),
           if (run.bodyFiles.any((file) => file.name == option.name) &&
               option.fileShapes.length > 1)
             BusyApiComboRow<MultipartFileShape?>(

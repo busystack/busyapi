@@ -27,8 +27,8 @@ export function multipartHeaderValues(graph:ReferenceGraph,media:GraphTarget,nam
         }
         const values:MultipartHeaderLine[]=[];let bytes=0,disposition=false;
         for(const field of fields){
-            if(!object(field)||typeof field.name!=='string'||typeof field.value!=='string'||!token.test(field.name)||field.name.length>1024||/[^\x20-\x7e]/.test(field.value))
-                throw new SourceError('request.multipart.header.syntax','Explicit MIME headers require token names and printable ASCII values');
+            if(!object(field)||typeof field.name!=='string'||typeof field.value!=='string'||!token.test(field.name)||field.name.length>1024||/[^\x09\x20-\x7e]/.test(field.value))
+                throw new SourceError('request.multipart.header.syntax','Explicit MIME headers require token names and ASCII field values');
             const lower=field.name.toLowerCase(),source=declarations.get(lower);
             if(['content-type','content-transfer-encoding'].includes(lower)||lower==='content-disposition'&&!allowDisposition)
                 throw new SourceError('request.multipart.header.controlled','Use the existing part media, file and transfer controls for structural MIME fields',source?.range??[0,0],undefined,source);
