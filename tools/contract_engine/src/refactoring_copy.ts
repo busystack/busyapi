@@ -298,10 +298,45 @@ function relocateCopiedUris(before:ReferenceGraph,after:ReferenceGraph,from:{res
 function planCopy(input:any,moving=false):any {
  return withYamlOwnership(input,true,prepared=>planOwnedCopy(prepared,moving));
 }
+
+/** Project an existing reviewed owner into private CSTs while composing a
+ * transaction. Neither intermediate buffers nor insertion slots are published. */
+function projectCopyEdits(resources:Resource[],edits:any[]):Resource[] {
+ return resources.map(resource=>{
+  let text=resource.text;
+  for(const edit of edits.filter(edit=>edit.buffer===resource.id).sort((a,b)=>b.start-a.start)){
+   if(edit.generation!==resource.generation||text.slice(edit.start,edit.end)!==edit.expected)throw new SourceError('edit.stale','An internal refactoring projection no longer matches its captured source');
+   text=text.slice(0,edit.start)+edit.replacement+text.slice(edit.end);
+  }
+  return text===resource.text?resource:{...resource,text,identity:createHash('sha256').update(text).digest('hex')};
+ });
+}
+
+function extractReferencedUse(input:any,before:ReturnType<typeof capture>):any {
+ if(before.owning.some(owner=>owner.graph.scopes.get(before.resource.id+'#'+before.target.pointer)?.kind!==before.scope.kind))
+  throw new SourceError('refactor.context.ambiguous','This reference use has independent source interpretations; its selected role needs separate ownership before inlining',before.node.range,'unsupported',{resource:before.resource.id,pointer:before.target.pointer,range:before.node.range});
+ const inlined=planInline(input),intermediate=projectCopyEdits(before.resources,inlined.edits);
+ const doc=new SourceDocument(intermediate.find(resource=>resource.id===before.resource.id)!.text,before.resource.id),node=doc.node(before.target.pointer);
+ const extracted=planCopy({...input,resources:intermediate,target:{...input.target,range:node.range,expected:doc.text.slice(...node.range)}});
+ const final=projectCopyEdits(intermediate,extracted.edits),outputs=new Map(final.filter(resource=>resource.text!==before.resources.find(original=>original.id===resource.id)!.text).map(resource=>[resource.id,resource.text]));
+ const admit=editBudget(before.resources);for(const [id,text]of outputs)admit(id,text.length);
+ const usages=[...inlined.usages,...extracted.usages.filter((usage:any)=>before.graphs.some(owner=>owner.docs.get(usage.resource)?.dataNode(usage.pointer)))];
+ const edits=editsFor(before.resources,outputs);
+ return {...extracted,from:input.target,edits,
+  changes:[...outputs].map(([resource,after])=>({resource,before:before.resources.find(original=>original.id===resource)!.text,after})),usages,
+  sourceOwnership:[...(extracted.sourceOwnership??[]),{...inlined.to,kind:before.scope.kind,effect:'separated-contract-use'}],
+  identity:createHash('sha256').update(JSON.stringify({snapshot:input.snapshot,target:input.target,inlining:inlined.identity,extraction:extracted.identity,edits})).digest('hex')};
+}
+
 function planOwnedCopy(input:any,moving=false) {
- const {resources,target,resource,graphs,owning,selected,doc,node,scope}=capture(input,true,true),family=componentFamily(scope.kind,scope.family);
+ const captured=capture(input,true,true),{resources,target,resource,graphs,owning,selected,doc,node,scope}=captured,family=componentFamily(scope.kind,scope.family);
  if(!family||scope.kind==='media'&&scope.family!=='3.2'||!permitsMemberName(componentNamePolicy(scope.family),input.name))
   throw new SourceError('refactor.copy.context','Choose an inline reusable object and a legal component name');
+ // Extract one actual reference use through the existing inline and extract
+ // owners. Other interpretations of its unchanged shared target stay there;
+ // their IDs, references and literal values never become relocation inputs.
+ if(!moving&&!reusableDefinitionPointer(target.pointer,scope.family)&&typeof node.value?.$ref==='string'&&
+    !hasSchemaReferenceSiblings(node.value,scope.kind,scope.family))return extractReferencedUse(input,captured);
  const destinationId=input.destinationResource??resource.id,destinationResource=resources.find(r=>r.id===destinationId);
  const namedFragment=input.destinationFragment==='named';
  const fragment=input.destinationFragment===true||namedFragment;
@@ -565,14 +600,6 @@ export function planExtractToFile(input:any) {
   throw new SourceError('refactor.extract.destination','Choose a local source file, not project configuration');
  if(original.doc.format!==(uri.pathname.toLowerCase().endsWith('.json')?'json':'yaml'))
   throw new SourceError('refactor.copy.format','Keep the selected source representation when creating its extracted file');
- const project=(resources:Resource[],edits:any[])=>resources.map(resource=>{
-  let text=resource.text;
-  for(const edit of edits.filter(edit=>edit.buffer===resource.id).sort((a,b)=>b.start-a.start)){
-   if(edit.generation!==resource.generation||text.slice(edit.start,edit.end)!==edit.expected)throw new SourceError('edit.stale','An internal refactoring projection no longer matches its captured source');
-   text=text.slice(0,edit.start)+edit.replacement+text.slice(edit.end);
-  }
-  return text===resource.text?resource:{...resource,text,identity:createHash('sha256').update(text).digest('hex')};
- });
  const proposal=(final:Resource[],binding:{resource:string;pointer:string},to:{resource:string;pointer:string},usages:any[],transitions:any[],sourceOwnership:any[]=[])=>{
   const created=final.find(resource=>resource.id===id)!;
   const outputs=new Map(final.filter(resource=>resource.id!==id&&resource.text!==original.resources.find(before=>before.id===resource.id)!.text).map(resource=>[resource.id,resource.text]));
@@ -589,9 +616,9 @@ export function planExtractToFile(input:any) {
   const text=original.doc.emit({[input.name]:null}),slot:Resource={id,text,generation:0,identity:createHash('sha256').update(text).digest('hex')};
   const extracted=planCopy({...input,resources:[...original.resources,slot],destinationFragment:'named'});
   const to={resource:id,pointer:extracted.to.pointer};
-  return proposal(project([...original.resources,slot],extracted.edits),to,to,extracted.usages,extracted.transitions,extracted.sourceOwnership);
+  return proposal(projectCopyEdits([...original.resources,slot],extracted.edits),to,to,extracted.usages,extracted.transitions,extracted.sourceOwnership);
  }
- const extracted=planCopy({...input,destinationResource:original.selected.context.root}),intermediate=project(original.resources,extracted.edits);
+ const extracted=planCopy({...input,destinationResource:original.selected.context.root}),intermediate=projectCopyEdits(original.resources,extracted.edits);
  // Extraction can make the selected entry's public binding newly reachable
  // from a different configured root. Reuse the canonical cold closure over
  // already approved immutable resources before composing the second proof.
@@ -600,7 +627,7 @@ export function planExtractToFile(input:any) {
  const slot:Resource={id,text:'null',generation:0,identity:createHash('sha256').update('null').digest('hex')};
  const relocated=planCopy({...input,contexts,resources:[...intermediate,slot],destinationFragment:true,
   target:{root:input.target.root,resource:extracted.to.resource,pointer:extracted.to.pointer,generation:intermediate.find(resource=>resource.id===extracted.to.resource)!.generation}},true);
- const final=project([...intermediate,slot],relocated.edits),binding={resource:extracted.to.resource,pointer:extracted.to.pointer};
+ const final=projectCopyEdits([...intermediate,slot],relocated.edits),binding={resource:extracted.to.resource,pointer:extracted.to.pointer};
  const conversions=extracted.transitions.slice(1).map(move=>move.resource===binding.resource&&inside(move.from,binding.pointer)
   ?{...move,resource:id,from:move.from.slice(binding.pointer.length),to:move.to.slice(binding.pointer.length)}:move);
  return proposal(final,binding,{resource:id,pointer:''},extracted.usages,

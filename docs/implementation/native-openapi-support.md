@@ -325,11 +325,33 @@ cancel/stale review, Undo/Redo, save/cold reopen and independent CLI review/appl
 and contract cases. The existing native role suite additionally exercises
 extraction review Cancel/Apply and source history through Design.
 
-The remaining shared-role maintenance mapping is extraction of only one role:
-preserving another role at source and repairing only the chosen role's consumers
-requires the existing ownership allocator to supply that separation. The whole
-range transformation does not claim that behavior. The static recursive inline
-completion above does not supply that ownership split either.
+The same extraction owner now also accepts a concrete resolved reference use.
+It composes the existing inline and extraction plans in private CSTs and returns
+one reviewed transaction, with original-coordinate edits, one history step and
+the existing `separated-contract-use` review explanation. This separates the
+chosen consumer's interpretation while the unchanged shared definition and its
+other consumers remain at source. It supplies a safely representable Header
+separation even when the source's independent Schema interpretation inherits
+an identified resource. Original static targets, rendered descriptions, schema
+dialects, literal values and byte consumers retain both owners' guards. There
+is no new resolver, serializer, ownership solver or intermediate publication.
+Native Design exposes extraction for captured resolved references; Core and
+CLI use the same extraction and new-file owners. Existing whole-range
+relocation behavior is preserved.
+
+Prepared, **not run**: the registered copy and file-extraction suites add all
+modern families in YAML/JSON, same-file/existing-document/new-file destinations,
+retained Schema/Header consumers and inherited IDs, exact Header/schema values,
+original HTTP Header validation and copied-ID negative controls. The existing
+Core shared-role suite adds concrete-reference review/cancellation/stale checks,
+single-step Undo/Redo, HTTP/cold reopen and independent CLI review/apply/cases.
+The existing native role suite adds reference-use extraction Cancel/Apply,
+retained other consumers and source history/save.
+
+Directly splitting a selected definition's roles and redirecting all consumers
+of only one role still requires independently established ownership from the
+existing allocator. Consumer-specific extraction does not claim that broader
+mapping. The static recursive inline completion above does not supply it either.
 Identified-resource inlining, changed recursive shared targets and reachable
 dynamic scopes retain their separate unavailable equivalence proofs. These are
 implementation/proof boundaries, not demonstrated target-spec restrictions.

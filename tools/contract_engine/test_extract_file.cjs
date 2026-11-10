@@ -9,6 +9,28 @@ function apply(input,plan){
  return [...input.resources.map(resource=>{let text=resource.text;for(const edit of plan.edits.filter(edit=>edit.buffer===resource.id).sort((a,b)=>b.start-a.start)){assert.equal(text.slice(edit.start,edit.end),edit.expected);text=text.slice(0,edit.start)+edit.replacement+text.slice(edit.end);}return {...resource,text};}),...plan.creations.map(created=>({id:created.resource,text:created.text,generation:0}))];
 }
 const pointer='/paths/~1items/get/responses/200/content/application~1json/schema';
+for(const version of ['3.1.2','3.2.0','3.2.1'])for(const format of ['yaml','json'])test(`${version} ${format} referenced Header extraction composes one cold-reopenable file transaction`,async()=>{
+ const root='file:///project/api.'+format,destination='file:///project/header.'+format;
+ const shared='/components/schemas/Owner/properties/Shared',at='/paths/~1p/get/responses/204/headers/X-Value';
+ const value={openapi:version,info:{title:'Referenced Header',version:'1'},paths:{'/p':{get:{responses:{204:{description:'Value',headers:{'X-Value':{$ref:'#'+shared}}}}}}},
+  components:{schemas:{Owner:{$id:'https://schemas.invalid/owner',properties:{Shared:{schema:{type:'integer',minimum:'EXACT'},example:'EXACT'}}},Use:{$ref:'#'+shared}},headers:{Other:{$ref:'#'+shared}}}};
+ const text=(format==='yaml'?YAML.stringify(value):JSON.stringify(value)).replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const input={snapshot:'referenced-file',resources:[{id:root,text,generation:1}],contexts:[{root,resources:[root]}],
+  target:{root,resource:root,pointer:at,generation:1,kind:'header'},name:'Extracted',destinationResource:destination};
+ const plan=planExtractToFile(input),output=apply(input,plan),graph=createGraph({root,resources:output}).graph;
+ assert.equal(plan.kind,'component-extract-file');assert.equal(plan.creations.length,1);
+ assert(plan.sourceOwnership.some(owner=>owner.effect==='separated-contract-use'&&owner.pointer===shared));
+ assert.equal(graph.referenceAs(root,at,'$ref','header').targetPointer,'/components/headers/Extracted');
+ assert.equal(graph.referenceAs(root,'/components/headers/Extracted','$ref','header').targetResource,destination);
+ assert(graph.scopeAs(destination,'','header'));assert.equal(graph.scopeAs(destination,'','schema'),undefined);
+ assert.equal(graph.referenceAs(root,'/components/schemas/Use','$ref','schema').targetPointer,shared);
+ assert.equal(graph.referenceAs(root,'/components/headers/Other','$ref','header').targetPointer,shared);
+ assert.equal(graph.docs.get(root).dataJson(shared),new SourceDocument(text,root).dataJson(shared));
+ assert.equal(analyse({root,resources:output}).status,'complete');assert.equal(input.resources[0].text,text);
+ const proof=await evaluateSchemas({root,resources:output,snapshot:'file-header-proof',runtimeInstances:['9007199254740993','9007199254740992'].map(text=>({subject:'response-header',location:text,text:'',header:{resource:root,pointer:at,name:'X-Value',values:[text]}}))});
+ assert.equal(proof.complete,true);assert.deepEqual(proof.runtimeEvaluations.map(value=>value.valid),[true,false]);
+});
+
 for(const json of [false,true])for(const kind of ['response','body','query'])for(const external of [false,true])test(`Swagger named fragment extraction preserves native ${kind} semantics ${json?'JSON':'YAML'} external=${external}`,async()=>{
  const ext=json?'json':'yaml',root='file:///project/api.'+ext,part='file:///project/part.'+ext,destination='file:///project/shared%20%E9%9B%AA.'+ext;
  const at=kind==='response'?'/paths/~1items/get/responses/200':'/paths/~1items/get/parameters/0',schema={$ref:(external?'api.'+ext:'')+'#/definitions/Model'};

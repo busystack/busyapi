@@ -7,6 +7,30 @@ const {SourceDocument}=require('./dist/document.cjs');
 const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
 const pointer='/paths/~1items/get/responses/200/content/application~1json/schema';
 
+for(const version of ['3.1.2','3.2.0','3.2.1'])for(const format of ['yaml','json'])for(const cross of [false,true])
+test(`${version} ${format} extracting a concrete Header reference retains other shared interpretations cross=${cross}`,async()=>{
+ const root='file:///project/referenced.'+format,destination=cross?'file:///project/destination.'+format:root;
+ const at='/paths/~1p/get/responses/204/headers/X-Value',shared='/components/schemas/Owner/properties/Shared',to='/components/headers/Extracted';
+ const api={openapi:version,info:{title:'Independent interpretations',version:'1'},paths:{'/p':{get:{responses:{204:{description:'Value',headers:{'X-Value':{$ref:'#'+shared}}}}}}},
+  components:{schemas:{Owner:{$id:'https://schemas.invalid/owner',properties:{Shared:{description:'[Guide](guide.md)',schema:{type:'integer',minimum:'EXACT'},example:'EXACT'}}},Use:{$ref:'#'+shared}},headers:{Other:{$ref:'#'+shared}}}};
+ const render=value=>(format==='yaml'?'# Keep original roles\r\n'+YAML.stringify(value).replaceAll('\n','\r\n'):JSON.stringify(value)).replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const resources=[{id:root,text:render(api),generation:1},...(cross?[{id:destination,text:render({openapi:version,info:{title:'Destination',version:'1'},paths:{},components:{headers:{}}}),generation:2}]:[])];
+ const input={snapshot:'reference-extraction',resources,contexts:[{root,resources:resources.map(resource=>resource.id)}],target:{root,resource:root,pointer:at,generation:1,kind:'header'},name:'Extracted',destinationResource:destination};
+ const before=resources.map(resource=>resource.text),original=new SourceDocument(resources[0].text,root);
+ const plan=planExtract(input),result=apply(input,plan),graph=createGraph({root,resources:result}).graph;
+ assert.equal(analyse({root,resources:result}).status,'complete');assert.equal(plan.kind,'component-extract');
+ assert(plan.sourceOwnership.some(owner=>owner.effect==='separated-contract-use'&&owner.pointer===shared));
+ const selected=graph.referenceAs(root,at,'$ref','header');assert.equal(selected.targetResource,destination);assert.equal(selected.targetPointer,to);
+ for(const [pointer,kind]of [['/components/schemas/Use','schema'],['/components/headers/Other','header']])assert.equal(graph.referenceAs(root,pointer,'$ref',kind).targetPointer,shared);
+ const after=graph.docs.get(root);assert.equal(after.dataJson(shared),original.dataJson(shared));assert.equal(after.dataNode('/components/schemas/Owner/$id').value,'https://schemas.invalid/owner');
+ assert.equal(graph.scopeAs(destination,to,'schema'),undefined);assert(graph.scopeAs(destination,to,'header'));
+ const proof=await evaluateSchemas({root,resources:result,snapshot:'copied-header',runtimeInstances:['9007199254740993','9007199254740992'].map(text=>({subject:'response-header',location:text,text:'',header:{resource:root,pointer:at,name:'X-Value',values:[text]}}))});
+ assert.equal(proof.complete,true,JSON.stringify(proof.findings));assert.deepEqual(proof.runtimeEvaluations.map(value=>value.valid),[true,false]);
+ assert.deepEqual(resources.map(resource=>resource.text),before);assert.equal(planExtract(input).identity,plan.identity);
+ const identified=structuredClone(api);identified.components.schemas.Owner.properties.Shared.schema.$id='https://schemas.invalid/value';
+ assert.throws(()=>planExtract({...input,resources:[{...resources[0],text:render(identified)},...resources.slice(1)]}),error=>error.code==='refactor.inline.schema-resource');
+});
+
 for(const version of ['3.1.2','3.2.0','3.2.1'])for(const format of ['yaml','json'])for(const cross of [false,true])for(const kind of ['schema','header'])
 test(`${version} ${format} whole-object extraction relocates every captured role kind=${kind} cross=${cross}`,async()=>{
  const root='file:///project/source/roles.'+format,destination=cross?'file:///project/target/roles.'+format:root;

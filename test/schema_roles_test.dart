@@ -35,14 +35,16 @@ void main() {
     }
   });
   for (final version in ['3.1.2', '3.2.1']) {
-    testWidgets('$version Design follows the captured role at a shared definition', (tester) async {
+    for(final reference in [false,true])testWidgets('$version Design follows and extracts ${reference?'one reference use':'all roles'} at a shared definition', (tester) async {
       tester.view.physicalSize=const Size(1300,1000);tester.view.devicePixelRatio=1;
       addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);
       final temp=Directory.systemTemp.createTempSync('busyapi-role-navigation-');
       const pointer='/components/schemas/Owner/properties/Shared';
+      const headerUse='/paths/~1p/get/responses/204/headers/X-Value';
       final file=File('${temp.path}/api.json');
-      final text=jsonEncode({'openapi':version,'info':{'title':'Roles','version':'1'},'paths':{},
-        'components':{'schemas':{'Owner':{'properties':{'Shared':{'description':'Kept','schema':{'type':'string'}}}},
+      final text=jsonEncode({'openapi':version,'info':{'title':'Roles','version':'1'},
+        'paths':{'/p':{'get':{'responses':{'204':{'description':'Value','headers':{'X-Value':{r'$ref':'#$pointer'}}}}}}},
+        'components':{'schemas':{'Owner':{if(reference)r'$id':'https://schemas.invalid/owner','properties':{'Shared':{'description':'Kept','schema':{'type':'string'}}}},
           'Use':{r'$ref':'#$pointer'}},'headers':{'Use':{r'$ref':'#$pointer'}}}});
       file.writeAsStringSync(text);
       final c=WorkspaceController(EngineProcess(executable:runtimeNode,helper:runtimeHelper),
@@ -81,6 +83,10 @@ void main() {
           });
           await ready(kind);expect(c.selectedPointer,pointer);expect(c.buffer!.text,text);
         }
+        if(reference) {
+          await runWidgetIo(tester,() async => c.selectObject(await c.project!.inspectObject(c.root!,c.root!,headerUse,contextKind:'header')));
+          await waitFor(()=>c.selectedPointer==headerUse&&find.widgetWithText(BusyApiActionRow,'Extract to component…').evaluate().isNotEmpty);
+        }
         expect(file.readAsStringSync(),text);
         final extract=find.widgetWithText(BusyApiActionRow,'Extract to component…');
         for(final accept in [false,true]) {
@@ -101,8 +107,9 @@ void main() {
         await runWidgetIo(tester,() async {
           final header=await c.project!.referencePage(c.root!,c.root!,'/components/headers/Use');
           final schema=await c.project!.referencePage(c.root!,c.root!,'/components/schemas/Use');
-          expect(header['references'][0]['target']['pointer'],'/components/headers/Extracted');
-          expect(schema['references'][0]['target']['pointer'],'/components/headers/Extracted');
+          expect(header['references'][0]['target']['pointer'],reference?pointer:'/components/headers/Extracted');
+          expect(schema['references'][0]['target']['pointer'],reference?pointer:'/components/headers/Extracted');
+          if(reference)expect((await c.project!.referencePage(c.root!,c.root!,headerUse))['references'][0]['target']['pointer'],'/components/headers/Extracted');
           await c.undo();expect(c.buffer!.text,text);await c.redo();expect(c.buffer!.text,accepted);
           await c.saveAll();
         });

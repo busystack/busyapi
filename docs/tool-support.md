@@ -1004,7 +1004,12 @@ Reviewed whole-object extraction and definition movement retain every captured
 role of a shared source range. Design and CLI `--context-kind` select the
 destination object kind; canonical graph checks retain all original connections,
 schema identities, Markdown contexts and source values. Separating just one
-role remains unavailable when independent ownership has not been established.
+role at a selected definition remains unavailable when independent ownership
+has not been established. A concrete resolved reference use can now extract
+through the existing inline/extract owners in one reviewed transaction. Its
+unchanged shared target and other consumers remain at source, including their
+independent identified Schema interpretations. Design, Core, CLI and new-file
+extraction share that composition and the existing ownership/dynamic/byte guards.
 
 Migration producer **106** retains the existing conversion owners and adds a
 literal `type: array` when an already proved array domain needs older XML

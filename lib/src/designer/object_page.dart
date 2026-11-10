@@ -721,7 +721,8 @@ class _NativeObjectPageState extends State<_NativeObjectPage> {
                   ),
                 if (item['componentFamily'] is String &&
                     item['componentDefinition'] != true &&
-                    (item['schemaReferenceSiblings'] == true ||
+                    (item['referenceExtraction'] == true ||
+                        item['schemaReferenceSiblings'] == true ||
                         !(item['references'] as List).any(
                           (ref) =>
                               ref['keyword'] == r'$ref' ||

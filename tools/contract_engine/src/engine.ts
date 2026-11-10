@@ -459,8 +459,10 @@ export function inspect(input: any) {
         }
     }
     const sharedTarget=!!componentFamily(scope.kind,family)&&graph.references.some(ref=>ref.resolution==='resolved'&&ref.targetResource===doc.id&&ref.targetPointer===node.pointer);
+    const referenceExtraction=!componentDefinition&&graph.scopes.get(doc.id+'#'+node.pointer)?.kind===scope.kind&&!!componentFamily(scope.kind,family)&&references.some(ref=>ref.keyword==='$ref'&&ref.resolution==='resolved');
     return {version: 1, snapshot: input.snapshot, family, ...(isNativeFamily(family)?{capabilities:capabilitiesFor(family)}:{}), customSchemaKeywords: modernFamily(family), ...located(node, scope.kind), interpretations:graph.scopesAt(doc.id,node.pointer).map(({kind,family,dialect})=>({kind,family,dialect})), sharedTarget, componentDestination: graph.specifications.get(doc.id)?.family===family, componentDestinations, ...(componentFamily(scope.kind,family)?{componentFamily:componentFamily(scope.kind,family)}:{}), ...(schemaTreeRoot!==undefined?{schemaTreeRoot}:{}), removable, allowsExtensions: allowsExtensions(scope.kind, family, node.value, segments(node.pointer).at(-1),graph.allowsReference(scope)), fields, entries, offset, count: node.children.size, references,
         ...yamlOwnershipProjection(doc,node.pointer,scope.kind),
+        referenceExtraction,
         ...(scope.kind === 'schema' ? {schemaValueForms: schemaOccurrenceForms(graph, scope),
             schemaReferenceSiblings: hasSchemaReferenceSiblings(node.value, scope.kind, family)} : {}),
         ...(schemaEntryForms(graph, scope) ? {schemaEntryValueForms: schemaEntryForms(graph, scope)} : {}),
