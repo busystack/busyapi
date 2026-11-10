@@ -486,7 +486,7 @@ void main() {
               helper: '$testBundle/libexec/busyapi/mock-server.cjs',
             );
             addTearDown(run.stop);
-            expect(run.nativeValidation.version, '1.18.0+68');
+            expect(run.nativeValidation.version, '1.18.0+69');
             expect(
               run.nativeValidation.configuration,
               contains('binary-instance-v1'),

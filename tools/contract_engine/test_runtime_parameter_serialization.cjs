@@ -1,6 +1,33 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),YAML=require('yaml');
 const {evaluateSchemas,schemaProducer}=require('./dist/schema_evaluation.cjs');
 
+for(const version of ['3.0.4','3.1.2','3.2.0','3.2.1'])for(const style of ['simple','label','matrix'])
+test(`${version} ${style} distinguishes empty collections, empty members and bare exploded object keys`,async()=>{
+ const root='file:///approved/empty.json',pointer='/paths/~1p~1{p}/get/parameters/0';
+ const expansions=style==='simple'?['','k']:style==='label'?['.','.k']:[';p',';k'];
+ for(const [schema,wires,expected]of [
+  [{type:'array',items:{type:'string'},maxItems:0},['',expansions[0]],[true,style==='simple']],
+  [{type:'array',items:{type:'string',enum:['']},minItems:1,maxItems:1},[expansions[0]],[true]],
+  [{type:'object',maxProperties:0},['',expansions[1]],[true,false]],
+  [{type:'object',required:['k'],properties:{k:{type:'string',enum:['']}},additionalProperties:false},[expansions[1]],[true]],
+  [{type:'object',required:[''],properties:{'':{type:'string',enum:['']}},additionalProperties:false},[style==='matrix'?';':style==='label'?'.':''],[true]],
+ ]){
+  const value={openapi:version,info:{title:'Empty expansions',version:'1'},paths:{'/p/{p}':{get:{parameters:[{name:'p',in:'path',required:true,style,explode:true,schema}],responses:{204:{description:'Empty'}}}}}};
+  const text=JSON.stringify(value),input={root,snapshot:'empty-path',resources:[{id:root,text,generation:0}]};
+  const result=await evaluateSchemas({...input,runtimeInstances:wires.map((text,index)=>({subject:'request-parameter',location:String(index),text,parameter:{resource:root,pointer}}))});
+  assert.equal(result.complete,true,JSON.stringify(result.runtimeFindings));assert.deepEqual(result.runtimeEvaluations.map(proof=>proof.valid),expected);
+  assert.equal(input.resources[0].text,text);
+ }
+});
+for(const version of ['3.0.4','3.1.2','3.2.0','3.2.1'])test(`${version} a present empty named form value cannot witness an omitted collection`,async()=>{
+ for(const explode of [false,true]){
+  const root='file:///approved/query.json',pointer='/paths/~1p/get/parameters/0';
+  const value={openapi:version,info:{title:'Presence',version:'1'},paths:{'/p':{get:{parameters:[{name:'q',in:'query',style:'form',explode,schema:{type:'array',items:{type:'string'},maxItems:0}}],responses:{204:{description:'Empty'}}}}}};
+  const result=await evaluateSchemas({root,snapshot:'named-empty',resources:[{id:root,text:JSON.stringify(value),generation:0}],runtimeInstances:[{subject:'request-parameter',location:'q',text:'q=',parameter:{resource:root,pointer}}]});
+  assert.equal(result.complete,true);assert.equal(result.runtimeEvaluations[0].valid,false);
+ }
+});
+
 for(const version of ['3.0.4','3.1.2','3.2.0','3.2.1'])test(`${version} native content Parameter materialization retains charset bytes and exact scalar spellings`,async()=>{
  const {requestContentParameters}=require('./dist/execution.cjs');
  const root='file:///approved/content.json',latin='text/plain; charset=iso-8859-1';
@@ -50,7 +77,7 @@ for(const version of ['3.0.4','3.1.2','3.2.1'])test(`R3c ${version} cookie conte
  const input={root,snapshot:'literal-cookie',resources:[{id:root,text:JSON.stringify(value),generation:1}]};
  const result=await evaluateSchemas({...input,runtimeInstances:['literal=a%20b','literal=a%2520b','literal=a+b'].map(text=>({subject:'request-parameter',location:text,text,parameter:{resource:root,pointer}}))});
  assert.equal(result.complete,true,JSON.stringify(result.runtimeFindings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,false,false]);
- assert.equal(schemaProducer.version,'1.18.0+68');assert(schemaProducer.configuration.includes('literal-cookie-content-v1'));
+ assert.equal(schemaProducer.version,'1.18.0+69');assert(schemaProducer.configuration.includes('literal-cookie-content-v1'));
 });
 for(const version of ['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const format of ['yaml','json'])test(`${version} ${format} runtime parameter serializations use captured schemas and actual header octets`,async()=>{
  const root='file:///approved/api.'+format,q='/paths/~1p/get/parameters/0',header='/paths/~1p/get/parameters/1';
@@ -76,7 +103,7 @@ for(const version of ['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3
  assert.equal(input.resources[0].text,text);
 });
 test('serialized runtime semantics have a distinct producer and configuration identity',()=>{
- assert.equal(schemaProducer.version,'1.18.0+68');assert(schemaProducer.configuration.includes('parameter-runtime-serialization-v1'));
+ assert.equal(schemaProducer.version,'1.18.0+69');assert(schemaProducer.configuration.includes('parameter-runtime-serialization-v1'));
  assert(schemaProducer.configuration.includes('parameter-media-octets-v1'));
 });
 

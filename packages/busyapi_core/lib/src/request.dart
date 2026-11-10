@@ -1247,13 +1247,15 @@ class ContractRequestBuilder {
     // emits a field and is not an omitted collection.
     if ((location == 'query' || location == 'cookie') &&
         (array != null && array.isEmpty || object != null && object.isEmpty)) return [];
+    if (location == 'path' &&
+        (array != null && array.isEmpty || object != null && object.isEmpty)) return [(name, '')];
     List<String> flattened(String delimiter, {bool equals = false}) {
       if (array != null) return array;
       if (object != null) {
         return [
           for (final entry in object.entries)
             if (equals)
-              '${entry.key}=${entry.value}'
+              '${entry.key}${entry.value.isEmpty ? '' : '='}${entry.value}'
             else ...[
               entry.key,
               entry.value,
@@ -1270,7 +1272,7 @@ class ContractRequestBuilder {
               ? object.entries
                     .map(
                       (entry) =>
-                          '${_encode(entry.key, false)}=${_encode(entry.value, false)}',
+                          '${_encode(entry.key, false)}${entry.value.isEmpty ? '' : '='}${_encode(entry.value, false)}',
                     )
                     .join('.')
               : flattened(',')
@@ -1286,7 +1288,7 @@ class ContractRequestBuilder {
                 object.entries
                     .map(
                       (e) =>
-                          ';${_encode(e.key, false)}=${_encode(e.value, false)}',
+                          ';${_encode(e.key, false)}${e.value.isEmpty ? '' : '='}${_encode(e.value, false)}',
                     )
                     .join(),
               ),
@@ -1299,7 +1301,7 @@ class ContractRequestBuilder {
                 array
                     .map(
                       (item) =>
-                          ';${_encode(name, false)}=${_encode(item, false)}',
+                          ';${_encode(name, false)}${item.isEmpty ? '' : '='}${_encode(item, false)}',
                     )
                     .join(),
               ),
@@ -1316,7 +1318,7 @@ class ContractRequestBuilder {
             ? object.entries
                   .map(
                     (entry) =>
-                        '${_encode(entry.key, false)}=${_encode(entry.value, false)}',
+                        '${_encode(entry.key, false)}${entry.value.isEmpty ? '' : '='}${_encode(entry.value, false)}',
                   )
                   .join(',')
             : flattened(',').map((item) => _encode(item, false)).join(',');

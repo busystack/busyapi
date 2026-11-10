@@ -57,9 +57,10 @@ export function headerWireValues(shape:HeaderShape,values:readonly string[],opti
                 for(const items of combinations(parts,parts.map((_,index)=>option.prefixItems?.[index]??option.items)))yield '['+items.join(',')+']';
                 continue;
             }
+            if(!options.cookie&&parts.length===1&&parts[0]==='')yield '{}';
             const names:string[]=[],fields:string[]=[];
             if(options.explode){
-                for(const part of parts){const equals=part.indexOf('=');if(equals<0){names.length=0;break;}names.push(part.slice(0,equals));fields.push(part.slice(equals+1));}
+                for(const part of parts){const equals=part.indexOf('=');if(equals<0&&options.cookie){names.length=0;break;}names.push(equals<0?part:part.slice(0,equals));fields.push(equals<0?'':part.slice(equals+1));}
                 if(names.length!==parts.length)continue;
             }else{
                 if(parts.length%2!==0)continue;

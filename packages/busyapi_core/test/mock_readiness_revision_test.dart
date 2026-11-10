@@ -9,6 +9,8 @@ import 'test_support.dart';
 void main() {
   for (final mutation in [
     'schema-previous-parameter-octets',
+    'schema-previous-empty-expansion',
+    'parameter-previous-empty-expansion',
     'parameter-previous-octets',
     'schema-final-stream-proof',
     'tunnel-missing',
@@ -80,7 +82,7 @@ void main() {
       addTearDown(plan.close);
       final schema = <String, String>{
         'name': 'hyperjump+busyapi-exact',
-        'version': '1.18.0+68',
+        'version': '1.18.0+69',
         'configuration': 'fixture-runtime',
       };
       final response = <String, String>{
@@ -90,8 +92,8 @@ void main() {
       };
       final parameter = <String, String>{
         'name': 'busyapi-native-parameters',
-        'version': '7',
-        'configuration': 'parameter-wire-v7:fixture-runtime',
+        'version': '8',
+        'configuration': 'parameter-wire-v8:fixture-runtime',
       };
       final security = <String, String>{
         'name': 'busyapi-native-security',
@@ -112,6 +114,10 @@ void main() {
       switch (mutation) {
         case 'schema-previous-parameter-octets':
           schema['version']='1.18.0+67';
+        case 'schema-previous-empty-expansion':
+          schema['version']='1.18.0+68';
+        case 'parameter-previous-empty-expansion':
+          parameter['version']='7';
         case 'parameter-previous-octets':
           parameter['version']='6';
         case 'schema-final-stream-proof':

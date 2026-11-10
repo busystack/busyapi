@@ -120,8 +120,9 @@ cold reopening, independent CLI, missing/stale choices and cancellation
 in YAML/JSON for 3.0.4/3.1.2/3.2.0/3.2.1. The existing native external-body
 journey also selects and sends a binary query example. Existing producer
 fixtures retain obsolete controls and add prior-octet-producer rejection.
-Schema producer is `hyperjump+busyapi-exact` **1.18.0+68**, with
-`parameter-media-octets-v1`; Parameter producer is **7**, `parameter-wire-v7`.
+Schema producer is now `hyperjump+busyapi-exact` **1.18.0+69**, with
+`parameter-media-octets-v1` and `parameter-empty-expansion-v1`;
+Parameter producer is **8**, `parameter-wire-v8`.
 Request Parameter example representation is now **2**, and part example
 representation is **1**, strictly admitted by Core. Migration
 **104**, multipart **2**, stream **2** and other existing identities are retained.
@@ -276,6 +277,23 @@ are unchanged. Prepared, **not run**: registered runtime-parameter Engine/Core
 suites cover declared charset URI/Header bytes, exact text scalar numbers,
 whole-query text, original-schema proof, actual HTTP, save/cold replay,
 independent CLI and malformed/obsolete projection controls.
+
+W4.02's existing style serializer and inverse now retain RFC 6570's empty-value
+distinctions at path and Header occurrences. Zero-member path composites omit
+operator prefixes; empty scalar/member values remain present. Exploded
+simple/label/matrix objects and matrix arrays use the specified bare name for an
+empty member, including an empty object-property name. The existing Parameter
+and shared Header inverse owners recognize those finite representations and
+still prove the complete original schema. A present named empty query field
+cannot witness an omitted array/object. No nested style grammar is invented.
+This changes canonical schema producer **+68 → +69** and native Parameter
+producer **7 → 8**; all strict Core/Engine declarations and current fixture
+expectations are synchronized, with prior versions retained as negative controls.
+Prepared, **not run**: registered runtime Parameter/Header suites cover all modern
+families, zero-member/single-empty-member/bare-key distinctions and invalid
+presence witnesses. Core's existing wire execution suite adds actual HTTP,
+response Header proof, saved cases/cold replay and independent CLI across those
+families. Swagger's separate flat/Items/collectionFormat owner is retained.
 
 No boundary is reclassified as a target-specification restriction. Only source
 inspection, official specification/RFC reads, Git inspection and

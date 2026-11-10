@@ -9,6 +9,9 @@ const {mockStart,startMock}=require('./mock_test_capture.cjs');
 const versions=['3.2.0','3.2.1'];
 const variants=[
  ['query array',{name:'ids',in:'query',style:'form',explode:true,schema:{type:'array',items:{type:'integer'},maxItems:0}},[]],
+ ['non-exploded query array',{name:'ids',in:'query',style:'form',explode:false,schema:{type:'array',items:{type:'integer'},maxItems:0}},[]],
+ ['space-delimited query array',{name:'ids',in:'query',style:'spaceDelimited',explode:false,schema:{type:'array',items:{type:'integer'},maxItems:0}},[]],
+ ['pipe-delimited query array',{name:'ids',in:'query',style:'pipeDelimited',explode:false,schema:{type:'array',items:{type:'integer'},maxItems:0}},[]],
  ['query object',{name:'values',in:'query',style:'form',explode:true,schema:{type:'object',additionalProperties:{type:'integer'},maxProperties:0}},{}],
  ['query deep object',{name:'values',in:'query',style:'deepObject',explode:true,schema:{type:'object',maxProperties:0}},{}],
  ['form cookie array',{name:'ids',in:'cookie',style:'form',explode:true,schema:{type:'array',items:{type:'integer'},maxItems:0}},[]],
@@ -113,4 +116,4 @@ for(const version of ['2.0','3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1
   assert.equal(input.resources[0].text,original);
  });
 }
-test('omission semantics have a new captured evaluator identity',()=>{assert.equal(schemaProducer.version,'1.18.0+68');assert(schemaProducer.configuration.includes('parameter-example-serialization-v2'));});
+test('omission semantics have a new captured evaluator identity',()=>{assert.equal(schemaProducer.version,'1.18.0+69');assert(schemaProducer.configuration.includes('parameter-example-serialization-v2'));});

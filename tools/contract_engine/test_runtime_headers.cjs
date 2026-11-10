@@ -1,6 +1,12 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),YAML=require('yaml');
 const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
 const patches=['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','2.0','3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'];
+for(const version of patches.filter(version=>version!=='2.0'))test(`${version} simple Header objects retain empty collections and exploded empty property values`,async()=>{
+ const fixture=input(version,'json',{'X-Empty':{schema:{type:'object',maxProperties:0}},
+  'X-Value':{explode:true,schema:{type:'object',required:['k'],additionalProperties:false,properties:{k:{type:'string',enum:['']}}}}});
+ const checked=await evaluateSchemas({...fixture,runtimeInstances:[fixture.wire('X-Empty',['']),fixture.wire('X-Value',['k'])]});
+ assert.equal(checked.complete,true,JSON.stringify(checked.runtimeFindings));assert(checked.runtimeEvaluations.every(proof=>proof.valid),JSON.stringify(checked.runtimeFindings));
+});
 for(const version of patches.filter(version=>version!=='2.0'))for(const format of ['yaml','json'])test(`${version} ${format} repeated content field lines combine in received order and retain exact data`,async()=>{
  const fixture=input(version,format,{'Cache-Control':{content:{'text/plain':{schema:{type:'string',enum:['private="a,b", max-age=9007199254740993']}}}}});
  const result=await evaluateSchemas({...fixture,runtimeInstances:[fixture.wire('Cache-Control',[' private="a,b"\t',' max-age=9007199254740993 '],'good'),fixture.wire('Cache-Control',['private="a,b"','max-age=9007199254740992'],'bad')]});

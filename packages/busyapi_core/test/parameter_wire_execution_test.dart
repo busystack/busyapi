@@ -8,6 +8,67 @@ import 'test_support.dart';
 import 'migration_r3c_fixture.dart';
 
 void main() {
+  for (final version in ['3.0.4','3.1.2','3.2.0','3.2.1']) {
+    test('$version empty style values retain native HTTP, Header proof, cases and CLI semantics', () async {
+      final temp = await Directory.systemTemp.createTemp('busyapi-empty-styles-');
+      addTearDown(() => temp.delete(recursive: true));
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4,0);
+      addTearDown(() => server.close(force:true));
+      final seen = <String>[];
+      server.listen((request) async {
+        seen.add(request.uri.toString());expect(request.headers.value('x-input'),'k');
+        request.response.headers.set('x-output','k');
+        request.response.statusCode=204;await request.response.close();
+      });
+      final objectSchema = {'type':'object','required':['k'],'additionalProperties':false,
+          'properties':{'k':{'type':'string','enum':['']}}};
+      final schema = {'anyOf':[
+        {'type':'string','enum':['']},
+        {'type':'array','items':{'type':'string','enum':['']},'maxItems':1},
+        {'type':'object','additionalProperties':false,'properties':{'k':{'type':'string','enum':['']}}},
+      ]};
+      final source = File('${temp.path}/api.json');
+      final original = jsonEncode({'openapi':version,'info':{'title':'Empty styles','version':'1'},
+        'servers':[{'url':'http://127.0.0.1:${server.port}'}],
+        'paths':{for(final style in ['simple','label','matrix']) '/$style/{p}':{'get':{
+          'parameters':[{'name':'p','in':'path','required':true,'style':style,'explode':true,'schema':schema},
+            {'name':'X-Input','in':'header','explode':true,'schema':objectSchema}],
+          'responses':{'204':{'description':'Empty','headers':{'X-Output':{'explode':true,'schema':objectSchema}}}},
+        }}},
+      });
+      await source.writeAsString(original);
+      final engine=EngineProcess(executable:runtimeNode,helper:runtimeHelper);addTearDown(engine.close);
+      var project=await BusyProject.open(source.path,engine);addTearDown(() => project.close());
+      final root=source.uri.toString();
+      OperationRequestPlan? savedPlan;OperationRequestDraft? savedDraft;
+      for(final style in ['simple','label','matrix']) {
+        final plan=await project.prepareRequest(root,resource:root,pointer:'/paths/~1$style~1{p}/get');addTearDown(plan.close);
+        for(final data in ['[]','{}','""','[""]','{"k":""}']) {
+          final draft=OperationRequestDraft(planIdentity:plan.identity,parameters:{
+            OperationRequestDraft.parameterKey('path','p'):RequestValue.json(data),
+            OperationRequestDraft.parameterKey('header','X-Input'):const RequestValue.json('{"k":""}'),
+          });
+          final empty=data=='[]'||data=='{}',object=data=='{"k":""}';
+          final expansion=empty?'':style=='matrix'?object?';k':';p':style=='label'?object?'.k':'.':object?'k':'';
+          final result=await const ContractRequestExecutor().execute(plan,draft,resolveSecret:(_) async=>null);
+          try {expect(result.conforming,true,reason:'${result.outgoing.findings} ${result.received.findings}');
+            expect(seen.last,'/$style/$expansion');} finally {await result.close();}
+          savedPlan=plan;savedDraft=draft;
+        }
+      }
+      final changes=await project.applyRefactoring(await savedPlan!.planCase('Empty member',savedDraft!));
+      for(final id in changes)await project.save(project.store.get(id));
+      project.close();project=await BusyProject.open(temp.path,engine);
+      final plan=await project.prepareRequest(root,resource:root,pointer:'/paths/~1matrix~1{p}/get');addTearDown(plan.close);
+      final loaded=await ContractTestRunner.reopenCase(plan,'Empty member',project.access);
+      final replay=await const ContractRequestExecutor().execute(plan,loaded,resolveSecret:(_) async=>null);
+      try {expect(replay.conforming,true);expect(seen.last,'/matrix/;k');} finally {await replay.close();}
+      final cli=await Process.run('$testBundle/busyapi',['test',temp.path,'--case','Empty member','--json'],
+          environment:const {'PATH':'','LANG':'C.UTF-8'},includeParentEnvironment:false);
+      expect(cli.exitCode,0,reason:'${cli.stdout} ${cli.stderr}');expect(seen.last,'/matrix/;k');
+      expect(await source.readAsString(),original);
+    });
+  }
   test('R3c-3 explicit whole-query form Encoding and named query arrays emit the same space/plus octets', () async {
     final directory = await Directory.systemTemp.createTemp('busyapi-form-style-');addTearDown(() => directory.delete(recursive: true));
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);addTearDown(() => server.close(force: true));

@@ -39,12 +39,13 @@ import {externalExampleRevision} from './external_examples';
 import {exampleRepresentation,mediaExampleRepresentations,type ExampleValueField} from './example_representation';
 import {embeddedMimeTextRevision} from './embedded_mime_text';
 
-export const schemaProducer={name:'hyperjump+busyapi-exact',version:'1.18.0+68',configuration:[
+export const schemaProducer={name:'hyperjump+busyapi-exact',version:'1.18.0+69',configuration:[
  `external-example-bytes-v${externalExampleRevision}`,
  'incremental-stream-v2',
  'xml-wire-v2','xml-model-v2','linkset-codec-v2',
  'parameter-runtime-serialization-v1',
  'parameter-media-octets-v1',
+ 'parameter-empty-expansion-v1',
  'literal-cookie-content-v1',
  'whole-body-encoded-string-v1',
  'typed-multipart-generation-v1','nested-form-model-v1',

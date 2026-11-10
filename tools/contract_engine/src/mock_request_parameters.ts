@@ -17,7 +17,7 @@ const maximumCandidates=256,maximumInstances=2048;
 const decimal=/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$/;
 const unsupported=(message:string):never=>{throw new SourceError('runtime.request.parameter.unchecked',message,[0,0],'unsupported');};
 const malformed=(message:string):never=>{throw new SourceError('runtime.request.parameter.serialization',message);};
-export const mockParameterProducer=Object.freeze({name:'busyapi-native-parameters',version:'7'});
+export const mockParameterProducer=Object.freeze({name:'busyapi-native-parameters',version:'8'});
 
 function decode(value:string,form=false):string {
     try{return decodeURIComponent(form?value.replace(/\+/g,' '):value);}
@@ -126,18 +126,25 @@ function data(parameter:Parameter,values:readonly string[],raw:boolean,fields:re
     // HTTP parameter still has no instance and does not apply its schema.
     if(!present)return {present:false,texts:
         location==='query'&&style==='deepObject'&&possible('object')?['{}']:
-        (location==='query'||location==='cookie')&&explode&&(style==='form'||location==='cookie'&&parameter.family==='3.2'&&style==='cookie')?
+        (location==='query'&&['form','spaceDelimited','pipeDelimited'].includes(style)||
+            location==='cookie'&&(style==='form'||parameter.family==='3.2'&&style==='cookie'))?
             [...(possible('array')?['[]']:[]),...(possible('object')?['{}']:[])]:[]};
     if(style==='deepObject')return {present:true,texts:objects(object!,shape)};
+    if(location==='path'&&values.length===1&&values[0]===''&&['matrix','label'].includes(style)){
+        const empty=[...(possible('array')?['[]']:[]),...(possible('object')?['{}']:[])];
+        if(!empty.length)malformed('An empty path expansion without its operator requires an empty collection');
+        return {present:true,texts:empty};
+    }
+    const emptyComposite=(location==='path'||location==='header')&&style==='simple';
     if(location==='path'&&style==='matrix'){
         if(values.length!==1||!values[0].startsWith(';'))malformed('A matrix path parameter must start with a semicolon');
-        const matrix=pairs(values[0].slice(1),';',false),named=matrix.filter(([key])=>decode(key)===name).map(([,value])=>value);
+        const matrix:readonly Pair[]=values[0]===';'?[['','']]:pairs(values[0].slice(1),';',false),named=matrix.filter(([key])=>decode(key)===name).map(([,value])=>value);
         if(explode){
             if(possible('object'))add(objects(matrix.map(([key,value])=>[decode(key),decode(value)]),shape));
-            if(possible('array')&&named.length===matrix.length)add(arrays(named.map(convert),shape));
+            if(possible('array')&&named.length===matrix.length)add(arrays(named.map(convert),shape,false));
         }else if(named.length===1&&matrix.length===1)parts=named[0].split(',');
         if(named.length===1)add(scalars(convert(named[0]),shape));
-        if(!explode&&parts&&possible('array'))add(arrays(parts.map(convert),shape));
+        if(!explode&&parts&&possible('array'))add(arrays(parts.map(convert),shape,false));
     }else{
         if(values.length===1){
             let value=values[0];
@@ -154,7 +161,7 @@ function data(parameter:Parameter,values:readonly string[],raw:boolean,fields:re
         if(possible('array')){
             if((location==='query'||location==='cookie')&&explode&&(style==='form'||style==='cookie'))add(arrays(values.map(convert),shape,false));
             else if(parts){
-                for(const layout of style==='label'&&explode?labelPartitions(parts):[parts])add(arrays(layout.map(convert),shape));
+                for(const layout of style==='label'&&explode?labelPartitions(parts):[parts])add(arrays(layout.map(convert),shape,emptyComposite));
             }
         }
     }
@@ -163,9 +170,10 @@ function data(parameter:Parameter,values:readonly string[],raw:boolean,fields:re
         else if(parts){
             for(const layout of style==='label'&&explode?labelPartitions(parts):[parts]){
                 let entries:Pair[]=[];
-                if(explode&&layout.every(part=>part.includes('=')))entries=layout.map(part=>{const equals=part.indexOf('=');return [convert(part.slice(0,equals)),convert(part.slice(equals+1))];});
+                if(explode&&layout.every(part=>part.includes('=')||location==='path'||location==='header'))entries=layout.map(part=>{const equals=part.indexOf('=');return [convert(equals<0?part:part.slice(0,equals)),equals<0?'':convert(part.slice(equals+1))];});
                 else if(!explode&&layout.length%2===0)for(let index=0;index<layout.length;index+=2)entries.push([convert(layout[index]),convert(layout[index+1])]);
-                if(entries.length||layout.length===1&&layout[0]==='')add(objects(entries,shape));
+                if(entries.length)add(objects(entries,shape));
+                if(emptyComposite&&layout.length===1&&layout[0]==='')add(objects([],shape));
             }
         }
     }

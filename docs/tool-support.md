@@ -988,6 +988,13 @@ scalar inputs retain the actual declared charset bytes through URI/Header
 framing and original-schema validation. This includes whole-query content;
 structured form fields continue to use the established form/style serializer.
 
+Canonical schema producer is **1.18.0+69** and native Parameter producer is **8**
+(`parameter-wire-v8:<canonical configuration>`). The style owners distinguish
+omitted zero-member composites from empty strings/members and retain bare
+exploded keys for empty simple/label/matrix values. Incoming Parameter/Header
+values use the same original-schema proof; obsolete **+68**/**7** proofs are
+rejected.
+
 `swagger_content.mjs` uses supported component hooks and exact Reference values
 for schema constraints, inherited parameters and additional operations. Its
 browser-module build uses upstream React/React DOM **18.3.1**. Exact imported and
