@@ -1191,10 +1191,7 @@ class GitRepository {
           result.stdout[1] == 187 &&
           result.stdout[2] == 191;
       try {
-        text = utf8.decode(
-          hasBom ? result.stdout.sublist(3) : result.stdout,
-          allowMalformed: false,
-        );
+        text = utf8.decode(result.stdout, allowMalformed: false);
       } on FormatException {
         throw GitFailure(
           'git.historical.encoding',

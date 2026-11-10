@@ -312,7 +312,7 @@ paths:
           239,
           187,
           191,
-          ...utf8.encode('type: object\nproperties: {id: {type: string}}\n'),
+          ...utf8.encode('\ufefftype: object\nproperties: {id: {type: string}}\n'),
         ]);
       final contract = File('${repository.path}/openapi.yaml')
         ..writeAsStringSync(_baselineContract);
@@ -344,6 +344,8 @@ paths:
         )['hasBom'],
         true,
       );
+      expect(historical.snapshot.resources.singleWhere((value)=>value['id']==oldSchema.uri.toString())['text'],
+          '\ufefftype: object\nproperties: {id: {type: string}}\n');
       expect(
         historical.snapshot.resources.map((value) => value['id']),
         isNot(contains(File('${schemas.path}/current.yaml').uri.toString())),

@@ -338,10 +338,9 @@ class DocumentBuffer {
         bytes[0] == 239 &&
         bytes[1] == 187 &&
         bytes[2] == 191;
-    final text = utf8.decode(
-      bom ? bytes.sublist(3) : bytes,
-      allowMalformed: false,
-    );
+    // The UTF-8 decoder consumes one initial signature itself. Passing a
+    // manually stripped slice would also discard a subsequent source U+FEFF.
+    final text = utf8.decode(bytes, allowMalformed: false);
     return DocumentBuffer(
       id: Uri.file(path).toString(),
       path: path,

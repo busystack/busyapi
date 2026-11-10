@@ -326,6 +326,21 @@ in YAML/JSON. Core prepares scoped edits/navigation, history, approved captures,
 save/cold reopen and independent CLI checks. Native Source prepares nested-role
 selection, field replacement, stale callback rejection, Undo/Redo and save.
 
+The W7.03 source-preservation review also corrects a confirmed UTF-8 boundary
+bug in Core. `DocumentBuffer.decode` and historical Git blob capture no longer
+strip a signature before invoking Dart's decoder, which already consumes one
+initial signature. Further leading U+FEFF source characters therefore retain
+their exact bytes and source identity. Direct save freezes the published text
+as its baseline instead of decoding it a second time; later input remains dirty
+against that captured revision. Existing BOM flags, source validation, malformed
+UTF-8 refusal and publication owners remain authoritative. See the
+[Dart decoder contract](https://api.dart.dev/dart-convert/Utf8Decoder/convert.html).
+Prepared, **not run**: Core covers zero/one/multiple leading markers, mixed
+endings, exact bytes/source identity, no-op saves, edited baselines, publication
+and cold reopening, with malformed-byte controls. The existing Git semantic
+journey retains the additional marker in a historical external schema. No
+source is normalized merely because its native syntax needs diagnostics.
+
 W6's existing whole-range extraction/definition-move owner now moves every
 captured interpretation together. It selects the requested canonical destination
 kind, repairs references by source/target role and preserves each intrinsic

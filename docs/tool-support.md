@@ -980,6 +980,11 @@ Descendant grammar follows the chosen role's canonical children. Source also
 offers legal inline and external-root reference targets through the same address
 owner as the native selector, retaining its bounded target admission.
 
+Core source decoding and historical Git capture consume only the initial UTF-8
+signature. Additional leading U+FEFF source characters remain in text and exact
+source bytes. Direct-save baselines use the captured published text, preserving
+the same source values without a second decoding pass.
+
 Saved body `externalExample` choices accept a named selector `{"name":""}` to
 retain an empty example name. Existing nonempty string names remain supported;
 the legacy empty string still selects an unnamed occurrence. Native saves and

@@ -319,17 +319,38 @@ void main() {
   test(
     'UTF8 raw decode retains BOM, mixed endings, final newline and Unicode',
     () {
-      final raw = [239, 187, 191, ...utf8.encode('a: 😀\r\nb: 1\nc: 2\r')];
-      final b = DocumentBuffer.decode('/tmp/a.yaml', raw);
-      expect(b.bytes(), raw);
-      expect(b.lines.lineCount, 4);
-      expect(b.lines.lineAt(2).startOffset, 7);
+      for(final marks in [0,1,2,3]) {
+        final source='${'\ufeff'*marks}a: 😀\r\nb: 1\nc: 2\r';
+        final raw=utf8.encode(source),b=DocumentBuffer.decode('/tmp/a.yaml',raw);
+        expect(b.bytes(),raw);expect(b.hasBom,marks>0);
+        expect(b.text,'${'\ufeff'*(marks>0?marks-1:0)}a: 😀\r\nb: 1\nc: 2\r');
+        expect(b.sourceIdentity,textIdentity(source));expect(b.dirty,false);
+        expect(b.lines.lineCount,4);expect(b.lines.lineAt(2).startOffset,7+(marks>0?marks-1:0));
+      }
       expect(
         () => DocumentBuffer.decode('/tmp/b.yaml', [255]),
         throwsFormatException,
       );
     },
   );
+  test('an additional leading source marker survives no-op save, edited baseline, publication and cold reopening',() async {
+    final source=File('${temp.path}/openapi.yaml');
+    const text='\ufeffopenapi: 3.2.1\r\ninfo: {title: Original, version: "1"}\r\npaths: {}\r\nx-number: 9007199254740993.00\r\n';
+    final bytes=[239,187,191,...utf8.encode(text)];await source.writeAsBytes(bytes);
+    var project=await BusyProject.open(source.path,engine);addTearDown(()=>project.close());
+    final buffer=await project.buffer(source.uri.toString());
+    expect(buffer.text,text);expect(buffer.bytes(),bytes);expect(buffer.dirty,false);
+    final modified=(await source.stat()).modified;await project.save(buffer);
+    expect((await source.stat()).modified,modified);expect(await source.readAsBytes(),bytes);
+    project.store.replace(buffer.id,text.replaceFirst('Original','Working'));await project.save(buffer);
+    expect(buffer.baseline,buffer.text);expect(buffer.dirty,false);expect(buffer.text,startsWith('\ufeffopenapi'));
+    project.store.replace(buffer.id,buffer.text.replaceFirst('Working','Published'));
+    final result=await PublicationStore('${temp.path}/state').save(project,[buffer]);
+    expect(result.complete,true);expect(buffer.dirty,false);expect(buffer.baseline,buffer.text);
+    final saved=buffer.bytes();project.close();project=await BusyProject.open(source.path,engine);
+    final cold=await project.buffer(source.uri.toString());expect(cold.bytes(),saved);expect(cold.text,startsWith('\ufeffopenapi'));expect(cold.hasBom,true);
+    expect(await source.readAsBytes(),saved);
+  });
   test(
     'multi-buffer plans are all-or-nothing and generations never rewind',
     () {

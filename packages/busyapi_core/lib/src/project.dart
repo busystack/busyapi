@@ -3598,6 +3598,7 @@ class BusyProject {
       );
     }
     final generation = b.generation;
+    final publishedText = b.text;
     final bytes = b.bytes();
     try {
       await accessFor(b.path)
@@ -3608,7 +3609,7 @@ class BusyProject {
     }
     b.diskIdentity = contentIdentity(bytes);
     resourceFingerprints[b.id] = b.diskIdentity;
-    b.baseline = utf8.decode(b.hasBom ? bytes.sublist(3) : bytes);
+    b.baseline = publishedText;
     b.externalConflict = false;
     if (b.generation != generation) {
       /* Later input remains dirty relative to the published generation. */
