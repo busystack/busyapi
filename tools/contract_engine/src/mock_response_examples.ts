@@ -42,7 +42,7 @@ export function authoredMockResponseBytes(plan:unknown,status:string,actual:stri
             const source=sourceLocation(selected.source);
             return source?.pointer.endsWith('/serializedValue')?runtimeMediaBytes(selected.raw,false):embeddedMimeTextBytes(selected.raw,actual);
         }
-        if(!['xml','linkset','linkset-json'].includes(kind))return;
+        if(!['xml','linkset','linkset-json','json-lines','json-sequence','event-stream'].includes(kind))return;
         if(selected.representation==='serialized')return kind==='xml'?rawXmlBytes(selected.raw,mediaTypes(actual,false)[0].parameters.get('charset')):runtimeMediaBytes(selected.raw,false);
         return; // Structured values pass through asynchronous canonical preparation.
 

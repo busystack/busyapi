@@ -17,12 +17,21 @@ enum RunPhase {
 class RunCancellation {
   bool _cancelled = false;
   final Completer<void> _signal = Completer<void>();
+  final _listeners = <void Function()>{};
+  /// Removable ownership for repeated streaming evaluations. A completed chunk
+  /// must not remain retained by the run's pending cancellation Future.
+  void Function() listen(void Function() callback) {
+    if (_cancelled) {callback();return () {}; }
+    _listeners.add(callback);return () {_listeners.remove(callback);};
+  }
   bool get cancelled => _cancelled;
   Future<void> get whenCancelled => _signal.future;
   void cancel() {
     if (_cancelled) return;
     _cancelled = true;
     _signal.complete();
+    final listeners = List<void Function()>.of(_listeners);_listeners.clear();
+    for (final callback in listeners) callback();
   }
 
   void throwIfCancelled() {
@@ -875,6 +884,61 @@ class OperationRequestPlan {
     return Map.unmodifiable(parsed);
   }
 
+  /// One awaited chunk owns its captured media semantics and exact producer.
+  Future<Map<String, dynamic>> responseStreamChunk(
+    int status, String mediaType, List<int> bytes, Map<String, dynamic>? state, {
+    bool end = false, int maximumRecords = 128, String? runId, RunCancellation? cancellation,
+  }) async {
+    ensureCurrentOwner();
+    cancellation?.throwIfCancelled();
+    final previousBytes = state?['bytes'];
+    if (bytes.length > 65536 || maximumRecords < 1 || maximumRecords > 128 ||
+        previousBytes != null && (previousBytes is! int || previousBytes < 0)) {
+      throw CoreFailure('runtime.stream.input', 'Malformed or oversized stream continuation.');
+    }
+    final requestId = 'stream-${runId??identity}-${_contentPreparationSerial++}';
+    final work = _owner.engine.request('responseStreamChunk', {
+      ...snapshot.toJson(), 'resource': (operation['source'] as Map)['resource'],
+      'pointer': (operation['source'] as Map)['pointer'], 'occurrence': operation['occurrence'],
+      'status': status, 'mediaType': mediaType, 'text': base64Encode(bytes),
+      'state': state, 'end': end, 'maximumRecords': maximumRecords, if(runId!=null)'runId':runId,
+    }, requestId: requestId);
+    final interrupted = Completer<Map<String,dynamic>>();
+    final unsubscribe = cancellation?.listen(() {
+      unawaited(_owner.engine.cancel(requestId));
+      if (!interrupted.isCompleted) interrupted.completeError(CoreFailure('cancelled', 'Stream evaluation cancelled; late results are discarded.'));
+    });
+    late Map<String,dynamic> result;
+    try {result = cancellation == null ? await work : await Future.any([work,interrupted.future]);}
+    finally {unsubscribe?.call();}
+    cancellation?.throwIfCancelled();
+    ensureCurrentOwner();
+    if (result['version'] != 1 || result['revision'] != '1' ||
+        result['snapshot'] != snapshot.identity || result['identity'] != identity ||
+        result['producer'] != 'hyperjump+busyapi-exact' ||
+        result['producerVersion'] != _schemaProducerVersion ||
+        result['supported'] is! bool || result['configuration'] is! String) {
+      throw CoreFailure('runtime.stream.protocol', 'The stream worker returned an unrelated capture or producer.');
+    }
+    bool item(Object? raw) {
+      if (raw is! Map || raw['index'] is! int || raw['offset'] is! int || raw['bytes'] is! int ||
+          raw['complete'] is! bool || raw['valid'] is! bool || raw['findings'] is! List) return false;
+      final findings = raw['findings'] as List;
+      return findings.length <= 16 && findings.every((value) => value is Map) &&
+          (raw['data'] == null || raw['data'] is String && utf8.encode(raw['data'] as String).length <= 16384);
+    }
+    if (result['supported'] == true) {
+      final next = result['state'], records = result['records'], findings = result['findings'];
+      if (next is! Map || records is! List || records.length > maximumRecords || !records.every(item) ||
+          next['mediaType'] != mediaType || next['bytes'] != (previousBytes ?? 0) + bytes.length ||
+          findings is! List || findings.length > 16 || findings.any((value) => value is! Map) ||
+          ['pending','framingComplete','binary','wholeSchema','wholeAvailable','binaryComplete','binaryValid'].any((key) => result[key] is! bool)) {
+        throw CoreFailure('runtime.stream.protocol', 'Malformed incremental record proof.');
+      }
+    }
+    return result;
+  }
+
   Future<Map<String, (String, bool, String)>> contentParameterValues(Map<String, String> values, {Map<String, String> rawValues = const {}, RunCancellation? cancellation}) async {
     if (values.isEmpty && rawValues.isEmpty) return const {};
     final inputs = {...values, ...rawValues};
@@ -1032,6 +1096,7 @@ class OperationRequestPlan {
       if (draft.tlsFiles.isNotEmpty) 'tlsFiles': {for (final entry in draft.tlsFiles.entries) entry.key: entry.value.isEmpty ? '' : relativePath(entry.value)},
       'connectTimeoutMs': draft.connectTimeout.inMilliseconds, 'overallTimeoutMs': draft.overallTimeout.inMilliseconds, 'inactivityTimeoutMs': draft.inactivityTimeout.inMilliseconds,
       'parameterModes': modes,
+      if(draft.streamStopAfterRecords!=null)'stream':{'stopAfterRecords':draft.streamStopAfterRecords},
       if (body.kind != RequestBodyKind.none) 'body': {
         'mediaType': body.mediaType,
         if (body.capturedExample != null) 'externalExample': body.capturedExample!.name ?? '',
@@ -1536,6 +1601,7 @@ extension RequestPlanning on BusyProject {
         (result['representationRevisions'] as Map)['schemaExamples'] != '3' ||
         (result['representationRevisions'] as Map)['xml'] != '2' ||
         (result['representationRevisions'] as Map)['linkset'] != '2' ||
+        (result['representationRevisions'] as Map)['stream'] != '1' ||
         result['operation'] is! Map ||
         result['servers'] is! List ||
         result['parameters'] is! List ||

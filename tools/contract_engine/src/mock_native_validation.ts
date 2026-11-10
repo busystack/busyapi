@@ -169,6 +169,17 @@ export class MockNativeValidation {
         return validateMockResponse(this.context.graph,description,description.operation.method,status,headers,bytes,instances=>this.evaluateInstances(instances,signal));
     }
 
+    async streamResponseHeaders(path:string,method:string,status:number,headers:unknown,signal:AbortSignal):Promise<NativeMockCheck> {
+        const {description}=this.plan(path,method);
+        return validateMockResponse(this.context.graph,description,description.operation.method,status,headers,Buffer.alloc(0),instances=>this.evaluateInstances(instances,signal),true);
+    }
+    async responseStreamChunk(path:string,method:string,status:number,mediaType:string,text:string,state:any,end:boolean,signal:AbortSignal,runId?:string):Promise<any> {
+        const source=this.plan(path,method).description.operation;
+        const result=await this.client.request('responseStreamChunk',{...this.capture,resource:source.source.resource,pointer:source.source.pointer,occurrence:source.occurrence,status,mediaType,text,state,end,runId},signal);
+        if(result.version!==1||result.revision!=='1'||result.snapshot!==this.capture.snapshot||result.identity!==this.plan(path,method).description.identity||result.producer!==this.producer?.name||result.producerVersion!==this.producer?.version||result.configuration!==this.producer?.configuration)throw new SourceError('mock.validation.protocol','Incremental response proof belongs to another capture or producer');
+        return result;
+    }
+
     generatedResponse(path:string,method:string,status:string,actual:string,dynamic:boolean,signal:AbortSignal):Promise<string|undefined> {
         return this.samples.response(this.plan(path,method).description,status,actual,dynamic,signal);
     }

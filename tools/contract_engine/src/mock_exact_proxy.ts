@@ -1,11 +1,12 @@
 import {request as httpRequest} from 'node:http';
 import {request as httpsRequest} from 'node:https';
-import {Readable,Writable,type Transform} from 'node:stream';
+import {Readable,Writable,Transform} from 'node:stream';
 import {pipeline} from 'node:stream/promises';
 import {createGunzip,createInflate,createBrotliDecompress} from 'node:zlib';
 import {SourceError} from './document';
 
-export type ExactProxyResponse={status:number;headers:Headers;rawHeaders:readonly string[];wire:Buffer;decoded:Buffer};
+export type ExactProxyResponse={status:number;headers:Headers;rawHeaders:readonly string[];wire:Buffer;decoded:Buffer;streamed?:boolean};
+export type ExactProxyObserver={open:(status:number,headers:Headers,rawHeaders:readonly string[])=>Promise<boolean>;wire:(chunk:Buffer)=>Promise<void>;decoded:(chunk:Buffer)=>Promise<void>;finish:(complete:boolean,error?:unknown)=>Promise<void>};
 
 async function decode(wire:Buffer,encoding:string|undefined,maximum:number,signal?:AbortSignal):Promise<Buffer> {
     signal?.throwIfAborted();
@@ -42,7 +43,7 @@ async function decode(wire:Buffer,encoding:string|undefined,maximum:number,signa
  * headers are generated. Header/body framing and TLS still use its HTTP client.
  * All proxy methods use this owner to retain separate original field lines.
  * Wire bytes remain separate from the bounded HTTP content-decoding view. */
-export async function exactProxyResponse(target:URL,method:string,headers:Headers,body:Buffer|undefined,maximum:number,signal?:AbortSignal,rawHeaders?:readonly string[]):Promise<ExactProxyResponse> {
+export async function exactProxyResponse(target:URL,method:string,headers:Headers,body:Buffer|undefined,maximum:number,signal?:AbortSignal,rawHeaders?:readonly string[],observer?:ExactProxyObserver):Promise<ExactProxyResponse> {
     if(!['http:','https:'].includes(target.protocol))throw new SourceError('mock.proxy.protocol','The proxy target is not HTTP(S)');
     const received=await new Promise<Omit<ExactProxyResponse,'decoded'>>((resolve,reject)=>{
         const fields:Record<string,string|string[]>=Object.create(null);
@@ -59,6 +60,27 @@ export async function exactProxyResponse(target:URL,method:string,headers:Header
                 const outputHeaders=new Headers();
                 for(let index=0;index<response.rawHeaders.length;index+=2)
                     outputHeaders.append(response.rawHeaders[index],response.rawHeaders[index+1]);
+                const streamCodings=(outputHeaders.get('content-encoding')??'').split(',').map(value=>value.trim().toLowerCase()).filter(value=>value&&value!=='identity');
+                if(observer&&(streamCodings.length>4||streamCodings.some(value=>!['gzip','x-gzip','deflate','br'].includes(value))))throw new SourceError('mock.proxy.encoding.unsupported','The upstream coding has no supported bounded decoder',[0,0],'unsupported');
+                if(observer&&await observer.open(status,outputHeaders,response.rawHeaders)){
+                    let wireLength=0,decodedLength=0;
+                    const wire=new Transform({transform(chunk:Buffer,_encoding,done){
+                        wireLength+=chunk.length;
+                        if(wireLength>maximum){done(new SourceError('mock.proxy.wire.limit','The upstream exceeds its bounded byte budget',[0,0],'unsupported'));return;}
+                        observer.wire(chunk).then(()=>done(null,chunk),error=>done(error));
+                    }});
+                    const codings=(outputHeaders.get('content-encoding')??'').split(',').map(value=>value.trim().toLowerCase()).filter(value=>value&&value!=='identity');
+                    const stages:Transform[]=[wire];
+                    for(const coding of codings.reverse()){
+                        const decoder=coding==='gzip'||coding==='x-gzip'?createGunzip():coding==='deflate'?createInflate():coding==='br'?createBrotliDecompress():undefined;
+                        if(!decoder||stages.length>8)throw new SourceError('mock.proxy.encoding.unsupported','The upstream coding has no bounded stream decoder',[0,0],'unsupported');
+                        let layerBytes=0;stages.push(decoder,new Transform({transform(chunk:Buffer,_encoding,done){layerBytes+=chunk.length;done(layerBytes>maximum?new SourceError('mock.proxy.decoded.limit','A decoded upstream layer exceeds its byte budget',[0,0],'unsupported'):null,chunk);}}));
+                    }
+                    const sink=new Writable({write(chunk:Buffer,_encoding,done){decodedLength+=chunk.length;if(decodedLength>maximum){done(new SourceError('mock.proxy.decoded.limit','Decoded upstream bytes exceed the budget',[0,0],'unsupported'));return;}observer.decoded(chunk).then(()=>done(),error=>done(error));}});
+                    try{await pipeline([response,...stages,sink],{signal});await observer.finish(true);}
+                    catch(error){await observer.finish(false,error);throw error;}
+                    return {status,headers:outputHeaders,rawHeaders:[...response.rawHeaders],wire:Buffer.alloc(0),streamed:true};
+                }
                 const chunks:Buffer[]=[];
                 let length=0;
                 for await(const chunk of response){
@@ -79,6 +101,7 @@ export async function exactProxyResponse(target:URL,method:string,headers:Header
         request.method=method;
         request.end(body);
     });
+    if(received.streamed)return {...received,decoded:Buffer.alloc(0)};
     const decoded=await decode(received.wire,received.headers.get('content-encoding')??undefined,maximum,signal);
     return {...received,decoded};
 }

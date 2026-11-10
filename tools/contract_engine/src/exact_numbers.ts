@@ -70,7 +70,7 @@ export function multiple(a:Decimal,b:Decimal) {
 export function createExactNumericAdapter(trustedSchemaIdentities:ReadonlySet<string>=new Set()) {
 let disposed=false;
 const exactInstanceNumbers=new WeakMap<object,any>(), sourceLocations=new Map<string,{doc:SourceDocument,node:any}>();
-const binaryInstances=new WeakMap<object,Buffer>();
+const binaryInstances=new WeakMap<object,Buffer>(),binaryLengths=new WeakMap<object,number>();
 const propertyInstances=new WeakSet<object>(),swaggerPropertySchemas=new WeakSet<object>();
 let referenceGraph:any;
 let sourceResolver:((uri:string)=>{doc:SourceDocument;node:ReturnType<SourceDocument['dataNode']>}|undefined)|undefined;
@@ -99,7 +99,7 @@ function addExactSource(doc: SourceDocument,graph: any,projected=false) {
   sourceLocations.set(uri,{doc,node});
  }
 }
-function exactInstance(doc: SourceDocument,pointer='',opaque?:ReadonlySet<string>,restrictedMeta=false,binary?:BinaryLocations) {
+function exactInstance(doc: SourceDocument,pointer='',opaque?:ReadonlySet<string>,restrictedMeta=false,binary?:BinaryLocations,streamLength?:number) {
  current();
  // A compound document's resources have separate dialect/meta boundaries.
  // Only meta-evaluation uses this view; source and supplied instances remain
@@ -118,7 +118,7 @@ function exactInstance(doc: SourceDocument,pointer='',opaque?:ReadonlySet<string
  for(const node of Instance.allNodes(root)) {
   if(Instance.typeOf(node)==='number')exactInstanceNumbers.set(node,decimal(doc.dataJson(pointer+node.pointer)));
   const bytes=binary?.get(node.pointer);
-  if(bytes!==undefined&&Instance.typeOf(node)==='null'){binaryInstances.set(node,bytes);binaryCount++;}
+  if(bytes!==undefined&&Instance.typeOf(node)==='null'){binaryInstances.set(node,bytes);if(streamLength!==undefined&&node.pointer==='')binaryLengths.set(node,streamLength);binaryCount++;}
  }
  if(binaryCount!==(binary?.size??0))throw new SourceError('runtime.binary.provenance','Binary leaf ownership does not match its captured instance');
  return root;
@@ -180,7 +180,7 @@ function installExactNumericKeywords() {
  const maxLength=standardMaxLength??(standardMaxLength=getKeyword(id('maxLength')));
  addKeyword({...maxLength,compile:schema=>schemaNumber(schema),interpret:(bound:Decimal,instance)=>{
   const bytes=binaryInstances.get(instance);
-  if(bytes!==undefined)return compare(decimal(String(bytes.length)),bound)<=0;
+  if(bytes!==undefined)return compare(decimal(String(binaryLengths.get(instance)??bytes.length)),bound)<=0;
   if(Instance.typeOf(instance)!=='string')return true;
   return compare(decimal(String([...Instance.value(instance)].length)),bound)<=0;
  }} as any);

@@ -1,3 +1,5 @@
+import {decimal} from './exact_numbers';
+import {sseLine,type SseState} from './runtime_sse';
 import {rawXmlBytes,xmlCharacters,parseXml} from './xml_wire';
 import {decodeXml,encodeXml,type XmlBinding} from './xml_model';
 import {parseLinkset,validateLinkset,encodeLinkset,validateLinksetProfile} from './linkset';
@@ -10,7 +12,7 @@ export type TextSerialization='embedded'|'unicode';
 export type RuntimeMediaKind='xml'|'json'|'linkset-json'|'linkset'|'text'|'json-lines'|'json-sequence'|'event-stream'|'opaque';
 export type RuntimeMediaData={document:SourceDocument;items?:SourceDocument[];binaryInstances?:BinaryDocuments;kind:RuntimeMediaKind|'binary'|'file'|'octets'|'form-urlencoded'|'multipart-form'|'multipart-sequence'};
 export type RuntimeMediaDescription=
- {dataModelStatus:'classified'|'opaque';dataModel:RuntimeMediaKind}|
+ {dataModelStatus:'classified'|'opaque';dataModel:RuntimeMediaKind;incremental:boolean}|
  {dataModelStatus:'invalid'|'unsupported';dataModelIssue:{code:string;message:string}};
 
 /** Multipart data needs its captured Media Type/Encoding owner in addition to
@@ -26,7 +28,7 @@ export function runtimeFormMedia(contentType:string):boolean {
 export function runtimeMediaDescription(contentType:string):RuntimeMediaDescription {
  try{
   const dataModel=runtimeMediaKind(contentType,true);
-  return {dataModelStatus:dataModel==='opaque'?'opaque':'classified',dataModel};
+  return {dataModelStatus:dataModel==='opaque'?'opaque':'classified',dataModel,incremental:['json-lines','json-sequence','event-stream'].includes(dataModel)||contentType.split(';')[0].trim().toLowerCase().startsWith('multipart/')||runtimeBinaryMedia(contentType,true)};
  }catch(error){
   if(!(error instanceof SourceError)||!['encoding.content-type','runtime.media.type','request.form.media-parameters.unsupported','limit.media.type','limit.encoding.content-types'].includes(error.code))throw error;
   return {dataModelStatus:error.kind==='unsupported'||error.code.startsWith('limit.')?'unsupported':'invalid',dataModelIssue:{code:error.code,message:error.message}};
@@ -159,23 +161,8 @@ export function decodeRuntimeMedia(text:string,id:string,contentType?:string,bas
   // comments/unknown fields and an unfinished final event are not messages.
   const lines=text.replace(/^\ufeff/,'').split(/\r\n|\r|\n/);
   if(lines.at(-1)==='')lines.pop();
-  let data:string[]=[],event:string|undefined,eventId:string|undefined,retry:string|undefined;
-  for(const line of lines){
-   if(line===''){
-    if(data.length)append('{"data":'+JSON.stringify(data.join('\n'))+
-     (event!==undefined?',"event":'+JSON.stringify(event===''?'message':event):'')+
-     (eventId!==undefined?',"id":'+JSON.stringify(eventId):'')+
-     (retry!==undefined?',"retry":'+retry:'')+'}');
-    data=[];event=undefined;eventId=undefined;retry=undefined;continue;
-   }
-   if(line.startsWith(':'))continue;
-   const colon=line.indexOf(':'),name=colon<0?line:line.slice(0,colon);
-   let value=colon<0?'':line.slice(colon+1);if(value.startsWith(' '))value=value.slice(1);
-   if(name==='data')data.push(value);
-   else if(name==='event')event=value;
-   else if(name==='id'&&!value.includes('\0'))eventId=value;
-   else if(name==='retry'&&/^[0-9]+$/.test(value))retry=value.replace(/^0+(?=\d)/,'');
-  }
+  const state:SseState={data:[]};
+  for(const line of lines){const value=sseLine(state,line);if(value!==undefined)append(value);}
  }
  return {document:parse('['+items.map(item=>item.dataJson('')).join(',')+']'),items,kind};
 }
@@ -193,6 +180,25 @@ export function encodeRuntimeMedia(document:SourceDocument,contentType:string,he
  if(kind==='linkset')return runtimeMediaBytes(encodeLinkset(document,header),false);
  if(kind==='linkset-json'){
   validateLinkset(document);return runtimeMediaBytes(header?document.dataJson('').replace(/[^\x00-\x7f]/g,character=>'\\u'+character.charCodeAt(0).toString(16).padStart(4,'0')):document.dataJson(''),false);
+ }
+ if(['json-lines','json-sequence','event-stream'].includes(kind)){
+  if(header||document.root.kind!=='array')throw new SourceError('runtime.media.encoder.sequence','A typed sequence requires array data in an ordinary body');
+  const items=[...document.root.children.values()].map(node=>document.dataNode(node.pointer)!);
+  if(items.length>2048)throw new SourceError('limit.runtime.items','A finite generated sequence exceeds 2048 items');
+  let text='';
+  for(const item of items){
+   if(kind==='json-lines')text+=document.dataJson(item.pointer)+'\n';
+   else if(kind==='json-sequence')text+='\x1e'+document.dataJson(item.pointer)+'\n';
+   else{
+    if(item.kind!=='object'||typeof item.value?.data!=='string'||Object.keys(item.value).some(key=>!['data','event','id','retry'].includes(key)))throw new SourceError('runtime.media.encoder.sse','An SSE item requires its standard event data model');
+    for(const name of ['id','event'])if(item.value[name]!==undefined){if(typeof item.value[name]!=='string'||/[\r\n\0]/.test(item.value[name]))throw new SourceError('runtime.media.encoder.sse','SSE event/id fields contain prohibited characters');text+=name+': '+item.value[name]+'\n';}
+    const retry=document.dataNode(item.pointer+'/retry');
+    if(retry){if(retry.kind!=='number')throw new SourceError('runtime.media.encoder.sse','SSE retry requires an integer');const value=decimal(document.dataJson(retry.pointer));if(value.coefficient<0n||value.exponent<0n||value.exponent>1000000n)throw new SourceError('runtime.media.encoder.sse','SSE retry requires a bounded nonnegative integer');if(text.length+String(value.coefficient).length+Number(value.exponent)>16*1024*1024)throw new SourceError('limit.runtime.bytes','Generated finite sequence exceeds 16 MiB');text+='retry: '+value.coefficient+'0'.repeat(Number(value.exponent))+'\n';}
+    if(item.value.data.includes('\r'))throw new SourceError('runtime.media.encoder.sse','SSE line normalization cannot preserve a CR data value',[0,0],'unsupported');
+    text+=item.value.data.split('\n').map(line=>'data: '+line+'\n').join('')+'\n';
+   }
+   if(Buffer.byteLength(text)>16*1024*1024)throw new SourceError('limit.runtime.bytes','Generated finite sequence exceeds 16 MiB');
+  }const bytes=runtimeMediaBytes(text,false);if(bytes.length>16*1024*1024)throw new SourceError('limit.runtime.bytes','Generated finite sequence exceeds 16 MiB');return bytes;
  }
  if(kind==='json')return runtimeMediaBytes(header?document.dataJson('').replace(/[^\x00-\x7f]/g,character=>'\\u'+character.charCodeAt(0).toString(16).padStart(4,'0')):document.dataJson(''),false);
  throw new SourceError('runtime.media.encoder.unsupported','This media has no shared typed encoder',[0,0],'unsupported');

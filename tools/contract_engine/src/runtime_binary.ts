@@ -7,8 +7,8 @@ import {mediaTypes} from './media_types';
 export type BinaryLocations=ReadonlyMap<string,Buffer>;
 export type BinaryDocuments=ReadonlyMap<SourceDocument,BinaryLocations>;
 
-export function runtimeBinaryMedia(contentType:string):boolean {
- const [{type,subtype}]=mediaTypes(contentType,false);
+export function runtimeBinaryMedia(contentType:string,ranges=false):boolean {
+ const [{type,subtype}]=mediaTypes(contentType,ranges);
  if(subtype.endsWith('+json')||subtype.endsWith('+xml'))return false;
  return ['image','audio','video','font'].includes(type)||type==='application'&&
   ['octet-stream','pdf','zip','gzip','wasm'].includes(subtype);

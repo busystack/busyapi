@@ -27,6 +27,8 @@ import 'exact_http_method.dart';
 import 'response_field_capture.dart';
 import 'trace_request_policy.dart';
 
+part 'request_stream.dart';
+
 typedef SecretResolver = Future<String?> Function(String reference);
 typedef _SecurityContribution = ({String wire, String reference, String? publicIdentity});
 typedef _QueryField = ({
@@ -298,6 +300,7 @@ class OperationRequestDraft {
     this.connectTimeout = const Duration(seconds: 15),
     this.overallTimeout = const Duration(seconds: 60),
     this.inactivityTimeout = const Duration(seconds: 15),
+    this.streamStopAfterRecords,
   }) : _selectedServer = server;
   final String planIdentity;
   final String? environment;
@@ -305,6 +308,7 @@ class OperationRequestDraft {
   int get server => _selectedServer ?? 0;
   int? get selectedServer => _selectedServer;
   final int? securityAlternative;
+  final int? streamStopAfterRecords;
   final Map<String, RequestValue> parameters;
   final List<RequestHeaderValue> headers;
   final Map<String, String> variables;
@@ -2820,8 +2824,11 @@ class ContractHttpResponse {
     int? receivedLength,
     this.decodingComplete = true,
     this.decodingReason,
-  }) : decodedLength = decodedLength ?? bodyLength,
+    ContractStreamSnapshot? stream,
+  }) : _stream=stream, decodedLength = decodedLength ?? bodyLength,
        receivedLength = receivedLength ?? bodyLength;
+  ContractStreamSnapshot? _stream;
+  ContractStreamSnapshot? get stream => _stream;
   final String runId, reason, bodyFile, bodyIdentity;
   final int status, bodyLength;
   final List<(String, String)> headers;
@@ -3151,6 +3158,8 @@ class ContractHttpTransport {
   Future<ContractHttpResponse> send(
     PreparedContractRequest input, {
     RunCancellation? cancellation,
+    ContractStreamControl? streamControl,
+    FutureOr<void> Function(ContractStreamSnapshot)? onStream,
   }) async {
     try {
       input.plan.ensureCurrentPreparation();
@@ -3285,7 +3294,7 @@ class ContractHttpTransport {
                 redirects,
                 cancellation,
                 deadline,
-                capturedFields: fields,
+                capturedFields: fields, streamControl: streamControl, onStream: onStream,
                 incompleteReason: target.userInfo.isNotEmpty
                     ? 'credential-bearing-redirect-not-followed'
                     : 'cross-origin-redirect-not-followed',
@@ -3305,7 +3314,7 @@ class ContractHttpTransport {
             redirects,
             cancellation,
             deadline,
-            capturedFields: fields,
+            capturedFields: fields, streamControl: streamControl, onStream: onStream,
           );
         }
       } on TimeoutException {
@@ -3378,6 +3387,8 @@ class ContractHttpTransport {
     RunCancellation? cancellation,
     _HttpDeadline deadline, {
     required ResponseFieldCapture? capturedFields,
+    ContractStreamControl? streamControl,
+    FutureOr<void> Function(ContractStreamSnapshot)? onStream,
     String? incompleteReason,
   }) async {
     final firstByte = clock.elapsed;
@@ -3398,6 +3409,7 @@ class ContractHttpTransport {
     Future<void>? pendingWrite;
     Object? storageError;
     Timer? inactivity;
+    _LiveResponseStream? live;
     try {
       cancellation?.throwIfCancelled();
       input.plan.ensureCurrentOwner();
@@ -3408,6 +3420,7 @@ class ContractHttpTransport {
       input.plan.ensureCurrentOwner();
       final file = File(p.join(temp.path, 'body.bin'));
       storage = await (openResponseStorage ?? FileResponseStorage.open)(file);
+      live = await _LiveResponseStream.open(input,response.statusCode,headers,streamControl,onStream,cancellation,maximumDecodedBytes,deadline);
       final done = Completer<void>();
       void finish() {
         if (!done.isCompleted) done.complete();
@@ -3435,6 +3448,10 @@ class ContractHttpTransport {
               await storage!.write(retained);
               hash.add(retained);
               count += retained.length;
+              if (live != null) {
+                await live.add(retained,receivedCount);
+                if (live.failure != null || streamControl?.stopped == true) {complete=false;reason=streamControl?.stopped == true?'stopped':live.failure;finish();}
+              }
               if (retained.length != chunk.length) {
                 reason = 'response-size-limit';
                 complete = false;
@@ -3463,8 +3480,9 @@ class ContractHttpTransport {
         cancelOnError: true,
       );
       arm();
+      if (live?.failure != null) {complete=false;reason=live!.failure;finish();}
       try {
-        await deadline.wait(done.future);
+        await deadline.wait(streamControl == null ? done.future : Future.any<void>([done.future,streamControl.whenStopped.then((_) {complete=false;reason='stopped';})]));
       } on TimeoutException {
         complete = false;
         reason = deadline.reason ?? 'overall-timeout';
@@ -3480,6 +3498,7 @@ class ContractHttpTransport {
       if (storageError != null) {
         throw CoreFailure('response.storage', 'Response storage write failed.');
       }
+      if (live != null) await live.finish(streamEnded && reason == null,reason);
       // Do not detach writes on cancellation: close waits for the one owned
       // write to settle before either returning the owner or removing output.
       await storage.flush();
@@ -3507,7 +3526,7 @@ class ContractHttpTransport {
           : (null, 0, Uint8List(0), 'forbidden-response-content');
       input.plan.ensureCurrentOwner();
       return ContractHttpResponse(
-        runId: input.runId,
+        runId: input.runId, stream: live?.snapshot,
         status: response.statusCode,
         reason: response.reasonPhrase,
         headers: List.unmodifiable(headers),
@@ -3546,11 +3565,13 @@ class ContractHttpTransport {
           (error.code == 'cancelled' || error.code == 'request.closed')) {
         rethrow;
       }
+      if(error is TimeoutException) rethrow;
       throw CoreFailure(
         'response.storage',
         'Response storage failed; check temporary disk space and permissions.',
       );
     } finally {
+      live?.retire();
       inactivity?.cancel();
     }
   }
@@ -4003,6 +4024,8 @@ class ContractRequestExecutor {
     required SecretResolver resolveSecret,
     RunCancellation? cancellation,
     void Function()? onRequestDispatched,
+    ContractStreamControl? streamControl,
+    FutureOr<void> Function(ContractStreamSnapshot)? onStream,
   }) async {
     final secretValues = <String>{};
     Future<String?> ownedSecret(String reference) async {
@@ -4076,6 +4099,7 @@ class ContractRequestExecutor {
       final response = await transport.send(
         request,
         cancellation: cancellation,
+        streamControl: streamControl ?? ContractStreamControl(stopAfterRecords:draft.streamStopAfterRecords), onStream: onStream == null ? null : (value) => onStream(value.redacted(secretValues)),
       );
       try {
         ContractConformance received;
@@ -4092,7 +4116,7 @@ class ContractRequestExecutor {
           if (error.code != 'cancelled') rethrow;
           received = ContractConformance(
             complete: false,
-            valid: true,
+            valid: response.stream?.valid ?? true,
             findings: [
               _finding(
                 'runtime.cancelled',
@@ -4100,12 +4124,14 @@ class ContractRequestExecutor {
                 'Response evaluation was cancelled; no complete conformance is claimed.',
                 location: 'response',
               ),
+              ...?response.stream?.findings,
             ],
-            producer: 'busyapi-runtime',
-            producerVersion: '1',
-            coverage: const {'body': 'cancelled'},
+            producer: response.stream?.schemaProducerName ?? 'busyapi-runtime',
+            producerVersion: response.stream?.schemaProducerVersion ?? '1',
+            coverage: {'body': 'cancelled',if(response.stream!=null)'stream':response.stream!.toJson()},
           );
         }
+        if(response.stream!=null){response._stream=response.stream!.redacted(secretValues);await onStream?.call(response.stream!);}
         return ContractRequestResult(
           request: request,
           response: response,
@@ -4162,7 +4188,7 @@ class ContractRequestExecutor {
       ],
       producer: value.producer,
       producerVersion: value.producerVersion,
-      coverage: value.coverage,
+      coverage: Map<String,Object?>.from(redact(value.coverage) as Map),
       modeledData: value.modeledData,
     );
   }
@@ -4774,6 +4800,7 @@ class ContractRequestExecutor {
       );
     }
     if (bodyPermitted &&
+        response.stream?.wholeAvailable != true &&
         response.decodingComplete &&
         !invalidTextEncoding &&
         supportedCharset &&
@@ -4823,7 +4850,7 @@ class ContractRequestExecutor {
         );
       }
     }
-    final evaluated = await _evaluate(
+    var evaluated = await _evaluate(
       plan,
       instances,
       findings,
@@ -4847,6 +4874,13 @@ class ContractRequestExecutor {
       checksComplete: checksComplete,
       cancellation: cancellation,
     );
+    if (response.stream case final stream?) {
+      response._stream=stream.withWholeResult(evaluated.complete && response.receiptComplete && response.decodingComplete,evaluated.valid,bodyChecked:instances.any((value)=>value.subject=='response-body'));
+      evaluated = ContractConformance(complete:evaluated.complete && response.stream!.complete,
+        valid:evaluated.valid && stream.valid,findings:[...evaluated.findings,...response.stream!.findings],
+        producer:stream.schemaProducerName,producerVersion:stream.schemaProducerVersion,
+        coverage:{...evaluated.coverage,'stream':response.stream!.toJson()},modeledData:evaluated.modeledData);
+    }
     if (!response.receiptComplete && evaluated.complete) {
       return ContractConformance(
         complete: false,

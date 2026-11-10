@@ -7,7 +7,7 @@ import 'form_media_types.dart';
 import 'multipart_encoding.dart';
 import 'storage.dart';
 
-const contractTestProducerVersion = '3';
+const contractTestProducerVersion = '4';
 
 class ContractCaseResult {
   const ContractCaseResult({
@@ -25,12 +25,14 @@ class ContractCaseResult {
     this.bodyLength,
     this.elapsed = Duration.zero,
     this.operationalFailure = false,
+    this.stream,
   });
   final String name, operation, snapshot, status;
   final bool complete, passed;
   final int? responseStatus, bodyLength;
   final String? mediaType, bodyIdentity;
   final Duration elapsed;
+  final Map<String,Object?>? stream;
   final bool operationalFailure;
   final bool dispatched;
   final List<Map<String, Object?>> findings;
@@ -48,6 +50,7 @@ class ContractCaseResult {
     if (bodyIdentity != null) 'bodyIdentity': bodyIdentity,
     if (bodyLength != null) 'bodyLength': bodyLength,
     'findings': findings,
+    if(stream!=null)'stream':stream,
   };
 }
 
@@ -407,6 +410,7 @@ class ContractTestRunner {
           (value[key] is! String || (value[key] as String).isEmpty))
         invalid(key, 'Expected a non-empty string.');
     }
+    if(value.containsKey('stream')){final stream=value['stream'];if(stream is! Map||stream.keys.any((key)=>key!='stopAfterRecords')||stream['stopAfterRecords'] is! int||(stream['stopAfterRecords'] as int)<1||(stream['stopAfterRecords'] as int)>1000000000)invalid('stream','Expected a bounded positive stopAfterRecords selection.');}
     if (value.containsKey('tlsFiles')) {
       final files = value['tlsFiles'];
       if (files is! Map || files.length > 3 || files.entries.any((entry) =>
@@ -785,6 +789,7 @@ class ContractTestRunner {
             })
           : const {},
       body: body,
+      streamStopAfterRecords: definition['stream'] is Map ? (definition['stream'] as Map)['stopAfterRecords'] as int? : null,
       tlsFiles: {for (final entry in (definition['tlsFiles'] as Map? ?? const {}).entries)
         entry.key as String: entry.value == '' ? '' : access.pathFor(p.join(access.boundary, entry.value as String))},
       connectTimeout: Duration(
@@ -874,7 +879,7 @@ class ContractTestRunner {
       name: name,
       operation: operation,
       snapshot: result.request.plan.snapshot.identity,
-      status: passed
+      status: result.response.stream?.status == 'stopped' ? 'stopped' : passed
           ? 'passed'
           : complete
           ? 'failed'
@@ -885,7 +890,7 @@ class ContractTestRunner {
       responseStatus: result.response.status,
       mediaType: _contentType(result.response.headers),
       bodyIdentity: result.response.bodyIdentity,
-      bodyLength: result.response.bodyLength,
+      bodyLength: result.response.bodyLength, stream:result.response.stream?.toJson(),
       findings: List.unmodifiable(findings),
       elapsed: elapsed,
     );

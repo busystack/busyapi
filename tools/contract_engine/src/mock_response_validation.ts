@@ -13,7 +13,7 @@ export const mockResponseProducer=Object.freeze({name:'busyapi-native-response',
 /** The response's actual bytes, status and header fields are checked under the
  * same captured operation as request preparation. Prism owns generation and
  * negotiation, never a second interpretation of the captured Schema Objects. */
-export async function validateMockResponse(graph:ReferenceGraph,plan:unknown,method:string,status:number,headers:unknown,bytes:Buffer,evaluate:Evaluate):Promise<NativeMockCheck> {
+export async function validateMockResponse(graph:ReferenceGraph,plan:unknown,method:string,status:number,headers:unknown,bytes:Buffer,evaluate:Evaluate,streamBody=false):Promise<NativeMockCheck> {
     if(!record(plan)||!record(plan.operation)||typeof plan.family!=='string'||!isNativeFamily(plan.family)||!Array.isArray(plan.responses)||plan.responses.length>2048||!record(headers))
         throw new SourceError('mock.validation.protocol','The native response projection is malformed');
     const operation=sourceLocation(plan.operation.source);
@@ -83,7 +83,7 @@ export async function validateMockResponse(graph:ReferenceGraph,plan:unknown,met
             if(parsed.length!==1)throw new SourceError('runtime.response.media-type','A response requires one concrete Content-Type');
             const media=selectNativeMedia(content,actual);
             if(content.length&&!media)issue('runtime.response.media-type','The actual response Content-Type does not match its captured declaration','response-body','content-type',source);
-            else if(media?.schema||media?.itemSchema||media?.mediaOwner||runtimeFormMedia(actual)&&media?.formOwner||runtimeMediaKind(actual)!=='opaque'){
+            else if(!streamBody&&(media?.schema||media?.itemSchema||media?.mediaOwner||runtimeFormMedia(actual)&&media?.formOwner||runtimeMediaKind(actual)!=='opaque')){
                 const form=runtimeFormMedia(actual)?media?.formOwner:undefined;
                 add({subject:'response-body',location:actual,text:bytes.toString('base64'),mediaType:actual,mediaBase64:true,schema:media?.schema,itemSchema:media?.itemSchema,...(form?{form}:media?.mediaOwner?{media:media.mediaOwner}:{})},source);
             }

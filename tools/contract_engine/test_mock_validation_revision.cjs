@@ -29,7 +29,7 @@ test('Engine schema producer and all Core admission owners stay synchronized',as
  const engineVersion=/export const schemaProducer=\{name:'hyperjump\+busyapi-exact',version:'([^']+)'/.exec(engine)?.[1];
  const coreVersion=/const _schemaProducerVersion = '([^']+)';/.exec(project)?.[1];
  assert(engineVersion);assert(coreVersion);assert.equal(coreVersion,engineVersion);
- assert.notEqual(coreVersion,'1.18.0+63');assert.notEqual(coreVersion,'1.18.0+64');
+ assert.notEqual(coreVersion,'1.18.0+63');assert.notEqual(coreVersion,'1.18.0+64');assert.notEqual(coreVersion,'1.18.0+65');
  assert.match(project,/result\['producerVersion'\] == _schemaProducerVersion/);
  const execution=await fs.readFile(path.join(coreRoot,'execution.dart'),'utf8');
  const mock=await fs.readFile(path.join(coreRoot,'mock.dart'),'utf8');
@@ -37,4 +37,13 @@ test('Engine schema producer and all Core admission owners stay synchronized',as
  assert.match(mock,/nativeValidation.version != _schemaProducerVersion/);
  for(const identity of ['typed-multipart-generation-v1','external-example-bytes-v','embedded-mime-text-v'])assert(engine.includes(identity));
  for(const identity of ['response-wire-v5:','parameter-wire-v6:','captured-schema-candidates-v4:'])assert(mock.includes(identity));
+});
+
+test('incremental producer admission uses the actual Engine and Core declarations',async()=>{
+ const stream=await fs.readFile(path.join(__dirname,'src/runtime_stream.ts'),'utf8');
+ const core=await fs.readFile(path.resolve(__dirname,'../../packages/busyapi_core/lib/src/execution.dart'),'utf8');
+ const revision=/export const streamRevision='([^']+)'/.exec(stream)?.[1];assert(revision);
+ const method=core.slice(core.indexOf('Future<Map<String, dynamic>> responseStreamChunk'),core.indexOf('Future<Map<String, (String, bool, String)>> contentParameterValues'));
+ assert(method.includes("result['revision'] != '"+revision+"'"));
+ assert(method.includes("result['producerVersion'] != _schemaProducerVersion"));
 });

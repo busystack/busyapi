@@ -62,7 +62,7 @@ export class MockGenerationAdapter {
         if(!response||!content)return unchanged;
         const essence=content.mediaType.split(';')[0].trim().toLowerCase();
         const json=essence==='application/json'||essence.endsWith('+json');
-        const modeled=essence==='application/x-www-form-urlencoded'||essence.startsWith('multipart/')||essence==='application/xml'||essence==='text/xml'||essence.endsWith('+xml')||essence==='application/linkset'||essence==='application/linkset+json';
+        const modeled=['application/jsonl','application/x-ndjson','application/json-seq','text/event-stream'].includes(essence)||essence.endsWith('+json-seq')||essence==='application/x-www-form-urlencoded'||essence.startsWith('multipart/')||essence==='application/xml'||essence==='text/xml'||essence.endsWith('+xml')||essence==='application/linkset'||essence==='application/linkset+json';
         const dynamic=configuration.dynamic&&selected.bodyExample===undefined;
         // Invalid-input negotiation can suppress the requested example key.
         // Preserve its actual choice before skipping synthesized schema defaults.

@@ -22,13 +22,16 @@ export function mimePartDecodingType(contentType:string,utf8Form:boolean):string
 /** Bounded RFC 2046 framing, shared by named and ordered multipart bindings.
  * Part octets, order, preamble and epilogue do not pass through serialization.
  * Content-Disposition belongs to the binding, not to generic MIME framing. */
-export function mimeParts(bytes:Buffer,contentType:string):MimePart[] {
-    const types=mediaTypes(contentType,false),type=types[0];
+export function mimeBoundary(contentType:string){
+ const types=mediaTypes(contentType,false),type=types[0];
     if(types.length!==1||type.type!=='multipart')return syntax('A multipart representation needs one multipart Content-Type');
     const boundary=type.parameters.get('boundary');
     if(boundary===undefined||boundary.length<1||boundary.length>70||!/^[0-9A-Za-z'()+_,\-./:=? ]*[0-9A-Za-z'()+_,\-./:=?]$/.test(boundary))return syntax('A multipart boundary must follow RFC 2046');
-    const marker=Buffer.from('--'+boundary,'ascii'),line=Buffer.from('\r\n');
-    const delimiter=(start:number):{at:number;after:number;closed:boolean}|undefined=>{
+    const marker=Buffer.from('--'+boundary,'ascii');
+ return {type,marker};
+}
+export function mimeDelimiter(bytes:Buffer,marker:Buffer,start=0,final=true):{at:number;after:number;closed:boolean}|undefined {
+ const line=Buffer.from('\r\n');
         let at=bytes.indexOf(marker,start);
         while(at>=0){
             if(at===0||bytes.subarray(at-2,at).equals(line)){
@@ -36,7 +39,8 @@ export function mimeParts(bytes:Buffer,contentType:string):MimePart[] {
                 if(bytes.subarray(after,after+2).equals(Buffer.from('--'))){closed=true;after+=2;}
                 while(bytes[after]===32||bytes[after]===9)after++;
                 if(bytes.subarray(after,after+2).equals(line))return {at,after:after+2,closed};
-                if(closed&&after===bytes.length)return {at,after,closed};
+                if(final&&closed&&after===bytes.length)return {at,after,closed};
+                if(!final&&(after>=bytes.length||bytes[after]===13&&after+1===bytes.length||bytes.subarray(after).equals(Buffer.from('-'))))return;
                 // RFC 2046 §5.1.1 reserves the complete boundary prefix at
                 // line starts, including inside nested multiparts. A longer
                 // child boundary cannot turn this reserved prefix into data.
@@ -44,7 +48,10 @@ export function mimeParts(bytes:Buffer,contentType:string):MimePart[] {
             }
             at=bytes.indexOf(marker,at+marker.length);
         }
-    };
+}
+export function mimeParts(bytes:Buffer,contentType:string):MimePart[] {
+    const {type,marker}=mimeBoundary(contentType),line=Buffer.from('\r\n');
+    const delimiter=(start:number)=>mimeDelimiter(bytes,marker,start);
     let current=delimiter(0);
     if(!current)return syntax('The multipart body has no initial delimiter');
     if(current.closed)return syntax('A multipart body requires at least one part before its closing delimiter');

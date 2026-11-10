@@ -14,7 +14,7 @@ import {prefixBinary,type BinaryLocations} from './runtime_binary';
 import type {FormCheck,FormIssue,RuntimeFormData,RuntimeFormTarget,RuntimeFormModel} from './runtime_form';
 
 type ObjectValue=Record<string,unknown>;
-type Hint={schema:GraphTarget;shape:FormShape;path:MultipartSchemaStep[];selection?:GraphTarget};
+type Hint={schema:GraphTarget;shape:FormShape;path:MultipartSchemaStep[];selection?:GraphTarget;itemRoot?:boolean};
 const object=(value:unknown):value is ObjectValue=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 
 /** OAS 3.2 §§4.14.3/4.14.5/4.15.2: wire positions and nested encodings
@@ -44,7 +44,7 @@ export function decodeRuntimeMultipart(text:string,id:string,contentType:string,
         try{return mediaTypes(rule.contentType).some(type=>family==='3.2'&&type.type==='multipart'||type.type==='application'&&type.subtype==='x-www-form-urlencoded');}
         catch(error){if(error instanceof SourceError)return false;throw error;}
     };
-    if(named&&!Object.keys(target.partSchemas??{}).length&&!(family==='3.2'&&(media.prefixEncoding!==undefined||media.itemEncoding!==undefined))&&!Object.values(forms.namedEncoding(media.encoding,whole?[whole]:[])).some(nested))return;
+    if(target.streamIndex===undefined&&named&&!Object.keys(target.partSchemas??{}).length&&!(family==='3.2'&&(media.prefixEncoding!==undefined||media.itemEncoding!==undefined))&&!Object.values(forms.namedEncoding(media.encoding,whole?[whole]:[])).some(nested))return;
     for(const [name,shape]of Object.entries(target.fileShapes??{})){
         const styled=family!=='3.0'&&['style','explode','allowReserved'].some(key=>Object.hasOwn(media.encoding?.[name]??{},key));
         if(!named||!whole||!namedFileShapeSelection(family,contentType,styled)||!new MultipartFileShapes(graph).choices(whole.schema,name).includes(shape))
@@ -58,7 +58,7 @@ export function decodeRuntimeMultipart(text:string,id:string,contentType:string,
         if(binary?.size)binaryInstances.set(doc,binary);return doc;
     };
     const fail=(code:string,message:string,at:GraphTarget,unsupported=true):never=>transfers.failure(code,message,at,unsupported);
-    const descend=(hint:Hint,step:MultipartSchemaStep):Hint=>({...hint,path:[...hint.path,step],
+    const descend=(hint:Hint,step:MultipartSchemaStep):Hint=>hint.itemRoot?{...hint,itemRoot:false}:({...hint,path:[...hint.path,step],
         shape:forms.pathShape(hint.schema,[...hint.path,step],'property' in step?hint.shape.properties?.[step.property]??{}:step.item===undefined?hint.shape.items??{}:hint.shape.prefixItems?.[step.item]??hint.shape.items??{})});
     const selectBranches=(values:Hint[],selected:GraphTarget,pointer:string)=>{
         for(const hint of values){
@@ -77,7 +77,8 @@ export function decodeRuntimeMultipart(text:string,id:string,contentType:string,
         if(!array)rule={...rule,encoding:forms.namedEncoding(rule.encoding,values)};
         const parts=mimeParts(bytes,type),members=new Map<string,{raw:string;binary:BinaryLocations}[]>(),items:SourceDocument[]=[],binary=new Map<string,Buffer>(),repeatedNames=new Set<string>();
         const expandedMembers=new Map<string,Map<string,{raw:string;binary:BinaryLocations}>>();
-        for(const [index,part]of parts.entries()){
+        for(const [position,part]of parts.entries()){
+            const index=position+(target.streamPath?.[depth]??(depth===0?(target.streamIndex??0):0));
             if(++work>2048)fail('limit.runtime.form','Nested multipart decoding exceeds 2048 total parts',at);
             let name:string|undefined;
             let expandedProperty:string|undefined;
@@ -218,6 +219,18 @@ export function decodeRuntimeMultipart(text:string,id:string,contentType:string,
                     raw=styled&&expandedProperty===undefined?multipartStyleData(literal,field,encoding):parse(literal).dataJson('');
                 }else raw=value;
             }
+            if(target.streamIndex!==undefined&&depth===(target.streamPath?.length??1)-1){
+                // The finite MIME decoder still owns Headers, transfers and
+                // nested data. Only whole-content assertions are deferred.
+                for(const hint of itemHints){
+                    const schemas=forms.partSchemas(hint.schema,hint.path,new Set(),0,'stream',true);
+                    if(!schemas.length&&hint.shape!==undefined&&Object.keys(hint.shape).length)fail('runtime.stream.part.unavailable','This part needs whole-content context for a schema interpretation',entryAt,true);
+                    for(const schema of schemas){
+                        if(forms.partSchemaAssertions(hint.schema,hint.path,schema,true).some(assertion=>assertion.path.length<hint.path.length))fail('runtime.stream.part.unavailable','Conditional part binding needs whole-content data',schema,true);
+                        checks.push({document:parse(raw,partBinary),schema,prefix:instancePointer,binary:partBinary});
+                    }
+                }
+            }
             if(selected){
                 const document=parse(raw,partBinary);
                 const matches=!partBinary.has('')&&(selectedType==='integer'?document.root.kind==='number'&&decimal(document.dataJson('')).exponent>=0n:document.root.kind===selectedType);
@@ -232,7 +245,7 @@ export function decodeRuntimeMultipart(text:string,id:string,contentType:string,
                 const values=expandedMembers.get(name!)??new Map();
                 if(values.has(expandedProperty))fail('runtime.form.style','An expanded object property occurs more than once',entryAt,false);
                 values.set(expandedProperty,{raw,binary:partBinary});expandedMembers.set(name!,values);
-            }else if(array){items.push(parse(raw,partBinary));prefixBinary(binary,'/'+index,partBinary);}
+            }else if(array){items.push(parse(raw,partBinary));prefixBinary(binary,'/'+position,partBinary);}
             else{const entries=members.get(name!)??[];entries.push({raw,binary:partBinary});members.set(name!,entries);}
         }
         if(array)return {raw:'['+items.map(doc=>doc.dataJson('')).join(',')+']',items,binary};
@@ -249,17 +262,18 @@ export function decodeRuntimeMultipart(text:string,id:string,contentType:string,
         });
         return {raw:'{'+fields.join(',')+'}',binary};
     };
-    const result=decode(runtimeMediaBytes(text,base64),contentType,media,{resource:target.resource,pointer:target.pointer,kind:'media'},whole?[whole]:[], '',0,unicode);
+    const result=decode(runtimeMediaBytes(text,base64),contentType,media,{resource:target.resource,pointer:target.pointer,kind:'media'},[...(whole?[whole]:[]),...(!named&&hints.find(hint=>hint.schema.pointer.endsWith('/itemSchema'))?[{...hints.find(hint=>hint.schema.pointer.endsWith('/itemSchema'))!,itemRoot:true}]:[])], '',0,unicode);
     const document=parse(result.raw,result.binary);
-    if(rootChoice){
+    if(rootChoice&&target.streamIndex===undefined){
         checks.push({document,schema:rootChoice.schema,prefix:'',binary:result.binary});
         for(const assertion of forms.partSchemaAssertions(whole!.schema,[],rootChoice.schema))checks.push({document,schema:assertion.schema,prefix:'',binary:result.binary,expectedValid:assertion.valid});
     }
     for(const assertion of branchChecks){
-        if(!document.dataNode(assertion.pointer))fail('runtime.form.representation','The selected representation has no corresponding instance',assertion.schema,false);
+        const projectedPointer=target.streamIndex===undefined?assertion.pointer:assertion.pointer.split('/').map(segment=>/^\d+$/.test(segment)?'0':segment).join('/');
+        if(!document.dataNode(projectedPointer))fail('runtime.form.representation','The selected representation has no corresponding instance',assertion.schema,false);
         const binary=new Map<string,Buffer>();
         for(const [pointer,bytes]of result.binary)if(pointer===assertion.pointer||pointer.startsWith(assertion.pointer+'/'))binary.set(pointer.slice(assertion.pointer.length),bytes);
-        checks.push({document:parse(document.dataJson(assertion.pointer),binary),schema:assertion.schema,prefix:assertion.pointer,binary,expectedValid:assertion.valid});
+        checks.push({document:parse(document.dataJson(projectedPointer),binary),schema:assertion.schema,prefix:assertion.pointer,binary,expectedValid:assertion.valid});
     }
     return {document,items:result.items,binaryInstances,kind:result.items?'multipart-sequence':'multipart-form',checks,issues};
 }

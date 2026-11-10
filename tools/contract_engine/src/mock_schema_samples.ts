@@ -137,6 +137,10 @@ export class MockSchemaSamples {
         // they are not authored Media Type overrides for the Prism adapter.
         if(!dynamic&&rawMedia.examples.some(example=>example.origin!=='schema'))return;
         const schema=schemaLocation(rawMedia.schema);
+        const streamItem=schemaLocation(rawMedia.itemSchema),kind=actual.split(';')[0].trim().toLowerCase();
+        if(streamItem&&(['application/jsonl','application/x-ndjson','application/json-seq','text/event-stream'].includes(kind)||kind.endsWith('+json-seq'))&&(!schema||rawMedia.schema?.unconstrained===true)){
+            const sample=await this.value(streamItem,signal);if(sample!==undefined){const raw='['+sample+']';if(!schema)return raw;const source={...schema,range:this.graph.docs.get(schema.resource)!.dataNode(schema.pointer)!.range};const proved=await this.prove([{raw,source}],schema,false,undefined,signal);if(proved)return proved.raw;}
+        }
         if(!schema)return;
         const scope=schemaContext(this.graph,schema.resource,schema.pointer);
         const specification=this.graph.specifications.get(schema.resource)??this.graph.specifications.get(this.graph.root);

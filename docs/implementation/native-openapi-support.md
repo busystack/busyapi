@@ -68,10 +68,10 @@ acceptance must retain each exact authored patch declaration.
 | Reference resolution/navigation | U | U | U | U | `reference_graph.ts`, `reference_choices.ts`, source assistance and Core resource capture; contextual/dynamic/native-connection suites exist. Full external/mixed-role qualification remains unverified. |
 | Reference maintenance/refactoring | P | P | P | P | `refactoring_copy.ts` extract/move/inline, file/property/Markdown owners, Core file/refactoring transactions and native review, CLI refactor. W6-M1 resource relocation and W6-M2 shared Markdown/compatible ownership separation are source-complete, unverified within their stated proof boundaries. General schema-position and mixed-reference-role closure, unavailable dynamic proofs and full workflow qualification remain explicit. |
 | Native documentation/export | U | U | U | U | `reference_projection.ts`, `derived_bundle.ts`, Core `documentation.dart`/`documentation_sources.dart`, native documentation actions, CLI build-docs. Native offline HTML publication exists; complete relocation/rendering closure and pinned adapter compatibility remain unverified (W6.04). |
-| Requests/responses/authentication | P | P | P | P | Core `request.dart`/`execution.dart`, shared execution/security/runtime owners and native Request controls; existing HTTP/security/header/media suites. XML/Linkset mapping and stream integration remain missing; W4.01 typed multipart generation is source-complete, unverified as recorded below. Standard implemented security flows are not missing because execution is held; full device-flow qualification remains unverified. |
+| Requests/responses/authentication | P | P | P | P | Core `request.dart`/`execution.dart`, shared execution/security/runtime owners and native Request controls; existing HTTP/security/header/media suites. W4.01 typed multipart, W4.04/W4.05 XML/Linkset and W5.01/W5.02 incremental streaming are source-complete, unverified within their recorded representation and resource boundaries below. Standard implemented security flows are not missing because execution is held; full device-flow qualification remains unverified. |
 | Example interpretation/selection | P | P | P | P | `example_representation.ts`, serialized/external example owners and Core captured selections; native external-body and CLI saved-case paths exist. W4.07 retains binary Parameter/Header/part choice gaps; occurrence-free reusable media must not guess context. |
 | Mock execution/response validation | P | P | P | P | `mock_server.ts`, `mock_native_validation.ts`, generation adapter and Core `mock.dart`; exact external-byte/status/header/schema checks exist. W5.04 witness generation/media coverage remains incomplete; 3.2 CONNECT has an explicit ordinary-transport refusal. |
-| Contract testing | P | P | P | P | Core `execution.dart` and CLI test use native request/response evaluation and saved cases. Existing conformance/HTTP/CLI fixtures are unexecuted; missing wire models and streaming constrain complete conformance. |
+| Contract testing | P | P | P | P | Core `execution.dart` and CLI test use native request/response evaluation and saved cases. Existing conformance/HTTP/CLI fixtures are unexecuted; captured wire models and incremental streaming now share Core/native/CLI execution; remaining representation limits and qualification remain explicit below. |
 | CLI headless workflows | P | P | P | P | `packages/busyapi_core/bin/busyapi.dart` dispatches init/check/lint/bundle/build-docs/refactor/migrate/diff/mock/test/import/generate to Core. Native family/reference/refactoring CLI suites exist. Shared execution/media/maintenance gaps also affect CLI; a desktop completion popup is not a separate CLI requirement. |
 | Save/reopen/source retention | I | I | I | I | Core document store/publication and engine CST edits retain declaration, exact numbers, extensions, BOM/newlines and unaffected source; no-op/ownership/transaction/publication fixtures exist. Current-revision execution remains held. |
 
@@ -87,7 +87,7 @@ results. They are required native application work, not specification limits:
 | --- | --- | --- |
 | XML wire model | SOURCE COMPLETE, unverified for captured, unambiguous XML 1.0 representations. | W4.04: shared codecs, canonical composition/reference proofs, native/Core/CLI workflows and registered regressions are recorded below. |
 | Linkset wire model | SOURCE COMPLETE, unverified for RFC 9264 text/JSON and HTTP-compatible Link content. | W4.05: shared model, actual Header production, native/Core/CLI workflows and registered regressions are recorded below. |
-| Incremental streaming | Finite JSON Lines, JSON sequences, SSE and multipart decoding plus transport byte accumulation exist. | W5.01–02: incremental transport evaluation, backpressure/progress, bounded retention, cancellation and terminal malformed/truncated results through Core/native/CLI. Transport chunks alone are not incremental conformance. |
+| Incremental streaming | W5.01/W5.02 SOURCE COMPLETE, unverified through the existing HTTP transport. | Incremental framing, captured item evaluation, bounded retention/backpressure, native live inspection/Stop, cases/CLI and exact mock/proxy forwarding are recorded in the streaming handoff below. Whole-content proof remains gated on actual EOF and the original evaluator budgets. |
 | CONNECT mocks | `mock_native_validation.ts` explicitly rejects CONNECT on the ordinary response transport. | W5.03: approved bounded peer/tunnel ownership, bidirectional bytes, cancellation and closure, native mock/CLI integration. |
 | Mock witnesses | Bounded exact candidate construction and final original-schema validation exist. | W5.04: remaining media/candidate paths must generate valid witnesses or accurately report unavailable search evidence; never equate exhaustion with unsatisfiability. |
 | Semantic maintenance | Ordinary reviewed rename/extract/inline/move/file actions exist in native and CLI consumers. | W6-M1/M2 implement complete-resource relocation, shared Markdown specialization and compatible literal/contract separation. W6.01–03 still require general schema-position/mixed-reference-role qualification; precise unavailable proofs and actual independent-data conflicts remain refusals. |
@@ -3294,10 +3294,10 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W4.05 Linkset-to-JSON-model mapping; O32 §4.21.2, RFC 9264/8288/8187 | runtime-media/header codecs and request/mock integrations | A R E S C | Linkset wire/Header, examples, multipart, Core/native/CLI and mock suites | SOURCE COMPLETE, unverified: both representations and actual Header producers connected 2026-11-09 | H |
 | W4.06 Parameter/Header externalValue occurrence serialization through approved captured bytes; O30/O31/O32 Example/Parameter/Header objects | `serialized_examples.ts`, serialized-parameter evaluator, `execution.ts`, Core captured-resource owner | A R E S C | external-example-resource and serialized-parameter suites; Core `external_parameter_examples_test.dart` and existing external-resource controls | Partially implemented; evaluation, request-selection projection and Core outgoing validation now reuse captured resources and actual occurrences, including header octets/charsets; query/header production byte-exchange regressions are prepared; acceptance remains pending | H |
 | W4.07 Concrete occurrence context, approved external/binary example selection and cache/decision ownership; Example clauses, Core capture contract | external/media/example/request owners | A R E M S C | external-resource/media-identity/binary-selection suites | Partially implemented; reusable media without a concrete occurrence remains missing context, not a guessed format; native external body choices and saved-case/CLI execution now retain approved bytes through one owner-bound selection, including unchanged draft restoration and empty resources; captured external mock responses now retain the same approved byte ownership through negotiation and original response validation; binary Parameter/Header and part controls still need closure | H |
-| W5.01 Incremental JSON Lines/NDJSON, JSON text sequences and SSE framing/evaluation; O32 media/itemSchema, WIRE | runtime media plus transport/capture/Core/native/CLI stream owners | E S C | finite runtime-media suites only; incremental production regressions still required | Missing for transport-integrated incremental evaluation/backpressure/progress; complete-input accumulation is not streaming | H |
-| W5.02 Multipart sequences, chunk boundaries, cancellation/bounds/retention, malformed/truncated terminal status and whole-sequence versus item results; MIME/WIRE | multipart runtime and stream transport/capture owners | E S C | finite multipart suites only; incremental byte-exchange coverage still required | Missing for incremental execution integration; retain bounded finite decoding | H |
+| W5.01 Incremental JSON Lines/NDJSON, JSON text sequences and SSE framing/evaluation; O32 media/itemSchema, WIRE | shared runtime/stream execution, Core request/execution, native Request/Inspector, cases/CLI and exact proxy owners | E M S C | `test_incremental_streaming.cjs`, `test_streaming_mock_proxy.cjs`, Core `incremental_stream_execution_test.dart`, native `incremental_stream_request_test.dart`, retained finite suites | SOURCE COMPLETE, unverified; live original-item proof, protocol dispatch, exact bytes/numbers, capture-bound cancellation and terminal whole proof are connected. Explicit proof/resource boundaries are recorded in the streaming handoff | H |
+| W5.02 Multipart sequences, chunk boundaries, cancellation/bounds/retention, malformed/truncated terminal status and whole-sequence versus item results; MIME/WIRE | existing MIME scanner/decoder plus stream transport, storage, evaluation and Inspector owners | E M S C | same registered Engine/Core/native/CLI production journeys, nested MIME/binary/transfer and incomplete/Stop controls | SOURCE COMPLETE, unverified; original MIME grammar/Headers/transfers/positional schemas remain authoritative, including nested child delivery before enclosing closure. Whole-context bindings and bounded enclosing items retain precise unavailable proof | H |
 | W5.03 Authority-form CONNECT, successful tunnel transition, bounded approved peers, bidirectional bytes and closure; HTTP §9.3.6 | mock native validation/server/transport; Core/native mock ownership | E S C | current tunnel refusal controls only; controlled peer byte-exchange suites still required | Missing; ordinary-response mock transport still refuses CONNECT; no unrestricted proxy is authorized | H |
-| W5.04 Bounded object/array/composition/reference/media-aware generated witnesses and final original-schema/status/header/body proof; JC/JV, family response clauses | schema sample candidates, mock sample/generation/response owners | E S C | numeric/nested/schema-sample/media/final-response suites | Partially implemented; exact numeric and final-proof fixes retained; optional/minimum-property objects, property-dependency closure, parent/alternative object merges, additional-property witnesses, conjoined array bounds, positional schemas and containment candidates now share bounded exact-fragment construction; media generation and remaining candidate paths are incomplete; exhausted search is not unsatisfiability | H |
+| W5.04 Bounded object/array/composition/reference/media-aware generated witnesses and final original-schema/status/header/body proof; JC/JV, family response clauses | schema sample candidates, mock sample/generation/response owners | E S C | numeric/nested/schema-sample/media/final-response suites | Partially implemented; exact numeric and final-proof fixes retained; optional/minimum-property objects, property-dependency closure, parent/alternative object merges, additional-property witnesses, conjoined array bounds, positional schemas and containment candidates now share bounded exact-fragment construction; shared typed generation now includes finite JSONL/JSON-seq/SSE as well as XML/Linkset/form/multipart; general pattern/string and raw-binary witness construction remain bounded or unavailable as reconciled below; exhausted search is not unsatisfiability | H |
 
 ### W6–W8: maintenance, integration and qualification
 
@@ -4903,7 +4903,7 @@ native controls. No additional refactoring ticket sequence is created.
 | W6.01–W6.03 maintenance | W6-M1/M2 close their bounded resource/Markdown/compatible ownership cases. General schema-bearing-position closure, virtual occurrences needing explicit physical YAML ownership, independent container/member schema roles and shared-reference-role splitting retain their concrete eligibility/proof boundaries above. Do not automatically expand each boundary into a speculative conversion assignment. |
 | W6.04 Reference/export/adapters | Existing native/offline implementation remains U for complete rendered-field/relocation and pinned-adapter qualification. Maintenance Markdown equivalence alone does not establish complete export/native Reference acceptance. |
 | W7 native professional journeys | Existing capture/review/history/publication owners and new regressions are prepared; full authenticated native-family journeys and packaged acceptance remain held. |
-| Next concrete implementation priority | **Transport-integrated incremental streaming**, after the W4.04/W4.05 source handoff below. It has not been started. Do not automatically resume B05 migration or W6 refactoring microtasks. The execution hold remains active. |
+| Next concrete implementation priority | **Transport-integrated incremental streaming** was the priority after W4; its source-complete, unverified W5.01/W5.02 handoff is now recorded below. Do not automatically resume B05 migration or W6 refactoring microtasks. The execution hold remains active. |
 | Other application gaps | XML/Linkset wire mapping, transport-integrated streaming, CONNECT mocks, remaining mock witnesses and example/part selection remain P/M as recorded in the application matrix. They were not implemented or declared complete here. |
 | Migration and acceptance | Existing migration work remains intact and separately reconciled in Phase 3; B05 is not resumed. Phase 4 still requires explicit authorization lifting the execution hold and complete current-revision verification. |
 
@@ -5276,7 +5276,202 @@ Normative basis: [OpenAPI 3.2.1 XML](https://spec.openapis.org/oas/v3.2.1.html#x
 [RFC 8187](https://www.rfc-editor.org/rfc/rfc8187.html), and the
 [IANA Link Relations registry](https://www.iana.org/assignments/link-relations/).
 
-The next application capability is transport-integrated incremental streaming.
-It has not been started. Do not automatically create another B05/W6 migration or
-refactoring sequence. This entry does not declare BusyAPI SOURCE COMPLETE or
-ACCEPTED.
+The W4 handoff prioritized transport-integrated incremental streaming; its
+completion increment is recorded immediately below. This historical W4 entry
+does not declare BusyAPI SOURCE COMPLETE or ACCEPTED.
+
+
+## W5.01/W5.02 incremental streaming — source handoff, 2026-11-09
+
+**W5.01: SOURCE COMPLETE, unverified. W5.02: SOURCE COMPLETE, unverified.**
+This is the transport-integrated streaming capability, with the finite and
+resource boundaries below. It does not complete W5.03/W5.04, overall BusyAPI or
+runtime acceptance. Starting revision: `13d3855e0fdbcf7c539f34ac138a6e12283f00ee`,
+branch `release/v0.1.0`, primary checkout. No B05/W6, CONNECT or SDK/dependency
+work is part of this increment. No push or publication is authorized.
+
+### Production behavior and ownership
+
+- Engine `runtime_stream.ts` frames bounded continuations; `stream_execution.ts`
+  recovers the actual captured response/status/media/schema on every chunk.
+  Continuations are bound to snapshot, operation, run, media, status and producer.
+  They require no worker affinity, global stream cache or resource acquisition.
+  The existing runtime media parser and canonical schema evaluator remain the
+  only data parser/evaluator. No schema is fabricated from a received value.
+- JSONL/NDJSON handles split LF/CRLF, strict UTF-8, forbidden BOM/empty records
+  and an allowed final unterminated line. JSON-seq and compatible `+json-seq`
+  types handle split RS, pretty-printed JSON, resynchronization, consecutive RS
+  and RFC 7464 scalar truncation protection. Lexical framing retains exact CST
+  numeric values; transport chunks never stand for application records.
+- Finite and incremental SSE share `runtime_sse.ts`: CR/LF/CRLF, exactly one
+  initial BOM, UTF-8 replacement decoding, comments/ignored fields, multiline
+  data, persistent ID/retry, null-ID denial and dispatch only at blank lines.
+  EOF discards an undispatched event as required by the standard. Typed finite
+  SSE generation refuses CR data/injection and any data model that cannot make
+  the documented inverse correspond; it never silently changes authored data.
+- MIME framing exports the existing `mime_parts.ts` boundary scanner. Completed
+  fragments re-enter the original MIME/transfer/Header/schema decoder; the
+  stream adapter does not implement a second MIME grammar. Ordered positions,
+  binary leaves, per-part media, nested content and original schema identities
+  are retained. Nested children become inspectable before their enclosing part
+  ends; completed enclosing parts also produce records. Record paths identify
+  actual MIME positions; aggregate record counts include these completed nodes.
+- Applicable `itemSchema` is evaluated independently on each item only in OAS
+  3.2. Older families retain their existing declaration/dialect rules. Multipart
+  leaf alternatives are evaluated as original schemas rather than conjoining
+  their branches. Whole-context alternatives/conditions remain provisionally
+  unchecked until the original complete-content proof can resolve them.
+- Known binary media retain original octets and exact cumulative decoded length.
+  The canonical evaluator receives length provenance without allocating a dummy
+  body. Whole binary schemas, including non-monotone `not`/alternatives, are
+  checked at EOF; a short prefix never becomes a permanent false violation.
+  A binary body has no invented item boundaries for `itemSchema`.
+- Core `request_stream.dart` runs inside `request.dart`'s existing paused receive
+  subscription, awaited storage slot and SDK content decoding. Each storage,
+  evaluation and observer step completes before receipt resumes. Original wire
+  bytes retain the existing owned response file/hash/export lifecycle. Gzip
+  decoder output and each coding layer are bounded; final decoding independently
+  proves the complete received representation, including gzip framing/checksums.
+- Status and proof are separate: active evidence is provisional; complete means
+  EOF plus framing/decoding/Header/whole-content proof; Stop deliberately retains
+  checked items; interruption remains incomplete; observed violations remain
+  invalid. Machine-readable `valid` requires complete proof. Counts survive
+  evidence eviction. Whole-schema failure does not invent invalid item counts.
+  Limits/unavailable evaluation are warnings, never opaque-validation success.
+- Cancellation, Stop, inactivity/overall deadlines, peer disconnects and failures
+  retire the existing subscription/evaluation/file owners. Removable cancellation
+  listeners prevent completed chunk RPCs from accumulating on a long-lived run.
+  Late worker results cannot publish after capture replacement or cancellation.
+- Native `request_run.dart` uses the existing Request/Inspector disclosures and
+  source views for live record data/findings, status, byte/record counts and Stop.
+  Final inspection retains original bytes/export and a stream view. Capture,
+  operation, project and epoch guards protect unsaved edits/replaced operations.
+  Existing draft/media/environment/authentication and approved-file ownership
+  remain shared; no separate editor or transport was introduced.
+- Saved cases preserve the optional bounded `stream.stopAfterRecords` policy
+  with the existing request configuration. Core contract-test reports and the
+  independent CLI consume the same executor, exact counts, terminal status and
+  item findings. Reports omit record payloads, secrets and private response-file
+  paths. Cold reopening requires no desktop state; stopped cases cannot pass.
+- Finite generated sequence bodies and authored/approved serialized examples use
+  the shared typed/wire codecs and final original-schema/correspondence checks.
+  Existing mocks generate finite responses; an unbounded synthetic producer is
+  not introduced. Exact upstream proxying uses its existing Node transport with
+  awaited downstream writes/drain and decoded validation. It forwards original
+  bytes while upstream remains open, never waits for a whole body to discover
+  records, and buffers bounded whole-content data only when that proof requires
+  it. Original received Header lines are validated before forwarding removes
+  hop-by-hop fields. The validation-complete Header stays false; terminal
+  trailers and bounded `stream-result` reports carry actual counts/status.
+  Interrupted peers are destroyed without a fabricated successful EOF.
+
+### Explicit representation and resource boundaries
+
+- Engine input chunks: 64 KiB; at most 128 records per evaluation batch;
+  unfinished record/enclosing MIME item: 16 MiB; nested MIME depth: eight;
+  JSON-seq lexical depth: 128. Existing MIME Header/part/transfer limits remain.
+  A large enclosing MIME part can exhaust its item budget after earlier child
+  results were checked; these results survive with incomplete full proof.
+- Core retains at most 128 record evidence entries within 1 MiB and at most 200
+  diagnostics within 1 MiB, with aggregate counts/observed-invalid state retained
+  independently. Each Engine preview is at most 16 KiB. SDK decoder bursts are
+  bounded to 2 MiB; original response/decoded storage defaults remain 256 MiB.
+  Existing configurable timeouts (including the ten-minute upper bound) remain.
+- Whole-content proof retains the canonical source/CST/evaluation work limits,
+  including finite sequence item/check bounds. Large streams with independent
+  items and no whole assertions continue beyond the finite decoder's 2048-item
+  bound; a nontrivial whole schema exceeding that budget stays unavailable.
+  Complete receipt alone never overrides that result.
+- Core preserves its supported gzip/identity coding policy (eight layers); exact
+  proxying preserves its gzip/deflate/Brotli policy (four layers and 64 MiB wire,
+  per-decoder and whole-proof budgets). Unsupported codings are explicit failures,
+  not replacement-decoded text. Wire bytes and decoded counts stay separate.
+- Generic ordered/nested OAS positional Encoding rules apply in 3.2. Earlier
+  families retain named mappings and their existing explicit unavailable result
+  for an undeclared/ambiguous property correlation. Newer keywords are not
+  activated in older documents. Unknown schema dialects, unresolved references,
+  unsupported leaf codecs and context-dependent inversions remain located
+  unavailable proofs, never a replacement schema or guessed successful binding.
+- These are finite resource/representation boundaries. No additional required
+  streaming production surface is known missing in this source review; compilation
+  and actual runtime behavior remain unverified under the execution hold.
+
+### Changed production owners and producer identities
+
+- New Engine owners: `runtime_stream.ts`, `stream_execution.ts`, `runtime_sse.ts`,
+  `mock_stream_response.ts`. Changed Engine owners: `runtime_media.ts`,
+  `runtime_binary.ts`, `runtime_evaluation.ts`, `runtime_form.ts`,
+  `runtime_multipart.ts`, `form_semantics.ts`, `mime_parts.ts`, `exact_numbers.ts`,
+  `execution.ts`, `schema_evaluation.ts`, `server.ts`, `mock_exact_proxy.ts`,
+  `mock_native_validation.ts`, `mock_response_validation.ts`, `mock_server.ts`,
+  `mock_generation_adapter.ts`, `mock_response_examples.ts`, `mock_schema_samples.ts`.
+- New Core owner: `packages/busyapi_core/lib/src/request_stream.dart`. Changed
+  Core owners: `request.dart`, `execution.dart`, `project.dart`, `contract_test.dart`.
+  Native owner: `lib/src/workspace/request_run.dart`. CLI uses the existing Core
+  runner, with no parallel transport or evaluator.
+- Canonical schema producer: `hyperjump+busyapi-exact` **`1.18.0+66`**, with
+  `incremental-stream-v1` added to its configuration. Core admits exactly `+66`;
+  obsolete/malformed identities remain rejected. XML/model v2 and Linkset v2
+  configuration identities are preserved. Request representation revisions:
+  multipart **2**, schema examples **3**, XML **2**, Linkset **2**, stream **1**.
+- Streaming result producer: `busyapi-incremental-stream` **1**, with canonical
+  schema name/version/configuration and captured ownership. Contract-test report
+  producer advances from **3 to 4** for stream evidence/terminal semantics.
+  Mock response-wire **5**, parameter-wire **6**, sample candidates **4**,
+  security **1** and method **1** remain unchanged; their canonical schema
+  configuration includes the new producer identity. No older identity is admitted
+  as a compatibility shortcut.
+
+### Prepared regressions and gate registration — not executed
+
+- New Engine `test_incremental_streaming.cjs`: actual captured response RPC;
+  all eleven recognized declarations in YAML/JSON; JSONL/NDJSON/JSON-seq/suffix
+  and SSE; every significant byte split, UTF-8/exact values, finite comparison,
+  independent failures/recovery, scalar truncation controls, SSE dispatch/EOF,
+  family boundaries, named/ordered/nested MIME, transfers/binary positions,
+  leaf alternatives, byte-length EOF semantics, capture/run rejection and bounds.
+- New Engine `test_streaming_mock_proxy.cjs`: actual native mock subprocess and
+  HTTP peers; plain/gzip delivery before EOF, JSON-seq/SSE/MIME forwarding,
+  original wire bytes, trailers, invalid items, disconnect cleanup, unavailable
+  binary items, and shared finite generated sequence/SSE witnesses.
+- `test_mock_validation_revision.cjs` compares actual Engine and Core schema
+  declarations and actual stream revision/admission code. Current positive
+  producer expectations are `+66`; explicit `+65`, `+64`, `+63` and malformed
+  rejection controls remain. Existing finite/media/multipart/XML/Linkset gates
+  are retained. `tools/build_engine.sh` registers both new Engine suites and
+  the stream execution bundle entry.
+- New Core `incremental_stream_execution_test.dart`: actual HTTP across four
+  families/formats, live-before-EOF results, exact/Unicode one-byte writes,
+  whole-schema deferral, independent invalid items/scalars, gzip members,
+  separate awaited storage/evaluation gates, 3000-record bounded retention,
+  nested MIME/binary delivery, Stop/cancel/timeouts/disconnect, byte limits,
+  non-monotone binary schemas, saved publication/cold reopen and independent
+  successful/stopped CLI reports with exact counts/byte identities.
+- New native `test/incremental_stream_request_test.dart`: existing workspace,
+  Engine, actual HTTP, live controls, original bytes, Stop, saved reopening and
+  stale unsaved-capture refusal. Existing Core directory and widget discovery
+  gates include the new files; no placeholder or isolated-parser success gate
+  replaces a production path. Producer fixture updates retain negative controls.
+
+**Verification performed:** source/diff review, production declaration/gate
+inspection and `git diff --check` only. No tests, compiler, analyzer, build,
+generation, CI, graphical/performance workload or Snapcraft execution occurred.
+No test is reported as passing. Flutter, Dart and dependencies remain untouched.
+
+Normative basis: [OpenAPI 3.2.1 sequential media](https://spec.openapis.org/oas/v3.2.1.html#sequential-media-types),
+[RFC 7464](https://www.rfc-editor.org/rfc/rfc7464.html),
+[WHATWG SSE parsing/dispatch](https://html.spec.whatwg.org/multipage/server-sent-events.html#parsing-an-event-stream),
+and [RFC 2046 multipart](https://www.rfc-editor.org/rfc/rfc2046.html#section-5.1).
+
+### Reconciliation of remaining application requirements
+
+| Existing register entry | Actual source status after this increment | Concrete remaining boundary |
+| --- | --- | --- |
+| W4.01 and W4.04/W4.05 | SOURCE COMPLETE, unverified within their handoffs | Their shared finite codecs, typed multipart, XML/Linkset/Header/example/case paths remain in place; acceptance is still held. |
+| W5.01/W5.02 | SOURCE COMPLETE, unverified as recorded above | Execute registered Engine/Core/widget/CLI/mock journeys only after authorization; retain explicit proof/resource limits. |
+| W5.03 CONNECT mocks | Missing | Ordinary-response mocks still explicitly refuse CONNECT. Application/mock authority-form routing, approved bounded peers/tunnel ownership, bidirectional bytes, cancellation/closure and native/CLI qualification remain required. Existing client HTTPS-proxy CONNECT support does not implement this mock capability. No CONNECT work was started. |
+| W5.04 broader mock generation | Partial | JSON, XML/Linkset, form/multipart and now finite JSONL/JSON-seq/SSE use captured samples/shared codecs/final proof. Schema-driven raw-binary witness construction and arbitrary pattern-constrained strings do not have a general constructive guarantee; the current string suggestions are authored samples plus bounded empty/repeated a/A/0 candidates. Recursive/dynamic/conditional combinations and large conjoined constraints remain bounded candidate search with original-schema proof, not a complete satisfiability solver. A failed search/unsupported representation must remain unavailable evidence. Existing 256-candidate/8 MiB/32768-work/depth bounds remain; broader witness and media qualification is still open. |
+
+This reconciles the existing register; it does not authorize or automatically
+start another implementation, migration or refactoring sequence. Overall BusyAPI
+SOURCE COMPLETE and ACCEPTED are not claimed.

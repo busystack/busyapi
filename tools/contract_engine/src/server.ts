@@ -1,3 +1,4 @@
+import {responseStreamChunk} from './stream_execution';
 import { Worker, isMainThread, parentPort } from 'node:worker_threads';
 import {SourceError} from './document';
 import { analyse, propose, discover, inspect, readDataValue, protocol, engineVersion } from './engine';
@@ -62,6 +63,7 @@ if (!isMainThread) {
             methods.planExecutionCase = planExecutionCase;
             methods.requestContentParameters = requestContentParameters;
             methods.requestMediaBytes = requestMediaBytes;
+            methods.responseStreamChunk = responseStreamChunk;
             methods.requestMultipartPlan = requestMultipartPlan;
             methods.requestMultipartAppend = requestMultipartAppend;
             methods.requestMultipartNamedProof = requestMultipartNamedProof;

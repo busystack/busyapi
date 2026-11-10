@@ -78,6 +78,9 @@ class RequestRunController extends ChangeNotifier {
   OperationRequestPlan? plan;
   ContractRequestResult? result;
   RunCancellation? cancellation;
+  ContractStreamControl? streamControl;
+  ContractStreamSnapshot? liveStream;
+  int? streamStopAfterRecords;
   String phase = 'idle';
   String? failure, environment, bodyMediaType;
   int server = 0;
@@ -377,7 +380,7 @@ class RequestRunController extends ChangeNotifier {
         if (headerName.isNotEmpty) RequestHeaderValue(headerName, headerValue),
       ],
       body: body,
-      variables: Map.of(requestVariables),
+      variables: Map.of(requestVariables),streamStopAfterRecords:streamStopAfterRecords,
       tlsFiles: Map.of(tlsFiles),
       connectTimeout: connectTimeout,
       overallTimeout: overallTimeout,
@@ -565,7 +568,7 @@ class RequestRunController extends ChangeNotifier {
     if (loaded.securityAlternative != null) securityAlternative = loaded.securityAlternative;
     requestVariables.addAll(loaded.variables);tlsFiles.addAll(loaded.tlsFiles);
     connectTimeout = loaded.connectTimeout;overallTimeout = loaded.overallTimeout;inactivityTimeout = loaded.inactivityTimeout;
-    selectedCase = name;
+    selectedCase = name;streamStopAfterRecords=loaded.streamStopAfterRecords;
     while (_caseDrafts.length > 32) _caseDrafts.remove(_caseDrafts.keys.first);
     refresh();
   }
@@ -638,6 +641,8 @@ class RequestRunController extends ChangeNotifier {
       clear();
     } else if (plan != null && plan!.snapshot.root != workspace.root) {
       clear(retainProjectDrafts: true);
+    } else if (plan?.outdated == true && liveStream != null) {
+      liveStream=null;cancellation?.cancel();_notify();
     }
   }
 
@@ -670,7 +675,7 @@ class RequestRunController extends ChangeNotifier {
     omittedValues.clear();
     exampleRepresentations.clear();
     customHeaders.clear();
-    requestVariables.clear();_bodyDrafts.clear();selectedCase = null;
+    requestVariables.clear();_bodyDrafts.clear();selectedCase = null;streamStopAfterRecords=null;liveStream=null;
     timeoutInputs.clear();
     bodyKind = RequestBodyKind.raw;
     bodyExample = null;
@@ -1180,7 +1185,7 @@ class RequestRunController extends ChangeNotifier {
     final epoch = ++_epoch, draftRevision = _draftRevision;
     final token = RunCancellation();
     cancellation = token;
-    phase = 'sending';
+    phase = 'sending';liveStream=null;streamControl=ContractStreamControl(stopAfterRecords:streamStopAfterRecords);
     failure = failureMessage = null;
     _notify();
     try {
@@ -1234,7 +1239,12 @@ class RequestRunController extends ChangeNotifier {
             throw CoreFailure(error.code, error.message);
           }
         },
-        cancellation: token,
+        cancellation: token,streamControl:streamControl,
+        onStream:(value) {
+          if(_disposed||epoch!=_epoch||!identical(captured,plan)||!identical(owner,workspace.project))return;
+          if(captured.outdated||draftRevision!=_draftRevision){liveStream=null;token.cancel();_notify();return;}
+          liveStream=value;_notify();
+        },
       );
       if (_disposed ||
           epoch != _epoch ||
@@ -1243,6 +1253,9 @@ class RequestRunController extends ChangeNotifier {
         await completed.close();
         return;
       }
+      if (completed.response.stream != null && (captured.outdated || draftRevision != _draftRevision)) {
+        liveStream=null;phase='cancelled';await completed.close();return;
+      }
       final previous = result;
       result = completed;
       _resultDraftRevision = draftRevision;
@@ -1250,7 +1263,7 @@ class RequestRunController extends ChangeNotifier {
         ContractRequestRecord.fromResult(completed, recordedAt: DateTime.now()),
       );
       if (history.length > 100) history.removeRange(0, history.length - 100);
-      phase = token.cancelled
+      phase = completed.response.stream?.status == 'stopped' ? 'stopped' : token.cancelled
           ? 'cancelled'
           : completed.response.receiptComplete &&
                 completed.received.complete &&
@@ -1269,11 +1282,13 @@ class RequestRunController extends ChangeNotifier {
       failureMessage = error is CoreFailure ? error.message : null;
     } finally {
       if (epoch == _epoch) {
-        cancellation = null;
+        cancellation = null;streamControl=null;
         _notify();
       }
     }
   }
+
+  void stopStream() {streamControl?.stop();}
 
   void cancel() {
     cancellation?.cancel();
@@ -1653,7 +1668,7 @@ class _RequestBodyState {
 class _RequestDraftState {
   _RequestDraftState(RequestRunController run)
     : identity = run._draftIdentity,
-      environment = run.environment,
+      environment = run.environment,streamStopAfterRecords=run.streamStopAfterRecords,
       variables = Map.of(run.requestVariables),
       bodyDrafts = Map.of(run._bodyDrafts),
       serverIdentity = _serverIdentity(run, run.server),
@@ -1696,6 +1711,7 @@ class _RequestDraftState {
       server = run.server,
       security = run.securityAlternative;
   final String? identity, media, serverIdentity, securityIdentity, environment;
+  final int? streamStopAfterRecords;
   final Map<String, String> variables;
   final Map<(String?, RequestBodyKind, bool), _RequestBodyState> bodyDrafts;
   final Set<String> omitted;
@@ -1760,7 +1776,7 @@ class _RequestDraftState {
           )) *
       2 + (bodyExample?.byteLength ?? 0) + bodyDrafts.values.fold<int>(0, (n, item) => n + item.bytes);
   void restore(RequestRunController run) {
-    run.requestVariables.addAll(variables);run._bodyDrafts.addAll(bodyDrafts);
+    run.streamStopAfterRecords=streamStopAfterRecords;run.requestVariables.addAll(variables);run._bodyDrafts.addAll(bodyDrafts);
     run.values.addAll(values);
     run.omittedValues.addAll(omitted);
     run.exampleRepresentations.addAll(representations);
@@ -2524,6 +2540,7 @@ class RequestRunPanel extends StatelessWidget {
               'sending' => l.requestSending,
               'authorizing' => l.requestAuthorizing,
               'cancelled' => l.requestCancelled,
+              'stopped' => 'Stream stopped',
               'complete' || 'incomplete' =>
                 result?.response.receiptComplete == true
                     ? '${result!.response.status} ${result.response.reason}'
@@ -2606,6 +2623,7 @@ class RequestRunPanel extends StatelessWidget {
                           onSelected: (value) => _performRequestAction(context, run, () => run.reopenCase(value))),
                       BusyApiActionRow(title: 'Save request case', enabled: !run.busy && !run.hasComposingInput && !run.outdated,
                         onTap: () => _performRequestAction(context, run, () => saveCase(context))),
+                      if(run.liveStream case final stream?) _StreamInspection(stream:stream,onStop:!stream.terminal&&run.busy?run.stopStream:null),
                       if (run.effectiveHeaders case final String fields)
                         BusyApiDisclosure(title: Text(l.requestHeaders), children: [BusyApiRawSourceView(source: fields)]),
                       if (run.serializedContent case final String wire)
@@ -3999,6 +4017,26 @@ class _SecretInputRowState extends State<RequestSecretInput> {
   }
 }
 
+class _StreamInspection extends StatelessWidget {
+  const _StreamInspection({required this.stream,this.onStop});
+  final ContractStreamSnapshot stream;
+  final VoidCallback? onStop;
+  @override
+  Widget build(BuildContext context) => Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
+    SectionLabel('Response stream · ${stream.status}'),
+    if(stream.reason!=null) Text(stream.reason!),
+    Text('${stream.receivedBytes} received bytes · ${stream.decodedBytes} decoded bytes · ${stream.records} records · ${stream.invalidRecords} invalid · ${stream.uncheckedRecords} unchecked'),
+    if(onStop!=null) BusyApiActionRow(title:'Stop stream',enabled:true,onTap:onStop),
+    BusyApiDisclosure(title:const Text('Received records'),children:[
+      for(final item in stream.evidence) BusyApiDisclosure(title:Text('Record ${item['index']} · ${item['complete']==true?(item['valid']==true?'valid':'invalid'):'unchecked'}'),children:[
+        if(item['data'] case final String data) BusyApiRawSourceView(source:data),
+        if((item['findings'] as List).isNotEmpty) BusyApiRawSourceView(source:const JsonEncoder.withIndent('  ').convert(item['findings'])),
+      ]),
+    ]),
+    if(stream.findings.isNotEmpty) BusyApiDisclosure(title:const Text('Stream validation'),children:[BusyApiRawSourceView(source:const JsonEncoder.withIndent('  ').convert(stream.findings))]),
+  ]);
+}
+
 class _ResponseInspector extends StatefulWidget {
   const _ResponseInspector({
     super.key,
@@ -4226,12 +4264,12 @@ class _ResponseInspectorState extends State<_ResponseInspector> {
         BusyApiComboRow<String>(
           title: l.responses,
           selected: view,
-          values: const ['body', 'headers', 'validation', 'request'],
+          values: ['body', 'headers', 'validation', 'request',if(result.response.stream!=null)'stream'],
           labelFor: (value) => value == 'body'
               ? l.responseBody
               : value == 'headers'
               ? '${l.requestHeaders} (${response.headers.length})'
-              : value == 'request' ? l.responseOutgoing : l.responseValidation,
+              : value == 'stream' ? 'Stream records' : value == 'request' ? l.responseOutgoing : l.responseValidation,
           onSelected: (value) => setState(() => view = value),
         ),
         if (actionFailure != null)
@@ -4249,6 +4287,7 @@ class _ResponseInspectorState extends State<_ResponseInspector> {
                 : l.responsePartialDecodedExport,
             onTap: () => exportResponse(decoded: true),
           ),
+        if(view=='stream'&&result.response.stream!=null) _StreamInspection(stream:result.response.stream!),
         if (view == 'request') ...[
           SectionLabel(l.requestHeaders),
           BusyApiRawSourceView(source: _preparedHeaderPreview(result.request)),

@@ -10,6 +10,7 @@ void main() {
   for (final mutation in [
     'schema-version',
     'schema-previous-xml-linkset',
+    'schema-previous-streaming',
     'schema-previous-xml-model',
     'schema-previous',
     'schema-previous-multipart',
@@ -73,7 +74,7 @@ void main() {
       addTearDown(plan.close);
       final schema = <String, String>{
         'name': 'hyperjump+busyapi-exact',
-        'version': '1.18.0+65',
+        'version': '1.18.0+66',
         'configuration': 'fixture-runtime',
       };
       final response = <String, String>{
@@ -110,6 +111,8 @@ void main() {
           parameter['version'] = '4';
         case 'schema-previous-cookie-content':
           schema['version'] = '1.18.0+60';
+        case 'schema-previous-streaming':
+          schema['version'] = '1.18.0+65';
         case 'schema-previous-xml-model':
           schema['version'] = '1.18.0+64';
         case 'schema-previous-xml-linkset':

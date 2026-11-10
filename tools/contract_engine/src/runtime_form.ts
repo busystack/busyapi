@@ -14,7 +14,7 @@ import {MultipartFileShapes,type MultipartFileShape} from './multipart_file_shap
 import type {BinaryLocations} from './runtime_binary';
 import {decimal} from './exact_numbers';
 
-export type RuntimeFormTarget={resource:string;pointer:string;occurrence?:string;fileShapes?:Readonly<Record<string,MultipartFileShape>>;partSchemas?:Readonly<Record<string,string>>;partMediaTypes?:Readonly<Record<string,string>>};
+export type RuntimeFormTarget={resource:string;pointer:string;streamIndex?:number;streamPath?:number[];occurrence?:string;fileShapes?:Readonly<Record<string,MultipartFileShape>>;partSchemas?:Readonly<Record<string,string>>;partMediaTypes?:Readonly<Record<string,string>>};
 export type RuntimeFormModel={schema:GraphTarget;path:MultipartSchemaStep[];shape:FormShape;encoding:Record<string,unknown>;prefix:string};
 type Location={resource:string;pointer:string};
 export type FormIssue={code:string;message:string;pointer:string;severity:'error'|'warning';source:{resource:string;pointer:string;range:Range}};
@@ -92,7 +92,7 @@ export function decodeRuntimeForm(text:string,id:string,contentType:string,base6
     // MIME field lines already have their ASCII/UTF-8 framing proof. A
     // Header.content model does not replace the part body's serialization.
     const decodeHeaderForm=(text:string,id:string,type:string,target:RuntimeFormTarget)=>decodeRuntimeForm(text,id,type,false,target,subject,graph);
-    if((scope.family==='3.2'||subject==='request-body')&&scope.kind==='media'&&mediaTypes(contentType,false)[0].type==='multipart'){
+    if((scope.family==='3.2'||subject==='request-body'||target.streamIndex!==undefined)&&scope.kind==='media'&&mediaTypes(contentType,false)[0].type==='multipart'){
         const decoded=decodeRuntimeMultipart(text,id,contentType,base64,target,graph,decodeHeaderForm,unicode,
             (text,id,type,target,model)=>decodeRuntimeForm(text,id,type,true,target,subject,graph,undefined,model));
         if(decoded)return decoded;

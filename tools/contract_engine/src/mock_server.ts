@@ -1,3 +1,4 @@
+import {mockStreamResponse} from './mock_stream_response';
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
 import { isDeepStrictEqual } from 'node:util';
 // The pinned component exports a CommonJS default; use that exact public component.
@@ -155,7 +156,7 @@ async function body(request: IncomingMessage): Promise<CapturedBody> {
 function forwardPreservingBytes(rawRequests: WeakMap<object, Buffer | undefined>,
   rawResponses: WeakMap<object, Buffer>,signals:WeakMap<object,AbortSignal>,
   rawRequestHeaders:WeakMap<object,readonly string[]>,rawSearches:WeakMap<object,string>,
-  decodedResponses:WeakMap<object,Buffer>,proxyFailures:WeakMap<object,SourceError>) {
+  decodedResponses:WeakMap<object,Buffer>,proxyFailures:WeakMap<object,SourceError>,streamReplies:WeakMap<object,{reply:ServerResponse;path:string;method:string}>,native:MockNativeValidation) {
   return ({ data: request, validations }: any, baseUrl: string) => (logger: any) => async () => {
     try {
       if (validations.length) {
@@ -190,7 +191,9 @@ function forwardPreservingBytes(rawRequests: WeakMap<object, Buffer | undefined>
       forwarded.push('accept-encoding','identity');
       // Fetch normalizes field lines before the contract owner can inspect
       // them. Use the existing bounded exact transport for every proxy method.
-      const response=await exactProxyResponse(target,method,headers,raw?.length?raw:undefined,maximumUpstreamBody,signals.get(request),forwarded);
+      const stream=streamReplies.get(request),signal=signals.get(request);
+      const response=await exactProxyResponse(target,method,headers,raw?.length?raw:undefined,maximumUpstreamBody,signal,forwarded,stream&&signal?mockStreamResponse(native,stream.path,stream.method,stream.reply,signal):undefined);
+      if(response.streamed)return {_tag:'Right',right:{statusCode:response.status,headers:{},body:undefined}};
       const bytes=response.decoded;
       const responseHeaders: Record<string, string | string[]> = Object.create(null);
       for(let index=0;index<response.rawHeaders.length;index+=2){
@@ -318,6 +321,7 @@ async function main(): Promise<void> {
     const rawSearches=new WeakMap<object,string>();
     const rawRequestHeaders=new WeakMap<object,readonly string[]>();
     const proxyFailures=new WeakMap<object,SourceError>();
+    const streamReplies=new WeakMap<object,{reply:ServerResponse;path:string;method:string}>();
     const generation=new MockGenerationAdapter(native);
     const signals=new WeakMap<object,AbortSignal>();
     const nativeChecks=new WeakMap<object,NativeMockCheck>();
@@ -382,7 +386,7 @@ async function main(): Promise<void> {
         }
         return result;
       },
-      ...(input.upstream ? { forward: forwardPreservingBytes(rawRequests, rawResponses,signals,rawRequestHeaders,rawSearches,decodedResponses,proxyFailures) as never } : {}) });
+      ...(input.upstream ? { forward: forwardPreservingBytes(rawRequests, rawResponses,signals,rawRequestHeaders,rawSearches,decodedResponses,proxyFailures,streamReplies,native) as never } : {}) });
     const server = createServer(async (request, reply) => {
       reply.setHeader('busyapi-request-security-complete','false');
       reply.setHeader('busyapi-response-validation-complete','false');
@@ -445,6 +449,7 @@ async function main(): Promise<void> {
               !check.findings.some(finding=>['runtime.body.syntax','runtime.request.content-type'].includes(String(finding.code))))
             prismRequest.body=JSON.parse(captured.raw.toString('utf8'));
         }
+        if(selected._tag==='Right')streamReplies.set(prismRequest,{reply,path:selected.right.path,method:selected.right.method});
         let requestOperations=routedOperations;
         let requestMock:IHttpOperationConfig=preferences;
         if(!input.upstream&&selected._tag==='Right') {
@@ -459,7 +464,7 @@ async function main(): Promise<void> {
         }
         const outcome = await prism.request(prismRequest, requestOperations,
         { ...baseConfig, mock: requestMock })();
-        if(cancellation.signal.aborted||reply.destroyed)return;
+        if(cancellation.signal.aborted||reply.destroyed||reply.headersSent)return;
         if (outcome._tag === 'Left') {
           const error = outcome.left as Error & { status?: number; detail?: string;
             additional?: { headers?: Record<string, string> } };
@@ -548,6 +553,7 @@ async function main(): Promise<void> {
         send(reply, result.output.statusCode, payload);
       } catch (error) {
         if(reply.destroyed||reply.writableEnded)return;
+        if(reply.headersSent){reply.destroy(error instanceof Error?error:undefined);return;}
         const unsupported=error instanceof SourceError&&(error.kind==='unsupported'||error.code.startsWith('limit.'));
         const status = unsupported?501:typeof error === 'object' && error !== null && 'status' in error ? Number(error.status) : 500;
         reply.removeHeader('content-length');

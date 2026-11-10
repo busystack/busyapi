@@ -232,7 +232,7 @@ export class FormSemantics {
 
     /** Located leaf alternatives for a representation choice. This is a
      * presentation projection, never a replacement for whole-schema checking. */
-    partSchemas(target:{resource:string;pointer:string},path:({property:string}|{item:number|undefined})[],active:ReadonlySet<string>=new Set(),depth=0,route=target.pointer.endsWith('/itemSchema')?'itemSchema':'schema'):PartSchemaTarget[] {
+    partSchemas(target:{resource:string;pointer:string},path:({property:string}|{item:number|undefined})[],active:ReadonlySet<string>=new Set(),depth=0,route=target.pointer.endsWith('/itemSchema')?'itemSchema':'schema',includeAssertions=false):PartSchemaTarget[] {
         if(++this.partWork>100000){
             const range=this.graph.docs.get(target.resource)?.dataNode(target.pointer)?.range??[0,0];
             throw new SourceError('limit.request.multipart.schema','Multipart representation inspection exceeds 100000 schema locations',range,'unsupported',{...target,range});
@@ -241,13 +241,16 @@ export class FormSemantics {
         if(depth>128||active.has(key))return [];
         active=new Set(active).add(key);
         const value=this.graph.docs.get(target.resource)?.dataNode(target.pointer)?.value;
+        // A located leaf is evaluated as its original complete schema. Traversing
+        // its alternatives here would wrongly turn anyOf/oneOf into allOf.
+        if(includeAssertions&&!path.length&&(typeof value==='boolean'||value!==null&&typeof value==='object'&&!Array.isArray(value)))return [{...target,kind:'schema',choice:route}];
         if(!value||typeof value!=='object'||Array.isArray(value))return [];
-        const visit=(pointer:string,steps=path)=>this.partSchemas({...target,pointer},steps,active,depth+1,route+pointer.slice(target.pointer.length));
+        const visit=(pointer:string,steps=path)=>this.partSchemas({...target,pointer},steps,active,depth+1,route+pointer.slice(target.pointer.length),includeAssertions);
         const results:PartSchemaTarget[]=[];
         const scope=schemaContext(this.graph,target.resource,target.pointer);
         for(const keyword of modernFamily(scope?.family)?['$ref','$dynamicRef']:['$ref'])if(typeof value[keyword]==='string'){
             const edge=this.graph.referenceAs(target.resource,target.pointer,keyword,'schema'),projection=edge&&projectSchemaReference(edge);
-            if(projection?.state==='fixed')results.push(...this.partSchemas(projection.target,path,active,depth+1,route+'/'+keyword));
+            if(projection?.state==='fixed')results.push(...this.partSchemas(projection.target,path,active,depth+1,route+'/'+keyword,includeAssertions));
             if(scope?.family==='3.0')return results;
         }
         for(const keyword of ['allOf','anyOf','oneOf'])if(Array.isArray(value[keyword]))
@@ -255,12 +258,12 @@ export class FormSemantics {
         for(const keyword of ['then','else'])if(value[keyword]!==undefined)results.push(...visit(target.pointer+'/'+keyword));
         if(path.length){
             const [step,...rest]=path;
-            if('property' in step){for(const property of this.propertySchemas({...target,kind:'schema'},step.property))results.push(...this.partSchemas(property,rest,active,depth+1,route+property.pointer.slice(target.pointer.length)));}
+            if('property' in step){for(const property of this.propertySchemas({...target,kind:'schema'},step.property))results.push(...this.partSchemas(property,rest,active,depth+1,route+property.pointer.slice(target.pointer.length),includeAssertions));}
             const pointer='property' in step?undefined:
                 step.item!==undefined&&Array.isArray(value.prefixItems)&&step.item<value.prefixItems.length?target.pointer+'/prefixItems/'+step.item:
                 value.items!==undefined&&!Array.isArray(value.items)?target.pointer+'/items':undefined;
             if(pointer!==undefined)results.push(...visit(pointer,rest));
-        }else if(value.type!==undefined||value.contentEncoding!==undefined||value.format!==undefined)
+        }else if(value.type!==undefined||value.contentEncoding!==undefined||value.format!==undefined||includeAssertions)
             results.unshift({...target,kind:'schema',choice:route});
         return [...new Map(results.map(result=>[result.resource+'#'+result.pointer,result])).values()];
     }
@@ -268,7 +271,7 @@ export class FormSemantics {
     /** A leaf choice also commits to the containing alternative/conditional
      * branch. Validate those original branch schemas at their own instances,
      * including the condition for then/else, rather than just the leaf hint. */
-    partSchemaAssertions(target:GraphTarget,path:PartStep[],selection:GraphTarget):PartSchemaAssertion[] {
+    partSchemaAssertions(target:GraphTarget,path:PartStep[],selection:GraphTarget,includeAssertions=false):PartSchemaAssertion[] {
         let work=0;
         const visit=(target:GraphTarget,remaining:PartStep[],consumed:PartStep[],active:ReadonlySet<string>):PartSchemaAssertion[]=>{
             const key=JSON.stringify([target,remaining]);
@@ -276,7 +279,7 @@ export class FormSemantics {
             active=new Set(active).add(key);
             const value=this.graph.docs.get(target.resource)?.dataNode(target.pointer)?.value;
             if(!value||typeof value!=='object'||Array.isArray(value))return [];
-            const contains=(branch:GraphTarget)=>this.partSchemas(branch,remaining).some(schema=>schema.resource===selection.resource&&schema.pointer===selection.pointer);
+            const contains=(branch:GraphTarget)=>this.partSchemas(branch,remaining,new Set(),0,'schema',includeAssertions).some(schema=>schema.resource===selection.resource&&schema.pointer===selection.pointer);
             const result:PartSchemaAssertion[]=[];
             for(const keyword of ['$ref','$dynamicRef'])if(typeof value[keyword]==='string'){
                 const edge=this.graph.referenceAs(target.resource,target.pointer,keyword,'schema'),projection=edge&&projectSchemaReference(edge);

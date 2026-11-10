@@ -205,12 +205,12 @@ void main() {
                 'cliComplete': state == 'structure',
                 'coreOperational': false,
                 'cliOperational': false,
-                'cliProducer': '2',
+                'cliProducer': '4',
                 'codeRetained': true,
                 'sourceRetained': true,
               },
           ]);
-          expect(good.toJson()['producerVersion'], '3');
+          expect(good.toJson()['producerVersion'], '4');
           final invalidBytes = file.readAsBytesSync();
           project.store.replace(root, valid);
           expect((await run('held')).passed, true);

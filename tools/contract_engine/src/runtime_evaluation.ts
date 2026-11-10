@@ -1,3 +1,4 @@
+import {runtimeBinaryMedia} from './runtime_binary';
 import {ParameterSemantics} from './parameter_semantics';
 import type {TextSerialization} from './runtime_media';
 import {createHash} from 'node:crypto';
@@ -22,7 +23,7 @@ import {wholeBodyEncoding} from './whole_body_encoding';
 import {runtimeMediaKind} from './runtime_media';
 
 type SchemaLocation={resource:string;pointer:string};
-type RuntimeInstance={captureData?:boolean;originalData?:string;originalFiles?:string[];text:string;subject:string;location:string;schema?:SchemaLocation;itemSchema?:SchemaLocation;parameter?:SchemaLocation&{values?:string[]};media?:RuntimeMediaTarget;mediaType?:string;mediaBase64?:boolean;unicodeSerialization?:boolean;textSerialization?:TextSerialization;form?:RuntimeFormTarget;alternatives?:string[];swaggerHeader?:SwaggerHeaderTarget;header?:RuntimeHeaderTarget};
+type RuntimeInstance={rawByteLength?:number;captureData?:boolean;originalData?:string;originalFiles?:string[];text:string;subject:string;location:string;schema?:SchemaLocation;itemSchema?:SchemaLocation;parameter?:SchemaLocation&{values?:string[]};media?:RuntimeMediaTarget;mediaType?:string;mediaBase64?:boolean;unicodeSerialization?:boolean;textSerialization?:TextSerialization;form?:RuntimeFormTarget;alternatives?:string[];swaggerHeader?:SwaggerHeaderTarget;header?:RuntimeHeaderTarget};
 type Finding=Record<string,unknown>;
 type Owner={snapshot:string;graph:ReferenceGraph;scopes:ReadonlyMap<string,SchemaEvaluationScope>;
  exact:ReturnType<typeof createExactNumericAdapter>;compile:(scope:SchemaEvaluationScope)=>Promise<CompiledSchema|undefined>;schemaReady:(scope:SchemaEvaluationScope)=>boolean;
@@ -37,7 +38,8 @@ function suppliedInstance(value:unknown):RuntimeInstance {
   'values' in value&&Array.isArray(value.values)&&value.values.length>0&&value.values.length<=2048&&value.values.every(value=>typeof value==='string');
  const shapes=(value:unknown)=>value!==null&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length<=2048&&Object.values(value).every(shape=>shape==='single'||shape==='array');
  const partSchemas=(value:unknown)=>value!==null&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length<=2048&&Object.entries(value).every(([key,value])=>key.length<=8192&&typeof value==='string'&&value.length<=16384);
- if(item.captureData!==undefined&&(typeof item.captureData!=='boolean'||item.form===undefined||!['request-body','response-body'].includes(item.subject as string))||
+ if(item.rawByteLength!==undefined&&(!Number.isSafeInteger(item.rawByteLength)||Number(item.rawByteLength)<0||item.subject!=='response-body'||typeof item.mediaType!=='string'||!runtimeBinaryMedia(item.mediaType))||
+  item.captureData!==undefined&&(typeof item.captureData!=='boolean'||item.form===undefined||!['request-body','response-body'].includes(item.subject as string))||
   item.originalData!==undefined&&(typeof item.originalData!=='string'||item.originalData.length>16*1024*1024||item.form===undefined||!['request-body','response-body'].includes(item.subject as string))||
   item.originalFiles!==undefined&&(!Array.isArray(item.originalFiles)||item.originalFiles.length>2048||item.originalFiles.some(pointer=>typeof pointer!=='string'||pointer.length>4096)||item.originalData===undefined)||
   typeof item.text!=='string'||item.text.length>64*1024*1024||typeof item.subject!=='string'||item.subject.length>1024||
@@ -46,7 +48,7 @@ function suppliedInstance(value:unknown):RuntimeInstance {
    ['schema','itemSchema','media','mediaType','form','alternatives','swaggerHeader','header','textSerialization','unicodeSerialization','mediaBase64'].some(name=>item[name]!==undefined))||
   item.itemSchema!==undefined&&!schema(item.itemSchema)||item.mediaType!==undefined&&(typeof item.mediaType!=='string'||item.mediaType.length>16384)||
   item.media!==undefined&&(!schema(item.media)||item.mediaType===undefined&&item.subject!=='response-body'||item.form!==undefined||!['request-body','response-body'].includes(item.subject))||
-  item.form!==undefined&&(!schema(item.form)||'occurrence' in item.form&&(typeof item.form.occurrence!=='string'||item.form.occurrence.length>4096)||'fileShapes' in item.form&&(!shapes(item.form.fileShapes)||item.subject!=='request-body')||'partSchemas' in item.form&&(!partSchemas(item.form.partSchemas)||!['request-body','response-body'].includes(item.subject as string))||'partMediaTypes' in item.form&&(!partSchemas(item.form.partMediaTypes)||!['request-body','response-body'].includes(item.subject as string))||item.mediaType===undefined)||
+  item.form!==undefined&&(!schema(item.form)||'streamIndex' in item.form&&(!Number.isSafeInteger(item.form.streamIndex)||Number(item.form.streamIndex)<0)||'streamPath' in item.form&&(!Array.isArray(item.form.streamPath)||item.form.streamPath.length<1||item.form.streamPath.length>9||item.form.streamPath.some(index=>!Number.isSafeInteger(index)||index<0))||'occurrence' in item.form&&(typeof item.form.occurrence!=='string'||item.form.occurrence.length>4096)||'fileShapes' in item.form&&(!shapes(item.form.fileShapes)||item.subject!=='request-body')||'partSchemas' in item.form&&(!partSchemas(item.form.partSchemas)||!['request-body','response-body'].includes(item.subject as string))||'partMediaTypes' in item.form&&(!partSchemas(item.form.partMediaTypes)||!['request-body','response-body'].includes(item.subject as string))||item.mediaType===undefined)||
   item.mediaBase64!==undefined&&typeof item.mediaBase64!=='boolean'||item.mediaBase64===true&&item.mediaType===undefined&&item.media===undefined||
   item.textSerialization!==undefined&&(item.textSerialization!=='embedded'&&item.textSerialization!=='unicode'||item.unicodeSerialization!==true)||
   item.unicodeSerialization!==undefined&&typeof item.unicodeSerialization!=='boolean'||item.unicodeSerialization===true&&(item.mediaType===undefined||item.mediaBase64===true)||
@@ -121,6 +123,7 @@ async function evaluateRuntimeValues(runtime:unknown,owner:Owner,diagnostics?:{o
     // the empty string, remains subject to the original string assertions.
     decoded=decodeRuntimeMedia(supplied.text,'urn:busyapi:runtime:'+identity,'text/plain; charset=utf-8',supplied.mediaBase64,'unsupported',textSerialization);
    else decoded=decodeRuntimeMedia(supplied.text,'urn:busyapi:runtime:'+identity,supplied.mediaType,supplied.mediaBase64,fileSchema?'file':octets?'octets':family==='2.0'||family==='3.0'?'legacy-octets':family==='3.1'||family==='3.2'?'binary':'unsupported',textSerialization,supplied.schema?{graph:owner.graph,schema:supplied.schema}:undefined);
+   if(supplied.rawByteLength!==undefined){const document=new SourceDocument('null','urn:busyapi:stream-binary',true,'json');decoded={document,kind:'binary',binaryInstances:new Map([[document,new Map([['',Buffer.alloc(0)]])]])};}
    // Strict form decoding proves each leaf's wire representation, including
    // ASCII MIME transfer formats. Other opaque instances supply no Unicode proof.
    if(supplied.unicodeSerialization===true&&(!form||textSerialization!=='unicode')&&((decoded.binaryInstances?.size??0)>0||form?.checks.some(check=>(check.binary?.size??0)>0)))
@@ -150,7 +153,7 @@ async function evaluateRuntimeValues(runtime:unknown,owner:Owner,diagnostics?:{o
   const modeledData=['xml','linkset','linkset-json'].includes(decoded.kind)&&Buffer.byteLength(decoded.document.dataJson(''))<=1024*1024?decoded.document.dataJson(''):undefined;
   if(supplied.captureData===true&&Buffer.byteLength(decoded.document.dataJson(''))>16*1024*1024)throw new SourceError('limit.runtime.projection','Captured form projection exceeds 16 MiB');
   const projection=supplied.captureData===true?{projectionData:decoded.document.dataJson(''),projectionBinary:[...(decoded.binaryInstances?.get(decoded.document)?.keys()??[])]}:{};
-  const checks:FormCheck[]=[{document:decoded.document,schema:supplied.schema,prefix:''},...(form?.checks??[])];
+  const checks:FormCheck[]=[...(supplied.form?.streamIndex===undefined?[{document:decoded.document,schema:supplied.schema,prefix:''}]:[]),...(form?.checks??[])];
   if(supplied.originalData!==undefined){
    let original=new SourceDocument(supplied.originalData,'urn:busyapi:original-multipart',true,'json');
    if(original.issues.length)throw original.issues[0];
@@ -164,6 +167,7 @@ async function evaluateRuntimeValues(runtime:unknown,owner:Owner,diagnostics?:{o
    checks.unshift({document:original,schema:supplied.schema,prefix:'',binary:decoded.binaryInstances?.get(decoded.document)});
   }
 
+  if(supplied.form?.streamIndex!==undefined)checks.push({document:decoded.document,prefix:''});
   for(const issue of form?.issues??[]){
    if(issue.severity==='error')evaluations.push({subject:supplied.subject,location:supplied.location,pointer:issue.pointer,complete:true,valid:false,representation:decoded.kind});
    add({...issue,subject:supplied.subject,location:supplied.location});
@@ -173,7 +177,7 @@ async function evaluateRuntimeValues(runtime:unknown,owner:Owner,diagnostics?:{o
     complete=false;
     add({code:'runtime.media.items.unsupported',severity:'warning',subject:supplied.subject,location:supplied.location,pointer:'',range:[0,0],
      message:'itemSchema requires a supported sequential media representation; no item checks were claimed.'});
-   }else checks.push(...decoded.items.map((document,index)=>({document,schema:supplied.itemSchema,prefix:'/'+index})));
+   }else checks.push(...decoded.items.map((document,index)=>({document,schema:supplied.itemSchema,prefix:'/'+(index+(supplied.form?.streamIndex??0))})));
   }
   for(const check of checks){
    if(++work>2048){
@@ -193,7 +197,7 @@ async function evaluateRuntimeValues(runtime:unknown,owner:Owner,diagnostics?:{o
     if(!ast){complete=false;evaluations.push({subject:supplied.subject,location:supplied.location,pointer:check.prefix,complete:false,valid:false,reason:'schema-incomplete'});continue;}
     owner.exact.setDirection(supplied.subject.startsWith('request-')?'request':supplied.subject.startsWith('response-')?'response':undefined);
     let result:Output;
-    try{result=interpret(ast,owner.exact.exactInstance(check.document,'',undefined,false,check.binary??decoded.binaryInstances?.get(check.document)),BASIC);instances++;}
+    try{result=interpret(ast,owner.exact.exactInstance(check.document,'',undefined,false,check.binary??decoded.binaryInstances?.get(check.document),supplied.rawByteLength),BASIC);instances++;}
     finally{owner.exact.setDirection(undefined);}
     if(check.expectedValid===false){
      const valid=result.valid===false;
