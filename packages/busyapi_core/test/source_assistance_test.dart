@@ -10,7 +10,7 @@ import 'test_support.dart';
 class HeldAssistance extends EngineProcess {
   HeldAssistance() : super(executable: runtimeNode, helper: runtimeHelper);
   Completer<void>? entered, release;
-  bool priorProducer = false;
+  String? priorProducer;
   @override
   Future<Map<String, dynamic>> request(
     String method,
@@ -22,8 +22,8 @@ class HeldAssistance extends EngineProcess {
       await release!.future;
     }
     final result = await super.request(method, params, requestId: requestId);
-    return method == 'assistSource' && priorProducer
-        ? {...result, 'producerVersion': '1'} : result;
+    return method == 'assistSource' && priorProducer!=null
+        ? {...result, 'producerVersion': priorProducer} : result;
   }
 }
 
@@ -60,6 +60,49 @@ void main() {
     buffer.id,
     buffer.selection,
   );
+  for(final version in ['2.0','3.0.4','3.1.2','3.2.1'])test('$version Source reference completion saves and reopens an approved inline target through Core and CLI',() async {
+    final swagger=version=='2.0',group=version=='2.0'?'/definitions':'/components/schemas';
+    final schemas={'Use':{r'$ref':'#$group/Base'},'Base':{'type':'object','properties':{'child 雪':{'type':'integer'}}},'External':{r'$ref':'model.json'}};
+    final text=jsonEncode({if(swagger)'swagger':version,if(!swagger)'openapi':version,
+      'info':{'title':'Captured targets','version':'business'},'paths':{},if(swagger)'definitions':schemas,if(!swagger)'components':{'schemas':schemas}});
+    await File('${temp.path}/model.json').writeAsString('{"type":"string"}');
+    project.store.replace(buffer.id,text);final caret=text.indexOf('#$group/Base')+2;buffer.selection=SourceSelection(caret,caret);
+    final result=await capture();
+    final inline=result.completions.indexWhere((choice)=>choice['target']?['pointer']=='$group/Base/properties/child 雪');
+    expect(inline,greaterThanOrEqualTo(0));
+    expect(result.completions.any((choice)=>choice['target']?['resource']==File('${temp.path}/model.json').uri.toString()&&choice['target']?['pointer']==''),true);
+    project.store.apply([result.completion(inline,buffer)],label:'Source captured schema reference');
+    final accepted=buffer.text;project.store.undo();expect(buffer.text,text);project.store.redo();expect(buffer.text,accepted);
+    await project.save(buffer);
+    final cold=await BusyProject.open(buffer.path,engine);
+    try {
+      final root=cold.roots.single.id;expect((await cold.check(root))['status'],'complete');
+      final page=await cold.referencePage(root,root,'$group/Use',contextKind:'schema');
+      expect(page['references'][0]['target']['pointer'],'$group/Base/properties/child 雪');
+    }finally{cold.close();}
+    final cli=await Process.run('$testBundle/busyapi',['check',buffer.path,'--json','--fail-on','error'],
+      environment:const {'PATH':'','LANG':'C.UTF-8'},includeParentEnvironment:false);
+    expect(cli.exitCode,0,reason:'${cli.stdout} ${cli.stderr}');expect(buffer.text,accepted);
+  });
+  test('Source role selection owns descendant grammar and cannot navigate literal reference-looking data',() async {
+    const owner='/components/schemas/Owner/properties/Shared';
+    final text=jsonEncode({'openapi':'3.2.1','info':{'title':'Descendants','version':'1'},'paths':{},'components':{
+      'schemas':{'Owner':{'properties':{'Shared':{'schema':{'type':'string',r'$ref':'#/components/schemas/Leaf'}}}},'Leaf':{'type':'string'}},
+      'headers':{'Use':{r'$ref':'#$owner'}},
+    }});
+    project.store.replace(buffer.id,text);final type=text.indexOf('"type":"string"')+'"type":'.length+2;
+    buffer.selection=SourceSelection(type,type);
+    final literal=await project.assistSource(project.roots.single.id,buffer.id,buffer.selection,contextPointer:owner,contextKind:'schema');
+    expect(literal.result['help']['kind'],'data');expect(literal.completions,isEmpty);
+    final header=await project.assistSource(project.roots.single.id,buffer.id,buffer.selection,contextPointer:owner,contextKind:'header');
+    expect(header.result['help']['kind'],'schema');
+    final choice=header.completions.indexWhere((choice)=>choice['label']=='boolean');expect(choice,greaterThanOrEqualTo(0));
+    project.store.apply([header.completion(choice,buffer)],label:'Source Header schema type');
+    expect(buffer.text,contains('"type":"boolean"'));project.store.undo();expect(buffer.text,text);
+    final ref=text.indexOf('#/components/schemas/Leaf')+2;buffer.selection=SourceSelection(ref,ref);
+    expect((await project.assistSource(project.roots.single.id,buffer.id,buffer.selection,action:'definition',contextPointer:owner,contextKind:'schema')).result['definition'],isNull);
+    expect((await project.assistSource(project.roots.single.id,buffer.id,buffer.selection,action:'definition',contextPointer:owner,contextKind:'header')).result['definition']['pointer'],'/components/schemas/Leaf');
+  });
   test('Source role choices share captured edits, history and stale guards', () async {
     const pointer = '/components/schemas/Owner/properties/Shared';
     final text = jsonEncode({
@@ -79,7 +122,7 @@ void main() {
     final selected = await project.assistSource(project.roots.single.id,
         buffer.id, buffer.selection, contextPointer: pointer, contextKind: 'header');
     expect(selected.result['contextKind'], 'header');
-    expect(selected.result['producerVersion'], '2');
+    expect(selected.result['producerVersion'], '3');
     final index = selected.completions.indexWhere((choice) => choice['label'] == 'required = true');
     expect(index, greaterThanOrEqualTo(0));
     project.store.apply([selected.completion(index, buffer)], label: 'Source Header required');
@@ -90,9 +133,11 @@ void main() {
     await expectLater(project.assistSource(project.roots.single.id,
         buffer.id, buffer.selection, contextPointer: '/info', contextKind: 'header'),
         throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'assist.context.stale')));
-    engine.priorProducer = true;
-    await expectLater(capture(), throwsA(isA<CoreFailure>().having(
-        (error) => error.code, 'code', 'assist.protocol')));
+    for(final obsolete in ['1','2']) {
+      engine.priorProducer = obsolete;
+      await expectLater(capture(), throwsA(isA<CoreFailure>().having(
+          (error) => error.code, 'code', 'assist.protocol')));
+    }
   });
   test(
     'assistance snapshot collection notifies clean physical reloads',

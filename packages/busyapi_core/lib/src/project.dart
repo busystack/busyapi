@@ -2799,7 +2799,7 @@ class BusyProject {
     if (action != 'folds' &&
         (result['version'] != 1 ||
             result['producer'] != 'busyapi-source-assistance' ||
-            result['producerVersion'] != '2' ||
+            result['producerVersion'] != '3' ||
             result['interpretations'] is! List ||
             (result['interpretations'] as List).length > 128 ||
             (result['interpretations'] as List).any((role) =>

@@ -7,6 +7,44 @@ const {analyse}=require(path.join(engine,'dist/model.cjs'));
 const {SourceDocument}=require(path.join(engine,'dist/document.cjs'));
 const YAML=require(path.join(engine,'node_modules/yaml'));
 
+for(const version of ['3.1.2','3.2.0','3.2.1'])for(const format of ['json','yaml'])test(`${version} ${format} Source descendant grammar follows only its selected canonical role`,()=>{
+ const root='file:///approved/descendants.'+format,pointer='/components/schemas/Owner/properties/Shared';
+ const value={openapi:version,info:{title:'Descendants',version:'1'},paths:{},components:{schemas:{
+  Owner:{properties:{Shared:{schema:{type:'string',$ref:'#/components/schemas/Leaf'},example:{type:'string',$ref:'literal'}}}},Leaf:{type:'string'}},headers:{Use:{$ref:'#'+pointer}}}};
+ const text=format==='yaml'?YAML.stringify(value):JSON.stringify(value),doc=new SourceDocument(text,root);
+ const input={root,resource:root,snapshot:'descendant-role',resources:[{id:root,text,generation:3}],contextPointer:pointer};
+ const typeCaret=doc.dataNode(pointer+'/schema/type').range[0]+2,refCaret=doc.dataNode(pointer+'/schema/$ref').range[0]+2;
+ const data=assistSource({...input,contextKind:'schema',caret:typeCaret});assert.equal(data.help.kind,'data');assert.deepEqual(data.completions,[]);
+ const schema=assistSource({...input,contextKind:'header',caret:typeCaret});assert.equal(schema.help.kind,'schema');assert(schema.completions.some(choice=>choice.label==='boolean'));
+ assert.equal(assistSource({...input,contextKind:'schema',caret:refCaret,action:'definition'}).definition,undefined);
+ assert.equal(assistSource({...input,contextKind:'header',caret:refCaret,action:'definition'}).definition.pointer,'/components/schemas/Leaf');
+ for(const contextKind of ['schema','header']){
+  const literal=assistSource({...input,contextKind,caret:doc.dataNode(pointer+'/example/type').range[0]+2});
+  assert.equal(literal.help.kind,'data');assert.deepEqual(literal.completions,[]);
+ }
+ assert.equal(input.resources[0].text,text);
+});
+
+for(const version of ['2.0','3.0.4','3.1.2','3.2.0','3.2.1'])for(const format of ['json','yaml'])test(`${version} ${format} Source offers canonical inline and external-root reference targets`,()=>{
+ const root='file:///approved/api.'+format,external='file:///approved/model.'+format,swagger=version==='2.0',modern=/^3\.[12]/.test(version);
+ const group=swagger?'/definitions':'/components/schemas';
+ const schemas={Use:{$ref:'#'+group+'/Base'},Base:{type:'object',properties:{'child 雪':{type:'integer'}},...(modern?{$defs:{Inner:{type:'boolean'}}}:{})},External:{$ref:'model.'+format}};
+ const value={...(swagger?{swagger:version}:{openapi:version}),info:{title:'Targets',version:'1'},paths:{},...(swagger?{definitions:schemas}:{components:{schemas}})};
+ const render=value=>format==='yaml'?YAML.stringify(value):JSON.stringify(value);
+ const text=render(value),doc=new SourceDocument(text,root),input={root,resource:root,snapshot:'reference-positions',resources:[{id:root,text,generation:1},{id:external,text:render({type:'string'}),generation:1}],caret:doc.dataNode(group+'/Use/$ref').range[0]+2};
+ const result=assistSource(input);assert(result.completions.every(choice=>typeof choice.label==='string'));
+ const expected=[{resource:root,pointer:group+'/Base/properties/child 雪'},{resource:external,pointer:''},...(modern?[{resource:root,pointer:group+'/Base/$defs/Inner'}]:[])];
+ for(const target of expected){
+  const choice=result.completions.find(choice=>choice.target?.resource===target.resource&&choice.target?.pointer===target.pointer);assert(choice,JSON.stringify(target));
+  let changed=text;for(const edit of [...choice.edits].reverse()){assert.equal(changed.slice(edit.start,edit.end),edit.expected);changed=changed.slice(0,edit.start)+edit.replacement+changed.slice(edit.end);}
+  const packet={...input,resources:input.resources.map(resource=>resource.id===root?{...resource,text:changed,generation:2}:resource)};
+  assert.equal(analyse(packet).status,'complete');
+  const definition=assistSource({...packet,caret:new SourceDocument(changed,root).dataNode(group+'/Use/$ref').range[0]+2,action:'definition'}).definition;
+  assert.equal(definition.resource,target.resource);assert.equal(definition.pointer,target.pointer);
+ }
+ assert.equal(input.resources[0].text,text);
+});
+
 for(const version of ['3.1.2','3.2.0','3.2.1'])for(const format of ['json','yaml'])test(`Source selects captured overlapping roles for help, completions and usages ${version} ${format}`,()=>{
  const root='file:///approved/roles.'+format,pointer='/components/schemas/Owner/properties/Shared';
  const value={openapi:version,info:{title:'Roles',version:'1'},paths:{},components:{
@@ -22,7 +60,7 @@ for(const version of ['3.1.2','3.2.0','3.2.1'])for(const format of ['json','yaml
  const definitions=found.matches.filter(match=>match.pointer===pointer);
  assert.deepEqual(new Set(definitions.map(match=>match.objectKind)),new Set(['schema','header']));
  assert.equal(new Set(definitions.map(match=>match.semanticId)).size,2);
- assert.equal(initial.producer,'busyapi-source-assistance');assert.equal(initial.producerVersion,'2');
+ assert.equal(initial.producer,'busyapi-source-assistance');assert.equal(initial.producerVersion,'3');
  assert.deepEqual(new Set(initial.interpretations.map(role=>role.kind)),new Set(['schema','header']));
  for(const contextKind of ['schema','header']){
   const selected={...input,contextPointer:pointer,contextKind};

@@ -41,6 +41,7 @@ void main() {
   for (final behavior in [
     'accept',
     'roles',
+    'roles-nested',
     'incomplete',
     'schema-2.0',
     'schema-3.0.4',
@@ -80,7 +81,9 @@ void main() {
             '"info":{"title":"Source","version":"1"},"paths":{},'
             '${schemaVersion == '2.0' ? '"definitions"' : '"components":{"schemas"'}:'
             '{"Value":{${occurrence ? '"properties":{"child":n§ull}' : '"additionalProperties":n§ull'}}}${schemaVersion == '2.0' ? '' : '}'}}';
-        final marker = schemaMarker ?? (behavior == 'roles'
+        final marker = schemaMarker ?? (behavior == 'roles-nested'
+            ? r'{"openapi":"3.2.1","info":{"title":"Source","version":"1"},"paths":{},"components":{"schemas":{"Owner":{"properties":{"Shared":{"schema":{"type":"str§ing"}}}}},"headers":{"Use":{"$ref":"#/components/schemas/Owner/properties/Shared"}}}}'
+            : behavior == 'roles'
             ? r'{"openapi":"3.2.1","info":{"title":"Source","version":"1"},"paths":{},"components":{"schemas":{"Owner":{"properties":{"Shared":{"description":"Kept","schema":{"type":"string"} §}}}},"headers":{"Use":{"$ref":"#/components/schemas/Owner/properties/Shared"}}}}'
             : behavior == 'incomplete'
             ? r'{"openapi":"3.2.1","info":{"title":"Source", "version":"1", "summ§},"paths":{}}'
@@ -281,15 +284,17 @@ void main() {
             expect(tester.takeException(), isNull);
             return;
           }
-          if (behavior == 'roles') {
+          if (behavior.startsWith('roles')) {
             final selector = find.byKey(const ValueKey('source-interpretation'));
             await waitFor(() => selector.evaluate().isNotEmpty);
+            if(behavior=='roles-nested')expect(find.text('boolean'),findsNothing);
             tester.widget<BusyApiComboRow<String>>(selector).onSelected('header');
-            await waitFor(() => find.text('required = true').evaluate().isNotEmpty);
+            final label=behavior=='roles-nested'?'boolean':'required = true';
+            await waitFor(() => find.text(label).evaluate().isNotEmpty);
             final staleSelect = tester.widget<BusyApiComboRow<String>>(selector).onSelected;
-            await tester.runAsync(() => tester.tap(find.text('required = true')));
+            await tester.runAsync(() => tester.tap(find.text(label)));
             await tester.pumpAndSettle();
-            expect(buffer.text, contains('"required": true'));
+            expect(buffer.text, contains(behavior=='roles-nested'?'"type":"boolean"':'"required": true'));
             final changed = buffer.text;
             project!.store.undo();expect(buffer.text, original);
             project!.store.redo();expect(buffer.text, changed);

@@ -229,7 +229,7 @@ usages. Native Source's existing popup offers the captured interpretations;
 changing roles reruns the same job and expected-text writer. Source actions
 reject obsolete caret/generation/snapshot/role choices; history, full-source
 editing and physical source ownership remain unchanged. Core strictly admits
-`busyapi-source-assistance` **2**; fold metadata remains its existing protocol.
+`busyapi-source-assistance` **3**; fold metadata remains its existing protocol.
 Prepared, **not run**: the registered Source type suite adds 3.1.2/3.2.0/3.2.1
 YAML/JSON role help, completions, usages and unavailable-role controls; Core and
 native Source suites cover explicit choice, expected edits, Undo/Redo, save,
@@ -308,6 +308,23 @@ Core strictly admits `busyapi-semantic-search` **2**. Prepared, **not run**:
 registered Source/search suites check distinct role identities and obsolete
 producer rejection; native `schema_roles_test.dart` follows captured Header →
 Schema → Header targets at one source location without changing source bytes.
+
+The W1 consumer reconciliation additionally fixes descendant ownership in
+Source. Selecting one interpretation now restricts help, completion, definition
+navigation and usages to that role's canonical `containedScopes`. A Header's
+schema child stays literal data when viewing the same containing object as a
+Schema with an unknown keyword; selecting Header restores its actual schema
+grammar. The same shared address constructor now offers supported inline,
+definition-container/property and external-root targets, rather than filtering
+`$ref` completions to named components. Syntax, dialect and canonical target
+checks remain authoritative, with the established 20000-choice bound. Help links
+use the actual field owner's family. Core strictly admits assistance producer
+**3**, retaining **1**/**2** negatives; semantic search remains **2**.
+Prepared, **not run**: the registered Source type suite covers modern nested
+role/literal/reference controls and all four families' inline/external targets
+in YAML/JSON. Core prepares scoped edits/navigation, history, approved captures,
+save/cold reopen and independent CLI checks. Native Source prepares nested-role
+selection, field replacement, stale callback rejection, Undo/Redo and save.
 
 W6's existing whole-range extraction/definition-move owner now moves every
 captured interpretation together. It selects the requested canonical destination
@@ -3643,7 +3660,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W7.01 Creation, editing, unsaved Reference, request/example/mock/case, migration review, documentation and CLI integration for every capability; all applicable clauses above | shared engine, Core owners and native workspace controls | A R E M S C | engine/Core/widget/native journey suites | Partially implemented; applicable existing consumers inherit shared field/codec/routing changes; complete family journeys are not accepted | H |
 | W7.02 Stale-action invalidation on declaration/dialect/root/external/approval changes; coherent reviewed transactions, Undo/Redo and no buffer loss; Core transaction contract | Core project/store/capture and native review/request controllers | A R E M S C | stale capture/cancellation/publication/widget review suites | Partially implemented; existing source for existing safeguards; new paths require current integration qualification | H |
 | W7.03 CST fidelity, no-op saves, exact values, aliases, extensions and source-only migration restructuring; TEXT | `document.ts`, graph/CST editing, Core store/transaction owners | A R M S C | source ownership/alias/exact-value/no-op suites | Partially implemented; existing source for existing boundaries; generated schema owners retain original provenance and reviewed restructuring | H |
-| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+67` (final W5 proof), stream representation/protocol `2`, multipart projection `2`, migration producer `104`, response mock producer `5`, parameter mock producer `6`, sample producer `5`, tunnel producer `1`; no dependency versions/source changed | H |
+| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Active continuation revisions: schema evaluator `1.18.0+69`, Parameter `8`, request content/parameter-media `2`, stream `2`, multipart `2`, migration `106`, Source assistance `3`, semantic search `2`, native Reference/display/packet `3`, first-party Redoc/Swagger adapters `9`/`8`, response mock `5`, samples `5`, tunnels `1`. Strict obsolete-revision controls remain prepared; no dependency versions/source changed. Current packaged admission is held | H |
 | W8.01 Explicit independent evidence input across SDK/build/CMake/CI/installed/package checks; PINS | `flutter_archive.py`, SDK verifier, `build_linux.sh`, CMake, package/native-distribution/artifact-smoke inputs | P | `tools/test_flutter_sdk.py`, source-wiring regressions | Partially implemented; existing source for archive-input propagation; same existing evidence reaches installed checks; independent member pins remain an alternative; no SDK acquisition/replacement | H; actual evidence availability/authenticity has not been qualified |
 | W8.02 Ordered gates, registration, source-version-valid fixtures and production-byte regressions; PINS and each row's authority | `tools/build_engine.sh`, Linux workflow, engine/Core/widget/native/package suites | P | new direct-Swagger/conditional/tuple-tail/constant-containment/property-name/runtime-parameter and URI-security/OAuth-flow/invariant regressions registered; existing TypeScript-before-bundle gate retained | Partially implemented; compilation and all suspended gates remain unexecuted; missing regression coverage identified in this register remains implementation work | H |
 | W8.03 Current automated/native/packaged/offline acceptance and normal Quit; all approved families and PINS | native acceptance tools, Core/package/CLI suites | A R E M S C P | existing native acceptance including historical Quit/focus failures; complete new journeys still required | Missing for accepted evidence; no driver/engine attribution established; Snapcraft remains skipped | H |

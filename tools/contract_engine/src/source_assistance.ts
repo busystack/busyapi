@@ -79,8 +79,13 @@ export function assistSource(input: any) {
         !interpretations.some(scope=>scope.kind===input.contextKind)))
         throw new SourceError('assist.context.stale','The selected source interpretation is no longer captured at this caret');
     const chosen=selectable?graph.selectedScope(doc.id,contextPointer,input.contextKind):undefined;
-    const scopeAt=(at:string)=>at===chosen?.pointer?chosen:graph.scopes.get(doc.id+'#'+at);
-    const enclosing=(at:string)=>{const scope=graph.scope(doc.id,at);return chosen&&scope.pointer===chosen.pointer?chosen:scope;};
+    const owned=chosen?new Map(graph.containedScopes(chosen).map(scope=>[scope.pointer,scope])):undefined;
+    const selected=(at:string)=>chosen&&(at===chosen.pointer||at.startsWith(chosen.pointer+'/'));
+    const scopeAt=(at:string)=>selected(at)?owned!.get(at):graph.scopes.get(doc.id+'#'+at);
+    const enclosing=(at:string)=>{
+        if(!selected(at))return graph.scope(doc.id,at);
+        while(true){const owner=owned!.get(at);if(owner)return owner;at=at.slice(0,at.lastIndexOf('/'));}
+    };
     const scope = enclosing(pointer), parentScope = enclosing(parentPointer);
     const exact = scopeAt(pointer), parent = doc.nodes.get(parentPointer);
     const parentContext = scopeAt(parentPointer);
@@ -88,14 +93,14 @@ export function assistSource(input: any) {
     const schemaDialectKnown = scope.kind !== 'schema' || supportedSchemaDialect(scope);
     const customKeyword = !field && parentContext?.kind === 'schema';
     const reference = graph.references.find(r => r.resource === doc.id && inRange(caret, refLocation(doc, r))&&
-        graph.referencesAt(r.resource,r.pointer,enclosing(r.pointer).kind).includes(r));
+        scopeAt(r.pointer)&&graph.referencesAt(r.resource,r.pointer,scopeAt(r.pointer)!.kind).includes(r));
     const definition = reference?.resolution === 'resolved' ? located(input, docs.get(reference.targetResource!)!, reference.targetPointer!, { kind:reference.kind,dynamic: reference.dynamic }) : undefined;
-    const result: any = { version: 1, producer:'busyapi-source-assistance',producerVersion:'2',snapshot: input.snapshot, root: input.root, resource: doc.id, generation: resource.generation, caret, pointer, kind: scope.kind,
+    const result: any = { version: 1, producer:'busyapi-source-assistance',producerVersion:'3',snapshot: input.snapshot, root: input.root, resource: doc.id, generation: resource.generation, caret, pointer, kind: scope.kind,
         ...(chosen?{contextPointer,contextKind:chosen.kind,interpretations:interpretations.map(({kind,family,base,dialect})=>({kind,family,base,dialect}))}:{interpretations:[]}),
-        help: { name: field?.name ?? name, kind: customKeyword ? 'custom-keyword' : field ? parentScope.kind : exact?.kind ?? 'data', type: schemaDialectKnown ? field?.type ?? exact?.kind ?? node.kind : 'unknown', authored: true, ...(field ? {required: field.required === true, blockedBy: field.blockedBy, prohibited: field.prohibited === true} : {}), dialect: scope.dialect, dialectKnown: schemaDialectKnown, ...(schemaDialectKnown && (field || exact) ? { standard: standard(family, field ? parentScope.kind : scope.kind) } : {}), ...(field?.effectiveDefault !== undefined ? { effectiveDefault: field.effectiveDefault } : {}) },
+        help: { name: field?.name ?? name, kind: customKeyword ? 'custom-keyword' : field ? parentScope.kind : exact?.kind ?? 'data', type: schemaDialectKnown ? field?.type ?? exact?.kind ?? node.kind : 'unknown', authored: true, ...(field ? {required: field.required === true, blockedBy: field.blockedBy, prohibited: field.prohibited === true} : {}), dialect: scope.dialect, dialectKnown: schemaDialectKnown, ...(schemaDialectKnown && (field || exact) ? { standard: standard((field?parentScope:scope).family, field ? parentScope.kind : scope.kind) } : {}), ...(field?.effectiveDefault !== undefined ? { effectiveDefault: field.effectiveDefault } : {}) },
         definition, resolution: reference?.resolution, dynamic: reference?.dynamic, candidates: reference?.candidateTargets?.map(target=>located(input,docs.get(target.resource)!,target.pointer,{kind:target.kind})), completions: [] };
     if(keyNode&&parentContext?.kind==='security-requirement')
-        result.help={...result.help,kind:'security-requirement',type:'array',standard:standard(family,'security-requirement')};
+        result.help={...result.help,kind:'security-requirement',type:'array',standard:standard(parentContext.family,'security-requirement')};
     if (input.action === 'definition' || input.action === 'help')
         return result;
     if (input.action === 'usages') {
@@ -109,7 +114,7 @@ export function assistSource(input: any) {
         return result;
     }
     if (doc.issues.length && (!input.action || input.action === 'completion')) {
-        const partial = incompleteKeyCompletions(doc, graph, family, caret, resource.generation,scopeAt);
+        const partial = incompleteKeyCompletions(doc, graph, caret, resource.generation,scopeAt);
         if (partial.length) {result.completions=partial;return result;}
     }
     if (!schemaDialectKnown || field?.prohibited || field?.blockedBy?.length) return result;
@@ -132,16 +137,18 @@ export function assistSource(input: any) {
             for(const {target,value}of discriminatorBindings(graph,parentScope).entries)
                 addValue(value,segments(target.pointer).at(-1)??target.base,located(input,docs.get(target.resource)!,target.pointer));
         }
-        else if (['$ref','$dynamicRef'].includes(name) && graph.references.some(r => r.resource === doc.id && r.pointer === parentPointer && r.keyword === name)) {
+        else if (['$ref','$dynamicRef'].includes(name) && graph.referencesAt(doc.id,parentPointer,parentScope.kind).some(r=>r.keyword===name)) {
             const expectedKind = parentScope.kind;
             const compatible = (kind: string) => expectedKind === 'schema' ? kind === 'schema' : kind === expectedKind;
             const suggestions: any[] = [];
             for (const target of graph.interpretedScopes()) {
-                if (!compatible(target.kind) || name==='$ref'&&!/^(?:\/components\/[^/]+|\/(?:definitions|parameters|responses|securityDefinitions))\/[^/]+$/.test(target.pointer))
-                    continue;
+                if (!compatible(target.kind)||target.kind!=='schema'&&target.resource===parentScope.resource&&target.pointer===parentScope.pointer)continue;
+                const owner=docs.get(target.resource)!;
+                if(!owner.nodes.has(target.pointer)||!owner.syntaxSafe(target.pointer))continue;
                 const value=referenceValue(graph,parentScope,target,name);
                 if(value===undefined)continue;
-                suggestions.push({ value, label: segments(target.pointer).at(-1), target: located(input, docs.get(target.resource)!, target.pointer,{kind:target.kind}) });
+                if(suggestions.length>=20000)throw new SourceError('limit.reference.choices','Use the Reference selector to refine this large captured target set');
+                suggestions.push({ value, label: segments(target.pointer).at(-1)??target.base, target: located(input, docs.get(target.resource)!, target.pointer,{kind:target.kind}) });
             }
             for (const suggestion of suggestions)
                 addValue(suggestion.value, suggestion.label, suggestion.target);
@@ -210,7 +217,7 @@ export const sourceFolds=(input:any)=>assistSource({...input,action:'folds'});
 // identified mapping hole, then prove that mapping's syntax and field context
 // before offering its captured edit. The hypothetical parse is immutable;
 // neither invalid siblings nor canonical source are normalized or replaced.
-function incompleteKeyCompletions(doc:SourceDocument, graph:any, family:string, caret:number, generation:number,scopeAt:(pointer:string)=>any) {
+function incompleteKeyCompletions(doc:SourceDocument, graph:any, caret:number, generation:number,scopeAt:(pointer:string)=>any) {
     const before=doc.text.slice(0,caret), line=doc.text.slice(doc.lineStart(caret),caret);
     let start=caret,end=caret,prefix='';
     if(doc.format==='yaml') {

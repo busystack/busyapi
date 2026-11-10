@@ -972,10 +972,13 @@ third-party packages are unchanged. Older display and adapter identities are
 rejected. Asset preparation and runtime verification remain subject to the
 execution hold.
 
-Native Source assistance uses `busyapi-source-assistance` **2**. The Source popup
+Native Source assistance uses `busyapi-source-assistance` **3**. The Source popup
 can select each captured interpretation of a shared physical object for field
 help, completions and reference navigation. Choices are tied to the same caret,
 generation and approved source graph; edits use the existing source transaction.
+Descendant grammar follows the chosen role's canonical children. Source also
+offers legal inline and external-root reference targets through the same address
+owner as the native selector, retaining its bounded target admission.
 
 Saved body `externalExample` choices accept a named selector `{"name":""}` to
 retain an empty example name. Existing nonempty string names remain supported;
