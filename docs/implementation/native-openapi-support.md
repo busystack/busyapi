@@ -234,6 +234,14 @@ native Source suites cover explicit choice, expected edits, Undo/Redo, save,
 stale action rejection and obsolete producer refusal. W1's remaining complete
 field/position reconciliation is not replaced by this confirmed omission fix.
 
+W4.07 saved body example selection now distinguishes an empty named Example
+from the legacy unnamed-occurrence sentinel. `externalExample: {name: ""}`
+retains the empty key through the existing case transaction/reopening owner;
+existing string selectors are unchanged. Prepared, **not run**: the existing
+external-body Core suite covers binary bytes through save, cold reopening,
+actual HTTP and independent CLI for the empty named choice. No schema producer
+change is needed for this selector-preservation correction.
+
 No boundary is reclassified as a target-specification restriction. Only source
 inspection, official specification/RFC reads, Git inspection and
 `git diff --check` have been performed. The execution hold and Snapcraft skip

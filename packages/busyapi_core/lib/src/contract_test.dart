@@ -514,9 +514,13 @@ class ContractTestRunner {
         final media = (body['mediaType'] as String).split(';').first.trim().toLowerCase();
         if (media != 'application/x-www-form-urlencoded' && !media.startsWith('multipart/')) invalid('body/representation', 'Literal field rows require a captured form representation.');
       }
-      if (body.containsKey('externalExample') &&
-          (body['externalExample'] is! String || (body['externalExample'] as String).length > 8192)) {
-        invalid('body/externalExample', 'Expected a bounded example name from the selected media occurrence.');
+      if (body.containsKey('externalExample')) {
+        final choice = body['externalExample'];
+        final valid = choice is String && choice.length <= 8192 ||
+            choice is Map && choice.length == 1 && choice['name'] is String &&
+                (choice['name'] as String).length <= 8192;
+        if (!valid) invalid('body/externalExample',
+            'Expected a bounded example name or a named selector from the selected media occurrence.');
       }
       if (body.containsKey('partMediaTypes')) {
         strings(
@@ -732,9 +736,10 @@ class ContractTestRunner {
     }
     if (rawBody is Map && rawBody['file'] is String) {
       body = RequestBodyDraft.approvedFile(mediaType:rawBody['mediaType'] as String,file:access.pathFor(p.join(access.boundary,rawBody['file'] as String)),access:access);
-    } else if (rawBody is Map && rawBody['externalExample'] is String) {
+    } else if (rawBody is Map && rawBody.containsKey('externalExample')) {
+      final choice = rawBody['externalExample'];
       body = RequestBodyDraft.example(plan.captureBodyExample(rawBody['mediaType'] as String,
-        name: rawBody['externalExample'] == '' ? null : rawBody['externalExample'] as String));
+        name: choice is Map ? choice['name'] as String : choice == '' ? null : choice as String));
     } else if (rawBody is Map && exact['body'] is Map) {
       final media = rawBody['mediaType'] as String,
           text = exact['body']['text'] as String;

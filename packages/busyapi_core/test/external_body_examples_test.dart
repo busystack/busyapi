@@ -8,6 +8,54 @@ import 'test_support.dart';
 
 void main() {
   modeledExternalExamples();
+  test('an empty named external body choice survives save, cold reopen and independent CLI', () async {
+    final temp = await Directory.systemTemp.createTemp('busyapi-empty-example-name-');
+    addTearDown(() => temp.delete(recursive: true));
+    final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);
+    addTearDown(engine.close);
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    const bytes = [0, 255, 128], media = 'application/octet-stream';
+    final seen = <List<int>>[];
+    server.listen((request) async {
+      seen.add(await request.fold<List<int>>([], (all, chunk) => all..addAll(chunk)));
+      request.response.statusCode = 204;await request.response.close();
+    });
+    await File('${temp.path}/body.bin').writeAsBytes(bytes);
+    final source = File('${temp.path}/api.json');
+    final text = jsonEncode({
+      'openapi': '3.2.1', 'info': {'title': 'Empty name', 'version': '1'},
+      'servers': [{'url': 'http://127.0.0.1:${server.port}'}],
+      'paths': {'/p': {'post': {
+        'requestBody': {'content': {media: {'schema': {'not': {'type': 'null'}},
+          'examples': {'': {'externalValue': 'body.bin'}}}}},
+        'responses': {'204': {'description': 'Received'}},
+      }}},
+    });
+    await source.writeAsString(text);
+    var project = await BusyProject.open(source.path, engine);
+    addTearDown(() => project.close());
+    final root = source.uri.toString();
+    final plan = await project.prepareRequest(root, resource: root, pointer: '/paths/~1p/post');
+    addTearDown(plan.close);
+    final draft = OperationRequestDraft(planIdentity: plan.identity,
+        body: RequestBodyDraft.example(plan.captureBodyExample(media, name: '')));
+    final changes = await project.applyRefactoring(await plan.planCase('Empty named', draft));
+    for (final id in changes) await project.save(project.store.get(id));
+    final manifest = jsonDecode(await File('${temp.path}/busyapi.yaml').readAsString());
+    expect(manifest['tests'][0]['body']['externalExample'], {'name': ''});
+    project.close();project = await BusyProject.open(temp.path, engine);
+    final cold = await project.prepareRequest(root, resource: root, pointer: '/paths/~1p/post');
+    addTearDown(cold.close);
+    final reopened = await ContractTestRunner.reopenCase(cold, 'Empty named', project.access);
+    expect(reopened.body.capturedExample!.name, '');
+    final result = await const ContractRequestExecutor().execute(cold, reopened, resolveSecret: (_) async => null);
+    try { expect(result.conforming, true); } finally { await result.close(); }
+    final cli = await Process.run('$testBundle/busyapi', ['test', temp.path, '--case', 'Empty named', '--json'],
+        environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
+    expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');
+    expect(seen, [bytes, bytes]);expect(await source.readAsString(), text);
+  });
   for (final version in ['3.0.4', '3.1.2', '3.2.0', '3.2.1']) {
     test('$version captured body examples retain binary/empty bytes, ownership and CLI cases', () async {
       final directory = await Directory.systemTemp.createTemp('busyapi-external-body-');

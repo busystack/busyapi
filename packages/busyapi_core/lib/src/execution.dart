@@ -1254,7 +1254,8 @@ class OperationRequestPlan {
       if(draft.streamStopAfterRecords!=null)'stream':{'stopAfterRecords':draft.streamStopAfterRecords},
       if (body.kind != RequestBodyKind.none) 'body': {
         'mediaType': body.mediaType,
-        if (body.capturedExample != null) 'externalExample': body.capturedExample!.name ?? '',
+        if (body.capturedExample != null) 'externalExample':
+          body.capturedExample!.name == '' ? {'name': ''} : body.capturedExample!.name ?? '',
         if (body.kind == RequestBodyKind.binaryFile) 'file': relativePath(body.file!),
         if (body.capturedExample == null && body.kind != RequestBodyKind.binaryFile) ...{
           'representation': (body.kind == RequestBodyKind.multipart || body.kind == RequestBodyKind.form) && body.text == null ? 'fields' : body.modeled || body.kind == RequestBodyKind.multipart || body.kind == RequestBodyKind.form ? 'data' : 'serialized',
