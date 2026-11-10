@@ -7,6 +7,36 @@ const {SourceDocument}=require('./dist/document.cjs');
 const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
 const pointer='/paths/~1items/get/responses/200/content/application~1json/schema';
 
+for(const version of ['3.1.2','3.2.0','3.2.1'])for(const format of ['yaml','json'])for(const cross of [false,true])for(const kind of ['schema','header'])
+test(`${version} ${format} whole-object extraction relocates every captured role kind=${kind} cross=${cross}`,async()=>{
+ const root='file:///project/source/roles.'+format,destination=cross?'file:///project/target/roles.'+format:root;
+ const at='/components/schemas/Owner/properties/Shared',to='/components/'+(kind==='schema'?'schemas':'headers')+'/Extracted';
+ const api=components=>({openapi:version,info:{title:'Shared roles',version:'1'},paths:{},components});
+ const value=api({schemas:{Owner:{properties:{Shared:{description:'[Guide](guide.md)',schema:{type:'integer',minimum:'EXACT'},example:'EXACT'}}},Use:{$ref:'#'+at}},headers:{Use:{$ref:'#'+at}}});
+ const encode=value=>(format==='yaml'?'# Keep roles\r\n'+YAML.stringify(value).replaceAll('\n','\r\n'):JSON.stringify(value)).replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const resources=[{id:root,text:encode(value),generation:1},...(cross?[{id:destination,text:encode(api({schemas:{},headers:{}})),generation:2}]:[])];
+ const input={snapshot:'all-roles',resources,contexts:[{root,resources:resources.map(resource=>resource.id)}],target:{root,resource:root,pointer:at,generation:1,kind},name:'Extracted',destinationResource:destination};
+ const frozen=resources.map(resource=>resource.text),before=createGraph({root,resources}).graph;
+ const plan=planExtract(input),output=apply(input,plan),after=createGraph({root,resources:output}).graph;
+ assert.equal(after.issues.length,0);assert.equal(analyse({root,resources:output}).status,'complete');
+ for(const role of ['schema','header']){
+  assert(before.scopeAs(root,at,role));assert(after.scopeAs(destination,to,role));
+  const use='/components/'+(role==='schema'?'schemas':'headers')+'/Use';
+  const ref=after.referenceAs(root,use,'$ref',role);assert.equal(ref.targetResource,destination);assert.equal(ref.targetPointer,to);
+ }
+ assert.equal(after.referenceAs(root,at,'$ref','schema').targetPointer,to);
+ const original=new SourceDocument(resources[0].text,root),copy=new SourceDocument(output.find(resource=>resource.id===destination).text,destination);
+ assert.equal(copy.dataJson(to+'/schema'),original.dataJson(at+'/schema'));
+ const evaluate=async(packet,target)=>evaluateSchemas({root,resources:packet,snapshot:'role-proof',runtimeInstances:[
+  ...['9007199254740993','9007199254740992'].map(text=>({subject:'request-body',location:text,text,schema:{resource:target.resource,pointer:target.pointer+'/schema'}})),
+ ]});
+ assert.deepEqual((await evaluate(resources,{resource:root,pointer:at})).runtimeEvaluations.map(proof=>proof.valid),[true,false]);
+ assert.deepEqual((await evaluate(output,{resource:destination,pointer:to})).runtimeEvaluations.map(proof=>proof.valid),[true,false]);
+ assert.deepEqual(resources.map(resource=>resource.text),frozen);
+ const inherited=structuredClone(value);inherited.components.schemas.Owner.$id='https://schemas.invalid/owner';
+ assert.throws(()=>planExtract({...input,resources:[{...resources[0],text:encode(inherited)},...resources.slice(1)]}),error=>error.code?.startsWith('refactor.'));
+});
+
 for(const version of ['2.0','3.0.4','3.1.2','3.2.0','3.2.1'])for(const format of ['yaml','json'])for(const external of [false,true])
 test(`${version} ${format} one-step schema inlining retains recursive definitions external=${external}`,async()=>{
  const root='file:///inline/api.'+format,model='file:///inline/models/node.'+format;

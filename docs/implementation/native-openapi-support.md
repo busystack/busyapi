@@ -308,13 +308,27 @@ registered Source/search suites check distinct role identities and obsolete
 producer rejection; native `schema_roles_test.dart` follows captured Header →
 Schema → Header targets at one source location without changing source bytes.
 
-W6 review still finds a concrete unimplemented shared-role maintenance mapping:
-`refactoring_copy.ts` captures one primary kind and blanket-refuses independently
-typed incoming targets under a copied range. Its current relocation map moves
-every interpretation at that physical range. Safely extracting only one role
-would require preserving the other role at source and repairing only the chosen
-role's consumers through the existing ownership/transaction owners. The static
-recursive inline completion above does not implement that transformation.
+W6's existing whole-range extraction/definition-move owner now moves every
+captured interpretation together. It selects the requested canonical destination
+kind, repairs references by source/target role and preserves each intrinsic
+forwarding role through one physical spelling. Final and cold graphs must retain
+all interpreted kinds/families, all static connections, schema resources/dialects,
+dynamic scopes, Markdown contexts, literal values and captured bytes. Conflicting
+physical repairs still refuse the plan. Design now passes its selected kind to
+the same extraction/file transaction used by Core and CLI `--context-kind`.
+Prepared, **not run**: the registered copy suite adds same-file/cross-file shared
+Schema/Header relocation in modern families, YAML/JSON, selected destination
+roles, exact original-schema comparisons and inherited-resource negatives.
+Core `shared_role_refactoring_test.dart` covers actual Header HTTP proof,
+cancel/stale review, Undo/Redo, save/cold reopen and independent CLI review/apply
+and contract cases. The existing native role suite additionally exercises
+extraction review Cancel/Apply and source history through Design.
+
+The remaining shared-role maintenance mapping is extraction of only one role:
+preserving another role at source and repairing only the chosen role's consumers
+requires the existing ownership allocator to supply that separation. The whole
+range transformation does not claim that behavior. The static recursive inline
+completion above does not supply that ownership split either.
 Identified-resource inlining, changed recursive shared targets and reachable
 dynamic scopes retain their separate unavailable equivalence proofs. These are
 implementation/proof boundaries, not demonstrated target-spec restrictions.

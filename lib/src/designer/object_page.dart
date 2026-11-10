@@ -1977,6 +1977,7 @@ Future<void> _extractObjectComponent(
                   'generation': prepared['generation'],
                   'pointer': prepared['pointer'],
                   'range': prepared['range'],
+                  'kind': prepared['kind'],
                 },
                 values['name'],
                 destinationResource: values['destination'],
@@ -2052,6 +2053,7 @@ Future<void> _extractObjectComponent(
               'generation': prepared['generation'],
               'pointer': prepared['pointer'],
               'range': prepared['range'],
+              'kind': prepared['kind'],
             },
             name,
             p.normalize(

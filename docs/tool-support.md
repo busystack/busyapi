@@ -1000,6 +1000,12 @@ captured roles of shared source objects. Design follows the selected definition
 role, including repeated navigation to the same physical pointer, and retains
 the object page's interpretation in its saved layout.
 
+Reviewed whole-object extraction and definition movement retain every captured
+role of a shared source range. Design and CLI `--context-kind` select the
+destination object kind; canonical graph checks retain all original connections,
+schema identities, Markdown contexts and source values. Separating just one
+role remains unavailable when independent ownership has not been established.
+
 `swagger_content.mjs` uses supported component hooks and exact Reference values
 for schema constraints, inherited parameters and additional operations. Its
 browser-module build uses upstream React/React DOM **18.3.1**. Exact imported and

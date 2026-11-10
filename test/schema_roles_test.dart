@@ -48,6 +48,14 @@ void main() {
       final c=WorkspaceController(EngineProcess(executable:runtimeNode,helper:runtimeHelper),
         StateLocations(config:'${temp.path}/config',state:'${temp.path}/state',cache:'${temp.path}/cache'));
       final errors=<Object>[];
+      Future<void> waitFor(bool Function() condition) async {
+        final timer=Stopwatch()..start();
+        while(!condition()&&errors.isEmpty&&timer.elapsed<const Duration(seconds:12)) {
+          await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds:20)));
+          await tester.pump();
+        }
+        expect(condition(),true);expect(errors,isEmpty);await tester.pumpAndSettle();
+      }
       Future<void> ready(String kind) async {
         final timer=Stopwatch()..start();
         while(timer.elapsed<const Duration(seconds:12)) {
@@ -74,6 +82,31 @@ void main() {
           await ready(kind);expect(c.selectedPointer,pointer);expect(c.buffer!.text,text);
         }
         expect(file.readAsStringSync(),text);
+        final extract=find.widgetWithText(BusyApiActionRow,'Extract to component…');
+        for(final accept in [false,true]) {
+          await waitFor(() => extract.evaluate().any((element)=>(element.widget as BusyApiActionRow).onTap!=null));
+          await tester.ensureVisible(extract);await tester.runAsync(() => tester.tap(extract));
+          final name=find.descendant(of:find.widgetWithText(BusyApiGroupedTextEntry,'Name'),matching:find.byType(TextField));
+          await waitFor(() => name.evaluate().isNotEmpty);
+          await tester.runAsync(() => tester.enterText(name,'Extracted'));
+          await tester.runAsync(() => tester.tap(find.widgetWithText(BusyApiDialogButton,'Apply')));
+          await waitFor(() => find.text('Review component extraction').evaluate().isNotEmpty);
+          expect(c.buffer!.text,text);
+          await tester.runAsync(() => tester.tap(find.widgetWithText(BusyApiDialogButton,accept?'Apply':'Cancel')));
+          await waitFor(() => find.text('Review component extraction').evaluate().isEmpty);
+          if(accept)await waitFor(() => c.buffer!.text!=text);
+          else expect(c.buffer!.text,text);
+        }
+        final accepted=c.buffer!.text;
+        await runWidgetIo(tester,() async {
+          final header=await c.project!.referencePage(c.root!,c.root!,'/components/headers/Use');
+          final schema=await c.project!.referencePage(c.root!,c.root!,'/components/schemas/Use');
+          expect(header['references'][0]['target']['pointer'],'/components/headers/Extracted');
+          expect(schema['references'][0]['target']['pointer'],'/components/headers/Extracted');
+          await c.undo();expect(c.buffer!.text,text);await c.redo();expect(c.buffer!.text,accepted);
+          await c.saveAll();
+        });
+        expect(file.readAsStringSync(),accepted);
       } finally {
         await tester.pumpWidget(const SizedBox());await runWidgetIo(tester,c.shutdown);c.dispose();temp.deleteSync(recursive:true);
       }
