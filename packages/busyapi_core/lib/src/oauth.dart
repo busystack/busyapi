@@ -11,6 +11,15 @@ import 'request.dart';
 
 typedef ExternalBrowserLauncher = Future<void> Function(Uri authorizationUri);
 
+class OAuthDevicePrompt {
+  const OAuthDevicePrompt({required this.userCode, required this.verificationUri,
+      required this.expiresAt, this.verificationUriComplete});
+  final String userCode;
+  final Uri verificationUri;
+  final Uri? verificationUriComplete;
+  final DateTime expiresAt;
+}
+
 class OAuthToken {
   const OAuthToken({
     required this.accessToken,
@@ -184,6 +193,107 @@ class OAuthClient {
       defaultAuthentication: 'basic',
       requestedScopes: selectedScopes,
     );
+  }
+
+  /// RFC 8628 polling is explicit grant work through the existing bounded
+  /// OAuth transport. Device codes never enter the prompt, logs or saved cases.
+  Future<OAuthToken> deviceAuthorization(
+    OperationRequestPlan plan, {
+    required String environment, required String scheme,
+    required Future<void> Function(OAuthDevicePrompt prompt) present,
+    required RunCancellation cancellation, SecretResolver? resolveSecret,
+    List<String> scopes = const [], OperationRequestDraft? draft,
+  }) async {
+    final selected = _configuration(plan, environment, scheme), flows = selected.$1['flows'];
+    final flow = flows is Map ? flows['deviceAuthorization'] : null;
+    if (flow is! Map) throw CoreFailure('oauth.flow', 'The selected scheme has no device authorization flow.');
+    final configuration = selected.$2, clientId = _clientId(configuration);
+    final authorization = _endpoint(flow['deviceAuthorizationUrl'], () => _base(plan, environment, draft), 'device authorization');
+    final endpoint = _endpoint(flow['tokenUrl'], () => _base(plan, environment, draft), 'token');
+    final requested = _scopes(plan, draft, scheme, configuration, scopes, environment);
+    final owned = RunCancellation();
+    final unsubscribe = cancellation.listen(owned.cancel);
+    var expired = false;
+    final deadline = Timer(timeout, owned.cancel);
+    Timer? expiry;
+    try {
+      final response = await _post(plan, environment, authorization,
+          {'client_id': clientId, if (requested.isNotEmpty) 'scope': requested.join(' ')},
+          configuration, resolveSecret, owned, defaultAuthentication: 'none');
+      if (response.status != 200 || response.body.containsKey('error')) {
+        throw CoreFailure('oauth.device.authorization', 'The device authorization endpoint refused this request.');
+      }
+      final data = response.body;
+      String bounded(String key) {
+        final value = data[key];
+        if (value is! String || value.isEmpty || value.length > 16384 || RegExp(r'[\x00-\x1f\x7f]').hasMatch(value)) {
+          throw CoreFailure('oauth.device.response', 'The device authorization response has invalid $key metadata.');
+        }
+        return value;
+      }
+      Duration duration(String key, {int? fallback}) {
+        final value = data.containsKey(key) ? data[key] : fallback;
+        if (value is! int || value < 1 || value > 315360000) {
+          throw CoreFailure('oauth.device.response', 'The device authorization response has invalid $key metadata.');
+        }
+        return Duration(seconds: value);
+      }
+      final code = bounded('device_code'), userCode = bounded('user_code');
+      final lifetime = duration('expires_in');
+      var interval = duration('interval', fallback: 5);
+      final verification = _endpoint(bounded('verification_uri'), () => '', 'device verification');
+      final complete = data.containsKey('verification_uri_complete')
+          ? _endpoint(bounded('verification_uri_complete'), () => '', 'complete device verification') : null;
+      final expiresAt = DateTime.now().toUtc().add(lifetime);
+      expiry = Timer(lifetime, () {expired = true;owned.cancel();});
+      _current(plan);owned.throwIfCancelled();
+      await Future.any<void>([present(OAuthDevicePrompt(userCode: userCode, verificationUri: verification,
+          verificationUriComplete: complete, expiresAt: expiresAt)), owned.whenCancelled.then<void>((_) => owned.throwIfCancelled())]);
+      while (true) {
+        await _deviceDelay(interval, owned);
+        _current(plan);owned.throwIfCancelled();
+        late ({int status, Map<String, dynamic> body}) token;
+        try {
+          token = await _post(plan, environment, endpoint,
+              {'grant_type': 'urn:ietf:params:oauth:grant-type:device_code', 'device_code': code, 'client_id': clientId},
+              configuration, resolveSecret, owned, defaultAuthentication: 'none', allowErrorResponse: true);
+        } on CoreFailure catch (error) {
+          if (error.code != 'oauth.exchange.timeout' || owned.cancelled) rethrow;
+          interval *= 2;
+          continue;
+        }
+        _current(plan);owned.throwIfCancelled();
+        if (token.status >= 200 && token.status < 300 && !token.body.containsKey('error')) {
+          return _issuedToken(plan, environment, token.body, owned, requested);
+        }
+        if (token.status != 400) throw CoreFailure('oauth.device.token', 'The device token endpoint refused this grant.');
+        switch (token.body['error']) {
+          case 'authorization_pending': continue;
+          case 'slow_down': interval += const Duration(seconds: 5);continue;
+          case 'access_denied': throw CoreFailure('oauth.device.denied', 'Device authorization was denied.');
+          case 'expired_token': throw CoreFailure('oauth.device.expired', 'The device authorization code expired.');
+          default: throw CoreFailure('oauth.device.token', 'The device token endpoint refused this grant.');
+        }
+      }
+    } on CoreFailure catch (error) {
+      if (owned.cancelled && !cancellation.cancelled) {
+        throw CoreFailure(expired ? 'oauth.device.expired' : 'oauth.timeout',
+            expired ? 'The device authorization code expired.' : 'Device authorization exceeded its local deadline.');
+      }
+      rethrow;
+    } finally {
+      deadline.cancel();expiry?.cancel();unsubscribe();owned.cancel();
+    }
+  }
+
+  static Future<void> _deviceDelay(Duration interval, RunCancellation cancellation) async {
+    cancellation.throwIfCancelled();
+    final result = Completer<void>();
+    final timer = Timer(interval, () {if (!result.isCompleted) result.complete();});
+    final unsubscribe = cancellation.listen(() {
+      if (!result.isCompleted) result.completeError(CoreFailure('cancelled', 'Device authorization was cancelled.'));
+    });
+    try { await result.future; } finally {timer.cancel();unsubscribe();}
   }
 
   static List<String> _scopes(
@@ -411,6 +521,87 @@ class OAuthClient {
   }
 
   Future<OAuthToken> _exchange(
+    OperationRequestPlan plan, String environment, Uri endpoint,
+    Map<String, String> fields, Map<String, dynamic> configuration,
+    SecretResolver? resolveSecret, RunCancellation cancellation, {
+    required String defaultAuthentication, List<String> requestedScopes = const [],
+  }) async {
+    final response = await _post(plan, environment, endpoint, fields, configuration,
+        resolveSecret, cancellation, defaultAuthentication: defaultAuthentication);
+    if (response.status < 200 || response.status >= 300 || response.body.containsKey('error')) {
+      throw CoreFailure('oauth.token', 'OAuth token endpoint returned HTTP ${response.status} without a successful grant.');
+    }
+    return _issuedToken(plan, environment, response.body, cancellation, requestedScopes);
+  }
+
+  OAuthToken _issuedToken(OperationRequestPlan plan, String environment,
+      Object? decoded, RunCancellation cancellation, List<String> requestedScopes) {
+      if (decoded is! Map ||
+          decoded['access_token'] is! String ||
+          (decoded['access_token'] as String).isEmpty ||
+          (decoded['access_token'] as String).length > 64 * 1024) {
+        throw CoreFailure(
+          'oauth.token',
+          'OAuth token response has no usable access token',
+        );
+      }
+      final tokenType = decoded['token_type'];
+      if (tokenType is! String || tokenType.toLowerCase() != 'bearer') {
+        throw CoreFailure(
+          'oauth.token.type',
+          'The token endpoint must return a supported Bearer token_type. This token was not accepted.',
+        );
+      }
+      if (RegExp(r'[\x00-\x20\x7f]')
+          .hasMatch(decoded['access_token'] as String)) {
+        throw CoreFailure(
+          'oauth.token',
+          'The token endpoint returned an invalid access token.',
+        );
+      }
+      if (decoded.containsKey('scope') && decoded['scope'] is! String) {
+        throw CoreFailure(
+          'oauth.token.scope',
+          'The token endpoint returned invalid scope metadata.',
+        );
+      }
+      final expires = decoded['expires_in'];
+      if (decoded.containsKey('expires_in') &&
+          (expires is! num ||
+              !expires.isFinite ||
+              expires < 0 ||
+              expires > 315360000)) {
+        throw CoreFailure(
+          'oauth.token.expiry',
+          'The token endpoint returned invalid expiry metadata.',
+        );
+      }
+      final expiresAt = expires is num && expires.isFinite && expires >= 0
+          ? DateTime.now().toUtc().add(
+              Duration(seconds: expires.toInt().clamp(0, 315360000)),
+            )
+          : null;
+      _current(plan);
+      cancellation.throwIfCancelled();
+      return OAuthToken(
+        accessToken: decoded['access_token'] as String,
+        tokenType: 'Bearer',
+        refreshToken: decoded['refresh_token'] is String
+            ? decoded['refresh_token'] as String
+            : null,
+        expiresAt: expiresAt,
+        scope: decoded['scope'] is String
+            ? (decoded['scope'] as String)
+                  .split(RegExp(r'\s+'))
+                  .where((value) => value.isNotEmpty)
+                  .toList()
+            : List.unmodifiable(requestedScopes),
+        owner: plan.identity,
+        environment: environment,
+      );
+  }
+
+  Future<({int status, Map<String, dynamic> body})> _post(
     OperationRequestPlan plan,
     String environment,
     Uri endpoint,
@@ -419,7 +610,7 @@ class OAuthClient {
     SecretResolver? resolveSecret,
     RunCancellation cancellation, {
     required String defaultAuthentication,
-    List<String> requestedScopes = const [],
+    bool allowErrorResponse = false,
   }) async {
     cancellation.throwIfCancelled();
     final clientId = _clientId(configuration);
@@ -547,11 +738,8 @@ class OAuthClient {
       } finally {
         await chunks.cancel();
       }
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw CoreFailure(
-          'oauth.token',
-          'OAuth token endpoint returned HTTP ${response.statusCode}',
-        );
+      if (!allowErrorResponse && (response.statusCode < 200 || response.statusCode >= 300)) {
+        throw CoreFailure('oauth.token', 'OAuth token endpoint returned HTTP ${response.statusCode}');
       }
       Object? decoded;
       try {
@@ -562,69 +750,9 @@ class OAuthClient {
           'OAuth token response is not bounded UTF-8 JSON',
         );
       }
-      if (decoded is! Map ||
-          decoded['access_token'] is! String ||
-          (decoded['access_token'] as String).isEmpty ||
-          (decoded['access_token'] as String).length > 64 * 1024) {
-        throw CoreFailure(
-          'oauth.token',
-          'OAuth token response has no usable access token',
-        );
-      }
-      final tokenType = decoded['token_type'];
-      if (tokenType is! String || tokenType.toLowerCase() != 'bearer') {
-        throw CoreFailure(
-          'oauth.token.type',
-          'The token endpoint must return a supported Bearer token_type. This token was not accepted.',
-        );
-      }
-      if (RegExp(r'[\x00-\x20\x7f]')
-          .hasMatch(decoded['access_token'] as String)) {
-        throw CoreFailure(
-          'oauth.token',
-          'The token endpoint returned an invalid access token.',
-        );
-      }
-      if (decoded.containsKey('scope') && decoded['scope'] is! String) {
-        throw CoreFailure(
-          'oauth.token.scope',
-          'The token endpoint returned invalid scope metadata.',
-        );
-      }
-      final expires = decoded['expires_in'];
-      if (decoded.containsKey('expires_in') &&
-          (expires is! num ||
-              !expires.isFinite ||
-              expires < 0 ||
-              expires > 315360000)) {
-        throw CoreFailure(
-          'oauth.token.expiry',
-          'The token endpoint returned invalid expiry metadata.',
-        );
-      }
-      final expiresAt = expires is num && expires.isFinite && expires >= 0
-          ? DateTime.now().toUtc().add(
-              Duration(seconds: expires.toInt().clamp(0, 315360000)),
-            )
-          : null;
-      _current(plan);
-      cancellation.throwIfCancelled();
-      return OAuthToken(
-        accessToken: decoded['access_token'] as String,
-        tokenType: 'Bearer',
-        refreshToken: decoded['refresh_token'] is String
-            ? decoded['refresh_token'] as String
-            : null,
-        expiresAt: expiresAt,
-        scope: decoded['scope'] is String
-            ? (decoded['scope'] as String)
-                  .split(RegExp(r'\s+'))
-                  .where((value) => value.isNotEmpty)
-                  .toList()
-            : List.unmodifiable(requestedScopes),
-        owner: plan.identity,
-        environment: environment,
-      );
+      if (decoded is! Map) throw CoreFailure('oauth.token', 'OAuth endpoint response must be a JSON object.');
+      _current(plan);cancellation.throwIfCancelled();
+      return (status: response.statusCode, body: Map<String, dynamic>.from(decoded));
     } on TimeoutException {
       stop('oauth.exchange.timeout');
       failure();

@@ -674,7 +674,7 @@ export function requestOperation(input:any,captured?:ReturnType<typeof createGra
           ...(v?.type==='apiKey'?{in:v.in,parameterName:v.name}:{}),...(v?.type==='http'?{scheme:v.scheme,bearerFormat:v.bearerFormat}:{}),
           ...(family==='2.0'&&v?.type==='basic'?{scheme:'basic'}:{}),
           ...(v?.type==='openIdConnect'?{openIdConnectUrl:v.openIdConnectUrl}:{}),
-          ...(v?.type==='oauth2'?{flows:family==='2.0'?{[({implicit:'implicit',password:'password',application:'clientCredentials',accessCode:'authorizationCode'} as Record<string,string>)[v.flow]]:{authorizationUrl:v.authorizationUrl,tokenUrl:v.tokenUrl,scopes:v.scopes,source:selected.source}}:oauthFlows(selected.resource,selected.pointer,v.flows,location)}:{}),
+          ...(v?.type==='oauth2'?{oauth2MetadataUrl:v.oauth2MetadataUrl,flows:family==='2.0'?{[({implicit:'implicit',password:'password',application:'clientCredentials',accessCode:'authorizationCode'} as Record<string,string>)[v.flow]]:{authorizationUrl:v.authorizationUrl,tokenUrl:v.tokenUrl,scopes:v.scopes,source:selected.source}}:oauthFlows(selected.resource,selected.pointer,v.flows,location,graph.scopeAs(selected.resource,selected.pointer,'security')?.family)}:{}),
           ...(v?.type==='mutualTLS'?{mutualTLS:true}:{})});
       }
     }
@@ -716,8 +716,8 @@ export function requestOperation(input:any,captured?:ReturnType<typeof createGra
     }
     responses.push({status,source:location(input.resource,at),definition:selected.source,description:v?.description,headers,bodyAllowed:responseAllowsContent(family,v),content:family==='2.0'?swaggerResponseContent(graph,selected.resource,selected.pointer,swaggerMedia(graph,input.resource,input.pointer,'produces'),location).map(item=>({...item,...runtimeMediaDescription(item.mediaType)})):media(selected.resource,selected.pointer+'/content',v?.content)});
   }
-  const identity=createHash('sha256').update(JSON.stringify(['request-examples-v2',multipartProjectionRevision,schemaExamplesRevision,input.snapshot,input.resource,input.pointer,context.occurrence])).digest('hex');
-  return {version:1,snapshot:input.snapshot,root:input.root,identity,family,representationRevisions:{multipart:multipartProjectionRevision,schemaExamples:schemaExamplesRevision,xml:'2',linkset:'2',stream:'2',parameterExamples:'2',partExamples:'1'},operation:{method,customMethod:context.customMethod===true,path:context.path,
+  const identity=createHash('sha256').update(JSON.stringify(['request-examples-v2','oauth-device-v1',multipartProjectionRevision,schemaExamplesRevision,input.snapshot,input.resource,input.pointer,context.occurrence])).digest('hex');
+  return {version:1,snapshot:input.snapshot,root:input.root,identity,family,representationRevisions:{multipart:multipartProjectionRevision,schemaExamples:schemaExamplesRevision,xml:'2',linkset:'2',stream:'2',parameterExamples:'2',partExamples:'1',oauth:'1'},operation:{method,customMethod:context.customMethod===true,path:context.path,
     operationId:typeof node.value.operationId==='string'?node.value.operationId:undefined,summary:typeof node.value.summary==='string'?node.value.summary:undefined,
     source:location(input.resource,input.pointer),occurrence:context.occurrence,pathItem:location(context.pathItem.resource,context.pathItem.pointer)},
     servers,parameters:parameters.visible.filter(entry=>family!=='2.0'||!['body','formData'].includes(entry.location!)).map(parameter),security:{requirements,schemes:Object.fromEntries(schemes),anonymous:requirements.some(requirement=>requirement.schemes.length===0)||!securityField},requestBody,ignoredRequestBody,responses,responseStatusNamePolicy:responseStatusNamePolicy(family),
@@ -759,12 +759,13 @@ export function planResponseExample(input:any) {
     redacted:input.redacted===true,bodyIdentity:createHash('sha256').update(input.raw).digest('hex')};
 }
 
-function oauthFlows(resource:string,pointer:string,flows:any,location:(resource:string,pointer:string)=>Located){
+function oauthFlows(resource:string,pointer:string,flows:any,location:(resource:string,pointer:string)=>Located,family?:string){
   if(!flows||typeof flows!=='object')return {};
   const result:any={};
   for(const name of securityFlowOrder)if(flows[name]&&typeof flows[name]==='object'){
+    if(name==='deviceAuthorization'&&family!=='3.2')continue;
     const value=flows[name],at=pointer+'/flows/'+name;
-    result[name]={authorizationUrl:value.authorizationUrl,tokenUrl:value.tokenUrl,refreshUrl:value.refreshUrl,
+    result[name]={authorizationUrl:value.authorizationUrl,deviceAuthorizationUrl:name==='deviceAuthorization'?value.deviceAuthorizationUrl:undefined,tokenUrl:value.tokenUrl,refreshUrl:value.refreshUrl,
       scopes:value.scopes&&typeof value.scopes==='object'?value.scopes:{},source:location(resource,at)};
   }
   return result;

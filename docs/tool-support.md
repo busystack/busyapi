@@ -1295,6 +1295,16 @@ and outstanding URI copy/inline and migration coverage.
 
 Desktop persistence uses libsecret **0.21.4** through a BusyAPI-owned native channel and schema. The strict Snap exposes `password-manager-service` but does not assume it is connected; locked, missing, declined, and disconnected paths remain visible session-only operation with no file fallback. `network` and `network-bind` are limited to deliberate request/mock/OAuth/Git execution. Document navigation and messages retain the independent WebKit resource/network denials described above.
 
+OAS 3.2 device authorization uses the declared `deviceAuthorizationUrl` and
+`tokenUrl`, selected environment/server, client authentication and requested
+scopes. Native Request displays the verification page and public user code while
+Core polls under RFC 8628 interval/slow-down rules. Cancel, expiry, denial,
+timeouts and stale owners stop the grant; device codes are never saved or
+displayed. An issued Bearer token uses the existing session secret, scope and
+expiry owners. Saved cases/CLI continue to use credential references and
+explicit secret input, rather than storing authorization responses. The existing
+HTTPS/system-trust and controlled-loopback endpoint policy applies to this flow.
+
 Swagger 2.0 native-family implementation and qualification are tracked with
 OpenAPI 3.0 in [the support matrix](implementation/native-openapi-support.md).
 Creation accepts `--openapi 2.0` and writes `swagger: "2.0"`; ordinary open,

@@ -127,6 +127,7 @@ class RequestRunController extends ChangeNotifier {
   final Map<(String?, RequestBodyKind, bool), _RequestBodyState> _bodyDrafts = {};
   RequestBodyKind bodyKind = RequestBodyKind.raw;
   CapturedRequestBodyExample? bodyExample;
+  OAuthDevicePrompt? oauthDevicePrompt;
   final Map<RequestTimeoutKind, String> timeoutInputs = {};
   final Map<String, int> _tlsSelections = {};
   Duration connectTimeout = const Duration(seconds: 15),
@@ -743,6 +744,7 @@ class RequestRunController extends ChangeNotifier {
     bodyKind = RequestBodyKind.raw;
     bodyExample = null;
     bodyStructured = false;
+    oauthDevicePrompt = null;
     partMediaTypes.clear();
     fileShapes.clear();
     partSchemas.clear();
@@ -1371,11 +1373,21 @@ class RequestRunController extends ChangeNotifier {
 
   void cancel() {
     cancellation?.cancel();
+    oauthDevicePrompt = null;
     if (phase == 'preparing') {
       ++_epoch;
       phase = 'cancelled';
       _notify();
     }
+  }
+
+  Future<void> openDeviceVerification(OAuthDevicePrompt prompt) async {
+    if (!identical(prompt, oauthDevicePrompt) || phase != 'authorizing' ||
+        plan == null || plan!.outdated || cancellation?.cancelled != false ||
+        !DateTime.now().toUtc().isBefore(prompt.expiresAt)) {
+      throw CoreFailure('oauth.stale', 'The device authorization prompt is no longer current.');
+    }
+    await ExternalUriService().open(prompt.verificationUriComplete ?? prompt.verificationUri);
   }
 
   Future<void> writeSecret(
@@ -1405,7 +1417,7 @@ class RequestRunController extends ChangeNotifier {
     }
   }
 
-  Future<void> authorizeOAuth(String scheme, {required bool browser}) async {
+  Future<void> authorizeOAuth(String scheme, {required bool browser, bool device = false}) async {
     final captured = plan, selectedEnvironment = environment;
     if (captured == null ||
         selectedEnvironment == null ||
@@ -1437,10 +1449,26 @@ class RequestRunController extends ChangeNotifier {
     final epoch = ++_epoch, token = RunCancellation();
     cancellation = token;
     phase = 'authorizing';
+    oauthDevicePrompt = null;
     failure = failureMessage = null;
     _notify();
     try {
-      final issued = browser
+      final issued = device
+          ? await const OAuthClient().deviceAuthorization(captured,
+              environment: selectedEnvironment, draft: authorizationDraft, scheme: scheme,
+              cancellation: token,
+              resolveSecret: (reference) async {
+                try { return await secrets.read(reference, cancellation: token); }
+                on SecretStoreFailure catch (error) { throw CoreFailure(error.code, error.message); }
+              },
+              present: (prompt) async {
+                if (_disposed || epoch != _epoch || !identical(captured, plan) || captured.outdated ||
+                    environment != selectedEnvironment || token.cancelled) {
+                  throw CoreFailure('cancelled', 'The device authorization owner changed.');
+                }
+                oauthDevicePrompt = prompt;_notify();
+              })
+          : browser
           ? await const OAuthClient().authorizationCode(
               captured,
               environment: selectedEnvironment,
@@ -1513,6 +1541,7 @@ class RequestRunController extends ChangeNotifier {
       failureMessage = error is CoreFailure ? error.message : null;
     } finally {
       if (epoch == _epoch) {
+        oauthDevicePrompt = null;
         if (phase == 'authorizing') {
           phase = token.cancelled ? 'cancelled' : 'incomplete';
           failure = token.cancelled ? 'cancelled' : 'oauth.stale';
@@ -2047,7 +2076,7 @@ class RequestRunPanel extends StatelessWidget {
         final flows = entry.value['flows'];
         config.putIfAbsent(
           'clientAuthentication',
-          () => flows is Map && flows['authorizationCode'] is Map
+          () => flows is Map && (flows['authorizationCode'] is Map || flows['deviceAuthorization'] is Map)
               ? 'none'
               : 'basic',
         );
@@ -2934,8 +2963,20 @@ class RequestRunPanel extends StatelessWidget {
                                     ),
                               child: Text(l.oauthClientToken(oauth.$1)),
                             ),
+                          if (oauth.$4)
+                            BusyApiPushButton.standard(
+                              onPressed: run.busy || run.environment == null ? null
+                                  : () => _performRequestAction(context, run,
+                                      () => run.authorizeOAuth(oauth.$1, browser: false, device: true)),
+                              child: Text('Device authorization · ${oauth.$1}')),
                         ],
                       ),
+                  if (run.oauthDevicePrompt case final prompt?) ...[
+                    BusyApiActionRow(title: 'Device authorization code', subtitle: prompt.userCode),
+                    BusyApiActionRow(title: 'Open verification page', subtitle: (prompt.verificationUriComplete ?? prompt.verificationUri).toString(),
+                      onTap: () => _performRequestAction(context, run,
+                          () => run.openDeviceVerification(prompt))),
+                  ],
                   if ((plan.result['parameters'] as List).isNotEmpty) ...[
                     const SizedBox(height: BusyApiSpacing.sm),
                     SectionLabel(l.requestParameters),
@@ -3384,7 +3425,7 @@ class RequestRunPanel extends StatelessWidget {
     return output;
   }
 
-  static List<(String, bool, bool)> _oauthSchemes(RequestRunController run) {
+  static List<(String, bool, bool, bool)> _oauthSchemes(RequestRunController run) {
     final plan = run.plan!, alternative = run.securityAlternative;
     if (alternative == null || run.environment == null) return const [];
     if (alternative < 0 ||
@@ -3404,6 +3445,8 @@ class RequestRunPanel extends StatelessWidget {
                 declarations[name]['flows']['authorizationCode'] is Map,
             declarations[name]['flows'] is Map &&
                 declarations[name]['flows']['clientCredentials'] is Map,
+            declarations[name]['flows'] is Map &&
+                declarations[name]['flows']['deviceAuthorization'] is Map,
           ),
     ];
   }

@@ -6,6 +6,18 @@ const {deriveBundle}=require('./dist/derived_bundle.cjs');
 const {requestFormDataValues}=require('./dist/execution.cjs');
 const {requestFormMediaTypes}=require('./dist/execution.cjs');
 
+for(const version of ['3.0.4','3.1.2','3.2.0','3.2.1'])test(`${version} request security projects device endpoints only for its native family`,()=>{
+ const root='file:///execution/device.json',deviceAuthorizationUrl='https://auth.example/device';
+ const value={openapi:version,info:{title:'Native device flow',version:'business'},paths:{'/p':{get:{security:[{oauth:[]}],responses:{204:{description:'Empty'}}}}},
+  components:{securitySchemes:{oauth:{type:'oauth2',flows:{deviceAuthorization:{deviceAuthorizationUrl,tokenUrl:'https://auth.example/token',scopes:{}}}}}}};
+ const text=JSON.stringify(value),input={root,snapshot:version,resources:[{id:root,text,generation:0}]};
+ const plan=requestOperation({...input,resource:root,pointer:'/paths/~1p/get'});
+ assert.equal(plan.representationRevisions.oauth,'1');
+ if(version.startsWith('3.2'))assert.equal(plan.security.schemes.oauth.flows.deviceAuthorization.deviceAuthorizationUrl,deviceAuthorizationUrl);
+ else assert.equal(plan.security.schemes.oauth.flows.deviceAuthorization,undefined);
+ assert.equal(input.resources[0].text,text);
+});
+
 test('structured form data preserves scalar kinds, exact JSON and literal reference-looking payloads',()=>{
  const text=' {"number":900719925474099312345678901234567890,"string":"\\u0030","false":false,"null":null,"empty":"","array":[],"nested":[{"$ref":"literal","n":1e-999}],"__proto__":"ordinary"} ';
  const result=requestFormDataValues({text}),fields=Object.fromEntries(result.fields.map(field=>[field.name,field]));

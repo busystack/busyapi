@@ -1759,6 +1759,7 @@ extension RequestPlanning on BusyProject {
         (result['representationRevisions'] as Map)['stream'] != '2' ||
         (result['representationRevisions'] as Map)['parameterExamples'] != '2' ||
         (result['representationRevisions'] as Map)['partExamples'] != '1' ||
+        (result['representationRevisions'] as Map)['oauth'] != '1' ||
         result['operation'] is! Map ||
         result['servers'] is! List ||
         result['parameters'] is! List ||

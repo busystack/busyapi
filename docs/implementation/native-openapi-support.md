@@ -154,11 +154,32 @@ prepared Parameter save regression was corrected by source review.
 Overall **INCOMPLETE, unaccepted**. Remaining W1/W6 production-consumer
 reconciliation, documentation integration,
 W2/W3 reconciliation and the complete W7 acceptance journeys remain unfinished.
-One additional confirmed W1.13/application omission is the device authorization
-flow: metadata recognizes it, but the request flow projection omits
-`deviceAuthorizationUrl` and Core/native have no device authorization execution
-method/control. That is missing implementation, not held qualification or a
-specification restriction. No device-flow implementation has yet been written.
+The confirmed W1.13/application device-flow omission is now implemented at
+source level, unverified. Request projection retains `deviceAuthorizationUrl`
+only in an admitted 3.2 Security Scheme flow. Core `OAuthClient.deviceAuthorization`
+uses the existing bounded OAuth POST transport and original Bearer token validator;
+authorization-code and client-credentials methods retain those same owners.
+The device flow retains scope and client-authentication settings, defaults to
+public-client authentication, displays only the public user code/verification
+URI, observes the declared interval, adds five seconds on `slow_down`, and backs
+off after an owned exchange timeout. Denial, expiration, other OAuth errors,
+malformed metadata, redirects, local deadlines and cancellation terminate the
+grant without exposing response bodies/device codes. Pending delay timers have
+removable cancellation ownership. Stale plans reject each subsequent request
+and token publication. Native authorization uses the existing session secret
+store, scope/expiry ownership and late-result guards; its verification action
+rejects obsolete prompts. Request OAuth representation **1** is strictly admitted.
+
+Prepared, **not run**: registered `test_execution.cjs` checks native device-field
+projection and older-family exclusion; Core `oauth_device_authorization_test.dart`
+uses controlled device/token/API HTTP endpoints, actual polling/slow-down/backoff,
+cancellation, expiry, denial, invalid/redirect/stale controls, authenticated
+execution, saved credential references and independent CLI secret input. Native
+`oauth_device_request_test.dart` covers prompt/session token/request/Cancel and
+obsolete verification actions for both 3.2 patches. Existing OAuth regressions
+retain the shared authorization-code/client-credentials transport checks.
+The normative basis is OAS 3.2.1 OAuth Flow Objects and RFC 8628 §§3.1–3.5.
+No metadata discovery acquisition or unsupported token type is inferred.
 No boundary is reclassified as a target-specification restriction. Only source
 inspection, official specification/RFC reads, Git inspection and
 `git diff --check` have been performed. The execution hold and Snapcraft skip
