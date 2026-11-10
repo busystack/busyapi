@@ -34,6 +34,28 @@ const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
 const {SourceDocument}=require('./dist/document.cjs');
 const {resolveUri}=require('./dist/reference_graph.cjs');
 
+for(const format of ['yaml','json'])for(const version of ['3.2.0','3.2.1'])for(const targetVersion of ['3.1.2','3.0.4','2.0'])
+test(`${version} ${format} inferred XML array instructions retain their literal older applicability in ${targetVersion}`,async()=>{
+ const {requestMediaBytes}=require('./dist/execution.cjs');
+ const root='file:///xml-array/api.'+format;
+ for(const shape of ['reference','conjunction','singleton-type']){
+  const model=shape==='reference'?{$ref:'#/components/schemas/Base'}:shape==='conjunction'?{allOf:[{type:'array',items:{type:'string',xml:{name:'value'}}}]}:{type:['array'],items:{type:'string',xml:{name:'value'}}};
+  model.xml={nodeType:'element',name:'values'};
+  const value={openapi:version,info:{title:'XML applicability',version:'1'},paths:{'/p':{post:{requestBody:{content:{'application/xml':{schema:{$ref:'#/components/schemas/Values'}}}},responses:{204:{description:'Empty'}}}}},
+   components:{schemas:{Base:{type:'array',items:{type:'string',xml:{name:'value'}}},Values:model}}};
+  const text=format==='yaml'?YAML.stringify(value):JSON.stringify(value),input={root,snapshot:'xml-array-'+shape,resources:[{id:root,text,generation:0}]};
+  const before=await requestMediaBytes({...input,resource:root,pointer:'/paths/~1p/post',mediaType:'application/xml',text:'["A","雪"]'});
+  const result=await planMigration({...input,targetVersion,destination:'file:///delivered/xml-array/'});
+  assert.equal(result.complete,true,JSON.stringify(result.problems));
+  const cold={root:result.outputRoot,snapshot:'cold-'+shape,resources:result.outputs.map(output=>({...output,generation:0,aliases:Object.entries(result.manifest.resourceMappings).filter(([,path])=>path===output.path).map(([uri])=>uri)}))};
+  const after=await requestMediaBytes({...cold,resource:cold.root,pointer:'/paths/~1p/post',mediaType:'application/xml',text:'["A","雪"]'});
+  assert.equal(after.base64,before.base64);
+  const graph=createGraph(cold).graph,wrapped=graph.scopesFor('xml').filter(scope=>graph.docs.get(scope.resource).dataNode(scope.pointer+'/wrapped')?.value===true);
+  assert(wrapped.length);for(const xml of wrapped)assert.equal(graph.docs.get(xml.resource).dataNode(xml.pointer.slice(0,-4)+'/type').value,'array');
+  assert.equal(input.resources[0].text,text);
+ }
+});
+
 for(const format of ['yaml','json'])for(const version of ['3.2.0','3.2.1'])for(const targetVersion of ['2.0','3.0.4','3.1.2'])
 test(`R3b ${version} ${format} reusable parents retain occurrences and independent children in ${targetVersion}`,async()=>{
  const fixture=require('./migration_b05_r3b_fixture.cjs'),{input}=fixture.capture(format,version),before=JSON.stringify(input);
@@ -173,7 +195,7 @@ test(`${version} ${format} native objects and literal values share one specializ
  const input=fixture(version,format),original=input.resources[0].text,doc=new SourceDocument(original,input.root);
  assert.equal(analyse(input).status,'complete');await wire(input);
  const review=await planMigration(input);
- assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'104');
+ assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'105');
  assert.equal(review.exampleOutputs.length,2);assert.equal(input.resources[0].text,original);
  const output=delivered(review),{graph}=createGraph(output);
  assert.equal(analyse(output).status,'complete');await wire(output);

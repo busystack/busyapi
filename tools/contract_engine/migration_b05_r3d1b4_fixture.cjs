@@ -21,7 +21,7 @@ function terminal(graph,resource,pointer,kind='media'){
 }
 async function review(input){
  const original=JSON.stringify(input),result=await planMigration(input);assert.equal(JSON.stringify(input),original);
- assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(result.producerVersion,'104');
+ assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(result.producerVersion,'105');
  const cold={root:result.outputRoot,resources:result.outputs,snapshot:'mixed-cold',exampleResources:result.exampleOutputs.map(output=>({
   version:1,id:output.id,generation:0,aliases:[],state:'available',identity:output.identity,base64:output.base64,byteLength:output.byteLength}))},graph=createGraph(cold).graph;
  assert.equal(analyse(cold).complete,true);assert.equal(graph.issues.length,0,JSON.stringify(graph.issues));

@@ -77,7 +77,16 @@ export function migrateNewerObjects(graphs:readonly ReferenceGraph[],sources:Map
    if(value.nodeType==='attribute'&&nonArray&&!domains.has('object')||value.nodeType==='element'&&(array||nonArray)||value.nodeType==='none'&&array){
     const nodeType=value.nodeType;history('nodeType','xml_node_type');
     source.set(pointer+'/attribute',nodeType==='attribute');
-    if(array)source.set(pointer+'/wrapped',nodeType==='element');
+    if(array){
+     // Older XML wrapping takes effect alongside a literal type: array. A
+     // captured conjunction/reference or singleton type union can establish
+     // that same domain without authoring this field. Materialize the already
+     // proved assertion; merely setting wrapped would lose the instruction.
+     const schemaPointer=pointer.slice(0,-'/xml'.length);
+     if(source.doc.dataNode(schemaPointer+'/type')?.value!=='array')
+      source.set(schemaPointer+'/type','array');
+     source.set(pointer+'/wrapped',nodeType==='element');
+    }
    }else issue(field('nodeType'),'migration.xml.node-type',
     ['text','cdata'].includes(value.nodeType)?'The older XML Object cannot model a distinct text or CDATA node':
     value.nodeType==='none'?'No older XML field removes this non-array node while retaining its children':

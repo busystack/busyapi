@@ -198,7 +198,7 @@ void _registerMigrationTests(String definitionKeyword, {bool dynamicAnchor = fal
               reason: '${review.result}',
             );
             expect(review.unsaved, isTrue);
-            expect(review.result['producerVersion'], '104');
+            expect(review.result['producerVersion'], '105');
             final outputs = (review.result['outputs'] as List).cast<Map>();
             expect(
               outputs.any(
