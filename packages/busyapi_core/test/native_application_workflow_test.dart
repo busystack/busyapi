@@ -101,19 +101,52 @@ void main() {
     }
   }
   for (final fixture in ['swagger20', 'openapi30', 'openapi31', 'openapi32']) {
-    test('$fixture existing inventory contract authoring and maintenance journey', () async {
+    for (final format in ['json', 'yaml']) {
+    test('$fixture $format inventory authoring, authenticated execution and cold reopening journey', () async {
       final temp = await Directory.systemTemp.createTemp('busyapi-application-');
       addTearDown(() => temp.delete(recursive: true));
       final source = '$repositoryRoot/fixtures/native_application/$fixture';
       for (final name in ['api.json', 'models.json']) {
-        await File('$source/$name').copy('${temp.path}/$name');
+        final raw = await File('$source/$name').readAsString();
+        await File('${temp.path}/${name.replaceFirst('.json', '.$format')}').writeAsString(
+          format == 'json' ? raw : '\ufeff# Keep warehouse source 雪\r\n${raw.replaceAll('models.json', 'models.yaml').replaceAll('\n', '\r\n')}',
+        );
       }
-      final file = File('${temp.path}/api.json');
-      final modelFile = File('${temp.path}/models.json');
-      final original = await file.readAsString();
-      final originalModel = await modelFile.readAsString();
+      final file = File('${temp.path}/api.$format');
+      final modelFile = File('${temp.path}/models.$format');
+      final originalDisk = await file.readAsString();
+      final originalModelDisk = await modelFile.readAsString();
+      final original = format == 'yaml' ? originalDisk.substring(1) : originalDisk;
+      final originalModel = format == 'yaml' ? originalModelDisk.substring(1) : originalModelDisk;
       final declaration = fixture == 'swagger20' ? 'swagger' : 'openapi';
-      final version = jsonDecode(original)[declaration];
+      final version = jsonDecode(await File('$source/api.json').readAsString())[declaration];
+      const credential = '123e4567-e89b-42d3-a456-426614174000';
+      const payload = '{"sku":"雪-1","quantity":2,"amount":9007199254740993}';
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      final seen = <String>[];
+      server.listen((request) async {
+        expect(request.headers.value('x-warehouse-key'), 'warehouse-session-secret');
+        seen.add(request.method);
+        if (request.method == 'POST') {
+          expect(request.uri.path, '/v1/orders');
+          expect(await utf8.decoder.bind(request).join(), payload);
+          request.response.statusCode = 201;
+        } else {
+          expect(request.method, 'GET');expect(request.uri.path, '/v1/inventory/雪-1');
+          expect(request.uri.queryParameters['warehouse'], '北');
+          expect(request.headers.value('x-correlation-id'), 'trace-1');
+        }
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(payload);await request.response.close();
+      });
+      await File('${temp.path}/busyapi.yaml').writeAsString(jsonEncode({
+        'version': 1, 'roots': [{'name': 'warehouse', 'path': 'api.$format'}],
+        'environments': {'local': {
+          'baseUrl': 'http://127.0.0.1:${server.port}/v1',
+          'authentication': {'alternative': 0, 'schemes': {'WarehouseKey': {'secretRef': credential}}},
+        }},
+      }));
       final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);
       addTearDown(engine.close);
       var project = await BusyProject.open(file.path, engine);
@@ -122,7 +155,7 @@ void main() {
       final buffer = await project.buffer(root);
       expect((await project.check(root))['status'], 'complete');
       await project.save(buffer);
-      expect(await file.readAsString(), original);
+      expect(await file.readAsString(), originalDisk);
       final reference = await project.referencePage(root, root, '/paths/~1orders/post');
       expect(reference['family'], fixture == 'swagger20' ? '2.0' : (version as String).substring(0, 3));
 
@@ -165,8 +198,8 @@ void main() {
       expect(buffer.text, contains('literal payload reference'));
       expect(buffer.text, contains('9007199254740993'));
       expect((await project.check(root))['status'], 'complete');
-      expect(await file.readAsString(), original);
-      expect(await modelFile.readAsString(), originalModel);
+      expect(await file.readAsString(), originalDisk);
+      expect(await modelFile.readAsString(), originalModelDisk);
 
       final docs = await project.prepareDocumentation(root, '${temp.path}/docs');
       addTearDown(docs.close);
@@ -183,13 +216,75 @@ void main() {
       project = await BusyProject.open(file.path, engine);
       expect((await project.buffer(root)).text, saved);
       expect((await project.buffer(model)).text, savedModel);
-      final data = jsonDecode(saved) as Map;
+      final data = (await project.inspectObject(root, root, ''))['value'] as Map;
       expect(data[declaration], version);
-      expect(data['info']['version'], '2026-11-inventory');
+      expect((await project.inspectObject(root, root, '/info'))['value']['version'], '2026-11-inventory');
       expect(saved, contains('"exact": 9007199254740993'));
       expect((await project.check(root))['status'], 'complete');
       final cli = await Process.run('$testBundle/busyapi', ['check', file.path, '--json']);
       expect(cli.exitCode, 0, reason: '${cli.stdout}\n${cli.stderr}');
+
+      final post = await project.prepareRequest(root, resource: root, pointer: pointer);
+      addTearDown(post.close);
+      final postDraft = OperationRequestDraft(planIdentity: post.identity, environment: 'local', securityAlternative: 0,
+          body: const RequestBodyDraft.raw(mediaType: 'application/json', text: payload));
+      final sent = await const ContractRequestExecutor().execute(post, postDraft,
+          resolveSecret: (reference) async => reference == credential ? 'warehouse-session-secret' : null);
+      try {
+        expect(sent.conforming, true, reason: '${sent.outgoing.findings} ${sent.received.findings}');
+        expect(await sent.response.bytes(), utf8.encode(payload));
+      } finally {await sent.close();}
+      final get = await project.prepareRequest(root, resource: root, pointer: '/paths/~1inventory~1{sku}/get');
+      addTearDown(get.close);
+      final getDraft = OperationRequestDraft(planIdentity: get.identity, environment: 'local', securityAlternative: 0,
+          parameters: {
+            OperationRequestDraft.parameterKey('path', 'sku'): const RequestValue.text('雪-1'),
+            OperationRequestDraft.parameterKey('query', 'warehouse'): const RequestValue.text('北'),
+            OperationRequestDraft.parameterKey('header', 'X-Correlation-Id'): const RequestValue.text('trace-1'),
+          });
+      final read = await const ContractRequestExecutor().execute(get, getDraft,
+          resolveSecret: (_) async => 'warehouse-session-secret');
+      try {expect(read.conforming, true, reason: '${read.outgoing.findings} ${read.received.findings}');}
+      finally {await read.close();}
+      final caseChanges = await project.applyRefactoring(await post.planCase('Warehouse order', postDraft));
+      for (final id in caseChanges) await project.save(project.store.get(id));
+      final caseSource = await File('${temp.path}/busyapi.yaml').readAsString();
+      expect(caseSource, contains(credential));expect(caseSource, isNot(contains('warehouse-session-secret')));
+      expect(caseSource, contains('9007199254740993'));
+      project.close();project = await BusyProject.open(temp.path, engine);
+      final cold = await project.prepareRequest(root, resource: root, pointer: pointer);addTearDown(cold.close);
+      final loaded = await ContractTestRunner.reopenCase(cold, 'Warehouse order', project.access);
+      final replay = await const ContractRequestExecutor().execute(cold, loaded,
+          resolveSecret: (_) async => 'warehouse-session-secret');
+      try {expect(replay.conforming, true);} finally {await replay.close();}
+      final cliRun = await runCliWithSecrets(['test', temp.path, '--case', 'Warehouse order', '--json'],
+          {credential: 'warehouse-session-secret'});
+      expect(cliRun.code, 0, reason: '${cliRun.output} ${cliRun.error}');
+      expect(cliRun.output, isNot(contains('warehouse-session-secret')));
+      expect(seen, ['POST', 'GET', 'POST', 'POST']);
+      final mockPlan = await project.prepareMock(root);addTearDown(mockPlan.close);
+      final mock = await mockPlan.start(nodeExecutable: runtimeNode, helper: '$testBundle/libexec/busyapi/mock-server.cjs');
+      addTearDown(mock.stop);
+      final client = HttpClient();addTearDown(() => client.close(force: true));
+      for (final control in ['valid', 'exact-minimum', 'missing-auth']) {
+        final request = await client.postUrl(mock.baseUri.resolve('/orders'));
+        request.headers.contentType = ContentType.json;
+        if (control != 'missing-auth') request.headers.set('x-warehouse-key', 'warehouse-session-secret');
+        request.headers.set('prefer', 'code=201');
+        request.write(control == 'exact-minimum' ? payload.replaceFirst('9007199254740993', '9007199254740992') : payload);
+        final response = await request.close();
+        final responseText = await utf8.decoder.bind(response).join();
+        expect(response.statusCode, control == 'valid' ? 201 : control == 'missing-auth' ? 401 : 422,
+            reason: responseText);
+        if (control == 'valid') {
+          expect(response.headers.value('busyapi-response-validation-complete'), 'true');
+          expect(responseText, contains('9007199254740993'));
+        }
+      }
+      await mock.stop();
+      expect((await project.buffer(root)).text, saved);
+      expect((await project.buffer(model)).text, savedModel);
+      expect(await file.readAsString(), format == 'yaml' ? '\ufeff$saved' : saved);
 
       // Invalid Source remains editable and receives native diagnostics;
       // undo restores the exact saved source without touching disk.
@@ -200,7 +295,8 @@ void main() {
       expect((await project.check(root))['status'], 'invalid');
       project.store.undo();
       expect(reopened.text, saved);
-      expect(await file.readAsString(), saved);
+      expect(await file.readAsString(), format == 'yaml' ? '\ufeff$saved' : saved);
     });
+    }
   }
 }

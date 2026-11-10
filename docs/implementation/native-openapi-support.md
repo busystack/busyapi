@@ -242,6 +242,22 @@ external-body Core suite covers binary bytes through save, cold reopening,
 actual HTTP and independent CLI for the empty named choice. No schema producer
 change is needed for this selector-preservation correction.
 
+W7/W8's existing `native_application_workflow_test.dart` now prepares the
+established warehouse fixture journey in both YAML and JSON for all four
+families. It connects Design summary editing, external-schema Source completion,
+Reference, reviewed component rename, grouped save/cold reopen, offline native
+documentation, version-specific validation and independent CLI check with actual
+authenticated POST/GET execution, inherited Unicode path/query/Header inputs,
+exact request/response numbers, saved credential references/cases, cold replay
+and independent CLI secrets input. The same reopened graph starts native mock
+execution, with exact-minimum and missing-auth controls beside a validated
+example response. Existing invalid-Source/Undo/disk-retention checks remain;
+YAML adds BOM/comment/CRLF retention without converting parsed source numbers.
+This coverage is **prepared, not run**. Existing XML/Linkset, multipart, streaming,
+CONNECT, migration publication, recovery and native graphical suites remain
+separate registered acceptance infrastructure; this extension does not establish
+those journeys or current-revision acceptance by implication.
+
 No boundary is reclassified as a target-specification restriction. Only source
 inspection, official specification/RFC reads, Git inspection and
 `git diff --check` have been performed. The execution hold and Snapcraft skip
