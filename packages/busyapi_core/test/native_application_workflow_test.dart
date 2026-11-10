@@ -114,10 +114,10 @@ void main() {
       }
       final file = File('${temp.path}/api.$format');
       final modelFile = File('${temp.path}/models.$format');
-      final originalDisk = await file.readAsString();
-      final originalModelDisk = await modelFile.readAsString();
-      final original = format == 'yaml' ? originalDisk.substring(1) : originalDisk;
-      final originalModel = format == 'yaml' ? originalModelDisk.substring(1) : originalModelDisk;
+      final originalDisk = await file.readAsBytes();
+      final originalModelDisk = await modelFile.readAsBytes();
+      final original = utf8.decode(originalDisk);
+      final originalModel = utf8.decode(originalModelDisk);
       final declaration = fixture == 'swagger20' ? 'swagger' : 'openapi';
       final version = jsonDecode(await File('$source/api.json').readAsString())[declaration];
       const credential = '123e4567-e89b-42d3-a456-426614174000';
@@ -155,7 +155,7 @@ void main() {
       final buffer = await project.buffer(root);
       expect((await project.check(root))['status'], 'complete');
       await project.save(buffer);
-      expect(await file.readAsString(), originalDisk);
+      expect(await file.readAsBytes(), originalDisk);
       final reference = await project.referencePage(root, root, '/paths/~1orders/post');
       expect(reference['family'], fixture == 'swagger20' ? '2.0' : (version as String).substring(0, 3));
 
@@ -198,8 +198,8 @@ void main() {
       expect(buffer.text, contains('literal payload reference'));
       expect(buffer.text, contains('9007199254740993'));
       expect((await project.check(root))['status'], 'complete');
-      expect(await file.readAsString(), originalDisk);
-      expect(await modelFile.readAsString(), originalModelDisk);
+      expect(await file.readAsBytes(), originalDisk);
+      expect(await modelFile.readAsBytes(), originalModelDisk);
 
       final docs = await project.prepareDocumentation(root, '${temp.path}/docs');
       addTearDown(docs.close);
@@ -212,6 +212,7 @@ void main() {
         await project.save(item);
       }
       final saved = buffer.text, savedModel = modelBuffer.text;
+      final savedBytes = buffer.bytes();
       project.close();
       project = await BusyProject.open(file.path, engine);
       expect((await project.buffer(root)).text, saved);
@@ -284,7 +285,7 @@ void main() {
       await mock.stop();
       expect((await project.buffer(root)).text, saved);
       expect((await project.buffer(model)).text, savedModel);
-      expect(await file.readAsString(), format == 'yaml' ? '\ufeff$saved' : saved);
+      expect(await file.readAsBytes(), savedBytes);
 
       // Invalid Source remains editable and receives native diagnostics;
       // undo restores the exact saved source without touching disk.
@@ -295,7 +296,87 @@ void main() {
       expect((await project.check(root))['status'], 'invalid');
       project.store.undo();
       expect(reopened.text, saved);
-      expect(await file.readAsString(), format == 'yaml' ? '\ufeff$saved' : saved);
+      expect(await file.readAsBytes(), savedBytes);
+
+      // The real recovery owner adopts exact unsaved buffers into a fresh
+      // project. No checkpoint or adoption can publish over either source.
+      final recovery = RecoveryStore('${temp.path}/private-recovery');
+      project.store.replace(root, invalid);
+      project.store.replace(model, '$savedModel\r\n');
+      final unsavedModel = (await project.buffer(model)).text;
+      for (final id in [root, model]) await recovery.persist(project.store.get(id));
+      final records = <Map<String, dynamic>>[];
+      for (final checkpoint in Directory(recovery.directory).listSync().whereType<File>()) {
+        final text = await checkpoint.readAsString();
+        expect(text, isNot(contains('warehouse-session-secret')));
+        records.add((jsonDecode(text) as Map<String, dynamic>)..['recordPath'] = checkpoint.path);
+      }
+      expect(records, hasLength(2));
+      final diskBeforeRecovery = {for (final source in [file, modelFile]) source.path: await source.readAsBytes()};
+      project.close();project = await BusyProject.open(temp.path, engine);
+      final nextRecovery = RecoveryStore(recovery.directory);
+      for (final record in records) await nextRecovery.adopt(record, await project.buffer(record['id'] as String));
+      final recovered = await project.buffer(root), recoveredModel = await project.buffer(model);
+      expect(recovered.text, invalid);expect(recoveredModel.text, unsavedModel);
+      expect(recovered.hasBom, format == 'yaml');expect(recoveredModel.hasBom, format == 'yaml');
+      expect(recovered.externalConflict, false);expect(recoveredModel.externalConflict, false);
+      expect((await project.check(root))['status'], 'invalid');
+      expect(() => post.ensureCurrentPreparation(), throwsA(isA<CoreFailure>()));
+      await expectLater(nextRecovery.adopt(records.first, await project.buffer(records.first['id'] as String)),
+          throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'recovery.record')));
+      for (final source in [file, modelFile]) expect(await source.readAsBytes(), diskBeforeRecovery[source.path]);
+      project.store.replace(root, saved);
+      expect((await project.check(root))['status'], 'complete');
+      project.store.undo();expect(recovered.text, invalid);
+      project.store.redo();expect(recovered.text, saved);
+      final publications = PublicationStore('${temp.path}/private-publications');
+      final published = await publications.save(project, [recovered, recoveredModel]);
+      expect(published.complete, true, reason: '${published.failed}');
+      for (final id in [root, model]) await nextRecovery.retire(id);
+      expect(Directory(nextRecovery.directory).listSync().whereType<File>(), isEmpty);
+
+      // Each established family fixture takes every other explicit target
+      // route through the same reviewed owner: twelve directed routes in all.
+      final originals = {for (final source in [file, modelFile, File('${temp.path}/busyapi.yaml')])
+        source.path: await source.readAsBytes()};
+      for (final target in ['2.0', '3.0.4', '3.1.2', '3.2.1'].where((target) => target != version)) {
+        final review = await project.prepareMigration(root, '${temp.path}/migrated-$target', targetVersion: target);
+        try {
+          expect(review.publishable, true, reason: '$fixture → $target: ${review.result}');
+          await review.publish();
+          for (final source in originals.entries) expect(await File(source.key).readAsBytes(), source.value);
+          final delivered = await BusyProject.open(review.destination, engine);
+          try {
+            final id = delivered.roots.single.id;
+            expect((await delivered.check(id))['status'], 'complete');
+            expect((await delivered.inspectObject(id, id, ''))['value'][target == '2.0' ? 'swagger' : 'openapi'], target);
+            expect((await delivered.referencePage(id, id, '/x-preserve/exact'))['text'], '9007199254740993');
+            final plan = await delivered.prepareRequest(id, resource: id, pointer: pointer);
+            try {
+              final exchangeCount = seen.length;
+              final request = await ContractTestRunner.reopenCase(plan, 'Warehouse order', delivered.access);
+              final result = await const ContractRequestExecutor().execute(plan, request,
+                  resolveSecret: (reference) async => reference == credential ? 'warehouse-session-secret' : null);
+              try {
+                expect(result.conforming, true, reason: '${result.outgoing.findings} ${result.received.findings}');
+                expect(await result.response.bytes(), utf8.encode(payload));
+              } finally {await result.close();}
+              final cli = await runCliWithSecrets(['test', review.destination, '--case', 'Warehouse order', '--json'],
+                  {credential: 'warehouse-session-secret'});
+              expect(cli.code, 0, reason: '${cli.output} ${cli.error}');
+              expect(cli.output, isNot(contains('warehouse-session-secret')));
+              expect(seen.length, exchangeCount + 2);
+            } finally {plan.close();}
+            final documentation = await delivered.prepareDocumentation(id, '${temp.path}/docs-$fixture-$target');
+            try {
+              await documentation.publish();
+              final html = await File('${documentation.destination}/index.html').readAsString();
+              expect(html, contains('Create warehouse order'));expect(html, contains('Stock'));
+            } finally {documentation.close();}
+          } finally {delivered.close();}
+        } finally {review.close();}
+      }
+      for (final source in originals.entries) expect(await File(source.key).readAsBytes(), source.value);
     });
     }
   }

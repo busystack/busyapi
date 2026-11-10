@@ -254,11 +254,19 @@ exact request/response numbers, saved credential references/cases, cold replay
 and independent CLI secrets input. The same reopened graph starts native mock
 execution, with exact-minimum and missing-auth controls beside a validated
 example response. Existing invalid-Source/Undo/disk-retention checks remain;
-YAML adds BOM/comment/CRLF retention without converting parsed source numbers.
+YAML adds BOM/comment/CRLF retention without converting parsed source numbers;
+disk preservation assertions compare raw bytes separately from decoded text.
+The same journey now checkpoints unsaved invalid Source and an external model,
+adopts them through `RecoveryStore` into a new project without publication,
+rejects a retired recovery record and an obsolete request plan, and exercises
+edit/Undo/Redo plus explicit publication. Every family fixture additionally
+reviews and publishes independent copies in the other three families: all twelve
+directed routes, each followed by native/independent CLI authenticated saved-case
+execution and native offline documentation. Originals remain byte-checked.
 This coverage is **prepared, not run**. Existing XML/Linkset, multipart, streaming,
-CONNECT, migration publication, recovery and native graphical suites remain
-separate registered acceptance infrastructure; this extension does not establish
-those journeys or current-revision acceptance by implication.
+CONNECT, process-termination/publication-recovery and native graphical suites
+remain separate registered acceptance infrastructure; this extension does not
+establish those combined journeys or current-revision acceptance by implication.
 
 W4.02/W4.06 ordinary content Parameter production now extends the existing
 `requestContentParameters` owner beyond modeled XML/Linkset. Literal media inputs
@@ -531,10 +539,13 @@ completion, component rename, offline documentation, save/cold-reopen, CLI check
 and invalid Source/Undo, now in both YAML and JSON with BOM/comment/CRLF
 retention. It additionally prepares authenticated HTTP exchanges, exact bytes,
 saved cases, cold replay, independent CLI secrets input and mock validation
-controls through the same reopened graph. It is included by the existing Core
+controls through the same reopened graph. It additionally prepares unsaved-source
+recovery with no automatic publication, retired/stale-action rejection, explicit
+publication and all twelve directed migration routes with authenticated native/
+CLI saved cases and offline documentation. It is included by the existing Core
 directory gate. This is prepared, not executed acceptance. Advanced media,
-migration/recovery and native/packaged presentation still require the complete
-combined procedures and existing fixtures below.
+process-termination/recovery combinations and native/packaged presentation still
+require the complete combined procedures and existing fixtures below.
 
 | Family | Required native contract features | Negative and version-specific controls | Existing regression starting points |
 | --- | --- | --- | --- |
