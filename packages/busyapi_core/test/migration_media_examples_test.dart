@@ -7,7 +7,7 @@ import 'package:test/test.dart';
 import 'test_support.dart';
 
 void main() {
-  for(final format in ['yaml','json'])for(final target in ['3.1.2','3.0.4'])for(final kind in ['xml-object','xml-string','linkset','linkset-json']) {
+  for(final format in ['yaml','json'])for(final target in ['3.1.2','3.0.4'])for(final kind in ['xml-object','xml-string','linkset','linkset-json','json-lines','json-lines-empty','json-sequence','sse']) {
     test('$format $kind examples preserve native HTTP, cold cases and CLI through migration to $target',() async {
       final directory=await Directory.systemTemp.createTemp('busyapi-media-example-migration-');
       addTearDown(()=>directory.delete(recursive:true));
@@ -19,16 +19,20 @@ void main() {
         request.response.statusCode=204;await request.response.close();
       });
       final xml=kind.startsWith('xml'),scalar=kind=='xml-string';
-      final media=xml?'application/xml':kind=='linkset'?'application/linkset':'application/linkset+json';
-      final sample=xml?scalar?'雪 & value':{'n':'EXACT','label':'雪'}:{'linkset':[{'anchor':'https://example.org/context','next':[{'href':'https://example.org/a,b','title*':[{'value':'雪','language':'ja'}]}]}]};
+      final sequence=kind.startsWith('json-lines')||kind=='json-sequence'||kind=='sse';
+      final media=xml?'application/xml':kind=='linkset'?'application/linkset':kind=='linkset-json'?'application/linkset+json':
+        kind.startsWith('json-lines')?'application/jsonl':kind=='json-sequence'?'application/json-seq':'text/event-stream';
+      final sample=xml?scalar?'雪 & value':{'n':'EXACT','label':'雪'}:sequence?kind=='json-lines-empty'?[]:kind=='sse'?[{'data':'雪','event':'update','id':'1','retry':1000}]:['EXACT',2]:{'linkset':[{'anchor':'https://example.org/context','next':[{'href':'https://example.org/a,b','title*':[{'value':'雪','language':'ja'}]}]}]};
       final schema=xml?{'type':scalar?'string':'object','xml':{'name':'payload','nodeType':'element'},
-        if(!scalar)'required':['n','label'],if(!scalar)'properties':{'n':{'type':'integer'},'label':{'type':'string'}}}:{'type':'object'};
+        if(!scalar)'required':['n','label'],if(!scalar)'properties':{'n':{'type':'integer'},'label':{'type':'string'}}}:{'type':sequence?'array':'object'};
       final file=File('${directory.path}/api.$format');
       final value={
         'openapi':'3.2.1','info':{'title':'Modeled examples','version':'business'},
         'servers':[{'url':'http://127.0.0.1:${server.port}'}],
         'paths':{'/p':{'post':{'requestBody':{'content':{media:{r'$ref':'#/components/mediaTypes/Payload'}}},'responses':{'204':{'description':'Empty'}}}}},
-        'components':{'mediaTypes':{'Payload':{'schema':schema,'examples':{'Choice':{r'$ref':'#/components/examples/Choice'}}}},
+        'components':{'mediaTypes':{'Payload':{'schema':schema,
+          if(sequence)'itemSchema':kind=='sse'?{'type':'object','required':['data'],'properties':{'data':{'type':'string'}}}:{'type':'integer','minimum':1},
+          'examples':{'Choice':{r'$ref':'#/components/examples/Choice'}}}},
           'examples':{'Choice':{'dataValue':sample}}},
         'x-literal':{r'$ref':'literal-only','dataValue':sample},
       };
@@ -58,9 +62,10 @@ void main() {
       source.store.replace(root,render());await source.save(source.store.get(root));
       final before=await file.readAsBytes();
       final review=await source.prepareMigration(root,'${directory.path}/converted',targetVersion:target);
-      addTearDown(review.close);expect(review.publishable,true,reason:'${review.result}');expect(review.result['producerVersion'],'106');
+      addTearDown(review.close);expect(review.publishable,true,reason:'${review.result}');expect(review.result['producerVersion'],'107');
       expect(review.exampleCopies.single.bytes,seen.single);expect(await file.readAsBytes(),before);
       await review.publish();expect(await file.readAsBytes(),before);
+      source.close();
       final moved=await Directory(review.destination).rename('${directory.path}/moved 雪');
       await File('${directory.path}/payload.bin').delete();
       final cold=await BusyProject.open(moved.path,engine);addTearDown(cold.close);

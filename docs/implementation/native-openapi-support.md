@@ -124,7 +124,7 @@ Schema producer is now `hyperjump+busyapi-exact` **1.18.0+69**, with
 `parameter-media-octets-v1` and `parameter-empty-expansion-v1`;
 Parameter producer is **8**, `parameter-wire-v8`.
 Request Parameter example representation is now **2**, and part example
-representation is **1**, strictly admitted by Core. Migration is now **106**
+representation is **1**, strictly admitted by Core. Migration is now **107**
 for the XML applicability and modeled Example corrections below; multipart **2**, stream **2** and
 other existing identities are retained.
 
@@ -382,8 +382,9 @@ now materializes the already implied literal `type: array` beside legacy
 literal type. The existing assertion/domain proof establishes redundancy; no
 instance sample or new certificate algorithm supplies this conversion.
 That correction first advanced migration producer to **105**. The modeled
-Example integration below advances it to **106**, strictly admitted by Core;
-**104** and **105** remain prepared negative controls. Existing regression
+Example integration below advanced it to **106**; finite sequence integration
+now advances it to **107**, strictly admitted by Core. **104**, **105** and
+**106** remain prepared negative controls. Existing regression
 expectations are synchronized.
 Prepared, **not run**: the registered object-use suite covers both 3.2 patches,
 YAML/JSON, reference/conjunction/singleton-type array declarations, all older
@@ -419,12 +420,30 @@ with approved external bytes, publication and stale-review rejection. Swagger's
 existing body/response/example ownership and target restrictions remain
 separate; this change does not invent a flat Parameter/Header example slot.
 
+The same converter and modeled request-byte projection additionally handle
+finite JSON Lines/NDJSON, JSON text sequences and SSE examples. The established
+finite encoder supplies the exact wire representation. If an actual media
+occurrence has `itemSchema`, those bytes additionally pass through the existing
+runtime evaluator under that original captured item schema, including complete
+whole-value/item work and finding checks. The older generated array schema does
+not substitute for that source-side proof. Empty sequences retain zero bytes;
+data values, numeric lexemes and serialized/external payloads keep their existing
+literal/capture owners. Per-part MIME/Encoding conversion remains independent.
+Prepared, **not run**: the registered media-Example matrix now adds all finite
+sequence forms, empty data/wire/external selections, exact numbers, both 3.2
+patches and older modern targets in YAML/JSON. Invalid original item data and
+the existing runtime item-work bound refuse without outputs. Core adds finite
+sequence HTTP bytes, approved empty/nonempty captures, cold replay and CLI cases;
+the native review suite adds a JSON-sequence/itemSchema conversion with approved
+external bytes, publication and stale-review controls. Existing incremental
+streaming implementations and their producer remain unchanged.
+
 This does **not** close migration reconciliation. W3.05's competing-dynamic-target
 lowering is still an unimplemented representation algorithm, not an older-spec
 restriction. W3.08/W3.09 retain confirmed missing generalized Example
-conversion beyond captured JSON/plain-text/XML/Linkset paths, established
-form/Parameter inverses and simple string Headers. Sequence example conversion,
-generalized Header inverses and independently owned variants for incompatible
+conversion beyond captured JSON/plain-text/XML/Linkset/finite-sequence paths,
+established form/Parameter inverses and simple string Headers. Generalized
+multipart/media Example conversion, Header inverses and independently owned variants for incompatible
 shared data/wire choices remain missing implementation/equivalence work, not
 proved target-spec restrictions. Non-default Encoding conversions outside the existing
 positional/named multipart classes and mixed XML/fallback domain transformations
@@ -2010,7 +2029,7 @@ Known remaining R3 implementation/proof gaps:
 | Reusable Media Type categories targeting Swagger | R3b above completes established occurrence/child-owner conversion; independently unbound definitions retain the precise `migration.media.unbound-owner` final-target restriction. |
 | Whole-query parameters | R3c-1/2/3 above are source-complete, unverified: finite identity/extraction/factorization, grouped presence, actual codec comparisons, raw/structured saved projections, examples and shared ownership are implemented. Precise target restrictions and unavailable-evidence cases remain as reconciled above. |
 | Positional/nested multipart and response part instructions | Non-default instructions still need complete shape-specific conversion, including any equivalent older Schema annotations; current unavailable-proof/target boundaries do not establish that every such source is impossible. |
-| General newer Example serialization | The active continuation connects captured XML/Linkset codecs and exact modeled request profiles. Other Parameter/Header inverses, sequence example conversion and independent older choices for incompatible shared representations remain implementation/equivalence gaps. Unbound reusable examples retain a missing-context proof boundary. |
+| General newer Example serialization | The active continuation connects captured XML/Linkset and finite sequence codecs with original itemSchema proof and exact modeled request profiles. Other Parameter/Header inverses, generalized multipart/media conversion and independent older choices for incompatible shared representations remain implementation/equivalence gaps. Unbound reusable examples retain a missing-context proof boundary. |
 | Other newer parameter/XML/fallback specializations | R3c above completes established finite query/cookie projections and their examples/configuration, unverified. Mixed XML domains/reference-forwarding cases and fallback relationships outside the established required finite-string certificate remain unreconciled. |
 | Combined R3 regression coverage | New coverage is prepared below, but the complete requested Engine/Core/native/CLI and transaction matrix is not yet prepared for every remaining conversion. |
 
@@ -3660,7 +3679,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W7.01 Creation, editing, unsaved Reference, request/example/mock/case, migration review, documentation and CLI integration for every capability; all applicable clauses above | shared engine, Core owners and native workspace controls | A R E M S C | engine/Core/widget/native journey suites | Partially implemented; applicable existing consumers inherit shared field/codec/routing changes; complete family journeys are not accepted | H |
 | W7.02 Stale-action invalidation on declaration/dialect/root/external/approval changes; coherent reviewed transactions, Undo/Redo and no buffer loss; Core transaction contract | Core project/store/capture and native review/request controllers | A R E M S C | stale capture/cancellation/publication/widget review suites | Partially implemented; existing source for existing safeguards; new paths require current integration qualification | H |
 | W7.03 CST fidelity, no-op saves, exact values, aliases, extensions and source-only migration restructuring; TEXT | `document.ts`, graph/CST editing, Core store/transaction owners | A R M S C | source ownership/alias/exact-value/no-op suites | Partially implemented; existing source for existing boundaries; generated schema owners retain original provenance and reviewed restructuring | H |
-| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Active continuation revisions: schema evaluator `1.18.0+69`, Parameter `8`, request content/parameter-media `2`, stream `2`, multipart `2`, migration `106`, Source assistance `3`, semantic search `2`, native Reference/display/packet `3`, first-party Redoc/Swagger adapters `9`/`8`, response mock `5`, samples `5`, tunnels `1`. Strict obsolete-revision controls remain prepared; no dependency versions/source changed. Current packaged admission is held | H |
+| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Active continuation revisions: schema evaluator `1.18.0+69`, Parameter `8`, request content/parameter-media `2`, stream `2`, multipart `2`, migration `107`, Source assistance `3`, semantic search `2`, native Reference/display/packet `3`, first-party Redoc/Swagger adapters `9`/`8`, response mock `5`, samples `5`, tunnels `1`. Strict obsolete-revision controls remain prepared; no dependency versions/source changed. Current packaged admission is held | H |
 | W8.01 Explicit independent evidence input across SDK/build/CMake/CI/installed/package checks; PINS | `flutter_archive.py`, SDK verifier, `build_linux.sh`, CMake, package/native-distribution/artifact-smoke inputs | P | `tools/test_flutter_sdk.py`, source-wiring regressions | Partially implemented; existing source for archive-input propagation; same existing evidence reaches installed checks; independent member pins remain an alternative; no SDK acquisition/replacement | H; actual evidence availability/authenticity has not been qualified |
 | W8.02 Ordered gates, registration, source-version-valid fixtures and production-byte regressions; PINS and each row's authority | `tools/build_engine.sh`, Linux workflow, engine/Core/widget/native/package suites | P | new direct-Swagger/conditional/tuple-tail/constant-containment/property-name/runtime-parameter and URI-security/OAuth-flow/invariant regressions registered; existing TypeScript-before-bundle gate retained | Partially implemented; compilation and all suspended gates remain unexecuted; missing regression coverage identified in this register remains implementation work | H |
 | W8.03 Current automated/native/packaged/offline acceptance and normal Quit; all approved families and PINS | native acceptance tools, Core/package/CLI suites | A R E M S C P | existing native acceptance including historical Quit/focus failures; complete new journeys still required | Missing for accepted evidence; no driver/engine attribution established; Snapcraft remains skipped | H |

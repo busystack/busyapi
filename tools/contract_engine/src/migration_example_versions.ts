@@ -17,9 +17,10 @@ import {decodeMigrationParameterExample,migrationParameterExampleWire,migrationF
 type Use=Readonly<{graph:ReferenceGraph;owner:GraphScope;media?:string}>;
 const identity=(at:MigrationLocation)=>JSON.stringify([at.resource,at.pointer]);
 
-/** 3.2 separates schema-ready data and explicit wire text. Older value fields
- * can retain JSON data and plain-text wire strings, provided every independent
- * consumer agrees. No decoder, network access or default sample proves this. */
+/** 3.2 separates schema-ready data and explicit wire text. Lower captured
+ * representations through their established media/Parameter owners, provided
+ * every independent consumer agrees. No acquisition or default sample proves
+ * equivalence, and modeled media never replace their original schema proof. */
 export async function migrateExampleVersions(graphs:readonly ReferenceGraph[],sources:Map<string,MigrationSource>,
  families:readonly string[],target:string,owners:MigrationSchemaOwners,issue:MigrationIssue,
  external:(location:MigrationLocation,namespace:string)=>Readonly<{base64:string}>|undefined,
@@ -59,8 +60,8 @@ export async function migrateExampleVersions(graphs:readonly ReferenceGraph[],so
   const field=(name:string)=>({...scope,pointer:scope.pointer+'/'+name});
   if(!consumers.length){issue(scope,'migration.example.representation-context','No captured media or parameter consumer establishes an older value representation for this reusable Example','unavailable-proof');continue;}
   const kinds=consumers.map(use=>use.media?.split(';')[0].trim().toLowerCase()==='application/x-www-form-urlencoded'?'form':use.media?runtimeMediaKind(use.media):'parameter');
-  if(kinds.some(kind=>kind==='xml'||kind==='linkset')){
-   if(consumers.some((use,index)=>!use.media||!['xml','linkset','linkset-json','json'].includes(kinds[index]))){
+  if(kinds.some(kind=>['xml','linkset','json-lines','json-sequence','event-stream'].includes(kind))){
+   if(consumers.some((use,index)=>!use.media||!['xml','linkset','linkset-json','json','json-lines','json-sequence','event-stream'].includes(kinds[index]))){
     issue(scope,'migration.example.shared-representation','The captured data/wire consumers still need independently owned older Example representations','unavailable-proof');continue;
    }
    try{
@@ -81,7 +82,7 @@ export async function migrateExampleVersions(graphs:readonly ReferenceGraph[],so
       if(use.graph.scopeAs(use.owner.resource,parent,'header')||parameter&&use.graph.docs.get(parameter.resource)!.dataNode(parameter.pointer+'/in')?.value==='header'){header=true;break;}
       parent=parent.slice(0,parent.lastIndexOf('/'));
      }
-     bytes.push(await migrationModeledExampleBytes(use.graph,use.media!,raw,media.schema,header,exampleResources));
+     bytes.push(await migrationModeledExampleBytes(use.graph,use.media!,raw,media.schema,header,exampleResources,media.itemSchema));
     }
     if(serialized&&consumers.some((use,index)=>!bytes[index].equals(migrationExampleBytes(serialized.value,use.media!)))){
      issue(scope,'migration.example.paired-bytes','The independently authored data and serialized choices select different bytes; preserving both still needs independently owned older Examples','unavailable-proof');continue;

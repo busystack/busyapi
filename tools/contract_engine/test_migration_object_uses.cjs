@@ -35,16 +35,18 @@ const {SourceDocument}=require('./dist/document.cjs');
 const {resolveUri}=require('./dist/reference_graph.cjs');
 
 for(const format of ['yaml','json'])for(const version of ['3.2.0','3.2.1'])for(const targetVersion of ['3.1.2','3.0.4'])
-test(`${version} ${format} XML and Linkset Example choices retain canonical bytes in ${targetVersion}`,async()=>{
+test(`${version} ${format} native media Example choices retain canonical bytes in ${targetVersion}`,async()=>{
  const {requestMediaBytes}=require('./dist/execution.cjs'),{prepareMigrationRequestProfiles}=require('./dist/migration_invariants.cjs');
- for(const kind of ['xml-object','xml-string','xml-utf16','linkset','linkset-json'])for(const choice of ['data','serialized','paired','external']){
+ for(const kind of ['xml-object','xml-string','xml-utf16','linkset','linkset-json','json-lines','json-lines-empty','ndjson','json-sequence','sse'])for(const choice of ['data','serialized','paired','external']){
   const root='file:///modeled-examples/api.'+format,xml=kind.startsWith('xml'),scalar=xml&&kind!=='xml-object';
-  const mediaType=kind==='xml-utf16'?'application/xml; charset=utf-16':xml?'application/xml':kind==='linkset'?'application/linkset':'application/linkset+json';
-  const sample=xml?scalar?'雪 & value':{n:'EXACT',label:'雪'}:{linkset:[{anchor:'https://example.org/context',next:[{href:'https://example.org/a,b','title*':[{value:'雪',language:'ja'}]}]}]};
-  const schema=xml?{type:scalar?'string':'object',xml:{name:'payload',nodeType:'element'},...(!scalar?{required:['n','label'],properties:{n:{type:'integer'},label:{type:'string'}}}:{})}:{type:'object'};
+  const sequence=['json-lines','json-lines-empty','ndjson','json-sequence','sse'].includes(kind);
+  const mediaType=kind==='xml-utf16'?'application/xml; charset=utf-16':xml?'application/xml':kind==='linkset'?'application/linkset':kind==='linkset-json'?'application/linkset+json':
+   kind.startsWith('json-lines')?'application/jsonl':kind==='ndjson'?'application/x-ndjson':kind==='json-sequence'?'application/json-seq':'text/event-stream';
+  const sample=xml?scalar?'雪 & value':{n:'EXACT',label:'雪'}:sequence?kind==='json-lines-empty'?[]:kind==='sse'?[{data:'雪',event:'update',id:'1',retry:1000}]:['EXACT',2]:{linkset:[{anchor:'https://example.org/context',next:[{href:'https://example.org/a,b','title*':[{value:'雪',language:'ja'}]}]}]};
+  const schema=xml?{type:scalar?'string':'object',xml:{name:'payload',nodeType:'element'},...(!scalar?{required:['n','label'],properties:{n:{type:'integer'},label:{type:'string'}}}:{})}:{type:sequence?'array':'object'};
   const value={openapi:version,info:{title:'Modeled choices',version:'1'},servers:[{url:'https://api.invalid'}],
    paths:{'/p':{post:{requestBody:{content:{[mediaType]:{$ref:'#/components/mediaTypes/Payload'}}},responses:{200:{description:'Echo',content:{[mediaType]:{$ref:'#/components/mediaTypes/Payload'}}}}}}},
-   components:{mediaTypes:{Payload:{schema}},examples:{Choice:{dataValue:sample}}},'x-literal':{dataValue:sample,$ref:'literal-only'}};
+   components:{mediaTypes:{Payload:{schema,...(sequence?{itemSchema:kind==='sse'?{type:'object',required:['data'],properties:{data:{type:'string'}}}:{type:'integer',minimum:1}}:{})}},examples:{Choice:{dataValue:sample}}},'x-literal':{dataValue:sample,$ref:'literal-only'}};
   const render=()=> (format==='yaml'?YAML.stringify(value):JSON.stringify(value)).replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
   const input={root,snapshot:kind+'-'+choice,resources:[{id:root,text:render(),generation:0}],targetVersion,destination:'file:///delivered/modeled/'};
   const raw=new SourceDocument(input.resources[0].text,root).dataJson('/components/examples/Choice/dataValue');
@@ -81,6 +83,12 @@ test('modeled Example conversion retains context and differing-byte refusals wit
  base.paths={'/p':{post:{requestBody:{content:{'application/xml':{schema:{type:'string',xml:{name:'payload',nodeType:'element'}},examples:{Choice:{dataValue:'雪',serializedValue:'<payload>雪</payload>\n'}}}}},responses:{204:{description:'Empty'}}}}};
  const mismatch=await planMigration(capture(base));assert.equal(mismatch.complete,false);assert.deepEqual(mismatch.outputs,[]);
  assert(mismatch.problems.some(problem=>problem.code==='migration.example.paired-bytes'&&problem.reason==='unavailable-proof'));
+ base.paths['/p'].post.requestBody.content={'application/jsonl':{schema:{type:'array'},itemSchema:{type:'integer',minimum:2},examples:{Choice:{dataValue:[1]}}}};
+ const item=await planMigration(capture(base));assert.equal(item.complete,false);assert.deepEqual(item.outputs,[]);
+ assert(item.problems.some(problem=>problem.code==='migration.example.representation-codec'&&problem.reason==='unavailable-proof'&&problem.message.includes('itemSchema')));
+ base.paths['/p'].post.requestBody.content['application/jsonl'].examples.Choice.dataValue=Array(2048).fill(2);
+ const bounded=await planMigration(capture(base));assert.equal(bounded.complete,false);assert.deepEqual(bounded.outputs,[]);
+ assert(bounded.problems.some(problem=>problem.code==='migration.example.representation-codec'&&problem.reason==='unavailable-proof'&&problem.message.includes('runtime.body.limit')));
 });
 
 for(const format of ['yaml','json'])for(const version of ['3.2.0','3.2.1'])for(const targetVersion of ['3.1.2','3.0.4','2.0'])
@@ -244,7 +252,7 @@ test(`${version} ${format} native objects and literal values share one specializ
  const input=fixture(version,format),original=input.resources[0].text,doc=new SourceDocument(original,input.root);
  assert.equal(analyse(input).status,'complete');await wire(input);
  const review=await planMigration(input);
- assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'106');
+ assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.producerVersion,'107');
  assert.equal(review.exampleOutputs.length,2);assert.equal(input.resources[0].text,original);
  const output=delivered(review),{graph}=createGraph(output);
  assert.equal(analyse(output).status,'complete');await wire(output);

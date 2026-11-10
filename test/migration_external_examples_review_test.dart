@@ -26,16 +26,16 @@ void main() {
     for (final channel in ['yaru_window', 'yaru_window/events']) messenger.setMockMethodCallHandler(MethodChannel(channel), null);
   });
   _r3bUnusedReviews();
-  for (final format in ['yaml', 'json']) for (final targetVersion in ['3.2.1', '3.1.2', '2.0']) for (final stale in [false, true])
+  for (final format in ['yaml', 'json']) for (final targetVersion in ['3.2.1', '3.1.2', '3.0.4', '2.0']) for (final stale in [false, true])
   for (final reusable in targetVersion == '2.0' ? [false, true] : [false]) {
     testWidgets('$format $targetVersion ${reusable ? 'R3b reusable' : 'ordinary'} native example review ${stale ? 'rejects stale source' : 'publishes exact bytes'}', (tester) async {
       tester.view.physicalSize = const Size(1400, 1200);tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);
       final directory = Directory.systemTemp.createTempSync('busyapi-example-review-');
       final file = File('${directory.path}/api.$format'), payload = File('${directory.path}/payload.bin');
-      final modeled = targetVersion == '3.1.2';
-      final type = modeled ? 'application/xml' : 'text/plain; charset=iso-8859-1';
-      final bytes = modeled ? utf8.encode('<value>café</value>') : [99, 97, 102, 233];
+      final sequence = targetVersion == '3.0.4', modeled = targetVersion == '3.1.2' || targetVersion == '3.0.4';
+      final type = sequence ? 'application/json-seq' : modeled ? 'application/xml' : 'text/plain; charset=iso-8859-1';
+      final bytes = sequence ? utf8.encode('\x1e1\n\x1e2\n') : modeled ? utf8.encode('<value>café</value>') : [99, 97, 102, 233];
       final value = {
         'openapi': modeled ? '3.2.1' : '3.0.4',
         'info': {'title': 'Original', 'version': 'business'},
@@ -48,8 +48,9 @@ void main() {
                   'description': 'Reply',
                   'content': {
                     type: {
-                      'schema': {'type': 'string', 'enum': ['café'], if(modeled)'xml':{'name':'value','nodeType':'element'}},
-                      'examples': {'External': {'externalValue': './payload.bin', if(modeled)'dataValue':'café'}},
+                      'schema': sequence ? {'type':'array'} : {'type': 'string', 'enum': ['café'], if(modeled)'xml':{'name':'value','nodeType':'element'}},
+                      if(sequence)'itemSchema':{'type':'integer','minimum':1},
+                      'examples': {'External': {'externalValue': './payload.bin', if(modeled)'dataValue':sequence?[1,2]:'café'}},
                     },
                   },
                 },

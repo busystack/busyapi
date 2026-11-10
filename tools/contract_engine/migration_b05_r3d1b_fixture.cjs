@@ -20,7 +20,7 @@ async function valid(input,bytes){
 }
 async function review(input){
  const original=JSON.stringify(input),result=await planMigration(input);assert.equal(JSON.stringify(input),original);
- assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(result.producerVersion,'106');
+ assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(result.producerVersion,'107');
  const cold={root:result.outputRoot,resources:result.outputs,snapshot:'named-cold'};
  assert.equal(analyse(cold).complete,true,JSON.stringify(analyse(cold).findings));return {result,cold,graph:createGraph(cold).graph};
 }

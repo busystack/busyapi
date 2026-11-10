@@ -16,7 +16,7 @@ async function valid(input,text,schema=at+'/schema',wire=false){
 }
 async function review(input){
  const before=JSON.stringify(input),result=await planMigration(input);assert.equal(JSON.stringify(input),before);
- assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(result.producerVersion,'106');
+ assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(result.producerVersion,'107');
  const cold={root:result.outputRoot,resources:result.outputs,snapshot:'multi-cold'};assert.equal(analyse(cold).complete,true);
  return {result,cold,graph:createGraph(cold).graph};
 }

@@ -273,7 +273,7 @@ function effectiveUrl(value:string,path:string):string {
 
 /** Representation-sensitive checks supplement native target validation. The
  * signature contains API declarations, never environments or credentials. */
-const mediaExampleKey=(media:any,example:any)=>JSON.stringify([media.mediaType,media.schema?.resource,media.schema?.pointer,
+const mediaExampleKey=(media:any,example:any)=>JSON.stringify([media.mediaType,media.schema?.resource,media.schema?.pointer,media.itemSchema?.resource,media.itemSchema?.pointer,
     example.source?.resource,example.source?.pointer,example.representation,example.raw]);
 
 export async function prepareMigrationRequestProfiles(graph:ReferenceGraph,resources:Resource[],wire?:ParameterWireProfiles,
@@ -285,18 +285,18 @@ export async function prepareMigrationRequestProfiles(graph:ReferenceGraph,resou
     for(const operation of graph.operations().filter(operation=>operation.role==='operation')){
         const plan=requestOperation({root:graph.root,resources,exampleResources,snapshot:'migration-invariant',resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
         const media=[...(plan.requestBody?.content??[]),...plan.responses.filter((response:any)=>response.bodyAllowed!==false).flatMap((response:any)=>response.content)];
-        for(const value of media)if(['xml','linkset','linkset-json'].includes(runtimeMediaKind(value.mediaType)))for(const example of value.examples??[]){
+        for(const value of media)if(['xml','linkset','linkset-json','json-lines','json-sequence','event-stream'].includes(runtimeMediaKind(value.mediaType)))for(const example of value.examples??[]){
             if(example.representation!=='json'||example.wireBase64!==undefined)continue;
             const key=mediaExampleKey(value,example);if(bytes.has(key))continue;
             if(bytes.size>=20000)throw new SourceError('limit.migration.examples','Modeled example profiles exceed 20000 captured choices');
             try{
-                bytes.set(key,(await migrationModeledExampleBytes(graph,value.mediaType,example.raw,value.schema,false,exampleResources)).toString('base64'));
+                bytes.set(key,(await migrationModeledExampleBytes(graph,value.mediaType,example.raw,value.schema,false,exampleResources,value.itemSchema)).toString('base64'));
             }catch(error){
                 if(!(error instanceof SourceError))throw error;
                 // Existing authored examples can remain incompatible advice.
                 // Keep that state and exact data in the comparison; it cannot
                 // equal a successful byte preparation on the other side.
-                bytes.set(key,'unprepared:'+JSON.stringify([error.code,example.raw]));
+                bytes.set(key,'unprepared:'+JSON.stringify(example.raw));
             }
         }
     }

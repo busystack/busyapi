@@ -54,7 +54,7 @@ void main() {
         } finally {plan.close();}
       }
       await send(project);final before=await source.readAsBytes();
-      for(final obsolete in ['104','105']) {
+      for(final obsolete in ['104','105','106']) {
         engine.oldProducer=obsolete;
         await expectLater(project.prepareMigration(root,'${temp.path}/obsolete-$obsolete',targetVersion:target),
           throwsA(isA<CoreFailure>().having((error)=>error.code,'code','migration.protocol')));
@@ -63,7 +63,7 @@ void main() {
       engine.oldProducer=null;
       final review=await project.prepareMigration(root,'${temp.path}/converted',targetVersion:target);
       addTearDown(review.close);expect(review.publishable,true,reason:'${review.result}');
-      expect(review.result['producerVersion'],'106');expect(await source.readAsBytes(),before);
+      expect(review.result['producerVersion'],'107');expect(await source.readAsBytes(),before);
       await review.publish();expect(await source.readAsBytes(),before);
       final moved=await Directory(review.destination).rename('${temp.path}/moved 雪');
       final cold=await BusyProject.open(moved.path,engine);addTearDown(cold.close);

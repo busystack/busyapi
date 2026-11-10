@@ -1014,14 +1014,16 @@ unchanged shared target and other consumers remain at source, including their
 independent identified Schema interpretations. Design, Core, CLI and new-file
 extraction share that composition and the existing ownership/dynamic/byte guards.
 
-Migration producer **106** retains the existing conversion owners and adds a
+Migration producer **107** retains the existing conversion owners and adds a
 literal `type: array` when an already proved array domain needs older XML
 `wrapped` applicability. Source originals remain independent of the transactional
 output. Captured XML/Linkset Example conversions reuse the original-schema
 media codecs and exact modeled request-byte profiles. Paired or approved
 external choices require identical bytes; scalar XML data retains literal
-history when represented by an older wire string. Obsolete migration producers
-**104** and **105** are rejected by Core. Other Example/Encoding/XML conversions
+history when represented by an older wire string. Finite JSON Lines/NDJSON,
+JSON-sequence and SSE examples use those same owners and retain original
+itemSchema runtime proof, exact bytes and empty-sequence behavior. Obsolete
+migration producers **104**, **105** and **106** are rejected by Core. Other Example/Encoding/XML conversions
 and competing dynamic-target lowering retain their separately recorded
 implementation/proof boundaries.
 

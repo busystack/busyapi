@@ -43,11 +43,27 @@ export function migrationExampleBytes(raw:string,media:string):Buffer {
  * Reuse this captured graph, including retrieval aliases and secondary roles;
  * reconstructing it from document text would lose those authorizations. */
 export async function migrationModeledExampleBytes(graph:ReferenceGraph,media:string,text:string,
-    schema?:MigrationLocation,header=false,packets:readonly ExternalExampleResourcePacket[]=[]):Promise<Buffer> {
+    schema?:MigrationLocation,header=false,packets:readonly ExternalExampleResourcePacket[]=[],itemSchema?:MigrationLocation):Promise<Buffer> {
     const family=graph.family;if(!isNativeFamily(family))throw new SourceError('migration.example.family','The captured example has no native family',[0,0],'unsupported');
     const resources=[...graph.docs.values()].map(doc=>({id:doc.id,text:doc.text,generation:0}));
-    return (await prepareModeledMedia({root:graph.root,resources,snapshot:'migration-example',exampleResources:packets},text,media,schema,header,undefined,
-        {docs:graph.docs,graph,family,exampleResources:new CapturedExampleResources([...packets])})).bytes;
+    const input={root:graph.root,resources,snapshot:'migration-example',exampleResources:packets},
+        context={docs:graph.docs,graph,family,exampleResources:new CapturedExampleResources([...packets])};
+    const bytes=(await prepareModeledMedia(input,text,media,schema,header,undefined,context)).bytes;
+    if(itemSchema){
+        // Whole-content correspondence does not discharge itemSchema. Retain
+        // its original captured owner through the ordinary runtime evaluator;
+        // no converted array schema supplies this source-side evidence.
+        const {evaluateSchemas}=await import('./schema_evaluation');
+        const checked=await evaluateSchemas({...input,runtimeInstances:[{subject:'authored-example',location:'modeled-example',
+            text:bytes.toString('base64'),mediaType:media,mediaBase64:true,schema,itemSchema}]},undefined,context);
+        const evaluations=checked.runtimeEvaluations??[];
+        if(checked.complete!==true||!evaluations.length||evaluations.some(value=>value.complete!==true||value.valid!==true)||
+            checked.runtimeFindings?.length)
+            throw new SourceError('migration.example.item-conformance','The encoded example has no complete proof against its original itemSchema ('+
+                (checked.runtimeFindings?.[0]?.code??evaluations.find(value=>value.complete!==true||value.valid!==true)?.reason??'runtime.evaluation.incomplete')+')',[0,0],'unsupported',
+                {...itemSchema,range:graph.docs.get(itemSchema.resource)!.dataNode(itemSchema.pointer)!.range});
+    }
+    return bytes;
 }
 const captureIdentity=(capture:Capture)=>capture.state==='available'?
     JSON.stringify([capture.bytes.id,capture.bytes.identity,capture.bytes.generation]):JSON.stringify([capture.code,capture.message]);
