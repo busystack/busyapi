@@ -6,6 +6,62 @@ const {createGraph,analyse}=require('./dist/model.cjs');
 const {SourceDocument}=require('./dist/document.cjs');
 const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
 const pointer='/paths/~1items/get/responses/200/content/application~1json/schema';
+
+for(const version of ['2.0','3.0.4','3.1.2','3.2.0','3.2.1'])for(const format of ['yaml','json'])for(const external of [false,true])
+test(`${version} ${format} one-step schema inlining retains recursive definitions external=${external}`,async()=>{
+ const root='file:///inline/api.'+format,model='file:///inline/models/node.'+format;
+ const group=version==='2.0'?'/definitions':'/components/schemas';
+ const ref=external?'models/node.'+format:'#'+group+'/Node';
+ const node={type:'object',required:['n'],properties:{n:{type:'integer',minimum:'EXACT'},next:{$ref:external?'#':'#'+group+'/Node'}}};
+ const positions=['response','parameter','property','items','allOf',...(version==='2.0'?[]:['callback','mimeHeader']),
+  ...(/^3\.[12]/.test(version)?['contains','dependentSchemas','webhook']:[]),...(version.startsWith('3.2')?['itemSchema']:[])];
+ for(const position of positions){
+  const value={...(version==='2.0'?{swagger:version}:{openapi:version}),info:{title:'Retained recursive graph',version:'business'},
+   paths:{'/p':{post:{responses:{200:{description:'Node'}}}}},'x-payload':{$ref:'literal',exact:'EXACT'}};
+  if(version==='2.0')value.definitions={...(!external?{Node:node}:{})};else value.components={schemas:{...(!external?{Node:node}:{})}};
+  const schemas=version==='2.0'?value.definitions:value.components.schemas,operation=value.paths['/p'].post;
+  let target;
+  const use={$ref:ref};
+  if(position==='response'){
+   if(version==='2.0'){operation.responses[200].schema=use;target='/paths/~1p/post/responses/200/schema';}
+   else{operation.responses[200].content={'application/json':{schema:use}};target='/paths/~1p/post/responses/200/content/application~1json/schema';}
+  }else if(position==='parameter'){
+   operation.parameters=[version==='2.0'?{name:'node',in:'body',schema:use}:{name:'node',in:'query',content:{'application/json':{schema:use}}}];
+   target='/paths/~1p/post/parameters/0'+(version==='2.0'?'/schema':'/content/application~1json/schema');
+  }else if(['property','items','allOf','contains','dependentSchemas'].includes(position)){
+   schemas.Use=position==='property'?{type:'object',properties:{value:use}}:position==='items'?{type:'array',items:use}:
+    position==='allOf'?{allOf:[use]}:position==='contains'?{type:'array',contains:use}:{type:'object',dependentSchemas:{flag:use}};
+   target=group+'/Use/'+({property:'properties/value',items:'items',allOf:'allOf/0',contains:'contains',dependentSchemas:'dependentSchemas/flag'})[position];
+  }else if(position==='callback'){
+   operation.parameters=[{name:'callback',in:'query',schema:{type:'string'}}];
+   operation.callbacks={Event:{'{$request.query.callback}':{post:{responses:{200:{description:'Node',content:{'application/json':{schema:use}}}}}}}};
+   target='/paths/~1p/post/callbacks/Event/{$request.query.callback}/post/responses/200/content/application~1json/schema';
+  }else if(position==='webhook'){
+   value.webhooks={Event:{post:{requestBody:{content:{'application/json':{schema:use}}},responses:{204:{description:'Empty'}}}}};
+   target='/webhooks/Event/post/requestBody/content/application~1json/schema';
+  }else if(position==='mimeHeader'){
+   operation.requestBody={content:{'multipart/mixed':{schema:{type:'object',properties:{value:{type:'string'}}},encoding:{value:{headers:{'X-Data':{content:{'application/json':{schema:use}}}}}}}}};
+   target='/paths/~1p/post/requestBody/content/multipart~1mixed/encoding/value/headers/X-Data/content/application~1json/schema';
+  }else{
+   operation.responses[200].content={'application/jsonl':{itemSchema:use}};
+   target='/paths/~1p/post/responses/200/content/application~1jsonl/itemSchema';
+  }
+  const render=value=>(format==='json'?JSON.stringify(value):'# Retain comments 雪\r\n'+YAML.stringify(value).replaceAll('\n','\r\n')).replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+  const resources=[{id:root,text:render(value),generation:0},...(external?[{id:model,text:render(node),generation:0}]:[])];
+  const input={root,snapshot:position+version,resources,contexts:[{root,resources:resources.map(value=>value.id)}],target:{root,resource:root,pointer:target,generation:0}};
+  const before=new SourceDocument(resources[0].text,root),plan=planInline(input),output=apply(input,plan),after=new SourceDocument(output[0].text,root);
+  assert.equal(after.dataNode(target+'/type').value,'object');assert.equal(after.dataJson('/x-payload'),before.dataJson('/x-payload'));
+  if(external)assert.equal(output[1].text,resources[1].text);else assert.equal(after.dataJson(group+'/Node'),before.dataJson(group+'/Node'));
+  const graph=createGraph({root,resources:output}).graph,edge=graph.referenceAs(root,target+'/properties/next','$ref','schema');
+  assert.equal(edge.targetResource,external?model:root);assert.equal(edge.targetPointer,external?'':group+'/Node');
+  const runtimeInstances=['{"n":9007199254740993,"next":{"n":9007199254740994}}','{"n":9007199254740992}','{"n":9007199254740993,"next":{"n":"bad"}}']
+   .map(text=>({subject:'response-body',location:position,text,schema:{resource:root,pointer:target}}));
+  for(const captured of [resources,output]){
+   const proof=await evaluateSchemas({root,snapshot:position,resources:captured,runtimeInstances});
+   assert.equal(proof.complete,true,JSON.stringify(proof.runtimeFindings));assert.deepEqual(proof.runtimeEvaluations.map(value=>value.valid),[true,false,false]);
+  }
+ }
+});
 for(const version of ['2.0','3.0.4','3.1.2','3.2.1'])for(const format of ['yaml','json'])
 test(`${version} ${format} extraction to a new fragment retains the original literal and source provenance`,()=>{
  const root='file:///project/source/api.'+format,destination='file:///project/target/model.'+format,group=version==='2.0'?'/definitions':'/components/schemas',at=group+'/Holder/default';
@@ -544,10 +600,10 @@ test('Reference Object description override does not merge ignored siblings',()=
  const unsafe={...input,resources:[{...input.resources[0],text:text.replace('description: Local','description: Local\n          x-ignored: true')}]};
  assert.throws(()=>planInline(unsafe),e=>e.code==='refactor.inline.ignored');
 });
-test('identified, dynamic and recursive definitions need explicit ownership, never silent duplication',()=>{
+test('identified, dynamic and ancestor-owned recursive definitions need explicit ownership, never silent duplication',()=>{
  for(const schema of [{$id:'https://models.test/A',type:'string'},{$anchor:'named',type:'string'},{$dynamicAnchor:'node',type:'object'},{type:'object',properties:{self:{$ref:'#/components/schemas/A'}}}]){
   const root='file:///project/root.json',data={openapi:'3.2.1',info:{title:'Test',version:'1'},paths:{},components:{schemas:{A:schema,B:{$ref:'#/components/schemas/A'}}}};
-  const input={snapshot:'current',resources:[{id:root,text:JSON.stringify(data),generation:1}],contexts:[{root,resources:[root]}],target:{root,resource:root,generation:1,pointer:'/components/schemas/B'}};
+  const input={snapshot:'current',resources:[{id:root,text:JSON.stringify(data),generation:1}],contexts:[{root,resources:[root]}],target:{root,resource:root,generation:1,pointer:schema.properties?'/components/schemas/A/properties/self':'/components/schemas/B'}};
   assert.throws(()=>planInline(input),e=>['refactor.inline.schema-resource','refactor.inline.recursive'].includes(e.code));
  }
 });
@@ -591,11 +647,13 @@ test('external inline repairs relative reference addresses but leaves the shared
  assert(doc.dataJson('/components/schemas/Use/examples').includes('900719925474099312345'));
  assert.equal(createGraph({root,resources}).graph.issues.length,0);
 });
-test('transitive recursion, ignored summary and conflicting Path Item siblings are explicit non-success',()=>{
+test('edited transitive recursive targets, ignored summary and conflicting Path Item siblings are explicit non-success',()=>{
  const root='file:///project/root.json';
  const data={openapi:'3.1.2',info:{title:'Blocked',version:'1'},paths:{'/':{$ref:'#/components/pathItems/Shared'}},components:{pathItems:{Shared:{summary:'Shared'}},responses:{Empty:{description:'No body'},Use:{$ref:'#/components/responses/Empty',summary:'Ignored'}},schemas:{A:{properties:{b:{$ref:'#/components/schemas/B'}}},B:{properties:{a:{$ref:'#/components/schemas/A'}}},Use:{$ref:'#/components/schemas/A'}}}};
  const input={snapshot:'blocked',resources:[{id:root,text:JSON.stringify(data),generation:1}],contexts:[{root,resources:[root]}],target:{root,resource:root,generation:1,pointer:'/components/schemas/Use'}};
- assert.throws(()=>planInline(input),e=>e.code==='refactor.inline.recursive');
+ const unfolded=planInline(input),safe=new SourceDocument(apply(input,unfolded)[0].text,root);
+ assert.equal(safe.dataNode('/components/schemas/Use/properties/b/$ref').value,'#/components/schemas/B');
+ assert.throws(()=>planInline({...input,target:{...input.target,pointer:'/components/schemas/A/properties/b'}}),e=>e.code==='refactor.inline.recursive'&&e.kind==='unsupported');
  assert.throws(()=>planInline({...input,target:{...input.target,pointer:'/components/responses/Use'}}),e=>e.code==='refactor.inline.ignored');
  // Overlap is now a source-located graph ambiguity before any refactoring
  // plan, not only a late inlining check. Keep the two independent refusals

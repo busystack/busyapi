@@ -804,9 +804,11 @@ function planOwnedInline(input:any) {
    if(++work>20000)throw new SourceError('limit.refactor.inline','The reference impact graph exceeds its bounded review budget');
    const key=id+'#'+pointer;
    if(active.has(key)){
-    // A non-schema object is copied once. Static recursion in an unchanged
-    // referenced schema stays in that resource; it is never expanded here.
-    if(scope.kind!=='schema'&&(id!==definition.id||!inside(pointer,definitionPointer)))return;
+    // Inline once, retaining every static target. A cycle among unchanged
+    // definitions does not expand or need a new recursive representation.
+    // The guards below exclude an edited retained target and dynamic scope;
+    // copied resource identities/anchors are still refused separately.
+    if(scope.kind==='schema'||id!==definition.id||!inside(pointer,definitionPointer))return;
     throw new SourceError('refactor.inline.recursive','The definition reaches a recursive graph; retain its shared definition instead of silently inlining it');
    }
    if(visited.has(key))return;visited.add(key);active.add(key);
@@ -815,6 +817,8 @@ function planOwnedInline(input:any) {
     if(edge.resource!==id||!inside(edge.pointer,pointer)||edge.connection||!intrinsic(g.graph,id,edge.pointer,pointer)||
        id===definition.id&&inside(edge.pointer,definitionPointer)&&!ownsReference(g,edge))continue;
     if(edge.keyword==='$dynamicRef'&&edge.dynamic)throw new SourceError('refactor.inline.schema-resource','A reachable dynamic reference needs its resource evaluation scope; it cannot be proved by static navigation');
+    if(scope.kind==='schema'&&edge.targetResource===resource.id&&inside(target.pointer,edge.targetPointer!))
+     throw new SourceError('refactor.inline.recursive','A retained recursive target contains the edited occurrence; this inlining needs an equivalence proof for the changed shared definition',node.range,'unsupported',{resource:resource.id,pointer:target.pointer,range:node.range});
     visit(edge.targetResource!,edge.targetPointer!);
    }
    active.delete(key);

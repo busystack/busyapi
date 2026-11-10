@@ -180,6 +180,28 @@ obsolete verification actions for both 3.2 patches. Existing OAuth regressions
 retain the shared authorization-code/client-credentials transport checks.
 The normative basis is OAS 3.2.1 OAuth Flow Objects and RFC 8628 §§3.1–3.5.
 No metadata discovery acquisition or unsupported token type is inferred.
+
+W6's existing inline owner now supports a single substitution at an independent
+use of a static recursive schema. Every copied static reference retains its
+original unchanged target; the algorithm never recursively expands the graph.
+Its normal canonical target/dialect/connection, literal, Markdown, YAML and CST
+proofs remain mandatory. A retained recursive target containing the edited
+occurrence remains a located `refactor.inline.recursive` unavailable proof;
+copied IDs/anchors and reachable dynamic-scope dependencies retain the existing
+refusals. This implements an established static equivalence through the existing
+transformation, rather than introducing a new certificate sequence.
+Prepared, **not run**: `test_refactoring_copy.cjs` compares original-schema
+instances and graph targets at body/content Parameters, Responses, properties,
+items, composition, contains, dependent schemas, callbacks/webhooks, MIME Header
+schemas and 3.2 itemSchema, with local/external recursive definitions in all
+native families and YAML/JSON. Identity/dynamic and edited-recursive-target
+negative controls remain. Core `recursive_schema_inlining_test.dart` exercises
+actual review/apply, cancellation/staleness, Undo/Redo, cold reopening, original
+schema proof and independent CLI review/publication. Native
+`recursive_schema_inline_test.dart` exercises Design's existing inline action,
+review Cancel/Apply, retained recursive targets, exact values and history in
+all four families. No refactoring producer/protocol or semantic engine was
+replaced. General mixed-role/ownership reconciliation is still unfinished.
 No boundary is reclassified as a target-specification restriction. Only source
 inspection, official specification/RFC reads, Git inspection and
 `git diff --check` have been performed. The execution hold and Snapcraft skip
