@@ -7,7 +7,7 @@ import {modernFamily} from './specification';
 import {capturedMockResponseMedia,schemaLocation,type SchemaLocation,type SourceLocation,type NativeRuntimeInstance,type NativeRuntimeCheck} from './mock_projection';
 import {SchemaSampleCandidates} from './schema_sample_candidates';
 
-export const mockSampleProducer=Object.freeze({name:'busyapi-native-schema-samples',version:'4'});
+export const mockSampleProducer=Object.freeze({name:'busyapi-native-schema-samples',version:'5'});
 type Sample={raw:string;source:SourceLocation};
 type Evaluate=(instances:NativeRuntimeInstance[],signal:AbortSignal)=>Promise<NativeRuntimeCheck>;
 
@@ -122,7 +122,7 @@ export class MockSchemaSamples {
 
     async value(schema:SchemaLocation,signal:AbortSignal,mediaType?:string):Promise<string|undefined> {
         const authored=this.candidates(schema,false);
-        if(mediaType&&['application/linkset','application/linkset+json'].includes(mediaType.split(';')[0].trim().toLowerCase()))authored.samples.push({raw:'{"linkset":[]}',source:{...schema,range:this.graph.docs.get(schema.resource)!.dataNode(schema.pointer)!.range}});
+        if(authored.samples.length<256&&authored.samples.reduce((sum,sample)=>sum+Buffer.byteLength(sample.raw),0)+14<=8*1024*1024&&mediaType&&['application/linkset','application/linkset+json'].includes(mediaType.split(';')[0].trim().toLowerCase()))authored.samples.push({raw:'{"linkset":[]}',source:{...schema,range:this.graph.docs.get(schema.resource)!.dataNode(schema.pointer)!.range}});
         const candidates=this.shapes.candidates(schema,location=>this.candidates(location,false),authored.samples);
         return (await this.prove([...authored.samples,...candidates.samples],schema,false,undefined,signal))?.raw;
     }
@@ -141,7 +141,13 @@ export class MockSchemaSamples {
         if(streamItem&&(['application/jsonl','application/x-ndjson','application/json-seq','text/event-stream'].includes(kind)||kind.endsWith('+json-seq'))&&(!schema||rawMedia.schema?.unconstrained===true)){
             const sample=await this.value(streamItem,signal);if(sample!==undefined){const raw='['+sample+']';if(!schema)return raw;const source={...schema,range:this.graph.docs.get(schema.resource)!.dataNode(schema.pointer)!.range};const proved=await this.prove([{raw,source}],schema,false,undefined,signal);if(proved)return proved.raw;}
         }
-        if(!schema)return;
+        if(!schema){
+            if(['application/linkset','application/linkset+json'].includes(kind))return '{"linkset":[]}';
+            if(['application/jsonl','application/x-ndjson','application/json-seq','text/event-stream'].includes(kind)||kind.endsWith('+json-seq'))return '[]';
+            if(kind==='application/x-www-form-urlencoded'||kind==='multipart/form-data')return '{}';
+            if(kind.startsWith('multipart/'))return '[]';
+            return kind==='application/json'||kind.endsWith('+json')?'null':undefined;
+        }
         const scope=schemaContext(this.graph,schema.resource,schema.pointer);
         const specification=this.graph.specifications.get(schema.resource)??this.graph.specifications.get(this.graph.root);
         const key=JSON.stringify([mockSampleProducer.version,this.revision,this.graph.root,
@@ -150,18 +156,19 @@ export class MockSchemaSamples {
         const proved=this.proved.get(key);
         if(proved!==undefined&&(!dynamic||!proved.length))return proved[0]?.raw;
         const authored=this.candidates(schema,dynamic);
-        if(['application/linkset','application/linkset+json'].includes(actual.split(';')[0].trim().toLowerCase()))authored.samples.push({raw:'{"linkset":[]}',source:{...schema,range:this.graph.docs.get(schema.resource)!.dataNode(schema.pointer)!.range}});
-        let limit=authored.limit;
+        if(authored.samples.length<256&&authored.samples.reduce((sum,sample)=>sum+Buffer.byteLength(sample.raw),0)+14<=8*1024*1024&&['application/linkset','application/linkset+json'].includes(actual.split(';')[0].trim().toLowerCase()))authored.samples.push({raw:'{"linkset":[]}',source:{...schema,range:this.graph.docs.get(schema.resource)!.dataNode(schema.pointer)!.range}});
+        let limit=authored.limit,unavailable:{source:SourceLocation;reason:string}|undefined;
         let selected=await this.prove(authored.samples,schema,dynamic,proved,signal);
         if(signal.aborted)throw new SourceError('cancelled','Mock schema sample selection was cancelled');
         if(!selected&&!limit) {
             const nested=this.shapes.candidates(schema,location=>this.candidates(location,dynamic),authored.samples);
-            limit=nested.limit;
+            limit=nested.limit;unavailable=nested.unavailable;
             selected=await this.prove(nested.samples,schema,dynamic,proved,signal);
         }
         if(signal.aborted)throw new SourceError('cancelled','Mock schema sample selection was cancelled');
         if(!selected&&limit)
             throw new SourceError('mock.sample.limit','No captured candidate was proved within the 256-candidate / 8 MiB sample budget',limit.range,'unsupported',limit);
+        if(!selected&&unavailable)throw new SourceError('mock.sample.pattern.unavailable','No original-schema witness was proved: '+unavailable.reason,unavailable.source.range,'unsupported',unavailable.source);
         if(this.proved.size>=128)this.proved.clear();
         this.proved.set(key,selected
             ?proved?.some(sample=>sample.raw===selected.raw)?proved:[...(proved??[]),selected]

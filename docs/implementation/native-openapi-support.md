@@ -70,7 +70,7 @@ acceptance must retain each exact authored patch declaration.
 | Native documentation/export | U | U | U | U | `reference_projection.ts`, `derived_bundle.ts`, Core `documentation.dart`/`documentation_sources.dart`, native documentation actions, CLI build-docs. Native offline HTML publication exists; complete relocation/rendering closure and pinned adapter compatibility remain unverified (W6.04). |
 | Requests/responses/authentication | P | P | P | P | Core `request.dart`/`execution.dart`, shared execution/security/runtime owners and native Request controls; existing HTTP/security/header/media suites. W4.01 typed multipart, W4.04/W4.05 XML/Linkset and W5.01/W5.02 incremental streaming are source-complete, unverified within their recorded representation and resource boundaries below. Standard implemented security flows are not missing because execution is held; full device-flow qualification remains unverified. |
 | Example interpretation/selection | P | P | P | P | `example_representation.ts`, serialized/external example owners and Core captured selections; native external-body and CLI saved-case paths exist. W4.07 retains binary Parameter/Header/part choice gaps; occurrence-free reusable media must not guess context. |
-| Mock execution/response validation | P | P | P | P | `mock_server.ts`, `mock_native_validation.ts`, generation adapter and Core `mock.dart`; exact external-byte/status/header/schema checks exist. W5.04 witness generation/media coverage remains incomplete; 3.2 CONNECT has an explicit ordinary-transport refusal. |
+| Mock execution/response validation | I | I | I | I | `mock_server.ts`, `mock_native_validation.ts`, generation adapter and Core `mock.dart`; exact external-byte/status/header/schema checks exist. W5.03/W5.04 are source-complete, unverified for approved pinned CONNECT peers and the bounded constructive witness classes in the final W5 handoff. Unsupported representations/search exhaustion remain explicit unavailable results. |
 | Contract testing | P | P | P | P | Core `execution.dart` and CLI test use native request/response evaluation and saved cases. Existing conformance/HTTP/CLI fixtures are unexecuted; captured wire models and incremental streaming now share Core/native/CLI execution; remaining representation limits and qualification remain explicit below. |
 | CLI headless workflows | P | P | P | P | `packages/busyapi_core/bin/busyapi.dart` dispatches init/check/lint/bundle/build-docs/refactor/migrate/diff/mock/test/import/generate to Core. Native family/reference/refactoring CLI suites exist. Shared execution/media/maintenance gaps also affect CLI; a desktop completion popup is not a separate CLI requirement. |
 | Save/reopen/source retention | I | I | I | I | Core document store/publication and engine CST edits retain declaration, exact numbers, extensions, BOM/newlines and unaffected source; no-op/ownership/transaction/publication fixtures exist. Current-revision execution remains held. |
@@ -88,8 +88,8 @@ results. They are required native application work, not specification limits:
 | XML wire model | SOURCE COMPLETE, unverified for captured, unambiguous XML 1.0 representations. | W4.04: shared codecs, canonical composition/reference proofs, native/Core/CLI workflows and registered regressions are recorded below. |
 | Linkset wire model | SOURCE COMPLETE, unverified for RFC 9264 text/JSON and HTTP-compatible Link content. | W4.05: shared model, actual Header production, native/Core/CLI workflows and registered regressions are recorded below. |
 | Incremental streaming | W5.01/W5.02 SOURCE COMPLETE, unverified through the existing HTTP transport. | Incremental framing, captured item evaluation, bounded retention/backpressure, native live inspection/Stop, cases/CLI and exact mock/proxy forwarding are recorded in the streaming handoff below. Whole-content proof remains gated on actual EOF and the original evaluator budgets. |
-| CONNECT mocks | `mock_native_validation.ts` explicitly rejects CONNECT on the ordinary response transport. | W5.03: approved bounded peer/tunnel ownership, bidirectional bytes, cancellation and closure, native mock/CLI integration. |
-| Mock witnesses | Bounded exact candidate construction and final original-schema validation exist. | W5.04: remaining media/candidate paths must generate valid witnesses or accurately report unavailable search evidence; never equate exhaustion with unsatisfiability. |
+| CONNECT mocks | W5.03 SOURCE COMPLETE, unverified within the explicit approved-peer policy. | Node connect transport, original operation/security/constraints, bounded pinned peers, bytes/FINs, cancellation/closure and native/CLI events are connected; see the final W5 handoff. |
+| Mock witnesses | W5.04 SOURCE COMPLETE, unverified for the constructive classes in the final W5 handoff. | Finite/exact, pattern, composition/recursive and supported text/binary candidates require original-schema proof; arbitrary patterns/dynamic constraints and exhausted bounds remain unavailable, never unsatisfiable. |
 | Semantic maintenance | Ordinary reviewed rename/extract/inline/move/file actions exist in native and CLI consumers. | W6-M1/M2 implement complete-resource relocation, shared Markdown specialization and compatible literal/contract separation. W6.01–03 still require general schema-position/mixed-reference-role qualification; precise unavailable proofs and actual independent-data conflicts remain refusals. |
 
 ### Ordered phases and completion criteria
@@ -3296,8 +3296,8 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W4.07 Concrete occurrence context, approved external/binary example selection and cache/decision ownership; Example clauses, Core capture contract | external/media/example/request owners | A R E M S C | external-resource/media-identity/binary-selection suites | Partially implemented; reusable media without a concrete occurrence remains missing context, not a guessed format; native external body choices and saved-case/CLI execution now retain approved bytes through one owner-bound selection, including unchanged draft restoration and empty resources; captured external mock responses now retain the same approved byte ownership through negotiation and original response validation; binary Parameter/Header and part controls still need closure | H |
 | W5.01 Incremental JSON Lines/NDJSON, JSON text sequences and SSE framing/evaluation; O32 media/itemSchema, WIRE | shared runtime/stream execution, Core request/execution, native Request/Inspector, cases/CLI and exact proxy owners | E M S C | `test_incremental_streaming.cjs`, `test_streaming_mock_proxy.cjs`, Core `incremental_stream_execution_test.dart`, native `incremental_stream_request_test.dart`, retained finite suites | SOURCE COMPLETE, unverified; live original-item proof, protocol dispatch, exact bytes/numbers, capture-bound cancellation and terminal whole proof are connected. Explicit proof/resource boundaries are recorded in the streaming handoff | H |
 | W5.02 Multipart sequences, chunk boundaries, cancellation/bounds/retention, malformed/truncated terminal status and whole-sequence versus item results; MIME/WIRE | existing MIME scanner/decoder plus stream transport, storage, evaluation and Inspector owners | E M S C | same registered Engine/Core/native/CLI production journeys, nested MIME/binary/transfer and incomplete/Stop controls | SOURCE COMPLETE, unverified; original MIME grammar/Headers/transfers/positional schemas remain authoritative, including nested child delivery before enclosing closure. Whole-context bindings and bounded enclosing items retain precise unavailable proof | H |
-| W5.03 Authority-form CONNECT, successful tunnel transition, bounded approved peers, bidirectional bytes and closure; HTTP §9.3.6 | mock native validation/server/transport; Core/native mock ownership | E S C | current tunnel refusal controls only; controlled peer byte-exchange suites still required | Missing; ordinary-response mock transport still refuses CONNECT; no unrestricted proxy is authorized | H |
-| W5.04 Bounded object/array/composition/reference/media-aware generated witnesses and final original-schema/status/header/body proof; JC/JV, family response clauses | schema sample candidates, mock sample/generation/response owners | E S C | numeric/nested/schema-sample/media/final-response suites | Partially implemented; exact numeric and final-proof fixes retained; optional/minimum-property objects, property-dependency closure, parent/alternative object merges, additional-property witnesses, conjoined array bounds, positional schemas and containment candidates now share bounded exact-fragment construction; shared typed generation now includes finite JSONL/JSON-seq/SSE as well as XML/Linkset/form/multipart; general pattern/string and raw-binary witness construction remain bounded or unavailable as reconciled below; exhausted search is not unsatisfiability | H |
+| W5.03 Authority-form CONNECT, successful tunnel transition, bounded approved peers, bidirectional bytes and closure; HTTP §9.3.6 | mock native validation/server/transport; Core/native mock ownership | E S C | `test_mock_connect.cjs`, Core `mock_connect_test.dart` (including packaged CLI), native `mock_connect_workflow_test.dart`, retained custom-method controls | SOURCE COMPLETE, unverified for exact approved pinned peers with explicit bounds; original CONNECT ownership, security/constraints, bodyless transition, duplex bytes/FINs, cancellation/timeouts/shutdown and separate lifecycle results are connected | H |
+| W5.04 Bounded object/array/composition/reference/media-aware generated witnesses and final original-schema/status/header/body proof; JC/JV, family response clauses | schema sample candidates, mock sample/generation/response owners | E S C | numeric/nested/schema-sample/media/final-response suites plus `test_mock_constructive_witnesses.cjs`, Core/CLI `mock_connect_test.dart` and native `mock_connect_workflow_test.dart` | SOURCE COMPLETE, unverified within explicit candidate/work/byte/depth bounds: finite exact values, supported string patterns, flat and composed object/array candidates, finite conditional merges and terminating recursive proposals; text/raw-binary wire candidates use original captured media proof. W4 and finite sequence/SSE codecs remain shared. Unsupported syntax, ambiguous codecs and exhausted construction/evaluation return unavailable evidence | H |
 
 ### W6–W8: maintenance, integration and qualification
 
@@ -3310,7 +3310,7 @@ packaging and performance. Source reads and diffs are not acceptance evidence.
 | W7.01 Creation, editing, unsaved Reference, request/example/mock/case, migration review, documentation and CLI integration for every capability; all applicable clauses above | shared engine, Core owners and native workspace controls | A R E M S C | engine/Core/widget/native journey suites | Partially implemented; applicable existing consumers inherit shared field/codec/routing changes; complete family journeys are not accepted | H |
 | W7.02 Stale-action invalidation on declaration/dialect/root/external/approval changes; coherent reviewed transactions, Undo/Redo and no buffer loss; Core transaction contract | Core project/store/capture and native review/request controllers | A R E M S C | stale capture/cancellation/publication/widget review suites | Partially implemented; existing source for existing safeguards; new paths require current integration qualification | H |
 | W7.03 CST fidelity, no-op saves, exact values, aliases, extensions and source-only migration restructuring; TEXT | `document.ts`, graph/CST editing, Core store/transaction owners | A R M S C | source ownership/alias/exact-value/no-op suites | Partially implemented; existing source for existing boundaries; generated schema owners retain original provenance and reviewed restructuring | H |
-| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+65` (current W4.04/W4.05 increment), multipart projection `2`, migration producer `104`, response mock producer `5`, parameter mock producer `6`, sample producer is now `4`; no dependency versions/source changed | H |
+| W7.04 Typed bounded owners, revision admission, obsolete-proof rejection and official unmodified dependencies; PINS | engine producer metadata, Core `project.dart`, mock readiness, native preflight | A R E M S C P | mock revision/readiness, Core runtime-parameter proof and migration producer consistency regressions | Partially implemented; existing source for scoped revision update: schema evaluator `1.18.0+67` (final W5 proof), stream representation/protocol `2`, multipart projection `2`, migration producer `104`, response mock producer `5`, parameter mock producer `6`, sample producer `5`, tunnel producer `1`; no dependency versions/source changed | H |
 | W8.01 Explicit independent evidence input across SDK/build/CMake/CI/installed/package checks; PINS | `flutter_archive.py`, SDK verifier, `build_linux.sh`, CMake, package/native-distribution/artifact-smoke inputs | P | `tools/test_flutter_sdk.py`, source-wiring regressions | Partially implemented; existing source for archive-input propagation; same existing evidence reaches installed checks; independent member pins remain an alternative; no SDK acquisition/replacement | H; actual evidence availability/authenticity has not been qualified |
 | W8.02 Ordered gates, registration, source-version-valid fixtures and production-byte regressions; PINS and each row's authority | `tools/build_engine.sh`, Linux workflow, engine/Core/widget/native/package suites | P | new direct-Swagger/conditional/tuple-tail/constant-containment/property-name/runtime-parameter and URI-security/OAuth-flow/invariant regressions registered; existing TypeScript-before-bundle gate retained | Partially implemented; compilation and all suspended gates remain unexecuted; missing regression coverage identified in this register remains implementation work | H |
 | W8.03 Current automated/native/packaged/offline acceptance and normal Quit; all approved families and PINS | native acceptance tools, Core/package/CLI suites | A R E M S C P | existing native acceptance including historical Quit/focus failures; complete new journeys still required | Missing for accepted evidence; no driver/engine attribution established; Snapcraft remains skipped | H |
@@ -5463,7 +5463,7 @@ Normative basis: [OpenAPI 3.2.1 sequential media](https://spec.openapis.org/oas/
 [WHATWG SSE parsing/dispatch](https://html.spec.whatwg.org/multipage/server-sent-events.html#parsing-an-event-stream),
 and [RFC 2046 multipart](https://www.rfc-editor.org/rfc/rfc2046.html#section-5.1).
 
-### Reconciliation of remaining application requirements
+### Reconciliation after W5.01/W5.02 (historical; superseded by final W5 reconciliation below)
 
 | Existing register entry | Actual source status after this increment | Concrete remaining boundary |
 | --- | --- | --- |
@@ -5475,3 +5475,221 @@ and [RFC 2046 multipart](https://www.rfc-editor.org/rfc/rfc2046.html#section-5.1
 This reconciles the existing register; it does not authorize or automatically
 start another implementation, migration or refactoring sequence. Overall BusyAPI
 SOURCE COMPLETE and ACCEPTED are not claimed.
+
+
+## Final W5.03/W5.04 handoff — native mocks and stream proof (2026-11-10)
+
+**W5.03 and W5.04: SOURCE COMPLETE, unverified within the supported classes and
+explicit boundaries below.** Work started at
+`789e27855215f302ad0c1e51bbe25587f13770f0` on `release/v0.1.0` in the primary
+checkout. This supersedes the earlier CONNECT refusal and partial witness status.
+It does not declare BusyAPI SOURCE COMPLETE or ACCEPTED. The execution hold and
+Snapcraft skip remain active; no dependency, SDK, lock or third-party source changed.
+
+### Final streaming proof
+
+`stream_execution.ts` now identifies a resolvable record only when its sole missing
+proof is the captured MIME whole-context binding (`runtime.stream.part.unavailable`),
+all its incomplete evaluations have that supported deferral reason, and there is
+no independent Media Type `itemSchema`. Core retains a cumulative count separately
+from the 128-record evidence window, so eviction cannot change aggregate results.
+`ContractStreamSnapshot.withWholeResult()` promotes only that explicit subset and
+only on complete, valid original body evidence after actual EOF/framing/decoding.
+Its caller checks actual response-body evaluations and their producer/configuration;
+a summary success, absent evaluations, resource limit or unrelated header proof
+cannot discharge an item. Independent item schemas, unavailable codecs/evaluations,
+binary item restrictions and unrelated warnings retain their status and severity.
+The exact mock/proxy streaming adapter uses the same restricted disposition.
+
+### CONNECT transport and approval policy
+
+`mock_connect.ts` is attached to Node's supported HTTP server `connect` event.
+The existing original-method transport and canonical operation projection remain
+owners; uppercase `CONNECT` is never rewritten to an ordinary response method.
+Lowercase/custom identities remain case-sensitive ordinary operations. Each approved
+authority selects exactly one existing captured path's `additionalOperations/CONNECT`,
+including shared Path Item provenance, effective security and request constraints.
+Header/query/cookie requirements are evaluated through existing native owners;
+required HTTP bodies and unrepresentable path constraints refuse before connecting.
+
+No policy means no approved destinations. A captured `mock.tunnels` configuration
+must name 1–32 exact `host:port` authorities, each with its operation path and an
+explicit pinned IP. All four resource limits are mandatory. Policy rejects
+wildcards, URLs/userinfo/path/query/fragment targets, missing/zero/out-of-range
+ports, ambiguous duplicate authority owners and IP-authority/pin disagreements.
+The socket connects directly to the approved IP/port without DNS acquisition or
+fallback and checks its effective remote address/port before the tunnel transition.
+The listener remains `127.0.0.1`; existing project access/capture boundaries remain.
+
+Example configuration (a policy example, never an installed default):
+
+```yaml
+mock:
+  tunnels:
+    destinations:
+      - path: /tunnel
+        authority: approved.test:9443
+        address: 127.0.0.1
+    maximumTunnels: 2
+    maximumBytes: 1048576
+    idleTimeoutMs: 2000
+    durationMs: 10000
+```
+
+The maximum allowed bounds are 32 simultaneous tunnels (including validation and
+connection establishment), 64 MiB of combined duplex bytes per tunnel, 60 seconds
+idle and 300 seconds lifetime. The detached initial `head` is bounded to 64 KiB;
+bytes enter the same metered stream before subsequent client bytes. Stream piping
+owns backpressure and each direction's FIN independently. Peer refusal, disconnect,
+byte/time limits and cancellation close owned sockets. Server shutdown explicitly
+aborts upgraded sockets, which HTTP `closeAllConnections()` does not own.
+
+A successful captured 2xx (or applicable `2XX`/default instantiated as 200) is sent
+only after peer connection and native status/Header proof. It sends neither HTTP
+response content nor Content-Length/Transfer-Encoding. Primitive simple Headers
+(including authored/ref/external examples) and existing content Header codecs are
+supported; unconstructed structured simple values, unsafe non-ASCII/control fields, oversized generated
+Headers and incompatible required framing Headers return located unavailable
+results. No unsupported tunnel is converted into an ordinary successful response.
+Request refusal uses a non-2xx empty HTTP response and never opens a destination.
+
+`tunnel-established`, `tunnel-refused` and `tunnel-terminated` are distinct captured
+machine events, with `responseBody: not-applicable`, original source ownership and
+no credential or payload logging. Core retains 64 events, native review retains the
+latest lifecycle outcome after Stop, and CLI `mock --json` emits lifecycle records
+after readiness. Shutdown drains event output before CLI/subscription teardown.
+Startup, Stop/cancel, configuration capture, source staleness and restart continue
+through existing `MockPlan`/`MockRun` and native controls.
+
+Normative/API basis: [RFC 9110 §9.3.6](https://www.rfc-editor.org/rfc/rfc9110.html#section-9.3.6),
+[Node 24 HTTP connect](https://nodejs.org/docs/latest-v24.x/api/http.html#event-connect)
+and [Node 24 Socket](https://nodejs.org/docs/latest-v24.x/api/net.html#class-netsocket).
+
+### Constructive mock witnesses and honest unavailable results
+
+Existing captured examples/defaults, finite enum/modern const values and exact
+numeric bounds/lattices remain authoritative suggestions. Media examples retain
+precedence, including serialized/external bytes and text charset selection. Native
+sample construction now additionally proposes:
+
+- Strings from bounded literal/escaped sequences, positive character classes and
+  ranges, dot seeds, ordinary/noncapturing groups, alternation, anchors, and
+  `?`, `*`, `+`, exact/bounded/open repeat counts. Supported escapes include
+  `d`, `w`, `s`, newline/tab/return, fixed hex/Unicode and escaped punctuation.
+  Conjoined captured length bounds inform construction. The parser proposes
+  values; it never evaluates schema validity or executes authored regexes.
+- Object required/minimum/optional/additional-property candidates, dependency
+  closure and exact parent/alternative merges; array conjoined length, positional,
+  containment and distinct finite proposals retain their shared constructor.
+- Finite `if`/`then`/`else` and dependent-schema object fragments merged with parent
+  requirements, plus primitive/empty termination proposals at recursive edges.
+  Parent construction and original proof determine whether a finite witness exists.
+- Text and known raw-binary media candidates, including exact captured string
+  witnesses, supported charset encoding and bounded zero/ASCII byte lengths from
+  captured length/alternative/negation constraints. Modern binary `maxLength` is
+  proved on decoder-owned octets; it is not JSON null/string evidence. Encoded
+  whole-body strings retain their established original-schema/media semantics.
+
+Every selected candidate is proved by the existing original captured-schema
+worker, and the existing native status/Header/body check runs before successful
+mock emission. JSON alternative proof remains JSON-only; wire candidates use
+separate original media instances in bounded batches. No new evaluator or Prism
+modification is introduced. Exact source numeric tokens remain the emitted JSON.
+W4 XML/Linkset/form/multipart, named examples and finite JSONL/JSON-seq/SSE continue
+through their existing codecs and final original proof.
+
+The existing limits remain 256 candidates, 8 MiB candidate data, 32768 construction
+steps and 128 schema depth (with existing codec/evaluator bounds). Pattern text is
+limited to 4096 characters and constructed repeats/byte lengths to 65536; finite
+conditional object combinations retain at most 64 merged proposals. Lookarounds,
+backreferences, Unicode properties, negated classes and arbitrary regex intersections
+have no general constructor. Neither arbitrary dynamic-reference solutions nor
+mandatory infinite recursion/conflicting schemas are promised. Content annotations
+do not become an invented decoded-content validator. Unsupported representation,
+incomplete original evaluation and exhausted search return precise unavailable
+codes (`mock.sample.pattern.unavailable`, `.unchecked`, `.limit`, `.unavailable`
+or `.media.unavailable`); exhaustion is never reported as unsatisfiability.
+
+### Changed production owners and producer admission
+
+- Engine: `mock_connect.ts` and `schema_string_candidates.ts` (new);
+  `mock_server.ts`, `mock_native_validation.ts`, `mock_response_validation.ts`,
+  `mock_generation_adapter.ts`, `mock_schema_samples.ts`, `mock_response_examples.ts`,
+  `schema_sample_candidates.ts`, `stream_execution.ts`, `mock_stream_response.ts`,
+  `runtime_stream.ts`, `schema_evaluation.ts`, `execution.ts`. The existing
+  `mock_operations.ts` and `mock_method_transport.ts` remain the captured operation
+  and parser owners used by the new transport.
+- Core: `mock.dart`, `request_stream.dart`, `request.dart`, `execution.dart`,
+  `project.dart`; CLI: `packages/busyapi_core/bin/busyapi.dart`;
+  native: `lib/src/workspace/mock_run.dart`. Test runtime injection uses the same
+  Core start entry point and defaults to the existing packaged assets.
+- Canonical schema producer is now `hyperjump+busyapi-exact` **1.18.0+67**, with
+  **incremental-stream-v2**. Core admits exactly that schema revision. Stream
+  protocol/request representation revision is **2**; report producer remains
+  `busyapi-incremental-stream` **1** with canonical schema identity attached.
+- Native sample producer advances to **5**, configuration
+  `captured-schema-candidates-v5:<canonical configuration>`. New tunnel producer:
+  `busyapi-native-tunnels` **1**, `approved-pinned-peers-v1`. Response **5**,
+  parameter **6**, security **1**, method **1**, multipart **2**, schema examples
+  **3**, XML/Linkset **2**, contract-test report **4** and migration **104** retain
+  their identities. Obsolete schema **+66**, candidate **4**, missing/obsolete
+  tunnel identity and stream revision **1** are not accepted as shortcuts.
+
+### Registered regression sources — prepared, not run
+
+`tools/build_engine.sh` explicitly registers new `test_mock_connect.cjs` and
+`test_mock_constructive_witnesses.cjs`. The former drives actual mock subprocesses
+and controlled local TCP peers: malformed/valid authority syntax, approved/denied
+peers and pin mismatch, native security/parameters/required-body/status refusal,
+initial buffered binary bytes, duplex traffic/backpressure, half-close, concurrent
+tunnels/capacity, disconnect, idle/lifetime/byte limits, cancellation/shutdown,
+peer refusal and ordinary HTTP. Existing `test_mock_custom_methods.cjs` retains
+canonical additional-operation/case/shared source coverage, adds lowercase
+`connect`, and now checks refusal at request time rather than obsolete startup
+refusal. Producer/generation fixture expectations are synchronized.
+
+`test_mock_constructive_witnesses.cjs` covers four families, patterns/lengths,
+finite/exact values, object/array composition/distinct values, finite conditionals,
+recursive termination, binary lengths/encoded strings, media-example precedence,
+conflicting/unsupported/unbounded negative witnesses, source retention and original
+final response proof. Existing numeric, nested, lifecycle, negotiation, media,
+external example and W4 suites remain registered. `test_incremental_streaming.cjs`
+and `test_streaming_mock_proxy.cjs` add actual deferred MIME binding/final proof
+controls; independent/binary/limit coverage is retained.
+
+Core `mock_connect_test.dart` drives actual `prepareMock`/`start`, socket exchange,
+policy/configuration staleness, source identity, generation, cancellation and independent packaged CLI JSON
+lifecycle/witnesses. `mock_connect_support.dart` supplies controlled peers only.
+`incremental_stream_execution_test.dart` adds 150-record evidence eviction, actual
+whole-body success beside independently unavailable item/codec/limit evidence,
+controlled incomplete/omitted worker results around actual production execution,
+original deferred MIME proof and unavailable binary items. The existing production
+media fixture accepts an optional controlled Engine for those fault regressions.
+`mock_readiness_revision_test.dart` and Engine producer-consistency checks retain
+old-producer rejection. Native `test/mock_connect_workflow_test.dart` uses actual
+workspace/mock controls, peer bytes, witness requests, lifecycle review/Stop and
+source retention. Core and standard/local native widget directory discovery in
+`tools/build_linux.sh`/`tools/test_widgets_local.sh` register these files, including
+CLI journeys. No prepared regression is reported as passed.
+
+### Remaining BusyAPI product requirements after W5
+
+| Existing requirement | Reconciled source status | Remaining product/qualification boundary |
+| --- | --- | --- |
+| W4.01, W4.03–W4.05 | Retain source-complete, unverified bounded media/field implementations | Current revision execution, native/package/CLI qualification and documented codec limits remain; this work does not remove codecs or simplify authored contracts. |
+| W5.01–W5.04 | Source-complete, unverified within their handoffs, including this final-proof correction | Run all registered Engine/Core/native/CLI regressions only after explicit authorization lifts the hold. Constructor/proof unavailability and explicitly unapproved tunnel peers remain intentional bounded refusals. |
+| W1 native Design/Source/Reference and semantics | Bounded schema/reference authoring completion retained; complete field/position/family qualification remains U/P in existing rows | Reconcile native surface coverage and actual gaps, including operation/security/device-flow and complete rendered/reference contexts, against the existing W1 rows; held tests are not evidence that controls are missing. |
+| W4.02, W4.06–W4.07 | Existing parameter/external-byte implementations retained, with explicit occurrence/selection boundaries | Occurrence-specific serializations and binary Parameter/Header/part choices still require closure as already recorded; occurrence-free reusable media cannot guess context. |
+| W6 maintenance and W6.04 documentation/export/adapters | Existing W6-M1/M2 bounded completions retained; general schema-position/mixed-role and full export/relocation qualification remain open | These are existing product requirements, not an instruction to resume W6 or create another migration sequence. |
+| W2/W3 migration | Existing bounded completions and recorded gaps remain unchanged | B05 and advanced migration work remain parked. Only evaluator expectation fixtures changed here; no migration algorithm or contract mapping was resumed. |
+| W7 integration/professional journeys | Shared capture/review/stale/history/publication controls retained and W5 paths connected | Complete native-family/authenticated/packaged journeys remain unaccepted. New mock events retain source ownership and redact displayed paths without recording credentials/payloads. |
+| W8 evidence/acceptance | Held, no new accepted evidence | Compilers, analyzers, builds, generation, tests/CI, graphical/performance and installed/package acceptance have not run; independent SDK/evidence prerequisites and normal Quit qualification remain, and Snapcraft stays skipped. |
+
+**Verification actually performed:** source reads/searches, official RFC/Node API
+consultation, production-path/producer/gate review, Git state inspection and
+`git diff --check` only. No tests, compilation, analysis, build, generation, CI,
+graphical/performance or Snapcraft workload ran. Generated Engine bundles and installed/test runtimes were not rebuilt;
+held acceptance requires rebuilding these source revisions first. Coherent changes are committed
+locally on the requested branch; no push is authorized or performed. Overall
+BusyAPI SOURCE COMPLETE and ACCEPTED remain unmet. No next implementation sequence
+is created or automatically started.

@@ -913,7 +913,7 @@ class OperationRequestPlan {
     finally {unsubscribe?.call();}
     cancellation?.throwIfCancelled();
     ensureCurrentOwner();
-    if (result['version'] != 1 || result['revision'] != '1' ||
+    if (result['version'] != 1 || result['revision'] != '2' ||
         result['snapshot'] != snapshot.identity || result['identity'] != identity ||
         result['producer'] != 'hyperjump+busyapi-exact' ||
         result['producerVersion'] != _schemaProducerVersion ||
@@ -922,7 +922,7 @@ class OperationRequestPlan {
     }
     bool item(Object? raw) {
       if (raw is! Map || raw['index'] is! int || raw['offset'] is! int || raw['bytes'] is! int ||
-          raw['complete'] is! bool || raw['valid'] is! bool || raw['findings'] is! List) return false;
+          raw['wholeResolvable'] is! bool || raw['complete'] is! bool || raw['valid'] is! bool || raw['findings'] is! List) return false;
       final findings = raw['findings'] as List;
       return findings.length <= 16 && findings.every((value) => value is Map) &&
           (raw['data'] == null || raw['data'] is String && utf8.encode(raw['data'] as String).length <= 16384);
@@ -1601,7 +1601,7 @@ extension RequestPlanning on BusyProject {
         (result['representationRevisions'] as Map)['schemaExamples'] != '3' ||
         (result['representationRevisions'] as Map)['xml'] != '2' ||
         (result['representationRevisions'] as Map)['linkset'] != '2' ||
-        (result['representationRevisions'] as Map)['stream'] != '1' ||
+        (result['representationRevisions'] as Map)['stream'] != '2' ||
         result['operation'] is! Map ||
         result['servers'] is! List ||
         result['parameters'] is! List ||

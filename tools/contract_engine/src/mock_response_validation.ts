@@ -62,7 +62,7 @@ export async function validateMockResponse(graph:ReferenceGraph,plan:unknown,met
         if(!occurrence)throw new SourceError('mock.validation.protocol','A native response header omitted its captured occurrence');
         add({subject:'response-header',location:header.name,text:'',header:{resource:occurrence.resource,pointer:occurrence.pointer,name:header.name,values}},source);
     }
-    const permitted=method!=='HEAD'&&status>=200&&![204,205,304].includes(status);
+    const permitted=!(method==='CONNECT'&&status>=200&&status<300)&&method!=='HEAD'&&status>=200&&![204,205,304].includes(status);
     if(!permitted&&bytes.length)issue('runtime.response.body.forbidden','This method and status do not permit response content','response-body','body',source);
     if(permitted&&declaration.bodyAllowed===false){
         const types=received.get('content-type');

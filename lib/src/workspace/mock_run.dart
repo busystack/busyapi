@@ -10,10 +10,11 @@ import 'workspace_controller.dart';
 import 'tool_surface.dart';
 
 class MockRunController extends ChangeNotifier {
-  MockRunController(this.workspace) {
+  MockRunController(this.workspace,{this.nodeExecutable,this.helper}) {
     workspace.addListener(_observe);
   }
   final WorkspaceController workspace;
+  final String? nodeExecutable,helper;
   BusyProject? owner;
   String? _root;
   MockPlan? plan;
@@ -23,6 +24,8 @@ class MockRunController extends ChangeNotifier {
   bool expanded = true, _disposed = false;
   int _epoch = 0;
   RunCancellation? cancellation;
+  StreamSubscription<Map<String,Object?>>? _tunnels;
+  final tunnelResults=<Map<String,Object?>>[];
   bool get busy =>
       phase == 'preparing' || phase == 'starting' || phase == 'stopping';
   bool get outdated => run?.outdated ?? plan?.outdated ?? false;
@@ -45,6 +48,7 @@ class MockRunController extends ChangeNotifier {
     owner = project;
     _root = root;
     phase = 'preparing';
+    tunnelResults.clear();
     failure = null;
     expanded = true;
     plan?.close();
@@ -85,6 +89,7 @@ class MockRunController extends ChangeNotifier {
     _notify();
     try {
       final started = await captured.start(
+        nodeExecutable:nodeExecutable,helper:helper,
         proxyTarget: proxy ? captured.configuredProxyTarget() : null,
         cancellation: token,
       );
@@ -92,7 +97,14 @@ class MockRunController extends ChangeNotifier {
         await started.stop();
         return;
       }
+      await _tunnels?.cancel();
+      if(_disposed||epoch!=_epoch||!identical(captured,plan)){await started.stop();return;}
       run = started;
+      tunnelResults.addAll(started.recentTunnels);while(tunnelResults.length>64){tunnelResults.removeAt(0);}
+      _tunnels=started.tunnelEvents.listen((event){
+        if(_disposed||epoch!=_epoch||!identical(captured,plan))return;
+        tunnelResults.add(event);if(tunnelResults.length>64)tunnelResults.removeAt(0);_notify();
+      });
       phase = 'running';
       unawaited(
         started.exitCode.then((code) {
@@ -147,6 +159,7 @@ class MockRunController extends ChangeNotifier {
 
   void clear() {
     ++_epoch;
+    unawaited(_tunnels?.cancel());_tunnels=null;
     cancellation?.cancel();
     final active = run;
     run = null;
@@ -156,6 +169,7 @@ class MockRunController extends ChangeNotifier {
     owner = null;
     _root = null;
     phase = 'idle';
+    tunnelResults.clear();
     failure = null;
     _notify();
   }
@@ -164,6 +178,7 @@ class MockRunController extends ChangeNotifier {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    unawaited(_tunnels?.cancel());_tunnels=null;
     workspace.removeListener(_observe);
     cancellation?.cancel();
     final active = run;
@@ -248,6 +263,8 @@ class MockRunPanel extends StatelessWidget {
               enabled: !controller.busy,
               onTap: controller.busy ? null : controller.restart,
             ),
+            if (controller.tunnelResults.isNotEmpty)
+              BusyApiStatusBox(message:'CONNECT · ${switch(controller.tunnelResults.last['event']){'tunnel-established'=>'Established','tunnel-refused'=>'Refused',_=>'Ended'}} · ${controller.tunnelResults.last['reason']?.toString().replaceAll('-', ' ') ?? controller.tunnelResults.last['status'] ?? ''}',kind:controller.tunnelResults.last['event']=='tunnel-refused'?BusyApiStatusKind.warning:BusyApiStatusKind.information),
             if (run != null && run.errors.isNotEmpty)
               BusyApiStatusBox(
                 message: run.errors,

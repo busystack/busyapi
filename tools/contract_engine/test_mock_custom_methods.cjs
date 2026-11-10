@@ -36,7 +36,7 @@ function wire(port,method,path,headers={},body='') {
 for(const version of ['3.2.0','3.2.1'])for(const format of ['yaml','json'])
 test(`${version} ${format} native mock methods retain case, shared owners and exact bodies`,{timeout:35000},async t=>{
  const root=`file:///custom-mock/api.${format}`,part=`file:///custom-mock/paths.${format}`;
- const custom=['get','post','gEt','trace','CuStOm','__proto__','constructor','X~Task'];
+ const custom=['connect','get','post','gEt','trace','CuStOm','__proto__','constructor','X~Task'];
  const fixed=['GET','POST','TRACE','QUERY'];
  const operation=(method,body)=>({
   security:[{Key:[]}],
@@ -64,7 +64,7 @@ test(`${version} ${format} native mock methods retain case, shared owners and ex
   ...value,generation:1,identity:createHash('sha256').update(value.text).digest('hex'),
  }))};
  const original=JSON.stringify(capture),ready=await startMock(t,capturedMockStart(capture));
- assert.equal(ready.operations,24);
+ assert.equal(ready.operations,26);
  for(const method of [...fixed,...custom]){
   const body=['GET','TRACE'].includes(method)?'':`{"method":${JSON.stringify(method)},"number":9007199254740993.00}`;
   const response=await wire(ready.port,method,'/work/9007199254740993',{'X-Key':'synthetic'},body);
@@ -144,14 +144,13 @@ test(`${version} ${format} native custom proxy preserves method, target, body an
 });
 
 for(const version of ['3.2.0','3.2.1'])for(const format of ['yaml','json'])
-test(`${version} ${format} a CONNECT tunnel never appears as a ready stateless mock`,async t=>{
+test(`${version} ${format} a CONNECT capture starts with all unapproved destinations denied`,async t=>{
  const root=`file:///tunnel/api.${format}`;
  const document={openapi:version,info:{title:'Tunnel',version:'1'},paths:{'/':{additionalOperations:{CONNECT:{responses:{200:{description:'Tunnel established'}}}}}}};
  const text=format==='yaml'?YAML.stringify(document):JSON.stringify(document);
  const capture={root,snapshot:'0'.repeat(64),resources:[{id:root,text,generation:1,identity:createHash('sha256').update(text).digest('hex')}]};
- const original=JSON.stringify(capture),failed=await startMock(t,capturedMockStart(capture),{failure:true});
- assert.equal(failed.event,'failed');assert.equal(failed.failure.code,'mock.method.tunnel');
- assert.equal(failed.failure.kind,'unsupported');assert.equal(failed.failure.source.resource,root);
- assert.equal(failed.failure.source.pointer,'/paths/~1/additionalOperations/CONNECT');
+ const original=JSON.stringify(capture),ready=await startMock(t,capturedMockStart(capture));
+ const denied=await wire(ready.port,'CONNECT','127.0.0.1:12345');
+ assert.equal(denied.status,403);assert.equal(denied.headers['busyapi-tunnel-status'],'refused');
  assert.equal(JSON.stringify(capture),original);
 });

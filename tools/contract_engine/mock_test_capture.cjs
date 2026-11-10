@@ -17,8 +17,9 @@ function capturedMockStart(capture,options={}) {
  if(derived.complete!==true)throw Error('The synthetic mock fixture did not form one complete bundle');
  return {version:1,snapshot:capture.snapshot,capture,derived:{id:derived.output.id,identity:derived.output.identity},...options};
 }
-async function startMock(t,input,{failure=false,helper=path.join(__dirname,'dist/mock-server.cjs')}={}) {
+async function startMock(t,input,{failure=false,helper=path.join(__dirname,'dist/mock-server.cjs'),onEvent=()=>{},onProcess=()=>{}}={}) {
  const child=spawn(process.execPath,[helper],{stdio:['pipe','pipe','pipe']});
+ onProcess(child);
  let stderr='';child.stderr.on('data',chunk=>stderr+=chunk);
  t.after(async()=>{
   if(child.exitCode===null){
@@ -33,9 +34,11 @@ async function startMock(t,input,{failure=false,helper=path.join(__dirname,'dist
   child.once('exit',()=>{clearTimeout(deadline);reject(Error('mock exited before readiness: '+stderr));});
   child.stdout.on('data',chunk=>{
    output+=chunk;
-   for(const line of output.split('\n')){
+   const lines=output.split('\n');output=lines.pop();
+   for(const line of lines){
     if(!line)continue;
     let event;try{event=JSON.parse(line);}catch{continue;}
+    onEvent(event);
     if(event.event==='ready'||event.event==='failed'){
      clearTimeout(deadline);
      if(event.event==='failed'&&!failure)reject(Error(JSON.stringify(event)));else resolve(event);
@@ -58,9 +61,10 @@ async function startMock(t,input,{failure=false,helper=path.join(__dirname,'dist
   assert.equal(event.nativeSecurityValidation.name,'busyapi-native-security');
   assert.equal(event.nativeSecurityValidation.version,'1');
   assert.equal(event.nativeSecurityValidation.configuration,'security-wire-v1:'+event.nativeValidation.configuration);
+  assert.deepEqual(event.nativeTunnels,{name:'busyapi-native-tunnels',version:'1',configuration:'approved-pinned-peers-v1'});
   assert.equal(event.nativeGeneration.name,'busyapi-native-schema-samples');
-  assert.equal(event.nativeGeneration.version,'4');
-  assert.equal(event.nativeGeneration.configuration,'captured-schema-candidates-v4:'+event.nativeValidation.configuration);
+  assert.equal(event.nativeGeneration.version,'5');
+  assert.equal(event.nativeGeneration.configuration,'captured-schema-candidates-v5:'+event.nativeValidation.configuration);
   assert.equal(event.nativeOperationRouting.name,'busyapi-native-methods');
   assert.equal(event.nativeOperationRouting.version,'1');
   assert.equal(event.nativeOperationRouting.configuration,'method-wire-v1:'+event.nativeValidation.configuration);

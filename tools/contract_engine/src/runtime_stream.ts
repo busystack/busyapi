@@ -3,7 +3,7 @@ import {runtimeMediaKind,decodeRuntimeMedia} from './runtime_media';
 import {runtimeBinaryMedia} from './runtime_binary';
 import {mimeBoundary,mimeDelimiter,mimeParts,mimeSingleton} from './mime_parts';
 
-export const streamRevision='1';
+export const streamRevision='2';
 export const streamRecordLimit=16*1024*1024;
 import {sseLine,type SseState} from './runtime_sse';
 export type StreamState={version:1;mediaType:string;buffer:string;index:number;bytes:number;offset:number;started:boolean;closed:boolean;scan:number;awaitRs?:boolean;ended?:boolean;lex?:{depth:number;quoted:boolean;escaped:boolean;started:boolean};eventStart?:number;sequence?:number;nested?:{state?:StreamState;processed:number;type:string;header:string};sse:SseState};

@@ -117,3 +117,13 @@ test('multipart item alternatives are original schemas, not conjoined representa
  const wire=Buffer.from('--alternatives\r\nContent-Type: application/json\r\n\r\n1\r\n--alternatives\r\nContent-Type: application/json\r\n\r\n"ok"\r\n--alternatives\r\nContent-Type: application/json\r\n\r\nfalse\r\n--alternatives--\r\n');
  const result=await exchange(input,[wire]);assert.deepEqual(result.records.map(value=>value.valid),[true,true,false]);assert(result.records.every(value=>value.complete));
 });
+
+test('only a deferred original whole-context MIME binding carries a resolvable item proof',async()=>{
+ const type='multipart/form-data; boundary=proof',schema={type:'object',oneOf:[{required:['value'],properties:{value:{type:'integer',const:1}}},{required:['value'],properties:{value:{type:'integer',const:2}}}]};
+ const input=capture(type,{schema,itemSchema:null,encoding:{encoding:{value:{contentType:'application/json'}}}}),wire='--proof\r\nContent-Disposition: form-data; name="value"\r\nContent-Type: application/json\r\n\r\n1\r\n--proof--\r\n';
+ const result=await exchange(input,[Buffer.from(wire)]);assert.equal(result.records.length,1);assert.equal(result.records[0].complete,false);assert.equal(result.records[0].wholeResolvable,true);assert(result.records[0].findings.every(value=>value.wholeResolvable===true&&value.detailCode==='runtime.stream.part.unavailable'));
+ const finite=await evaluateSchemas({...input,runtimeInstances:[{subject:'response-body',location:'whole',text:wire,mediaType:type,schema:{resource:root,pointer:'/paths/~1events/get/responses/200/content/multipart~1form-data; boundary=proof/schema'},form:{resource:root,pointer:'/paths/~1events/get/responses/200/content/multipart~1form-data; boundary=proof'}}]});
+ assert.equal(finite.complete,true);assert(finite.runtimeEvaluations.every(value=>value.complete&&value.valid),JSON.stringify(finite.runtimeFindings));
+ const independent=capture(type,{schema,itemSchema:{type:'object'},encoding:{encoding:{value:{contentType:'application/json'}}}});
+ const unchecked=await exchange(independent,[Buffer.from(wire)]);assert(unchecked.records.every(value=>value.wholeResolvable===false));
+});

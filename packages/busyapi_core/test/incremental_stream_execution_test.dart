@@ -7,6 +7,39 @@ import 'native_media_execution_test.dart' show openMedia;
 import 'test_support.dart';
 
 void main() {
+  for(final mode in ['independent-item','codec','resource','whole-unavailable','whole-missing']) {
+    test('final original body proof preserves $mode evidence and evicted counts',() async {
+      final directory=await Directory.systemTemp.createTemp('busyapi-stream-final-proof-');addTearDown(()=>directory.delete(recursive:true));
+      final server=await HttpServer.bind(InternetAddress.loopbackIPv4,0);addTearDown(()=>server.close(force:true));
+      server.listen((request) async {await request.drain<void>();request.response.headers.set('content-type','application/x-ndjson');request.response.write('1\n'*150);await request.response.close();});
+      final fixture=await openMedia(directory,server,'3.2.1','json',{'schema':{'type':'array','minItems':150,'maxItems':150},'itemSchema':{'type':'integer'}},contentType:'application/x-ndjson',engineOverride:_StreamProofFault(mode));
+      final result=await const ContractRequestExecutor().execute(fixture.plan,OperationRequestDraft(planIdentity:fixture.plan.identity),resolveSecret:(_) async=>null);addTearDown(result.close);
+      final stream=result.response.stream!;
+      expect(result.received.complete,false);expect(stream.complete,false);expect(stream.status,'incomplete');expect(stream.records,150);expect(stream.evidence.length,128);
+      expect(stream.uncheckedRecords,mode.startsWith('whole-')?0:150);expect(stream.validRecords,mode.startsWith('whole-')?150:0);expect(stream.invalidRecords,0);
+      if(!mode.startsWith('whole-')){expect(stream.evidence.every((item)=>item['complete']==false),true);expect(stream.findings.where((finding)=>finding['severity']=='warning'),isNotEmpty);expect(stream.findings.any((finding)=>finding.containsKey('resolvedBy')),false);}
+      expect(await fixture.source.readAsString(),fixture.original);
+    });
+  }
+  test('only actual deferred whole-content MIME bindings resolve on original final proof',() async {
+    final directory=await Directory.systemTemp.createTemp('busyapi-stream-provisional-');addTearDown(()=>directory.delete(recursive:true));
+    final server=await HttpServer.bind(InternetAddress.loopbackIPv4,0);addTearDown(()=>server.close(force:true));
+    const type='multipart/form-data; boundary=proof',wire='--proof\r\nContent-Disposition: form-data; name="value"\r\nContent-Type: application/json\r\n\r\n1\r\n--proof--\r\n';
+    server.listen((request) async {await request.drain<void>();request.response.headers.set('content-type',type);request.response.write(wire);await request.response.close();});
+    final fixture=await openMedia(directory,server,'3.2.1','json',{'schema':{'type':'object','oneOf':[{'required':['value'],'properties':{'value':{'type':'integer','const':1}}},{'required':['value'],'properties':{'value':{'type':'integer','const':2}}}]},'encoding':{'value':{'contentType':'application/json'}}},contentType:type);
+    final seen=<ContractStreamSnapshot>[];
+    final result=await const ContractRequestExecutor().execute(fixture.plan,OperationRequestDraft(planIdentity:fixture.plan.identity),resolveSecret:(_) async=>null,onStream:seen.add);addTearDown(result.close);
+    expect(seen.any((value)=>value.wholeResolvableRecords==1),true);expect(result.conforming,true,reason:'${result.received.findings}');expect(result.response.stream!.uncheckedRecords,0);expect(result.response.stream!.validRecords,1);
+    expect(result.response.stream!.findings.any((value)=>value['resolvedBy']=='complete-content-evaluation'),true);
+  });
+  test('binary itemSchema remains unavailable beside a valid original whole schema',() async {
+    final directory=await Directory.systemTemp.createTemp('busyapi-stream-binary-items-');addTearDown(()=>directory.delete(recursive:true));
+    final server=await HttpServer.bind(InternetAddress.loopbackIPv4,0);addTearDown(()=>server.close(force:true));
+    server.listen((request) async {await request.drain<void>();request.response.headers.set('content-type','application/octet-stream');request.response.add([0,255]);await request.response.close();});
+    final fixture=await openMedia(directory,server,'3.2.1','json',{'schema':{'maxLength':3},'itemSchema':{}},contentType:'application/octet-stream');
+    final result=await const ContractRequestExecutor().execute(fixture.plan,OperationRequestDraft(planIdentity:fixture.plan.identity),resolveSecret:(_) async=>null);addTearDown(result.close);
+    expect(result.conforming,false);expect(result.response.stream!.status,'incomplete');expect(result.response.stream!.findings.any((finding)=>finding['code']=='runtime.media.items.unsupported'&&finding['severity']=='warning'),true);
+  });
   for(final version in ['2.0','3.0.4','3.1.2','3.2.1']) {
     for(final type in ['application/jsonl','application/x-ndjson','application/json-seq','application/vendor+json-seq','text/event-stream']) {
       test('$version $type actual HTTP records arrive before EOF and whole-content evaluation',() async {
@@ -181,4 +214,22 @@ class _GateStorage implements ResponseStorage {
   @override Future<void> write(List<int> bytes) async {expect(writing,false);writing=true;try{await before();await owner.write(bytes);}finally{writing=false;}}
   @override Future<void> flush()=>owner.flush();
   @override Future<void> close()=>owner.close();
+}
+
+/// Controlled worker faults surround actual Engine results; all receipt,
+/// retention, final captured-schema validation and aggregation use production.
+class _StreamProofFault extends EngineProcess {
+  _StreamProofFault(this.mode):super(executable:runtimeNode,helper:runtimeHelper);
+  final String mode;
+  @override Future<Map<String,dynamic>> request(String method,Map<String,Object?> params,{String? requestId}) async {
+    final result=await super.request(method,params,requestId:requestId);
+    if(method=='responseStreamChunk'&&!mode.startsWith('whole-')){
+      result['records']=[for(final raw in result['records'] as List){...(raw as Map),'complete':false,'valid':false,'wholeResolvable':false,'findings':[{'code':mode=='resource'?'runtime.body.limit':mode=='codec'?'runtime.response.body.unchecked':'runtime.schema.unavailable','severity':'warning','message':'Controlled independent unavailable proof','subject':'response-item','recordIndex':raw['index']}]}];
+    }
+    if(method=='evaluateSchemas'&&mode.startsWith('whole-')&&(params['runtimeInstances'] as List? ?? const []).whereType<Map>().any((value)=>value['subject']=='response-body')){
+      if(mode=='whole-missing'){result['runtimeEvaluations']=[];return result;}
+      result['complete']=false;result['runtimeEvaluations']=[for(final raw in result['runtimeEvaluations'] as List){...(raw as Map),'complete':false,'valid':false,'reason':'evaluation-failed'}];
+    }
+    return result;
+  }
 }

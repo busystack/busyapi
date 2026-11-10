@@ -1,3 +1,5 @@
+import {runtimeBinaryMedia} from './runtime_binary';
+import {encodePlainText} from './text_encoding';
 import {MultipartEncoding} from './multipart_encoding';
 import {capturedMimeHeaderContent} from './mime_header_content';
 import {rawXmlBytes} from './xml_wire';
@@ -93,7 +95,7 @@ export class MockNativeValidation {
     get responseIdentity(){return this.producer&&{...mockResponseProducer,configuration:'response-wire-v5:'+this.producer.configuration};}
     get parameterIdentity(){return this.producer&&{...mockParameterProducer,configuration:'parameter-wire-v6:'+this.producer.configuration};}
     get securityIdentity(){return this.producer&&{...mockSecurityProducer,configuration:'security-wire-v1:'+this.producer.configuration};}
-    get generationIdentity(){return this.producer&&{...mockSampleProducer,configuration:'captured-schema-candidates-v4:'+this.producer.configuration};}
+    get generationIdentity(){return this.producer&&{...mockSampleProducer,configuration:'captured-schema-candidates-v5:'+this.producer.configuration};}
     get methodIdentity(){return this.producer&&{...mockMethodProducer,configuration:'method-wire-v1:'+this.producer.configuration};}
 
     projectedOperations(document:Record<string,unknown>) {
@@ -122,15 +124,65 @@ export class MockNativeValidation {
 
     qualify(operations:readonly {path:string;method:string}[]):void {
         const covered=new Set(operations.map(operation=>JSON.stringify([operation.path,operation.method])));
-        for(const [key,operation]of this.operations)if(!covered.has(key)||mockWireMethod(operation).length>maximumMockMethodBytes||operation.customMethod&&operation.method==='CONNECT') {
+        for(const [key,operation]of this.operations)if(!covered.has(key)||mockWireMethod(operation).length>maximumMockMethodBytes) {
             const source=operation.source,node=this.context.docs.get(source.resource)!.dataNode(source.pointer)!;
             const limit=mockWireMethod(operation).length>maximumMockMethodBytes;
-            const tunnel=operation.customMethod&&operation.method==='CONNECT';
-            throw new SourceError(tunnel?'mock.method.tunnel':limit?'mock.method.limit':'mock.operation.unsupported',
-                tunnel?'CONNECT requires a tunnel-capable transport; this mock returns ordinary HTTP responses':
+            throw new SourceError(limit?'mock.method.limit':'mock.operation.unsupported',
                 limit?'The declared method exceeds the mock HTTP parser\'s 16 KiB method budget':'The derived mock routes omit this captured operation',
                 node.range,'unsupported',{...source,range:node.range});
         }
+    }
+
+    async tunnelResponse(path:string,signal:AbortSignal):Promise<{status:number;headers:Record<string,string>}> {
+        const {description}=this.plan(path,'CONNECT');
+        if(description.parameters.some(value=>value.in==='path'))throw this.generationFailure(path,'CONNECT','mock.tunnel.path-parameters','Authority-form CONNECT has no path parameter representation');
+        const response=description.responses.find(value=>/^2[0-9][0-9]$/.test(value.status))??description.responses.find(value=>value.status==='2XX')??description.responses.find(value=>value.status==='default');
+        if(!response)throw this.generationFailure(path,'CONNECT','mock.tunnel.status','CONNECT needs an applicable successful response status');
+        const status=/^2[0-9][0-9]$/.test(response.status)?Number(response.status):200,generated=await this.responseHeaders(path,'CONNECT',status,{},signal);
+        for(const header of response.headers){
+            if(Object.keys(generated).some(name=>name.toLowerCase()===header.name.toLowerCase())||header.content.length)continue;
+            const at=header.definition??header.source,document=this.context.docs.get(at.resource)!,owner=document.dataNode(at.pointer)?.value;
+            let raw=Object.hasOwn(owner??{},'example')?document.dataJson(at.pointer+'/example'):undefined,serialized=false;
+            if(raw===undefined&&record(owner?.examples)){
+                const first=document.dataNode(at.pointer+'/examples')?.children.keys().next().value;
+                if(first!==undefined){
+                    let example={resource:at.resource,pointer:at.pointer+'/examples/'+first.replace(/~/g,'~0').replace(/\//g,'~1')};
+                    const seen=new Set<string>();
+                    for(let depth=0;depth<128;depth++){
+                        if(signal.aborted)throw new SourceError('cancelled','Tunnel Header example selection was cancelled');
+                        const key=example.resource+'#'+example.pointer;if(seen.has(key))throw this.generationFailure(path,'CONNECT','mock.tunnel.header.example','Captured Header example reference cycle');seen.add(key);
+                        const doc=this.context.docs.get(example.resource)!,value=doc.dataNode(example.pointer)?.value;
+                        if(typeof value?.$ref==='string'){
+                            const edge=this.context.graph.referenceAs(example.resource,example.pointer,'$ref','example');
+                            if(edge?.resolution!=='resolved')throw this.generationFailure(path,'CONNECT','mock.tunnel.header.example','Captured Header example reference is unavailable');
+                            example={resource:edge.targetResource!,pointer:edge.targetPointer!};continue;
+                        }
+                        const family=this.context.graph.scope(example.resource,example.pointer).family;
+                        const field=family==='3.2'&&Object.hasOwn(value??{},'dataValue')?'dataValue':Object.hasOwn(value??{},'value')?'value':family==='3.2'&&Object.hasOwn(value??{},'serializedValue')?'serializedValue':undefined;
+                        if(field){serialized=field==='serializedValue';raw=serialized?value[field]:doc.dataJson(example.pointer+'/'+field);}
+                        else if(typeof value?.externalValue==='string'){raw=Buffer.from(this.examples.read(this.context.graph,example.resource,example.pointer+'/externalValue').base64,'base64').toString('latin1');serialized=true;}
+                        break;
+                    }
+                    if(raw===undefined)throw this.generationFailure(path,'CONNECT','mock.tunnel.header.example','The captured Header example has no available bounded wire value');
+                }
+            }
+            if(raw===undefined&&header.schema)raw=await this.samples.value(header.schema,signal);
+            if(serialized){generated[header.name]=raw;continue;}
+            if(raw===undefined){if(header.required)generated[header.name]='';continue;}
+            const sample=new SourceDocument(raw,'urn:busyapi:tunnel-header',true,'json');
+            if(sample.issues.length||!['string','number','boolean','null'].includes(sample.root.kind))throw this.generationFailure(path,'CONNECT','mock.tunnel.header.representation','Tunnel simple Headers need a proved primitive or an existing content codec');
+            generated[header.name]=sample.root.kind==='string'?sample.root.value:sample.dataJson('');
+        }
+        const headers:Record<string,string>=Object.create(null);
+        for(const [name,value]of Object.entries(generated)){
+            if(name.toLowerCase().startsWith('busyapi-')||['content-length','transfer-encoding','content-type','connection','trailer','upgrade'].includes(name.toLowerCase()))continue;
+            if(!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name)||typeof value!=='string'||/[^\x20-\x7e\t]/.test(value))throw this.generationFailure(path,'CONNECT','mock.tunnel.header','The tunnel response header has no safe wire representation');
+            headers[name]=value;
+        }
+        if(Buffer.byteLength(Object.entries(headers).map(([name,value])=>name+': '+value+'\r\n').join(''))>12*1024)throw this.generationFailure(path,'CONNECT','mock.tunnel.headers.limit','The tunnel response headers exceed the bounded 12 KiB wire budget');
+        const check=await this.response(path,'CONNECT',status,headers,Buffer.alloc(0),signal);
+        if(!check.complete||!check.valid)throw this.generationFailure(path,'CONNECT','mock.tunnel.response','The tunnel response status or headers could not be proved');
+        return {status,headers};
     }
 
     async body(path:string,method:string,bytes:Buffer,contentType:string|undefined,present:boolean,signal:AbortSignal):Promise<NativeMockCheck> {
@@ -176,7 +228,7 @@ export class MockNativeValidation {
     async responseStreamChunk(path:string,method:string,status:number,mediaType:string,text:string,state:any,end:boolean,signal:AbortSignal,runId?:string):Promise<any> {
         const source=this.plan(path,method).description.operation;
         const result=await this.client.request('responseStreamChunk',{...this.capture,resource:source.source.resource,pointer:source.source.pointer,occurrence:source.occurrence,status,mediaType,text,state,end,runId},signal);
-        if(result.version!==1||result.revision!=='1'||result.snapshot!==this.capture.snapshot||result.identity!==this.plan(path,method).description.identity||result.producer!==this.producer?.name||result.producerVersion!==this.producer?.version||result.configuration!==this.producer?.configuration)throw new SourceError('mock.validation.protocol','Incremental response proof belongs to another capture or producer');
+        if(result.version!==1||result.revision!=='2'||result.snapshot!==this.capture.snapshot||result.identity!==this.plan(path,method).description.identity||result.producer!==this.producer?.name||result.producerVersion!==this.producer?.version||result.configuration!==this.producer?.configuration)throw new SourceError('mock.validation.protocol','Incremental response proof belongs to another capture or producer');
         return result;
     }
 
@@ -288,6 +340,53 @@ export class MockNativeValidation {
         this.wireMediaTypes.set(bytes,result.mediaType);return bytes;
     }
 
+    async generatedWireResponse(path:string,method:string,status:string,actual:string,signal:AbortSignal):Promise<Buffer|undefined> {
+        const kind=runtimeMediaKind(actual);
+        if(kind!=='text'&&!(kind==='opaque'&&runtimeBinaryMedia(actual)))return;
+        const media=capturedMockResponseMedia(this.plan(path,method).description,status,actual);
+        if(!media)return;
+        const schema=schemaLocation(media.schema),candidates:Buffer[]=[];
+        if(schema){
+            const raw=await this.samples.value(schema,signal,actual);
+            if(raw!==undefined){const value:unknown=JSON.parse(raw);if(typeof value==='string'){if(kind==='text'){const encoded=encodePlainText(value,actual,mediaTypes(actual,false)[0].parameters.get('charset'));this.wireMediaTypes.set(encoded.bytes,encoded.contentType);candidates.push(encoded.bytes);}else candidates.push(Buffer.from(value,'utf8'));}}
+        }
+        const sizes=new Set([0,1]);
+        if(schema){
+            const pending=[schema],seen=new Set<string>();
+            for(let index=0;index<pending.length&&index<2048;index++){
+                const at=pending[index],key=at.resource+'#'+at.pointer;if(seen.has(key))continue;seen.add(key);
+                const node=this.context.docs.get(at.resource)?.dataNode(at.pointer);
+                for(const keyword of ['minLength','maxLength']){
+                    const value=node?.value?.[keyword];if(Number.isSafeInteger(value)&&value>=0&&value<=65536)for(const size of [value-1,value,value+1])if(size>=0&&size<=65536)sizes.add(size);
+                }
+                for(const keyword of ['allOf','anyOf','oneOf','if','then','else','not']){
+                    const child=node?.children.get(keyword);if(!child)continue;
+                    if(child.kind==='array'){for(const entry of child.children.values()){if(pending.length>=2048)break;pending.push({resource:at.resource,pointer:entry.pointer});}}
+                    else if(pending.length<2048)pending.push({resource:at.resource,pointer:child.pointer});
+                }
+                const edge=this.context.graph.referenceAs(at.resource,at.pointer,'$ref','schema');
+                if(edge?.resolution==='resolved'&&pending.length<2048)pending.push({resource:edge.targetResource!,pointer:edge.targetPointer!});
+            }
+        }
+        let bytes=candidates.reduce((sum,candidate)=>sum+candidate.length,0);
+        for(const size of sizes){if(candidates.length>=256||bytes+size>8*1024*1024)break;candidates.push(Buffer.alloc(size,kind==='text'?65:0));bytes+=size;}
+        // Media candidates remain separate original runtime instances. The
+        // existing JSON alternative protocol intentionally excludes media.
+        for(let start=0;start<candidates.length;start+=4){
+            if(signal.aborted)throw new SourceError('cancelled','Mock wire sample selection was cancelled');
+            const batch=candidates.slice(start,start+4);
+            const check=await this.evaluateInstances(batch.map((candidate,index)=>({subject:'response-body',location:'mock-wire-sample:'+index,text:candidate.toString('base64'),
+                mediaBase64:true,mediaType:this.responseMediaType(candidate)??actual,schema,
+                ...(schemaLocation(media.itemSchema)?{itemSchema:schemaLocation(media.itemSchema)}:{}),...(schemaLocation(media.definition??media.source)?{media:schemaLocation(media.definition??media.source)}:{})})),signal);
+            if(!check.complete)throw this.generationFailure(path,method,'mock.sample.unchecked','Original captured wire-schema evaluation is unavailable');
+            for(let index=0;index<batch.length;index++){
+                const location='mock-wire-sample:'+index,evaluations=check.evaluations.filter(value=>value.location===location);
+                if(evaluations.length&&evaluations.every(value=>value.complete&&value.valid)&&!check.findings.some(value=>value.location===location&&value.severity==='error'))return batch[index];
+            }
+        }
+        throw this.generationFailure(path,method,'mock.sample.unavailable','No wire witness was proved within the 256-candidate / 8 MiB / 65536-byte construction bounds');
+    }
+
     async responseBytes(path:string,method:string,status:string,actual:string,raw:string,signal?:AbortSignal):Promise<Buffer> {
         if(actual.split(';')[0].trim().toLowerCase()==='application/x-www-form-urlencoded'){
             const {operation}=this.plan(path,method).description;
@@ -311,7 +410,8 @@ export class MockNativeValidation {
 
     authoredResponseBytes(path:string,method:string,status:string,actual:string,keys:readonly string[],signal:AbortSignal):Buffer|undefined {
         if(signal.aborted)throw new SourceError('cancelled','Mock example selection was cancelled');
-        return authoredMockResponseBytes(this.plan(path,method).description,status,actual,keys,this.context.graph,this.examples);
+        try{return authoredMockResponseBytes(this.plan(path,method).description,status,actual,keys,this.context.graph,this.examples,(bytes,type)=>this.wireMediaTypes.set(bytes,type));}
+        catch(error){if(error instanceof SourceError&&!error.source){const source=this.operationSource(path,method);throw new SourceError(error.code,error.message,source.range,error.kind,source);}throw error;}
     }
 
     generationFailure(path:string,method:string,code:string,message:string):SourceError {
@@ -365,7 +465,11 @@ export class MockNativeValidation {
                 ...(typeof value.chosen==='number'?{chosen:value.chosen}:{}),
                 ...(typeof value.modeledData==='string'&&Buffer.byteLength(value.modeledData)<=1024*1024?{modeledData:value.modeledData}:{})});
         }
-        const complete=result.complete&&evaluations.length>0&&evaluations.every(value=>value.complete===true);
+        const bodyProofs=runtimeInstances.filter(value=>value.subject==='response-body'&&value.mediaType!==undefined).every(instance=>{
+            const owned=result.runtimeEvaluations.filter(value=>value.subject===instance.subject&&value.location===instance.location);
+            return owned.length>0&&owned.every(value=>value.complete===true)&&owned.some(value=>value.pointer===''||value.valid===false||value.syntax==='no-response-content');
+        });
+        const complete=result.complete&&bodyProofs&&evaluations.length>0&&evaluations.every(value=>value.complete===true);
         return {complete,valid:complete&&evaluations.every(value=>value.valid===true),findings,evaluations};
     }
 

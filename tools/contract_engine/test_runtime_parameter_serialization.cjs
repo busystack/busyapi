@@ -21,7 +21,7 @@ for(const version of ['3.0.4','3.1.2','3.2.1'])test(`R3c ${version} cookie conte
  const input={root,snapshot:'literal-cookie',resources:[{id:root,text:JSON.stringify(value),generation:1}]};
  const result=await evaluateSchemas({...input,runtimeInstances:['literal=a%20b','literal=a%2520b','literal=a+b'].map(text=>({subject:'request-parameter',location:text,text,parameter:{resource:root,pointer}}))});
  assert.equal(result.complete,true,JSON.stringify(result.runtimeFindings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,false,false]);
- assert.equal(schemaProducer.version,'1.18.0+66');assert(schemaProducer.configuration.includes('literal-cookie-content-v1'));
+ assert.equal(schemaProducer.version,'1.18.0+67');assert(schemaProducer.configuration.includes('literal-cookie-content-v1'));
 });
 for(const version of ['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const format of ['yaml','json'])test(`${version} ${format} runtime parameter serializations use captured schemas and actual header octets`,async()=>{
  const root='file:///approved/api.'+format,q='/paths/~1p/get/parameters/0',header='/paths/~1p/get/parameters/1';
@@ -47,7 +47,7 @@ for(const version of ['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3
  assert.equal(input.resources[0].text,text);
 });
 test('serialized runtime semantics have a distinct producer and configuration identity',()=>{
- assert.equal(schemaProducer.version,'1.18.0+66');assert(schemaProducer.configuration.includes('parameter-runtime-serialization-v1'));
+ assert.equal(schemaProducer.version,'1.18.0+67');assert(schemaProducer.configuration.includes('parameter-runtime-serialization-v1'));
 });
 test('Swagger serialized parameter runtime retains its narrower Items and collectionFormat interpretation',async()=>{
  const root='file:///approved/api.json',pointer='/paths/~1p/get/parameters/0';

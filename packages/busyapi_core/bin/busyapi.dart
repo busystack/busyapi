@@ -800,6 +800,7 @@ Future<void> runBusyApi(
         );
         MockRun? run;
         StreamSubscription<ProcessSignal>? interrupt, terminate;
+        StreamSubscription<Map<String,Object?>>? tunnels;
         var signalled = false;
         try {
           final proxy = options['proxy'] == null
@@ -825,6 +826,7 @@ Future<void> runBusyApi(
             'nativeParameterValidation': run.nativeParameterValidation.toJson(),
             'nativeSecurityValidation': run.nativeSecurityValidation.toJson(),
             'nativeGeneration': run.nativeGeneration.toJson(),
+            'nativeTunnels': run.nativeTunnels.toJson(),
             'nativeOperationRouting': run.nativeOperationRouting.toJson(),
             'adapter': 'in-memory-http-spec-7.1.0',
             'host': run.host,
@@ -842,6 +844,9 @@ Future<void> runBusyApi(
               'Snapshot: ${plan.snapshot.sourceIdentity} (saved source)',
             );
           }
+          void tunnelEvent(Map<String,Object?> event){if(options['json']=='true'){stdout.writeln(jsonEncode(event));}else{stdout.writeln('CONNECT ${event['event']}${event['reason']==null?'':': ${event['reason']}'}');}}
+          tunnels=run.tunnelEvents.listen(tunnelEvent);
+          run.recentTunnels.forEach(tunnelEvent);
           Future<void> stop(ProcessSignal _) async {
             if (signalled) return;
             signalled = true;
@@ -855,6 +860,7 @@ Future<void> runBusyApi(
             (signal) => stop(signal),
           );
           final code = await run.exitCode;
+          await run.outputClosed;
           if (run.errors.isNotEmpty) stderr.writeln(run.errors);
           exitCode = signalled && code == 0
               ? 0
@@ -863,6 +869,7 @@ Future<void> runBusyApi(
               : 3;
           return;
         } finally {
+          await tunnels?.cancel();
           await interrupt?.cancel();
           await terminate?.cancel();
           if (run != null) await run.stop();

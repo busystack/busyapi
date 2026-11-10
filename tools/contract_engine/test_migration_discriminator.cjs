@@ -115,7 +115,7 @@ test('bounded model selection is incomplete rather than silently omitting an inh
  const plan=await planMigration(input);assert.equal(plan.complete,false);assert.deepEqual(plan.outputs,[]);
 });
 test('model completeness identifies the current evaluator rules and excludes obsolete rules',()=>{
- assert.equal(schemaProducer.version,'1.18.0+66');
+ assert.equal(schemaProducer.version,'1.18.0+67');
  const configuration=schemaProducer.configuration.split(':');
  assert.equal(configuration.filter(value=>value==='discriminator-models-v2').length,1);
  assert(!configuration.includes('swagger-discriminator-models-v1'));

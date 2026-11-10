@@ -4850,6 +4850,7 @@ class ContractRequestExecutor {
         );
       }
     }
+    var wholeBodyProved=false;
     var evaluated = await _evaluate(
       plan,
       instances,
@@ -4871,11 +4872,14 @@ class ContractRequestExecutor {
                 'not-applicable-or-incomplete',
               ),
       },
+      onBodyProof:(proved,configuration){wholeBodyProved=proved&&configuration==response.stream?.schemaConfiguration;},
       checksComplete: checksComplete,
       cancellation: cancellation,
     );
     if (response.stream case final stream?) {
-      response._stream=stream.withWholeResult(evaluated.complete && response.receiptComplete && response.decodingComplete,evaluated.valid,bodyChecked:instances.any((value)=>value.subject=='response-body'));
+      final bodyProof=wholeBodyProved &&
+          evaluated.producer==stream.schemaProducerName && evaluated.producerVersion==stream.schemaProducerVersion;
+      response._stream=stream.withWholeResult(evaluated.complete && response.receiptComplete && response.decodingComplete,evaluated.valid,bodyChecked:bodyProof);
       evaluated = ContractConformance(complete:evaluated.complete && response.stream!.complete,
         valid:evaluated.valid && stream.valid,findings:[...evaluated.findings,...response.stream!.findings],
         producer:stream.schemaProducerName,producerVersion:stream.schemaProducerVersion,
@@ -5011,6 +5015,7 @@ class ContractRequestExecutor {
     String requestId,
     Map<String, Object?> coverage, {
     bool checksComplete = true,
+    void Function(bool,String?)? onBodyProof,
     RunCancellation? cancellation,
   }) async {
     var complete = checksComplete;
@@ -5023,6 +5028,14 @@ class ContractRequestExecutor {
         cancellation: cancellation,
       );
       complete = complete && result['complete'] == true;
+      final expectedBodies=instances.where((value)=>value.subject=='response-body').toList();
+      final proofs=(result['runtimeEvaluations'] as List).whereType<Map>().toList();
+      final bodyResultsAvailable=expectedBodies.every((instance){
+        final owned=proofs.where((proof)=>proof['subject']==instance.subject&&proof['location']==instance.location).toList();
+        return owned.isNotEmpty&&owned.every((proof)=>proof['complete']==true)&&owned.any((proof)=>proof['pointer']==''||proof['valid']==false||proof['syntax']=='no-response-content');
+      });
+      if(!bodyResultsAvailable){complete=false;findings.add(_finding('runtime.response.body.unchecked','warning','The original body evaluation omitted or could not complete its applicable proofs.',location:'response-body'));}
+      onBodyProof?.call(expectedBodies.isNotEmpty&&result['complete']==true&&bodyResultsAvailable&&expectedBodies.every((instance)=>proofs.where((proof)=>proof['subject']==instance.subject&&proof['location']==instance.location).every((proof)=>proof['valid']==true)),result['configuration'] as String?);
       producer = result['producer'] as String;
       producerVersion = result['producerVersion'] as String;
       for (final value in (result['runtimeEvaluations'] as List).whereType<Map>()) {

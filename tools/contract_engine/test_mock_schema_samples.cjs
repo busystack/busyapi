@@ -89,7 +89,7 @@ for(const version of versions)for(const format of ['yaml','json'])test(`${versio
  const input=capturedMockStart(capture),before=JSON.stringify(input);
  const event=await startMock(t,input),{port}=event;
  assert.equal(event.nativeGeneration.name,'busyapi-native-schema-samples');
- assert.equal(event.nativeGeneration.version,'4');
+ assert.equal(event.nativeGeneration.version,'5');
  for(const [name,,expected]of [...samples,['preferred',{},low],['prefix',{},'0'],['alternative',{},high],
   ['nested-prefix',{},'{"id":0}'],['nested-wide',{},encode(Object.fromEntries(names.map(name=>[name,'BIG'])),'json')]]){
   const response=await send(port,'/'+name);

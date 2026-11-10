@@ -1,3 +1,4 @@
+import {MockConnectTransport,tunnelPolicy,mockTunnelProducer,type TunnelPolicy} from './mock_connect';
 import {mockStreamResponse} from './mock_stream_response';
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
 import { isDeepStrictEqual } from 'node:util';
@@ -36,6 +37,7 @@ interface StartInput {
   capture: MockCapture;
   derived: {id:string;identity:string};
   port?: number;
+  tunnels?: TunnelPolicy;
   errors?: boolean;
   upstream?: string;
 }
@@ -87,7 +89,7 @@ async function readInput(): Promise<StartInput> {
       upstream.username || upstream.password || upstream.search || upstream.hash)
       throw new Error('validation proxy target must be an HTTP(S) base URL without credentials, query or fragment');
   }
-  return {version:1,snapshot:input.snapshot,capture,derived:{id:input.derived.id,identity:input.derived.identity},
+  return {version:1,snapshot:input.snapshot,capture,tunnels:tunnelPolicy(input.tunnels),derived:{id:input.derived.id,identity:input.derived.identity},
     ...(typeof input.port==='number'?{port:input.port}:{}),...(typeof input.errors==='boolean'?{errors:input.errors}:{}),...(typeof input.upstream==='string'?{upstream:input.upstream}:{})};
 }
 
@@ -564,11 +566,13 @@ async function main(): Promise<void> {
       }
     });
     const methods=new MockMethodTransport(server,projected.operations.some(operation=>operation.customMethod));
+    const tunnels=new MockConnectTransport(server,native,methods,input.tunnels,event=>write({version:1,snapshot:input.snapshot,...event}));
     let closing = false;
     const close = async (signal: string): Promise<void> => {
       if (closing) return;
       closing = true;
       methods.close();
+      tunnels.close();
       server.closeAllConnections();
       await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
       await native.close();
@@ -588,7 +592,7 @@ async function main(): Promise<void> {
       toolVersion: '5.15.11', adapter: 'in-memory-http-spec-7.1.0', host: '127.0.0.1',
       port: address.port, operations: operations.length, nativeValidation:native.identity,
       nativeResponseValidation:native.responseIdentity,nativeParameterValidation:native.parameterIdentity,nativeSecurityValidation:native.securityIdentity,
-      nativeGeneration:native.generationIdentity,nativeOperationRouting:native.methodIdentity,upstreamForwarding: input.upstream !== undefined });
+      nativeTunnels:mockTunnelProducer,nativeGeneration:native.generationIdentity,nativeOperationRouting:native.methodIdentity,upstreamForwarding: input.upstream !== undefined });
   } finally {
     if(!listening)await native.close();
   }

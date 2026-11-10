@@ -56,3 +56,11 @@ test('proxy unavailable binary item interpretation stays incomplete without inve
  const response=await new Promise((resolve,reject)=>http.get(`http://127.0.0.1:${port}/events`,response=>{const chunks=[];response.on('data',chunk=>chunks.push(chunk));response.on('error',reject);response.on('end',()=>resolve({trailers:response.trailers,wire:Buffer.concat(chunks)}));}).on('error',reject));
  assert.deepEqual(response.wire,Buffer.from([0,255]));assert.equal(response.trailers['busyapi-stream-status'],'incomplete');assert.equal(response.trailers['busyapi-stream-records'],'0');assert.equal(response.trailers['busyapi-stream-invalid-records'],'0');
 });
+for(const valid of [true,false])test(`proxy final MIME proof ${valid?'resolves only provisional bindings':'retains unchecked records on whole-schema failure'}`,{timeout:30000},async t=>{
+ const type='multipart/form-data; boundary=proof',schema={type:'object',oneOf:[{required:['value'],properties:{value:{type:'integer',const:1}}},{required:['value'],properties:{value:{type:'integer',const:2}}}]},wire=`--proof\r\nContent-Disposition: form-data; name="value"\r\nContent-Type: application/json\r\n\r\n${valid?1:3}\r\n--proof--\r\n`;
+ const document={openapi:'3.2.1',info:{title:'Final MIME proof',version:'1'},paths:{'/events':{get:{responses:{200:{description:'Original proof',content:{[type]:{schema,encoding:{value:{contentType:'application/json'}}}}}}}}}};
+ const upstream=http.createServer((request,response)=>{response.setHeader('content-type',type);response.end(wire);});await new Promise(resolve=>upstream.listen(0,'127.0.0.1',resolve));t.after(()=>{upstream.closeAllConnections();upstream.close();});
+ const {port}=await startMock(t,mockStart(document,{upstream:`http://127.0.0.1:${upstream.address().port}`}));
+ const result=await new Promise((resolve,reject)=>http.get(`http://127.0.0.1:${port}/events`,response=>{let body='';response.on('data',bytes=>body+=bytes);response.on('error',reject);response.on('end',()=>resolve({body,trailers:response.trailers}));}).on('error',reject));
+ assert.equal(result.body,wire);assert.equal(result.trailers['busyapi-stream-status'],valid?'complete':'invalid');assert.equal(result.trailers['busyapi-stream-unchecked-records'],valid?'0':'1');
+});

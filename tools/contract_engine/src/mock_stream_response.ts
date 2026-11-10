@@ -9,14 +9,14 @@ import {SourceError} from './document';
 export function mockStreamResponse(native:MockNativeValidation,path:string,method:string,reply:ServerResponse,signal:AbortSignal):ExactProxyObserver {
  const runId=randomUUID();
  let schemaProducer:any,receivedBytes=0,decodedBytes=0,findingBytes=0;
- let state:any,active=false,finished=false,status=0,type='',whole=false,wholeBytes=0,records=0,invalid=0,unchecked=0,binaryValid=true,binaryComplete=true;
+ let state:any,active=false,finished=false,status=0,type='',whole=false,wholeBytes=0,records=0,invalid=0,unchecked=0,wholeResolvable=0,binaryValid=true,binaryComplete=true;
  let framing=false,failed=false,responseInvalid=false,headersComplete=true,observedInvalid=false;
  const chunks:Buffer[]=[],findings:any[]=[];let headers:Record<string,string[]>=Object.create(null),capturedHeaders:Record<string,string[]>=Object.create(null);
  const note=(value:any)=>{if(value.severity==='error')observedInvalid=true;const bytes=Buffer.byteLength(JSON.stringify(value));if(findings.length<200&&findingBytes+bytes<=1024*1024){findingBytes+=bytes;findings.push(value);}};
  const accept=(result:any)=>{
   schemaProducer={name:result.producer,version:result.producerVersion,configuration:result.configuration};
   state=result.state;framing=result.framingComplete===true;binaryValid=result.binaryValid===true;binaryComplete=result.binaryComplete===true;
-  for(const record of result.records){records++;if(!record.complete)unchecked++;else if(!record.valid)invalid++;for(const finding of record.findings)note(finding);}
+  for(const record of result.records){records++;if(!record.complete){unchecked++;if(record.wholeResolvable===true)wholeResolvable++;}else if(!record.valid)invalid++;for(const finding of record.findings)note(finding);}
   for(const finding of result.findings??[])note(finding);
   if(result.failure){failed=true;note({...result.failure,severity:result.failure.kind==='unsupported'||result.failure.code.startsWith('limit.')?'warning':'error'});}
  };
@@ -59,7 +59,7 @@ export function mockStreamResponse(native:MockNativeValidation,path:string,metho
    try{
     if(ended)await evaluate(Buffer.alloc(0),true);
     complete=ended&&framing&&!failed&&!unchecked&&binaryComplete&&headersComplete;
-    if(ended&&framing&&!failed&&whole){const checked=await native.response(path,method,status,capturedHeaders,Buffer.concat(chunks,wholeBytes),signal);complete=checked.complete;if(checked.complete&&!checked.valid||checked.findings.some(value=>value.severity==='error'))responseInvalid=true;else if(checked.complete){unchecked=0;for(let at=0;at<findings.length;at++)if(findings[at].severity==='warning')findings[at]={...findings[at],severity:'information',provisional:true,resolvedBy:'complete-content-evaluation'};}checked.findings.forEach(note);}
+    if(ended&&framing&&!failed&&whole){const checked=await native.response(path,method,status,capturedHeaders,Buffer.concat(chunks,wholeBytes),signal);complete=false;if(checked.complete&&!checked.valid||checked.findings.some(value=>value.severity==='error'))responseInvalid=true;else if(checked.complete){unchecked-=wholeResolvable;wholeResolvable=0;for(let at=0;at<findings.length;at++)if(findings[at].wholeResolvable===true)findings[at]={...findings[at],severity:'information',provisional:true,resolvedBy:'complete-content-evaluation'};}complete=checked.complete&&headersComplete&&binaryComplete&&unchecked===0;checked.findings.forEach(note);}
    }catch(problem){ended=false;complete=false;error=problem;note({code:problem instanceof SourceError?problem.code:'mock.stream.incomplete',severity:'warning',message:'Streaming response evaluation was interrupted.'});}
    const valid=!responseInvalid&&invalid===0&&binaryValid&&!observedInvalid;
    const terminal=!valid?'invalid':!ended?'incomplete':complete?'complete':'incomplete';

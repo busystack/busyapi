@@ -125,9 +125,9 @@ Future<_CliMock> _cli(String path) async {
   expect(message['input'], 'saved-source');
   expect(message['nativeGeneration'], {
     'name': 'busyapi-native-schema-samples',
-    'version': '4',
+    'version': '5',
     'configuration':
-        'captured-schema-candidates-v4:${message['nativeValidation']['configuration']}',
+        'captured-schema-candidates-v5:${message['nativeValidation']['configuration']}',
   });
   final host = message['host'], port = message['port'];
   if (host is! String || port is! int)
@@ -280,10 +280,10 @@ void main() {
             );
             addTearDown(run.stop);
             expect(run.nativeGeneration.name, 'busyapi-native-schema-samples');
-            expect(run.nativeGeneration.version, '4');
+            expect(run.nativeGeneration.version, '5');
             expect(
               run.nativeGeneration.configuration,
-              'captured-schema-candidates-v4:${run.nativeValidation.configuration}',
+              'captured-schema-candidates-v5:${run.nativeValidation.configuration}',
             );
             final client = HttpClient();
             addTearDown(() => client.close(force: true));

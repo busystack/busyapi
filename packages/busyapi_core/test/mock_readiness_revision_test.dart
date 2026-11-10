@@ -8,6 +8,10 @@ import 'test_support.dart';
 
 void main() {
   for (final mutation in [
+    'schema-final-stream-proof',
+    'tunnel-missing',
+    'tunnel-version',
+    'generation-previous-witnesses',
     'schema-version',
     'schema-previous-xml-linkset',
     'schema-previous-streaming',
@@ -74,7 +78,7 @@ void main() {
       addTearDown(plan.close);
       final schema = <String, String>{
         'name': 'hyperjump+busyapi-exact',
-        'version': '1.18.0+66',
+        'version': '1.18.0+67',
         'configuration': 'fixture-runtime',
       };
       final response = <String, String>{
@@ -94,15 +98,20 @@ void main() {
       };
       final generation = <String, String>{
         'name': 'busyapi-native-schema-samples',
-        'version': '4',
-        'configuration': 'captured-schema-candidates-v4:fixture-runtime',
+        'version': '5',
+        'configuration': 'captured-schema-candidates-v5:fixture-runtime',
       };
       final methods = <String, String>{
         'name': 'busyapi-native-methods',
         'version': '1',
         'configuration': 'method-wire-v1:fixture-runtime',
       };
+      final tunnels={'name':'busyapi-native-tunnels','version':mutation=='tunnel-version'?'obsolete':'1','configuration':'approved-pinned-peers-v1'};
       switch (mutation) {
+        case 'schema-final-stream-proof':
+          schema['version']='1.18.0+66';
+        case 'generation-previous-witnesses':
+          generation['version']='4';
         case 'parameter-previous-group-presence':
           parameter['version'] = '5';
         case 'schema-previous-group-presence':
@@ -201,6 +210,7 @@ void main() {
         'port': 1,
         'operations': 1,
         'nativeValidation': schema,
+        if(mutation!='tunnel-missing')'nativeTunnels':tunnels,
         'nativeResponseValidation': response,
         'nativeParameterValidation': parameter,
         'nativeSecurityValidation': security,

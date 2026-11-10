@@ -24,6 +24,7 @@ openMedia(
   Map<String, Object?> schemas = const {},
   String contentType = 'text/plain',
   List<Map<String, Object?>> parameters = const [],
+  EngineProcess? engineOverride,
 }) async {
   final legacy = version == '2.0';
   final operation = <String, Object?>{
@@ -75,7 +76,7 @@ openMedia(
   final original = format == 'json' ? encoded : '# Keep 雪😀\r\n${encoded}\r\n';
   final source = File('${temp.path}/api.$format');
   await source.writeAsString(original);
-  final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);
+  final engine = engineOverride ?? EngineProcess(executable: runtimeNode, helper: runtimeHelper);
   addTearDown(engine.close);
   final project = await BusyProject.open(source.path, engine);
   addTearDown(project.close);

@@ -8,13 +8,14 @@ class MockPlan {
     this.configuration,
     this.saved,
     this._revision,
-  );
+  ) { _tunnels = _configuredTunnels(); }
   final BusyProject _owner;
   final AnalysisSnapshot snapshot;
   final Map<String, dynamic> analysis;
   final ExecutionConfiguration configuration;
   final bool saved;
   final int _revision;
+  late final Map<String,Object?>? _tunnels;
   bool _closed = false;
   bool get outdated =>
       _owner._closed ||
@@ -83,6 +84,7 @@ class MockPlan {
       throw CoreFailure('mock.port', 'Mock port must be between 0 and 65535');
     }
     if (proxyTarget != null) _validateProxyTarget(proxyTarget);
+    final tunnels = _tunnels;
     cancellation?.throwIfCancelled();
     final outputId = Uri.parse(snapshot.root)
         .replace(fragment: '')
@@ -127,6 +129,7 @@ class MockPlan {
       port: port,
       errors: errors,
       proxyTarget: proxyTarget,
+      tunnels: tunnels,
       cancellation: cancellation,
     );
     try {
@@ -136,6 +139,25 @@ class MockPlan {
       await run.stop();
       rethrow;
     }
+  }
+
+  Map<String,Object?>? _configuredTunnels() {
+    final value=configuration.mock['tunnels'];
+    if(value==null)return null;
+    Never fail()=>throw CoreFailure('mock.tunnel.policy','Configure exact tunnel destinations with path, authority, pinned IP and explicit maximumTunnels, maximumBytes, idleTimeoutMs and durationMs bounds.');
+    if(value is! Map)fail();
+    int bound(String name,int maximum){final number=value[name];if(number is! int||number<1||number>maximum)fail();return number;}
+    final entries=value['destinations'];
+    if(entries is! List||entries.isEmpty||entries.length>32)fail();
+    final seen=<String>{},destinations=<Map<String,Object?>>[];
+    for(final entry in entries){
+      if(entry is! Map||entry['path'] is! String||!(entry['path'] as String).startsWith('/')||entry['authority'] is! String||entry['address'] is! String)fail();
+      final authority=entry['authority'] as String,address=entry['address'] as String;
+      final match=RegExp(r'^(\[[0-9a-fA-F:.]+\]|[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?):([0-9]{1,5})$').firstMatch(authority);
+      if(match==null||authority.length>320||int.parse(match.group(2)!)<1||int.parse(match.group(2)!)>65535||InternetAddress.tryParse(address)==null||address.contains('%')||!seen.add(authority))fail();
+      destinations.add({'path':entry['path'],'authority':authority,'address':address});
+    }
+    return {'destinations':destinations,'maximumTunnels':bound('maximumTunnels',32),'maximumBytes':bound('maximumBytes',64*1024*1024),'idleTimeoutMs':bound('idleTimeoutMs',60000),'durationMs':bound('durationMs',300000)};
   }
 
   Uri configuredProxyTarget() {
@@ -252,6 +274,22 @@ CoreFailure? _mockStartupFailure(Object? value, MockPlan plan) {
   );
 }
 
+class _MockTunnelLog {
+  _MockTunnelLog(this.snapshot,this.boundary,this.resources);
+  final String snapshot,boundary;
+  final Map<String,int> resources;
+  final events=StreamController<Map<String,Object?>>.broadcast();
+  final recent=<Map<String,Object?>>[];
+  void add(Map value){
+    if(value['snapshot']!=snapshot||value['producer']!='busyapi-native-tunnels'||value['producerVersion']!='1'||value['method']!='CONNECT'||
+        !const ['tunnel-established','tunnel-refused','tunnel-terminated'].contains(value['event'])||value['responseBody']!='not-applicable')return;
+    Object? clean(Object? raw){if(raw is String)return raw.replaceAll(boundary,'[project]');if(raw is Map)return {for(final entry in raw.entries) if(entry.key is String) entry.key as String:clean(entry.value)};return raw;}
+    Object? source(Object? raw){if(raw is! Map||raw['resource'] is! String||raw['pointer'] is! String||!resources.containsKey(raw['resource']))return null;final range=raw['range'];if(range is! List||range.length!=2||range[0] is! int||range[1] is! int||(range[0] as int)<0||(range[1] as int)<(range[0] as int)||(range[1] as int)>resources[raw['resource']]!)return null;return {'resource':raw['resource'],'pointer':raw['pointer'],'range':List<int>.from(range)};}
+    final event=Map<String,Object?>.unmodifiable({for(final name in ['version','snapshot','event','producer','producerVersion','method','path','source','responseBody','status','complete','requestSecurityComplete','reason','bytes'])if(value.containsKey(name))name:name=='source'?source(value[name]):clean(value[name])});
+    recent.add(event);if(recent.length>64)recent.removeAt(0);if(!events.isClosed)events.add(event);
+  }
+}
+
 class MockRun {
   MockRun._(
     this.plan,
@@ -268,6 +306,8 @@ class MockRun {
     this.nativeSecurityValidation,
     this.nativeGeneration,
     this.nativeOperationRouting,
+    this.nativeTunnels,
+    this._tunnelLog,
     this._stderr,
   );
   final MockPlan plan;
@@ -282,6 +322,11 @@ class MockRun {
   final MockValidationIdentity nativeSecurityValidation;
   final MockValidationIdentity nativeGeneration;
   final MockValidationIdentity nativeOperationRouting;
+  final MockValidationIdentity nativeTunnels;
+  final _MockTunnelLog _tunnelLog;
+  Future<void> get outputClosed => _tunnelLog.events.done;
+  Stream<Map<String,Object?>> get tunnelEvents => _tunnelLog.events.stream;
+  List<Map<String,Object?>> get recentTunnels => List.unmodifiable(_tunnelLog.recent);
   final List<int> _stderr;
   bool _stopping = false;
   bool get outdated => plan.outdated;
@@ -298,6 +343,7 @@ class MockRun {
     required int port,
     required bool errors,
     required Uri? proxyTarget,
+    required Map<String,Object?>? tunnels,
     RunCancellation? cancellation,
   }) async {
     final snap = Platform.environment['SNAP'];
@@ -316,6 +362,7 @@ class MockRun {
       runInShell: false,
     );
     final stderrBytes = <int>[], ready = Completer<Map<String, dynamic>>();
+    final tunnelLog=_MockTunnelLog(plan.snapshot.identity,plan._owner.access.boundary,{for(final resource in plan.snapshot.resources)resource['id'] as String:(resource['text'] as String).length});
     var stdoutSize = 0, stderrSize = 0;
     final lines = process.stdout
         .transform(utf8.decoder)
@@ -333,16 +380,16 @@ class MockRun {
             }
             return;
           }
-          if (ready.isCompleted) return;
           try {
             final value = jsonDecode(line);
             if (value is Map && value['version'] == 1) {
-              ready.complete(Map<String, dynamic>.from(value));
+              if(ready.isCompleted){tunnelLog.add(value);}
+              else {ready.complete(Map<String, dynamic>.from(value));}
             }
           } on FormatException {
             // The protocol check below reports non-JSON startup output.
           }
-        });
+        },onDone:()=>unawaited(tunnelLog.events.close()));
     final errorsSubscription = process.stderr.listen((chunk) {
       if (stderrSize >= 1024 * 1024) return;
       final retained = chunk.take(1024 * 1024 - stderrSize).toList();
@@ -359,6 +406,7 @@ class MockRun {
           'port': port,
           'errors': errors,
           if (proxyTarget != null) 'upstream': proxyTarget.toString(),
+          if (tunnels != null) 'tunnels': tunnels,
         }),
       ),
     );
@@ -412,6 +460,7 @@ class MockRun {
       message['nativeOperationRouting'],
       expectedName: 'busyapi-native-methods',
     );
+    final nativeTunnels=MockValidationIdentity._read(message['nativeTunnels'],expectedName:'busyapi-native-tunnels');
     if (message['event'] != 'ready' ||
         message['snapshot'] != plan.snapshot.identity ||
         message['tool'] != 'Prism' ||
@@ -425,6 +474,7 @@ class MockRun {
         nativeSecurityValidation == null ||
         nativeGeneration == null ||
         nativeOperationRouting == null ||
+        nativeTunnels == null || nativeTunnels.version != '1' || nativeTunnels.configuration != 'approved-pinned-peers-v1' ||
         nativeValidation.version != _schemaProducerVersion ||
         nativeResponseValidation.version != '5' ||
         nativeResponseValidation.configuration !=
@@ -433,9 +483,9 @@ class MockRun {
         nativeParameterValidation.configuration !=
             'parameter-wire-v6:${nativeValidation.configuration}' ||
         nativeSecurityValidation.version != '1' ||
-        nativeGeneration.version != '4' ||
+        nativeGeneration.version != '5' ||
         nativeGeneration.configuration !=
-            'captured-schema-candidates-v4:${nativeValidation.configuration}' ||
+            'captured-schema-candidates-v5:${nativeValidation.configuration}' ||
         nativeOperationRouting.version != '1' ||
         nativeOperationRouting.configuration !=
             'method-wire-v1:${nativeValidation.configuration}' ||
@@ -445,6 +495,7 @@ class MockRun {
       _terminateMock(process, grouped);
       await lines.cancel();
       await errorsSubscription.cancel();
+      await tunnelLog.events.close();
       if (message['event'] == 'failed') {
         final failure = _mockStartupFailure(message['failure'], plan);
         if (failure != null) throw failure;
@@ -473,6 +524,8 @@ class MockRun {
       nativeSecurityValidation,
       nativeGeneration,
       nativeOperationRouting,
+      nativeTunnels,
+      tunnelLog,
       stderrBytes,
     );
   }
@@ -491,6 +544,7 @@ class MockRun {
       }
       await process.exitCode;
     }
+    await outputClosed;
   }
 }
 

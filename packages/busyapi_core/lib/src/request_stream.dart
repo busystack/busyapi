@@ -15,25 +15,30 @@ class ContractStreamSnapshot {
   const ContractStreamSnapshot({required this.runId,required this.status,required this.receivedBytes,required this.decodedBytes,
     required this.records,required this.validRecords,required this.invalidRecords,required this.uncheckedRecords,
     required this.evidence,required this.findings,required this.complete,required this.valid,required this.wholeAvailable,
-    required this.terminal,this.itemsComplete=false,this.framingComplete=false,this.schemaProducerName='',this.schemaProducerVersion='',this.schemaConfiguration='',this.reason,this.bodyFile});
+    required this.terminal,this.wholeResolvableRecords=0,this.itemProofAvailable=false,this.itemsComplete=false,this.framingComplete=false,this.schemaProducerName='',this.schemaProducerVersion='',this.schemaConfiguration='',this.reason,this.bodyFile});
   final String runId,status,schemaProducerName,schemaProducerVersion,schemaConfiguration;
   final String? reason,bodyFile;
-  final int receivedBytes,decodedBytes,records,validRecords,invalidRecords,uncheckedRecords;
+  final int receivedBytes,decodedBytes,records,validRecords,invalidRecords,uncheckedRecords,wholeResolvableRecords;
   final List<Map<String,Object?>> evidence,findings;
-  final bool complete,valid,wholeAvailable,terminal,itemsComplete,framingComplete;
+  final bool complete,valid,wholeAvailable,terminal,itemsComplete,framingComplete,itemProofAvailable;
   ContractStreamSnapshot withWholeResult(bool checked,bool wholeValid,{bool bodyChecked=false}) {
     final resolved=valid&&bodyChecked&&checked&&wholeValid&&terminal&&reason==null&&framingComplete;
-    final allItems=itemsComplete||bodyChecked&&checked&&terminal&&reason==null&&framingComplete;
+    final discharged=resolved?wholeResolvableRecords:0;
+    final remaining=uncheckedRecords-discharged;
+    final allItems=itemsComplete||itemProofAvailable&&remaining==0&&terminal&&reason==null&&framingComplete;
     return ContractStreamSnapshot(runId:runId,
-      status:reason=='stopped'?'stopped':!valid||!wholeValid?'invalid':allItems&&checked?'complete':'incomplete',
-      receivedBytes:receivedBytes,decodedBytes:decodedBytes,records:records,validRecords:validRecords+(resolved?uncheckedRecords:0),invalidRecords:invalidRecords,uncheckedRecords:resolved?0:uncheckedRecords,
-      evidence:resolved?[for(final item in evidence) item['complete']==true?item:{...item,'complete':true,'valid':true,'resolvedBy':'complete-content-evaluation'}]:evidence,
-      findings:resolved?[for(final finding in findings) finding['severity']=='warning'?{...finding,'severity':'information','provisional':true,'resolvedBy':'complete-content-evaluation'}:finding]:findings,complete:allItems&&checked,valid:valid&&wholeValid,wholeAvailable:checked,terminal:true,itemsComplete:allItems,framingComplete:framingComplete,
+      status:reason=='stopped'?'stopped':!valid||checked&&!wholeValid?'invalid':allItems&&checked?'complete':'incomplete',
+      receivedBytes:receivedBytes,decodedBytes:decodedBytes,records:records,validRecords:validRecords+discharged,invalidRecords:invalidRecords,uncheckedRecords:remaining,
+      wholeResolvableRecords:resolved?0:wholeResolvableRecords,itemProofAvailable:itemProofAvailable,
+      evidence:[for(final item in evidence) resolved&&item['wholeResolvable']==true?{...item,'complete':true,'valid':true,'resolvedBy':'complete-content-evaluation'}:item],
+      findings:[for(final finding in findings) resolved&&finding['wholeResolvable']==true?{...finding,'severity':'information','provisional':true,'resolvedBy':'complete-content-evaluation'}:finding],
+      complete:allItems&&checked,valid:valid&&(!checked||wholeValid),wholeAvailable:checked,terminal:terminal,itemsComplete:allItems,framingComplete:framingComplete,
       schemaProducerName:schemaProducerName,schemaProducerVersion:schemaProducerVersion,schemaConfiguration:schemaConfiguration,reason:reason,bodyFile:bodyFile);
   }
+
   ContractStreamSnapshot redacted(Set<String> secrets) {
     Object? clean(Object? value) {if(value is String){for(final secret in secrets)if(secret.isNotEmpty)value=value.replaceAll(secret,'[REDACTED]');return value;}if(value is List)return value.map(clean).toList();if(value is Map)return {for(final entry in value.entries) entry.key:clean(entry.value)};return value;}
-    return ContractStreamSnapshot(runId:runId,status:status,receivedBytes:receivedBytes,decodedBytes:decodedBytes,records:records,validRecords:validRecords,invalidRecords:invalidRecords,uncheckedRecords:uncheckedRecords,
+    return ContractStreamSnapshot(runId:runId,status:status,receivedBytes:receivedBytes,decodedBytes:decodedBytes,records:records,validRecords:validRecords,invalidRecords:invalidRecords,uncheckedRecords:uncheckedRecords,wholeResolvableRecords:wholeResolvableRecords,itemProofAvailable:itemProofAvailable,
       evidence:[for(final item in evidence) Map<String,Object?>.from(clean(item) as Map)],findings:[for(final item in findings) Map<String,Object?>.from(clean(item) as Map)],complete:complete,valid:valid,wholeAvailable:wholeAvailable,terminal:terminal,itemsComplete:itemsComplete,framingComplete:framingComplete,schemaProducerName:schemaProducerName,schemaProducerVersion:schemaProducerVersion,schemaConfiguration:schemaConfiguration,reason:reason,bodyFile:bodyFile);
   }
   Map<String,Object?> toJson() => {'producer':'busyapi-incremental-stream','producerVersion':'1','status':status,'terminal':terminal,
@@ -95,14 +100,14 @@ class _LiveResponseStream {
   void retire()=>_lease.retire();
   Map<String,dynamic>? state;
   final evidence=<Map<String,Object?>>[],findings=<Map<String,Object?>>[];
-  int received=0,decoded=0,records=0,validRecords=0,invalidRecords=0,uncheckedRecords=0,evidenceBytes=0,findingBytes=0;
+  int received=0,decoded=0,records=0,validRecords=0,invalidRecords=0,uncheckedRecords=0,wholeResolvableRecords=0,evidenceBytes=0,findingBytes=0;
   bool observedInvalid=false,terminal=false,framingComplete=false,wholeAvailable=false,binaryComplete=true,binaryValid=true;
   String? failure,terminalReason;
   String schemaProducerName='busyapi-runtime',schemaProducerVersion='1',schemaConfiguration='stream-proof-unavailable';
   bool get valid => invalidRecords==0&&binaryValid&&!observedInvalid;
   bool get itemsComplete => terminal&&terminalReason==null&&failure==null&&framingComplete&&uncheckedRecords==0&&binaryComplete;
   ContractStreamSnapshot get snapshot => ContractStreamSnapshot(runId:request.runId,status:!terminal?(valid?'active':'invalid'):terminalReason=='stopped'?'stopped':!valid?'invalid':'incomplete',
-    receivedBytes:received,decodedBytes:decoded,records:records,validRecords:validRecords,invalidRecords:invalidRecords,uncheckedRecords:uncheckedRecords,
+    receivedBytes:received,decodedBytes:decoded,records:records,validRecords:validRecords,invalidRecords:invalidRecords,uncheckedRecords:uncheckedRecords,wholeResolvableRecords:wholeResolvableRecords,itemProofAvailable:binaryComplete,
     evidence:List.unmodifiable(evidence),findings:List.unmodifiable(findings),complete:false,valid:valid,wholeAvailable:wholeAvailable,
     terminal:terminal,itemsComplete:itemsComplete,framingComplete:framingComplete,schemaProducerName:schemaProducerName,schemaProducerVersion:schemaProducerVersion,schemaConfiguration:schemaConfiguration,reason:terminalReason??failure);
 
@@ -132,7 +137,7 @@ class _LiveResponseStream {
     wholeAvailable=value['wholeAvailable']==true;binaryComplete=value['binaryComplete']==true;binaryValid=value['binaryValid']==true;
     for(final raw in value['records'] as List){
       final item=Map<String,Object?>.from(raw as Map);if(item['index']!=records)throw CoreFailure('runtime.stream.protocol','A stream item was omitted, repeated or reordered.');records++;
-      if(item['complete']!=true)uncheckedRecords++;else if(item['valid']==true)validRecords++;else invalidRecords++;
+      if(item['complete']!=true){uncheckedRecords++;if(item['wholeResolvable']==true)wholeResolvableRecords++;}else if(item['valid']==true)validRecords++;else invalidRecords++;
       final size=jsonEncode(item).length*2;
       if(size<=1024*1024){evidence.add(item);evidenceBytes+=size;while(evidence.length>128||evidenceBytes>1024*1024){evidenceBytes-=jsonEncode(evidence.removeAt(0)).length*2;}}
       for(final finding in item['findings'] as List) note(Map<String,Object?>.from(finding as Map));

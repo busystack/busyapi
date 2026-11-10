@@ -314,9 +314,12 @@ schema/security checks and exact examples. CLI readiness identifies
 `nativeOperationRouting` separately, and Core rejects a stale routing policy.
 Captures containing additional methods use one request per connection with a
 16 KiB method-token bound and five-second initial-token deadline; ordinary
-captures keep connection reuse. CONNECT requires tunnel-capable transport and
-receives a source-located startup blocker. Remaining tunnel and nested-generation
-work is tracked in the [support matrix](implementation/native-openapi-support.md).
+captures keep connection reuse. CONNECT uses Node HTTP connect events and requires
+a captured `mock.tunnels` policy with exact authority/operation/pinned-IP entries
+and explicit concurrency, byte, idle and lifetime bounds. No policy approves no
+peers. Successful transitions have no HTTP content/framing; source-owned tunnel
+establishment/refusal/termination are separate native/Core/CLI lifecycle events.
+The [final W5 handoff](implementation/native-openapi-support.md#final-w503w504-handoff--native-mocks-and-stream-proof-2026-11-10) records configuration, supported Header representations and limits.
 
 Additional-method validation proxies retain actual method/query/body bytes and
 separate received response bytes from the decoded native validation view. Gzip,
@@ -336,9 +339,11 @@ retain source numeric tokens and literal payload keys. Static media examples
 keep priority; dynamic bodies choose proved constrained candidates. Status/media
 selection still follows the pinned Prism negotiator. Unspecified Swagger response
 media uses a JSON generator default without changing the document. Candidate/work
-limits and unsupported evaluation stay incomplete; this policy does not establish
-arbitrary constraint generation. CLI readiness exposes `nativeGeneration`
-separately (`busyapi-native-schema-samples` version 3), and Core rejects an
+limits and unsupported evaluation stay incomplete. Bounded pattern construction,
+finite conditional merges, recursive termination and original-media text/binary
+wire witnesses now share that proof boundary. Arbitrary patterns/dynamic solutions
+remain unavailable; no candidate is a successful mock without original proof. CLI readiness exposes `nativeGeneration`
+separately (`busyapi-native-schema-samples` version 5), and Core rejects an
 incompatible policy identity. Construction and proof cancellation cannot return
 a cached success after ownership has ended. The [support record](implementation/native-openapi-support.md)
 lists exact-number, nested-property, installed CLI and production Linux coverage.

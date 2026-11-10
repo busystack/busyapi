@@ -50,7 +50,7 @@ test(`${version} ${format} generated numeric response bytes satisfy the original
     ].map(resource=>({...resource,generation:1,identity:createHash('sha256').update(resource.text).digest('hex')}))};
     const original=capture.resources.map(resource=>resource.text),input=capturedMockStart(capture);
     const ready=await startMock(t,input);
-    assert.equal(ready.nativeGeneration.version,'4');
+    assert.equal(ready.nativeGeneration.version,'5');
     const instanceChecks=[];
     for(const [name,,expected]of [...cases,['nested',{},'{"number":9007199254740993}']]){
         const response=await send(ready.port,'/'+name);

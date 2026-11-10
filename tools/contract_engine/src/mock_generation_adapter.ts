@@ -45,7 +45,7 @@ export class MockGenerationAdapter {
     private readonly values=new WeakMap<IMediaTypeContent,string>();
     private readonly wires=new WeakMap<IMediaTypeContent,{bytes:Buffer;value:GeneratorData;path:string;method:string;mediaType?:string}>();
 
-    constructor(private readonly native:Pick<MockNativeValidation,'responseMediaType'|'responseBytes'|'authoredResponse'|'authoredResponseBytes'|'generatedResponse'|'generationFailure'>) {}
+    constructor(private readonly native:Pick<MockNativeValidation,'generatedWireResponse'|'responseMediaType'|'responseBytes'|'authoredResponse'|'authoredResponseBytes'|'generatedResponse'|'generationFailure'>) {}
 
     async prepare(operation:IHttpOperation,configuration:Configuration,diagnostics:readonly Diagnostic[],logger:Logger,signal:AbortSignal):Promise<{operation:IHttpOperation;configuration:Configuration}> {
         const unchanged={operation,configuration};
@@ -69,11 +69,12 @@ export class MockGenerationAdapter {
         const keys=content.examples?.map(example=>example.key)??[];
         if(selected.bodyExample!==undefined)keys.unshift(selected.bodyExample.key);
         let bytes=dynamic?undefined:this.native.authoredResponseBytes(operation.path,operation.method,response.code,content.mediaType,keys,signal);
-        if(!json&&!modeled&&bytes===undefined)return unchanged;
+        if(!json&&!modeled&&bytes===undefined)bytes=await this.native.generatedWireResponse(operation.path,operation.method,response.code,content.mediaType,signal);
+        if(!json&&!modeled&&bytes===undefined)throw this.native.generationFailure(operation.path,operation.method,'mock.sample.media.unavailable','This captured representation has no supported witness constructor');
         const authored=bytes!==undefined?undefined:dynamic?undefined:this.native.authoredResponse(operation.path,operation.method,response.code,content.mediaType,
             keys,signal);
         const raw=bytes===undefined?authored??await this.native.generatedResponse(operation.path,operation.method,response.code,content.mediaType,dynamic,signal):undefined;
-        if(raw===undefined&&bytes===undefined)return unchanged;
+        if(raw===undefined&&bytes===undefined)throw this.native.generationFailure(operation.path,operation.method,'mock.sample.unavailable','No candidate was proved against the original captured schema within the bounded search');
         if(modeled&&raw!==undefined)bytes=await this.native.responseBytes(operation.path,operation.method,response.code,content.mediaType,raw,signal);
         // Prism negotiates status/headers against this request-owned view.
         // External wire bytes bypass its body serializer; original native

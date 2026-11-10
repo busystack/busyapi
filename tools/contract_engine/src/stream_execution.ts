@@ -39,7 +39,12 @@ export async function responseStreamChunk(input:any){
   let data=record.text;
   if(typeof projection==='string'){const document=new SourceDocument(projection,'urn:busyapi:stream-preview',true,'json');data=(()=>{let node=document.root;for(const _ of record.path??[0]){if(node.kind!=='array'||!node.children.has('0'))break;node=document.dataNode(node.children.get('0')!.pointer)!;}return document.dataJson(node.pointer);})();}
   const complete=record.error?record.error.kind!=='unsupported'&&!record.error.code.startsWith('limit.'):evaluations.length>0&&evaluations.every(value=>value.complete),valid=!record.error&&complete&&evaluations.every(value=>value.valid)&&!findings.some(value=>value.severity==='error');
-  return {index:record.index,...(record.path?{path:record.path}:{}),offset:record.offset,bytes:record.bytes,complete,valid,...(data&&Buffer.byteLength(data)<=16384?{data}:{}),findings:record.error?[{...record.error,severity:record.error.kind==='unsupported'||record.error.code.startsWith('limit.')?'warning':'error',subject:'response-item',location:'stream:'+record.index,recordIndex:record.index,byteOffset:record.offset}]:findings.slice(0,16).map(value=>({...value,recordIndex:record.index,byteOffset:record.offset}))};
+  // Only a deferred whole-context binding, without an independent itemSchema,
+  // can be discharged by a successful original complete-content evaluation.
+  const wholeResolvable=!complete&&!itemSchema&&record.mime!==undefined&&!record.error&&findings.length>0&&
+   findings.every(value=>value.severity==='warning'&&value.detailCode==='runtime.stream.part.unavailable')&&
+   evaluations.length>0&&evaluations.every(value=>value.complete||value.reason==='unsupported-representation');
+  return {index:record.index,wholeResolvable,...(record.path?{path:record.path}:{}),offset:record.offset,bytes:record.bytes,complete,valid,...(data&&Buffer.byteLength(data)<=16384?{data}:{}),findings:record.error?[{...record.error,severity:record.error.kind==='unsupported'||record.error.code.startsWith('limit.')?'warning':'error',subject:'response-item',location:'stream:'+record.index,recordIndex:record.index,byteOffset:record.offset}]:findings.slice(0,16).map(value=>({...value,...(wholeResolvable?{wholeResolvable:true}:{}),recordIndex:record.index,byteOffset:record.offset}))};
  });
  const binaryEvaluations=checked?.runtimeEvaluations.filter(value=>value.location==='stream:binary')??[];
  return {...base,supported:true,state:{...framed.state,capture},records,pending:framed.pending,framingComplete:framed.state.closed,

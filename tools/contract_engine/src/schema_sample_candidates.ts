@@ -1,3 +1,4 @@
+import {patternCandidates} from './schema_string_candidates';
 import {schemaContext} from './schema_context';
 import {SourceDocument,SourceError,escape,type Range} from './document';
 import {record} from './engine_worker_client';
@@ -26,10 +27,11 @@ export class SchemaSampleCandidates {
         }
     }
 
-    candidates(schema:SchemaLocation,suggestions:Suggestions,existing:readonly SchemaSample[]=[]):{samples:SchemaSample[];limit?:SourceLocation} {
+    candidates(schema:SchemaLocation,suggestions:Suggestions,existing:readonly SchemaSample[]=[]):{samples:SchemaSample[];limit?:SourceLocation;unavailable?:{source:SourceLocation;reason:string}} {
+        let unavailable:{source:SourceLocation;reason:string}|undefined;
         const allocated=new Set(existing.map(sample=>sample.raw));
         let work=0,bytes=[...allocated].reduce((sum,raw)=>sum+Buffer.byteLength(raw),0),limit:SourceLocation|undefined;
-        const memo=new Map<string,SchemaSample[]>();
+        const memo=new WeakMap<Set<string>,Map<string,SchemaSample[]>>();
         const source=(target:GraphTarget):SourceLocation=>{
             const node=this.graph.docs.get(target.resource)?.dataNode(target.pointer);
             return {resource:target.resource,pointer:target.pointer,range:node?.range??[0,0]};
@@ -78,8 +80,13 @@ export class SchemaSampleCandidates {
         };
         const build=(target:GraphTarget,path:Set<string>,depth:number):SchemaSample[]=>{
             const key=JSON.stringify([target.resource,target.pointer]);
-            if(path.has(key)){limit??=source(target);return [];}
-            const cached=memo.get(key);if(cached)return cached;
+            if(path.has(key)){
+                // A recursive edge can terminate at a finite primitive or empty
+                // container. Parent construction and original proof decide it.
+                return suggestions(target).samples.concat(['null','{}','[]'].map(raw=>({raw,source:source(target)})));
+            }
+            const cache=memo.get(path)??new Map<string,SchemaSample[]>();memo.set(path,cache);
+            const cached=cache.get(key);if(cached)return cached;
             if(depth>=128||!step(target)){limit??=source(target);return [];}
             const origin=source(target),output:SchemaSample[]=[],values=new Set<string>();
             const add=(raw:string,candidateSource=origin)=>{
@@ -100,6 +107,8 @@ export class SchemaSampleCandidates {
             const arrays:GraphTarget[]=[];
             const objectBranches:SchemaSample[]=[];
             let hasObject=false;
+            const stringMinimum=Math.max(0,...scopes.map(location=>this.graph.docs.get(location.resource)!.dataNode(location.pointer)?.value?.minLength).filter(value=>Number.isSafeInteger(value)&&value>=0));
+            const stringMaximum=Math.min(65536,...scopes.map(location=>this.graph.docs.get(location.resource)!.dataNode(location.pointer)?.value?.maxLength).filter(value=>Number.isSafeInteger(value)&&value>=0));
             for(const location of scopes) {
                 if(!step(location))break;
                 const doc=this.graph.docs.get(location.resource)!,node=doc.dataNode(location.pointer)!;
@@ -128,17 +137,20 @@ export class SchemaSampleCandidates {
                     if(Array.isArray(names))for(const name of names)if(typeof name==='string')required.add(name);
                     object.dependencies.set(trigger,required);
                 }
-                for(const keyword of ['oneOf','anyOf']) {
+                for(const keyword of ['oneOf','anyOf',...(modernFamily(scope.family)?['if','then','else','dependentSchemas']:[])]) {
                     const array=node.children.get(keyword);
-                    if(scope.family!=='2.0'&&array?.kind==='array')for(const index of array.children.keys())
-                        for(const candidate of build({...location,pointer:location.pointer+'/'+keyword+'/'+index},next,depth+1)){
+                    const branches=array?.kind==='array'||keyword==='dependentSchemas'&&array?.kind==='object'?[...array.children.keys()].map(index=>location.pointer+'/'+keyword+'/'+escape(index)):
+                        ['if','then','else'].includes(keyword)&&array?[location.pointer+'/'+keyword]:[];
+                    if(scope.family!=='2.0')for(const pointer of branches)
+                        for(const candidate of build({...location,pointer},next,depth+1)){
                             if(candidate.raw.trimStart().startsWith('{'))objectBranches.push(candidate);
                             if(!add(candidate.raw,candidate.source))break;
                         }
                 }
-                if(types.includes('string')) {
+                if(types.includes('string')||node.children.has('pattern')) {
+                    if(typeof value.pattern==='string')for(const candidate of patternCandidates(value.pattern,stringMinimum,stringMaximum,reason=>{unavailable??={source:source(location),reason};}))add(JSON.stringify(candidate));
                     add('""');
-                    const length=value.minLength??1;
+                    const length=Math.max(1,stringMinimum);
                     if(!Number.isSafeInteger(length)||length<0||length>65536)limit??=source(location);
                     else for(const character of ['a','A','0'])add(JSON.stringify(character.repeat(length)));
                 }
@@ -237,14 +249,20 @@ export class SchemaSampleCandidates {
                     // Merge branch object members with the parent's required
                     // fields using exact CST values. Neither JSON.parse nor
                     // object spread may round or rebind literal member names.
+                    let merged=[base];
                     for(const branch of objectBranches){
-                        if(!step(target))break;
-                        const baseDoc=new SourceDocument(base,'urn:busyapi:sample-base',true,'json');
-                        const branchDoc=new SourceDocument(branch.raw,'urn:busyapi:sample-branch',true,'json');
-                        if(baseDoc.issues.length||branchDoc.issues.length||branchDoc.root.kind!=='object')continue;
-                        const members=new Map([...baseDoc.root.children.keys()].map(name=>[name,baseDoc.dataJson('/'+escape(name))]));
-                        for(const name of branchDoc.root.children.keys())members.set(name,branchDoc.dataJson('/'+escape(name)));
-                        add('{'+[...members].map(([name,raw])=>JSON.stringify(name)+':'+raw).join(',')+'}');
+                        const additions:string[]=[];
+                        for(const before of merged){
+                            if(!step(target)||additions.length>=64)break;
+                            const baseDoc=new SourceDocument(before,'urn:busyapi:sample-base',true,'json');
+                            const branchDoc=new SourceDocument(branch.raw,'urn:busyapi:sample-branch',true,'json');
+                            if(baseDoc.issues.length||branchDoc.issues.length||branchDoc.root.kind!=='object')continue;
+                            const members=new Map([...baseDoc.root.children.keys()].map(name=>[name,baseDoc.dataJson('/'+escape(name))]));
+                            for(const name of branchDoc.root.children.keys())members.set(name,branchDoc.dataJson('/'+escape(name)));
+                            const raw='{'+[...members].map(([name,raw])=>JSON.stringify(name)+':'+raw).join(',')+'}';
+                            if(add(raw))additions.push(raw);
+                        }
+                        merged=[...new Set([...merged,...additions])].slice(0,64);
                     }
                     let objects=[''];
                     for(const {name,choices}of fields){
@@ -263,11 +281,11 @@ export class SchemaSampleCandidates {
                 const value=this.graph.docs.get(location.resource)!.dataNode(location.pointer)?.value;
                 return record(value)&&!Object.hasOwn(value,'type');
             }))for(const raw of ['null','false','0','""','{}','[]'])add(raw);
-            memo.set(key,output);
+            cache.set(key,output);
             return output;
         };
         const samples=build({...schema,kind:'schema'},new Set(),0);
-        return {samples,...(limit?{limit}:{})};
+        return {samples,...(limit?{limit}:{}),...(unavailable?{unavailable}:{})};
     }
 }
 

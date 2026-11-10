@@ -1,3 +1,5 @@
+import {encodePlainText} from './text_encoding';
+import {runtimeBinaryMedia} from './runtime_binary';
 import {embeddedMimeTextBytes} from './embedded_mime_text';
 import {rawXmlBytes} from './xml_wire';
 import {mediaTypes} from './media_types';
@@ -33,11 +35,17 @@ export function authoredMockResponseExample(plan:unknown,status:string,actual:st
  * through the actual Example Object occurrence; a projected URI/base64 alone
  * cannot authorize acquisition or supply an invented media interpretation. */
 export function authoredMockResponseBytes(plan:unknown,status:string,actual:string,keys:readonly string[],
-    graph:ReferenceGraph,examples:CapturedExampleResources):Buffer|undefined {
+    graph:ReferenceGraph,examples:CapturedExampleResources,wireMedia?:(bytes:Buffer,type:string)=>void):Buffer|undefined {
     const selected=selectedExample(plan,status,actual,keys);
     if(selected?.external===undefined){
         if(!selected||typeof selected.raw!=='string')return;
         const kind=runtimeMediaKind(actual);
+        if(kind==='text'||kind==='opaque'&&runtimeBinaryMedia(actual)){
+            const value=selected.representation==='serialized'?selected.raw:JSON.parse(selected.raw);
+            if(typeof value!=='string'){const source=sourceLocation(selected.source);throw new SourceError('mock.example.representation','The authored example has no supported string or byte representation',source?.range??[0,0],'unsupported',source);}
+            if(kind==='text'){const encoded=encodePlainText(value,actual,mediaTypes(actual,false)[0].parameters.get('charset'));wireMedia?.(encoded.bytes,encoded.contentType);return encoded.bytes;}
+            return runtimeMediaBytes(value,false);
+        }
         if(actual.split(';')[0].trim().toLowerCase().startsWith('multipart/')&&selected.representation==='serialized'){
             const source=sourceLocation(selected.source);
             return source?.pointer.endsWith('/serializedValue')?runtimeMediaBytes(selected.raw,false):embeddedMimeTextBytes(selected.raw,actual);
