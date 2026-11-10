@@ -456,6 +456,25 @@ class ContractTestRunner {
         }
       }
     }
+    if (value.containsKey('parameterExamples')) {
+      final selections = value['parameterExamples'];
+      if (selections is! Map || selections.length > 5) invalid('parameterExamples', 'Expected bounded captured Parameter example choices.');
+      for (final location in (selections as Map).entries) {
+        if (!['path','query','querystring','header','cookie'].contains(location.key) || location.value is! Map || (location.value as Map).length > 512) {
+          invalid('parameterExamples', 'Expected named choices at a supported Parameter location.');
+        }
+        for (final entry in (location.value as Map).entries) {
+          final choice = entry.value;
+          if (entry.key is! String || (entry.key as String).isEmpty || choice is! Map || choice['name'] is! String ||
+              choice.keys.any((key) => !['name','mediaType'].contains(key)) ||
+              choice.containsKey('mediaType') && (choice['mediaType'] is! String || (choice['mediaType'] as String).isEmpty) ||
+              value['parameters'] is Map && (value['parameters'] as Map)[location.key] is Map &&
+                ((value['parameters'] as Map)[location.key] as Map).containsKey(entry.key)) {
+            invalid('parameterExamples', 'Choose one captured example name and optional declared media type per Parameter, without a competing literal value.');
+          }
+        }
+      }
+    }
     if (value.containsKey('parameters')) {
       final parameters = value['parameters'];
       if (parameters is! Map)
@@ -698,6 +717,15 @@ class ContractTestRunner {
           : value['representation'] == 'serializedParameter' ? RequestValue.serialized(value['text'] as String)
           : value['representation'] == 'serializedMedia' ? RequestValue.serialized(value['text'] as String, mediaLevel: true)
           : RequestValue.text(value['text'] as String);
+    }
+    for (final location in (definition['parameterExamples'] as Map? ?? const {}).entries) {
+      for (final entry in (location.value as Map).entries) {
+        final choice = entry.value as Map;
+        parameters[OperationRequestDraft.parameterKey(location.key as String, entry.key as String)] =
+            RequestValue.example(plan.captureParameterExample(location.key as String, entry.key as String,
+                name: choice['name'] == '' ? null : choice['name'] as String,
+                mediaType: choice['mediaType'] as String?));
+      }
     }
     if (rawBody is Map && rawBody['file'] is String) {
       body = RequestBodyDraft.approvedFile(mediaType:rawBody['mediaType'] as String,file:access.pathFor(p.join(access.boundary,rawBody['file'] as String)),access:access);

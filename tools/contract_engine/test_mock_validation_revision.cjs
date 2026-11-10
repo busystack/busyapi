@@ -36,7 +36,7 @@ test('Engine schema producer and all Core admission owners stay synchronized',as
  assert.match(execution,/result\['producerVersion'\] != _schemaProducerVersion/);
  assert.match(mock,/nativeValidation.version != _schemaProducerVersion/);
  for(const identity of ['typed-multipart-generation-v1','external-example-bytes-v','embedded-mime-text-v'])assert(engine.includes(identity));
- for(const identity of ['response-wire-v5:','parameter-wire-v6:','captured-schema-candidates-v5:'])assert(mock.includes(identity));
+ for(const identity of ['response-wire-v5:','parameter-wire-v7:','captured-schema-candidates-v5:'])assert(mock.includes(identity));
 });
 
 test('incremental producer admission uses the actual Engine and Core declarations',async()=>{

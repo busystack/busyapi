@@ -17,7 +17,7 @@ const maximumCandidates=256,maximumInstances=2048;
 const decimal=/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$/;
 const unsupported=(message:string):never=>{throw new SourceError('runtime.request.parameter.unchecked',message,[0,0],'unsupported');};
 const malformed=(message:string):never=>{throw new SourceError('runtime.request.parameter.serialization',message);};
-export const mockParameterProducer=Object.freeze({name:'busyapi-native-parameters',version:'6'});
+export const mockParameterProducer=Object.freeze({name:'busyapi-native-parameters',version:'7'});
 
 function decode(value:string,form=false):string {
     try{return decodeURIComponent(form?value.replace(/\+/g,' '):value);}
@@ -195,10 +195,12 @@ export async function validateMockParameters(graph:ReferenceGraph,plan:unknown,t
         try{
             if(parameter.name.length>3900)unsupported('The parameter name exceeds the bounded runtime attribution size');
             let values:string[]=[],fields:Pair[]=[],raw=false;
-            if(parameter.in==='query'||parameter.in==='querystring'){
+            if(parameter.in==='querystring'){
+                values=query===''?[]:[query];raw=true;
+            }else if(parameter.in==='query'){
                 queryFields??=pairs(query,'&',false).map(([name,value])=>[decode(name,true),value]);
                 fields=parameter.content.length?[]:queryFields.filter(([name])=>!parameters.some(other=>other.in==='query'&&other.content.length&&other.name===name)).map(([name,value])=>[name,decode(value,true)]);
-                values=parameter.in==='querystring'?(query===''?[]:[query]):queryFields.filter(([name])=>name===parameter.name).map(([,value])=>value);
+                values=queryFields.filter(([name])=>name===parameter.name).map(([,value])=>value);
                 raw=true;
             }else if(parameter.in==='path'){
                 pathFields??=pathValues(template,path);const value=pathFields.get(parameter.name);values=value===undefined?[]:[value];raw=true;
@@ -229,7 +231,7 @@ export async function validateMockParameters(graph:ReferenceGraph,plan:unknown,t
                 mediaType=media.mediaType;
                 if(parameter.in==='header'&&parameter.name.toLowerCase()==='link'&&runtimeMediaKind(mediaType)==='linkset-json')malformed('An HTTP Link field cannot contain the JSON Linkset representation');
                 const form=parameter.in==='querystring'&&mediaType.split(';')[0].trim().toLowerCase()==='application/x-www-form-urlencoded';
-                if(raw&&!form&&runtimeMediaKind(mediaType)==='xml')contentBytes=mediaOctets(values[0],parameter.in==='query');
+                if(raw&&!form)contentBytes=mediaOctets(values[0],parameter.in==='query');
                 texts=[contentBytes?'':raw&&!form?decode(values[0],parameter.in==='query'):values[0]];
             }else{
                 const decoded=data(parameter,values,raw,fields,reserved);

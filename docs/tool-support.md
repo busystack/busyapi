@@ -633,6 +633,18 @@ where `Upload` names an external example on that operation's media occurrence.
 `externalExample` and `value` are mutually exclusive, including a null `value`.
 This field grants no additional resource access or media inference.
 
+Parameter example choices retain the same approved capture and the concrete
+location, name and optional declared content media. URI framing percent-encodes
+media octets directly, including binary values and non-UTF-8 declared charsets;
+HTTP Header fields keep their octet view and reject prohibited controls. Whole
+query form examples retain their delimiters. Editing a selected representation
+explicitly changes it into a literal input. Saved cases use, for example,
+`parameterExamples: {query: {q: {name: Upload, mediaType: application/octet-stream}}}`.
+Omit `mediaType` for a Parameter-level complete serialization. Each selected
+example is resolved again from the approved current capture on cold reopening
+and CLI execution; no competing literal Parameter value is allowed. These
+choices use the original occurrence's runtime schema validation and mock codec.
+
 Mocks retain these approved external example packets in their captured child
 input. The pinned negotiator chooses the response and named example; the exact
 byte path preserves its original entity and content type. Native validation

@@ -121,6 +121,7 @@ class RequestRunController extends ChangeNotifier {
   final Set<String> structuredValues = {};
   final Set<String> omittedValues = {};
   final Map<String, RequestValueRepresentation> exampleRepresentations = {};
+  final Map<String, CapturedRequestParameterExample> parameterExamples = {};
   final List<RequestHeaderValue> customHeaders = [];
   final Map<String, String> requestVariables = {};
   final Map<(String?, RequestBodyKind, bool), _RequestBodyState> _bodyDrafts = {};
@@ -294,7 +295,9 @@ class RequestRunController extends ChangeNotifier {
       if (omittedValues.contains(entry.key)) continue;
       final representation = exampleRepresentations[entry.key];
       parameters[entry.key] =
-          representation == RequestValueRepresentation.serializedParameter ||
+          parameterExamples.containsKey(entry.key)
+          ? RequestValue.example(parameterExamples[entry.key]!)
+          : representation == RequestValueRepresentation.serializedParameter ||
               representation == RequestValueRepresentation.serializedMedia
           ? RequestValue.serialized(
               entry.value,
@@ -553,6 +556,8 @@ class RequestRunController extends ChangeNotifier {
     _initializeFreshDraft();
     exampleRepresentations..clear()..addAll({for (final entry in loaded.parameters.entries)
       if (entry.value.representation == RequestValueRepresentation.serializedParameter || entry.value.representation == RequestValueRepresentation.serializedMedia) entry.key: entry.value.representation});
+    parameterExamples..clear()..addAll({for (final entry in loaded.parameters.entries)
+      if (entry.value.capturedExample case final example?) entry.key: example});
     values..clear()..addAll({for (final entry in loaded.parameters.entries) entry.key: entry.value.text});
     structuredValues..clear()..addAll(loaded.parameters.entries.where((entry) => entry.value.json).map((entry) => entry.key));
     omittedValues.clear();customHeaders..clear()..addAll(loaded.headers);
@@ -674,6 +679,7 @@ class RequestRunController extends ChangeNotifier {
     structuredValues.clear();
     omittedValues.clear();
     exampleRepresentations.clear();
+    parameterExamples.clear();
     customHeaders.clear();
     requestVariables.clear();_bodyDrafts.clear();selectedCase = null;streamStopAfterRecords=null;liveStream=null;
     timeoutInputs.clear();
@@ -874,6 +880,21 @@ class RequestRunController extends ChangeNotifier {
     }
     final example = parameter['example'] ?? media?['example'];
     if (example is! Map || example['raw'] is! String) return;
+    if (example['external'] is Map) {
+      try {
+        final selected = plan!.captureParameterExample(parameter['in'] as String,
+            parameter['name'] as String, name: example['name'] as String?,
+            mediaType: example['level'] == 'media' ? example['mediaType'] as String? : null);
+        final key = OperationRequestDraft.parameterKey(selected.location, selected.parameterName);
+        values[key] = selected.serialization;
+        parameterExamples[key] = selected;
+        omittedValues.remove(key);structuredValues.remove(key);exampleRepresentations.remove(key);
+        refresh();
+      } on CoreFailure catch (error) {
+        failure = error.code;failureMessage = error.message;_notify();
+      }
+      return;
+    }
     if (example['conversionError'] is String) {
       failure = 'request.example.conversion';
       failureMessage = example['conversionError'] as String;
@@ -924,6 +945,7 @@ class RequestRunController extends ChangeNotifier {
       parameter['name'] as String,
     );
     values[key] = example['raw'] as String;
+    parameterExamples.remove(key);
     omittedValues.remove(key);
     exampleRepresentations.remove(key);
     if (example['representation'] == 'serialized') {
@@ -1675,6 +1697,7 @@ class _RequestDraftState {
       securityIdentity = _securityIdentity(run, run.securityAlternative),
       omitted = Set.of(run.omittedValues),
       representations = Map.of(run.exampleRepresentations),
+      parameterExamples = Map.of(run.parameterExamples),
       headers = List.of(run.customHeaders),
       kind = run.bodyKind,
       bodyExample = run.bodyExample,
@@ -1716,6 +1739,7 @@ class _RequestDraftState {
   final Map<(String?, RequestBodyKind, bool), _RequestBodyState> bodyDrafts;
   final Set<String> omitted;
   final Map<String, RequestValueRepresentation> representations;
+  final Map<String, CapturedRequestParameterExample> parameterExamples;
   final List<RequestHeaderValue> headers;
   final RequestBodyKind kind;
   final CapturedRequestBodyExample? bodyExample;
@@ -1774,12 +1798,14 @@ class _RequestDraftState {
             0,
             (n, e) => n + e.key.length + e.value.length,
           )) *
-      2 + (bodyExample?.byteLength ?? 0) + bodyDrafts.values.fold<int>(0, (n, item) => n + item.bytes);
+      2 + (bodyExample?.byteLength ?? 0) + parameterExamples.values.fold<int>(0, (n, item) => n + item.byteLength) + bodyDrafts.values.fold<int>(0, (n, item) => n + item.bytes);
   void restore(RequestRunController run) {
     run.streamStopAfterRecords=streamStopAfterRecords;run.requestVariables.addAll(variables);run._bodyDrafts.addAll(bodyDrafts);
     run.values.addAll(values);
     run.omittedValues.addAll(omitted);
     run.exampleRepresentations.addAll(representations);
+    run.parameterExamples.addAll({for (final entry in parameterExamples.entries)
+      entry.key: run.plan?.restoreParameterExample(entry.value) ?? entry.value});
     run.customHeaders.addAll(headers);
     run.bodyKind = kind;
     run.bodyExample = bodyExample == null ? null : run.plan?.restoreBodyExample(bodyExample!) ?? bodyExample;
@@ -3367,6 +3393,7 @@ class _ParameterRow extends StatelessWidget {
           onChanged: (value) {
             run.values[key] = value;
             run.exampleRepresentations.remove(key);
+            run.parameterExamples.remove(key);
           },
         ),
         BusyApiSwitchRow(
@@ -3375,6 +3402,7 @@ class _ParameterRow extends StatelessWidget {
           enabled: !run.busy,
           onChanged: (value) {
             run.exampleRepresentations.remove(key);
+            run.parameterExamples.remove(key);
             if (value) {
               run.structuredValues.add(key);
             } else {

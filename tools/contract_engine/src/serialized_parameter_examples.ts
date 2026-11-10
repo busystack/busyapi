@@ -14,6 +14,32 @@ type ExampleMedia={mediaType:string;definition:RuntimeMediaTarget}&Pick<Captured
 type Evaluate=(instances:NativeRuntimeInstance[])=>Promise<SerializationCheck>;
 export type ParameterSerializationCheck={complete:boolean;valid:boolean;findings:Record<string,unknown>[];instances:number;omission?:'empty-collection'};
 
+/** Frame already serialized media octets at a concrete Parameter occurrence.
+ * URI escaping acts on bytes, never a lossy Unicode decoding of binary content.
+ * Whole-query form content already supplies its own field delimiters. */
+export function parameterMediaSerialization(location:string,name:string,mediaType:string,bytes:Buffer):string {
+ const encoded=(value:Buffer)=>Array.from(value,byte=>/[A-Za-z0-9._~-]/.test(String.fromCharCode(byte))?
+  String.fromCharCode(byte):'%'+byte.toString(16).toUpperCase().padStart(2,'0')).join('');
+ if(location==='header'||location==='cookie'){
+  const text=bytes.toString('latin1');
+  if(/[\x00-\x08\x0a-\x1f\x7f]/u.test(text))throw new SourceError('request.parameter.header','The media serialization contains prohibited HTTP field content');
+  if(location==='cookie'){
+   if(/[^\x21\x23-\x2b\x2d-\x3a\x3c-\x5b\x5d-\x7e]/u.test(text))throw new SourceError('request.cookie.encoding','This media serialization contains bytes forbidden in a Cookie value',[0,0],'unsupported');
+   return name+'='+text;
+  }
+  return text;
+ }
+ if(location==='querystring'&&mediaType.split(';')[0].trim().toLowerCase()==='application/x-www-form-urlencoded'){
+  const text=bytes.toString('latin1');
+  if(/[^\x21-\x7e]|#|%(?![0-9a-fA-F]{2})/u.test(text))throw new SourceError('request.querystring.encoding','Whole-query form content must contain valid encoded URI fields');
+  return text;
+ }
+ const text=encoded(bytes);
+ if(location==='query')return encoded(Buffer.from(name,'utf8'))+'='+text;
+ if(location==='path'||location==='querystring')return text;
+ throw new SourceError('request.parameter.location','The media example has no executable Parameter occurrence',[0,0],'unsupported');
+}
+
 /** External values contain the occurrence's wire serialization. HTTP fields
  * retain an octet view; URI/cookie serializations use UTF-8. This function
  * reads only approved captured bytes and does not acquire any resource. */

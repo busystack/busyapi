@@ -92,6 +92,47 @@ results. They are required native application work, not specification limits:
 | Mock witnesses | W5.04 SOURCE COMPLETE, unverified for the constructive classes in the final W5 handoff. | Finite/exact, pattern, composition/recursive and supported text/binary candidates require original-schema proof; arbitrary patterns/dynamic constraints and exhausted bounds remain unavailable, never unsatisfiable. |
 | Semantic maintenance | Ordinary reviewed rename/extract/inline/move/file actions exist in native and CLI consumers. | W6-M1/M2 implement complete-resource relocation, shared Markdown specialization and compatible literal/contract separation. W6.01–03 still require general schema-position/mixed-reference-role qualification; precise unavailable proofs and actual independent-data conflicts remain refusals. |
 
+### Active product completion continuation (2026-11-10)
+
+The current continuation starts at `dc7f4451d5554e0535ac716dcc08778ccc12c3ce`
+in the primary `release/v0.1.0` checkout. The complete product objective remains
+active; this is not a replacement inventory or a new migration sequence.
+
+W4.02/W4.06/W4.07 now additionally retain approved external Parameter examples
+as capture-bound native selections. Parameter-level complete serializations and
+content-level media bytes use their actual effective name/location/media. The
+shared serializer frames binary and non-UTF-8 media octets without Unicode
+replacement; whole-query form delimiters retain their authored representation.
+Native draft restoration requires the same project/operation/snapshot and byte
+identity. Editing explicitly selects literal input. Preparation, saved-case
+review and runtime evaluation reject stale resources. `parameterExamples`
+saved choices reopen through the same owner in Core and independent CLI, with
+no competing literal inputs or additional resource acquisition. Original-schema
+runtime and mock validation now percent-decode all content media as octets;
+whole-query content no longer passes through named-query UTF-8 parsing. Header
+controls retain legal horizontal tabs. Empty query/cookie collections omit wire
+fields; empty strings remain explicit values, including matrix `;name`.
+
+Prepared, **not run**: the registered runtime-parameter engine suite adds binary
+query/path/Header/whole-query, charset, malformed-escape and byte-length cases;
+Core `external_parameter_selection_test.dart` adds actual HTTP, saved review,
+cold reopening, independent CLI, denied/missing/stale choices and cancellation
+in YAML/JSON for 3.0.4/3.1.2/3.2.0/3.2.1. The existing native external-body
+journey also selects and sends a binary query example. Existing producer
+fixtures retain obsolete controls and add prior-octet-producer rejection.
+Schema producer is `hyperjump+busyapi-exact` **1.18.0+68**, with
+`parameter-media-octets-v1`; Parameter producer is **7**, `parameter-wire-v7`.
+Request example representation is **1**, strictly admitted by Core. Migration
+**104**, multipart **2**, stream **2** and other existing identities are retained.
+
+Overall **INCOMPLETE, unaccepted**. Multipart part/Header example selection,
+remaining W1/W6 production-consumer reconciliation, documentation integration,
+W2/W3 reconciliation and the complete W7 acceptance journeys remain unfinished.
+No boundary is reclassified as a target-specification restriction. Only source
+inspection, official specification/RFC reads, Git inspection and
+`git diff --check` have been performed. The execution hold and Snapcraft skip
+remain active; no compiled/generated asset or dependency has been changed.
+
 ### Ordered phases and completion criteria
 
 1. **Native OpenAPI support.** Complete native document authoring, validation and

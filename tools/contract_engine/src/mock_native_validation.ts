@@ -93,7 +93,7 @@ export class MockNativeValidation {
 
     get identity(){return this.producer;}
     get responseIdentity(){return this.producer&&{...mockResponseProducer,configuration:'response-wire-v5:'+this.producer.configuration};}
-    get parameterIdentity(){return this.producer&&{...mockParameterProducer,configuration:'parameter-wire-v6:'+this.producer.configuration};}
+    get parameterIdentity(){return this.producer&&{...mockParameterProducer,configuration:'parameter-wire-v7:'+this.producer.configuration};}
     get securityIdentity(){return this.producer&&{...mockSecurityProducer,configuration:'security-wire-v1:'+this.producer.configuration};}
     get generationIdentity(){return this.producer&&{...mockSampleProducer,configuration:'captured-schema-candidates-v5:'+this.producer.configuration};}
     get methodIdentity(){return this.producer&&{...mockMethodProducer,configuration:'method-wire-v1:'+this.producer.configuration};}

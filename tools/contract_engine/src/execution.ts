@@ -25,7 +25,7 @@ import {exampleRepresentation,type ExampleValueField} from './example_representa
 import {schemaExampleCandidates,schemaExamplesRevision} from './schema_examples';
 import {children} from './contexts';
 import {mediaTypeChoice,mediaTypeOptions} from './media_types';
-import {externalParameterText} from './serialized_parameter_examples';
+import {externalParameterText,parameterMediaSerialization} from './serialized_parameter_examples';
 import {MultipartEncoding,supportsMultipartTransfer,type MultipartTransfer,type MultipartHeaderCandidate} from './multipart_encoding';
 import {evaluateSchemas,schemaProducer} from './schema_evaluation';
 import {encodeRuntimeMedia,runtimeMediaDescription,runtimeFormMedia,runtimeMediaBytes,decodeRuntimeMedia,runtimeMediaKind} from './runtime_media';
@@ -62,14 +62,9 @@ export async function requestContentParameters(input:any){
   if(header&&parameter.name.toLowerCase()==='link'&&runtimeMediaKind(media.mediaType)==='linkset-json')throw new SourceError('runtime.linkset.header','HTTP Link content must declare application/linkset');
   const bytes=literal?(runtimeMediaKind(media.mediaType)==='xml'?rawXmlBytes(text,mediaTypes(media.mediaType,false)[0].parameters.get('charset')):runtimeMediaBytes(text,false)):(await prepareModeledMedia(input,text,media.mediaType,media.schema,header,'request')).bytes;
   bodies[key]=bytes.toString('base64');
-  if(header||parameter.in==='cookie'){
-   const wire=bytes.toString('latin1');
-   if(/[\x00-\x08\x0a-\x1f\x7f]/.test(wire))throw new SourceError('request.parameter.header','Generated Header contains prohibited HTTP field content');
-   values[key]=wire;percentEncoded[key]=false;
-  }else{
-   values[key]=Array.from(bytes,byte=>/[A-Za-z0-9._~-]/.test(String.fromCharCode(byte))?String.fromCharCode(byte):'%'+byte.toString(16).toUpperCase().padStart(2,'0')).join('');
-   percentEncoded[key]=true;
-  }
+  const serialized=parameterMediaSerialization(parameter.in,parameter.name,media.mediaType,bytes);
+  values[key]=parameter.in==='query'?serialized.slice(serialized.indexOf('=')+1):parameter.in==='cookie'?serialized.slice(parameter.name.length+1):serialized;
+  percentEncoded[key]=!header&&parameter.in!=='cookie';
  }
  return {version:1,snapshot:input.snapshot,identity:plan.identity,values,percentEncoded,inputs,bodies};
 }
@@ -726,6 +721,16 @@ export function requestOperation(input:any,captured?:ReturnType<typeof createGra
     const parameterFamily=graph.scope(selected.resource,selected.pointer).family;
     if(!isNativeFamily(parameterFamily))throw new SourceError('request.family.unsupported','The captured parameter owner has no supported specification family');
     const content=parameterFamily!=='2.0'&&v.content&&typeof v.content==='object'?media(selected.resource,selected.pointer+'/content',v.content):[];
+    for(const declaration of content)for(const example of declaration.examples){
+      if(!example.external||typeof example.wireBase64!=='string')continue;
+      try{
+        example.parameterSerialization=parameterMediaSerialization(entry.location,entry.name,declaration.mediaType,Buffer.from(example.wireBase64,'base64'));
+        delete example.conversionError;
+      }catch(error){
+        if(!(error instanceof SourceError))throw error;
+        example.conversionError=error.message;
+      }
+    }
     const selection=examplesWithSchema(selected.resource,selected.pointer,v);
     return {name:entry.name,in:entry.location,family:parameterFamily,type:typeof v.schema?.type==='string'?v.schema.type:undefined,description:v.description,required:v.required===true||entry.location==='path',deprecated:v.deprecated===true,
       ...parameterStyle(parameterFamily,entry.location,v),
@@ -826,7 +831,7 @@ export function requestOperation(input:any,captured?:ReturnType<typeof createGra
     responses.push({status,source:location(input.resource,at),definition:selected.source,description:v?.description,headers,bodyAllowed:responseAllowsContent(family,v),content:family==='2.0'?swaggerResponseContent(graph,selected.resource,selected.pointer,swaggerMedia(graph,input.resource,input.pointer,'produces'),location).map(item=>({...item,...runtimeMediaDescription(item.mediaType)})):media(selected.resource,selected.pointer+'/content',v?.content)});
   }
   const identity=createHash('sha256').update(JSON.stringify([multipartProjectionRevision,schemaExamplesRevision,input.snapshot,input.resource,input.pointer,context.occurrence])).digest('hex');
-  return {version:1,snapshot:input.snapshot,root:input.root,identity,family,representationRevisions:{multipart:multipartProjectionRevision,schemaExamples:schemaExamplesRevision,xml:'2',linkset:'2',stream:'2'},operation:{method,customMethod:context.customMethod===true,path:context.path,
+  return {version:1,snapshot:input.snapshot,root:input.root,identity,family,representationRevisions:{multipart:multipartProjectionRevision,schemaExamples:schemaExamplesRevision,xml:'2',linkset:'2',stream:'2',parameterExamples:'1'},operation:{method,customMethod:context.customMethod===true,path:context.path,
     operationId:typeof node.value.operationId==='string'?node.value.operationId:undefined,summary:typeof node.value.summary==='string'?node.value.summary:undefined,
     source:location(input.resource,input.pointer),occurrence:context.occurrence,pathItem:location(context.pathItem.resource,context.pathItem.pointer)},
     servers,parameters:parameters.visible.filter(entry=>family!=='2.0'||!['body','formData'].includes(entry.location!)).map(parameter),security:{requirements,schemes:Object.fromEntries(schemes),anonymous:requirements.some(requirement=>requirement.schemes.length===0)||!securityField},requestBody,ignoredRequestBody,responses,responseStatusNamePolicy:responseStatusNamePolicy(family),

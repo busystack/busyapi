@@ -344,6 +344,18 @@ final class CapturedRequestBodyExample {
   int get byteLength => _bytes.length;
 }
 
+/// An approved external example framed for one effective Parameter occurrence.
+/// The selected media comes from that occurrence, including reusable declarations.
+final class CapturedRequestParameterExample {
+  CapturedRequestParameterExample._(this._owner, this.location, this.parameterName,
+      this.name, this.mediaType, this.resource, this.contentIdentity,
+      this.serialization, this.byteLength);
+  final OperationRequestPlan _owner;
+  final String location, parameterName, resource, contentIdentity, serialization;
+  final String? name, mediaType;
+  final int byteLength;
+}
+
 class OperationRequestPlan {
   OperationRequestPlan._(
     this._owner,
@@ -400,6 +412,85 @@ class OperationRequestPlan {
 
   /// Choose only a concrete example occurrence already projected by the
   /// semantic engine. A reusable declaration alone supplies no media context.
+  Uint8List _capturedExampleBytes(Map example) {
+    final external = example['external'];
+    if (external is! Map) throw CoreFailure('request.example.external',
+        'Choose an available captured external example.');
+    final captured = snapshot.exampleResources
+        .where((resource) => resource.id == external['resource']).toList();
+    if (captured.length != 1 || !captured.single.available ||
+        captured.single.identity != external['identity'] ||
+        captured.single.bytes!.length != external['byteLength'] ||
+        example['wireBase64'] != base64Encode(captured.single.bytes!)) {
+      throw CoreFailure('runtime.request.example.protocol',
+          'The selected example does not match its approved captured bytes.');
+    }
+    return captured.single.bytes!;
+  }
+
+  CapturedRequestParameterExample captureParameterExample(
+    String location, String parameterName, {String? name, String? mediaType}
+  ) {
+    ensureCurrentPreparation();
+    final declarations = (result['parameters'] as List).whereType<Map>()
+        .where((value) => value['in'] == location && value['name'] == parameterName).toList();
+    if (declarations.length != 1) throw CoreFailure('request.example.occurrence',
+        'Choose one effective captured Parameter occurrence.');
+    Map owner = declarations.single;
+    if (mediaType != null) {
+      final media = (owner['content'] as List? ?? const []).whereType<Map>()
+          .where((value) => value['mediaType'] == mediaType).toList();
+      if (media.length != 1) throw CoreFailure('request.example.occurrence',
+          'Choose the captured Parameter content media occurrence.');
+      owner = media.single;
+    }
+    final examples = (owner['examples'] as List? ?? const []).whereType<Map>()
+        .where((value) => value['name'] == name && value['external'] is Map).toList();
+    if (examples.length != 1) throw CoreFailure('request.example.external',
+        'This occurrence has no unique available external example.');
+    final example = examples.single;
+    final bytes = _capturedExampleBytes(example);
+    final text = example[mediaType == null ? 'raw' : 'parameterSerialization'];
+    if (example['conversionError'] is String || text is! String) {
+      throw CoreFailure('request.example.conversion',
+          example['conversionError'] as String? ?? 'This example has no representable captured Parameter serialization.',
+          kind: CoreFailureKind.unsupported);
+    }
+    final external = example['external'] as Map;
+    return CapturedRequestParameterExample._(this, location, parameterName,
+        name, mediaType, external['resource'] as String, external['identity'] as String,
+        text, bytes.length);
+  }
+
+  void ensureParameterExample(CapturedRequestParameterExample example, String location, String name) {
+    ensureCurrentPreparation();
+    if (!identical(example._owner, this) || example.location != location || example.parameterName != name) {
+      throw CoreFailure('request.example.stale', 'Select the example again from its current Parameter occurrence.');
+    }
+  }
+
+  Future<void> ensureParameterExampleInputs(Iterable<CapturedRequestParameterExample> examples,
+      {RunCancellation? cancellation}) async {
+    if (examples.isEmpty) return;
+    for (final example in examples) ensureParameterExample(example, example.location, example.parameterName);
+    cancellation?.throwIfCancelled();
+    final current = await _owner._externalExampleInputsCurrent(snapshot, saved: saved,
+        cancelled: () { ensureCurrentPreparation();cancellation?.throwIfCancelled();return false; });
+    ensureCurrentPreparation();cancellation?.throwIfCancelled();
+    if (!current) throw CoreFailure('runtime.request.example.stale',
+        'A captured external example changed; select it from a new request plan.');
+  }
+
+  CapturedRequestParameterExample? restoreParameterExample(CapturedRequestParameterExample previous) {
+    ensureCurrentPreparation();
+    if (!identical(_owner, previous._owner._owner) || identity != previous._owner.identity ||
+        snapshot.identity != previous._owner.snapshot.identity) return null;
+    final selected = captureParameterExample(previous.location, previous.parameterName,
+        name: previous.name, mediaType: previous.mediaType);
+    return selected.resource == previous.resource && selected.contentIdentity == previous.contentIdentity &&
+        selected.serialization == previous.serialization ? selected : null;
+  }
+
   CapturedRequestBodyExample captureBodyExample(
     String mediaType, {
     String? name,
@@ -429,17 +520,9 @@ class OperationRequestPlan {
       );
     }
     final example = examples.single, external = example['external'] as Map;
-    final captured = snapshot.exampleResources
-        .where((resource) => resource.id == external['resource']).toList();
-    if (captured.length != 1 || !captured.single.available ||
-        captured.single.identity != external['identity'] ||
-        captured.single.bytes!.length != external['byteLength'] ||
-        example['wireBase64'] != base64Encode(captured.single.bytes!)) {
-      throw CoreFailure('runtime.request.example.protocol',
-          'The selected example does not match its approved captured bytes.');
-    }
-    return CapturedRequestBodyExample._(this, mediaType, name, captured.single.id,
-        captured.single.identity, captured.single.bytes!);
+    final bytes = _capturedExampleBytes(example);
+    return CapturedRequestBodyExample._(this, mediaType, name, external['resource'] as String,
+        external['identity'] as String, bytes);
   }
 
   void ensureBodyExample(CapturedRequestBodyExample example) {
@@ -1069,6 +1152,8 @@ class OperationRequestPlan {
   Future<RefactoringPlan> planCase(String name, OperationRequestDraft draft) async {
     ensureCurrentPreparation();
     if (draft.planIdentity != identity) throw CoreFailure('request.stale', 'The saved draft differs from its current capture.');
+    await ensureParameterExampleInputs(draft.parameters.values
+        .where((value) => value.present && value.capturedExample != null).map((value) => value.capturedExample!));
     final body = draft.body;
     String relativePath(String path) {
       final relative = p.relative(path, from: _owner.access.boundary);
@@ -1077,11 +1162,19 @@ class OperationRequestPlan {
       }
       return relative;
     }
-    final parameters = <String, Map<String, Object?>>{}, modes = <String, Map<String, Object?>>{};
+    final parameters = <String, Map<String, Object?>>{}, modes = <String, Map<String, Object?>>{},
+        parameterExamples = <String, Map<String, Object?>>{};
     for (final entry in draft.parameters.entries) {
       if (!entry.value.present) continue;
       final split = entry.key.indexOf('\u0000');
       if (split < 0) throw CoreFailure('test.configuration', 'Invalid parameter identity.');
+      if (entry.value.capturedExample case final example?) {
+        ensureParameterExample(example, entry.key.substring(0, split), entry.key.substring(split + 1));
+        (parameterExamples[example.location] ??= {})[example.parameterName] = {
+          'name': example.name ?? '', if (example.mediaType != null) 'mediaType': example.mediaType,
+        };
+        continue;
+      }
       (parameters[entry.key.substring(0, split)] ??= {})[entry.key.substring(split + 1)] = entry.value.json ? {'dataJson': entry.value.text} : entry.value.text;
       (modes[entry.key.substring(0, split)] ??= {})[entry.key.substring(split + 1)] = entry.value.json ? 'data' : entry.value.representation.name;
     }
@@ -1091,6 +1184,7 @@ class OperationRequestPlan {
       if (draft.selectedServer != null) 'server': draft.selectedServer,
       if (draft.securityAlternative != null) 'securityAlternative': draft.securityAlternative,
       if (parameters.isNotEmpty) 'parameters': parameters,
+      if (parameterExamples.isNotEmpty) 'parameterExamples': parameterExamples,
       if (draft.headers.any((header) => header.enabled)) 'headers': [for (final header in draft.headers) if (header.enabled) {'name': header.name, 'value': header.value}],
       if (draft.variables.isNotEmpty) 'variables': draft.variables,
       if (draft.tlsFiles.isNotEmpty) 'tlsFiles': {for (final entry in draft.tlsFiles.entries) entry.key: entry.value.isEmpty ? '' : relativePath(entry.value)},
@@ -1602,6 +1696,7 @@ extension RequestPlanning on BusyProject {
         (result['representationRevisions'] as Map)['xml'] != '2' ||
         (result['representationRevisions'] as Map)['linkset'] != '2' ||
         (result['representationRevisions'] as Map)['stream'] != '2' ||
+        (result['representationRevisions'] as Map)['parameterExamples'] != '1' ||
         result['operation'] is! Map ||
         result['servers'] is! List ||
         result['parameters'] is! List ||

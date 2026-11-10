@@ -98,23 +98,32 @@ enum RequestValueRepresentation {
 class RequestValue {
   const RequestValue.absent()
     : present = false,
+      capturedExample = null,
       text = '',
       json = false,
       representation = RequestValueRepresentation.text;
   const RequestValue.text(this.text)
     : present = true,
+      capturedExample = null,
       json = false,
       representation = RequestValueRepresentation.text;
   const RequestValue.json(this.text)
     : present = true,
+      capturedExample = null,
       json = true,
       representation = RequestValueRepresentation.json;
   const RequestValue.serialized(this.text, {bool mediaLevel = false})
     : present = true,
+      capturedExample = null,
       json = false,
       representation = mediaLevel
           ? RequestValueRepresentation.serializedMedia
           : RequestValueRepresentation.serializedParameter;
+  RequestValue.example(CapturedRequestParameterExample example)
+    : present = true, json = false, capturedExample = example,
+      text = example.serialization,
+      representation = RequestValueRepresentation.serializedParameter;
+  final CapturedRequestParameterExample? capturedExample;
   final RequestValueRepresentation representation;
   final bool present, json;
   final String text;
@@ -559,6 +568,9 @@ class ContractRequestBuilder {
         'Reconcile this draft with the changed operation before sending it',
       );
     }
+    await plan.ensureParameterExampleInputs(draft.parameters.values
+        .where((value) => value.present && value.capturedExample != null).map((value) => value.capturedExample!),
+        cancellation: cancellation);
     final trace = TraceRequestPolicy.capture(
       plan.operation['method'] as String,
       plan.operation['source'],
@@ -641,6 +653,9 @@ class ContractRequestBuilder {
         }
         continue;
       }
+      if (supplied.capturedExample case final example?) {
+        plan.ensureParameterExample(example, location, name);
+      }
       final value = supplied.json
           ? structured[OperationRequestDraft.parameterKey(location, name)]
           : supplied.text;
@@ -709,7 +724,9 @@ class ContractRequestBuilder {
             name,
             serialized.single.$2,
             allowHorizontalTab:
-                raw['family'] == '2.0' && raw['collectionFormat'] == 'tsv' || contentParameters.containsKey(OperationRequestDraft.parameterKey(location,name)),
+                raw['family'] == '2.0' && raw['collectionFormat'] == 'tsv' ||
+                supplied.representation == RequestValueRepresentation.serializedParameter ||
+                contentParameters.containsKey(OperationRequestDraft.parameterKey(location,name)),
           );
           break;
         case 'cookie':
@@ -1032,7 +1049,8 @@ class ContractRequestBuilder {
     final location = parameter['in'];
     final url =
         location == 'path' || location == 'query' || location == 'querystring';
-    if ((url ? RegExp(r'[\x00-\x20\x7f#]') : RegExp(r'[\x00-\x1f\x7f]'))
+    if ((url ? RegExp(r'[\x00-\x20\x7f#]') : location == 'header'
+            ? RegExp(r'[\x00-\x08\x0a-\x1f\x7f]') : RegExp(r'[\x00-\x1f\x7f]'))
             .hasMatch(text) ||
         url && RegExp(r'%(?![0-9A-Fa-f]{2})').hasMatch(text)) {
       throw CoreFailure(
@@ -1048,6 +1066,7 @@ class ContractRequestBuilder {
       );
     }
     if (location == 'cookie') {
+      if (text.isEmpty) return [];
       return text.split(';').map((part) {
         final at = part.indexOf('=');
         if (at <= 0) {
@@ -1212,6 +1231,10 @@ class ContractRequestBuilder {
               '${entry.key}': scalar(entry.value),
           }
         : null;
+    // RFC 6570 omits zero-member composite variables. An empty string still
+    // emits a field and is not an omitted collection.
+    if ((location == 'query' || location == 'cookie') &&
+        (array != null && array.isEmpty || object != null && object.isEmpty)) return [];
     List<String> flattened(String delimiter, {bool equals = false}) {
       if (array != null) return array;
       if (object != null) {
@@ -1273,7 +1296,7 @@ class ContractRequestBuilder {
           return [
             (
               name,
-              ';${_encode(name, false)}=${flattened(',').map((v) => _encode(v, false)).join(',')}',
+              ';${_encode(name, false)}${value == '' ? '' : '='}${flattened(',').map((v) => _encode(v, false)).join(',')}',
             ),
           ];
         }

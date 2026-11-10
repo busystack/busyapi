@@ -21,7 +21,7 @@ for(const version of ['3.0.4','3.1.2','3.2.1'])test(`R3c ${version} cookie conte
  const input={root,snapshot:'literal-cookie',resources:[{id:root,text:JSON.stringify(value),generation:1}]};
  const result=await evaluateSchemas({...input,runtimeInstances:['literal=a%20b','literal=a%2520b','literal=a+b'].map(text=>({subject:'request-parameter',location:text,text,parameter:{resource:root,pointer}}))});
  assert.equal(result.complete,true,JSON.stringify(result.runtimeFindings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,false,false]);
- assert.equal(schemaProducer.version,'1.18.0+67');assert(schemaProducer.configuration.includes('literal-cookie-content-v1'));
+ assert.equal(schemaProducer.version,'1.18.0+68');assert(schemaProducer.configuration.includes('literal-cookie-content-v1'));
 });
 for(const version of ['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const format of ['yaml','json'])test(`${version} ${format} runtime parameter serializations use captured schemas and actual header octets`,async()=>{
  const root='file:///approved/api.'+format,q='/paths/~1p/get/parameters/0',header='/paths/~1p/get/parameters/1';
@@ -47,7 +47,35 @@ for(const version of ['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3
  assert.equal(input.resources[0].text,text);
 });
 test('serialized runtime semantics have a distinct producer and configuration identity',()=>{
- assert.equal(schemaProducer.version,'1.18.0+67');assert(schemaProducer.configuration.includes('parameter-runtime-serialization-v1'));
+ assert.equal(schemaProducer.version,'1.18.0+68');assert(schemaProducer.configuration.includes('parameter-runtime-serialization-v1'));
+ assert(schemaProducer.configuration.includes('parameter-media-octets-v1'));
+});
+
+for(const version of ['3.0.4','3.1.2','3.2.0','3.2.1'])for(const format of ['yaml','json'])
+test(`${version} ${format} content Parameters preserve binary and declared charset octets`,async()=>{
+ const root='file:///approved/octet-parameters.'+format,media='application/octet-stream';
+ const schema=version.startsWith('3.0')?{type:'string',format:'binary'}:{not:{type:'null'},maxLength:4};
+ const parameters=[{name:'q',in:'query',content:{[media]:{schema}}},
+  {name:'p',in:'path',required:true,content:{[media]:{schema}}},
+  {name:'X-Raw',in:'header',content:{[media]:{schema}}},
+  {name:'cafe',in:'query',content:{'text/plain; charset=iso-8859-1':{schema:{type:'string',enum:['café']}}}}];
+ if(version.startsWith('3.2'))parameters.push({name:'whole',in:'querystring',content:{[media]:{schema}}});
+ // Whole-query and named query declarations occur on separate operations.
+ const value={openapi:version,info:{title:'Octets',version:'1'},paths:{'/p/{p}':{get:{parameters:parameters.slice(0,4),responses:{204:{description:'Empty'}}}},
+  ...(parameters[4]?{'/whole':{get:{parameters:[parameters[4]],responses:{204:{description:'Empty'}}}}}:{})}};
+ const text=format==='yaml'?YAML.stringify(value):JSON.stringify(value),input={root,snapshot:'octets',resources:[{id:root,text,generation:0}]};
+ const runtimeInstances=['q=%00%FF%80%2B','%00%FF%80%2B','\xff\x80+','cafe=caf%E9'].map((text,index)=>({subject:'request-parameter',location:String(index),text,
+  parameter:{resource:root,pointer:'/paths/~1p~1{p}/get/parameters/'+index}}));
+ if(parameters[4])runtimeInstances.push({subject:'request-parameter',location:'whole',text:'%00%FF%80%2B',parameter:{resource:root,pointer:'/paths/~1whole/get/parameters/0'}});
+ const result=await evaluateSchemas({...input,runtimeInstances});
+ assert.equal(result.complete,true,JSON.stringify(result.runtimeFindings));assert(result.runtimeEvaluations.every(value=>value.valid),JSON.stringify(result.runtimeFindings));
+ const malformed=await evaluateSchemas({...input,runtimeInstances:[{...runtimeInstances[0],text:'q=%F'}]});
+ assert.equal(malformed.complete,true);assert.equal(malformed.runtimeEvaluations[0].valid,false);
+ if(!version.startsWith('3.0')){
+  const excess=await evaluateSchemas({...input,runtimeInstances:[{...runtimeInstances[0],text:'q=%00%FF%80%2B%01'}]});
+  assert.equal(excess.complete,true);assert.equal(excess.runtimeEvaluations[0].valid,false);
+ }
+ assert.equal(input.resources[0].text,text);
 });
 test('Swagger serialized parameter runtime retains its narrower Items and collectionFormat interpretation',async()=>{
  const root='file:///approved/api.json',pointer='/paths/~1p/get/parameters/0';

@@ -25,10 +25,12 @@ void main() {
     const bytes = [0, 255, 128, 0], media = 'application/octet-stream';
     final file = File('${directory.path}/api.yaml'),payload = File('${directory.path}/payload.bin');
     final seen = <List<int>>[];late String source;
+    final targets = <String>[];
     try {
       await tester.runAsync(() async {
         server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
         server!.listen((request) async {
+          targets.add(request.uri.toString());
           final entity = await request.fold<List<int>>([], (all, chunk) => all..addAll(chunk));seen.add(entity);
           request.response.headers.set('content-type', media);request.response.add(entity);await request.response.close();
         });
@@ -37,7 +39,10 @@ void main() {
         source = '# Keep external source 雪\r\n${jsonEncode({
           'openapi': '3.2.1', 'info': {'title': 'External request', 'version': '1'},
           'servers': [{'url': 'http://127.0.0.1:${server!.port}'}],
-          'paths': {'/echo': {'post': {'requestBody': {'required': true, 'content': {media: {
+          'paths': {'/echo': {'post': {'parameters': [
+            {'name': 'q', 'in': 'query', 'content': {media: {...representation,
+              'examples': {'QueryBytes': {'externalValue': 'payload.bin'}}}}},
+          ], 'requestBody': {'required': true, 'content': {media: {
             ...representation, 'examples': {'Bytes': {'externalValue': 'payload.bin'}},
           }}}, 'responses': {'200': {'description': 'Echo', 'content': {media: representation}}}}}},
         })}\r\n';await file.writeAsString(source);
@@ -48,6 +53,10 @@ void main() {
       await tester.pumpWidget(MaterialApp(theme: buildBusyApiTheme(brightness: Brightness.light, accentColor: Colors.blue),
         localizationsDelegates: AppLocalizations.localizationsDelegates, supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(body: RequestRunPanel(run: run))));
+      final parameterChoice = find.byWidgetPredicate((widget) => widget is BusyApiActionRow && widget.title == 'Examples · QueryBytes · serialized');
+      await tester.ensureVisible(parameterChoice);await tester.tap(parameterChoice);await tester.pumpAndSettle();
+      expect(run.failure, isNull, reason: run.failureMessage);
+      expect(run.draft().parameters[OperationRequestDraft.parameterKey('query', 'q')]!.capturedExample?.byteLength, bytes.length);
       final choice = find.byWidgetPredicate((widget) => widget is BusyApiActionRow && widget.title == 'Examples · application/octet-stream · Bytes');
       await tester.ensureVisible(choice);await tester.tap(choice);await tester.pumpAndSettle();
       expect(run.failure, isNull, reason: run.failureMessage);expect(run.bodyExample?.byteLength, bytes.length);
@@ -55,6 +64,7 @@ void main() {
       expect(find.byWidgetPredicate((widget) => widget is BusyApiActionRow && widget.subtitle?.contains(payload.uri.toString()) == true), findsOneWidget);
       await tester.runAsync(() => HttpOverrides.runWithHttpOverrides(run.send, _NativeHttp()));await tester.pumpAndSettle();
       expect(run.failure, isNull, reason: run.failureMessage);expect(seen, [bytes]);expect(await tester.runAsync(() => run.result!.response.bytes()), bytes);
+      expect(targets, ['/echo?q=%00%FF%80%00']);
       await tester.runAsync(() async { await payload.writeAsBytes([1, 2]);await HttpOverrides.runWithHttpOverrides(run.send, _NativeHttp()); });
       await tester.pumpAndSettle();expect(run.failure, isNotNull);expect(seen, hasLength(1));
       final text = find.byWidgetPredicate((widget) => widget is BusyApiActionRow && widget.title == 'Use text instead of the selected file');
