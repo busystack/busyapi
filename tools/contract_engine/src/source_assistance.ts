@@ -297,16 +297,16 @@ export function semanticSearch(input: any) {
     const add = (location: any, label: string, search: string[], kind: string, occurrence?: string, extra: any = {}) => {
         if (![label, location.pointer, location.resource, ...search].some(v => v.toLocaleLowerCase('en-US').includes(query))) return;
         if (matches.length >= 20000) throw new SourceError('limit.search.matches', 'Refine the semantic query');
-        matches.push({...location, ...extra, label: bounded(label), kind, ...(occurrence ? {occurrence} : {}), semanticId: JSON.stringify([input.root, location.resource, location.pointer, occurrence ?? location.pointer, kind])});
+        matches.push({...location, ...extra, label: bounded(label), kind, ...(occurrence ? {occurrence} : {}), semanticId: JSON.stringify([input.root, location.resource, location.pointer, occurrence ?? location.pointer, kind,extra.objectKind??extra.sourceKind??null])});
     };
     if (category === 'all' || category === 'operations') for (const op of projection.operations) {
         const label = [op.customMethod ? op.method : op.method.toUpperCase(), op.path, op.value?.operationId, op.value?.summary].filter(Boolean).join(' · ');
         add(located(input, docs.get(op.resource)!, op.pointer), label, (Array.isArray(op.value?.tags) ? op.value.tags : []).filter((t: any) => typeof t === 'string'), 'operation', op.occurrence, {role: op.role});
     }
-    const targets = new Set(graph.references.filter(r => r.resolution === 'resolved').map(r => r.targetResource + '#' + r.targetPointer));
-    for (const scope of graph.scopes.values()) {
+    const targets = new Set(graph.references.filter(r => r.resolution === 'resolved').map(r => JSON.stringify([r.targetResource,r.targetPointer,r.kind])));
+    for (const scope of graph.interpretedScopes()) {
         const component = /^(?:\/components\/([^/]+)|\/(definitions|parameters|responses|securityDefinitions))\/([^/]+)$/.exec(scope.pointer);
-        const definition = targets.has(scope.resource + '#' + scope.pointer);
+        const definition = targets.has(JSON.stringify([scope.resource,scope.pointer,scope.kind]));
         if ((!component || !['all','components'].includes(category)) && (!definition || !['all','definitions'].includes(category)))
             continue;
         const label = segments(scope.pointer).at(-1) ?? scope.base;
@@ -314,7 +314,7 @@ export function semanticSearch(input: any) {
     }
     if (category === 'usages') for (const ref of graph.references) {
         const targetLabel = ref.targetPointer ? segments(ref.targetPointer).at(-1) ?? '' : '';
-        add(located(input, docs.get(ref.resource)!, ref.pointer + '/' + escape(ref.keyword), {range: refLocation(docs.get(ref.resource)!, ref)}), `${ref.connection ?? ref.keyword} · ${targetLabel || ref.pointer}`, [targetLabel], 'usage', undefined, {resolution: ref.resolution, dynamic: ref.dynamic, ...(ref.resolution === 'resolved' ? {target: located(input,docs.get(ref.targetResource!)!,ref.targetPointer!)} : {})});
+        add(located(input, docs.get(ref.resource)!, ref.pointer + '/' + escape(ref.keyword), {range: refLocation(docs.get(ref.resource)!, ref)}), `${ref.connection ?? ref.keyword} · ${targetLabel || ref.pointer}`, [targetLabel], 'usage', undefined, {sourceKind:graph.referenceOwner(ref)?.kind,resolution: ref.resolution, dynamic: ref.dynamic, ...(ref.resolution === 'resolved' ? {target: located(input,docs.get(ref.targetResource!)!,ref.targetPointer!,{kind:ref.kind})} : {})});
     }
-    return { version: 1, snapshot: input.snapshot, root: input.root, complete: ![...docs.values()].some(d=>d.issues.length) && !graph.issues.length && graph.references.every(r=>r.resolution === 'resolved'), matches };
+    return { version: 1, producer:'busyapi-semantic-search',producerVersion:'2',snapshot: input.snapshot, root: input.root, complete: ![...docs.values()].some(d=>d.issues.length) && !graph.issues.length && graph.references.every(r=>r.resolution === 'resolved'), matches };
 }

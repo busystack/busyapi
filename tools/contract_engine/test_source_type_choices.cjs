@@ -2,7 +2,7 @@ const assert=require('node:assert/strict');
 const {test}=require('node:test');
 const path=require('node:path');
 const engine=process.env.BUSYAPI_SOURCE_TYPE_BASELINE||__dirname;
-const {assistSource}=require(path.join(engine,'dist/source_assistance.cjs'));
+const {assistSource,semanticSearch}=require(path.join(engine,'dist/source_assistance.cjs'));
 const {analyse}=require(path.join(engine,'dist/model.cjs'));
 const {SourceDocument}=require(path.join(engine,'dist/document.cjs'));
 const YAML=require(path.join(engine,'node_modules/yaml'));
@@ -17,6 +17,11 @@ for(const version of ['3.1.2','3.2.0','3.2.1'])for(const format of ['json','yaml
  const doc=new SourceDocument(text,root),input={root,resource:root,snapshot:'source-roles',resources:[{id:root,text,generation:3}]};
  const helpCaret=doc.dataNode(pointer+'/description').range[0]+2;
  const initial=assistSource({...input,caret:helpCaret,action:'help'});
+ const found=semanticSearch({...input,query:'Shared',category:'definitions'});
+ assert.equal(found.producer,'busyapi-semantic-search');assert.equal(found.producerVersion,'2');
+ const definitions=found.matches.filter(match=>match.pointer===pointer);
+ assert.deepEqual(new Set(definitions.map(match=>match.objectKind)),new Set(['schema','header']));
+ assert.equal(new Set(definitions.map(match=>match.semanticId)).size,2);
  assert.equal(initial.producer,'busyapi-source-assistance');assert.equal(initial.producerVersion,'2');
  assert.deepEqual(new Set(initial.interpretations.map(role=>role.kind)),new Set(['schema','header']));
  for(const contextKind of ['schema','header']){

@@ -295,6 +295,30 @@ presence witnesses. Core's existing wire execution suite adds actual HTTP,
 response Header proof, saved cases/cold replay and independent CLI across those
 families. Swagger's separate flat/Items/collectionFormat owner is retained.
 
+W1 reference navigation now retains the captured target kind in native Design,
+including explicit navigation between two roles at the same physical pointer.
+The existing object page's saved layout retains its selected interpretation;
+only current project/root/resource/pointer ownership admits an intentional
+navigation kind. Reference navigation also consumes semantic search's actual
+object kind. The existing semantic index now enumerates interpreted scopes,
+indexes incoming definitions by target role and distinguishes source roles in
+usage identities. Native search shows the role beside its source coordinates.
+Core strictly admits `busyapi-semantic-search` **2**. Prepared, **not run**:
+registered Source/search suites check distinct role identities and obsolete
+producer rejection; native `schema_roles_test.dart` follows captured Header →
+Schema → Header targets at one source location without changing source bytes.
+
+W6 review still finds a concrete unimplemented shared-role maintenance mapping:
+`refactoring_copy.ts` captures one primary kind and blanket-refuses independently
+typed incoming targets under a copied range. Its current relocation map moves
+every interpretation at that physical range. Safely extracting only one role
+would require preserving the other role at source and repairing only the chosen
+role's consumers through the existing ownership/transaction owners. The static
+recursive inline completion above does not implement that transformation.
+Identified-resource inlining, changed recursive shared targets and reachable
+dynamic scopes retain their separate unavailable equivalence proofs. These are
+implementation/proof boundaries, not demonstrated target-spec restrictions.
+
 No boundary is reclassified as a target-specification restriction. Only source
 inspection, official specification/RFC reads, Git inspection and
 `git diff --check` have been performed. The execution hold and Snapcraft skip

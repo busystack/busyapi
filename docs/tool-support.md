@@ -995,6 +995,11 @@ exploded keys for empty simple/label/matrix values. Incoming Parameter/Header
 values use the same original-schema proof; obsolete **+68**/**7** proofs are
 rejected.
 
+Semantic search uses `busyapi-semantic-search` **2** and retains independently
+captured roles of shared source objects. Design follows the selected definition
+role, including repeated navigation to the same physical pointer, and retains
+the object page's interpretation in its saved layout.
+
 `swagger_content.mjs` uses supported component hooks and exact Reference values
 for schema constraints, inherited parameters and additional operations. Its
 browser-module build uses upstream React/React DOM **18.3.1**. Exact imported and

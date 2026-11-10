@@ -253,7 +253,8 @@ class BusyApiSearchSidebarState extends State<BusyApiSearchSidebar> {
             identity: match['semanticId'] as String,
             title: _searchResultTitle(match['label'] as String),
             subtitle:
-                '${path(match['resource'] as String)} · ${match['pointer']}',
+                '${path(match['resource'] as String)} · ${match['pointer']}'
+                '${(match['objectKind'] ?? match['sourceKind']) == null ? '' : ' · ${match['objectKind'] ?? match['sourceKind']}'}',
             details:
                 '${match['root']}\n${match['resource']}\n${match['pointer']}',
             activate: () async {

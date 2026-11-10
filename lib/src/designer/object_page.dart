@@ -36,6 +36,8 @@ class _NativeObjectPageState extends State<_NativeObjectPage> {
     final savedPages = c.layoutState['objectPages'];
     final savedPage = savedPages is Map ? savedPages[viewKey] : null;
     final saved = savedPage is Map ? savedPage : const {};
+    contextKind = c.selectedObjectKind ??
+        (saved['contextKind'] is String ? saved['contextKind'] as String : null);
     offset = saved['offset'] is int
         ? (saved['offset'] as int).clamp(0, 400000)
         : 0;
@@ -66,6 +68,7 @@ class _NativeObjectPageState extends State<_NativeObjectPage> {
     pages[viewKey] = {
       'offset': offset,
       'typeUnion': typeUnionExpanded,
+      if (contextKind != null) 'contextKind': contextKind,
       'scroll': lastScroll,
     };
     while (pages.length > 64) {
@@ -546,6 +549,7 @@ class _NativeObjectPageState extends State<_NativeObjectPage> {
                 ),
                 if ((item['interpretations'] as List? ?? const []).length > 1)
                   BusyApiComboRow<String>(
+                    key: const ValueKey('object-interpretation'),
                     title: l.type,
                     values: [
                       for (final role in item['interpretations'] as List)

@@ -2011,6 +2011,8 @@ class BusyProject {
       if (found['snapshot'] != snapshot.identity ||
           found['root'] != entry.id ||
           found['version'] != 1 ||
+          found['producer'] != 'busyapi-semantic-search' ||
+          found['producerVersion'] != '2' ||
           found['complete'] is! bool ||
           found['matches'] is! List)
         throw CoreFailure(

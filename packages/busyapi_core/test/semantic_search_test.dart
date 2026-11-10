@@ -9,6 +9,7 @@ import 'test_support.dart';
 class HeldSemanticEngine extends EngineProcess {
   HeldSemanticEngine() : super(executable: runtimeNode, helper: runtimeHelper);
   Completer<void>? entered, release;
+  bool priorProducer = false;
   @override
   Future<Map<String, dynamic>> request(
     String method,
@@ -21,7 +22,9 @@ class HeldSemanticEngine extends EngineProcess {
       entered!.complete();
       await gate.future;
     }
-    return super.request(method, params, requestId: requestId);
+    final result = await super.request(method, params, requestId: requestId);
+    return method == 'semanticSearch' && priorProducer
+        ? {...result, 'producerVersion': '1'} : result;
   }
 }
 
@@ -113,6 +116,11 @@ void main() {
     );
     project.store.replace(part.id, '${part.text}\n');
     expect(operations.current, false);
+  });
+  test('obsolete search producers cannot publish a partial native index', () async {
+    engine.priorProducer = true;
+    await expectLater(project.semanticSearch().run('Model'),
+        throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'search.protocol')));
   });
   test('clean external reload notifies its mounted owner and returns current content', () async {
     await File(part.path)

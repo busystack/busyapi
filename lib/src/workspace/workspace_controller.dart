@@ -81,6 +81,13 @@ class WorkspaceController extends ChangeNotifier {
 
   String selectedPointer = '/info';
   String? selectedResource, selectedOccurrence;
+  ({BusyProject owner, String root, String resource, String pointer, String kind})? _designNavigation;
+  String? get selectedObjectKind {
+    final target = _designNavigation;
+    return target != null && identical(target.owner, project) &&
+        target.root == root && target.resource == (selectedResource ?? root) &&
+        target.pointer == selectedPointer ? target.kind : null;
+  }
   final Map<String, Map<String, dynamic>> _savedViews = {};
   bool isSelected(Map<String, dynamic> item) =>
       selectedPointer == item['pointer'] &&
@@ -752,9 +759,15 @@ class WorkspaceController extends ChangeNotifier {
       final range = item['range'] as List;
       buffer!.selection = SourceSelection(range[0], range[0]);
     }
+    final kind = item['objectKind'] ?? item['kind'];
     if (mode == 'Reference') {
-      _referenceNavigation = {...item, 'root': selectedRoot, 'data': false};
+      _referenceNavigation = {...item, 'root': selectedRoot, 'data': false,
+        if (kind is String) 'kind': kind};
     }
+    _designNavigation = kind is String &&
+        !const ['data','reference','component','definition','usage'].contains(kind)
+        ? (owner: captured, root: selectedRoot, resource: resource, pointer: pointer, kind: kind)
+        : null;
     notifyListeners();
   }
 

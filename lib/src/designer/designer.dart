@@ -178,7 +178,8 @@ class _DesignerState extends State<Designer> {
             c.specification?.family == SpecificationFamily.swagger20) &&
         c.selectedPointer != '/info') {
       return _NativeObjectPage(
-        key: ValueKey((c.root, c.selectedResource, c.selectedPointer)),
+        key: ValueKey((c.root, c.selectedResource, c.selectedPointer,
+          c.selectedObjectKind, c.resourceNavigationGeneration)),
         designer: this,
         root: c.root!,
         resource: c.selectedResource ?? c.root!,
