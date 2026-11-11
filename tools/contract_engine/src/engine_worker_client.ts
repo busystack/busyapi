@@ -29,7 +29,7 @@ export class EngineWorkerClient {
         payload=>this.reply(payload),
         (id,code,message)=>this.finish(id,undefined,this.pending.get(id)?.stopped??new SourceError(code,message)),maximumFrame);
 
-    request(method:'deriveBundle'|'evaluateSchemas',params:Record<string,unknown>,signal?:AbortSignal):Promise<Record<string,unknown>> {
+    request(method:'deriveBundle'|'evaluateSchemas'|'responseStreamChunk'|'mockFormBytes'|'mockMultipartBytes',params:Record<string,unknown>,signal?:AbortSignal):Promise<Record<string,unknown>> {
         if(this.closed)return Promise.reject(new SourceError('worker.closed','The native validation owner is closed'));
         if(signal?.aborted)return Promise.reject(new SourceError('cancelled','The native validation request was cancelled'));
         if(Buffer.byteLength(JSON.stringify(params))>maximumFrame)return Promise.reject(new SourceError('limit.request','The native validation input exceeds 64 MiB'));

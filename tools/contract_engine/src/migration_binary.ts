@@ -379,7 +379,7 @@ export async function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<stri
         const encoded=value.contentEncoding==='base64';
         if(Object.hasOwn(value,'contentEncoding')&&!encoded)continue;
         if(!encoded&&!Object.hasOwn(value,'contentMediaType'))continue;
-        const contexts=uses.inspect(scope);
+        const binaryContexts=uses.inspect(scope);
         if(encoded){
             if(value.format==='binary'){
                 fail('format','The legacy binary format would activate an octet transfer alongside base64; no single faithful encoding binds both annotations','target-representation');continue;
@@ -392,7 +392,7 @@ export async function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<stri
                 const branch=at+'/'+source.doc.dataNode(at)!.children.size;
                 source.set(branch,{});source.move(pointer+'/format',branch+'/format');
             }
-            if(contexts.some(use=>binaryUseRepresentation(use)==='unknown'||use.kind==='body'&&rawBinaryUse(use))){
+            if(binaryContexts.some(use=>binaryUseRepresentation(use)==='unknown'||use.kind==='body'&&rawBinaryUse(use))){
                 fail('contentEncoding','A whole encoded binary body needs its captured string/media representation before lowering');continue;
             }
             source.remove(pointer+'/contentEncoding');source.set(pointer+'/format','byte');
@@ -401,7 +401,7 @@ export async function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<stri
             // OAS requires ignoring a redundant/contradicting contentMediaType
             // at a concrete Media Type/Encoding occurrence. A nested JSON value
             // has no such binding; dropping its annotation is not equivalent.
-            if(!contexts.length||contexts.some(use=>use.kind==='data'||use.mediaType===undefined)){
+            if(!binaryContexts.length||binaryContexts.some(use=>use.kind==='data'||use.mediaType===undefined)){
                 fail('contentMediaType','The decoded content media type has no proved concrete media binding at every occurrence');continue;
             }
             source.remove(pointer+'/contentMediaType');

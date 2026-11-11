@@ -1,5 +1,6 @@
 import {SourceDocument,SourceError,escape,segments} from './document';
 import type {GraphTarget,ReferenceGraph} from './reference_graph';
+import {isNativeFamily} from './specification';
 import {FormSemantics,formLiteralType,multipartStyleData,multipartArrayBinding,multipartExpandedObject,namedFileShapeSelection,type FormShape} from './form_semantics';
 import {MultipartFileShapes} from './multipart_file_shapes';
 import {decimal} from './exact_numbers';
@@ -27,6 +28,7 @@ export function decodeRuntimeMultipart(text:string,id:string,contentType:string,
     if(!object(media))throw new SourceError('runtime.form.owner','The captured multipart Media Type Object is unavailable',owner?.range??[0,0]);
     const forms=new FormSemantics(graph);
     const family=graph.scopeAs(target.resource,target.pointer,'media')?.family??'3.2';
+    if(!isNativeFamily(family))throw new SourceError('runtime.form.family','The captured multipart specification family is unsupported',owner.range);
     const transfers=new MultipartEncoding(graph),headers=mimeHeaders(graph,id+'/headers',transfers,decodeHeaderForm),checks:FormCheck[]=[],issues:FormIssue[]=[];
     const location=(pointer:string):GraphTarget=>({resource:target.resource,pointer,kind:'schema'});
     const hints:Hint[]=['schema','itemSchema'].filter(key=>graph.scopes.has(target.resource+'#'+target.pointer+'/'+key))

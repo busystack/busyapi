@@ -182,7 +182,9 @@ function installExactNumericKeywords() {
   const bytes=binaryInstances.get(instance);
   if(bytes!==undefined)return compare(decimal(String(binaryLengths.get(instance)??bytes.length)),bound)<=0;
   if(Instance.typeOf(instance)!=='string')return true;
-  return compare(decimal(String([...Instance.value(instance)].length)),bound)<=0;
+  const value=Instance.value(instance);
+  if(typeof value!=='string')throw new SourceError('schema.instance.type','The captured string instance has no string value');
+  return compare(decimal(String([...value].length)),bound)<=0;
  }} as any);
  addKeyword(swaggerDiscriminator(schema=>{
   const source=sourceAt(canonicalUri(schema));

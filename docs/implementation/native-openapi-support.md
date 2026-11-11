@@ -6,7 +6,124 @@ BusyAPI targets native Swagger 2.0 and OpenAPI 3.0.x, 3.1.x and 3.2.x.
 Standard YAML/JSON remain authoritative. Supported declarations are preserved;
 opening, editing, saving, validating and rendering do not migrate documents.
 
-## Current recovery state — 2026-11-10
+## Current corrective recovery state — 2026-11-11
+
+**Incomplete; no-emit TypeScript passes, behavioral verification remains held.** The complete corrective recovery
+instruction remains the objective. First-party source changes for that objective
+are authorized. The user has separately authorized the exact no-emit TypeScript
+command below and repeated execution of that same command throughout recovery;
+do not request permission for it again. Other compilation, tests, builds,
+generation and graphical workloads remain held until separately authorized.
+The requirement to establish a passing
+compile/regression baseline before invasive structural changes still applies.
+Source authorization does not waive that ordering or qualify any feature.
+
+The actual checkout is `release/v0.1.0` at
+`addb6a2c366602965f7b3024ccac6b12098bb413`. It was clean before these repairs.
+Use this current revision and its working changes; the historical instruction
+below to execute an older baseline is superseded. Do not reset to an earlier
+revision. No history, dependencies, lock files, SDK or third-party source has
+been changed, and no conversion command or specification family is removed.
+
+### Executed baseline and preserved evidence
+
+The explicitly authorized command, run from the repository root, was:
+
+```sh
+/home/albert/.nvm/versions/node/v24.15.0/bin/node tools/contract_engine/node_modules/typescript/bin/tsc --project tools/contract_engine/tsconfig.json --pretty false
+```
+
+It exited **2** on `addb6a2c366602965f7b3024ccac6b12098bb413` before the current
+repairs. This is an actual **Failing** compilation baseline. Per its authorization,
+execution stopped; the production asset builder was **not run** and generated no
+compiled artifacts. Node SHA-256 matched `runtime.lock.json`; installed TypeScript
+declares 5.7.3 and uses the existing `noEmit` configuration. All six staged native
+header hashes were unchanged after that check. Full local diagnostics and command
+record are retained at
+`build/diagnostics/addb6a2c-20261111/typescript.log` and `baseline.json`, respectively:
+
+```text
+typescript.log SHA-256 787a3cce8d42964987fb40308848d06e55cd6325ce0bc9e7adbb82c240ff53b8
+baseline.json  SHA-256 bef43b4ce8a25bae88d665f91b67ad0d4d317e9dbc75e90de6212de3e4a882d8
+```
+
+Two subsequent executions of that **exact command** are now recorded, on the
+current HEAD plus the captured working-source changes:
+
+| Run | Exit status | Actual result / captured source identity |
+| --- | --- | --- |
+| `typescript-recheck-01` | 2 | `migration_binary_proofs.ts:267` rejected a coordinate-only cache key after an overly narrow intermediate type change. The original diagnostic is retained in `typescript-recheck-01.log`, SHA-256 `aff7e5a9a5fb3c3ae7251c8b8660e783e35f9d066e65369cec906187ac0f9eaa`; full then-current working-tree patch SHA-256 `846d9d5eb7d0bcca4b4f2aad737303672e8ef0db99c53d7812f5ab6650629f30`. |
+| `typescript-recheck-02` | 0 | No compiler diagnostics. Graph-scope collections now declare their deduplication type explicitly; the coordinate-key helper retains its actual coordinate contract. Engine source patch SHA-256 `23829e5872db8c48f98ae2a97c172ee4fcb0cfea77bf5e44cb353c642bda779d`. |
+
+These records, logs and `source-recheck-01.patch` / `source-recheck-02.patch` are
+in the same diagnostic directory; command/status metadata is
+`typescript-rechecks.json`. The second run's raw diagnostic file is empty
+(SHA-256 `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`).
+The original baseline failure and intermediate failure have not been overwritten.
+This establishes **Verified no-emit TypeScript checking only** for the captured
+Engine source patch on this HEAD. No production asset builder, test helper build,
+regression suite, SDK verifier or graphical workload ran, and no compiled runtime
+artifact was generated. Python/tooling changes and application behavior remain
+unverified. Compiler success is not structural or release acceptance.
+
+### Applied first-party corrections, pending runtime verification
+
+| Production owner / demonstrated failure | Current source correction | Relevant check after authorization |
+| --- | --- | --- |
+| Engine `document.ts`: YAML Composer result incompatible with the generic `parseDocument` return type | Retain the Composer's public `Document.Parsed` type, without changing parser options, CST ownership or multi-document refusal | Same TypeScript command; document/authoring/YAML ownership and source-preservation suites |
+| `exact_numbers.ts`: iteration over an unknown instance value | Narrow the captured string value before Unicode code-point counting; retain exact decimal comparison and binary-octet length handling | Same TypeScript command; evaluation, binary-instance and compound-Unicode suites |
+| `governance.ts`: native analysis and schema evaluation receive an incomplete graph capture | Reuse the complete `createGraph` capture, including approved external example resources | Same TypeScript command; governance, literal-media governance and external-example suites |
+| `migration.ts`: duplicate retained-input/final-owner declarations and attempted mutation of a readonly projection | Name distinct capture lifetimes explicitly and copy the upgrade projection into a locally owned mutable Map before combining downgrade targets | Same TypeScript command; supported migration, direct-Swagger, owner/resource, source-retention and transaction suites |
+| `migration_binary.ts` and `migration_binary_proofs.ts`: binary-use variables shadow graph contexts; generic deduplication loses scope metadata | Keep graph contexts separate from inspected binary uses and retain full `GraphScope` types through deduplication | Same TypeScript command; binary, constraints and migration proof regressions; no new certificate family |
+| `migration_parameter_serialization.ts`: derived resources omit required identities | Hash the actual captured source text for each private proof resource, retaining aliases and source text | Same TypeScript command; parameter serialization, example and direct-conversion suites |
+| `engine_worker_client.ts`, `mock_native_validation.ts`: existing worker methods excluded by the client type; unvalidated/unnarrowed result properties | Include the already dispatched stream/form/multipart methods; narrow materialization/proof records before use and capture the admitted evaluation array before callbacks. Existing producer, snapshot, configuration, identity, byte and conformance checks remain | Same TypeScript command; worker lifecycle/cancellation, mock producer/readiness, stream/form/multipart/Header and obsolete-result controls |
+| `runtime_multipart.ts`: an unrestricted string is passed as a specification family | Admit the captured family through the existing native-family predicate before using version-aware multipart semantics | Same TypeScript command; Swagger/native multipart, file, Header, named/ordered/nested and transfer suites |
+| `schema_evaluation.ts`: XML stack coordinates are passed where captured schema scopes are required | Resolve stack coordinates with the canonical graph's `scopeAs(..., 'schema')` before looking up compiled proofs | Same TypeScript command; XML/Linkset, reference/dynamic-scope and media regressions |
+| `xml_model.ts`: forbidden unparenthesized `&&`/`??` expression | Parenthesize the optional source-coordinate lookup; retain its range and fallback | Same TypeScript command; XML located unsupported-result and media suites |
+| Build `tools/engine_tests.py`: renderer fixture identity is collected only at the renderer directory root | Include owned nested `documentation_renderers/test_fixtures` inputs. `tools/test_engine_phases.py` adds content, rename, addition and deletion controls; these tests are prepared, not run | `tools.test_engine_phases`, existing asset/toolchain controls and registered renderer checks |
+
+The production builder, production entry inventory and suite registry remain the
+existing owners. No alternate build system, TypeScript suppression, relaxed
+assertion, accepted-old-producer list or replacement protocol was introduced.
+The fixture correction changes what invalidates Engine test evidence; the
+fingerprint still excludes third-party `node_modules` and binds actual runtime
+bytes. No generated runtime was rebuilt or hand edited.
+
+### Remaining recovery gate and structural evidence
+
+The next required evidence is separately authorized production compilation and
+the existing applicable Engine/Core/CLI/source-preservation regressions. The
+no-emit TypeScript check is already authorized for repeated use. A separate
+request now defines the Engine regression workload: the existing production
+builder to `build/contract-runtime`, test-helper preparation and the complete
+registered Engine/renderer set via `engine_tests.py`, plus
+`tools.test_engine_phases` and `tools.test_build_toolchain`. It includes their
+native helper builds, worker processes, controlled loopback fixtures and generated
+runtime/test/diagnostic writes, with no dependency installation, downloads, SDK
+changes, Flutter/Dart compilation, CI or graphical work. That workload has not
+been executed or inferred to be authorized. Record subsequent commands, outputs
+and artifact identities here without overwriting baseline diagnostics.
+
+Conversion isolation, typed multipart consolidation and Core/native responsibility
+separation remain authorized recovery work, gated on the required passing
+compile/regression baseline and affected-consumer qualification. Their dependency
+and duplication evidence is currently unchanged: `server.ts` still imports
+`planMigration`; native refactoring still uses `migration_source.ts` and YAML
+ownership; `security_configuration.ts` retains the conversion-specific function
+and type dependency; Core `_body` and `_multipartTreeBody` still overlap; and Core
+`project.dart`/`request.dart` still import one another. No claim of structural
+recovery or bundle exclusion is made. Conversion algorithms are not expanded,
+and unfinished approved conversion requirements remain recorded below.
+
+Complete final-revision native four-family, execution, failure/recovery,
+documentation, Git/generation/governance, CLI and relocated/offline package
+acceptance remains outstanding. The existing local SDK declares the pinned
+Flutter/Dart versions and revision, but independent SDK archive/member provenance
+has not passed verification; the default archive cache is absent. This is not
+evidence that SDK contents were modified. No replacement SDK or other environment
+is assumed. Snapcraft remains skipped.
+
+## Historical recovery preparation — 2026-11-10 (superseded)
 
 **Prepared, blocked. Recovery and release acceptance are incomplete.** This
 section supersedes historical assignment/continuation directives below; their

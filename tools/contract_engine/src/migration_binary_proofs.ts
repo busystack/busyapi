@@ -66,7 +66,7 @@ export class BinaryConstraintProofs {
             const seen=new Set<string>();
             for(let index=0;index<pending.length;index++){
                 this.inspect();const state=pending[index],at=state.scope;
-                const context=unique([...state.ambient,...this.positive(at)],key);
+                const context=unique<GraphScope>([...state.ambient,...this.positive(at)],key);
                 const stateKey=JSON.stringify([key(at),state.path,context.map(key).sort(),state.domains,key(state.envelope),state.history.map(item=>[key(item.scope),item.path])]);
                 if(seen.has(stateKey))continue;seen.add(stateKey);
                 if(seen.size>2048)throw new SourceError('limit.migration.binary-proof','A binary occurrence exceeds 2048 assertion route states');
@@ -109,7 +109,7 @@ export class BinaryConstraintProofs {
                         }
                     }
                     const scope=this.graph.scopeAs(at.resource,at.pointer+suffix,'schema');
-                    if(scope)pending.push({scope,path:rest,ambient:unique(projected,key),domains,envelope:scope,root:state.root,history:unique([
+                    if(scope)pending.push({scope,path:rest,ambient:unique<GraphScope>(projected,key),domains,envelope:scope,root:state.root,history:unique([
                         ...state.history.map(item=>({...item,path:[...item.path,step]})),
                         ...context.map(scope=>({scope,path:[step]})),
                     ],item=>JSON.stringify([key(item.scope),item.path]))});
@@ -177,7 +177,7 @@ export class BinaryConstraintProofs {
         return upper!==undefined&&compare(lower,upper)>0;
     }
     private async scalarLanguage(state:State,useGuards=false):Promise<Language|undefined>{
-        const guards=useGuards?unique([...state.ambient,state.envelope],key).flatMap(scope=>{const guard=this.guards.get(key(scope));return guard?[guard.values]:[];}):[];
+        const guards=useGuards?unique<GraphScope>([...state.ambient,state.envelope],key).flatMap(scope=>{const guard=this.guards.get(key(scope));return guard?[guard.values]:[];}):[];
         const filtered=state.history.flatMap(item=>{
             const entry=this.cases.get(state.root)?.get(key(item.scope));
             return [...entry?.literalValues?.values()??[]].flatMap(values=>{const projected=this.extract(values,item.path);return projected===undefined?[]:[projected];});
@@ -247,7 +247,7 @@ export class BinaryConstraintProofs {
             }
             // Positive allOf/ref envelopes retain inherited object/item rules.
             // Branching envelopes reset at not/oneOf/anyOf/conditionals.
-            for(const envelope of unique(entry.states.map(state=>state.envelope),key)){
+            for(const envelope of unique<GraphScope>(entry.states.map(state=>state.envelope),key)){
                 const result=await this.evaluate(this.resources(),this.graph.root,envelope,texts);if(result===undefined){entry.complete=false;continue;}
                 for(const text of result)accepted.add(text);
             }

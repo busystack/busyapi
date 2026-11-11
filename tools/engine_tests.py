@@ -63,6 +63,11 @@ def inputs(node):
         paths += sorted(path for path in (ENGINE / folder).rglob('*') if path.is_file())
     for pattern in ['*.mjs', '*.json']:
         paths += sorted((ROOT / 'tools/documentation_renderers').glob(pattern))
+    # Registered renderer checks also consume nested fixture modules/package
+    # declarations. Root-only globs must not leave aggregate evidence reusable
+    # after those inputs change. Do not traverse third-party node_modules.
+    paths += sorted(path for path in (ROOT / 'tools/documentation_renderers/test_fixtures').rglob('*')
+                    if path.is_file())
     # Bind tests to actual production bytes, native helpers, schemas and notices.
     paths += sorted(path for path in RUNTIME.rglob('*') if path.is_file())
     identity = hashlib.sha256()

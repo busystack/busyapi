@@ -39,7 +39,8 @@ const configurationKeys=new Set(['extends','rules','aliases','formats','override
 const suppliedOnlyResolver=()=>({uriCache:new Map(),resolve:async(value:any)=>({result:value,graph:null,errors:[]})});
 
 export async function govern(input:any,observeFailure?:(error:unknown)=>void,executed?:ExecutedPolicyCode) {
-    const {docs,graph,family}=createGraph(input);
+    const capture=createGraph(input);
+    const {docs,graph,family}=capture;
     const resources=input.policy?.resources??[],entries=input.policy?.entries??['busyapi:recommended'];
     if(!Array.isArray(resources)||resources.length>64||!Array.isArray(entries)||entries.length>16)
         throw new SourceError('limit.policy.configuration','Governance configuration exceeds its bounded resource limit');
@@ -424,7 +425,7 @@ export async function govern(input:any,observeFailure?:(error:unknown)=>void,exe
                     const preset=ruleProvenance.filter(item=>item.action==='definition').at(-1)?.resource==='spectral:oas';
                     const origin=projection.origin(context.path),kind=origin.kind;
                     if(preset&&['operation-operationId-unique','path-params'].includes(name)) {
-                        nativeAnalysis??=analyse(input,{docs,graph,family});
+                        nativeAnalysis??=analyse(input,capture);
                         const findings=nativeAnalysis.findings.filter(finding=>name==='operation-operationId-unique'?finding.code==='operation.id.duplicate':finding.code.startsWith('parameter.path.'));
                         return findings.flatMap(finding=>(pathsByOrigin.get(JSON.stringify([finding.resource,finding.pointer]))??[]).map(path=>({path,message:'A canonical semantic relationship does not meet this rule.'})));
                     }
@@ -449,7 +450,7 @@ export async function govern(input:any,observeFailure?:(error:unknown)=>void,exe
                     if(preset&&['oas2-valid-media-example','oas3-valid-media-example','oas3-valid-schema-example'].includes(name)) {
                         const media=name.endsWith('-valid-media-example');
                         if(media?(name==='oas2-valid-media-example'?kind!=='response':!['media','parameter','header'].includes(kind)):kind!=='schema')return;
-                        instanceEvaluation??=evaluateSchemas({...input,policyAnnotations:true},undefined,{docs,graph,family});
+                        instanceEvaluation??=evaluateSchemas({...input,policyAnnotations:true},undefined,capture);
                         return instanceEvaluation.then(evaluated=>{
                             const schemaPointer=origin.pointer+(media?'/schema':'');
                             literalPolicyChecks??=policyLiteralExamples(graph,evaluated.serializedEvaluations);

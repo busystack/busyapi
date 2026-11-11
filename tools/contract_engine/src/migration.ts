@@ -250,8 +250,8 @@ export async function planMigration(input:MigrationInput) {
             owners.repairResourceReferences();
             const materializedConnections=materializeMigrationOperationConnections(sourceContexts,sources,owners,issue);
             if(problems.length)break;
-            const retainedInput=preparationInput();
-            owners.retireSuperseded(sourceContexts.map(context=>createGraph({...retainedInput,root:context.graph.root}).graph));
+            const retirementInput=preparationInput();
+            owners.retireSuperseded(sourceContexts.map(context=>createGraph({...retirementInput,root:context.graph.root}).graph));
             if(specialized.size||materializedConnections){
                 for(const [origin,copies]of specialized){
                     const [resource,pointer]=JSON.parse(origin) as [string,string];
@@ -433,7 +433,7 @@ export async function planMigration(input:MigrationInput) {
             for(const before of stage.sources)migrateEncodings(graph,sources,before,after,issue,contexts.map(context=>context.graph),owners);
             if(stage.sources.includes('3.2'))await prepareNamedMultipart(contexts.map(context=>context.graph),after,input.exampleResources,target.family);
             if(stage.sources.includes('3.2'))migrateNamedMultipart(contexts.map(context=>context.graph),sources,after,owners,issue);
-            const referenceTargets=stage.sources.includes('2.0')?upgradeSwagger(graph,sources,issue,contexts.map(context=>context.graph),after,owners):new Map<string,MigrationLocation>();
+            const referenceTargets=new Map<string,MigrationLocation>(stage.sources.includes('2.0')?upgradeSwagger(graph,sources,issue,contexts.map(context=>context.graph),after,owners):[]);
             if(problems.length)break;
             const discriminator=stage.sources.includes('2.0')?migrateSwaggerDiscriminators(graph,sources,issue,contexts.map(context=>context.graph),location=>{
                 const original=sourceLocation(location.resource,location.pointer);
@@ -582,12 +582,12 @@ export async function planMigration(input:MigrationInput) {
     }catch(error){refused(error,{resource:input.root,pointer:''});}
     if(problems.length)return {...common(),changes:[],outputs:[]};
     const context=createGraph({...input,resources}),sources=new Map([...context.docs].map(([id,doc])=>[id,new MigrationSource(doc)]));
-    const finalOwnerContexts=migrationDocumentContexts({...input,resources},context,issue).map(context=>context.graph);
+    const sourceOwnerGraphs=migrationDocumentContexts({...input,resources},context,issue).map(context=>context.graph);
     const useKey=(scope:{resource:string;pointer:string;kind:string})=>JSON.stringify([scope.resource,scope.pointer,scope.kind]);
-    const finalOwners=new Set([...migrationScopes(finalOwnerContexts)].map(useKey));
+    const finalOwners=new Set([...migrationScopes(sourceOwnerGraphs)].map(useKey));
     try {
         retainDefaultServers(context.graph,sources);
-        for(const scope of migrationScopes(finalOwnerContexts)){
+        for(const scope of migrationScopes(sourceOwnerGraphs)){
             const source=sources.get(scope.resource)!,value=context.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
             if(scope.kind==='schema'&&typeof value?.$id==='string')source.set(scope.pointer+'/$id',scope.base);
             if(scope.kind==='root'&&scope.family==='3.2'&&typeof value?.$self==='string')source.set('/$self',scope.base);
@@ -595,8 +595,8 @@ export async function planMigration(input:MigrationInput) {
         }
         for(const occurrence of documentUriOccurrences(context.graph))if(finalOwners.has(useKey(occurrence.scope))&&occurrence.scope.kind!=='server')sources.get(occurrence.scope.resource)!.set(occurrence.pointer,resolveUri(occurrence.value,documentUriBase(context.graph,occurrence.scope)).href);
         const securityNames=new Map<string,Set<string>>();
-        const securitySpelling=migrationSecurityUriSpellings(finalOwnerContexts,securityConfigurationNames(input.configuration));
-        for(const {graph,reference}of migrationReferenceUses(finalOwnerContexts)){
+        const securitySpelling=migrationSecurityUriSpellings(sourceOwnerGraphs,securityConfigurationNames(input.configuration));
+        for(const {graph,reference}of migrationReferenceUses(sourceOwnerGraphs)){
             if(reference.resolution!=='resolved')continue;
             const source=sources.get(reference.resource)!;
             if(reference.connection==='security'&&reference.targetUri!==undefined){
@@ -614,7 +614,7 @@ export async function planMigration(input:MigrationInput) {
         const normalized=migrationLocations(sources);
         semanticOrigins?.projectLocations(location=>normalized.get(key(location.resource,location.pointer))??[]);
         for(const [origin,locations]of origins)origins.set(origin,locations.flatMap(location=>normalized.get(key(location.resource,location.pointer))??[]));
-        for(const scope of migrationScopes(finalOwnerContexts))if(scope.kind==='schema')assertRoleAnnotations(context.graph,scope,sources.get(scope.resource)!.doc,scope.pointer);
+        for(const scope of migrationScopes(sourceOwnerGraphs))if(scope.kind==='schema')assertRoleAnnotations(context.graph,scope,sources.get(scope.resource)!.doc,scope.pointer);
         for(const [resource,source]of sources)for(const pointer of source.presentationChanges){
             const original=sourceLocation(resource,pointer);
             presentationChanges.push({resource:original.resource,pointer:original.pointer});

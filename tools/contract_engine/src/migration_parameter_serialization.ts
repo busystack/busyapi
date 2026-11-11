@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 import {escape,SourceDocument,SourceError} from './document';
 import type {ExternalExampleResourcePacket} from './external_examples';
 import {pointerFragment,type GraphScope,type ReferenceGraph} from './reference_graph';
@@ -43,7 +44,7 @@ class ParameterProofBudget {
   let resources=this.captures.get(graph);if(resources)return resources;
   const aliases=new Map([...graph.docs.keys()].map(id=>[id,new Set([graph.retrievals.get(id)??id])]));
   for(const [uri,targets]of graph.identities)if(targets.length===1&&targets[0].pointer==='')aliases.get(targets[0].resource)?.add(uri);
-  resources=[...graph.docs].map(([id,doc])=>({id,text:doc.text,generation:0,aliases:[...aliases.get(id)!]}));
+  resources=[...graph.docs].map(([id,doc])=>({id,text:doc.text,generation:0,identity:createHash('sha256').update(doc.text).digest('hex'),aliases:[...aliases.get(id)!]}));
   this.captures.set(graph,resources);return resources;
  }
  candidates(graph:ReferenceGraph,scope:GraphScope):string[]|undefined {

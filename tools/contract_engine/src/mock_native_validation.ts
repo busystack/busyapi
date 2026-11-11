@@ -289,8 +289,10 @@ export class MockNativeValidation {
                 output[header.name]=raw;continue;
             }
             const result=await this.client.request('evaluateSchemas',{...this.capture,mediaPreparations:[{text:raw,mediaType:media.mediaType,schema:media.schema,header:true,direction:'response'}]},signal);
-            if(result.snapshot!==this.capture.snapshot||result.producer!==this.producer?.name||result.producerVersion!==this.producer?.version||result.configuration!==this.producer?.configuration||!Array.isArray(result.mediaPreparations)||!record(result.mediaPreparations[0])||typeof result.mediaPreparations[0].base64!=='string')throw new SourceError('mock.validation.protocol','Header materialization returned unrelated data');
-            const prepared=result.mediaPreparations[0],bytes=Buffer.from(prepared.base64,'base64');
+            if(result.snapshot!==this.capture.snapshot||result.producer!==this.producer?.name||result.producerVersion!==this.producer?.version||result.configuration!==this.producer?.configuration||!Array.isArray(result.mediaPreparations))throw new SourceError('mock.validation.protocol','Header materialization returned unrelated data');
+            const prepared:unknown=result.mediaPreparations[0];
+            if(!record(prepared)||typeof prepared.base64!=='string')throw new SourceError('mock.validation.protocol','Header materialization returned unrelated data');
+            const bytes=Buffer.from(prepared.base64,'base64');
             if(result.mediaPreparations.length!==1||prepared.complete!==true||prepared.valid!==true||prepared.mediaType!==media.mediaType||bytes.toString('base64')!==prepared.base64||bytes.length!==prepared.byteLength)throw new SourceError('mock.validation.protocol','Header materialization omitted its byte proof');
             const wire=bytes.toString('latin1');
             if(/[\x00-\x08\x0a-\x1f\x7f]/.test(wire))throw this.generationFailure(path,method,'runtime.header.syntax','Generated mock Header is not HTTP-compatible');
@@ -335,7 +337,7 @@ export class MockNativeValidation {
             }
         };await visit(projected.tree);
         const result=await this.client.request('mockMultipartBytes',{...input,headers},signal);check(result);
-        if(typeof result.base64!=='string'||typeof result.mediaType!=='string'||result.proof?.complete!==true||result.proof?.valid!==true)throw new SourceError('mock.validation.protocol','Multipart response omitted its actual wire proof');
+        if(typeof result.base64!=='string'||typeof result.mediaType!=='string'||!record(result.proof)||result.proof.complete!==true||result.proof.valid!==true)throw new SourceError('mock.validation.protocol','Multipart response omitted its actual wire proof');
         const bytes=Buffer.from(result.base64,'base64');if(bytes.toString('base64')!==result.base64||bytes.length!==result.byteLength)throw new SourceError('mock.validation.protocol','Multipart response byte identity is malformed');
         this.wireMediaTypes.set(bytes,result.mediaType);return bytes;
     }
@@ -391,14 +393,16 @@ export class MockNativeValidation {
         if(actual.split(';')[0].trim().toLowerCase()==='application/x-www-form-urlencoded'){
             const {operation}=this.plan(path,method).description;
             const result=await this.client.request('mockFormBytes',{...this.capture,resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence,status,mediaType:actual,text:raw},signal);
-            if(result.snapshot!==this.capture.snapshot||result.identity!==this.plan(path,method).description.identity||result.producer!==this.producer?.name||result.producerVersion!==this.producer?.version||result.configuration!==this.producer?.configuration||typeof result.base64!=='string'||result.proof?.complete!==true||result.proof?.valid!==true)throw new SourceError('mock.validation.protocol','URL-form preparation returned unrelated data');
+            if(result.snapshot!==this.capture.snapshot||result.identity!==this.plan(path,method).description.identity||result.producer!==this.producer?.name||result.producerVersion!==this.producer?.version||result.configuration!==this.producer?.configuration||typeof result.base64!=='string'||!record(result.proof)||result.proof.complete!==true||result.proof.valid!==true)throw new SourceError('mock.validation.protocol','URL-form preparation returned unrelated data');
             const bytes=Buffer.from(result.base64,'base64');if(bytes.toString('base64')!==result.base64||bytes.length!==result.byteLength)throw new SourceError('mock.validation.protocol','URL-form byte identity is malformed');return bytes;
         }
         if(actual.split(';')[0].trim().toLowerCase().startsWith('multipart/'))return this.multipartResponse(path,method,status,actual,raw,signal);
         const media=capturedMockResponseMedia(this.plan(path,method).description,status,actual),schema=media&&schemaLocation(media.schema);
         const result=await this.client.request('evaluateSchemas',{...this.capture,mediaPreparations:[{text:raw,mediaType:actual,schema,direction:'response'}]},signal);
-        if(result.producer!==this.producer?.name||result.producerVersion!==this.producer?.version||result.configuration!==this.producer?.configuration||result.snapshot!==this.capture.snapshot||!Array.isArray(result.mediaPreparations)||!record(result.mediaPreparations[0])||typeof result.mediaPreparations[0].base64!=='string')throw new SourceError('mock.validation.protocol','Media preparation returned unrelated data');
-        const prepared=result.mediaPreparations[0],bytes=Buffer.from(prepared.base64,'base64');
+        if(result.producer!==this.producer?.name||result.producerVersion!==this.producer?.version||result.configuration!==this.producer?.configuration||result.snapshot!==this.capture.snapshot||!Array.isArray(result.mediaPreparations))throw new SourceError('mock.validation.protocol','Media preparation returned unrelated data');
+        const prepared:unknown=result.mediaPreparations[0];
+        if(!record(prepared)||typeof prepared.base64!=='string')throw new SourceError('mock.validation.protocol','Media preparation returned unrelated data');
+        const bytes=Buffer.from(prepared.base64,'base64');
         if(result.mediaPreparations.length!==1||prepared.complete!==true||prepared.valid!==true||prepared.mediaType!==actual||bytes.toString('base64')!==prepared.base64||bytes.length!==prepared.byteLength)throw new SourceError('mock.validation.protocol','Media preparation omitted its byte proof');
         return bytes;
     }
@@ -455,9 +459,10 @@ export class MockNativeValidation {
         const result=await this.client.request('evaluateSchemas',{...this.capture,runtimeInstances},signal);
         if(result.snapshot!==this.capture.snapshot||result.producer!==this.producer?.name||result.producerVersion!==this.producer?.version||result.configuration!==this.producer?.configuration||typeof result.complete!=='boolean'||!Array.isArray(result.runtimeEvaluations)||!Array.isArray(result.runtimeFindings))
             throw new SourceError('mock.validation.protocol','Native validation returned an unrelated runtime result');
+        const runtimeEvaluations=result.runtimeEvaluations;
         const evaluations:NativeRuntimeEvaluation[]=[],findings:Record<string,unknown>[]=[];
         for(const value of result.runtimeFindings){if(!record(value)||typeof value.code!=='string'||typeof value.message!=='string')throw new SourceError('mock.validation.protocol','Native validation returned a malformed finding');findings.push(value);}
-        for(const value of result.runtimeEvaluations){
+        for(const value of runtimeEvaluations){
             if(!record(value)||typeof value.complete!=='boolean'||typeof value.valid!=='boolean'||typeof value.subject!=='string'||typeof value.location!=='string')throw new SourceError('mock.validation.protocol','Native validation returned a malformed evaluation');
             if(value.chosen!==undefined&&(typeof value.chosen!=='number'||!Number.isSafeInteger(value.chosen)||value.chosen<0||value.chosen>255))
                 throw new SourceError('mock.validation.protocol','Native validation returned an invalid selected-candidate index');
@@ -466,7 +471,7 @@ export class MockNativeValidation {
                 ...(typeof value.modeledData==='string'&&Buffer.byteLength(value.modeledData)<=1024*1024?{modeledData:value.modeledData}:{})});
         }
         const bodyProofs=runtimeInstances.filter(value=>value.subject==='response-body'&&value.mediaType!==undefined).every(instance=>{
-            const owned=result.runtimeEvaluations.filter(value=>value.subject===instance.subject&&value.location===instance.location);
+            const owned=runtimeEvaluations.filter(value=>value.subject===instance.subject&&value.location===instance.location);
             return owned.length>0&&owned.every(value=>value.complete===true)&&owned.some(value=>value.pointer===''||value.valid===false||value.syntax==='no-response-content');
         });
         const complete=result.complete&&bodyProofs&&evaluations.length>0&&evaluations.every(value=>value.complete===true);

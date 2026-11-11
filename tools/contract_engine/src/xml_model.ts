@@ -18,7 +18,7 @@ type Model={type:string;nullable:boolean;node:string;name?:string;namespace:stri
 const xsi='http://www.w3.org/2001/XMLSchema-instance';
 function invalid(message:string):never {throw new SourceError('runtime.xml.mapping',message);}
 function unavailable(message:string,at?:XmlTarget,graph?:ReferenceGraph):never {
- const range:Range=at&&graph?.docs.get(at.resource)?.dataNode(at.pointer)?.range??[0,0];
+ const range:Range=(at&&graph?.docs.get(at.resource)?.dataNode(at.pointer)?.range)??[0,0];
  throw new SourceError('runtime.xml.model.unsupported',message,range,'unsupported',at?{...at,range}:undefined);
 }
 const identity=(at:XmlTarget)=>JSON.stringify([at.resource,at.pointer]);

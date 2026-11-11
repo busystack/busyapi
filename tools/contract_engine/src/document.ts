@@ -1,4 +1,4 @@
-import YAML, { isMap, isSeq, isScalar, isAlias, type CST } from 'yaml';
+import YAML, { isMap, isSeq, isScalar, isAlias, type CST, type Document as YamlDocument } from 'yaml';
 import { parseTree, getNodeValue, printParseErrorCode } from 'jsonc-parser/lib/esm/main.js';
 export const limits = { bytes: 16 * 1024 * 1024, depth: 128, aliases: 64, resources: 2048 };
 export type Range = [
@@ -48,7 +48,7 @@ function capturedYaml(text:string) {
         }
     }
     const composer=new YAML.Composer({version:'1.2',schema:'core',keepSourceTokens:true,uniqueKeys:true,stringKeys:true,prettyErrors:false,strict:true});
-    let document:ReturnType<typeof YAML.parseDocument>|undefined;
+    let document:YamlDocument.Parsed|undefined;
     for(const parsed of composer.compose(tokens(),true,text.length)){
         if(!document)document=parsed;
         else {

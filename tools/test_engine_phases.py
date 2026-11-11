@@ -145,6 +145,48 @@ class EnginePhases(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'stale'):
                 runner.check(Path('/selected/node'), self.value)
 
+    def test_nested_renderer_fixture_bytes_names_and_membership_change_identity(self):
+        engine = self.root / 'tools/contract_engine'
+        runtime = self.root / 'runtime'
+        engine.mkdir(parents=True)
+        runtime.mkdir()
+        node = self.root / 'node'
+        node.write_bytes(b'controlled runtime')
+        (engine / 'runtime.lock.json').write_text(json.dumps({'binarySha256': builder.digest(node)}))
+        receipt = {'inputs': 'production', 'runtimeEntrypoints': [target for _, target in runner.RUNTIME_ENTRYPOINTS]}
+        for target, field in [('engine.cjs', 'helperSha256'), ('policy-worker.cjs', 'policyHelperSha256'),
+                              ('mock-server.cjs', 'mockHelperSha256')]:
+            (runtime / target).write_text('controlled ' + target)
+            receipt[field] = builder.digest(runtime / target)
+        (runtime / 'build.json').write_text(json.dumps(receipt))
+        registry = engine / 'test-suites.json'
+        registry.write_text(json.dumps(self.value))
+        script = self.root / 'tools/engine_tests.py'
+        script.write_text('controlled runner input')
+        (self.root / 'tools/build_engine.sh').write_text('controlled phase input')
+        fixture = self.root / 'tools/documentation_renderers/test_fixtures/nested/package.json'
+        fixture.parent.mkdir(parents=True)
+        fixture.write_text('{"version":"original"}')
+        with patch.object(runner, 'ROOT', self.root), patch.object(runner, 'ENGINE', engine), \
+                patch.object(runner, 'RUNTIME', runtime), patch.object(runner, 'REGISTRY', registry), \
+                patch.object(runner, '__file__', str(script)), \
+                patch.object(runner, 'input_signature', return_value='production'):
+            original = runner.inputs(node)
+            fixture.write_text('{"version":"changed"}')
+            changed = runner.inputs(node)
+            self.assertNotEqual(original, changed)
+            renamed = fixture.with_name('renamed.json')
+            fixture.rename(renamed)
+            moved = runner.inputs(node)
+            self.assertNotEqual(changed, moved)
+            added = fixture.with_name('additional.mjs')
+            added.write_text('export default "nested fixture";')
+            self.assertNotEqual(moved, runner.inputs(node))
+            added.unlink()
+            self.assertEqual(moved, runner.inputs(node))
+            renamed.unlink()
+            self.assertNotEqual(moved, runner.inputs(node))
+
     def test_registry_retains_ordinary_suite_discovery_and_required_security_flags(self):
         value = runner.registry()
         registered = {suite['path'] for suite in value['suites']}

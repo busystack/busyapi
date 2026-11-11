@@ -342,14 +342,16 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
     afterSchema(url:string,instance:any){active.delete(url+'\0'+instance.pointer);}
    };
    if(!stack?.length)return interpret(ast,exact.exactInstance(document,''),{outputFormat:BASIC,plugins:[bounded]}).valid;
-   const root=xmlAsts.get(scopeId(stack[0]));
+   const rootScope=graph.scopeAs(stack[0].resource,stack[0].pointer,'schema');
+   const root=rootScope&&xmlAsts.get(scopeId(rootScope));
    if(!root)return;
    const key=root.schemaUri+'\0'+ast.schemaUri;
    let shared:any=xmlMerged.get(key);
    if(!shared){shared={...root.ast,...ast.ast,metaData:{...root.ast.metaData,...ast.ast.metaData},plugins:new Set([...root.ast.plugins,...ast.ast.plugins])};if(xmlMerged.size>=16)xmlMerged.delete(xmlMerged.keys().next().value);xmlMerged.set(key,shared);}
    const anchors:Record<string,string>=Object.create(null);
    for(const owner of stack){
-    const compiled=xmlAsts.get(scopeId(owner));if(!compiled)return;
+    const ownerScope=graph.scopeAs(owner.resource,owner.pointer,'schema');
+    const compiled=ownerScope&&xmlAsts.get(scopeId(ownerScope));if(!compiled)return;
     for(const [name,uri]of Object.entries(compiled.ast.metaData[compiled.schemaUri.split('#')[0]]?.dynamicAnchors??{}))if(!Object.hasOwn(anchors,name))anchors[name]=uri as string;
    }
    let seeded=false;
