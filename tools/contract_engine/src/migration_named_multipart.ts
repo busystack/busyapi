@@ -1,4 +1,4 @@
-import {escape,SourceDocument,SourceError} from './document';
+import {escape,SourceDocument,SourceError,valueType} from './document';
 import {proveFiniteNamedLanguage,multipartFieldName,type FiniteNamedLanguage,type NamedPart} from './migration_multipart_language';
 import {proveFiniteNamedTuples} from './migration_multipart_tuples';
 import {evaluateSchemas} from './schema_evaluation';
@@ -732,7 +732,8 @@ function namedValueSchemaIdentity(graph:ReferenceGraph,scope:GraphScope,active=n
  if(++state.work>50000||active.size>=128)return;
  const key=JSON.stringify([scope.resource,scope.pointer]);if(active.has(key))return;
  const next=new Set(active).add(key),doc=graph.docs.get(scope.resource)!,node=doc.dataNode(scope.pointer);
- if(!node)return;if(node.kind==='boolean')return JSON.stringify(node.value?[]:['false']);
+ if (!node) return;
+ if (valueType(node) === 'boolean') return JSON.stringify(node.value ? [] : ['false']);
  if(node.kind!=='object')return;
  const terms:string[]=[],schemas=new MigrationSchemaProofs(graph);
  for(const [name,child]of node.children){

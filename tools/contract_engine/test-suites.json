@@ -570,6 +570,10 @@
       "nodeArgs": []
     },
     {
+      "path": "tools/contract_engine/test_migration_value_types.cjs",
+      "nodeArgs": []
+    },
+    {
       "path": "tools/contract_engine/test_migration_patterns.cjs",
       "nodeArgs": []
     },

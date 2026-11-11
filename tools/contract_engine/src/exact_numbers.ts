@@ -6,7 +6,7 @@ import * as Browser from '@hyperjump/browser';
 import {Reference} from '@hyperjump/browser/jref';
 import * as Instance from '@hyperjump/json-schema/instance/experimental';
 import {addKeyword,getKeyword,getKeywordName,canonicalUri} from '@hyperjump/json-schema/experimental';
-import {SourceDocument, SourceError} from './document';
+import {SourceDocument, SourceError, valueType} from './document';
 import {schemaMetaView} from './schema_boundaries';
 import {isReferenceObject} from './contexts';
 import {swaggerDiscriminator} from './swagger_discriminator';
@@ -130,7 +130,7 @@ function fingerprint(value:any,source?:{doc:SourceDocument,node:any},instance?:a
   if(++nodes>400000||depth>128)throw new SourceError('limit.schema.equality','Exact equality work limit');
   if(value instanceof Reference)value=value.toJSON();
   if(node&&source)node=source.doc.dataNode(node.pointer);
-  const type=actual?Instance.typeOf(actual):value===null?'null':Array.isArray(value)?'array':typeof value;
+  const type=actual?Instance.typeOf(actual):valueType(node??{value});
   let result;
   if(actual&&binaryInstances.has(actual))result='b:'+binaryInstances.get(actual)!.toString('base64');
   else if(type==='number')result=encodedNumber(actual?number(actual):node?decimal(source.doc.dataJson(node.pointer)):fallback(value));

@@ -1,5 +1,5 @@
 import {compare,decimal,multiple} from './exact_numbers';
-import {escape,SourceError,type SourceDocument} from './document';
+import {escape,SourceError,valueType,type SourceDocument} from './document';
 import {migrationValueIdentity} from './migration_source';
 import {schemaResourceContextIdentity,supportedSchemaDialect,type GraphScope,type ReferenceGraph} from './reference_graph';
 import {projectSchemaReference} from './schema_reference_projection';
@@ -15,14 +15,34 @@ export type SchemaGuardAssumptions=Readonly<{domains:ReadonlySet<string>;present
 
 /** Assertion equality is mathematical for numbers and ignores object member
  * order. Source-fidelity checks continue to use migrationValueIdentity. */
-export function migrationExactValueIdentity(doc:SourceDocument,pointer:string,state={work:0,depth:0}):string {
-    if(++state.work>50000||state.depth>=128)throw new SourceError('limit.migration.literal','Exact literal proof exceeds 50000 nodes or 128 levels',doc.dataNode(pointer)!.range,'unsupported');
-    const node=doc.dataNode(pointer)!;
-    if(node.kind==='number'){const n=decimal(doc.dataJson(pointer));return 'n:'+n.coefficient+'e'+n.exponent;}
-    const child=(pointer:string)=>{state.depth++;try{return migrationExactValueIdentity(doc,pointer,state);}finally{state.depth--;}};
-    if(node.kind==='array')return '['+[...node.children.values()].map(node=>child(node.pointer)).join(',')+']';
-    if(node.kind==='object')return '{'+[...node.children].sort(([a],[b])=>a<b?-1:a>b?1:0).map(([name,node])=>JSON.stringify(name)+':'+child(node.pointer)).join(',')+'}';
-    return JSON.stringify(node.value);
+export function migrationExactValueIdentity(doc: SourceDocument, pointer: string, state = {work: 0, depth: 0}): string {
+    const node = doc.dataNode(pointer)!;
+    if (++state.work > 50000 || state.depth >= 128) {
+        throw new SourceError('limit.migration.literal',
+            'Exact literal proof exceeds 50000 nodes or 128 levels', node.range, 'unsupported');
+    }
+    const child = (pointer: string): string => {
+        state.depth++;
+        try {
+            return migrationExactValueIdentity(doc, pointer, state);
+        } finally {
+            state.depth--;
+        }
+    };
+    switch (valueType(node)) {
+        case 'number': {
+            const number = decimal(doc.dataJson(pointer));
+            return 'n:' + number.coefficient + 'e' + number.exponent;
+        }
+        case 'array':
+            return '[' + [...node.children.values()].map(node => child(node.pointer)).join(',') + ']';
+        case 'object': {
+            const members = [...node.children].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+            return '{' + members.map(([name, node]) => JSON.stringify(name) + ':' + child(node.pointer)).join(',') + '}';
+        }
+        default:
+            return JSON.stringify(node.value);
+    }
 }
 
 /** Positive, bounded implication and annotation proofs over the canonical
@@ -84,9 +104,12 @@ export class MigrationSchemaProofs {
                 result.push([...domains].every(type=>accepts.has(type))?true:[...domains].every(type=>!accepts.has(type))?false:undefined);
             }else if(field==='enum'||field==='const'){
                 const pointers=field==='const'?[scope.pointer+'/const']:[...doc.dataNode(scope.pointer+'/enum')!.children.values()].map(node=>node.pointer);
-                const kinds=new Set(pointers.map(pointer=>{
-                    const node=doc.dataNode(pointer)!;if(node.kind!=='number')return node.kind;
-                    const n=decimal(doc.dataJson(pointer));return n.coefficient===0n||n.exponent>=0n?'integer':'fraction';
+                const kinds = new Set<string>(pointers.map(pointer => {
+                    const node = doc.dataNode(pointer)!;
+                    const type = valueType(node);
+                    if (type !== 'number') return type;
+                    const number = decimal(doc.dataJson(pointer));
+                    return number.coefficient === 0n || number.exponent >= 0n ? 'integer' : 'fraction';
                 }));
                 const complete=[...domains].every(kind=>kind==='null'?pointers.some(pointer=>doc.dataNode(pointer)!.value===null):
                     kind==='boolean'?[false,true].every(value=>pointers.some(pointer=>doc.dataNode(pointer)!.value===value)):false);
@@ -350,10 +373,12 @@ export class MigrationSchemaProofs {
             const literals=Object.hasOwn(value??{},'const')?[part.pointer+'/const']:
                 Array.isArray(value?.enum)?value.enum.map((_:unknown,index:number)=>part.pointer+'/enum/'+index):undefined;
             if(literals){
-                const selected=new Set(literals.map(pointer=>{
-                    const node=doc.dataNode(pointer)!;
-                    if(typeof node.value!=='number')return node.kind;
-                    const number=decimal(doc.dataJson(pointer));return number.coefficient===0n||number.exponent>=0n?'integer':'fraction';
+                const selected = new Set(literals.map(pointer => {
+                    const node = doc.dataNode(pointer)!;
+                    const type = valueType(node);
+                    if (type !== 'number') return type;
+                    const number = decimal(doc.dataJson(pointer));
+                    return number.coefficient === 0n || number.exponent >= 0n ? 'integer' : 'fraction';
                 }));
                 domains=new Set([...domains].filter(type=>selected.has(type)));
             }

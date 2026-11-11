@@ -25,6 +25,23 @@ export type Node = {
     valuePrefix?: string;
     implicitFlow?: boolean;
 };
+export type ValueType = 'null' | 'boolean' | 'number' | 'string' | 'array' | 'object';
+
+/** Value types are independent of syntax kinds: YAML primitives all have
+ * kind `scalar`. Callers reading aliases must first resolve dataNode(). */
+export function valueType(node: Pick<Node, 'value'>): ValueType {
+    const value: unknown = node.value;
+    if (value === null) return 'null';
+    if (Array.isArray(value)) return 'array';
+    switch (typeof value) {
+        case 'boolean': return 'boolean';
+        case 'number': return 'number';
+        case 'string': return 'string';
+        case 'object': return 'object';
+        default:
+            throw new SourceError('data.value', 'This value has no JSON-compatible type');
+    }
+}
 export type SourceAnchor=Readonly<{node:Node;name:string;range:Range|null}>;
 export class RawJsonValue {
     constructor(public text: string) { }

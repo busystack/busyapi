@@ -1,4 +1,4 @@
-import {escape,SourceError} from './document';
+import {escape,SourceError,valueType} from './document';
 import {compare,decimal,multiple} from './exact_numbers';
 import type {GraphScope,ReferenceGraph} from './reference_graph';
 import type {MigrationIssue} from './migration_schema';
@@ -109,12 +109,18 @@ export function materializeFlatSchema(graph:ReferenceGraph,sources:ReadonlyMap<s
         if(literals?.length===0)return impossible();
         const domain=literals??inferred;
         if(!type&&domain.length){
-            const kinds=domain.map(field=>{
-                const node=field.source.doc.dataNode(field.pointer)!;
-                if(node.kind!=='number')return node.kind;
-                const value=decimal(raw(field));return value.coefficient===0n||value.exponent>=0n?'integer':'number';
+            const kinds = domain.map(field => {
+                const node = field.source.doc.dataNode(field.pointer)!;
+                const type = valueType(node);
+                if (type !== 'number') return type;
+                const value = decimal(raw(field));
+                return value.coefficient === 0n || value.exponent >= 0n ? 'integer' : 'number';
             });
-            type=kinds.every(kind=>kind==='integer'||kind==='number')?kinds.includes('number')?'number':'integer':kinds.every(kind=>kind===kinds[0])?kinds[0]:undefined;
+            if (kinds.every(kind => kind === 'integer' || kind === 'number')) {
+                type = kinds.includes('number') ? 'number' : 'integer';
+            } else if (kinds.every(kind => kind === kinds[0])) {
+                type = kinds[0];
+            }
         }
         if(!type||!types.has(type))fail(evidence,'migration.flat-items.domain','No captured concrete primitive/array domain certificate establishes this flat Swagger declaration');
         for(const {field,atom}of unsupported){
@@ -164,12 +170,16 @@ export function materializeFlatSchema(graph:ReferenceGraph,sources:ReadonlyMap<s
             if(selected.source.doc.dataNode(at))output.set(exclusive,{source:selected.source,pointer:at});
         }
         if(literals)output.set('enum',enumFields.length===1?enumFields[0]:{raw:'['+literals.map(raw).join(',')+']'});
-        const defaultValue=output.get('default');
-        if(defaultValue&&'source' in defaultValue){
-            const node=defaultValue.source.doc.dataNode(defaultValue.pointer)!;
-            const integral=node.kind==='number'&&(()=>{const n=decimal(raw(defaultValue));return n.coefficient===0n||n.exponent>=0n;})();
-            if(!(node.kind===type||type==='number'&&node.kind==='number'||type==='integer'&&integral))
-                fail(defaultValue,'migration.flat-items.default','Swagger flat defaults must conform to their concrete declared type','target-representation');
+        const defaultValue = output.get('default');
+        if (defaultValue && 'source' in defaultValue) {
+            const node = defaultValue.source.doc.dataNode(defaultValue.pointer)!;
+            const actualType = valueType(node);
+            const number = actualType === 'number' ? decimal(raw(defaultValue)) : undefined;
+            const integral = number !== undefined && (number.coefficient === 0n || number.exponent >= 0n);
+            if (!(actualType === type || type === 'integer' && integral)) {
+                fail(defaultValue, 'migration.flat-items.default',
+                    'Swagger flat defaults must conform to their concrete declared type', 'target-representation');
+            }
         }
         let items:FlatPlan|undefined;
         if(type==='array'){

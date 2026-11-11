@@ -1,4 +1,4 @@
-import {escape,SourceDocument} from './document';
+import {escape,SourceDocument,valueType} from './document';
 import {ParameterSemantics} from './parameter_semantics';
 import {MigrationSource} from './migration_source';
 import type {MigrationIssue} from './migration_schema';
@@ -36,7 +36,11 @@ export async function projectMigrationParameterConfiguration(entries:readonly Mi
     if(whole&&profile&&JSON.parse(profile).projection==='empty-text-query'){
      const from=pointer+'/querystring/'+escape(parameter.name!),value=configuration.dataNode(from);if(!value)continue;
      const to=pointer+'/query/'+escape(parameter.name!);
-     if(value.kind!=='string'||value.value!==''||!parameter.name){issue({resource:configuration.id,pointer:from},'migration.parameter.saved-proof','Only the certified explicitly saved empty text value has an addressable empty-array target owner','unavailable-proof');continue;}
+     if (valueType(value) !== 'string' || value.value !== '' || !parameter.name) {
+      issue({resource: configuration.id, pointer: from}, 'migration.parameter.saved-proof',
+       'Only the certified explicitly saved empty text value has an addressable empty-array target owner', 'unavailable-proof');
+      continue;
+     }
      if(configuration.dataNode(to)){issue({resource:configuration.id,pointer:to},'migration.parameter.saved-collision','The saved target query name already has an independent selection','target-representation');continue;}
      projected.exact(to,'[]');projected.remove(from);emptyQueries.push(parameter.name!);
      if(projected.doc.dataNode(pointer+'/querystring')?.children.size===0)projected.remove(pointer+'/querystring');continue;
@@ -67,7 +71,7 @@ export async function projectMigrationParameterConfiguration(entries:readonly Mi
     const queries=next.filter(next=>next.location==='query');
     const savedWhole=pointer+'/querystring/'+escape(parameter.name!);
     const wholeValue=configuration.dataNode(savedWhole);
-    if(whole&&wholeValue?.kind==='string'){
+    if (whole && wholeValue && valueType(wholeValue) === 'string') {
      const inverse=await projectMigrationRawQuery(entry.source,parameter.source,entry.target,queries.map(query=>query.source),wholeValue.value,examples);
      if(!inverse){issue({resource:configuration.id,pointer:savedWhole},'migration.parameter.saved-proof',
       'The captured raw query has no schema-valid inverse whose named target serialization reproduces every original octet, field occurrence and presence selection','unavailable-proof');continue;}
