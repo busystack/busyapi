@@ -6,6 +6,113 @@ BusyAPI targets native Swagger 2.0 and OpenAPI 3.0.x, 3.1.x and 3.2.x.
 Standard YAML/JSON remain authoritative. Supported declarations are preserved;
 opening, editing, saving, validating and rendering do not migrate documents.
 
+## Current recovery state — 2026-11-10
+
+**Prepared, blocked. Recovery and release acceptance are incomplete.** This
+section supersedes historical assignment/continuation directives below; their
+requirements and evidence remain recorded. The W register is still the detailed
+requirement inventory. No new task tree is created.
+
+The primary checkout was clean on `release/v0.1.0` at reviewed baseline
+`c1dc35a655598de059e6af8c77945ee2cf34337f` before this preparation. No newer local
+work needed reconciliation. The current tooling/register preparation is an
+uncommitted working-tree change on that revision, not a verified revision.
+No reset, fetch, history rewrite, worktree, commit, push or publication was performed.
+
+| State | Meaning |
+| --- | --- |
+| Missing implementation | A required production path does not exist; identify that path, rather than infer absence from a missing test result. |
+| Implemented, unverified | Source exists, but current execution evidence does not. This includes bounded source-complete handoffs. |
+| Failing | A current executed check demonstrates failure; preserve its command, revision and original output. |
+| Verified | A named revision passed the relevant named check; a historical pass applies only to that revision and scope. |
+| Blocked | A specific external prerequisite prevents verification or implementation; name it separately from implementation status. |
+
+No executable verification gate ran in this preparation, so no new workflow is marked
+Failing or Verified. Earlier failure/pass records are historical evidence, not
+current failures/passes. The older I/U/P/M and H cells retain their historical
+meaning; I/U are implemented/unverified, P requires its explicitly identified gap,
+and H denotes blocked verification. An unexecuted fixture is not proof of a missing
+production capability. Later dated handoffs supersede earlier capability claims
+(for example the older missing CONNECT row is superseded by its W5 implementation).
+
+### Remaining scope, production owners and evidence
+
+Paths below are relative to Engine `tools/contract_engine/src`, Core
+`packages/busyapi_core/lib/src`, native `lib/src`, or their corresponding test
+folders as identified. Existing W1–W8 rows below retain clause-level owners,
+workflows, regression sources and bounded gaps; this front reconciliation controls
+current recovery priority. All current runtime verification is **Blocked** by the
+execution hold, separately from each implementation state.
+
+| Requirement / concrete workflow | Production owner | Relevant existing/prepared checks | Current source evidence and remaining requirement |
+| --- | --- | --- | --- |
+| Build/test phases; compile production without suites, run focused/all checks, assemble release | `tools/build_engine.sh`, existing `tools/prepare_contract_assets.py`, `tools/build_linux.sh`, Engine package scripts | `tools/test_engine_phases.py`, `tools/test_build_toolchain.py`, `tools/test_contract_assets.py`, CI | Implemented, unverified preparation: production inventory remains in the existing builder; helper/suite registration is `test-suites.json`. Type checking precedes production bundling. Full-suite evidence is bound to inputs/outputs and retired by new test attempts. Ordering/failure/stale/subset controls are prepared, not run. |
+| Four-family create/open, Design/Source edits, Reference, validation and save/reopen; W1 | `specification.ts`, `document.ts`, `authoring.ts`, `source_assistance.ts`, `reference_projection.ts`, `schema_evaluation.ts`; Core `project.dart`; native designer/source/Reference controls | `test_native_families.cjs`, native20/native30/reference/dialect suites; Core `native_application_workflow_test.dart`, `native_family_switching_test.dart`; native `native_family_overview_test.dart`; `tools/test_openapi_application.py` | Implemented, unverified within existing boundaries. Complete native field/relationship coverage remains to be reconciled against actual workflows after baseline execution; exact authored declarations must survive. |
+| Conversion isolation while retaining desktop/CLI Migrate; W2/W3 | `server.ts` currently imports `planMigration` statically; existing dispatcher/client workers; Core `migration.dart`; CLI migrate | Migration suites/preflight, `test_dispatcher.cjs`, `test_engine_worker_client.cjs`, packaged conversion journeys; actual bundle metadata exclusion still required | Missing implementation: separately built fixed conversion-worker route and native dependency boundary. `migration_source.ts` and `migration_yaml_ownership.ts` are shared native refactoring dependencies; preserve/move implementations after baseline. `security_configuration.ts` still has converter-specific function/type coupling. No conversion routing/algorithm change is made here. |
+| Supported conversions, refusals, review, separate-copy publication and cold reopening; W2/W3 | Existing `migration*.ts`, Core migration publication, native review, CLI migrate | Registered migration suites, Core migration/CLI suites, native migration preflight and real review journeys | Implemented, unverified for recorded supported subsets. Approved unfinished B05/W3 requirements remain incomplete, including authored multipart example/Header inverses (B05-R3d-1b-5), saved raw/file inversion, R3d-1c/advanced nested/response Encoding and final equivalence/transaction reconciliation. Isolation will not close or remove them; algorithms remain parked. |
+| Typed multipart single emitter with separate byte-preserving raw mode; W4.01 | Core `request.dart` `ContractRequestBuilder._body` and `_multipartTreeBody`, existing multipart plan/encoding/transfer owners; Engine execution/multipart semantics; native draft controls | Engine runtime/generic/multipart encoding/Header/file suites; Core `legacy_multipart_media_execution_test.dart`, `positional_multipart_execution_test.dart`, `multipart_framing_execution_test.dart`, transfer/binary suites; native multipart fixtures | Existing typed/raw workflows implemented, unverified. Missing consolidation: acquisition/framing/cleanup still overlaps in the two methods, with implicit selection modes. No multipart replacement is made here. Preserve named/ordered/nested, Swagger files, exact bytes, limits and negative controls. |
+| Authentication, examples, XML/Linkset, streaming/Stop, mocks/approved CONNECT, saved cases and CLI; W4/W5/W7 | Engine execution/example/runtime/mock owners; Core `request.dart`, `request_stream.dart`, `execution.dart`, `mock.dart`; native Request/mock controls; CLI | `test_execution.cjs`, media/example/stream/mock suites; Core `oauth_device_authorization_test.dart`, `native_media_execution_test.dart`, `incremental_stream_execution_test.dart`, `mock_connect_test.dart`, saved-case/CLI suites; native OAuth/example/stream/mock tests | Implemented, unverified within latest W4/W5 handoffs. Remaining occurrence/field/codec/integration gaps are retained in W1/W4 and must be demonstrated/reconciled, not expanded speculatively. No feature or representation is removed. |
+| Strict packaged semantic admission plus per-result freshness; W7.04 | Engine producer identities/hello, Core `engine_process.dart` startup and distributed result decoders in `project.dart` parts | Core `engine_admission_test.dart`, mock readiness/revision and stale/obsolete producer controls; development and relocated-runtime checks | Current protocol/Node/coordinate handshake and semantic constants exist and agree. Missing centralization: independently source-bound committed semantic package contract and consolidated admission for repeated result families. This is synchronization risk, not a demonstrated current mismatch. |
+| Reduce request/project/native controller coupling | Core `project.dart` and `request.dart` mutually import; project has 13 parts; native Request/body/Inspector owners | Existing Core request/refactoring/execution suites and native widget/input journeys | Missing responsibility separation: preparation, transport/retention, conformance, draft/controller, body controls and Inspector still couple. Defer all extraction until preceding corrections have executable evidence; retain native presentation. |
+| Role-aware maintenance, documentation, native renderers and offline export; W6 | Refactoring/CST/graph owners, `derived_bundle.ts`, Core documentation/refactoring publication; native Reference; existing renderer adapters | Source/YAML/shared-role/refactoring suites, Core `shared_role_refactoring_test.dart`, `refactoring_cli_test.dart`, `documentation_test.dart`, resource-package suites; renderer/native documentation checks | Implemented, unverified for recorded bounded W6-M1/M2 and renderer workflows. General schema-position/mixed-role and complete rendered-field/relocation closure remain incomplete; demonstrated gaps only after simplification. Shared source-preservation suites remain applicable even when named migration. |
+| Preserve Git, generation, governance and CLI; no product-scope removal | Core Git/generation/governance owners, native actions and CLI dispatch; existing M3/generator/policy runtime infrastructure | Core `git_integrity_test.dart`, `client_generation_test.dart`, `governance_test.dart`, CLI generation/governance suites; tooling and kernel isolation harness | Implemented, unverified. Existing pinned helpers/notices and explicit input provisioning remain release prerequisites. No dependency, lock, SDK, third-party source, interface or advertised capability is changed. |
+| Cancellation, source/external changes, denied resources, recovery, transactions and publication | Engine workers/capture; Core store/project/publication/recovery and native review owners | Existing stale/cancel/transaction/publication/recovery process suites and real failure journeys | Implemented, unverified. Both individual-buffer v1 and grouped-workspace v2 recovery writers/readers remain current; neither is removed. Full final-revision negative-control acceptance remains required. |
+| Final application/package acceptance; W7/W8 | Existing Linux build/package/asset verifiers, CLI/native acceptance tools | Complete applicable Engine/Core/widget/CLI/tooling gates, `tools/test_openapi_application.py`, installed/offline/relocation and conversion journeys | Blocked: execution authorization has not been granted for an environment/workload. Independent official pinned-input provenance also needs verification; its absence has not been demonstrated by this inspection. Snapcraft remains explicitly skipped. No final artifact identity or accepted release is available. |
+
+### Prepared phase boundary and required baseline gate
+
+Before preparation, shell and package scripts each owned different production
+bundles and suite lists. In this source preparation, both delegate production to
+`prepare_contract_assets.py`; its `RUNTIME_ENTRYPOINTS` owns the shipped entry
+inventory. It now also owns the TypeScript-before-bundle gate for direct/CMake
+callers and retains bundle input metadata in receipts. Existing source hashes,
+dependency/license review, original notices, native prerequisites and atomic
+file/receipt publication remain. No generated helper was hand edited.
+
+`test-suites.json` transfers the original shell helper entries, suites, ordering
+and `--disable-proto=throw` flags to one registration. `engine_tests.py` prepares
+only test helpers and copies production entries from the production stage. It
+refuses missing/stale production or test artifacts; a focused subset cannot write
+full-suite evidence. The release script runs the explicit phases sequentially and
+checks current aggregate Engine evidence before packaging. Existing Core/CLI,
+widget, CI tooling/SDK/kernel/native-lifetime gates remain applicable. Neither
+this receipt nor successful assembly establishes desktop or release acceptance.
+Historical references below to registration in `build_engine.sh` describe the
+old source layout; current registration is `test-suites.json` and the shell
+delegates to it. Specialized kernel tests retain their existing harness.
+Before/after converter dependencies, multipart duplication and controller cycles
+are unchanged in this preparation; required runtime/metadata evidence is absent.
+
+**Exact stopping gate:** the user's execution hold prohibits tests, compilers,
+analyzers, builds, generation, CI, graphical/native and performance workloads.
+No authorization for a specific environment or workload has been supplied.
+Permitted source preparation is complete; do not start conversion rerouting,
+multipart changes, semantic-contract generation or controller extraction.
+
+After explicit authorization, record and compile/test the untouched baseline
+`c1dc35a655598de059e6af8c77945ee2cf34337f` and this minimal tooling change
+**separately**, using identical official inputs: `tools/flutter_sdk.lock.json`,
+Engine `runtime.lock.json`, unchanged package/pub locks, native build-input lock
+and independent SDK upstream evidence. Baseline source handling must preserve
+this checkout and respect the prohibition on resets/worktrees without approval.
+Use the baseline's recorded commands for its baseline run. For the changed
+source, use `prepare` → `compile` → `prepare-tests` → `test-all`, then existing
+Core/CLI/widget and representative four-family native workflows. Also execute
+the prepared tooling/asset controls. Record revision/working diff, toolchain
+identities, commands, selected suites, exit codes, logs and produced artifact
+hashes in this register. Preserve any original failure logs before repairs.
+
+Only after these baseline gates: conversion isolation → multipart consolidation
+→ strict contract admission → focused coupling reduction → demonstrated gaps →
+final changed-revision/rebuilt-artifact acceptance. No unfinished approved
+conversion requirement may disappear from the release scope without a decision.
+
+**Evidence actually obtained here:** source/file reads and searches, Git branch,
+HEAD/status/diff inspection and whitespace review only. No tests, SDK/runtime
+probes, compiler, analyzer, build, generation, CI, graphical/native, performance
+or Snapcraft command ran. Artifacts were not rebuilt or qualified. Existing
+bundles/test/installed runtimes carry no new evidence for this working tree.
+
 ## Authorities
 
 Normative specification text takes precedence over informational schemas:
@@ -31,7 +138,7 @@ consume those shared results. Source-preserving transactions remain authoritativ
 Current changes require complete engine, Core, native and packaged verification;
 source inspection or a successful build is not runtime acceptance.
 
-## Active completion directive: application capabilities
+## Historical completion directive: application capabilities (superseded)
 
 The application-capability directive was established at
 `8e36f53775b702050d6307a81936c5782ca520a0`. The W4.01 follow-up starts from
@@ -92,7 +199,7 @@ results. They are required native application work, not specification limits:
 | Mock witnesses | W5.04 SOURCE COMPLETE, unverified for the constructive classes in the final W5 handoff. | Finite/exact, pattern, composition/recursive and supported text/binary candidates require original-schema proof; arbitrary patterns/dynamic constraints and exhausted bounds remain unavailable, never unsatisfiable. |
 | Semantic maintenance | Ordinary reviewed rename/extract/inline/move/file actions exist in native and CLI consumers. | W6-M1/M2 implement complete-resource relocation, shared Markdown specialization and compatible literal/contract separation. W6.01–03 still require general schema-position/mixed-reference-role qualification; precise unavailable proofs and actual independent-data conflicts remain refusals. |
 
-### Active product completion continuation (2026-11-10)
+### Historical product completion continuation (2026-11-10; superseded)
 
 The current continuation starts at `dc7f4451d5554e0535ac716dcc08778ccc12c3ce`
 in the primary `release/v0.1.0` checkout. The complete product objective remains
@@ -839,7 +946,7 @@ Remaining boundaries are precise:
   ambiguous annotations and media ranges retain unavailable-proof diagnostics.
   There is no sampled completeness proof or universal field-order guarantee.
 - Authored multipart example inverses and additional Header inverses remain
-  **B05-R3d-1b-5**, the next assignment. Existing neutral references and external
+  **B05-R3d-1b-5**, a historical assignment whose directive is retired. Existing neutral references and external
   example preservation do not implement those inverses.
 - Saved raw/file multipart inversion and complete production-byte/transaction
   reconciliation remain subsequent bounded work. Active response Encoding,
@@ -968,7 +1075,7 @@ or performance checks ran. Prepared regressions are not passing-test evidence.
 No bundles were rebuilt; Snapcraft remains skipped. No third-party or installed
 official Flutter SDK changes, push or remote refresh were performed.
 
-**Next assignment: B05-R3d-1b-4 — Mixed-media reusable-owner specialization.**
+**Historical assignment (retired directive): B05-R3d-1b-4 — Mixed-media reusable-owner specialization.**
 That work, example/Header inverses, saved raw/file multipart inversion, final
 production-byte/transaction reconciliation and R3d-1c were not started here.
 The preceding assignment records below are historical evidence of their own
@@ -1214,7 +1321,7 @@ Snapcraft remains skipped. No third-party software or installed official
 Flutter SDK changes, push or remote refresh were performed.
 
 The listed R3d-1b implementation gaps must be completed before claiming its
-source-complete handoff. The separately assigned next assignment remains
+source-complete handoff. The historical assignment (directive retired) was
 **B05-R3d-1c — Remaining union/conditional and binary equivalence proofs,
 dedicated native review, complete positional Encoding regression matrix and
 final R3d-1 reconciliation**; it has not begun here.
@@ -1436,7 +1543,7 @@ packaging or performance checks executed. Snapcraft remains skipped. No
 third-party software or official Flutter SDK was modified. No push or remote
 refresh was performed. Prepared regressions are not reported as passing.
 
-**Next assignment: B05-R3d — Advanced Encoding conversions, including positional,
+**Historical assignment (retired directive): B05-R3d — Advanced Encoding conversions, including positional,
 nested and response Encoding Objects.** B05-R3/B05 and W3.09 remain incomplete
 and unaccepted.
 
@@ -1844,7 +1951,7 @@ Snapcraft remains skipped. The installed official Flutter SDK, dependencies
 and third-party software were not changed. Source completion is not runtime
 acceptance and does not complete B05-R3 or B05.
 
-**Next assignment: B05-R3c — Whole-query and finite cookie-style parameter
+**Historical assignment (retired directive): B05-R3c — Whole-query and finite cookie-style parameter
 lowering.** Advanced Encoding and broader Example/XML/discriminator work remain
 for subsequent bounded R3 assignments before B05-R4 reconciliation.
 
@@ -2262,7 +2369,7 @@ builds, code generation, CI, graphical workloads, packaging and performance
 checks were not run. Bundles remain unbuilt and do not qualify producer 92 or
 projection 3. The execution hold remains active; Snapcraft remains skipped.
 No third-party software or installed Flutter SDK was modified. Runtime
-verification remains outstanding; the next assignment is **B05-R3**.
+verification remains outstanding; the historical assignment (directive retired) was **B05-R3**.
 
 ## B05-R1: inherited media and shared-operation migration
 
@@ -2641,7 +2748,7 @@ No tests, compiler, analyzer, build, generation, CI, graphical/native workload,
 packaging or performance workload ran. Bundles remain unbuilt under the execution
 hold. No third-party software or official Flutter installation was modified.
 Snapcraft remains skipped. This is source completion, not runtime acceptance.
-The next assignment is B04-R3; it has not been started.
+The historical assignment (directive retired) was B04-R3; it has not been started.
 
 ## B04-R1: containing literals and constraint equivalence
 
@@ -3017,7 +3124,7 @@ are intentionally rejected by current admission. Git hooks were disabled for
 local commits to preserve the hold. No third-party software, dependency version
 or Flutter SDK was changed. Snapcraft remains skipped. Source completion does
 not establish executed equivalence, runtime acceptance or overall BusyAPI
-completion. The next assignment is **B04 — Constrained and mixed binary
+completion. The historical assignment (directive retired) was **B04 — Constrained and mixed binary
 representation migration**; its subsequent progress is recorded above.
 
 ## B02: conditional, dependency and constrained tuple-tail migrations

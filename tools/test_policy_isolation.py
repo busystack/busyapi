@@ -74,7 +74,7 @@ def main():
                        }, check=True)
         compiler = ROOT / 'tools/contract_engine/node_modules/@esbuild/linux-x64/bin/esbuild'
         if not compiler.is_file():
-            parser.exit(1, 'Provision the locked engine dependencies with tools/build_engine.sh first\n')
+            parser.exit(1, 'Provision the locked engine dependencies with tools/build_engine.sh prepare first\n')
         stage = Path(folder)
         for source, name in [('policy_worker.ts', 'policy-worker.cjs'),
                              ('policy_process_worker.ts', 'transport.cjs'),

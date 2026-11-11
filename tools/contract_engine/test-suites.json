@@ -1,0 +1,1033 @@
+{
+  "version": 1,
+  "helpers": [
+    {
+      "source": "src/engine.ts",
+      "target": "model.cjs"
+    },
+    {
+      "source": "src/reference_graph.ts",
+      "target": "reference_graph.cjs"
+    },
+    {
+      "source": "src/document.ts",
+      "target": "document.cjs"
+    },
+    {
+      "source": "src/refactoring.ts",
+      "target": "refactoring.cjs"
+    },
+    {
+      "source": "src/refactoring_delete.ts",
+      "target": "refactoring_delete.cjs"
+    },
+    {
+      "source": "src/refactoring_copy.ts",
+      "target": "refactoring_copy.cjs"
+    },
+    {
+      "source": "src/refactoring_ownership.ts",
+      "target": "refactoring_ownership.cjs"
+    },
+    {
+      "source": "src/refactoring_file.ts",
+      "target": "refactoring_file.cjs"
+    },
+    {
+      "source": "src/source_assistance.ts",
+      "target": "source_assistance.cjs"
+    },
+    {
+      "source": "src/schema_suggestion.ts",
+      "target": "schema_suggestion.cjs"
+    },
+    {
+      "source": "src/reference_projection.ts",
+      "target": "reference_projection.cjs"
+    },
+    {
+      "source": "src/reference_display.ts",
+      "target": "reference_display.cjs"
+    },
+    {
+      "source": "src/schema_evaluation.ts",
+      "target": "schema_evaluation.cjs"
+    },
+    {
+      "source": "src/execution.ts",
+      "target": "execution.cjs"
+    },
+    {
+      "source": "src/stream_execution.ts",
+      "target": "stream_execution.cjs"
+    },
+    {
+      "source": "src/mock_schema_samples.ts",
+      "target": "mock_schema_samples.cjs"
+    },
+    {
+      "source": "src/mock_method_transport.ts",
+      "target": "mock_method_transport.cjs"
+    },
+    {
+      "source": "src/mock_exact_proxy.ts",
+      "target": "mock_exact_proxy.cjs"
+    },
+    {
+      "source": "src/derived_bundle.ts",
+      "target": "derived_bundle.cjs"
+    },
+    {
+      "source": "src/schema_tree.ts",
+      "target": "schema_tree.cjs"
+    },
+    {
+      "source": "src/reference_choices.ts",
+      "target": "reference_choices.cjs"
+    },
+    {
+      "source": "src/reference_selection.ts",
+      "target": "reference_selection.cjs"
+    },
+    {
+      "source": "src/resource_package.ts",
+      "target": "resource_package.cjs"
+    },
+    {
+      "source": "src/worker_dispatcher.ts",
+      "target": "worker_dispatcher.cjs"
+    },
+    {
+      "source": "src/engine_worker_client.ts",
+      "target": "engine_worker_client.cjs"
+    },
+    {
+      "source": "src/diagnostic_fixes.ts",
+      "target": "diagnostic_fixes.cjs"
+    },
+    {
+      "source": "src/migration.ts",
+      "target": "migration.cjs"
+    },
+    {
+      "source": "src/migration_documents.ts",
+      "target": "migration_documents.cjs"
+    },
+    {
+      "source": "src/migration_invariants.ts",
+      "target": "migration_invariants.cjs"
+    },
+    {
+      "source": "testing/migration_annotations.ts",
+      "target": "migration_annotations.cjs"
+    },
+    {
+      "source": "src/migration_terms_base.ts",
+      "target": "migration_terms_base.cjs"
+    },
+    {
+      "source": "src/governance.ts",
+      "target": "governance.cjs"
+    },
+    {
+      "source": "src/governance_projection.ts",
+      "target": "governance_projection.cjs"
+    },
+    {
+      "source": "src/governance_configuration.ts",
+      "target": "governance_configuration.cjs"
+    },
+    {
+      "source": "src/policy_code.ts",
+      "target": "policy_code.cjs"
+    },
+    {
+      "source": "src/policy_code_resolution.ts",
+      "target": "policy_code_resolution.cjs"
+    },
+    {
+      "source": "src/policy_code_review.ts",
+      "target": "policy_code_review.cjs"
+    },
+    {
+      "source": "src/exact_numbers.ts",
+      "target": "exact_numbers.cjs"
+    },
+    {
+      "source": "src/policy_expression.ts",
+      "target": "policy_expression.cjs"
+    }
+  ],
+  "suites": [
+    {
+      "path": "tools/contract_engine/test_engine.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_block_sequence_removal.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_graph.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_reference_families.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_swagger_reference_positions.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_authoring.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_schema_value_forms.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_xml_names.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_xml_namespaces.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_document_uris.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_terms_server_base.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_terms_variables.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_server_urls.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_server_contexts.cjs",
+      "nodeArgs": [
+        "--disable-proto=throw"
+      ]
+    },
+    {
+      "path": "tools/contract_engine/test_server_default_relocation.cjs",
+      "nodeArgs": [
+        "--disable-proto=throw"
+      ]
+    },
+    {
+      "path": "tools/contract_engine/test_server_template_rules.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_server_template_literals.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_data_value.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_example_reference_family.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_request_definition_families.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_document_integrity_review.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_refactoring_markdown.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_integrity_followup.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_refactoring.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_delete.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_refactoring_copy.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_refactoring_ownership.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_extract_file.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_operation_move.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_refactoring_file.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_root_configuration.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_file_opaque.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_case_file_maintenance.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_assistance.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_source_type_choices.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_source_file_choices.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_schema_type_choices.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_schema_suggestion.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_schema_inference_families.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_dialect_identities.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_malformed_dialects.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_reference.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_reference_markdown_context.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_reference_display.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/documentation_renderers/test_graph_display.mjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/documentation_renderers/test_source_actions.mjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/documentation_renderers/test_swagger_adapter.mjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/documentation_renderers/test_swagger_content.mjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/documentation_renderers/test_redoc_adapter.mjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/documentation_renderers/test_redoc_content.mjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/documentation_renderers/test_license_declarations.mjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_parameters.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_relationships.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_discriminator_reference_proof.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_discriminator_alternatives.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_diagnostic_fixes.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_security.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_evaluation.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_enum_alias_provenance.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_runtime_media.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_incremental_streaming.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_modeled_xml_linkset.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_plain_text_charsets.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_compound_unicode_examples.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_embedded_mime_text.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_external_example_resources.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_binary_instances.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_binary_media_selection.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_swagger_binary_media.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_bodyless_responses.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_runtime_multipart.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mime_framing.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mime_header_content.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_serialized_examples.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_serialized_parameter_examples.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_runtime_parameter_serialization.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_optional_serialized_parameters.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_literal_media_examples.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_schema_example_inputs.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_conditional_schema_examples.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_example_completeness.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_generic_multipart.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_runtime_alternatives.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_runtime_swagger_headers.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_runtime_headers.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_header_compositions.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_large_schema_evaluation.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_native30.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_restricted_required_proof.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_structural_component_names.cjs",
+      "nodeArgs": [
+        "--disable-proto=throw"
+      ]
+    },
+    {
+      "path": "tools/contract_engine/test_native20.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_swagger_empty_tuple.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_swagger_servers.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_schema_property_access.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_native_families.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_schema_uses.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_object_uses.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_security.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_direct_swagger.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_conditions.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_patterns.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_native_connection_keys.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_tuple_tails.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_flat_items.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_array_assertions.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_unevaluated.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_content.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_property_names.cjs",
+      "nodeArgs": [
+        "--disable-proto=throw"
+      ]
+    },
+    {
+      "path": "tools/contract_engine/test_migration_binary.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_default_servers.cjs",
+      "nodeArgs": [
+        "--disable-proto=throw"
+      ]
+    },
+    {
+      "path": "tools/contract_engine/test_migration_static_dynamicref.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_dependencies.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_dependent_schemas.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_form_downgrade.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_form_defaults.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_form_fidelity.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_form_media.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_bodyless_responses.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_yaml_ownership.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_yaml_source_ownership.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_alias_specialization.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_descendant_aliases.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_inactive_annotations.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_boolean_owners.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_markdown_identity.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_shared_text.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_markdown_locations.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_document_owners.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_entry_uses.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_mixed_holders.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_overlapping_containers.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_schema_resources.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_entry_connections.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_model_resources.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_resource_owners.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_entry_routes.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_swagger_media.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_operation_body_semantics.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_ignored_swagger_body.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_access.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_direction.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_identity.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_required_presence.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_discriminator.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_discriminator_defaults.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_migration_external_examples.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_execution.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_multipart_encoding.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_multipart_reference_bindings.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_multipart_header_generation.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_multipart_file_shapes.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_review_repairs.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_integrity_repairs.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_proxy_repairs.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mock_operation_bodies.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mock_native_validation.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mock_binary_media.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mock_validation_revision.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mock_parameters.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mock_security.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mock_path_items.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mock_custom_methods.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mock_connect.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mock_method_transport.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mock_exact_proxy.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_streaming_mock_proxy.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mock_parameter_styles.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mock_parameter_edges.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mock_cookie_boundaries.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mock_nested_items.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mock_responses.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mock_header_compositions.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mock_schema_samples.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mock_constructive_witnesses.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mock_numeric_candidates.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mock_media_example_precedence.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mock_example_negotiation.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mock_schema_sample_lifecycle.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mock_schema_shape_lifecycle.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mock_sample_negotiation.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mock_external_examples.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mock_forms.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mock_positional_multipart.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mock_mime_framing.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_mock_mime_header_content.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_form_semantics.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_request_media_identity.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_bundle.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_resource_package.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_schema_tree.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_reference_choices.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_reference_selection.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_security_selection.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_security_roles.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_member_names.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_schema_definitions.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_schema_definition_semantics.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_schema_roles.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_schema_resource_views.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_entry_contexts.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_schema_context_order.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_response_status.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_dispatcher.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_engine_worker_client.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_governance_discovery.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_governance.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_literal_media_governance.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_path_item_context.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_policy_code.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_policy_code_resolution.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_policy_code_review.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_policy_numbers.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_policy_expression.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_policy_builtin_numbers.cjs",
+      "nodeArgs": []
+    }
+  ]
+}

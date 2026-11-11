@@ -35,9 +35,11 @@ busyapi_sdk_metadata
 pub_args=(--enforce-lockfile)
 if [[ "${BUSYAPI_BUILD_OFFLINE:-0}" == 1 ]]; then pub_args+=(--offline); fi
 "$flutter_bin" pub get "${pub_args[@]}"
-tools/build_engine.sh
+tools/build_engine.sh prepare
+tools/build_engine.sh compile
+tools/build_engine.sh prepare-tests
+tools/build_engine.sh test-all
 tools/build_documentation_assets.sh
-python3 tools/prepare_contract_assets.py --node "$node_bin"
 dart_bin="$(dirname "$(dirname "$(readlink -f "$(command -v "$flutter_bin")")")")/bin/cache/dart-sdk/bin/dart"
 BUSYAPI_DART="$dart_bin" tools/prepare_test_runtime.sh
 "$flutter_bin" gen-l10n
@@ -61,6 +63,8 @@ esac
 "$flutter_bin" build linux --release --no-pub
 bundle=build/linux/x64/release/bundle
 "$dart_bin" compile exe packages/busyapi_core/bin/busyapi.dart -o "$bundle/busyapi"
+# A focused, failed, skipped or stale Engine run cannot qualify this assembly.
+tools/build_engine.sh check-all
 package_args=("$bundle")
 if [[ "${BUSYAPI_DISTRIBUTION:-standalone}" == snap ]]; then package_args+=(--platform-runtime); fi
 python3 tools/package_linux.py "${package_args[@]}" \

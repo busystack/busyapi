@@ -149,13 +149,13 @@ other package verification tools directly. CI takes the same existing directory
 from its configured variable or the installed SDK's original download cache.
 Missing evidence stops qualification; it does not establish modified SDK bytes.
 
-Install locked project dependencies and prepare the contract and documentation assets:
+The recovery execution hold is active; the commands below describe the prepared
+workflow and are not authorization to execute it. After authorization, prepare
+locked dependencies explicitly:
 
 ```sh
 flutter pub get --enforce-lockfile
-tools/build_engine.sh
-tools/build_documentation_assets.sh
-BUSYAPI_NODE=/path/to/node python3 tools/prepare_contract_assets.py
+tools/build_engine.sh prepare
 ```
 
 A full-featured build also requires the pinned diff, client-generator, and native governance inputs to be provisioned once or supplied from already verified local assets:
@@ -166,7 +166,24 @@ python3 tools/prepare_generator.py --output build/generator --provision
 python3 tools/provision_policy_inputs.py --provision --node-include /path/to/node24/include/node
 ```
 
-Provisioning uses locked input identities. Normal application builds reuse prepared assets without downloading them. The governance isolation path requires **Landlock ABI 3** and **libseccomp 2.5.5+**; missing required isolation is not treated as a successful policy run. See [Architecture](docs/architecture.md) and [Third-party distribution](docs/third-party.md) for platform and dependency boundaries.
+Provisioning uses locked input identities. Contract compilation also needs the
+pinned policy declarations, C++ compiler and libseccomp link library; it does not
+obtain them from a test. The existing production builder performs TypeScript
+checking, production bundling, dependency review, native-helper preparation,
+notices and receipts without installing dependencies or running suites:
+
+```sh
+tools/build_engine.sh compile
+tools/build_documentation_assets.sh
+```
+
+`prepare_contract_assets.py` remains the production builder used by this command,
+CMake and test-runtime staging. Its `RUNTIME_ENTRYPOINTS` is the production
+inventory. `tools/contract_engine/test-suites.json` registers test-only helpers,
+all ordinary Engine suites, renderer checks and their original Node flags.
+The separate kernel isolation harness remains a required CI gate. The documentation
+asset script retains its existing asset checks. Ordinary application builds reuse
+prepared assets without downloading them. The governance isolation path requires **Landlock ABI 3** and **libseccomp 2.5.5+**; missing required isolation is not treated as a successful policy run. See [Architecture](docs/architecture.md) and [Third-party distribution](docs/third-party.md) for platform and dependency boundaries.
 
 ### Build and launch
 
@@ -180,15 +197,29 @@ The CLI resides in the same release bundle. Run executables from the completed `
 ### Development checks
 
 ```sh
-tools/build_engine.sh
+tools/build_engine.sh prepare-tests
+tools/build_engine.sh test-all
+# Optional focused subset; never qualifies the full Engine gate:
+tools/build_engine.sh test-focused tools/contract_engine/test_native_families.cjs
 tools/prepare_test_runtime.sh
 (cd packages/busyapi_core && dart test)
 flutter analyze
 flutter test --no-pub
-tools/contract_engine/node_modules/.bin/tsc --project tools/contract_engine/tsconfig.json
+tools/build_engine.sh typecheck
 python3 -m unittest tools.test_contract_assets tools.test_package_linux
 python3 tools/artifact_smoke.py build/linux/x64/release/bundle
 ```
+
+Run `compile` before `prepare-tests`; running tests refuses missing or stale
+production/test artifacts. The Engine package's `build`, `prepare:tests`, `test`
+and `test:focused` scripts delegate to these phases. `test` runs the full registered
+set; focused checks identify themselves and cannot satisfy `check-all`. A new
+preparation or test attempt retires previous aggregate evidence. Source, registry,
+runtime or helper changes invalidate that evidence. `build_linux.sh` runs the
+ordered Engine phases, existing Core/CLI and widget gates, then assembles the
+release; failures stop assembly and it checks full Engine evidence before packaging.
+CI retains its additional tooling, kernel, SDK and native-lifetime gates. Assembly
+alone is not final application acceptance.
 
 Native interaction, WebKit integration, strict-Snap packaging, and paint/input performance need separate platform qualification. Headless tests and CLI smoke checks do not establish those results.
 

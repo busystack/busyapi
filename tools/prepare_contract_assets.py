@@ -13,6 +13,32 @@ from prepare_policy_isolation import prepare as prepare_policy_isolation
 
 
 ROOT = Path(__file__).resolve().parent.parent
+# The production entry-point inventory. Test helpers live in test-suites.json;
+# no test is responsible for producing an entry shipped by the application.
+RUNTIME_ENTRYPOINTS = (
+    ('server.ts', 'engine.cjs'),
+    ('policy_worker.ts', 'policy-worker.cjs'),
+    ('mock_server.ts', 'mock-server.cjs'),
+)
+
+
+def input_signature():
+    engine = ROOT / 'tools/contract_engine'
+    inputs = [Path(__file__).resolve(), engine / 'package.json',
+              engine / 'package-lock.json', engine / 'runtime.lock.json',
+              engine / 'dependencies.review.json', engine / 'tsconfig.json']
+    inputs += sorted(path for path in (engine / 'licenses').iterdir() if path.is_file())
+    inputs += sorted((engine / 'src').rglob('*.ts'))
+    inputs += [ROOT / 'tools/prepare_policy_isolation.py']
+    inputs += sorted((engine / 'native').glob('*'))
+    inputs += sorted((engine / 'schemas').glob('*.json'))
+    identity = hashlib.sha256()
+    for path in inputs:
+        identity.update(str(path.relative_to(ROOT)).encode())
+        identity.update(path.read_bytes())
+    return identity.hexdigest()
+
+
 RUNTIME_PURPOSES = {
     'enhanced-resolve': 'Maintained Node package/import/exports resolution over approved immutable code snapshots only',
     'graceful-fs': 'Upstream resolver default filesystem path; BusyAPI always supplies its snapshot filesystem instead',
@@ -119,29 +145,14 @@ def prepare(output, node=None):
     if not candidate:
         raise RuntimeError('Pinned Node build input is missing. Run '
                            'BUSYAPI_NODE=/path/to/node python3 tools/prepare_contract_assets.py '
-                           'after tools/build_engine.sh; no runtime is downloaded.')
+                           'after tools/build_engine.sh prepare; no runtime is downloaded.')
     candidate = Path(candidate).resolve()
     if not candidate.is_file() or digest(candidate) != lock['binarySha256']:
         raise RuntimeError(f'Node {lock["node"]} Linux amd64 build input '
                            f'checksum mismatch: {candidate}')
     copy_atomic(candidate, runtime, 0o755)
 
-    inputs = [Path(__file__).resolve(), engine / 'package.json',
-              engine / 'package-lock.json', engine / 'runtime.lock.json',
-              engine / 'dependencies.review.json']
-    # Additional attribution files are production notice inputs too. A changed
-    # AUTHORS/COPYRIGHT supplement must invalidate an otherwise valid stage.
-    inputs += sorted(path for path in (engine / 'licenses').iterdir()
-                     if path.is_file())
-    inputs += sorted((engine / 'src').rglob('*.ts'))
-    inputs += [ROOT / 'tools/prepare_policy_isolation.py']
-    inputs += sorted((engine / 'native').glob('*'))
-    inputs += sorted((engine / 'schemas').glob('*.json'))
-    identity = hashlib.sha256()
-    for path in inputs:
-        identity.update(str(path.relative_to(ROOT)).encode())
-        identity.update(path.read_bytes())
-    signature = identity.hexdigest()
+    signature = input_signature()
     review = json.loads((engine / 'dependencies.review.json').read_text())
     if review.get('version') != 1:
         raise RuntimeError('Unsupported production dependency review version')
@@ -154,7 +165,9 @@ def prepare(output, node=None):
         previous = json.loads(receipt.read_text())
     except (OSError, ValueError):
         previous = {}
-    if (previous.get('inputs') != signature or not isinstance(previous.get('bundledPackageLocations'), list) or not helper.is_file()
+    if (previous.get('inputs') != signature
+            or previous.get('runtimeEntrypoints') != [target for _, target in RUNTIME_ENTRYPOINTS]
+            or not isinstance(previous.get('bundledPackageLocations'), list) or not helper.is_file()
             or previous.get('helperSha256') != digest(helper)
             or not policy_helper.is_file() or policy_helper.is_symlink()
             or previous.get('policyHelperSha256') != digest(policy_helper)
@@ -163,6 +176,7 @@ def prepare(output, node=None):
         packages = json.loads((engine / 'package.json').read_text())
         package_lock = json.loads((engine / 'package-lock.json').read_text())['packages']
         for name, version in {**packages['dependencies'],
+                              'typescript': packages['devDependencies']['typescript'],
                               'esbuild': packages['devDependencies']['esbuild'],
                               '@esbuild/linux-x64': packages['devDependencies']['esbuild']}.items():
             installed = engine / 'node_modules' / name / 'package.json'
@@ -170,23 +184,27 @@ def prepare(output, node=None):
                     or json.loads(installed.read_text())['version'] != version
                     or package_lock['node_modules/' + name]['version'] != version):
                 raise RuntimeError('Locked contract build dependencies are missing '
-                                   'or mismatched. Run tools/build_engine.sh explicitly.')
+                                   'or mismatched. Run tools/build_engine.sh prepare explicitly.')
+        # Direct/CMake and shell builds share this gate. A failed check never
+        # publishes a new receipt or starts a production bundler.
+        subprocess.run([str(candidate), str(engine / 'node_modules/typescript/bin/tsc'),
+                        '--project', str(engine / 'tsconfig.json'), '--pretty', 'false'],
+                       check=True, cwd=ROOT)
         compiler = engine / 'node_modules/@esbuild/linux-x64/bin/esbuild'
         with tempfile.TemporaryDirectory(dir=output) as staging:
-            compiled = Path(staging) / 'engine.cjs'
             metafile = Path(staging) / 'engine-inputs.json'
             bundled = set()
             bundled_locations = set()
-            for source, target in [('server.ts', 'engine.cjs'),
-                                   ('policy_worker.ts', 'policy-worker.cjs'),
-                                   ('mock_server.ts', 'mock-server.cjs')]:
+            bundle_inputs = {}
+            for source, target in RUNTIME_ENTRYPOINTS:
                 compiled = Path(staging) / target
                 extra = (['--alias:@jsdevtools/ono=' + str(engine / 'node_modules/@jsdevtools/ono/cjs/index.js')]
                          if source == 'mock_server.ts' else [])
                 subprocess.run([str(compiler), str(engine / 'src' / source),
                                 '--bundle', '--platform=node', '--format=cjs', '--main-fields=module,main',
                                 '--outfile=' + str(compiled), '--metafile=' + str(metafile), *extra], check=True, cwd=ROOT)
-                for filename in json.loads(metafile.read_text())['inputs']:
+                bundle_inputs[target] = json.loads(metafile.read_text())['inputs']
+                for filename in bundle_inputs[target]:
                     if 'node_modules/' not in filename:
                         continue
                     package = filename.rsplit('node_modules/', 1)[-1].split('/')
@@ -199,15 +217,15 @@ def prepare(output, node=None):
                     raise RuntimeError('Unreviewed or development package entered the production helper: ' + location)
             if '@scarf/scarf' in bundled:
                 raise RuntimeError('Installation analytics must not enter the production helper')
-            copy_atomic(Path(staging) / 'engine.cjs', helper)
-            copy_atomic(Path(staging) / 'policy-worker.cjs', policy_helper)
-            copy_atomic(Path(staging) / 'mock-server.cjs', mock_helper)
+            for _, target in RUNTIME_ENTRYPOINTS:
+                copy_atomic(Path(staging) / target, output / target)
             record = Path(staging) / 'build.json'
             record.write_text(json.dumps({'version': 1, 'inputs': signature,
                                           'node': lock['node'],
                                           'bundledPackages': sorted(bundled),
                                           'bundledPackageLocations': sorted(bundled_locations),
-                                          'runtimeEntrypoints': ['engine.cjs', 'policy-worker.cjs', 'mock-server.cjs'],
+                                          'runtimeEntrypoints': [target for _, target in RUNTIME_ENTRYPOINTS],
+                                          'bundleInputs': bundle_inputs,
                                           'policyHelperSha256': digest(policy_helper),
                                           'mockHelperSha256': digest(mock_helper),
                                           'helperSha256': digest(helper)}) + '\n')
