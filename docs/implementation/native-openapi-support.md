@@ -8,65 +8,45 @@ opening, editing, saving, validating and rendering do not migrate documents.
 
 ## Current corrective recovery state — 2026-11-11
 
-**Incomplete. The semantic-value correction is implemented, unverified.** The
-actual checkout is `1a5dd22e9e00e626aa63083a6893616ed26eb57c`; it was clean at
-the start of this repair. No reset or older checkout was used. Earlier compiler
-corrections recorded below are already incorporated in this HEAD. Their original
-failure evidence remains intact; it is not a current failing baseline.
+**Implemented, unverified; native and packaged acceptance has not passed.** This
+continuation started clean at `6a2c73b5d76efd1f208faab2c10fe090bd515ba5`, including
+the earlier semantic-value correction and its registered regressions. Current
+repairs are local working-tree changes. The user's instruction supersedes the
+old requirement to wait for behavioral tests before further source repairs;
+the separate execution hold remains in force.
 
-`document.ts` now owns `valueType`, independently of physical syntax kinds.
-Migration domain proofs, flat type inference/default checks, saved parameter
-projections, boolean multipart schema identity and exact-number fingerprinting
-use this semantic classification. YAML nodes retain their `scalar` syntax kind.
-Migration mathematical identity now reads numeric lexemes through the existing
-exact-decimal implementation in both syntaxes; source-spelling identity remains
-separate. No parser, whole-document normalization or conversion rule was added.
-The condition planner consumes the corrected domain proofs without another
-YAML-specific branch. Remaining primitive-kind tests in parameter-serialization
-and finite-multipart proof projections read explicitly constructed JSON documents.
+Project opening now prepares a candidate before changing the active lifecycle,
+and durably preserves input that arrives during preparation. Generic Design
+inspection rebinds recovery targets; explicit disk resolution preserves pending
+values and verifies the current source before applying them. Core history retains
+reversible spans and accounts for retained data. Configured roots load before
+bounded browser population. Engine replacement joins termination and handshakes;
+old callbacks and cancellation cleanup cannot own replacement requests.
 
-The registered `test_migration_value_types.cjs` adds before/after accepted and
-rejected instances for the `special` string conditional, primitive literal
-conditions through nested/reference consumers, Swagger query/Header defaults and
-adjacent large-integer enum intersections with equivalent decimal spellings.
-It also checks unchanged syntax kinds, alias data provenance, comments, CRLF and
-exact lexemes. Converted captures are reopened through ordinary analysis and
-schema evaluation. **These regressions have not executed**, and their definitions
-do not establish preserved semantics or native application acceptance.
+The shared CST/provenance implementation is `source_plan.ts` and
+`source_yaml_ownership.ts`; superseded migration-named modules are removed.
+Conversion uses a dedicated worker entry, with an actual-bundle metadata exclusion
+gate in the existing builder. Multipart paths share typed MIME decoding, input
+capture, transfer/framing, byte inspection and cleanup. The shared parameter
+codec removes the project/request-builder import cycle. An explicit editor build
+profile omits optional tool/native-governance inputs; complete release preparation
+and qualification remain mandatory. Snap receives explicit locked policy headers.
 
-The already authorized exact no-emit command below exited **0** on the untouched
-HEAD and **0** on the corrected Engine sources. One intermediate execution exited
-**2** because the new semantic union narrowed a Set beyond the existing string
-domain API; its declaration was corrected and the original diagnostic retained.
-Evidence is in `build/diagnostics/repair-1a5dd22e-20261111/`:
-`revision.txt`, `initial-status.txt`, `typescript-baseline.log`,
-`typescript-value-types.log`, `typescript-value-types-corrected.log`,
-`tracked-engine.patch` and `code-inputs.sha256`. The latter includes every changed
-Engine source, the suite registration and new test; its SHA-256 is
-`6392f75b28aae71e009b724710afb0cbb72ecf3cab6f4a25356f17ed6f6d3af5`.
-Both passing compiler logs are empty. `git diff --check` also passed. No runtime
-artifact was generated or qualified; existing bundles are not evidence for this
-change. No SDK, dependency, lock or third-party source was modified.
+New/updated registered or automatically discovered regressions cover transition
+failure/cancellation/overlap, generic recovery/save/reopen and external changes,
+one MiB history across Save, delayed process termination, emitted multipart bytes,
+configured discovery and build profiles. **They have not run.** The exact authorized
+no-emit TypeScript command below passes; `git diff --check` passes. Official Dart
+formatting edited first-party source only. No analyzer, behavioral tests, asset
+build, native journey, release/package qualification or Snapcraft executed.
 
-The execution hold remains active apart from that exact no-emit command. One
-authorization request is pending for Engine/tooling, official-input checks,
-Core/widget/CLI, disposable Linux builds and native/relocated/offline acceptance;
-Snapcraft remains explicitly skipped. The immediate prohibited commands are:
-
-```sh
-tools/build_engine.sh compile
-tools/build_engine.sh prepare-tests
-tools/build_engine.sh test-focused tools/contract_engine/test_migration_value_types.cjs tools/contract_engine/test_migration_conditions.cjs tools/contract_engine/test_migration_flat_items.cjs
-tools/build_engine.sh test-all
-python3 -m unittest tools.test_engine_phases tools.test_build_toolchain
-```
-
-Without that executable affected-behavior baseline, broader restructuring has
-not begun. Workspace transitions/generic draft recovery, reversible history,
-configured-project loading, process-session cleanup, conversion isolation,
-multipart/Core ownership, development/release inputs and the Snap recipe still
-require repair and verification. Full native and packaged acceptance remains
-outstanding. No application-repaired, source-complete or accepted claim is made.
+Commands, output logs, final source hashes and the tracked patch are retained in
+`build/diagnostics/repair-6a2c73b5-20261111/`. Runtime artifacts have not been rebuilt
+or qualified, including the new bundle metadata assertion. Original semantic-value
+evidence remains in `build/diagnostics/repair-1a5dd22e-20261111/`; its code manifest
+SHA-256 is `6392f75b28aae71e009b724710afb0cbb72ecf3cab6f4a25356f17ed6f6d3af5`.
+Earlier failure evidence and unfinished approved conversion requirements below
+remain recorded; this increment does not turn them into accepted capabilities.
 
 ## Earlier corrective compilation record — incorporated in current HEAD
 
@@ -76,9 +56,9 @@ are authorized. The user has separately authorized the exact no-emit TypeScript
 command below and repeated execution of that same command throughout recovery;
 do not request permission for it again. Other compilation, tests, builds,
 generation and graphical workloads remain held until separately authorized.
-The requirement to establish a passing
-compile/regression baseline before invasive structural changes still applies.
-Source authorization does not waive that ordering or qualify any feature.
+The former requirement to wait for a passing compile/regression baseline before
+structural source work is superseded by the current user instruction. The
+execution hold remains; source changes alone do not qualify any feature.
 
 The earlier repaired checkout was `release/v0.1.0` at
 `addb6a2c366602965f7b3024ccac6b12098bb413`. It was clean before these repairs.

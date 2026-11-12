@@ -5,7 +5,7 @@ import {SourceDocument} from './document';
 import {constantSchemaAssertion} from './schema_constant_assertions';
 import type {GraphScope,ReferenceGraph} from './reference_graph';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
-import type {MigrationSource} from './migration_source';
+import type {SourcePlan} from './source_plan';
 import type {MigrationArrayBounds} from './migration_schema_arrays';
 import {schemaStringComplement} from './migration_schema_string_complements';
 
@@ -13,7 +13,7 @@ import {schemaStringComplement} from './migration_schema_string_complements';
  * existential/complement equivalence. Neither algorithm bounds arbitrary
  * lengths. The predicate retains its own material schema; successful predicate
  * metadata is applied once per matching item, separately from count tests. */
-export function migrateSchemaContains(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,pointer:string,target:string,
+export function migrateSchemaContains(graph:ReferenceGraph,scope:GraphScope,source:SourcePlan,pointer:string,target:string,
     owners:MigrationSchemaOwners,bounds:MigrationArrayBounds):boolean {
     const doc=graph.docs.get(scope.resource)!,value=doc.dataNode(scope.pointer)?.value;
     const contains=graph.scopeAs(scope.resource,scope.pointer+'/contains','schema'),at=source.current(scope.pointer+'/contains',scope.resource);

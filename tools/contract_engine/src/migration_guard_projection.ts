@@ -1,6 +1,6 @@
 import {SourceError} from './document';
 import {supportedSchemaDialect,type GraphScope,type ReferenceGraph} from './reference_graph';
-import type {MigrationSource,MigrationLocation} from './migration_source';
+import type {SourcePlan,SourceLocation} from './source_plan';
 import type {MigrationSchemaOwners,MigrationApplicationKind} from './migration_schema_owners';
 import {MigrationSchemaProofs,migrationExactValueIdentity} from './migration_schema_proofs';
 import {restrictedBooleanSchema} from './migration_schema_values';
@@ -255,10 +255,10 @@ export function guardProjectionScopes(graph:ReferenceGraph,projection:GuardProje
  * copying until every captured body has undergone ordinary vocabulary lowering,
  * including external bodies whose lexical coordinates sort after the consumer. */
 export function deferGuardProjection(graph:ReferenceGraph,plan:GuardProjection,target:string,owners:MigrationSchemaOwners,
-    sources:ReadonlyMap<string,MigrationSource>,defer:(projection:()=>void)=>void):MigrationLocation {
+    sources:ReadonlyMap<string,SourcePlan>,defer:(projection:()=>void)=>void):SourceLocation {
     const slot=owners.reserveSchema(plan.scope,'guard_projection_use');owners.admit(slot.source);slot.source.set(slot.location.pointer,{});
     defer(()=>{
-        const project=(plan:GuardProjection):MigrationLocation=>{
+        const project=(plan:GuardProjection):SourceLocation=>{
             const range=graph.docs.get(plan.scope.resource)!.dataNode(plan.scope.pointer)!.range;
             if(plan.terminal){
                 const slot=owners.reserveSchema(plan.scope,'guard_terminal');owners.admit(slot.source);slot.source.set(slot.location.pointer,plan.terminal);

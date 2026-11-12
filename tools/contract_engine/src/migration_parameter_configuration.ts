@@ -1,6 +1,6 @@
 import {escape,SourceDocument,valueType} from './document';
 import {ParameterSemantics} from './parameter_semantics';
-import {MigrationSource} from './migration_source';
+import {SourcePlan} from './source_plan';
 import type {MigrationIssue} from './migration_schema';
 import {migrationConfiguredOperations,type MigrationConfigurationProjection,type MigrationServerSelectionContext} from './migration_server_configuration';
 import {projectMigrationRawQuery,sameMigrationParameterValue,sameMigrationQueryFields} from './migration_parameter_serialization';
@@ -23,7 +23,7 @@ export async function projectMigrationParameterConfiguration(entries:readonly Mi
    const source=new ParameterSemantics(entry.source),target=new ParameterSemantics(entry.target);
    const old=source.operation(pair.before.source.resource,pair.before.source.pointer,pair.before.pathItem).visible;
    const next=target.operation(pair.after.source.resource,pair.after.source.pointer,pair.after.pathItem).visible;
-   const projected=new MigrationSource(configuration),rawQueries:NonNullable<MigrationConfigurationProjection['rawQueries']>[number][]=[];
+   const projected=new SourcePlan(configuration),rawQueries:NonNullable<MigrationConfigurationProjection['rawQueries']>[number][]=[];
    const cookieGroups:NonNullable<MigrationConfigurationProjection['cookieGroups']>[number][]=[];
    const cookieUnwraps:string[]=[];
    const emptyQueries:string[]=[];

@@ -4,7 +4,7 @@ import {FormSemantics,formContentType} from './form_semantics';
 import {runtimeMediaKind} from './runtime_media';
 import {runtimeBinaryMedia} from './runtime_binary';
 import {schemaResourceContextIdentity,type GraphScope,type ReferenceGraph} from './reference_graph';
-import type {MigrationSource} from './migration_source';
+import type {SourcePlan} from './source_plan';
 import type {MigrationIssue} from './migration_schema';
 import {modernFamily} from './specification';
 import {ParameterSemantics} from './parameter_semantics';
@@ -254,7 +254,7 @@ const annotation=(name:string)=>name.startsWith('x-')||['title','description','e
  * their type and base64 spelling. Raw leaves are outside JSON types in modern
  * OAS; only proved raw occurrences can lose the legacy octet-string type.
  * Assertions with no established raw-instance mapping remain located blockers. */
-export async function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<string,MigrationSource>,from:string,to:string,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph]):Promise<ReadonlySet<string>> {
+export async function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<string,SourcePlan>,from:string,to:string,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph]):Promise<ReadonlySet<string>> {
     const rawScopes=new Set<string>();
     if(!((from==='2.0'||from==='3.0')&&modernFamily(to)||from==='2.0'&&to==='3.0'||modernFamily(from)&&(to==='3.0'||to==='2.0')))return rawScopes;
     const uses=new BinaryUses(graph,contexts),owners=new MigrationSchemaOwners(graph,sources,undefined,[],contexts);

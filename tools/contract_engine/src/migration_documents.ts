@@ -1,6 +1,6 @@
 import {createGraph,type Resource} from './engine';
 import type {MigrationIssue} from './migration_schema';
-import {migrationValueIdentity,type MigrationLocation} from './migration_source';
+import {sourceValueIdentity,type SourceLocation} from './source_plan';
 import {supportedSchemaDialect,schemaResourceContextIdentity,sameSchemaDialect,type ReferenceGraph,type GraphScope,type GraphReference} from './reference_graph';
 import {escape,SourceError} from './document';
 import {modernFamily} from './specification';
@@ -134,7 +134,7 @@ function equivalentForwarder(a:GraphScope,left:ReferenceGraph,b:GraphScope,right
  * target. Keep every annotated alias as an owner in its own right; never use
  * terminal-definition equality to discard a description/summary override.
  * Cycles and unresolved locators remain subject to the ordinary graph guards. */
-export function securityConnectionTarget(graph:ReferenceGraph,at:MigrationLocation,inspect:()=>void):MigrationLocation {
+export function securityConnectionTarget(graph:ReferenceGraph,at:SourceLocation,inspect:()=>void):SourceLocation {
     const seen=new Set<string>();let current=at;
     for(let depth=0;depth<128;depth++){
         inspect();
@@ -169,7 +169,7 @@ export function sharedNativeSecurityDefinition(graph:ReferenceGraph,scope:GraphS
     if(node?.kind!=='object'||fields===undefined||![...node.children.keys()].every(name=>{
         inspect();return fields.has(name)||name.startsWith('x-');
     }))return;
-    const identity=migrationValueIdentity(graph.docs.get(scope.resource)!,scope.pointer);
+    const identity=sourceValueIdentity(graph.docs.get(scope.resource)!,scope.pointer);
     profiles.set(id,identity);return identity;
 }
 
@@ -281,24 +281,24 @@ export function migrationContextDifferences(contexts:readonly Pick<DocumentConte
  * selects the original definition. Prove its relocated physical owner for
  * every source entry, including names that intentionally vary by entry. Before
  * a family conversion/omission, ownership separation also proves static edges. */
-export function proveMigrationConnections(source:ReferenceGraph,target:ReferenceGraph,mapped:(location:MigrationLocation,scope:GraphScope|undefined)=>readonly MigrationLocation[],issue:MigrationIssue,includeStatic=false):void {
+export function proveMigrationConnections(source:ReferenceGraph,target:ReferenceGraph,mapped:(location:SourceLocation,scope:GraphScope|undefined)=>readonly SourceLocation[],issue:MigrationIssue,includeStatic=false):void {
     let work=0;
     const inspect=()=>{if(++work>2000000)throw new SourceError('limit.migration.owners','Connection ownership proof exceeds 2000000 captured states');};
-    const identity=(field:MigrationLocation,kind:string,connection:string|undefined)=>JSON.stringify([
+    const identity=(field:SourceLocation,kind:string,connection:string|undefined)=>JSON.stringify([
         field.resource,field.pointer,kind,connection==='operationId'||connection==='operationRef'?'operation':connection??'',
     ]);
     const connections=new Map(target.entryReferences().filter(reference=>reference.connection||(includeStatic||reference.kind==='schema')&&['$ref','$dynamicRef'].includes(reference.keyword)).map(reference=>[
         identity({...reference,pointer:reference.pointer+'/'+escape(reference.keyword)},reference.kind,reference.connection),reference]));
-    const mappedSchemas=(location:MigrationLocation)=>mapped(location,source.scopeAs(location.resource,location.pointer,'schema')).filter(location=>{
+    const mappedSchemas=(location:SourceLocation)=>mapped(location,source.scopeAs(location.resource,location.pointer,'schema')).filter(location=>{
         const scope=target.scopeAs(location.resource,location.pointer,'schema');return scope!==undefined&&target.isEntryUse(scope);
     });
     for(const reference of source.entryReferences()){
         inspect();
         if((!reference.connection&&reference.keyword!=='$dynamicRef'&&!(includeStatic&&reference.keyword==='$ref'))||reference.resolution!=='resolved')continue;
         const field={resource:reference.resource,pointer:reference.pointer+'/'+escape(reference.keyword)};
-        const connectionAt=(field:MigrationLocation)=>connections.get(identity(field,reference.kind,reference.connection));
+        const connectionAt=(field:SourceLocation)=>connections.get(identity(field,reference.kind,reference.connection));
         const captured=source.scopeAs(reference.targetResource!,reference.targetPointer!,reference.kind);
-        const canonical=(at:MigrationLocation)=>reference.connection==='security'?securityConnectionTarget(target,at,inspect):at;
+        const canonical=(at:SourceLocation)=>reference.connection==='security'?securityConnectionTarget(target,at,inspect):at;
         const original=reference.connection==='security'&&captured?securityConnectionTarget(source,captured,inspect):captured;
         const expected=original&&source.scopeAs(original.resource,original.pointer,reference.kind);
         const fields=mapped(field,source.referenceOwner(reference)).filter(field=>connectionAt(field)!==undefined),targets=mapped({resource:reference.targetResource!,pointer:reference.targetPointer!},captured)
@@ -321,7 +321,7 @@ export function proveMigrationConnections(source:ReferenceGraph,target:Reference
             if(connection?.keyword==='$ref'&&!modernFamily(connection.family)&&projectSchemaReference(reference).state==='fixed')continue;
             const expected=reference.dynamic?.candidates.flatMap(candidate=>mappedSchemas(candidate));
             const actual=connection?.dynamic?.candidates;
-            const identities=(values:readonly MigrationLocation[]|undefined)=>values===undefined?undefined:[...new Set(values.map(value=>JSON.stringify([value.resource,value.pointer])))].sort();
+            const identities=(values:readonly SourceLocation[]|undefined)=>values===undefined?undefined:[...new Set(values.map(value=>JSON.stringify([value.resource,value.pointer])))].sort();
             if(reference.dynamic?.candidates.some(candidate=>!mappedSchemas(candidate).length)||Boolean(reference.dynamic)!==Boolean(connection?.dynamic)||JSON.stringify(identities(expected))!==JSON.stringify(identities(actual)))
                 issue({...field,original:{resource:reference.resource,pointer:reference.pointer+'/'+escape(reference.keyword)}},'migration.invariant.dynamic','The migrated entry changes a captured dynamic reference scope or candidate owner','implementation');
         }

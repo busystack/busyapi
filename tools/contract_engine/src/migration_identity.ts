@@ -1,14 +1,14 @@
 import {escape} from './document';
 import {documentUriOccurrences} from './document_uris';
 import {documentUriBase,implicitNameReference,resolveUri,type ReferenceGraph} from './reference_graph';
-import type {MigrationSource,MigrationLocation} from './migration_source';
+import type {SourcePlan,SourceLocation} from './source_plan';
 import type {MigrationIssue} from './migration_schema';
 
 /** OAS 3.2 §§4.1.1–4.1.2: lower a document identity only after capturing the
  * URI meaning of every affected occurrence. API URLs retain their retrieval/
  * Server context. Temporary graph aliases are not a new acquisition authority;
  * normal relocation and cold proofs must remove dependency on those aliases. */
-export function migrateDocumentIdentities(graph:ReferenceGraph,sources:ReadonlyMap<string,MigrationSource>,
+export function migrateDocumentIdentities(graph:ReferenceGraph,sources:ReadonlyMap<string,SourcePlan>,
     target:string,issue:MigrationIssue):ReadonlyMap<string,readonly string[]> {
     const identities=new Map<string,readonly string[]>();
     if(target==='3.2')return identities;
@@ -22,7 +22,7 @@ export function migrateDocumentIdentities(graph:ReferenceGraph,sources:ReadonlyM
         }
         identities.set(resource,[graph.retrievals.get(resource)!,graph.scope(resource,'').base]);
     }
-    const set=(location:MigrationLocation,value:string)=>{
+    const set=(location:SourceLocation,value:string)=>{
         const source=sources.get(location.resource)!,at=source.current(location.pointer);
         if(at===undefined||source.doc.dataNode(at)?.value===value)return;
         if(graph.literalContainer(location.resource,location.pointer)!==undefined){

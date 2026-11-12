@@ -12,7 +12,7 @@ import type {Resource} from './engine';
 import {escape,SourceError} from './document';
 import {finiteServerUrls} from './server_semantics';
 import {securityFlowOrder,securityRequirementAlternatives,type SecurityAlternativeProjection} from './security_requirements';
-import type {MigrationLocation} from './migration_source';
+import type {SourceLocation} from './source_plan';
 import type {MigrationIssue} from './migration_schema';
 import {migrationOperationUses} from './migration_operation_contexts';
 import {ParameterSemantics,parameterStyle} from './parameter_semantics';
@@ -32,10 +32,10 @@ export type MigrationOperationPair=Readonly<{before:ReturnType<ReferenceGraph['o
  * Matching values or operationIds cannot authorize replacing one occurrence
  * with another. The bijection rejects lost, duplicated and extra operations. */
 export function migrationOperationPairs(source:ReferenceGraph,target:ReferenceGraph,
- mapped:(location:MigrationLocation,scope:GraphScope|undefined)=>readonly MigrationLocation[],issue:MigrationIssue):MigrationOperationPair[] {
+ mapped:(location:SourceLocation,scope:GraphScope|undefined)=>readonly SourceLocation[],issue:MigrationIssue):MigrationOperationPair[] {
  const result:MigrationOperationPair[]=[],claimed=new Set<string>(),operations=target.operations();
  const wire=(operation:typeof operations[number])=>operation.customMethod?operation.method:operation.method.toUpperCase();
- const key=(operation:typeof operations[number],at:MigrationLocation)=>JSON.stringify([at.resource,at.pointer,wire(operation),operation.role]);
+ const key=(operation:typeof operations[number],at:SourceLocation)=>JSON.stringify([at.resource,at.pointer,wire(operation),operation.role]);
  const index=new Map<string,typeof operations[number][]>();let work=0;
  for(const operation of operations){const id=key(operation,operation.source),values=index.get(id)??[];values.push(operation);index.set(id,values);}
  for(const before of source.operations()){
@@ -65,7 +65,7 @@ export {proveMigrationParameterSerialization} from './migration_parameter_serial
 /** Independently reusable Parameters and Headers need the same metadata proof
  * as executable occurrences. Literal history is not an active target owner. */
 export function proveMigrationObjectMetadata(source:ReferenceGraph,target:ReferenceGraph,
-    mapped:(location:MigrationLocation,scope:GraphScope)=>readonly MigrationLocation[],issue:MigrationIssue,
+    mapped:(location:SourceLocation,scope:GraphScope)=>readonly SourceLocation[],issue:MigrationIssue,
     wire?:Readonly<{before:ParameterWireProfiles;after:ParameterWireProfiles}>):void {
     const headerTargets=new Set(source.entryReferences().filter(edge=>edge.kind==='header'&&edge.resolution==='resolved')
         .map(edge=>JSON.stringify([edge.targetResource,edge.targetPointer])));
@@ -112,11 +112,11 @@ export function proveMigrationObjectMetadata(source:ReferenceGraph,target:Refere
  * and webhooks. Static connections and schema/resource proofs remain separate;
  * a detached operation is never made executable just to obtain a request plan. */
 export function proveMigrationOperationMedia(source:ReferenceGraph,target:ReferenceGraph,
-    mapped:(location:MigrationLocation,scope:GraphScope)=>readonly MigrationLocation[],issue:MigrationIssue):void {
+    mapped:(location:SourceLocation,scope:GraphScope)=>readonly SourceLocation[],issue:MigrationIssue):void {
     let work=0;
     const profiles=(graph:ReferenceGraph)=>{
         const result=new Map<string,Set<string>>(),parameters=new ParameterSemantics(graph);
-        const terminal=(at:MigrationLocation,kind:string):any=>{
+        const terminal=(at:SourceLocation,kind:string):any=>{
             const seen=new Set<string>();
             for(let depth=0;depth<128;depth++){
                 if(++work>2000000)throw new SourceError('limit.migration.owners','Operation media proof exceeds its bounded work');
@@ -169,10 +169,10 @@ export function proveMigrationOperationMedia(source:ReferenceGraph,target:Refere
  * request-operation owner. Intersect permissible target branches across uses;
  * invalid source selections must not become valid after array expansion. */
 export function migrationSecurityAlternativeProjection(source:ReferenceGraph,target:ReferenceGraph,resources:Resource[],
-    mapped:(location:MigrationLocation,scope:GraphScope|undefined)=>readonly MigrationLocation[]):SecurityAlternativeProjection {
+    mapped:(location:SourceLocation,scope:GraphScope|undefined)=>readonly SourceLocation[]):SecurityAlternativeProjection {
     const choices=new Map<number,Set<number>>(),bounds:{before:number;after:number}[]=[];
     const seen=new Set<string>();let work=0;
-    const captured:{array:MigrationLocation;requirements:readonly {source:MigrationLocation}[]}[]=[];
+    const captured:{array:SourceLocation;requirements:readonly {source:SourceLocation}[]}[]=[];
     for(const operation of source.operations().filter(operation=>operation.role==='operation')){
         const plan=requestOperation({root:source.root,resources,snapshot:'migration-security-alternatives',resource:operation.source.resource,
             pointer:operation.source.pointer,occurrence:operation.occurrence});
@@ -394,7 +394,7 @@ export function migrationRequestSignatures(graph:ReferenceGraph,resources:Resour
  * schema/binary conversions and reference repair. Schema invariants retain the
  * value language; this compares the positional media/byte interpretation. */
 export function proveMigrationPositionalEncoding(source:ReferenceGraph,target:ReferenceGraph,
- mapped:(location:MigrationLocation,scope:GraphScope)=>readonly MigrationLocation[],issue:MigrationIssue):void {
+ mapped:(location:SourceLocation,scope:GraphScope)=>readonly SourceLocation[],issue:MigrationIssue):void {
  if(target.specifications.get(target.root)?.family==='3.2')return;
  const before=new PositionalEncodingEquivalence(source),after=new PositionalEncodingEquivalence(target);
  const bounds=new MigrationArrayBounds(source);

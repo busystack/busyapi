@@ -1,13 +1,13 @@
 import {independentTermsDestination} from './migration_terms_base';
 import {finiteServerVariableValues,resolveServerUrl,serverUrlValidity} from './server_semantics';
 import {documentUriBase,resolveUri,type GraphScope,type ReferenceGraph} from './reference_graph';
-import type {MigrationSource} from './migration_source';
+import type {SourcePlan} from './source_plan';
 import type {MigrationIssue} from './migration_schema';
 
 /** Terms links change from Server-relative URLs in 3.0 (§4.6) to document
  * URIs in 3.1 (§4.6). Capture their meaning before changing family. Distinct
  * Server choices cannot be collapsed to one arbitrary default URI. */
-export function migrateTerms(graph:ReferenceGraph,sources:Map<string,MigrationSource>,families:readonly string[],captured:Map<string,string>,issue:MigrationIssue):void {
+export function migrateTerms(graph:ReferenceGraph,sources:Map<string,SourcePlan>,families:readonly string[],captured:Map<string,string>,issue:MigrationIssue):void {
     for(const scope of graph.entryScopes()){
         if(scope.kind!=='info'||scope.family==='2.0'||!families.includes(scope.family))continue;
         const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value?.termsOfService;

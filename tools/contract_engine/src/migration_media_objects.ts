@@ -1,6 +1,6 @@
 import {escape,SourceError} from './document';
 import {pointerFragment,type GraphScope,type ReferenceGraph} from './reference_graph';
-import type {MigrationLocation,MigrationSource} from './migration_source';
+import type {SourceLocation,SourcePlan} from './source_plan';
 import type {MigrationIssue} from './migration_schema';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import {migrationScopes} from './migration_documents';
@@ -15,7 +15,7 @@ export type MigrationMediaOccurrence=Readonly<{
  context:GraphScope;mediaType:string;identity:string;
  schema?:GraphScope;itemSchema?:GraphScope;
  encoding:Readonly<{mode:'positional'|'named'|'default'|'inactive';
-  named?:MigrationLocation;prefix?:MigrationLocation;tail?:MigrationLocation}>;
+  named?:SourceLocation;prefix?:SourceLocation;tail?:SourceLocation}>;
 }>;
 
 export function migrationMediaDefinition(graph:ReferenceGraph,use:GraphScope):GraphScope {
@@ -37,7 +37,7 @@ export function migrationMediaOccurrence(graph:ReferenceGraph,use:GraphScope):Mi
    at=graph.scopeAs(edge.targetResource!,edge.targetPointer!,'media')!;chain.push(at);
   }
   const types=mediaTypes(mediaType),value=graph.docs.get(definition.resource)!.dataNode(definition.pointer)?.value;
-  const field=(name:string):MigrationLocation|undefined=>value?.[name]===undefined?undefined:{resource:definition.resource,pointer:definition.pointer+'/'+name};
+  const field=(name:string):SourceLocation|undefined=>value?.[name]===undefined?undefined:{resource:definition.resource,pointer:definition.pointer+'/'+name};
   const named=field('encoding'),prefix=field('prefixEncoding'),tail=field('itemEncoding');
   const multipart=types.every(type=>type.type==='multipart'),form=types.every(type=>type.type==='application'&&type.subtype==='x-www-form-urlencoded');
   const mode=prefix||tail?multipart?'positional':'inactive':named?multipart||form?'named':'inactive':'default';
@@ -60,7 +60,7 @@ export function* migrationMediaOccurrences(graph:ReferenceGraph):Generator<Migra
 /** Envelope copies have newly generated child uses. Their definitions stay at
  * the canonical material owner, including identified schema resources and
  * nested Encoding Headers. Literal examples are copied by the CST unchanged. */
-function referenceMediaChildren(source:MigrationSource,pointer:string,target:MigrationLocation):void {
+function referenceMediaChildren(source:SourcePlan,pointer:string,target:SourceLocation):void {
  const reference=(suffix:string)=>{
   const at=pointer+suffix;if(!source.doc.dataNode(at))return;
   for(const locations of source.originSets())for(const candidate of [...locations])
@@ -84,8 +84,8 @@ function referenceMediaChildren(source:MigrationSource,pointer:string,target:Mig
  * last Media Type reference materializes. Retain that neutral interpretation
  * in a standard component before rebuilding the graph. Children continue to
  * own their original URI resources; only the envelope acquires this holder. */
-function retainMediaDefinition(scope:GraphScope,graphs:readonly ReferenceGraph[],sources:Map<string,MigrationSource>,
- owners:MigrationSchemaOwners,coordinates:(source:MigrationSource,pointer:string)=>void):void {
+function retainMediaDefinition(scope:GraphScope,graphs:readonly ReferenceGraph[],sources:Map<string,SourcePlan>,
+ owners:MigrationSchemaOwners,coordinates:(source:SourcePlan,pointer:string)=>void):void {
  if(/^\/components\/mediaTypes\/[^/]+$/.test(scope.pointer)||graphs.some(graph=>migrationMediaOccurrence(graph,scope)))return;
  const contexts=graphs.filter(graph=>{
   const captured=graph.scopeAs(scope.resource,scope.pointer,'media');
@@ -137,17 +137,17 @@ export function migrationMediaTypes(graphs:readonly ReferenceGraph[]):ReadonlyMa
  * envelopes while keeping their schemas, Examples and Headers independently
  * referenced. Copying identified schemas into every use would duplicate URI
  * resources and turn independent consumers into aliases of new identities. */
-export function materializeMediaReferences(graphs:readonly ReferenceGraph[],sources:Map<string,MigrationSource>,
+export function materializeMediaReferences(graphs:readonly ReferenceGraph[],sources:Map<string,SourcePlan>,
  families:readonly string[],target:string,owners:MigrationSchemaOwners,issue:MigrationIssue):boolean {
  if(target==='3.2'||!families.includes('3.2'))return false;
  const captured=new Map([...sources].map(([id,source])=>[id,source.fork()]));let changed=false,work=0,fieldWork=0;
- const coordinates=(source:MigrationSource,pointer:string)=>{
+ const coordinates=(source:SourcePlan,pointer:string)=>{
   source.doc.dataJson(pointer,(_node,at)=>{
    if(++fieldWork>200000)throw new SourceError('limit.migration.media-objects','Media occurrence provenance exceeds 200000 captured fields');
    if(!source.origins.has(at))source.origins.set(at,new Set([at]));return undefined;
   });
  };
- const contexts:{source:MigrationSource;pointer:string;aliases:GraphScope[]}[]=[];
+ const contexts:{source:SourcePlan;pointer:string;aliases:GraphScope[]}[]=[];
  for(const scope of migrationScopes(graphs)){
   if(scope.family!=='3.2'||scope.kind!=='media')continue;
   const graph=graphs.find(graph=>graph.scopeAs(scope.resource,scope.pointer,'media')?.family==='3.2')!;
@@ -210,7 +210,7 @@ export function materializeMediaReferences(graphs:readonly ReferenceGraph[],sour
 /** A reusable Media Type remains a native object in an unused Response content
  * slot when the target has no mediaTypes component map. All actual consumers
  * above retain their own media keys; the holder adds no executable response. */
-export function relocateMediaComponents(graphs:readonly ReferenceGraph[],sources:Map<string,MigrationSource>,
+export function relocateMediaComponents(graphs:readonly ReferenceGraph[],sources:Map<string,SourcePlan>,
  families:readonly string[],target:string,owners:MigrationSchemaOwners):void {
  if(!['3.0','3.1'].includes(target))return;
  const mediaTypes=migrationMediaTypes(graphs);

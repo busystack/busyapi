@@ -194,6 +194,20 @@ build/linux/x64/release/bundle/busyapi-desktop
 
 The CLI resides in the same release bundle. Run executables from the completed `bundle` directory, not `intermediates_do_not_run`. Normal `flutter run -d linux`, IDE debugging, and Flutter debug/profile/release builds use the same SDK and install the matching assets through CMake.
 
+For an editor development build with already installed locked dependencies, use
+`BUSYAPI_BUILD_OFFLINE=1 tools/build_linux.sh editor`. To launch through Flutter,
+use `BUSYAPI_BUILD_PROFILE=editor flutter run --no-pub -d linux`. This explicit
+profile builds authoring/validation and conversion helpers without the JRE,
+oasdiff, supplementary renderer or executable governance isolation inputs.
+Unavailable tool actions report their missing assets; governance never runs
+without isolation. It is not a release or acceptance build. The default
+`tools/build_linux.sh` path still assembles and verifies every approved capability.
+
+The Snap recipe requires `BUSYAPI_NODE_INCLUDE` and `BUSYAPI_SECCOMP_INCLUDE`
+pointing to explicitly supplied official declaration headers. The existing policy
+preparer checks their locked hashes and stages them before contract preparation;
+installed system development packages do not substitute for those inputs.
+
 ### Development checks
 
 ```sh

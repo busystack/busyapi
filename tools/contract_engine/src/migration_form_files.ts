@@ -1,5 +1,5 @@
 import {SourceError,escape} from './document';
-import type {MigrationSource} from './migration_source';
+import type {SourcePlan} from './source_plan';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import {compare,decimal} from './exact_numbers';
 import {rawPatternBounds} from './migration_binary_constraints';
@@ -7,9 +7,9 @@ import {rawPatternBounds} from './migration_binary_constraints';
 /** Swagger §6.4.9 has an opaque single file parameter, with no internal
  * schema model. Consolidate only raw wrappers and parameter metadata; a file
  * reference is never copied into a flat Parameter or Items Object. */
-export function materializeFormFile(sources:ReadonlyMap<string,MigrationSource>,owners:MigrationSchemaOwners,source:MigrationSource,pointer:string,octetString=true):boolean {
-    const metadata=new Map<string,{source:MigrationSource;pointer:string}>(),seen=new Set<string>();let work=0,valid=true;
-    const visit=(source:MigrationSource,pointer:string)=>{
+export function materializeFormFile(sources:ReadonlyMap<string,SourcePlan>,owners:MigrationSchemaOwners,source:SourcePlan,pointer:string,octetString=true):boolean {
+    const metadata=new Map<string,{source:SourcePlan;pointer:string}>(),seen=new Set<string>();let work=0,valid=true;
+    const visit=(source:SourcePlan,pointer:string)=>{
         if(++work>50000)throw new SourceError('limit.migration.form-file','File field materialization exceeds 50000 states');
         const id=JSON.stringify([source.doc.id,pointer]);if(seen.has(id)){valid=false;return;}seen.add(id);
         const node=source.doc.dataNode(pointer);if(node?.kind!=='object'){valid=false;return;}
@@ -41,11 +41,11 @@ export function materializeFormFile(sources:ReadonlyMap<string,MigrationSource>,
 
 /** A one-item array has the same wire multiplicity as a single file. Wider
  * arrays cannot become Swagger Items(file), nor duplicate name/in parameters. */
-export function materializeSingletonFormFile(sources:ReadonlyMap<string,MigrationSource>,owners:MigrationSchemaOwners,source:MigrationSource,pointer:string,octetString=true):boolean {
-    const items:{source:MigrationSource;pointer:string}[]=[],metadata=new Map<string,{source:MigrationSource;pointer:string}>();
+export function materializeSingletonFormFile(sources:ReadonlyMap<string,SourcePlan>,owners:MigrationSchemaOwners,source:SourcePlan,pointer:string,octetString=true):boolean {
+    const items:{source:SourcePlan;pointer:string}[]=[],metadata=new Map<string,{source:SourcePlan;pointer:string}>();
     const active=new Set<string>();let work=0,valid=true;
     let minimum=decimal('0'),maximum:ReturnType<typeof decimal>|undefined;
-    const visit=(source:MigrationSource,pointer:string)=>{
+    const visit=(source:SourcePlan,pointer:string)=>{
         if(++work>50000)throw new SourceError('limit.migration.form-file','Singleton file materialization exceeds 50000 states');
         const id=JSON.stringify([source.doc.id,pointer]);if(active.has(id)){valid=false;return;}active.add(id);
         const node=source.doc.dataNode(pointer);if(node?.kind!=='object'){valid=false;return;}

@@ -265,4 +265,83 @@ ${legacy ? "      parameters: [{in: formData, name: value, type: string, allowEm
       );
     }
   }
+  test(
+    'named literal and typed inputs share exact MIME construction',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'busyapi-shared-multipart-',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final file = File('${directory.path}/api.yaml')
+        ..writeAsStringSync('''openapi: 3.2.1
+info: {title: Shared construction, version: '1'}
+servers: [{url: 'http://127.0.0.1:1'}]
+paths:
+  /parts:
+    post:
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [label, count]
+              properties: {label: {type: string}, count: {type: integer}}
+      responses: {'204': {description: OK}}
+''');
+      final engine = EngineProcess(
+        executable: runtimeNode,
+        helper: runtimeHelper,
+      );
+      addTearDown(engine.close);
+      final project = await BusyProject.open(file.path, engine);
+      addTearDown(project.close);
+      final plan = await project.prepareRequest(
+        file.uri.toString(),
+        resource: file.uri.toString(),
+        pointer: '/paths/~1parts/post',
+      );
+      addTearDown(plan.close);
+      final bodies = <List<int>>[];
+      for (final draft in [
+        const RequestBodyDraft.multipart(
+          [
+            RequestFormField('label', 'snow 雪'),
+            RequestFormField('count', '9007199254740993'),
+          ],
+          [],
+          mediaType: 'multipart/form-data; boundary=Shared',
+        ),
+        const RequestBodyDraft.multipartValue(
+          json: '{"label":"snow 雪","count":9007199254740993}',
+          mediaType: 'multipart/form-data; boundary=Shared',
+        ),
+      ]) {
+        final request = await const ContractRequestBuilder().build(
+          plan,
+          OperationRequestDraft(planIdentity: plan.identity, body: draft),
+          resolveSecret: (_) async => null,
+        );
+        final body = request.body!;
+        try {
+          bodies.add(
+            await body.open().fold<List<int>>(
+              [],
+              (all, chunk) => all..addAll(chunk),
+            ),
+          );
+        } finally {
+          await body.close();
+        }
+      }
+      expect(bodies[0], bodies[1]);
+      expect(
+        bodies[0],
+        utf8.encode(
+          '--Shared\r\nContent-Disposition: form-data; name="label"\r\nContent-Type: text/plain\r\n\r\nsnow 雪\r\n'
+          '--Shared\r\nContent-Disposition: form-data; name="count"\r\nContent-Type: text/plain\r\n\r\n9007199254740993\r\n--Shared--\r\n',
+        ),
+      );
+    },
+  );
+
 }

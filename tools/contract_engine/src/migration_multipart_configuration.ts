@@ -1,5 +1,5 @@
 import {SourceDocument,SourceError} from './document';
-import {MigrationSource,type MigrationLocation} from './migration_source';
+import {SourcePlan,type SourceLocation} from './source_plan';
 import {requestOperation} from './execution';
 import {evaluateSchemas} from './schema_evaluation';
 import {NamedMultipartEquivalence,namedMultipartFields,projectNamedMultipartValue} from './migration_named_multipart';
@@ -7,8 +7,8 @@ import {migrationConfiguredOperations,type MigrationConfigurationProjection,type
 import type {MigrationIssue} from './migration_schema';
 import type {ExternalExampleResourcePacket} from './external_examples';
 
-type SavedMultipartInstance=Readonly<{subject:'request-body';location:string;text:string;schema:MigrationLocation}>;
-const instance=(text:string,schema:MigrationLocation,location='saved-multipart'):SavedMultipartInstance=>({subject:'request-body',location,text,schema});
+type SavedMultipartInstance=Readonly<{subject:'request-body';location:string;text:string;schema:SourceLocation}>;
+const instance=(text:string,schema:SourceLocation,location='saved-multipart'):SavedMultipartInstance=>({subject:'request-body',location,text,schema});
 
 /** Saved multipart values use the same captured bijection as declarations.
  * Only body.value changes. Media, binary references, Header/media selections,
@@ -73,7 +73,7 @@ export async function projectMigrationMultipartConfiguration(entries:readonly Mi
    if(!await check(entry.source,sourceInstances)||!await check(entry.target,[instance(projected,destination.schema,'saved-named-multipart')])){
     fail('The saved multipart inverse is outside the complete captured source or target schema language');continue;
    }
-   const output=new MigrationSource(configuration);output.exact(value.pointer,projected);
+   const output=new SourcePlan(configuration);output.exact(value.pointer,projected);
    const text=output.doc.dataJson(body.pointer);proposals.set(text,{after:text,...(c.fields?{names}:{name:c.name})});
   }
   if(!applies)continue;

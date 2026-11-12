@@ -2,7 +2,7 @@ import {MigrationSchemaProofs} from './migration_schema_proofs';
 import {annotationAll,annotationNot,emitAnnotationGuard,type AnnotationGuard} from './migration_schema_annotation_guards';
 import type {GraphScope,GraphReference,ReferenceGraph} from './reference_graph';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
-import type {MigrationSource} from './migration_source';
+import type {SourcePlan} from './source_plan';
 import type {MigrationArrayBounds} from './migration_schema_arrays';
 import {discardInactiveMigrationSchema} from './migration_schema_conditions';
 import {compare,decimal} from './exact_numbers';
@@ -63,7 +63,7 @@ export class MigrationEvaluatedItems {
         }
         return prefix===Infinity?Infinity:unknown?undefined:prefix;
     }
-    private lowerPrefix(scope:GraphScope,source:MigrationSource,pointer:string,target:string,prefix:number,defer:(apply:()=>void)=>void):boolean {
+    private lowerPrefix(scope:GraphScope,source:SourcePlan,pointer:string,target:string,prefix:number,defer:(apply:()=>void)=>void):boolean {
         if(prefix!==Infinity&&prefix>2048)return false;
         const maximum=this.bounds.maximum(scope),original={resource:scope.resource,pointer:scope.pointer+'/unevaluatedItems'};
         const selected=this.graph.scopeAs(scope.resource,original.pointer,'schema');if(!selected)return false;
@@ -131,7 +131,7 @@ export class MigrationEvaluatedItems {
         }
         return parts;
     }
-    discardInactive(scope:GraphScope,source:MigrationSource,references:readonly GraphReference[]):void {
+    discardInactive(scope:GraphScope,source:SourcePlan,references:readonly GraphReference[]):void {
         const original={resource:scope.resource,pointer:scope.pointer+'/unevaluatedItems'};
         if(source.current(original.pointer,scope.resource)===undefined||this.graph.hasOverlappingScope(scope.resource,scope.pointer)||
             this.graph.literalContainer(scope.resource,scope.pointer)!==undefined)return;
@@ -142,7 +142,7 @@ export class MigrationEvaluatedItems {
         const at=source.current(original.pointer,scope.resource);
         if(at!==undefined)this.owners.move(original,source,at,'covered_unevaluated_items',{context:this.graph,layout:'array-item'});
     }
-    lower(scope:GraphScope,source:MigrationSource,pointer:string,target:string,defer:(apply:()=>void)=>void):boolean {
+    lower(scope:GraphScope,source:SourcePlan,pointer:string,target:string,defer:(apply:()=>void)=>void):boolean {
         const original={resource:scope.resource,pointer:scope.pointer+'/unevaluatedItems'},at=source.current(original.pointer,scope.resource);
         if(at!==pointer+'/unevaluatedItems'||!source.doc.dataNode(at)||this.graph.hasOverlappingScope(scope.resource,scope.pointer)||
             this.graph.literalContainer(scope.resource,scope.pointer)!==undefined)return false;

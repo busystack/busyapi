@@ -1031,6 +1031,8 @@ class RecoveryStore {
     DocumentBuffer b, {
     PropertySession? draft,
     FormSession? form,
+    bool Function()? current,
+    void Function()? onAdopted,
   }) async {
     final recordPath = p.normalize(p.absolute(record['recordPath'] as String));
     if (p.dirname(recordPath) != p.normalize(p.absolute(directory)) ||
@@ -1042,6 +1044,8 @@ class RecoveryStore {
         'Recovery record is outside the owning private store',
       );
     }
+    if (current != null && !current())
+      throw CoreFailure('recovery.stale', 'Recovery owner changed');
     b.update(record['text'] as String);
     final recordedGeneration = record['generation'] as int? ?? 0;
     if (b.generation <= recordedGeneration) {
@@ -1052,8 +1056,10 @@ class RecoveryStore {
         b.externalConflict || b.diskIdentity != record['diskIdentity'];
     b.baseline = record['baseline'] as String;
     b.diskIdentity = record['diskIdentity'] as String;
+    onAdopted?.call();
     await persist(b, draft: draft, form: form);
-    if (recordPath != p.normalize(p.absolute(_path(b.id)))) {
+    if ((current == null || current()) &&
+        recordPath != p.normalize(p.absolute(_path(b.id)))) {
       await File(recordPath).delete();
     }
   }

@@ -1,5 +1,7 @@
 """Packaging must reject an incomplete Flutter-only bundle before copying libs."""
 import pathlib
+import json
+import hashlib
 import os
 import subprocess
 import sys
@@ -7,7 +9,7 @@ import tempfile
 import unittest
 
 REQUIRED = ['busyapi-desktop','busyapi','lib/libflutter_linux_gtk.so','share/busyapi/flutter-sdk.json','libexec/busyapi/node','libexec/busyapi/engine.cjs',
-            'libexec/busyapi/policy-worker.cjs','lib/libbusyapi_documentation.so',
+            'libexec/busyapi/conversion-worker.cjs','libexec/busyapi/policy-worker.cjs','lib/libbusyapi_documentation.so',
             'share/busyapi/documentation-runtime.json','libexec/busyapi/policy-isolation.node',
             'libexec/busyapi/policy-launcher','libexec/busyapi/policy-build.json',
             'libexec/busyapi/mock-server.cjs','libexec/busyapi/oasdiff','libexec/busyapi/build.json',
@@ -22,6 +24,11 @@ def prerequisite_files(bundle, extra=()):
         file=bundle/name
         file.parent.mkdir(parents=True,exist_ok=True)
         file.touch()
+    receipt = {'profile': 'release'}
+    for name, field in [('engine.cjs', 'helperSha256'), ('conversion-worker.cjs', 'conversionHelperSha256'),
+                        ('mock-server.cjs', 'mockHelperSha256'), ('policy-worker.cjs', 'policyHelperSha256')]:
+        receipt[field] = hashlib.sha256((bundle/'libexec/busyapi'/name).read_bytes()).hexdigest()
+    (bundle/'libexec/busyapi/build.json').write_text(json.dumps(receipt))
 
 
 class StandaloneAssets(unittest.TestCase):

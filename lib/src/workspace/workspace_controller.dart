@@ -60,6 +60,7 @@ class WorkspaceController extends ChangeNotifier {
   }
 
   int _opening = 0;
+  Object? _pendingOpen;
   int _selection = 0;
   bool _disposed = false, _shuttingDown = false;
   Future<void>? _shutdown;
@@ -81,13 +82,25 @@ class WorkspaceController extends ChangeNotifier {
 
   String selectedPointer = '/info';
   String? selectedResource, selectedOccurrence;
-  ({BusyProject owner, String root, String resource, String pointer, String kind})? _designNavigation;
+  ({
+    BusyProject owner,
+    String root,
+    String resource,
+    String pointer,
+    String kind,
+  })?
+  _designNavigation;
   String? get selectedObjectKind {
     final target = _designNavigation;
-    return target != null && identical(target.owner, project) &&
-        target.root == root && target.resource == (selectedResource ?? root) &&
-        target.pointer == selectedPointer ? target.kind : null;
+    return target != null &&
+            identical(target.owner, project) &&
+            target.root == root &&
+            target.resource == (selectedResource ?? root) &&
+            target.pointer == selectedPointer
+        ? target.kind
+        : null;
   }
+
   final Map<String, Map<String, dynamic>> _savedViews = {};
   bool isSelected(Map<String, dynamic> item) =>
       selectedPointer == item['pointer'] &&
@@ -136,9 +149,13 @@ class WorkspaceController extends ChangeNotifier {
       );
   bool get designSafe => scopeSafe(projection?['info']);
   bool authoredFieldShared(dynamic item, String field) =>
-      item is Map && (item['fields'] as List? ?? const []).any(
-        (entry) => entry is Map && entry['name'] == field &&
-            entry['target'] is Map && entry['target']['shared'] == true,
+      item is Map &&
+      (item['fields'] as List? ?? const []).any(
+        (entry) =>
+            entry is Map &&
+            entry['name'] == field &&
+            entry['target'] is Map &&
+            entry['target']['shared'] == true,
       );
   bool scopeSafe(
     dynamic item, {
@@ -400,45 +417,103 @@ class WorkspaceController extends ChangeNotifier {
     Map<String, dynamic>? recovering,
   }) async {
     if (disposed) throw CoreFailure('workspace.closed', 'Workspace is closed');
-    final opening = ++_opening;
+    final attempt = Object();
+    _pendingOpen = attempt;
     bool superseded() =>
-        disposed || opening != _opening || (cancelled?.call() ?? false);
-    _context++;
-    _debounce?.cancel();
-    final next = await BusyProject.open(path, engine, cancelled: superseded);
-    if (superseded()) {
-      next.close();
-      throw CoreFailure(
-        'open.cancelled',
-        'Project opening was cancelled or superseded',
-      );
-    }
-    if (recovering != null) {
-      await next.buffer(recovering['id'] as String, recovery: recovering);
-      if (superseded()) {
-        next.close();
+        disposed ||
+        !identical(_pendingOpen, attempt) ||
+        (cancelled?.call() ?? false);
+    void requireAttempt() {
+      if (superseded())
         throw CoreFailure(
           'open.cancelled',
           'Project opening was cancelled or superseded',
         );
-      }
     }
+
+    BusyProject? prepared;
+    late BusyProject next;
+    late List<Map<String, dynamic>> pendingPublications;
+    String? initialRoot, initialResource;
     try {
-      await persist();
-      await persistView();
+      next = await BusyProject.open(path, engine, cancelled: superseded);
+      prepared = next;
+      requireAttempt();
+      if (recovering != null) {
+        await next.buffer(recovering['id'] as String, recovery: recovering);
+      }
+      // Acquire the initial resource before relinquishing the previous owner.
+      if (next.roots.length == 1) {
+        final selected = next.roots.single.id;
+        try {
+          await next.buffer(selected);
+          initialRoot = selected;
+          initialResource = selected;
+        } on Object catch (failure) {
+          if (failure is! FileSystemException &&
+              !(failure is CoreFailure && failure.code.startsWith('access.')))
+            rethrow;
+          next.discoveryFailure ??= failure.toString();
+          final manifest = Uri.file(
+            p.join(next.access.boundary, 'busyapi.yaml'),
+          ).toString();
+          await next.buffer(manifest);
+          initialResource = manifest;
+        }
+      }
+      requireAttempt();
+      pendingPublications = await publications.inspect(next);
+      requireAttempt();
+      while (true) {
+        await _saving;
+        requireAttempt();
+        final previous = project;
+        final generations = <DocumentBuffer, int>{
+          for (final buffer
+              in previous?.store.fileBuffers ?? const <DocumentBuffer>[])
+            buffer: buffer.generation,
+        };
+        final pending = jsonEncode([
+          draft?.recovery(),
+          (form ?? _applyingForm)?.recovery(),
+        ]);
+        await persist();
+        await persistView();
+        requireAttempt();
+        if (identical(project, previous) &&
+            generations.length == (previous?.store.fileBuffers.length ?? 0) &&
+            generations.entries.every(
+              (entry) => entry.key.generation == entry.value,
+            ) &&
+            pending ==
+                jsonEncode([
+                  draft?.recovery(),
+                  (form ?? _applyingForm)?.recovery(),
+                ]))
+          break;
+      }
     } on Object {
-      next.close();
+      prepared?.close();
       rethrow;
+    } finally {
+      if (identical(_pendingOpen, attempt)) _pendingOpen = null;
     }
-    if (superseded()) {
-      next.close();
-      return;
-    }
+    // Only adoption changes the active navigation/analysis generation. A failed
+    // attempt never invalidates a usable workspace or its outstanding analysis.
+    final opening = ++_opening;
+    _context++;
+    _selection++;
+    _debounce?.cancel();
+    _monitor?.cancel();
+    checking = false;
+    checkingSemantics = false;
     if (project case final previous?) {
       publications.releaseProject(previous);
       previous.close();
     }
     project = next;
+    bool current() =>
+        !disposed && identical(project, next) && opening == _opening;
     next.acceptsBufferReload = (buffer) =>
         !disposed &&
         identical(project, next) &&
@@ -455,6 +530,7 @@ class WorkspaceController extends ChangeNotifier {
     lastGood = null;
     draft = null;
     form = null;
+    restoringForm = null;
     tabs.clear();
     history.clear();
     historyIndex = -1;
@@ -467,23 +543,48 @@ class WorkspaceController extends ChangeNotifier {
     recent
       ..remove(path)
       ..insert(0, path);
-    await remember();
-    if (superseded() || !identical(project, next)) return;
-    if (next.roots.length == 1) {
-      await selectRoot(next.roots.single.id);
+    try {
+      await remember();
+    } on Object catch (failure) {
+      if (current()) storageError = failure.toString();
+    }
+    if (!current()) return;
+    if (initialRoot != null) {
+      await selectRoot(initialRoot!);
+    } else if (initialResource != null) {
+      _activateFile(initialResource!);
+      mode = 'Source';
+      schedule(immediate: true);
     } else if (next.roots.isEmpty && next.files.isNotEmpty) {
       await openFile(Uri.file(next.files.first).toString());
-      if (superseded() || !identical(project, next)) return;
+      if (!current()) return;
       mode = 'Source';
       schedule(immediate: true);
     }
-    if (superseded() || !identical(project, next)) return;
-    interruptedPublications = await publications.inspect(next);
-    if (superseded() || !identical(project, next)) return;
-    await _restoreView(next, opening);
-    if (superseded() || !identical(project, next)) return;
+    if (!current()) return;
+    interruptedPublications = pendingPublications;
+    if (!current()) return;
+    try {
+      await _restoreView(next, opening);
+    } on Object catch (failure) {
+      if (current()) error = failure.toString();
+    }
+    if (!current()) return;
     _monitor?.cancel();
     _monitor = Timer.periodic(const Duration(seconds: 2), (_) => _pollDisk());
+    unawaited(
+      next
+          .populateFileBrowser(cancelled: () => !current())
+          .then((_) {
+            if (current()) notifyListeners();
+          })
+          .catchError((Object failure) {
+            if (current()) {
+              error = failure.toString();
+              notifyListeners();
+            }
+          }),
+    );
     notifyListeners();
   }
 
@@ -761,12 +862,29 @@ class WorkspaceController extends ChangeNotifier {
     }
     final kind = item['objectKind'] ?? item['kind'];
     if (mode == 'Reference') {
-      _referenceNavigation = {...item, 'root': selectedRoot, 'data': false,
-        if (kind is String) 'kind': kind};
+      _referenceNavigation = {
+        ...item,
+        'root': selectedRoot,
+        'data': false,
+        if (kind is String) 'kind': kind,
+      };
     }
-    _designNavigation = kind is String &&
-        !const ['data','reference','component','definition','usage'].contains(kind)
-        ? (owner: captured, root: selectedRoot, resource: resource, pointer: pointer, kind: kind)
+    _designNavigation =
+        kind is String &&
+            !const [
+              'data',
+              'reference',
+              'component',
+              'definition',
+              'usage',
+            ].contains(kind)
+        ? (
+            owner: captured,
+            root: selectedRoot,
+            resource: resource,
+            pointer: pointer,
+            kind: kind,
+          )
         : null;
     notifyListeners();
   }
@@ -1675,10 +1793,7 @@ class WorkspaceController extends ChangeNotifier {
     cached.clear();
   }
 
-  PropertySession bind(
-    Map<String, dynamic> item, {
-    bool reviewedCopy = false,
-  }) {
+  PropertySession bind(Map<String, dynamic> item, {bool reviewedCopy = false}) {
     if (item['shared'] == true &&
         !(reviewedCopy && scopeSafe(item, reviewedCopy: true))) {
       throw CoreFailure(
@@ -2060,45 +2175,75 @@ class WorkspaceController extends ChangeNotifier {
   }
 
   Future<void> resumePropertyDraft() async {
-    final captured = draft;
-    if (captured == null) return;
-    final b = store!.get(captured.buffer), range = captured.range;
-    if (range.length != 2 ||
-        range[0] < 0 ||
-        range[1] > b.text.length ||
-        b.text.substring(range[0], range[1]) != captured.expected) {
+    final captured = draft, owner = project, navigation = _opening;
+    if (captured == null || owner == null) return;
+    bool current() =>
+        !disposed &&
+        identical(project, owner) &&
+        navigation == _opening &&
+        identical(draft, captured);
+    final rebound = await owner.recoverPropertyDraft(captured);
+    if (!current()) return;
+    // The input owner is shared; edits arriving during inspection are retained.
+    draft = rebound;
+    root = captured.root;
+    _activateFile(captured.buffer);
+    selectedResource = captured.buffer;
+    selectedPointer = captured.pointer;
+    selectedOccurrence = null;
+    mode = 'Design';
+    await persist();
+    if (disposed || !identical(project, owner) || navigation != _opening)
+      return;
+    schedule(immediate: true);
+    notifyListeners();
+  }
+
+  Future<void> recoverBufferDraft(Map<String, dynamic> record) async {
+    final owner = project;
+    if (owner == null)
+      throw CoreFailure('recovery.owner', 'Open the recovery project first');
+    if (hasPendingFields) {
       throw CoreFailure(
-        'draft.stale',
-        'Recovered fields remain attached to an unavailable source occurrence',
+        'draft.pending',
+        'Apply or discard current captured fields before adopting recovery',
       );
     }
-    draft = null;
-    try {
-      if (root != captured.root) await selectRoot(captured.root);
-      await analyse();
-      final candidates = [
-        projection?['info'],
-        ...projection?['operations'] ?? [],
-      ];
-      final item = candidates.firstWhere(
-        (v) =>
-            v != null &&
-            v['resource'] == captured.buffer &&
-            v['pointer'] == captured.pointer &&
-            jsonEncode(v['range']) == jsonEncode(range),
-      );
-      final rebound = bind(Map<String, dynamic>.from(item));
-      rebound.committed.addAll(captured.committed);
-      rebound.values.addAll(captured.values);
-      active = captured.buffer;
-      selectedPointer = captured.pointer;
-      mode = 'Design';
-      checkpoint();
-      notifyListeners();
-    } on Object {
-      draft = captured;
-      rethrow;
-    }
+    final navigation = _opening;
+    final buffer = await owner.buffer(record['id'] as String, recovery: record);
+    if (disposed || !identical(project, owner) || navigation != _opening)
+      return;
+    final recoveredDraft = record['draft'] is Map
+        ? PropertySession.restore(
+            Map<String, dynamic>.from(record['draft'] as Map),
+          )
+        : null;
+    final recoveredForm = record['form'] is Map
+        ? FormSession.restore(Map<String, dynamic>.from(record['form'] as Map))
+        : null;
+    // Retain the recovered input in the controller even if durable adoption
+    // fails. The original record remains intact until persistence succeeds.
+    draft = recoveredDraft;
+    form = recoveredForm;
+    _activateFile(buffer.id);
+    mode = 'Source';
+    await recovery.adopt(
+      record,
+      buffer,
+      draft: recoveredDraft,
+      form: recoveredForm,
+      current: () =>
+          !disposed &&
+          identical(project, owner) &&
+          navigation == _opening &&
+          identical(draft, recoveredDraft) &&
+          identical(form, recoveredForm),
+      onAdopted: () => owner.store.retireHistory({buffer.id}),
+    );
+    if (disposed || !identical(project, owner) || navigation != _opening)
+      return;
+    schedule(immediate: true);
+    notifyListeners();
   }
 
   void schedule({bool immediate = false, bool notify = true}) {
@@ -2180,7 +2325,13 @@ class WorkspaceController extends ChangeNotifier {
     if (disposed) return;
     _debounce?.cancel();
     final project = this.project, id = root ?? active, context = ++_context;
-    if (project == null || id == null) return;
+    if (project == null || id == null) {
+      final wasChecking = checking || checkingSemantics;
+      checking = false;
+      checkingSemantics = false;
+      if (wasChecking) notifyListeners();
+      return;
+    }
     if (governance) _governanceContext = context;
     final alreadyChecking = checking;
     checking = true;
@@ -2408,15 +2559,35 @@ class WorkspaceController extends ChangeNotifier {
     if (disposed || !identical(project, accepted.project)) {
       return const BufferReloadResult(BufferReloadStatus.stale);
     }
+    if (draft?.buffer == accepted.buffer.id && draft!.pending) await persist();
+    final capturedDraft = draft, capturedForm = form;
+    final input = jsonEncode([
+      capturedDraft?.recovery(),
+      capturedForm?.recovery(),
+    ]);
+    final preserveInput =
+        capturedDraft?.buffer == accepted.buffer.id && capturedDraft!.pending ||
+        capturedForm?.target.buffer == accepted.buffer.id;
     final result = await accepted.project.reload(
       accepted.buffer,
       accepted: accepted,
       beforeReload: beforeReload,
+      inputCurrent: preserveInput
+          ? () =>
+                !disposed &&
+                identical(project, accepted.project) &&
+                identical(draft, capturedDraft) &&
+                identical(form, capturedForm) &&
+                input == jsonEncode([draft?.recovery(), form?.recovery()])
+          : null,
     );
     final applied = result.applied;
     if (applied != null && !disposed && identical(project, accepted.project)) {
       schedule(immediate: true);
       notifyListeners();
+      if (draft?.buffer == applied.id && draft!.pending ||
+          form?.target.buffer == applied.id)
+        return result;
       await recovery.retireIfCurrent(
         applied.id,
         () =>
@@ -2535,6 +2706,7 @@ class WorkspaceController extends ChangeNotifier {
 
   Future<void> _closeOwnedWorkspace() async {
     _shuttingDown = true;
+    _pendingOpen = null;
     _context++;
     _debounce?.cancel();
     _monitor?.cancel();
@@ -2555,6 +2727,8 @@ class WorkspaceController extends ChangeNotifier {
       rethrow;
     }
     _disposed = true;
+    checking = false;
+    checkingSemantics = false;
     if (project case final previous?) {
       publications.releaseProject(previous);
       previous.close();
@@ -2565,6 +2739,9 @@ class WorkspaceController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    checking = false;
+    checkingSemantics = false;
+    _pendingOpen = null;
     _debounce?.cancel();
     _monitor?.cancel();
     super.dispose();

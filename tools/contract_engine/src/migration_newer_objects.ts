@@ -1,6 +1,6 @@
 import {escape,SourceError} from './document';
 import type {ReferenceGraph} from './reference_graph';
-import type {MigrationSource} from './migration_source';
+import type {SourcePlan} from './source_plan';
 import type {MigrationIssue} from './migration_schema';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import {migrationScopes} from './migration_documents';
@@ -16,7 +16,7 @@ import {NamedMultipartEquivalence} from './migration_named_multipart';
  * owners. A redundant instruction retains its authored value as history;
  * active instructions require a standard target owner, never an extension
  * pretending to implement the missing target behavior. */
-export function migrateNewerObjects(graphs:readonly ReferenceGraph[],sources:Map<string,MigrationSource>,
+export function migrateNewerObjects(graphs:readonly ReferenceGraph[],sources:Map<string,SourcePlan>,
  families:readonly string[],target:string,owners:MigrationSchemaOwners,issue:MigrationIssue):void {
  // Media references have already been materialized. Only the actual content
  // key owns applicability; copy provenance must not pool other consumers back
@@ -215,7 +215,7 @@ export function migrateNewerObjects(graphs:readonly ReferenceGraph[],sources:Map
 /** 3.0 has referenceable Path Items but no components.pathItems map. An
  * unused standard Callback holder keeps each Path Item typed and addressable;
  * no callback is added to an Operation and no route is synthesized. */
-export function relocatePathItemComponents(graphs:readonly ReferenceGraph[],sources:Map<string,MigrationSource>,
+export function relocatePathItemComponents(graphs:readonly ReferenceGraph[],sources:Map<string,SourcePlan>,
  families:readonly string[],target:string,owners:MigrationSchemaOwners):void {
  if(target!=='3.0')return;
  for(const scope of migrationScopes(graphs))if(scope.kind==='path-item'&&families.includes(scope.family)&&

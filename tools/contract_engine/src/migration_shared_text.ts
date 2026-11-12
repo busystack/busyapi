@@ -1,5 +1,5 @@
 import {SourceDocument,SourceError} from './document';
-import {MigrationSource} from './migration_source';
+import {SourcePlan} from './source_plan';
 
 type Specialization=Readonly<{document:SourceDocument;changed:readonly string[]}>;
 
@@ -21,7 +21,7 @@ export function specializeMigrationText(doc:SourceDocument,requested:ReadonlyMap
             fail(pointer,'The documentation specialization has no unambiguous captured string occurrence');
     }
     const expected=doc.dataJson('',(_node,occurrence)=>desired.has(occurrence)?JSON.stringify(desired.get(occurrence)):undefined);
-    const source=new MigrationSource(doc),changed=new Set<string>();
+    const source=new SourcePlan(doc),changed=new Set<string>();
     for(const [pointer,value]of desired){
         if((work+=source.doc.text.length*2)>128*1024*1024)
             throw new SourceError('limit.migration.text','Shared documentation exceeds its bounded CST edit work');

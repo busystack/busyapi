@@ -1,5 +1,5 @@
 import type {GraphScope,ReferenceGraph} from './reference_graph';
-import {MigrationSource,type MigrationLocation} from './migration_source';
+import {SourcePlan,type SourceLocation} from './source_plan';
 import type {MigrationIssue} from './migration_schema';
 import {escape,SourceError} from './document';
 import {downgradeFormBody} from './migration_form_downgrade';
@@ -36,7 +36,7 @@ function flatSchema(graph:ReferenceGraph,owner:GraphScope):unknown {
     }
 }
 
-function retainMediaAlternatives(source:MigrationSource,pointer:string,media:readonly string[],graph:ReferenceGraph,owners:MigrationSchemaOwners,selected:string):void {
+function retainMediaAlternatives(source:SourcePlan,pointer:string,media:readonly string[],graph:ReferenceGraph,owners:MigrationSchemaOwners,selected:string):void {
     for(const name of media.filter(name=>name!==selected)){
         const at=pointer+'/content/'+escape(name)+'/schema';
         const captured=owners.capturedSchema({resource:source.doc.id,pointer:at});
@@ -44,7 +44,7 @@ function retainMediaAlternatives(source:MigrationSource,pointer:string,media:rea
     }
 }
 
-function retireFormBody(source:MigrationSource,pointer:string):void {
+function retireFormBody(source:SourcePlan,pointer:string):void {
     if(pointer)source.remove(pointer);
     else {
         source.set('',{});
@@ -52,7 +52,7 @@ function retireFormBody(source:MigrationSource,pointer:string):void {
     }
 }
 
-function retainFormBodyHistory(source:MigrationSource,pointer:string,scope:GraphScope,owners:MigrationSchemaOwners,context?:ReferenceGraph):void {
+function retainFormBodyHistory(source:SourcePlan,pointer:string,scope:GraphScope,owners:MigrationSchemaOwners,context?:ReferenceGraph):void {
     if(pointer){owners.retainNativeHistory(scope,source,pointer,'form_body',context);return;}
     const retained=owners.reserveSchema(scope,'form_body');
     retained.source.copy(source,'',retained.location.pointer+'/x-busyapi-retained-value',true);
@@ -65,8 +65,8 @@ function retainFormBodyHistory(source:MigrationSource,pointer:string,scope:Graph
 
 /** Evaluate actual target representation. A simple 3.x API can be faithfully
  * represented in Swagger; newer-only constructs receive located blockers. */
-export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,MigrationSource>,from:string,issue:MigrationIssue,
-    releaseNativeHolders?:()=>void,owners=new MigrationSchemaOwners(graph,sources),contexts:readonly ReferenceGraph[]=[graph],external?:MigrationInlineExamples):Map<string,MigrationLocation> {
+export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,SourcePlan>,from:string,issue:MigrationIssue,
+    releaseNativeHolders?:()=>void,owners=new MigrationSchemaOwners(graph,sources),contexts:readonly ReferenceGraph[]=[graph],external?:MigrationInlineExamples):Map<string,SourceLocation> {
     const scopes=[...migrationScopes(contexts)];
     const serverRoutes=downgradeServers(graph,sources,from,issue,owners,contexts);
     const headerTargets=new Set([...migrationReferences(contexts)].filter(edge=>edge.kind==='header'&&edge.resolution==='resolved')
@@ -82,7 +82,7 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migrati
     // Capture and relocate every operation's body before processing reusable
     // definitions. A form Request Body reference expands to several Parameters;
     // it cannot survive as a reference to one misleading body Parameter.
-    const formUses=new Map<string,{source:MigrationSource;pointer:string}[]>(),preparedOperations=new Set<string>();
+    const formUses=new Map<string,{source:SourcePlan;pointer:string}[]>(),preparedOperations=new Set<string>();
     for(const context of contexts)for(const operation of migrationOperationUses(context)){
         const scope=operation.source;if(scope.family!==from)continue;
         const id=scope.resource+'#'+scope.pointer;if(preparedOperations.has(id))continue;preparedOperations.add(id);

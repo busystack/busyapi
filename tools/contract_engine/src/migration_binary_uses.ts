@@ -3,23 +3,23 @@ import {escape,SourceError} from './document';
 import {pointerFragment,schemaResourceContextIdentity,type GraphScope,type ReferenceGraph} from './reference_graph';
 import {modernFamily} from './specification';
 import {BinaryUses,rawBinaryUse,binaryUseRepresentation} from './migration_binary';
-import {MigrationSource,type MigrationLocation} from './migration_source';
+import {SourcePlan,type SourceLocation} from './source_plan';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import {entryComponentContainer} from './migration_schema_uses';
 import {specializeBinaryContainers,type BinaryContainerUse} from './migration_binary_containers';
 
-const key=(at:MigrationLocation)=>JSON.stringify([at.resource,at.pointer]);
+const key=(at:SourceLocation)=>JSON.stringify([at.resource,at.pointer]);
 
 /** OAS 3.1.2 §4.4.2.1 removes the string/binary pair only at raw
  * occurrences. A shared JSON consumer retains its string model. Specialize
  * captured static forwarding chains through the existing material allocator,
  * leaving every neutral definition and unrelated incoming consumer intact. */
-export async function specializeBinarySchemaUses(graphs:readonly ReferenceGraph[],sources:ReadonlyMap<string,MigrationSource>,
-    families:readonly string[],target:string,owners:MigrationSchemaOwners):Promise<ReadonlyMap<string,readonly MigrationLocation[]>> {
-    const provenance=new Map<string,MigrationLocation[]>();
+export async function specializeBinarySchemaUses(graphs:readonly ReferenceGraph[],sources:ReadonlyMap<string,SourcePlan>,
+    families:readonly string[],target:string,owners:MigrationSchemaOwners):Promise<ReadonlyMap<string,readonly SourceLocation[]>> {
+    const provenance=new Map<string,SourceLocation[]>();
     if(!families.some(family=>['2.0','3.0'].includes(family)&&modernFamily(target)||modernFamily(family)&&!modernFamily(target)))return provenance;
     const pristine=new Map([...sources].map(([id,source])=>[id,source.fork()]));
-    const prepared=new Map<string,MigrationLocation>(),repaired=new Set<string>(),preparedContainers=new Set<string>();let work=0;
+    const prepared=new Map<string,SourceLocation>(),repaired=new Set<string>(),preparedContainers=new Set<string>();let work=0;
     const inspect=()=>{if(++work>2000000)throw new SourceError('limit.migration.binary','Binary use specialization exceeds its bounded graph work');};
     for(const graph of [...graphs].sort((a,b)=>a.root.localeCompare(b.root))){
         const containing:BinaryContainerUse[]=[];
@@ -100,7 +100,7 @@ export async function specializeBinarySchemaUses(graphs:readonly ReferenceGraph[
                 if(!chain.length||key(at)!==key(scope))continue;
                 const container=entryComponentContainer(graph,scope,graph.root,owners);
                 if(!container)continue;
-                let destination:MigrationLocation|undefined;
+                let destination:SourceLocation|undefined;
                 for(const member of [...chain].reverse()){
                     const identity=JSON.stringify([graph.root,member.resource,member.pointer,mode]),known=prepared.get(identity);
                     if(known){destination=known;continue;}

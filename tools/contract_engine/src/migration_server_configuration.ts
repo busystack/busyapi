@@ -6,7 +6,7 @@ import type {ReferenceGraph} from './reference_graph';
 import type {MigrationIssue} from './migration_schema';
 import type {MigrationOperationPair} from './migration_invariants';
 import {migrationJoinedPath} from './migration_server_routes';
-import {MigrationSource} from './migration_source';
+import {SourcePlan} from './source_plan';
 import {serverTemplate} from './derived_bundle';
 import type {ParameterWireProfiles} from './migration_parameter_serialization';
 
@@ -160,7 +160,7 @@ export function projectMigrationServerSelections(source:ReferenceGraph,target:Re
    const value=entry.value as Record<string,any>;if(!matches(value.operation,operation))continue;
    const entries=selectedEntries(value.operation);
    if(entries.length===1||value.operation.occurrence||operation.path!==output.path||value.operation.entry){
-    const selector=new MigrationSource(configuration),pointer=entry.pointer+'/operation';
+    const selector=new SourcePlan(configuration),pointer=entry.pointer+'/operation';
     selector.set(pointer+'/path',output.path);
     if(value.operation.occurrence){selector.remove(pointer+'/occurrence');selector.set(pointer+'/method',wire(output));}
     if(value.operation.entry||entries.length===1)selector.set(pointer+'/entry',targetEntryName);
@@ -197,7 +197,7 @@ export function projectMigrationServerSelections(source:ReferenceGraph,target:Re
   const value=entry.value as Record<string,any>;
   if(selectedEntries(value.operation).length)continue;
   if(target.operations().some(operation=>matches(value.operation,operation,targetEntryName,target))){
-   const selector=new MigrationSource(configuration),pointer=entry.pointer+'/operation';
+   const selector=new SourcePlan(configuration),pointer=entry.pointer+'/operation';
    selector.set(pointer+'/occurrence','busyapi-invalid-operation:'+configuration.id+'#'+entry.pointer);
    putExact(pointer,selector.doc.dataJson(pointer));
   }
@@ -212,7 +212,7 @@ export function projectMigrationServerSelections(source:ReferenceGraph,target:Re
 export function proveMigrationConfiguredOperationSelections(entries:readonly MigrationServerSelectionContext[],configuration:SourceDocument|undefined,
  projections:readonly MigrationConfigurationProjection[],issue:MigrationIssue):void {
  if(!configuration)return;
- const projected=new MigrationSource(configuration);
+ const projected=new SourcePlan(configuration);
  for(const change of projections)projected.exact(change.pointer,change.after);
  for(const entry of entries)for(const node of configuration.dataNode('/tests')?.children.values()??[]){
   const before=migrationConfiguredOperations(configuration,entry.source,node.value?.operation);

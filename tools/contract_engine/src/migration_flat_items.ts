@@ -3,18 +3,18 @@ import {compare,decimal,multiple} from './exact_numbers';
 import type {GraphScope,ReferenceGraph} from './reference_graph';
 import type {MigrationIssue} from './migration_schema';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
-import type {MigrationLocation,MigrationSource} from './migration_source';
+import type {SourceLocation,SourcePlan} from './source_plan';
 import {MigrationSchemaProofs,migrationExactValueIdentity} from './migration_schema_proofs';
 import {MigrationArrayBounds} from './migration_schema_arrays';
 import {constantSchemaAssertion} from './schema_constant_assertions';
 
-type Field=Readonly<{source:MigrationSource;pointer:string}>;
+type Field=Readonly<{source:SourcePlan;pointer:string}>;
 type Value=Field|Readonly<{raw:string}>;
 type FlatPlan=Readonly<{type:string;fields:ReadonlyMap<string,Value>;items?:FlatPlan}>;
 const fields=new Set(['type','format','items','collectionFormat','default','maximum','exclusiveMaximum','minimum','exclusiveMinimum',
     'maxLength','minLength','pattern','maxItems','minItems','uniqueItems','enum','multipleOf']);
 const types=new Set(['string','number','integer','boolean','array']);
-const key=(at:MigrationLocation)=>JSON.stringify([at.resource,at.pointer]);
+const key=(at:SourceLocation)=>JSON.stringify([at.resource,at.pointer]);
 const raw=(value:Value)=>'raw' in value?value.raw:value.source.doc.dataJson(value.pointer);
 
 /** Capture only schema paths that will become concrete Swagger declarations.
@@ -46,8 +46,8 @@ export function flatSchemaScopes(graph:ReferenceGraph):ReadonlySet<string>{
 /** Swagger 2.0 6.4.10 has concrete recursive Items Objects, not Schema Objects.
  * This compiler consolidates already-lowered conjunctions. It never copies a
  * locator, applicator, object field or unsupported annotation into Items. */
-export function materializeFlatSchema(graph:ReferenceGraph,sources:ReadonlyMap<string,MigrationSource>,owners:MigrationSchemaOwners,
-    source:MigrationSource,pointer:string,scope:GraphScope,issue:MigrationIssue,schemaScope?:GraphScope):string|undefined {
+export function materializeFlatSchema(graph:ReferenceGraph,sources:ReadonlyMap<string,SourcePlan>,owners:MigrationSchemaOwners,
+    source:SourcePlan,pointer:string,scope:GraphScope,issue:MigrationIssue,schemaScope?:GraphScope):string|undefined {
     let work=0;
     const rootSchema=schemaScope??graph.scopeAs(scope.resource,scope.pointer+'/schema','schema');
     const impossible=():FlatPlan=>({type:'string',fields:new Map<string,Value>([['type',{raw:'"string"'}],['minLength',{raw:'1'}],['maxLength',{raw:'0'}]])});
@@ -218,7 +218,7 @@ export function materializeFlatSchema(graph:ReferenceGraph,sources:ReadonlyMap<s
         return {type,fields:output,...(items?{items}:{})};
     };
     try{
-        const plan=build([{source,pointer}],true,new Set(),[],rootSchema?[rootSchema]:[]),snapshots=new Map<MigrationSource,MigrationSource>();
+        const plan=build([{source,pointer}],true,new Set(),[],rootSchema?[rootSchema]:[]),snapshots=new Map<SourcePlan,SourcePlan>();
         const capture=(plan:FlatPlan):FlatPlan=>({type:plan.type,fields:new Map<string,Value>([...plan.fields].map(([name,value])=>{
             if('raw' in value)return [name,value] as const;
             let snapshot=snapshots.get(value.source);if(!snapshot){snapshot=value.source.fork();snapshots.set(value.source,snapshot);}

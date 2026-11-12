@@ -7,7 +7,7 @@ import { escape, segments, SourceError, SourceDocument } from './document';
 import { GraphReference, resolveUri, pointerFragment } from './reference_graph';
 import {securityConfigurationCopies,type SecurityBindingChange} from './security_configuration';
 import {componentNamePolicy,permitsMemberName,responseStatusNamePolicy,schemaDefinitionNamePolicy} from './member_names';
-import {MigrationSource} from './migration_source';
+import {SourcePlan} from './source_plan';
 import {editBudget,editsFor} from './refactoring_copy';
 import {modernFamily} from './specification';
 
@@ -17,7 +17,7 @@ import {modernFamily} from './specification';
 function ownedRenameSource(resource:Resource,actions:Iterable<Readonly<{kind:string;pointer:string}>>,admit:(id:string,size?:number)=>void):Resource {
     const doc=new SourceDocument(resource.text,resource.id);
     if(doc.format!=='yaml')return resource;
-    const source=new MigrationSource(doc);
+    const source=new SourcePlan(doc);
     for(const action of actions){
         const pointer=action.kind==='setRequired'?action.pointer+'/required':action.pointer;
         let ancestor=pointer;

@@ -7,7 +7,7 @@ const inside=(pointer:string,parent:string)=>pointer===parent||pointer.startsWit
  * anchor-property and alias-value tokens change. Alias bindings use node
  * identity, including reused names and key anchors; no text search resolves
  * them. All other logical values must remain exactly equal before editing. */
-export function migrationYamlOwnership(doc:SourceDocument,pointer:string,descendants=true,includeKey=false):Ownership {
+export function separateYamlOwnership(doc:SourceDocument,pointer:string,descendants=true,includeKey=false):Ownership {
     if(doc.format!=='yaml')return {document:doc,changed:[]};
     const anchors=doc.sourceAnchors().filter(anchor=>anchor.node.key
         ?includeKey&&anchor.node.pointer===pointer||descendants&&anchor.node.pointer!==pointer&&inside(anchor.node.pointer,pointer)
@@ -53,7 +53,7 @@ export function migrationYamlOwnership(doc:SourceDocument,pointer:string,descend
 
 /** Alias-expanded paths keep their logical source owner through later CST
  * moves and copies. Reading provenance does not make virtual nodes editable. */
-export function migrationLogicalPointers(doc:SourceDocument):readonly string[] {
+export function logicalSourcePointers(doc:SourceDocument):readonly string[] {
     if(![...doc.nodes.values()].some(node=>node.alias))return [...doc.nodes.keys()];
     const pointers=new Set(doc.nodes.keys());
     doc.dataJson('',(_node:Node,pointer:string)=>{pointers.add(pointer);return undefined;});

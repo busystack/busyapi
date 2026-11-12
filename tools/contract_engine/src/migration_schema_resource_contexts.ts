@@ -1,7 +1,7 @@
 import {schemaResourceContextIdentity,sameSchemaDialect,type GraphScope,type ReferenceGraph} from './reference_graph';
 import {SourceError} from './document';
 import type {MigrationIssue} from './migration_schema';
-import type {MigrationLocation} from './migration_source';
+import type {SourceLocation} from './source_plan';
 import {modernFamily} from './specification';
 
 export type CapturedSchemaResource=Readonly<{
@@ -48,7 +48,7 @@ export function capturedSchemaResources(graph:ReferenceGraph):ReadonlyMap<string
  * Anchorless forwarding frames may split/merge only with anchorless frames;
  * those frames cannot change the first matching dynamic binding. */
 export function proveMigrationSchemaResources(source:ReferenceGraph,target:ReferenceGraph,
-    mapped:(at:MigrationLocation,scope:GraphScope)=>readonly MigrationLocation[],issue:MigrationIssue,preserveFamily=false):void {
+    mapped:(at:SourceLocation,scope:GraphScope)=>readonly SourceLocation[],issue:MigrationIssue,preserveFamily=false):void {
     const captured=capturedSchemaResources(source),retained=capturedSchemaResources(target);
     const incoming=new Map<string,Set<string>>(),dynamic=new Set<string>(),critical=new Set<string>();let work=0;
     const inspect=()=>{if(++work>2000000)throw new SourceError('limit.migration.resources','Resource ownership proof exceeds 2000000 states');};

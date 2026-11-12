@@ -17,12 +17,13 @@ ROOT = Path(__file__).resolve().parent.parent
 # no test is responsible for producing an entry shipped by the application.
 RUNTIME_ENTRYPOINTS = (
     ('server.ts', 'engine.cjs'),
+    ('conversion_worker.ts', 'conversion-worker.cjs'),
     ('policy_worker.ts', 'policy-worker.cjs'),
     ('mock_server.ts', 'mock-server.cjs'),
 )
 
 
-def input_signature():
+def input_signature(profile='release'):
     engine = ROOT / 'tools/contract_engine'
     inputs = [Path(__file__).resolve(), engine / 'package.json',
               engine / 'package-lock.json', engine / 'runtime.lock.json',
@@ -33,6 +34,7 @@ def input_signature():
     inputs += sorted((engine / 'native').glob('*'))
     inputs += sorted((engine / 'schemas').glob('*.json'))
     identity = hashlib.sha256()
+    identity.update(profile.encode('ascii') + b'\0')
     for path in inputs:
         identity.update(str(path.relative_to(ROOT)).encode())
         identity.update(path.read_bytes())
@@ -128,9 +130,14 @@ def copy_atomic(source, target, mode=0o644):
         temporary.unlink(missing_ok=True)
 
 
-def prepare(output, node=None):
+def prepare(output, node=None, *, profile='release'):
+    if profile not in ('release', 'editor'):
+        raise RuntimeError('Choose the release or explicit editor asset profile')
     if platform.system() != 'Linux' or platform.machine() != 'x86_64':
         raise RuntimeError('The pinned contract runtime targets Linux amd64')
+    if profile == 'editor' and any((output / name).exists() for name in
+            ('policy-isolation.node', 'policy-launcher', 'policy-build.json')):
+        raise RuntimeError('Editor assets require a separate output directory without executable governance assets')
     engine = ROOT / 'tools/contract_engine'
     lock = json.loads((engine / 'runtime.lock.json').read_text())
     output.mkdir(parents=True, exist_ok=True)
@@ -152,7 +159,7 @@ def prepare(output, node=None):
                            f'checksum mismatch: {candidate}')
     copy_atomic(candidate, runtime, 0o755)
 
-    signature = input_signature()
+    signature = input_signature(profile)
     review = json.loads((engine / 'dependencies.review.json').read_text())
     if review.get('version') != 1:
         raise RuntimeError('Unsupported production dependency review version')
@@ -160,6 +167,7 @@ def prepare(output, node=None):
     helper = output / 'engine.cjs'
     policy_helper = output / 'policy-worker.cjs'
     mock_helper = output / 'mock-server.cjs'
+    conversion_helper = output / 'conversion-worker.cjs'
     receipt = output / 'build.json'
     try:
         previous = json.loads(receipt.read_text())
@@ -172,7 +180,9 @@ def prepare(output, node=None):
             or not policy_helper.is_file() or policy_helper.is_symlink()
             or previous.get('policyHelperSha256') != digest(policy_helper)
             or not mock_helper.is_file() or mock_helper.is_symlink()
-            or previous.get('mockHelperSha256') != digest(mock_helper)):
+            or previous.get('mockHelperSha256') != digest(mock_helper)
+            or not conversion_helper.is_file() or conversion_helper.is_symlink()
+            or previous.get('conversionHelperSha256') != digest(conversion_helper)):
         packages = json.loads((engine / 'package.json').read_text())
         package_lock = json.loads((engine / 'package-lock.json').read_text())['packages']
         for name, version in {**packages['dependencies'],
@@ -204,6 +214,10 @@ def prepare(output, node=None):
                                 '--bundle', '--platform=node', '--format=cjs', '--main-fields=module,main',
                                 '--outfile=' + str(compiled), '--metafile=' + str(metafile), *extra], check=True, cwd=ROOT)
                 bundle_inputs[target] = json.loads(metafile.read_text())['inputs']
+                if target == 'engine.cjs' and any(
+                        Path(name).name.startswith('migration') for name in bundle_inputs[target]
+                        if 'node_modules/' not in name):
+                    raise RuntimeError('Conversion algorithms entered the ordinary editing bundle')
                 for filename in bundle_inputs[target]:
                     if 'node_modules/' not in filename:
                         continue
@@ -220,17 +234,19 @@ def prepare(output, node=None):
             for _, target in RUNTIME_ENTRYPOINTS:
                 copy_atomic(Path(staging) / target, output / target)
             record = Path(staging) / 'build.json'
-            record.write_text(json.dumps({'version': 1, 'inputs': signature,
+            record.write_text(json.dumps({'version': 1, 'inputs': signature, 'profile': profile,
                                           'node': lock['node'],
                                           'bundledPackages': sorted(bundled),
                                           'bundledPackageLocations': sorted(bundled_locations),
                                           'runtimeEntrypoints': [target for _, target in RUNTIME_ENTRYPOINTS],
                                           'bundleInputs': bundle_inputs,
+                                          'conversionHelperSha256': digest(conversion_helper),
                                           'policyHelperSha256': digest(policy_helper),
                                           'mockHelperSha256': digest(mock_helper),
                                           'helperSha256': digest(helper)}) + '\n')
             copy_atomic(record, receipt)
-    prepare_policy_isolation(output)
+    if profile == 'release':
+        prepare_policy_isolation(output)
     schemas = output / 'schemas'
     schemas.mkdir(exist_ok=True)
     for source in (engine / 'schemas').glob('*.json'):
@@ -344,10 +360,11 @@ def prepare(output, node=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, default=ROOT / 'build/contract-runtime')
+    parser.add_argument('--profile', choices=['release', 'editor'], default='release')
     parser.add_argument('--node', help='Explicit, checksum-verified build input')
     args = parser.parse_args()
     try:
-        prepare(args.output.resolve(), args.node)
+        prepare(args.output.resolve(), args.node, profile=args.profile)
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
         parser.exit(1, f'BusyAPI contract assets: {error}\n')
 

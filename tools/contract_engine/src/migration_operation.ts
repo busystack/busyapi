@@ -1,7 +1,7 @@
 import type {createGraph,Resource} from './engine';
 import type {ReferenceGraph,GraphScope} from './reference_graph';
 import type {MigrationIssue} from './migration_schema';
-import type {MigrationLocation,MigrationSource} from './migration_source';
+import type {SourceLocation,SourcePlan} from './source_plan';
 import {ignoresRequestBody} from './operation_semantics';
 import {modernFamily} from './specification';
 import {standardOperationMethods} from './contexts';
@@ -48,8 +48,8 @@ export function checkRequestBodyTarget(context:ReturnType<typeof createGraph>,_r
 
 /** A source 3.0 ignored body must not become active in another family.
  * A composed Swagger upgrade retains its originally active body instead. */
-export function migrateOperationBodies(graph:ReferenceGraph,sources:Map<string,MigrationSource>,from:string,to:string,original:(scope:GraphScope)=>string,issue:MigrationIssue):MigrationLocation[] {
-    const omitted:MigrationLocation[]=[];
+export function migrateOperationBodies(graph:ReferenceGraph,sources:Map<string,SourcePlan>,from:string,to:string,original:(scope:GraphScope)=>string,issue:MigrationIssue):SourceLocation[] {
+    const omitted:SourceLocation[]=[];
     if(from!=='3.0'||to==='3.0')return omitted;
     for(const scope of graph.entryScopes()) {
         if(scope.kind!=='operation'||scope.family!==from||original(scope)!=='3.0'||!graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.children.has('requestBody'))continue;

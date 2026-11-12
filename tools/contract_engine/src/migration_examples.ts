@@ -4,7 +4,7 @@ import {SourceError} from './document';
 import {CapturedExampleResources,ExternalExampleError,externalExampleRequests,
     type ExternalExampleResourcePacket} from './external_examples';
 import {documentUriBase,resolveUri,type ReferenceGraph,type GraphScope} from './reference_graph';
-import {MigrationSource,type MigrationLocation} from './migration_source';
+import {SourcePlan,type SourceLocation as PlannedLocation} from './source_plan';
 import {runtimeMediaKind} from './runtime_media';
 import {declaredPlainTextBytes} from './text_encoding';
 import {mediaTypes} from './media_types';
@@ -13,25 +13,25 @@ import {prepareModeledMedia} from './modeled_media';
 import {isNativeFamily} from './specification';
 
 type CapturedBytes=ReturnType<CapturedExampleResources['read']>;
-type SourceLocation=MigrationLocation&Readonly<{range:[number,number]}>;
+type SourceLocation=PlannedLocation&Readonly<{range:[number,number]}>;
 type CapturedOwner=Readonly<{source:SourceLocation;namespace:string;scope:GraphScope}>;
 type Binding=CapturedOwner&Readonly<{state:'available';bytes:CapturedBytes}>;
 type Capture=Binding|(CapturedOwner&Readonly<{state:'unavailable';code:string;message:string}>);
-type Occurrence=Readonly<{source:SourceLocation;destination:MigrationLocation}>;
+type Occurrence=Readonly<{source:SourceLocation;destination:PlannedLocation}>;
 export type MigrationExampleCopy=Readonly<{
     path:string;id:string;base64:string;identity:string;byteLength:number;
     source:Readonly<{resource:string;identity:string;generation:number}>;
     occurrences:readonly Occurrence[];
 }>;
 type Relocation=Readonly<{
-    sources:ReadonlyMap<string,MigrationSource>;
+    sources:ReadonlyMap<string,SourcePlan>;
     outputs:readonly MigrationExampleCopy[];
     resources:readonly ExternalExampleResourcePacket[];
     mappings:ReadonlyMap<string,string>;
     inlined:readonly MigrationInlineExampleProof[];
 }>;
-export type MigrationInlineExampleProof=Readonly<{location:MigrationLocation;media:string;source:SourceLocation;base64:string}>;
-const key=(location:MigrationLocation)=>JSON.stringify([location.resource,location.pointer]);
+export type MigrationInlineExampleProof=Readonly<{location:PlannedLocation;media:string;source:SourceLocation;base64:string}>;
+const key=(location:PlannedLocation)=>JSON.stringify([location.resource,location.pointer]);
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
 const parent=(pointer:string)=>pointer.slice(0,pointer.lastIndexOf('/'));
 export function migrationExampleBytes(raw:string,media:string):Buffer {
@@ -43,7 +43,7 @@ export function migrationExampleBytes(raw:string,media:string):Buffer {
  * Reuse this captured graph, including retrieval aliases and secondary roles;
  * reconstructing it from document text would lose those authorizations. */
 export async function migrationModeledExampleBytes(graph:ReferenceGraph,media:string,text:string,
-    schema?:MigrationLocation,header=false,packets:readonly ExternalExampleResourcePacket[]=[],itemSchema?:MigrationLocation):Promise<Buffer> {
+    schema?:PlannedLocation,header=false,packets:readonly ExternalExampleResourcePacket[]=[],itemSchema?:PlannedLocation):Promise<Buffer> {
     const family=graph.family;if(!isNativeFamily(family))throw new SourceError('migration.example.family','The captured example has no native family',[0,0],'unsupported');
     const resources=[...graph.docs.values()].map(doc=>({id:doc.id,text:doc.text,generation:0}));
     const input={root:graph.root,resources,snapshot:'migration-example',exampleResources:packets},
@@ -116,11 +116,11 @@ export class MigrationExamples {
 
     /** Expose only the already approved capture. Structural converters cannot
      * acquire bytes or substitute a URI/string for their wire representation. */
-    inlineCapture(location:MigrationLocation,namespace:string):Readonly<{base64:string}>|undefined {
+    inlineCapture(location:PlannedLocation,namespace:string):Readonly<{base64:string}>|undefined {
         const binding=this.bindings.get(JSON.stringify([namespace,location.resource,location.pointer]));
         return binding?.state==='available'?{base64:binding.bytes.base64}:undefined;
     }
-    materialized(location:MigrationLocation,namespace:string,media:string):void {
+    materialized(location:PlannedLocation,namespace:string,media:string):void {
         const capture=this.inlineCapture(location,namespace);if(!capture)return;
         for(const namespace of this.namespaces){
             const key=JSON.stringify([namespace,location.resource,location.pointer]),binding=this.bindings.get(key);
@@ -128,9 +128,9 @@ export class MigrationExamples {
             const types=this.inlined.get(key)??new Set<string>();types.add(media);this.inlined.set(key,types);
         }
     }
-    hasMaterialization(location:MigrationLocation,namespace:string):boolean {return this.inlined.has(JSON.stringify([namespace,location.resource,location.pointer]));}
+    hasMaterialization(location:PlannedLocation,namespace:string):boolean {return this.inlined.has(JSON.stringify([namespace,location.resource,location.pointer]));}
 
-    relocate(graph:ReferenceGraph,mapped:(source:MigrationLocation,namespace:string,scope:GraphScope)=>readonly MigrationLocation[],
+    relocate(graph:ReferenceGraph,mapped:(source:PlannedLocation,namespace:string,scope:GraphScope)=>readonly PlannedLocation[],
         destination:string,documentPaths:Iterable<string>,contexts:readonly ReferenceGraph[]=[graph],retired:ReadonlySet<string>=new Set()):Relocation {
         const expected=new Map<string,Binding>(),inlined:MigrationInlineExampleProof[]=[];
         const locators=nativeExampleLocators(contexts),nativeLocators=new Set(locators.keys());
@@ -175,7 +175,7 @@ export class MigrationExamples {
             expected.set(key(location),binding);
           }
         }
-        const sources=new Map<string,MigrationSource>(),mappings=new Map<string,string>();
+        const sources=new Map<string,SourcePlan>(),mappings=new Map<string,string>();
         const copies=new Map<string,{output:MigrationExampleCopy;aliases:Set<string>;occurrences:Occurrence[]}>();
         const paths=new Set([...documentPaths,'busyapi.yaml','migration.json']);
         const visited=new Set<string>();
@@ -218,7 +218,7 @@ export class MigrationExamples {
             // physical URI, so those document bases can still acquire it.
             mappings.set(uri,copy.output.path);copy.aliases.add(uri);
             let source=sources.get(location.resource);
-            if(!source){source=new MigrationSource(graph.docs.get(location.resource)!);sources.set(location.resource,source);}
+            if(!source){source=new SourcePlan(graph.docs.get(location.resource)!);sources.set(location.resource,source);}
             if(source.doc.dataNode(location.pointer)?.value!==value) {
                 if(++edits>4096||(work+=source.doc.text.length*2)>128*1024*1024)
                     throw new SourceError('limit.migration.examples','External example relocation exceeds its bounded CST edit work',binding.source.range,'unsupported',binding.source);

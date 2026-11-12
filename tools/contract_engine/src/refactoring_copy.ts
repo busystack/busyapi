@@ -13,7 +13,7 @@ import {standardOperationMethods,hasSchemaReferenceSiblings} from './contexts';
 import {serverTemplate} from './derived_bundle';
 import {RefactoringMarkdownOwners} from './refactoring_markdown';
 import {componentNamePolicy,permitsMemberName,reusableDefinitionPointer} from './member_names';
-import {MigrationSource,migrationValueIdentity} from './migration_source';
+import {SourcePlan,sourceValueIdentity} from './source_plan';
 import {assertDynamicRelocation,establishedSchemaResource,type SchemaLocation} from './schema_relocation';
 
 const inside=(pointer:string,owner:string)=>pointer===owner||pointer.startsWith(owner+'/');
@@ -169,11 +169,11 @@ function capture(input:any,ownedYaml=false,relocatingRoles=false) {
  * private CSTs. Published edits still address the original immutable buffers.
  * Ordinary proposal writers never receive this permission. */
 function withYamlOwnership(input:any,copyDestination:boolean,plan:(input:any)=>any):any {
- const before=capture(input,true,copyDestination),sources=new Map<string,MigrationSource>();
+ const before=capture(input,true,copyDestination),sources=new Map<string,SourcePlan>();
  const own=(doc:SourceDocument,pointer:string,descendants:boolean)=>{
   if(doc.format!=='yaml')return;
   let source=sources.get(doc.id);
-  if(!source){source=new MigrationSource(doc);sources.set(doc.id,source);}
+  if(!source){source=new SourcePlan(doc);sources.set(doc.id,source);}
   source.own(pointer,descendants,true);
  };
  const retainedLiteral=copyDestination&&before.owning.every(owner=>owner.graph.literalContainer(before.resource.id,before.target.pointer)!==undefined);
@@ -376,7 +376,7 @@ function planOwnedCopy(input:any,moving=false) {
  }
  const admit=editBudget(resources);admit(destinationId);admit(resource.id);
  let copyDoc=doc;
- if(separated){const privateSource=new MigrationSource(doc);privateSource.own(target.pointer,true,true);copyDoc=privateSource.doc;}
+ if(separated){const privateSource=new SourcePlan(doc);privateSource.own(target.pointer,true,true);copyDoc=privateSource.doc;}
  let changed=fragment?replaceValue(destinationDoc,destination,copyDoc,target.pointer):insertValue(destinationDoc,destination,copyDoc,target.pointer);
  if(removeBinding)changed=retainOccurrenceComments(doc,changed,destination,target.pointer,true);
  const occurrenceValue={$ref:fragment?destinationId+(destination?pointerFragment(destination):''):pointerFragment(destination)};
@@ -423,7 +423,7 @@ function planOwnedCopy(input:any,moving=false) {
    throw new SourceError('refactor.literal.ownership','Separating this literal requires a proved static incoming address; an implicit or dynamic entry that does not already retain its meaning needs explicit ownership',node.range,'unsupported',{resource:resource.id,pointer:target.pointer,range:node.range});
   const address=from&&to&&referenceValue(after.graph,from,to,'$ref',undefined,{retrieval:true});
   if(typeof address!=='string')throw new SourceError('refactor.copy.address','The contract interpretation has no unambiguous independent retrieval address',node.range,'unsupported',{resource:resource.id,pointer:target.pointer,range:node.range});
-  const original=resources.find(value=>value.id===ref.resource)!,current=new MigrationSource(new SourceDocument(outputs.get(ref.resource)??original.text,ref.resource));
+  const original=resources.find(value=>value.id===ref.resource)!,current=new SourcePlan(new SourceDocument(outputs.get(ref.resource)??original.text,ref.resource));
   admit(ref.resource);current.set(ref.pointer+'/'+escape(ref.keyword),address);outputs.set(ref.resource,current.doc.text);
  }
  // Preserve complete identified resources in both same-file and cross-file
@@ -515,7 +515,7 @@ function planOwnedCopy(input:any,moving=false) {
     current=retainOccurrenceComments(previous,current,parent);
     outputs.set(id,current.text);continue;
    }
-   const owned=new MigrationSource(current);owned.set(pointer,next);outputs.set(id,owned.doc.text);
+   const owned=new SourcePlan(current);owned.set(pointer,next);outputs.set(id,owned.doc.text);
   }
  }
  const retainedBinding=(before:any,next:any,graph:any)=>{
@@ -547,7 +547,7 @@ function planOwnedCopy(input:any,moving=false) {
   assertRefactoringCaseFiles(input.manifest,resources,id=>finalDocs.get(id)!);
   assertRefactoringLiterals(g.graph,id=>finalDocs.get(id)!,
    (id,pointer)=>separated?{resource:id,pointer}:relocated({resource:id,pointer}));
-  if(separated&&migrationValueIdentity(doc,target.pointer)!==migrationValueIdentity(after.docs.get(resource.id)!,target.pointer))
+  if(separated&&sourceValueIdentity(doc,target.pointer)!==sourceValueIdentity(after.docs.get(resource.id)!,target.pointer))
    throw new SourceError('refactor.literal.ownership','Contract specialization would change the independently interpreted literal value',node.range,'unsupported',{resource:resource.id,pointer:target.pointer,range:node.range});
   assertDynamicRelocation(g.graph,after.graph,relocated,removeBinding||separated?[]:[{resource:resource.id,pointer:target.pointer}]);
   for(const scope of g.graph.scopesFor('schema'))assertRoleAnnotations(g.graph,scope,after.docs.get(movedResource(scope.resource,scope.pointer))!,move(scope.resource,scope.pointer));
@@ -826,7 +826,7 @@ function planOwnedInline(input:any) {
  const ref=refs[0];
  if(!ref||ref.resolution!=='resolved'||refs.some(r=>!r||r.targetResource!==ref.targetResource||r.targetPointer!==ref.targetPointer))
   throw new SourceError('refactor.inline.target','Choose one unambiguous reference occurrence with the same target in every owning root');
- const definitionPointer=ref.targetPointer!,definitionSource=new MigrationSource(selected.docs.get(ref.targetResource!)!);
+ const definitionPointer=ref.targetPointer!,definitionSource=new SourcePlan(selected.docs.get(ref.targetResource!)!);
  // The retained definition is read through a private owned CST. Its anchors
  // and other alias consumers are not publication edits of an inline review.
  definitionSource.own(definitionPointer,true,true);

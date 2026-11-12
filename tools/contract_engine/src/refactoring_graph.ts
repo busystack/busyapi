@@ -1,6 +1,6 @@
 import {createGraph,type Resource} from './engine';
 import {SourceDocument,SourceError} from './document';
-import {migrationValueIdentity} from './migration_source';
+import {sourceValueIdentity} from './source_plan';
 import {documentUriBase,resolveUri,type ReferenceGraph} from './reference_graph';
 import {documentUriOccurrences} from './document_uris';
 import {caseFileLocators} from './case_file_configuration';
@@ -43,7 +43,7 @@ export function assertRefactoringLiterals(before:ReferenceGraph,read:(resource:s
  for(const [resource,doc]of before.docs)for(const pointer of before.literalContainers(resource)){
   const next=relocate(resource,pointer),after=read(next.resource);
   if(++work>200000)throw new SourceError('limit.refactor.literal','Literal ownership proof exceeds its bounded occurrence count');
-  const original=migrationValueIdentity(doc,pointer),current=after.dataNode(next.pointer)&&migrationValueIdentity(after,next.pointer);
+  const original=sourceValueIdentity(doc,pointer),current=after.dataNode(next.pointer)&&sourceValueIdentity(after,next.pointer);
   if((bytes+=original.length+(current?.length??0))>64*1024*1024)throw new SourceError('limit.refactor.literal','Literal ownership proof exceeds its bounded value size');
   if(original!==current){
    const range=doc.dataNode(pointer)!.range;

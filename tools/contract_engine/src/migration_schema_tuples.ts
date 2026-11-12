@@ -1,12 +1,12 @@
 import {compare,decimal} from './exact_numbers';
 import type {GraphScope,ReferenceGraph} from './reference_graph';
-import type {MigrationSource} from './migration_source';
+import type {SourcePlan} from './source_plan';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import type {MigrationIssue} from './migration_schema';
 import type {MigrationArrayBounds} from './migration_schema_arrays';
 import {uniformTupleTail} from './migration_tuple_uniform_tail';
 import {MigrationSchemaProofs,migrationExactValueIdentity} from './migration_schema_proofs';
-import {migrationValueIdentity} from './migration_source';
+import {sourceValueIdentity} from './source_plan';
 import {schemaResourceContextIdentity} from './reference_graph';
 import {constantSchemaAssertion} from './schema_constant_assertions';
 import type {GraphReference} from './reference_graph';
@@ -46,7 +46,7 @@ export function finiteTupleItemApplications(graph:ReferenceGraph,scope:GraphScop
  * their annotations. Preserve independent targets before ordinary vocabulary
  * lowering; an unsupported dead position must not block its containing tuple.
  * Materialize the bound before retiring a false prefix that proved it. */
-export function discardUnreachableTupleSchemas(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,owners:MigrationSchemaOwners,
+export function discardUnreachableTupleSchemas(graph:ReferenceGraph,scope:GraphScope,source:SourcePlan,owners:MigrationSchemaOwners,
     references:readonly GraphReference[],bounds:MigrationArrayBounds):void {
     const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
     if(graph.referenceObject(value,scope))return;
@@ -106,7 +106,7 @@ function simpleUnboundedTuple(graph:ReferenceGraph,scope:GraphScope,keyword:stri
 /** Factor an already-applied tail conjunct out of each prefix. The tail then
  * applies once uniformly, retaining its metadata once at each item location.
  * Independent prefix targets keep their full neutral schema. */
-function factorTupleTail(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,pointer:string,prefixes:readonly GraphScope[],
+function factorTupleTail(graph:ReferenceGraph,scope:GraphScope,source:SourcePlan,pointer:string,prefixes:readonly GraphScope[],
     tail:GraphScope,owners:MigrationSchemaOwners,target:string):boolean {
     const proofs=new MigrationSchemaProofs(graph);
     const resolve=(initial:GraphScope):GraphScope|undefined=>{
@@ -143,8 +143,8 @@ function factorTupleTail(graph:ReferenceGraph,scope:GraphScope,source:MigrationS
         const suffixes:string[]=[];
         for(const field of fields){
             const escaped=field.replace(/~/g,'~0').replace(/\//g,'~1'),original=prefix.pointer+'/'+escaped;
-            if(!Object.hasOwn(value,field)||migrationValueIdentity(graph.docs.get(prefix.resource)!,original)!==
-                migrationValueIdentity(graph.docs.get(selected.resource)!,selected.pointer+'/'+escaped))return false;
+            if(!Object.hasOwn(value,field)||sourceValueIdentity(graph.docs.get(prefix.resource)!,original)!==
+                sourceValueIdentity(graph.docs.get(selected.resource)!,selected.pointer+'/'+escaped))return false;
             const at=source.current(original,prefix.resource);if(at===undefined||!at.startsWith(current+'/'))return false;
             suffixes.push(at.slice(current.length));
         }
@@ -179,7 +179,7 @@ function homogeneousTupleProof(graph:ReferenceGraph,prefixes:readonly GraphScope
         };
         const x=bareAlias(a),y=bareAlias(b),sameAlias=x&&y&&x.resource===y.resource&&x.pointer===y.pointer;
         return schemaResourceContextIdentity(a)===schemaResourceContextIdentity(b)&&
-            migrationValueIdentity(left,a.pointer)===migrationValueIdentity(right,b.pointer)&&
+            sourceValueIdentity(left,a.pointer)===sourceValueIdentity(right,b.pointer)&&
             (sameAlias||!proofs.contextualDiscriminator(a)&&!proofs.contextualDiscriminator(b))||
             proofs.annotationFree(a)&&proofs.annotationFree(b)&&proofs.implies(a,b)&&proofs.implies(b,a);
     };
@@ -188,7 +188,7 @@ function homogeneousTupleProof(graph:ReferenceGraph,prefixes:readonly GraphScope
     return {selected};
 }
 
-function homogeneousTuple(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,pointer:string,
+function homogeneousTuple(graph:ReferenceGraph,scope:GraphScope,source:SourcePlan,pointer:string,
     keyword:string,prefixes:readonly GraphScope[],tail:GraphScope|undefined,closed:boolean,maximum:number|undefined,
     owners:MigrationSchemaOwners,target:string):boolean {
     const proof=homogeneousTupleProof(graph,prefixes,tail,closed,maximum);if(!proof)return false;
@@ -224,7 +224,7 @@ function homogeneousTuple(graph:ReferenceGraph,scope:GraphScope,source:Migration
  * Independent roots retain their original language and cannot inherit this
  * containing constraint. Prefix/tail descendants keep allocator identities.
  */
-export function migrateComposedUnevaluatedTuple(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,pointer:string,target:string,
+export function migrateComposedUnevaluatedTuple(graph:ReferenceGraph,scope:GraphScope,source:SourcePlan,pointer:string,target:string,
     owners:MigrationSchemaOwners,references:readonly GraphReference[],bounds:MigrationArrayBounds):boolean {
     if(target!=='3.0'||graph.hasOverlappingScope(scope.resource,scope.pointer)||graph.literalContainer(scope.resource,scope.pointer)!==undefined)return false;
     const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
@@ -260,7 +260,7 @@ export function migrateComposedUnevaluatedTuple(graph:ReferenceGraph,scope:Graph
  * schema. Boolean tails remain unrestricted/closed and keep independent owners
  * when referenced. Bounds may be proved through same-instance composition and
  * fixed references; no finite expansion is claimed without that proof. */
-export function migrateSchemaTuple(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,
+export function migrateSchemaTuple(graph:ReferenceGraph,scope:GraphScope,source:SourcePlan,
     pointer:string,target:string,owners:MigrationSchemaOwners,issue:MigrationIssue,bounds:MigrationArrayBounds,
     tailOrigin=scope.pointer+'/items'):void {
     const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;

@@ -2,7 +2,7 @@ import {createHash} from 'node:crypto';
 import {componentNamePolicy,permitsMemberName} from './member_names';
 import {pointerFragment,type ReferenceGraph,type GraphScope} from './reference_graph';
 import {escape,SourceError} from './document';
-import {MigrationSource} from './migration_source';
+import {SourcePlan} from './source_plan';
 import {documentUriValidity} from './document_uris';
 import type {MigrationIssue} from './migration_schema';
 import {ParameterSemantics} from './parameter_semantics';
@@ -17,7 +17,7 @@ const schemaFields=['type','format','items','default','maximum','exclusiveMaximu
 
 /** Structural mappings use native graph occurrences and effective parameters,
  * including inherited body/form parameters. No guessed traversal of payloads. */
-export function upgradeSwagger(graph:ReferenceGraph,sources:Map<string,MigrationSource>,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph],targetFamily='3.0',owners=new MigrationSchemaOwners(graph,sources,undefined,[],contexts)) {
+export function upgradeSwagger(graph:ReferenceGraph,sources:Map<string,SourcePlan>,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph],targetFamily='3.0',owners=new MigrationSchemaOwners(graph,sources,undefined,[],contexts)) {
     const scopes=[...migrationScopes(contexts)].sort((a,b)=>a.resource.localeCompare(b.resource)||a.pointer.localeCompare(b.pointer));
     // Swagger Info text becomes a URL in 3.0 (§4.7.2). A URI-looking
     // string does not itself establish the author's intent to activate a link.
@@ -60,7 +60,7 @@ export function upgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migration
         }
         return {style:format==='ssv'?'spaceDelimited':format==='pipes'?'pipeDelimited':['query','formData'].includes(value.in)?'form':'simple',explode:format==='multi'};
     };
-    const modernFlatSchema=(source:MigrationSource,pointer:string,depth=0):void=>{
+    const modernFlatSchema=(source:SourcePlan,pointer:string,depth=0):void=>{
         if(!modernFamily(targetFamily))return;
         if(depth>=128)throw new SourceError('limit.migration.items','Swagger Items conversion exceeds 128 nested schemas');
         const value=source.doc.dataNode(pointer)?.value;
@@ -76,7 +76,7 @@ export function upgradeSwagger(graph:ReferenceGraph,sources:Map<string,Migration
         }
         if(source.doc.dataNode(pointer+'/items'))modernFlatSchema(source,pointer+'/items',depth+1);
     };
-    const flatSchema=(source:MigrationSource,pointer:string,value:any)=>{
+    const flatSchema=(source:SourcePlan,pointer:string,value:any)=>{
         source.ensure(pointer+'/schema');
         for(const name of schemaFields)if(source.doc.nodes.has(pointer+'/'+name))source.move(pointer+'/'+name,pointer+'/schema/'+name);
         modernFlatSchema(source,pointer+'/schema');

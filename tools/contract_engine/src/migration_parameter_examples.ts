@@ -4,20 +4,20 @@ import {exampleRepresentation} from './example_representation';
 import {externalParameterText} from './serialized_parameter_examples';
 import {schemaExampleCandidates} from './schema_examples';
 import type {GraphScope,ReferenceGraph} from './reference_graph';
-import type {MigrationSource,MigrationLocation} from './migration_source';
+import type {SourcePlan,SourceLocation} from './source_plan';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import {migrationExactValueIdentity} from './migration_schema_proofs';
 import {documentUriBase,pointerFragment} from './reference_graph';
-import {migrationLogicalPointers} from './migration_yaml_ownership';
+import {logicalSourcePointers} from './source_yaml_ownership';
 import {relocateMarkdownLinks} from './markdown_relocation';
 import {capturedRuntimeMedia} from './runtime_media_owner';
 
-type Metadata=Readonly<{name:string;location:MigrationLocation}>;
-type Choice=Readonly<{name?:string;authoredName:boolean;data:string;wire:string;metadata:readonly Metadata[];external?:Readonly<{location:MigrationLocation;base64:string;uri:string}>}>;
+type Metadata=Readonly<{name:string;location:SourceLocation}>;
+type Choice=Readonly<{name?:string;authoredName:boolean;data:string;wire:string;metadata:readonly Metadata[];external?:Readonly<{location:SourceLocation;base64:string;uri:string}>}>;
 export type ProjectedParameterExample=Readonly<{name?:string;raw:string;metadata:readonly Metadata[];external?:Choice['external']}>;
 export type ParameterExampleProjection=Readonly<{fields:readonly (readonly ProjectedParameterExample[])[];explicit:boolean;
  retainedExternal:readonly NonNullable<Choice['external']>[];order:readonly number[]} >;
-type Context=Readonly<{parameter:GraphScope;schema:GraphScope;media?:MigrationLocation;mediaType?:string}>;
+type Context=Readonly<{parameter:GraphScope;schema:GraphScope;media?:SourceLocation;mediaType?:string}>;
 type Codec=Readonly<{decode:(text:string)=>Promise<string|undefined>;encode:(raw:string)=>string|undefined;
  project:(raw:string)=>readonly string[]|undefined;target:(index:number,raw:string)=>string|undefined;delimiter?:string;
  order?:(raw:string)=>readonly number[]}>;
@@ -27,7 +27,7 @@ const exact=(raw:string)=>migrationExactValueIdentity(new SourceDocument(raw,'fi
  * defining Example root through the common allocator, whose ownership stays
  * independent of those field copies; do not require each copied leaf to have
  * one material location. */
-function materialExampleField(graph:ReferenceGraph,location:MigrationLocation,owners:MigrationSchemaOwners) {
+function materialExampleField(graph:ReferenceGraph,location:SourceLocation,owners:MigrationSchemaOwners) {
  const split=location.pointer.lastIndexOf('/'),parent=location.pointer.slice(0,split);
  if(!graph.scopeAs(location.resource,parent,'example'))throw new SourceError('migration.parameter.example-proof','The copied field has no captured defining Example owner',[0,0],'unsupported');
  const material=owners.uniqueLocation({resource:location.resource,pointer:parent});
@@ -52,7 +52,7 @@ export function retainMigrationParameterExampleOwners(graph:ReferenceGraph,conte
     if(request.targetResource)held.source.set(held.location.pointer+'/externalValue',request.targetResource);
    }
    material.source.set(material.location.pointer,{$ref:held.location.resource+pointerFragment(held.location.pointer)});
-   for(const pointer of migrationLogicalPointers(held.source.doc))if((pointer===held.location.pointer||pointer.startsWith(held.location.pointer+'/'))&&!held.source.origins.has(pointer))
+   for(const pointer of logicalSourcePointers(held.source.doc))if((pointer===held.location.pointer||pointer.startsWith(held.location.pointer+'/'))&&!held.source.origins.has(pointer))
     held.source.origins.set(pointer,new Set([pointer]));
    held.source.presentationChanges.push(held.location.pointer);
   }
@@ -67,8 +67,8 @@ export async function migrationParameterExampleProjection(graph:ReferenceGraph,c
  const captured=new CapturedExampleResources(packets),choices:Choice[]=[];
  let explicit=false,work=0;
  const fail=(message:string):never=>{throw new SourceError('migration.parameter.example-proof',message,[0,0],'unsupported');};
- const follow=(start:MigrationLocation):Readonly<{target:MigrationLocation;chain:readonly MigrationLocation[]}>=>{
-  let at=start;const seen=new Set<string>(),chain:MigrationLocation[]=[];
+ const follow=(start:SourceLocation):Readonly<{target:SourceLocation;chain:readonly SourceLocation[]}>=>{
+  let at=start;const seen=new Set<string>(),chain:SourceLocation[]=[];
   while(true){
    if(++work>20000||seen.size>=128)fail('Example projection exceeds its bounded occurrence budget');
    const id=JSON.stringify(at);if(seen.has(id))fail('The Example reference chain is cyclic');seen.add(id);
@@ -80,7 +80,7 @@ export async function migrationParameterExampleProjection(graph:ReferenceGraph,c
    at={resource:edge!.targetResource!,pointer:edge!.targetPointer!};
   }
  };
- const add=async(at:MigrationLocation,field:string,name:string|undefined,mediaType:string|undefined,metadata:readonly Metadata[]=[],external?:Choice['external'])=>{
+ const add=async(at:SourceLocation,field:string,name:string|undefined,mediaType:string|undefined,metadata:readonly Metadata[]=[],external?:Choice['external'])=>{
   const doc=graph.docs.get(at.resource)!,node=doc.dataNode(at.pointer+'/'+field);
   const serialized=external!==undefined||node&&exampleRepresentation(field as 'value',node.value,mediaType)==='serialized';
   const text=external?externalParameterText(graph,context.parameter,Buffer.from(external.base64,'base64')):serialized?node!.value:undefined;
@@ -89,7 +89,7 @@ export async function migrationParameterExampleProjection(graph:ReferenceGraph,c
   const wire=codec.encode(data!);if(wire===undefined||serialized&&wire!==text)fail('The example does not retain its exact serialization under the captured codec');
   choices.push({name,authoredName:name!==undefined,data:data!,wire:wire!,metadata,...(external?{external}:{})});
  };
- const layer=async(owner:MigrationLocation,mediaType?:string)=>{
+ const layer=async(owner:SourceLocation,mediaType?:string)=>{
   const doc=graph.docs.get(owner.resource)!,value=doc.dataNode(owner.pointer)!.value;
   if(Object.hasOwn(value,'example')){explicit=true;await add(owner,'example',undefined,mediaType);}
   if(Object.hasOwn(value,'examples')){
@@ -187,7 +187,7 @@ export async function migrationParameterExampleProjection(graph:ReferenceGraph,c
  * common allocator. Generated projected values deliberately acquire fresh
  * provenance rather than pretending to be unchanged source payloads. */
 export function installMigrationParameterExamples(graph:ReferenceGraph,projection:ParameterExampleProjection,index:number,
- output:MigrationSource,pointer:string,owners:MigrationSchemaOwners):void {
+ output:SourcePlan,pointer:string,owners:MigrationSchemaOwners):void {
  const values=projection.fields[index];
  // Generated literal cookie content must not reactivate the original schema
  // fallback beneath a second Media Type selection layer.
@@ -224,7 +224,7 @@ export function installMigrationParameterExamples(graph:ReferenceGraph,projectio
  * original capture, then checks every destination field and metadata owner.
  * A schema/domain certificate alone cannot admit lost or changed examples. */
 export function sameMigrationParameterExamples(source:ReferenceGraph,projection:ParameterExampleProjection,
- target:ReferenceGraph,outputs:readonly MigrationLocation[],packets:readonly ExternalExampleResourcePacket[]=[]):boolean {
+ target:ReferenceGraph,outputs:readonly SourceLocation[],packets:readonly ExternalExampleResourcePacket[]=[]):boolean {
  const captured=new CapturedExampleResources(packets);
  return outputs.length===projection.fields.length&&outputs.every((output,index)=>{
   const doc=target.docs.get(output.resource)!,values=projection.fields[index];

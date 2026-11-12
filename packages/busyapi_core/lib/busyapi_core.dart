@@ -30,3 +30,9 @@ export 'src/atomic_file_writer.dart';
 export 'src/search.dart';
 export 'src/atomic_directory_writer.dart'
     show OutputDirectoryReceipt, OutputDirectoryResult, OutputDirectoryChanged;
+
+export 'src/request_parameters.dart'
+    show
+        headerExampleRepresentation,
+        validateRawTextCharset,
+        validateTextCharset;

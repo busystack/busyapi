@@ -1,5 +1,5 @@
 import type {GraphScope,GraphReference,ReferenceGraph} from './reference_graph';
-import type {MigrationSource} from './migration_source';
+import type {SourcePlan} from './source_plan';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import {constantSchemaAssertion} from './schema_constant_assertions';
 
@@ -32,7 +32,7 @@ function independent(graph:ReferenceGraph,scope:GraphScope):boolean {
 /** An inactive child must not block conversion for an assertion that never
  * evaluates it. Identified/independently consumed children remain material
  * owners and undergo their own ordinary conversion. */
-export function discardInactiveUnevaluated(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,
+export function discardInactiveUnevaluated(graph:ReferenceGraph,scope:GraphScope,source:SourcePlan,
     owners:MigrationSchemaOwners,references:readonly GraphReference[]):void {
     if(!independent(graph,scope))return;
     const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
@@ -50,7 +50,7 @@ export function discardInactiveUnevaluated(graph:ReferenceGraph,scope:GraphScope
 /** Retain the selected subschema's CST/provenance when it becomes an ordinary
  * applicator. The returned origin lets tuple conversion distinguish a newly
  * selected unevaluated tail from an originally absent/unconstrained items. */
-export function migrateSchemaUnevaluated(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,pointer:string,
+export function migrateSchemaUnevaluated(graph:ReferenceGraph,scope:GraphScope,source:SourcePlan,pointer:string,
     owners:MigrationSchemaOwners,references:readonly GraphReference[]):string|undefined {
     if(!independent(graph,scope))return;
     const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;

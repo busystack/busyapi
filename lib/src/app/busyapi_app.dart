@@ -686,8 +686,8 @@ class WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     int? generation;
     try {
       final opening = c.open(path, cancelled: () => cancelled);
-      generation = c.navigationGeneration;
       await opening;
+      generation = c.navigationGeneration;
     } finally {
       final route = ownedRoute, navigator = ownedNavigator;
       if (route != null &&
@@ -935,8 +935,8 @@ class WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           if (!current()) return; // Published files survive host removal.
           try {
             final opening = c.open(createdPath!, cancelled: () => !current());
-            generation = c.navigationGeneration;
             await opening;
+            generation = c.navigationGeneration;
             if (!current()) return;
             c.setMode('Design');
             await c.analyse();
@@ -1088,28 +1088,7 @@ class WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           !p.isWithin(c.project!.access.boundary, record['path'])) {
         await c.open(p.dirname(record['path']), recovering: record);
       }
-      await c.project!.buffer(record['id'], recovery: record);
-      await c.openFile(record['id']);
-      final d = record['draft'];
-      if (d != null) {
-        c.draft = PropertySession(
-          root: d['root'],
-          buffer: d['buffer'],
-          generation: d['generation'],
-          pointer: d['pointer'],
-          range: List<int>.from(d['range']),
-          expected: d['expected'],
-        );
-        c.draft!.committed.addAll(Map<String, Object?>.from(d['committed']));
-        c.draft!.values.addAll(Map<String, Object?>.from(d['values']));
-      }
-      if (record['form'] != null) {
-        c.form = FormSession.restore(Map<String, dynamic>.from(record['form']));
-      }
-      c.store!.retireHistory({c.buffer!.id});
-      await c.recovery.adopt(record, c.buffer!, draft: c.draft, form: c.form);
-      c.mode = 'Source';
-      c.schedule(immediate: true);
+      await c.recoverBufferDraft(record);
       if (c.form != null && mounted) await resumeCapturedForm(context, c);
       if (c.draft != null && mounted) await c.resumePropertyDraft();
     }
@@ -1117,7 +1096,8 @@ class WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
 
   Future<void> resolveConflict() async {
     final buffer = c.buffer;
-    if (buffer == null || !await c.flush() || !mounted) return;
+    if (buffer == null || !mounted) return;
+    if (!buffer.externalConflict && !await c.flush()) return;
     final owner = c.project;
     if (owner == null || !owner.store.ownsFileBuffer(buffer)) return;
     BufferReloadCapture? acceptedReload;
@@ -1159,6 +1139,7 @@ class WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       ),
     );
     if (action == 'copy') {
+      if (!await c.flush() || !mounted) return;
       final location = await getSaveLocation(
         suggestedName:
             '${p.basenameWithoutExtension(buffer.path)}.busyapi-draft${p.extension(buffer.path)}',

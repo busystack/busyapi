@@ -1,13 +1,13 @@
 import {SourceDocument,SourceError,escape,segments,RawJsonValue} from './document';
-import {migrationYamlOwnership,migrationLogicalPointers} from './migration_yaml_ownership';
+import {separateYamlOwnership,logicalSourcePointers} from './source_yaml_ownership';
 
-export type MigrationLocation={resource:string;pointer:string};
+export type SourceLocation={resource:string;pointer:string};
 /** Index current CST locations without discarding synthetic conversion
  * coordinates. Owner-copy relations are composed by the caller; renaming a
  * native connection key must use the same provenance as moving any field. */
-export function migrationLocations(sources:ReadonlyMap<string,MigrationSource>):ReadonlyMap<string,readonly MigrationLocation[]> {
-    const result=new Map<string,MigrationLocation[]>();let work=0;
-    const append=(origin:MigrationLocation,resource:string,pointers:ReadonlySet<string>)=>{
+export function sourceLocations(sources:ReadonlyMap<string,SourcePlan>):ReadonlyMap<string,readonly SourceLocation[]> {
+    const result=new Map<string,SourceLocation[]>();let work=0;
+    const append=(origin:SourceLocation,resource:string,pointers:ReadonlySet<string>)=>{
         const identity=JSON.stringify([origin.resource,origin.pointer]),values=result.get(identity)??[];
         for(const pointer of pointers){
             if(++work>2000000)throw new SourceError('limit.migration.owners','Migration provenance exceeds 2000000 current locations');
@@ -36,27 +36,27 @@ function outerCommentRanges(doc:SourceDocument,pointer:string,entryComments:bool
     const seen=new Set<string>();
     return ranges.sort((a,b)=>a[0]-b[0]).filter(range=>{const key=range.join(':');if(seen.has(key))return false;seen.add(key);return true;});
 }
-export function migrationValueIdentity(doc:SourceDocument,pointer:string):string {
+export function sourceValueIdentity(doc:SourceDocument,pointer:string):string {
     const node=doc.dataNode(pointer)!;
-    if(node.kind==='object')return '{'+[...node.children].map(([name,child])=>JSON.stringify(name)+':'+migrationValueIdentity(doc,child.pointer)).join(',')+'}';
-    if(node.kind==='array')return '['+[...node.children.values()].map(child=>migrationValueIdentity(doc,child.pointer)).join(',')+']';
+    if(node.kind==='object')return '{'+[...node.children].map(([name,child])=>JSON.stringify(name)+':'+sourceValueIdentity(doc,child.pointer)).join(',')+'}';
+    if(node.kind==='array')return '['+[...node.children.values()].map(child=>sourceValueIdentity(doc,child.pointer)).join(',')+']';
     return typeof node.value==='number'?doc.dataJson(pointer).trim():JSON.stringify(node.value);
 }
 
 /** Mutable planning copies of the existing CST, never live source buffers.
  * Original coordinates remain attached to every surviving/moved occurrence. */
-export class MigrationSource {
+export class SourcePlan {
     doc:SourceDocument;
     readonly origins=new Map<string,Set<string>>();
     readonly foreignOrigins=new Map<string,Set<string>>();
     readonly presentationChanges:string[]=[];
     constructor(readonly original:SourceDocument) {
         this.doc=new SourceDocument(original.text,original.id);
-        for(const pointer of migrationLogicalPointers(original))this.origins.set(pointer,new Set([pointer]));
+        for(const pointer of logicalSourcePointers(original))this.origins.set(pointer,new Set([pointer]));
     }
     own(pointer:string,descendants=true,includeKey=false):void {
         this.located(pointer,()=>{
-            const result=migrationYamlOwnership(this.doc,pointer,descendants,includeKey);
+            const result=separateYamlOwnership(this.doc,pointer,descendants,includeKey);
             this.doc=result.document;this.presentationChanges.push(...result.changed);
         });
     }
@@ -66,8 +66,8 @@ export class MigrationSource {
     /** Capture a planning copy and its logical provenance before specialization.
      * The converted CST may use different coordinates from the original source;
      * rebuilding origins from its node names would lose moved/foreign owners. */
-    fork():MigrationSource {
-        const fork=new MigrationSource(this.original);
+    fork():SourcePlan {
+        const fork=new SourcePlan(this.original);
         fork.doc=this.doc;
         fork.origins.clear();
         for(const [origin,locations]of this.origins)fork.origins.set(origin,new Set(locations));
@@ -109,7 +109,7 @@ export class MigrationSource {
             if(error instanceof SourceError&&!error.source){
                 let at=[...this.doc.nodes.values()].find(node=>
                     [node.range,node.keyRange].some(range=>range?.[0]===error.range[0]&&range?.[1]===error.range[1]))?.pointer??pointer;
-                let location:MigrationLocation|undefined;
+                let location:SourceLocation|undefined;
                 while(true){
                     const own=[...this.origins].find(([,values])=>values.has(at));
                     const foreign=[...this.foreignOrigins].find(([,values])=>values.has(at));
@@ -200,13 +200,13 @@ export class MigrationSource {
         for(const values of this.originSets())for(const at of [...values])if(inside(at,pointer)){values.delete(at);values.add(to+at.slice(pointer.length));}
         return to;
     }
-    copy(source:MigrationSource,from:string,to:string,entryComments=false):void {
+    copy(source:SourcePlan,from:string,to:string,entryComments=false):void {
         source.own(from,true,true);
         const before=source.doc,node=before.node(from);
         source.located(from,()=>{before.assertSafe(from);before.assertUnshared(from,true);});
         const copied=[...[...source.origins].map(([origin,values])=>({origin:source.original.id+'#'+origin,values})),...[...source.foreignOrigins].map(([origin,values])=>({origin,values}))]
             .flatMap(({origin,values})=>[...values].filter(at=>inside(at,from)).map(at=>({origin,pointer:to+at.slice(from.length)})));
-        const parts=segments(to),name=parts.pop()!,parent=parts.length?'/'+parts.map(escape).join('/'):'',expected=before.dataJson(from),identity=migrationValueIdentity(before,from);
+        const parts=segments(to),name=parts.pop()!,parent=parts.length?'/'+parts.map(escape).join('/'):'',expected=before.dataJson(from),identity=sourceValueIdentity(before,from);
         this.ensure(parent);
         this.own(parent,false);
         if(this.doc.nodes.has(to))throw new SourceError('migration.collision','A migration destination already exists at '+to);
@@ -249,7 +249,7 @@ export class MigrationSource {
                 }
             }
         }
-        if(migrationValueIdentity(this.doc,to)!==identity)throw new SourceError('migration.fidelity','The mapped value changed its exact source meaning at '+to);
+        if(sourceValueIdentity(this.doc,to)!==identity)throw new SourceError('migration.fidelity','The mapped value changed its exact source meaning at '+to);
         for(const {origin,pointer}of copied){
             const own=origin.startsWith(this.original.id+'#'),map=own?this.origins:this.foreignOrigins,key=own?origin.slice(this.original.id.length+1):origin;
             const values=map.get(key)??new Set<string>();values.add(pointer);map.set(key,values);
@@ -258,7 +258,7 @@ export class MigrationSource {
     /** Associate a generated wrapper with the exact source schema it models.
      * Descendants retain their own copy/move provenance; this adds no value or
      * text equivalence claim for synthesized container fields. */
-    associate(source:MigrationSource,from:string,to:string):void {
+    associate(source:SourcePlan,from:string,to:string):void {
         source.doc.node(from);this.doc.node(to);
         const owners=[...[...source.origins].filter(([,locations])=>locations.has(from)).map(([pointer])=>source.original.id+'#'+pointer),
             ...[...source.foreignOrigins].filter(([,locations])=>locations.has(from)).map(([origin])=>origin)];

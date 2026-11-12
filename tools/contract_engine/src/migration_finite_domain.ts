@@ -2,7 +2,7 @@ import {escape,SourceError} from './document';
 import type {Resource} from './engine';
 import {evaluateSchemas} from './schema_evaluation';
 import type {GraphScope,ReferenceGraph} from './reference_graph';
-import type {MigrationSource} from './migration_source';
+import type {SourcePlan} from './source_plan';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import {MigrationSchemaProofs} from './migration_schema_proofs';
 import {MigrationArrayBounds} from './migration_schema_arrays';
@@ -151,7 +151,7 @@ export class FiniteMigrationDomain {
     }
 }
 
-export async function migrateFiniteSchemaDomain(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,target:string,
+export async function migrateFiniteSchemaDomain(graph:ReferenceGraph,scope:GraphScope,source:SourcePlan,target:string,
     owners:MigrationSchemaOwners,references:readonly GraphReference[],resources:readonly Resource[],exampleResources:readonly ExternalExampleResourcePacket[],flatItems=false):Promise<boolean> {
     const doc=graph.docs.get(scope.resource)!,value=doc.dataNode(scope.pointer)?.value,pointer=source.current(scope.pointer,scope.resource);
     if(pointer===undefined||!value||typeof value!=='object'||graph.referenceObject(value,scope))return false;

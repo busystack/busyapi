@@ -1,17 +1,17 @@
 import {children} from './contexts';
 import {escape,SourceError} from './document';
 import {pointerFragment,schemaResourceContextIdentity,type GraphScope,type ReferenceGraph} from './reference_graph';
-import {MigrationSource,type MigrationLocation} from './migration_source';
+import {SourcePlan,type SourceLocation} from './source_plan';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import {projectSchemaReference} from './schema_reference_projection';
 import {modernFamily} from './specification';
 import {entryComponentContainer} from './migration_schema_uses';
 import type {BinaryStep,BinaryUse} from './migration_binary';
 
-const key=(at:MigrationLocation)=>JSON.stringify([at.resource,at.pointer]);
-const within=(at:MigrationLocation,parent:MigrationLocation)=>at.resource===parent.resource&&
+const key=(at:SourceLocation)=>JSON.stringify([at.resource,at.pointer]);
+const within=(at:SourceLocation,parent:SourceLocation)=>at.resource===parent.resource&&
     (at.pointer===parent.pointer||at.pointer.startsWith(parent.pointer+'/'));
-type Selection=Readonly<{target:MigrationLocation;path:readonly BinaryStep[]}>;
+type Selection=Readonly<{target:SourceLocation;path:readonly BinaryStep[]}>;
 type Route={scope:GraphScope;selections:readonly Selection[];edges:{field?:string;keyword?:string;target:Route}[];relevant:boolean};
 export type BinaryContainerUse=Readonly<{leaf:GraphScope;use:BinaryUse}>;
 
@@ -21,9 +21,9 @@ export type BinaryContainerUse=Readonly<{leaf:GraphScope;use:BinaryUse}>;
  * Route states are local planning work. Material copies, reservations, provenance
  * and semantic ownership all belong to MigrationSchemaOwners.
  */
-export function specializeBinaryContainers(graph:ReferenceGraph,sources:ReadonlyMap<string,MigrationSource>,
-    pristine:ReadonlyMap<string,MigrationSource>,uses:readonly BinaryContainerUse[],owners:MigrationSchemaOwners,
-    provenance:Map<string,MigrationLocation[]>,contexts:readonly ReferenceGraph[]=[graph],preparedRoots:Set<string>=new Set()):void {
+export function specializeBinaryContainers(graph:ReferenceGraph,sources:ReadonlyMap<string,SourcePlan>,
+    pristine:ReadonlyMap<string,SourcePlan>,uses:readonly BinaryContainerUse[],owners:MigrationSchemaOwners,
+    provenance:Map<string,SourceLocation[]>,contexts:readonly ReferenceGraph[]=[graph],preparedRoots:Set<string>=new Set()):void {
     let work=0;
     const inspect=()=>{if(++work>2000000)throw new SourceError('limit.migration.binary','Containing binary ownership exceeds its bounded graph work');};
     const groups=new Map<string,{scope:GraphScope;selections:Selection[]}>();
@@ -32,8 +32,8 @@ export function specializeBinaryContainers(graph:ReferenceGraph,sources:Readonly
         group.selections.push({target:leaf,path:use.path});groups.set(id,group);
     }
     const references=graph.entryReferences().filter(reference=>projectSchemaReference(reference).state==='fixed');
-    const completed:MigrationLocation[]=[];
-    const record=(origin:GraphScope,location:MigrationLocation,canonical:boolean)=>{
+    const completed:SourceLocation[]=[];
+    const record=(origin:GraphScope,location:SourceLocation,canonical:boolean)=>{
         const pending=[origin],seen=new Set<string>();
         for(let index=0;index<pending.length;index++){
             inspect();const at=pending[index],id=JSON.stringify([at.resource,at.pointer,at.kind]);
@@ -63,7 +63,7 @@ export function specializeBinaryContainers(graph:ReferenceGraph,sources:Readonly
         }
         return copied.location;
     };
-    const setReference=(at:MigrationLocation,target:MigrationLocation,keyword='$ref')=>{
+    const setReference=(at:SourceLocation,target:SourceLocation,keyword='$ref')=>{
         const source=sources.get(at.resource)!;owners.admit(source);
         source.set(at.pointer+'/'+keyword,target.resource+pointerFragment(target.pointer));
     };
@@ -121,7 +121,7 @@ export function specializeBinaryContainers(graph:ReferenceGraph,sources:Readonly
             inspect();if(!parent.relevant){parent.relevant=true;ready.push(parent);}
         }
         if(!initial.relevant)continue;
-        const material=new Map<Route,MigrationLocation>();
+        const material=new Map<Route,SourceLocation>();
         const roots=new Set<Route>([initial]);
         for(const state of routes.values())if(state.relevant)for(const edge of state.edges)
             if(edge.field!==undefined&&edge.target.relevant)roots.add(edge.target);
@@ -138,7 +138,7 @@ export function specializeBinaryContainers(graph:ReferenceGraph,sources:Readonly
             const source=sources.get(reference.resource)!,pointer=source.current(reference.pointer);
             return pointer!==undefined&&source.doc.dataNode(pointer+'/'+reference.keyword)?.value===reference.value;
         });
-        let neutral:MigrationLocation|undefined;
+        let neutral:SourceLocation|undefined;
         if(targeted){
             neutral=copy(root,'binary_container_data',JSON.stringify([graph.root,root.resource,root.pointer,'data']));
             record(root,neutral,true);
@@ -155,7 +155,7 @@ export function specializeBinaryContainers(graph:ReferenceGraph,sources:Readonly
             }
         }
         for(const [state,location]of material){
-            const states=[state],seen=new Set<Route>(),repairs=new Map<string,MigrationLocation>();
+            const states=[state],seen=new Set<Route>(),repairs=new Map<string,SourceLocation>();
             for(let index=0;index<states.length;index++){
                 inspect();const current=states[index];if(seen.has(current))continue;seen.add(current);
                 for(const edge of current.edges){

@@ -3,13 +3,13 @@ import {pointerFragment,type ReferenceGraph,type GraphScope,type GraphReference}
 import type {MigrationIssue} from './migration_schema';
 import {modernFamily,type SpecificationFamily} from './specification';
 import {securityRequirementChain,securityRequirementDefinition,securityRequirementValuesAllowed} from './security_requirements';
-import {MigrationSource,type MigrationLocation} from './migration_source';
+import {SourcePlan,type SourceLocation} from './source_plan';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import {entryComponentContainer} from './migration_schema_uses';
 import {children} from './contexts';
 import {referenceValue} from './reference_choices';
 
-const keyOf=(location:MigrationLocation)=>JSON.stringify([location.resource,location.pointer]);
+const keyOf=(location:SourceLocation)=>JSON.stringify([location.resource,location.pointer]);
 
 /** URI publication must be injective over independently configured source
  * spellings, including different OR entries and different API roots. Reuse
@@ -37,11 +37,11 @@ export function migrationSecurityUriSpellings(graphs:readonly ReferenceGraph[],c
  * precedence or a URI target. Give each URI binding a distinct standard
  * component occurrence through the common allocator. Even equal arrays must
  * not collapse independently authored AND bindings or OR alternatives. */
-export function migrateSecurityBindings(graphs:readonly ReferenceGraph[],sources:ReadonlyMap<string,MigrationSource>,
-    families:readonly string[],target:SpecificationFamily,owners:MigrationSchemaOwners,excludedNames:ReadonlySet<string>=new Set()):ReadonlyMap<string,readonly MigrationLocation[]> {
-    const provenance=new Map<string,MigrationLocation[]>();
+export function migrateSecurityBindings(graphs:readonly ReferenceGraph[],sources:ReadonlyMap<string,SourcePlan>,
+    families:readonly string[],target:SpecificationFamily,owners:MigrationSchemaOwners,excludedNames:ReadonlySet<string>=new Set()):ReadonlyMap<string,readonly SourceLocation[]> {
+    const provenance=new Map<string,SourceLocation[]>();
     if(target==='3.2')return provenance;
-    const pristine=new Map([...sources].map(([id,source])=>[id,new MigrationSource(source.doc)]));
+    const pristine=new Map([...sources].map(([id,source])=>[id,new SourcePlan(source.doc)]));
     let work=0,bindingCount=0;
     const retain=(scope:GraphScope,copied:ReturnType<MigrationSchemaOwners['separate']>)=>{
         for(const [pointer,location]of copied.provenance){

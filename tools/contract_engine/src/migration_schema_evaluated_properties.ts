@@ -2,7 +2,7 @@ import {escape,SourceError} from './document';
 import {MigrationSchemaProofs} from './migration_schema_proofs';
 import type {GraphScope,GraphReference,ReferenceGraph} from './reference_graph';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
-import type {MigrationSource} from './migration_source';
+import type {SourcePlan} from './source_plan';
 import type {MigrationPropertyDomains} from './migration_schema_name_domains';
 import {annotationAny as any,annotationAll as all,annotationNot as negate,emitAnnotationGuard,type AnnotationGuard as Guard} from './migration_schema_annotation_guards';
 import {universalNamePatterns,finiteRegexNameSuperset} from './migration_schema_regex';
@@ -99,7 +99,7 @@ export class MigrationEvaluatedProperties {
     private emit(guard:Guard,target:string):unknown {
         return emitAnnotationGuard(guard,this.owners,target);
     }
-    discardInactive(scope:GraphScope,source:MigrationSource,references:readonly GraphReference[]):void {
+    discardInactive(scope:GraphScope,source:SourcePlan,references:readonly GraphReference[]):void {
         const original={resource:scope.resource,pointer:scope.pointer+'/unevaluatedProperties'};
         if(source.current(original.pointer,scope.resource)===undefined||this.graph.hasOverlappingScope(scope.resource,scope.pointer)||
             this.graph.literalContainer(scope.resource,scope.pointer)!==undefined||this.coverage(scope,true)?.all!==true)return;
@@ -109,7 +109,7 @@ export class MigrationEvaluatedProperties {
     }
     /** Retire the unsupported keyword now; materialize guard references only
      * after every captured owner has completed ordinary schema conversion. */
-    lower(scope:GraphScope,source:MigrationSource,pointer:string,target:string,defer:(apply:()=>void)=>void):boolean {
+    lower(scope:GraphScope,source:SourcePlan,pointer:string,target:string,defer:(apply:()=>void)=>void):boolean {
         const original={resource:scope.resource,pointer:scope.pointer+'/unevaluatedProperties'},at=source.current(original.pointer,scope.resource);
         if(at!==pointer+'/unevaluatedProperties'||!source.doc.dataNode(at)||this.graph.hasOverlappingScope(scope.resource,scope.pointer)||
             this.graph.literalContainer(scope.resource,scope.pointer)!==undefined)return false;

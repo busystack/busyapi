@@ -1,7 +1,7 @@
 import {escape,SourceError} from './document';
 import {schemaResourceContextIdentity,type GraphReference,type GraphScope,type ReferenceGraph} from './reference_graph';
 import type {MigrationIssue} from './migration_schema';
-import type {MigrationSource} from './migration_source';
+import type {SourcePlan} from './source_plan';
 import {projectSchemaReference} from './schema_reference_projection';
 
 /** Older OAS Reference Objects ignore siblings. Retain each proved fixed
@@ -37,7 +37,7 @@ export class MigrationSchemaReferences {
     requiresDynamicAnchor(scope:GraphScope):boolean {
         return this.requiredAnchors.has(JSON.stringify([scope.resource,scope.pointer]));
     }
-    lower(scope:GraphScope,source:MigrationSource,pointer:string,issue:MigrationIssue):void {
+    lower(scope:GraphScope,source:SourcePlan,pointer:string,issue:MigrationIssue):void {
         if(!source.doc.dataNode(pointer+'/$dynamicRef'))return;
         const location={...scope,pointer:scope.pointer+'/'+escape('$dynamicRef')};
         const reference=this.references.get(JSON.stringify([scope.resource,scope.pointer]));

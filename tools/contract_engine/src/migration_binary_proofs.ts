@@ -9,7 +9,7 @@ import {finiteRegexNameSuperset} from './migration_schema_regex';
 import {rawConstraintBlocker,rawPatternBounds,rawContainerLiteralUnchanged} from './migration_binary_constraints';
 import {binaryLiteralAssertion,binaryLiteralValues,binaryPathKey,type BinaryPaths} from './migration_binary_literals';
 import type {BinaryStep,BinaryUse} from './migration_binary';
-import type {MigrationSource} from './migration_source';
+import type {SourcePlan} from './source_plan';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import {restrictedBooleanSchema} from './migration_schema_values';
 import type {MigrationIssue} from './migration_schema';
@@ -295,7 +295,7 @@ export class BinaryConstraintProofs {
         const assertions=[...new Set(entries.map(entry=>entry.scalar!))];
         return assertions.length===1?assertions[0]:'{"anyOf":['+assertions.join(',')+']}';
     }
-    projectGuards(sources:ReadonlyMap<string,MigrationSource>,from:string):void {
+    projectGuards(sources:ReadonlyMap<string,SourcePlan>,from:string):void {
         for(const [id,language]of this.guards){
             const [resource,pointer]=JSON.parse(id) as [string,string],scope=this.graph.scopeAs(resource,pointer,'schema');
             if(!scope||scope.family!==from)continue;
@@ -304,7 +304,7 @@ export class BinaryConstraintProofs {
             source.exact(all+'/'+source.doc.dataNode(all)!.children.size,this.lengthAssertion(language.lengths));
         }
     }
-    projectLiterals(sources:ReadonlyMap<string,MigrationSource>,owners:MigrationSchemaOwners,from:string,to:string,issue:MigrationIssue):void {
+    projectLiterals(sources:ReadonlyMap<string,SourcePlan>,owners:MigrationSchemaOwners,from:string,to:string,issue:MigrationIssue):void {
         const entries=new Map<string,Case[]>();
         for(const cases of this.cases.values())for(const entry of cases.values())if(entry.scope.family===from&&entry.paths.some(path=>path.length)){
             const values=entries.get(key(entry.scope))??[];values.push(entry);entries.set(key(entry.scope),values);

@@ -1,3 +1,6 @@
+if(BUSYAPI_EDITOR_DEVELOPMENT)
+  return()
+endif()
 # This is a compiled headless core entry, not a second parser or runtime SDK.
 # Every normal build mode prepares/installs it before an export can be opened.
 set(BUSYAPI_RESOURCE_PACKAGE_ASSETS "${BUSYAPI_SOURCE_DIR}/build/resource-package-runtime" CACHE PATH

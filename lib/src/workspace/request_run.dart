@@ -623,7 +623,7 @@ class RequestRunController extends ChangeNotifier {
       } else {
         final parsed = await captured.parameterValues({'example': example['raw'] as String});
         value = RequestPartHeaderValue(owner, name,
-            ContractRequestBuilder.headerExampleRepresentation(header, parsed['example'], example['raw'] as String));
+            headerExampleRepresentation(header, parsed['example'], example['raw'] as String));
       }
       if (_disposed || !identical(captured, plan) || revision != _draftRevision || captured.outdated) return;
       partHeaders.removeWhere((field) => field.part == owner && field.name.toLowerCase() == name.toLowerCase());
@@ -984,7 +984,7 @@ class RequestRunController extends ChangeNotifier {
         final type = media['mediaType'] as String;
         final json = type.split(';').first.toLowerCase().endsWith('json');
         final fields = example['fields'];
-        ContractRequestBuilder.validateTextCharset(type, [
+        validateTextCharset(type, [
           json ? example['raw'] as String : example['text'] as String,
           if (!json && fields is Map)
             for (final entry in fields.entries) ...[
@@ -1066,9 +1066,9 @@ class RequestRunController extends ChangeNotifier {
       if (kind == RequestBodyKind.multipart) {
         ContentType.parse(type);
       } else if (kind == RequestBodyKind.raw) {
-        ContractRequestBuilder.validateRawTextCharset(type, values);
+        validateRawTextCharset(type, values);
       } else {
-        ContractRequestBuilder.validateTextCharset(type, values);
+        validateTextCharset(type, values);
       }
     }
 

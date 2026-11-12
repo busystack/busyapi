@@ -1,6 +1,6 @@
 import {escape,segments,SourceDocument,SourceError} from './document';
 import type {GraphScope,ReferenceGraph} from './reference_graph';
-import {migrationValueIdentity,type MigrationSource,type MigrationLocation} from './migration_source';
+import {sourceValueIdentity,type SourcePlan,type SourceLocation} from './source_plan';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import type {MigrationIssue} from './migration_schema';
 import {migrationScopes} from './migration_documents';
@@ -15,15 +15,15 @@ import {MigrationSchemaProofs} from './migration_schema_proofs';
 import {decodeMigrationParameterExample,migrationParameterExampleWire,migrationFormExampleWire} from './migration_parameter_serialization';
 
 type Use=Readonly<{graph:ReferenceGraph;owner:GraphScope;media?:string}>;
-const identity=(at:MigrationLocation)=>JSON.stringify([at.resource,at.pointer]);
+const identity=(at:SourceLocation)=>JSON.stringify([at.resource,at.pointer]);
 
 /** 3.2 separates schema-ready data and explicit wire text. Lower captured
  * representations through their established media/Parameter owners, provided
  * every independent consumer agrees. No acquisition or default sample proves
  * equivalence, and modeled media never replace their original schema proof. */
-export async function migrateExampleVersions(graphs:readonly ReferenceGraph[],sources:Map<string,MigrationSource>,
+export async function migrateExampleVersions(graphs:readonly ReferenceGraph[],sources:Map<string,SourcePlan>,
  families:readonly string[],target:string,owners:MigrationSchemaOwners,issue:MigrationIssue,
- external:(location:MigrationLocation,namespace:string)=>Readonly<{base64:string}>|undefined,
+ external:(location:SourceLocation,namespace:string)=>Readonly<{base64:string}>|undefined,
  originalContexts:readonly ReferenceGraph[]=[],exampleResources:readonly ExternalExampleResourcePacket[]=[]):Promise<boolean> {
  if(target==='3.2'||!families.includes('3.2'))return false;
  const uses=new Map<string,Use[]>(),currentUses=new Set<string>();let work=0,changed=false;
@@ -162,8 +162,8 @@ export async function migrateExampleVersions(graphs:readonly ReferenceGraph[],so
     const value=await decodeMigrationParameterExample(use.graph,owner,serialized.value);
     return value&&(use.media?migrationFormExampleWire(use.graph,use.owner,use.media,value):migrationParameterExampleWire(use.graph,owner,value))===serialized.value?value:undefined;
    }));
-   if(decoded.some(value=>value===undefined)||new Set(decoded.map(value=>value&&migrationValueIdentity(new SourceDocument(value,'file:///migration-example.json',true,'json'),''))).size!==1||
-    data&&migrationValueIdentity(source.doc,pointer+'/dataValue')!==migrationValueIdentity(new SourceDocument(decoded[0]!,'file:///migration-example.json',true,'json'),'')){
+   if(decoded.some(value=>value===undefined)||new Set(decoded.map(value=>value&&sourceValueIdentity(new SourceDocument(value,'file:///migration-example.json',true,'json'),''))).size!==1||
+    data&&sourceValueIdentity(source.doc,pointer+'/dataValue')!==sourceValueIdentity(new SourceDocument(decoded[0]!,'file:///migration-example.json',true,'json'),'')){
     issue(field('serializedValue'),'migration.example.parameter-serialization','The captured parameter inverse does not establish one schema-valid older value and exact serialization for every consumer','unavailable-proof');continue;
    }
    owners.retainNativeHistory(field('serializedValue'),source,pointer+'/serializedValue','example_serialization',graph);
@@ -175,7 +175,7 @@ export async function migrateExampleVersions(graphs:readonly ReferenceGraph[],so
    if(kinds.includes('text')){issue(field('serializedValue'),'migration.example.shared-representation','The same serialized string has incompatible JSON and plain-text older value interpretations','target-representation');continue;}
    literal=new SourceDocument(serialized.value,'file:///migration-serialized-example.json',true,'json');
    if(literal.issues.length||literal.dataJson('')!==serialized.value){issue(field('serializedValue'),'migration.example.serialized-literal','The serialized JSON has no standard literal that reproduces its exact entity bytes','target-representation');continue;}
-   if(data&&migrationValueIdentity(source.doc,pointer+'/dataValue')!==migrationValueIdentity(literal,'')){
+   if(data&&sourceValueIdentity(source.doc,pointer+'/dataValue')!==sourceValueIdentity(literal,'')){
     issue(scope,'migration.example.paired-values','The data and wire examples do not establish one common exact older value','target-representation');continue;
    }
   }

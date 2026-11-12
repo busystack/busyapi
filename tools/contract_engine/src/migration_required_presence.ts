@@ -1,6 +1,6 @@
 import {segments,SourceError} from './document';
 import type {GraphScope,ReferenceGraph} from './reference_graph';
-import type {MigrationSource} from './migration_source';
+import type {SourcePlan} from './source_plan';
 import {modernFamily} from './specification';
 import {migrationScopes,migrationReferences} from './migration_documents';
 
@@ -12,7 +12,7 @@ const key=(scope:Pick<GraphScope,'resource'|'pointer'>)=>JSON.stringify([scope.r
  * not(object AND property-absent). A property with schema not:{} makes
  * properties succeed exactly when that name is absent. Non-objects remain
  * unaffected. Existing required, annotations and value assertions all survive. */
-export function migrateRequiredPresence(graph:ReferenceGraph,sources:Map<string,MigrationSource>,from:string,to:string,contexts:readonly ReferenceGraph[]=[graph]):ReadonlySet<string> {
+export function migrateRequiredPresence(graph:ReferenceGraph,sources:Map<string,SourcePlan>,from:string,to:string,contexts:readonly ReferenceGraph[]=[graph]):ReadonlySet<string> {
     if(!modernFamily(from)||to!=='3.0')return new Set();
     const annotations=[...migrationScopes(contexts)].filter(scope=>{
         const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;

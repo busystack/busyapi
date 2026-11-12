@@ -15,8 +15,10 @@ import 'swagger_serialization.dart';
 import 'form_serialization.dart';
 import 'form_media_types.dart';
 import 'multipart_encoding.dart';
+import 'multipart_plan.dart';
 import 'multipart_transfer.dart';
 import 'request_form_values.dart';
+import 'request_parameters.dart';
 import 'request_text_encoding.dart';
 import 'mime_text_materialization.dart';
 import 'project.dart';
@@ -30,7 +32,11 @@ import 'trace_request_policy.dart';
 part 'request_stream.dart';
 
 typedef SecretResolver = Future<String?> Function(String reference);
-typedef _SecurityContribution = ({String wire, String reference, String? publicIdentity});
+typedef _SecurityContribution = ({
+  String wire,
+  String reference,
+  String? publicIdentity,
+});
 typedef _QueryField = ({
   String name,
   String value,
@@ -120,7 +126,9 @@ class RequestValue {
           ? RequestValueRepresentation.serializedMedia
           : RequestValueRepresentation.serializedParameter;
   RequestValue.example(CapturedRequestParameterExample example)
-    : present = true, json = false, capturedExample = example,
+    : present = true,
+      json = false,
+      capturedExample = example,
       text = example.serialization,
       representation = RequestValueRepresentation.serializedParameter;
   final CapturedRequestParameterExample? capturedExample;
@@ -147,10 +155,15 @@ class MultipartFileValue {
     this.access,
     this.capturedExample,
   });
-  MultipartFileValue.example(CapturedRequestPartExample example, {this.filename})
-    : name = example.part, path = Uri.parse(example.resource).toFilePath(),
-      mediaType = example.mediaType, selectedMediaType = example.mediaType,
-      access = null, capturedExample = example;
+  MultipartFileValue.example(
+    CapturedRequestPartExample example, {
+    this.filename,
+  }) : name = example.part,
+       path = Uri.parse(example.resource).toFilePath(),
+       mediaType = example.mediaType,
+       selectedMediaType = example.mediaType,
+       access = null,
+       capturedExample = example;
   final String name, path, mediaType;
   final String? filename;
   final String? selectedMediaType;
@@ -168,18 +181,41 @@ class RequestFormField {
 class RequestBodyDraft {
   bool get modeled => false;
   ProjectAccess? get fileAccess => null;
-  factory RequestBodyDraft.approvedFile({required String mediaType, required String file, required ProjectAccess access}) = _ApprovedFileRequestBody;
+  factory RequestBodyDraft.approvedFile({
+    required String mediaType,
+    required String file,
+    required ProjectAccess access,
+  }) = _ApprovedFileRequestBody;
   bool get materializePreview {
     final essence = mediaType?.split(';').first.trim().toLowerCase();
-    return kind == RequestBodyKind.form || usesEngineMediaCodec || capturedExample != null ||
-        kind == RequestBodyKind.binaryFile && (essence == 'application/xml' || essence == 'text/xml' || essence?.endsWith('+xml') == true || essence == 'application/linkset' || essence == 'application/linkset+json') ||
-        kind == RequestBodyKind.raw && (essence == 'application/linkset' || essence == 'application/linkset+json');
+    return kind == RequestBodyKind.form ||
+        usesEngineMediaCodec ||
+        capturedExample != null ||
+        kind == RequestBodyKind.binaryFile &&
+            (essence == 'application/xml' ||
+                essence == 'text/xml' ||
+                essence?.endsWith('+xml') == true ||
+                essence == 'application/linkset' ||
+                essence == 'application/linkset+json') ||
+        kind == RequestBodyKind.raw &&
+            (essence == 'application/linkset' ||
+                essence == 'application/linkset+json');
   }
+
   bool get usesEngineMediaCodec {
     final essence = mediaType?.split(';').first.trim().toLowerCase();
-    return modeled || kind == RequestBodyKind.raw && capturedExample == null && (essence == 'application/xml' || essence == 'text/xml' || essence?.endsWith('+xml') == true);
+    return modeled ||
+        kind == RequestBodyKind.raw &&
+            capturedExample == null &&
+            (essence == 'application/xml' ||
+                essence == 'text/xml' ||
+                essence?.endsWith('+xml') == true);
   }
-  factory RequestBodyDraft.modeled({required String mediaType, required String json}) = _ModeledRequestBody;
+
+  factory RequestBodyDraft.modeled({
+    required String mediaType,
+    required String json,
+  }) = _ModeledRequestBody;
   const RequestBodyDraft.none()
     : kind = RequestBodyKind.none,
       capturedExample = null,
@@ -289,14 +325,18 @@ class RequestBodyDraft {
 
 class _ModeledRequestBody extends RequestBodyDraft {
   _ModeledRequestBody({required String mediaType, required String json})
-      : super.raw(mediaType: mediaType, text: json);
+    : super.raw(mediaType: mediaType, text: json);
   @override
   bool get modeled => true;
 }
 
 class _ApprovedFileRequestBody extends RequestBodyDraft {
-  _ApprovedFileRequestBody({required String mediaType, required String file, required ProjectAccess access})
-      : fileAccess = access, super.binaryFile(mediaType:mediaType,file:file);
+  _ApprovedFileRequestBody({
+    required String mediaType,
+    required String file,
+    required ProjectAccess access,
+  }) : fileAccess = access,
+       super.binaryFile(mediaType: mediaType, file: file);
   @override
   final ProjectAccess fileAccess;
 }
@@ -356,8 +396,12 @@ class PreparedRequestBody {
   Uint8List get inspectionBytes => Uint8List.fromList(_inspection.toBytes());
   void _recordInspection(List<int> bytes) {
     final count = min(bytes.length, 16384 - _inspectionLength);
-    if (count > 0) { _inspection.add(bytes.take(count).toList());_inspectionLength += count; }
+    if (count > 0) {
+      _inspection.add(bytes.take(count).toList());
+      _inspectionLength += count;
+    }
   }
+
   final Stream<List<int>> Function() open;
   final String? mediaType;
   final String? formInstance;
@@ -453,7 +497,13 @@ class ContractRequestBuilder {
       ...draft.variables,
     };
     final servers = (plan.result['servers'] as List).cast<Map>();
-    final selectedServer = draft._selectedServer ?? environment?.servers[plan.configuration.operationServerKey(plan.snapshot.root, plan.operation)] ?? 0;
+    final selectedServer =
+        draft._selectedServer ??
+        environment?.servers[plan.configuration.operationServerKey(
+          plan.snapshot.root,
+          plan.operation,
+        )] ??
+        0;
     if (selectedServer < 0 || selectedServer >= servers.length) {
       throw CoreFailure('request.server', 'Select a current operation server');
     }
@@ -525,7 +575,7 @@ class ContractRequestBuilder {
         );
       }
       final allowFragment = server['httpFragmentPolicy'] == 'omit';
-      final location = _definitionSource({
+      final location = requestDefinitionSource({
         'source': server['urlSource'] ?? server['source'],
       });
       final parsed = Uri.tryParse(authored);
@@ -574,9 +624,12 @@ class ContractRequestBuilder {
         'Reconcile this draft with the changed operation before sending it',
       );
     }
-    await plan.ensureParameterExampleInputs(draft.parameters.values
-        .where((value) => value.present && value.capturedExample != null).map((value) => value.capturedExample!),
-        cancellation: cancellation);
+    await plan.ensureParameterExampleInputs(
+      draft.parameters.values
+          .where((value) => value.present && value.capturedExample != null)
+          .map((value) => value.capturedExample!),
+      cancellation: cancellation,
+    );
     final trace = TraceRequestPolicy.capture(
       plan.operation['method'] as String,
       plan.operation['source'],
@@ -604,13 +657,22 @@ class ContractRequestBuilder {
         if (entry.value.present && entry.value.json)
           entry.key: entry.value.text,
     });
-    final contentParameters = await plan.contentParameterValues({
-      for (final entry in draft.parameters.entries)
-        if (entry.value.present && entry.value.json) entry.key: entry.value.text,
-    }, rawValues: {
-      for (final entry in draft.parameters.entries)
-        if (entry.value.present && !entry.value.json && entry.value.representation != RequestValueRepresentation.serializedParameter) entry.key: entry.value.text,
-    }, cancellation: cancellation);
+    final contentParameters = await plan.contentParameterValues(
+      {
+        for (final entry in draft.parameters.entries)
+          if (entry.value.present && entry.value.json)
+            entry.key: entry.value.text,
+      },
+      rawValues: {
+        for (final entry in draft.parameters.entries)
+          if (entry.value.present &&
+              !entry.value.json &&
+              entry.value.representation !=
+                  RequestValueRepresentation.serializedParameter)
+            entry.key: entry.value.text,
+      },
+      cancellation: cancellation,
+    );
     plan.ensureCurrentPreparation();
     for (final value
         in environment?.headers.entries ??
@@ -629,10 +691,20 @@ class ContractRequestBuilder {
         for (final (index, key) in draft.parameters.keys.indexed) key: index,
       };
       final ordered = [for (final i in slots) parameters[i]];
-      final originalOrder = {for (final (index, value) in ordered.indexed) value: index};
+      final originalOrder = {
+        for (final (index, value) in ordered.indexed) value: index,
+      };
       ordered.sort((a, b) {
-        final first = selectionOrder[OperationRequestDraft.parameterKey(location, a['name'] as String)];
-        final last = selectionOrder[OperationRequestDraft.parameterKey(location, b['name'] as String)];
+        final first =
+            selectionOrder[OperationRequestDraft.parameterKey(
+              location,
+              a['name'] as String,
+            )];
+        final last =
+            selectionOrder[OperationRequestDraft.parameterKey(
+              location,
+              b['name'] as String,
+            )];
         if (first != null && last != null) return first.compareTo(last);
         if (first != null) return -1;
         if (last != null) return 1;
@@ -668,21 +740,32 @@ class ContractRequestBuilder {
       final serialized =
           supplied.representation ==
               RequestValueRepresentation.serializedParameter
-          ? _serializedParameter(raw, supplied.text)
-          : _serializeParameter(
+          ? serializedParameter(raw, supplied.text)
+          : serializeParameter(
               raw,
               value,
               supplied.text,
               structured: supplied.json,
-              mediaValue: contentParameters[OperationRequestDraft.parameterKey(location, name)]?.$1,
-              mediaValueEncoded: contentParameters[OperationRequestDraft.parameterKey(location, name)]?.$2 ?? false,
+              mediaValue:
+                  contentParameters[OperationRequestDraft.parameterKey(
+                        location,
+                        name,
+                      )]
+                      ?.$1,
+              mediaValueEncoded:
+                  contentParameters[OperationRequestDraft.parameterKey(
+                        location,
+                        name,
+                      )]
+                      ?.$2 ??
+                  false,
             );
       if (serialized.isEmpty && raw['required'] == true) {
         throw CoreFailure(
           'request.parameter.empty-serialization',
           'Required $location parameter $name has an empty collection that emits no wire field.',
           kind: CoreFailureKind.unsupported,
-          source: _definitionSource(raw),
+          source: requestDefinitionSource(raw),
         );
       }
       switch (location) {
@@ -731,8 +814,11 @@ class ContractRequestBuilder {
             serialized.single.$2,
             allowHorizontalTab:
                 raw['family'] == '2.0' && raw['collectionFormat'] == 'tsv' ||
-                supplied.representation == RequestValueRepresentation.serializedParameter ||
-                contentParameters.containsKey(OperationRequestDraft.parameterKey(location,name)),
+                supplied.representation ==
+                    RequestValueRepresentation.serializedParameter ||
+                contentParameters.containsKey(
+                  OperationRequestDraft.parameterKey(location, name),
+                ),
           );
           break;
         case 'cookie':
@@ -741,7 +827,7 @@ class ContractRequestBuilder {
               throw CoreFailure(
                 'request.cookie.duplicate',
                 'Cookie parameter ${item.$1} is supplied more than once',
-                source: _definitionSource(raw),
+                source: requestDefinitionSource(raw),
               );
             }
           }
@@ -877,23 +963,29 @@ class ContractRequestBuilder {
     if (draft.body.capturedExample case final example?) {
       plan.ensureBodyExample(example);
     }
-    if (draft.body.mediaType != null && draft.body.capturedExample == null &&
-        draft.body.kind != RequestBodyKind.binaryFile && !draft.body.usesEngineMediaCodec) {
+    if (draft.body.mediaType != null &&
+        draft.body.capturedExample == null &&
+        draft.body.kind != RequestBodyKind.binaryFile &&
+        !draft.body.usesEngineMediaCodec) {
       final values = [
         draft.body.text ?? '',
         for (final field in draft.body.fields) ...[field.name, field.value],
       ];
       if (draft.body.kind == RequestBodyKind.multipart) {
-        _mediaType(draft.body.mediaType!);
+        validateRequestMediaType(draft.body.mediaType!);
       } else if (draft.body.kind == RequestBodyKind.raw) {
         validateRawTextCharset(draft.body.mediaType!, values);
       } else {
         validateTextCharset(draft.body.mediaType!, values);
       }
     }
-    if (previewOnly && draft.body.kind == RequestBodyKind.raw && !draft.body.materializePreview) {
-      trace?.content(draft.body.capturedExample?.byteLength ??
-          ((draft.body.text ?? '').isEmpty ? 0 : 1));
+    if (previewOnly &&
+        draft.body.kind == RequestBodyKind.raw &&
+        !draft.body.materializePreview) {
+      trace?.content(
+        draft.body.capturedExample?.byteLength ??
+            ((draft.body.text ?? '').isEmpty ? 0 : 1),
+      );
     }
     final body = previewOnly && !draft.body.materializePreview
         ? (draft.body.kind == RequestBodyKind.none
@@ -901,7 +993,9 @@ class ContractRequestBuilder {
               : PreparedRequestBody(
                   0,
                   () => const Stream.empty(),
-                  mediaType: draft.body.kind == RequestBodyKind.raw && draft.body.capturedExample == null
+                  mediaType:
+                      draft.body.kind == RequestBodyKind.raw &&
+                          draft.body.capturedExample == null
                       ? RequestTextEncoding.rawMediaType(
                           draft.body.mediaType!,
                           draft.body.text ?? '',
@@ -955,7 +1049,7 @@ class ContractRequestBuilder {
           if (item.whole)
             item.value
           else
-            '${_encode(item.name, false)}=${item.encoded ? item.value : _encode(item.value, item.allowReserved)}',
+            '${encodeParameter(item.name, false)}=${item.encoded ? item.value : encodeParameter(item.value, item.allowReserved)}',
       ].where((value) => value.isNotEmpty).join('&');
       // RFC 9110 §7.1 excludes fragments from the HTTP target. A permitted
       // authored Server fragment stays in the captured declaration.
@@ -979,7 +1073,10 @@ class ContractRequestBuilder {
         uri: uri,
         displayUri: displayUri,
         headers: List.unmodifiable(headers),
-        mediaParameters: {for (final entry in contentParameters.entries) entry.key: entry.value.$3},
+        mediaParameters: {
+          for (final entry in contentParameters.entries)
+            entry.key: entry.value.$3,
+        },
         body: body,
         sensitiveHeaders: Set.unmodifiable(sensitiveHeaders),
         sensitiveQueryNames: Set.unmodifiable(sensitiveQuery),
@@ -993,19 +1090,6 @@ class ContractRequestBuilder {
       await body?.close();
       rethrow;
     }
-  }
-
-  static CoreFailureSource? _definitionSource(Map value) {
-    final source = value['definition'] ?? value['source'];
-    if (source case {
-      'resource': String resource,
-      'pointer': String pointer,
-      'range': [int start, int end],
-    }) {
-      if (start >= 0 && end >= start)
-        return CoreFailureSource(resource, pointer, SourceRange(start, end));
-    }
-    return null;
   }
 
   static void _positiveTimeout(Duration value, String name) {
@@ -1047,457 +1131,6 @@ class ContractRequestBuilder {
     }
     return uri;
   }
-
-  static List<(String, String)> _serializedParameter(
-    Map parameter,
-    String text,
-  ) {
-    final location = parameter['in'];
-    final url =
-        location == 'path' || location == 'query' || location == 'querystring';
-    if ((url ? RegExp(r'[\x00-\x20\x7f#]') : location == 'header'
-            ? RegExp(r'[\x00-\x08\x0a-\x1f\x7f]') : RegExp(r'[\x00-\x1f\x7f]'))
-            .hasMatch(text) ||
-        url && RegExp(r'%(?![0-9A-Fa-f]{2})').hasMatch(text)) {
-      throw CoreFailure(
-        'request.example.serialization',
-        'The serialized parameter contains invalid URI/header structure. Edit its complete representation.',
-      );
-    }
-    if (location == 'query' || location == 'querystring') return [('', text)];
-    if (location == 'path' && (text.contains('/') || text.contains('?'))) {
-      throw CoreFailure(
-        'request.example.serialization',
-        'Serialized path delimiters must be percent encoded.',
-      );
-    }
-    if (location == 'cookie') {
-      if (text.isEmpty) return [];
-      return text.split(';').map((part) {
-        final at = part.indexOf('=');
-        if (at <= 0) {
-          throw CoreFailure(
-            'request.example.serialization',
-            'Serialized cookies require name=value pairs.',
-          );
-        }
-        return (part.substring(0, at).trim(), part.substring(at + 1));
-      }).toList();
-    }
-    return [(parameter['name'] as String, text)];
-  }
-
-  /// Independent admission of a reviewed raw-query projection uses the same
-  /// exploded query serializer as HTTP execution. Numbers keep their captured
-  /// exact spelling through ExactConfigurationNumber.toString().
-  static String migrationQueryRepresentation(Map fields, {Map<String, Map>? declarations}) {
-    final pairs = <(String, String)>[];
-    for (final entry in fields.entries) {
-      if (entry.key is! String) throw const FormatException('Expected query names');
-      pairs.addAll(_serializeParameter(declarations?[entry.key] ?? {
-        'family': '3.1', 'name': entry.key, 'in': 'query',
-        'style': 'form', 'explode': true,
-      }, entry.value, '', structured: true));
-    }
-    final text = pairs.map((pair) => '${_encode(pair.$1, false)}=${pair.$2}').join('&');
-    // HTTP execution frames the same serialized fields with Uri.parse, whose
-    // query mask also escapes literal brackets from reserved expansion.
-    return Uri.parse('?$text').query;
-  }
-
-  /// Header examples reuse the request serializer, including exact numeric
-  /// leaves returned by the captured parameter-value projection.
-  static String headerExampleRepresentation(Map header, Object? value, String original) =>
-      _serializeParameter({'family': header['family'], 'in': 'header', 'name': header['name'],
-        'style': 'simple', 'explode': header['explode'] == true}, value, original, structured: true).single.$2;
-
-  static List<(String, String)> _serializeParameter(
-    Map parameter,
-    Object? value,
-    String original, {
-    bool structured = false,
-    String? mediaValue,
-    bool mediaValueEncoded = false,
-    String Function(String)? encodeValue,
-  }) {
-    final name = parameter['name'] as String;
-    if (parameter['content'] is List &&
-        (parameter['content'] as List).isNotEmpty) {
-      final content = (parameter['content'] as List).whereType<Map>().toList();
-      if (content.length != 1) {
-        throw CoreFailure(
-          'request.parameter.content',
-          'A content parameter must select exactly one media declaration.',
-        );
-      }
-      try {
-        if (mediaValue == null) validateTextCharset(content.single['mediaType'] as String, [
-          original,
-          if ((content.single['mediaType'] as String).toLowerCase().startsWith(
-                'application/x-www-form-urlencoded',
-              ) &&
-              value is Map)
-            for (final entry in value.entries) ...['${entry.key}', '${entry.value}'],
-        ]);
-      } on CoreFailure catch (error) {
-        throw CoreFailure(error.code, 'Parameter $name: ${error.message}');
-      }
-      final media = (content.single['mediaType'] as String)
-          .split(';')
-          .first
-          .toLowerCase();
-      var representation = mediaValue ?? original;
-      final jsonMedia = media == 'application/json' || media.endsWith('+json');
-      if (structured && mediaValue == null &&
-          !jsonMedia &&
-          media != 'application/x-www-form-urlencoded') {
-        if (media != 'text/plain' || value is Map || value is List) {
-          throw CoreFailure(
-            'request.parameter.media',
-            'Parameter $name has no supported structured serializer for this media type. Use a literal serialized representation.',
-          );
-        }
-        representation = value == null ? 'null' : '$value';
-      }
-      if (media == 'application/x-www-form-urlencoded' && value is Map) {
-        if (value.values.any(
-          (v) =>
-              v is Map ||
-              v is List && v.any((item) => item is Map || item is List),
-        )) {
-          throw CoreFailure(
-            'request.parameter.media',
-            'Parameter $name requires a complex form serializer. Use an explicitly serialized media example.',
-          );
-        }
-        final fields = <String>[];
-        final encoding = content.single['encoding'] as Map? ?? const {};
-        for (final entry in value.entries) {
-          final rule = encoding[entry.key] as Map? ?? const {};
-          final styled = ['style', 'explode', 'allowReserved'].any(rule.containsKey);
-          if (styled) {
-            final style = rule['style'] as String? ?? 'form';
-            final pairs = _serializeParameter({
-              'name': entry.key, 'in': 'query', 'style': style,
-              'explode': rule['explode'] ?? (style == 'form'),
-              'allowReserved': rule['allowReserved'] == true,
-            }, entry.value, '', structured: true,
-              encodeValue: (text) => _formStyleEncode(text, rule['allowReserved'] == true));
-            fields.addAll(pairs.map((pair) => '${_formStyleEncode(pair.$1, false)}=${pair.$2}'));
-          } else {
-            for (final item in entry.value is List ? entry.value as List : [entry.value]) {
-              fields.add('${Uri.encodeQueryComponent(entry.key as String)}=${Uri.encodeQueryComponent(item == null ? 'null' : '$item')}');
-            }
-          }
-        }
-        representation = fields.join('&');
-      }
-      if (mediaValue == null) validateTextCharset(content.single['mediaType'] as String, [
-        representation,
-      ]);
-      return [
-        (
-          name,
-          mediaValueEncoded ? representation : parameter['in'] == 'path'
-              ? _encode(representation, false)
-              : parameter['in'] == 'query'
-              ? _encode(representation, parameter['allowReserved'] == true)
-              : parameter['in'] == 'querystring'
-              ? _wholeQuery(parameter, representation)
-              : representation,
-        ),
-      ];
-    }
-    if (parameter['family'] == '2.0')
-      return serializeSwaggerParameter(parameter, value);
-    final location = parameter['in'] as String,
-        style =
-            parameter['style'] as String? ??
-            (location == 'query' || location == 'cookie' ? 'form' : 'simple'),
-        explode = parameter['explode'] == true;
-    String scalar(Object? item) {
-      if (item is List || item is Map) {
-        throw CoreFailure(
-          'request.parameter.nesting',
-          'This parameter style does not define nested data values. Select its declared content or a serialized example.',
-          kind: CoreFailureKind.unsupported,
-          source: _definitionSource(parameter),
-        );
-      }
-      if (item == null) return 'null';
-      if (item is bool) return item ? 'true' : 'false';
-      if (item is String) return item;
-      if (item is num &&
-          value == item &&
-          RegExp(r'^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$')
-              .hasMatch(original.trim())) {
-        return original.trim();
-      }
-      return '$item';
-    }
-
-    final array = value is List ? value.map(scalar).toList() : null;
-    final object = value is Map
-        ? <String, String>{
-            for (final entry in value.entries)
-              '${entry.key}': scalar(entry.value),
-          }
-        : null;
-    // RFC 6570 omits zero-member composite variables. An empty string still
-    // emits a field and is not an omitted collection.
-    if ((location == 'query' || location == 'cookie') &&
-        (array != null && array.isEmpty || object != null && object.isEmpty)) return [];
-    if (location == 'path' &&
-        (array != null && array.isEmpty || object != null && object.isEmpty)) return [(name, '')];
-    List<String> flattened(String delimiter, {bool equals = false}) {
-      if (array != null) return array;
-      if (object != null) {
-        return [
-          for (final entry in object.entries)
-            if (equals)
-              '${entry.key}${entry.value.isEmpty ? '' : '='}${entry.value}'
-            else ...[
-              entry.key,
-              entry.value,
-            ],
-        ];
-      }
-      return [scalar(value)];
-    }
-
-    switch (location) {
-      case 'path':
-        if (style == 'label') {
-          final serialized = object != null && explode
-              ? object.entries
-                    .map(
-                      (entry) =>
-                          '${_encode(entry.key, false)}${entry.value.isEmpty ? '' : '='}${_encode(entry.value, false)}',
-                    )
-                    .join('.')
-              : flattened(',')
-                    .map((item) => _encode(item, false))
-                    .join(array != null && explode ? '.' : ',');
-          return [(name, '.$serialized')];
-        }
-        if (style == 'matrix') {
-          if (object != null && explode) {
-            return [
-              (
-                name,
-                object.entries
-                    .map(
-                      (e) =>
-                          ';${_encode(e.key, false)}${e.value.isEmpty ? '' : '='}${_encode(e.value, false)}',
-                    )
-                    .join(),
-              ),
-            ];
-          }
-          if (array != null && explode) {
-            return [
-              (
-                name,
-                array
-                    .map(
-                      (item) =>
-                          ';${_encode(name, false)}${item.isEmpty ? '' : '='}${_encode(item, false)}',
-                    )
-                    .join(),
-              ),
-            ];
-          }
-          return [
-            (
-              name,
-              ';${_encode(name, false)}${value == '' ? '' : '='}${flattened(',').map((v) => _encode(v, false)).join(',')}',
-            ),
-          ];
-        }
-        final serialized = object != null && explode
-            ? object.entries
-                  .map(
-                    (entry) =>
-                        '${_encode(entry.key, false)}${entry.value.isEmpty ? '' : '='}${_encode(entry.value, false)}',
-                  )
-                  .join(',')
-            : flattened(',').map((item) => _encode(item, false)).join(',');
-        return [(name, serialized)];
-      case 'header':
-        return [
-          (name, flattened(',', equals: object != null && explode).join(',')),
-        ];
-      case 'cookie':
-      case 'query':
-        if (location == 'cookie') {
-          if (style == 'cookie' && parameter['family'] != '3.2' ||
-              parameter['family'] == '3.2' && parameter['explode'] == false) {
-            throw CoreFailure(
-              'request.cookie.style',
-              'This cookie style/explode declaration is invalid for its OpenAPI version.',
-            );
-          }
-          if (style == 'form' &&
-              !explode &&
-              (array != null || object != null)) {
-            final fields = flattened(',');
-            // RFC6570 omits empty collections. One item needs no delimiter;
-            // a structural comma would violate RFC6265 cookie-octet syntax.
-            if (fields.isEmpty) return [];
-            if (fields.length > 1) {
-              throw CoreFailure(
-                'request.cookie.encoding',
-                'This unexploded form cookie needs a comma delimiter forbidden by Cookie syntax. Select a declared representation with an explicit encoding.',
-                kind: CoreFailureKind.unsupported,
-                source: _definitionSource(parameter),
-              );
-            }
-          }
-          if (style != 'cookie' && style != 'form') {
-            throw CoreFailure(
-              'request.cookie.style',
-              'Unsupported cookie style.',
-            );
-          }
-        }
-        String encode(String text) => encodeValue != null
-            ? encodeValue(text)
-            : location == 'query'
-            ? _encode(text, parameter['allowReserved'] == true)
-            : style == 'form'
-            ? _encode(text, false)
-            : text;
-        String fieldName(String text) => location == 'cookie' && style == 'form'
-            ? _encode(text, false)
-            : text;
-        if (style == 'deepObject') {
-          if (object == null) {
-            throw CoreFailure(
-              'request.parameter.style',
-              'deepObject parameter $name requires an object value',
-            );
-          }
-          return [
-            for (final entry in object.entries)
-              ('$name[${entry.key}]', encode(entry.value)),
-          ];
-        }
-        final separator = style == 'spaceDelimited'
-            ? ' '
-            : style == 'pipeDelimited'
-            ? '|'
-            : style == 'tabDelimited'
-            ? '\t'
-            : ',';
-        if (explode && array != null) {
-          return [for (final item in array) (fieldName(name), encode(item))];
-        }
-        if (explode && object != null) {
-          return [
-            for (final entry in object.entries)
-              (fieldName(entry.key), encode(entry.value)),
-          ];
-        }
-        return [
-          (
-            fieldName(name),
-            flattened(separator)
-                .map(encode)
-                .join(
-                  location == 'query' && separator != ','
-                      ? encodeValue?.call(separator) ??
-                            _encode(separator, false)
-                      : separator,
-                ),
-          ),
-        ];
-      case 'querystring':
-        return [('', scalar(value))];
-      default:
-        throw CoreFailure(
-          'request.parameter.location',
-          'Unsupported parameter location',
-        );
-    }
-  }
-
-  static String _wholeQuery(Map parameter, String text) {
-    final content = (parameter['content'] as List).whereType<Map>().toList();
-    if (content.length != 1) {
-      throw CoreFailure(
-        'request.querystring.media',
-        'Select a single whole-query representation.',
-      );
-    }
-    final media = (content.single['mediaType'] as String)
-        .split(';')
-        .first
-        .toLowerCase();
-    if (media == 'application/x-www-form-urlencoded') {
-      if (RegExp(r'[\x00-\x20\x7f#]').hasMatch(text) ||
-          RegExp(r'%(?![0-9A-Fa-f]{2})').hasMatch(text)) {
-        throw CoreFailure(
-          'request.querystring.encoding',
-          'Whole-query form content must already be valid form-encoded pairs.',
-        );
-      }
-      return text;
-    }
-    if (media == 'application/json' ||
-        media.endsWith('+json') ||
-        media == 'text/plain') {
-      return _encode(text, false);
-    }
-    throw CoreFailure(
-      'request.querystring.media',
-      'This whole-query media representation is unsupported.',
-    );
-  }
-
-  static String _encode(String value, bool allowReserved) {
-    var encoded = Uri.encodeComponent(value).replaceAllMapped(
-      RegExp(r"[!'()*]"),
-      (m) => '%${m[0]!.codeUnitAt(0).toRadixString(16).toUpperCase()}',
-    );
-    if (allowReserved) {
-      const retained = {
-        '%3A': ':',
-        '%2F': '/',
-        '%3F': '?',
-        '%5B': '[',
-        '%5D': ']',
-        '%40': '@',
-        '%21': '!',
-        '%24': r'$',
-        '%27': "'",
-        '%28': '(',
-        '%29': ')',
-        '%2A': '*',
-        '%2B': '+',
-        '%2C': ',',
-        '%3B': ';',
-      };
-      for (final entry in retained.entries) {
-        encoded = encoded
-            .replaceAll(entry.key, entry.value)
-            .replaceAll(entry.key.toLowerCase(), entry.value);
-      }
-      // Reserved expansion passes existing percent triples through once. Do
-      // this after restoring reserved characters so %26/%3D/%23 stay encoded.
-      encoded = encoded.replaceAllMapped(
-        RegExp(r'%25([0-9A-Fa-f]{2})'),
-        (match) => '%${match[1]}',
-      );
-    }
-    return encoded;
-  }
-
-  // OAS Encoding Objects use query expansion with additional form delimiters
-  // escaped. A literal plus must survive form decoding as plus, not space.
-  static String _formStyleEncode(String value, bool allowReserved) => _encode(
-    value,
-    allowReserved,
-  ).replaceAll('+', '%2B').replaceAll('[', '%5B').replaceAll(']', '%5D');
 
   static void _addHeader(
     List<(String, String)> headers,
@@ -1574,24 +1207,46 @@ class ContractRequestBuilder {
     Map<String, _SecurityContribution> contributions, {
     required bool previewOnly,
   }) async {
-    _SecurityContribution? contribution(String wire, String key, [String? identity]) {
+    _SecurityContribution? contribution(
+      String wire,
+      String key, [
+      String? identity,
+    ]) {
       final reference = configuration[key] ?? configuration['secretRef'];
-      return reference is String ? (wire: wire, reference: reference, publicIdentity: identity) : null;
+      return reference is String
+          ? (wire: wire, reference: reference, publicIdentity: identity)
+          : null;
     }
-    bool shared(String location, String wire, String key, bool occupied, String message, [String? identity]) {
+
+    bool shared(
+      String location,
+      String wire,
+      String key,
+      bool occupied,
+      String message, [
+      String? identity,
+    ]) {
       if (!occupied) return false;
       final candidate = contribution(wire, key, identity);
       // Only an earlier security-generated field with the same credential
       // reference and wire representation can be shared. Preview markers,
       // coincidentally equal credential bytes and explicit inputs are never
       // proofs. Every requirement/scope/role remains in the captured plan.
-      if (candidate != null && contributions[location] == candidate) return true;
-      throw CoreFailure('request.security.collision', message,
-          source: location.startsWith('cookie:') ? _definitionSource(declaration) : null);
+      if (candidate != null && contributions[location] == candidate)
+        return true;
+      throw CoreFailure(
+        'request.security.collision',
+        message,
+        source: location.startsWith('cookie:')
+            ? requestDefinitionSource(declaration)
+            : null,
+      );
     }
+
     void own(String location, String wire, String key, [String? identity]) {
       contributions[location] = contribution(wire, key, identity)!;
     }
+
     Future<String> secret(
       String key, {
       CredentialValuePolicy policy = CredentialValuePolicy.opaque,
@@ -1639,35 +1294,56 @@ class ContractRequestBuilder {
           // through Unicode case folding or an otherwise invalid name.
           _addHeader(<(String, String)>[], name, '');
           final location = 'header:${name.toLowerCase()}';
-          if (shared(location, 'apiKey', 'secretRef', headers.any(
-            (entry) => entry.$1.toLowerCase() == name.toLowerCase(),
-          ), 'Header $name already has an explicit value')) return;
-          final headerValue = await secret('secretRef', policy: CredentialValuePolicy.apiKey);
+          if (shared(
+            location,
+            'apiKey',
+            'secretRef',
+            headers.any(
+              (entry) => entry.$1.toLowerCase() == name.toLowerCase(),
+            ),
+            'Header $name already has an explicit value',
+          ))
+            return;
+          final headerValue = await secret(
+            'secretRef',
+            policy: CredentialValuePolicy.apiKey,
+          );
           _addHeader(headers, name, headerValue);
           own(location, 'apiKey', 'secretRef');
           sensitiveHeaders.add(name.toLowerCase());
         case 'query':
-          if (shared('query:$name', 'apiKey', 'secretRef', base.query
-                  .split('&')
-                  .any(
-                    (part) =>
-                        Uri.decodeQueryComponent(part.split('=').first) == name,
-                  ) ||
-              query.any(
-                (entry) =>
-                    !entry.whole && entry.name == name ||
-                    entry.whole &&
-                        entry.value
-                            .split('&')
-                            .any(
-                              (pair) =>
-                                  Uri.decodeQueryComponent(
-                                    pair.split('=').first,
-                                  ) ==
-                                  name,
-                            ),
-              ), 'Query input $name already has an explicit value')) return;
-          final queryValue = await secret('secretRef', policy: CredentialValuePolicy.apiKey);
+          if (shared(
+            'query:$name',
+            'apiKey',
+            'secretRef',
+            base.query
+                    .split('&')
+                    .any(
+                      (part) =>
+                          Uri.decodeQueryComponent(part.split('=').first) ==
+                          name,
+                    ) ||
+                query.any(
+                  (entry) =>
+                      !entry.whole && entry.name == name ||
+                      entry.whole &&
+                          entry.value
+                              .split('&')
+                              .any(
+                                (pair) =>
+                                    Uri.decodeQueryComponent(
+                                      pair.split('=').first,
+                                    ) ==
+                                    name,
+                              ),
+                ),
+            'Query input $name already has an explicit value',
+          ))
+            return;
+          final queryValue = await secret(
+            'secretRef',
+            policy: CredentialValuePolicy.apiKey,
+          );
           query.add((
             name: name,
             value: queryValue,
@@ -1678,9 +1354,19 @@ class ContractRequestBuilder {
           own('query:$name', 'apiKey', 'secretRef');
           sensitiveQuery.add(name);
         case 'cookie':
-          if (shared('cookie:$name', 'apiKey', 'secretRef', cookieOwners.contains(name) ||
-              cookies.any((entry) => entry.$1 == name), 'Cookie $name already has an explicit value')) return;
-          final cookieValue = await secret('secretRef', policy: CredentialValuePolicy.apiKey);
+          if (shared(
+            'cookie:$name',
+            'apiKey',
+            'secretRef',
+            cookieOwners.contains(name) ||
+                cookies.any((entry) => entry.$1 == name),
+            'Cookie $name already has an explicit value',
+          ))
+            return;
+          final cookieValue = await secret(
+            'secretRef',
+            policy: CredentialValuePolicy.apiKey,
+          );
           cookies.add((name, cookieValue));
           own('cookie:$name', 'apiKey', 'secretRef');
           sensitiveQuery.add(name);
@@ -1694,8 +1380,14 @@ class ContractRequestBuilder {
     }
     if (type == 'http' &&
         '${declaration['scheme']}'.toLowerCase() == 'bearer') {
-      if (shared('header:authorization', 'bearer', 'tokenRef', headers.any((entry) => entry.$1.toLowerCase() == 'authorization'),
-          'Authorization already has an explicit value')) return;
+      if (shared(
+        'header:authorization',
+        'bearer',
+        'tokenRef',
+        headers.any((entry) => entry.$1.toLowerCase() == 'authorization'),
+        'Authorization already has an explicit value',
+      ))
+        return;
       _addHeader(
         headers,
         'Authorization',
@@ -1712,8 +1404,15 @@ class ContractRequestBuilder {
           'Basic authentication requires a bounded username without a colon or control characters',
         );
       }
-      if (shared('header:authorization', 'basic', 'passwordRef', headers.any((entry) => entry.$1.toLowerCase() == 'authorization'),
-          'Authorization already has an explicit value', username)) return;
+      if (shared(
+        'header:authorization',
+        'basic',
+        'passwordRef',
+        headers.any((entry) => entry.$1.toLowerCase() == 'authorization'),
+        'Authorization already has an explicit value',
+        username,
+      ))
+        return;
       final encoded = base64.encode(
         utf8.encode(
           '$username:${await secret('passwordRef', policy: CredentialValuePolicy.basicPassword)}',
@@ -1724,8 +1423,14 @@ class ContractRequestBuilder {
       return;
     }
     if (type == 'oauth2' || type == 'openIdConnect') {
-      if (shared('header:authorization', 'bearer', 'accessTokenRef', headers.any((entry) => entry.$1.toLowerCase() == 'authorization'),
-          'Authorization already has an explicit value')) return;
+      if (shared(
+        'header:authorization',
+        'bearer',
+        'accessTokenRef',
+        headers.any((entry) => entry.$1.toLowerCase() == 'authorization'),
+        'Authorization already has an explicit value',
+      ))
+        return;
       _addHeader(
         headers,
         'Authorization',
@@ -1758,17 +1463,28 @@ class ContractRequestBuilder {
     // Picker metadata is captured input even when the contract selects another
     // media type. Reject malformed headers before acquiring any file bytes.
     for (final file in body.files) {
-      _mediaType(file.mediaType);
-      if (file.selectedMediaType != null) _mediaType(file.selectedMediaType!);
+      validateRequestMediaType(file.mediaType);
+      if (file.selectedMediaType != null)
+        validateRequestMediaType(file.selectedMediaType!);
     }
-    if (body.kind == RequestBodyKind.multipart && plan.usesMultipartTree(body.mediaType,
-        typed: body.text != null && (body.files.isEmpty || body.files.any((file) => file.name.startsWith('/'))))) {
+    if (body.kind == RequestBodyKind.multipart &&
+        declaration?['swaggerForm'] is! List) {
       return _multipartTreeBody(plan, body, cancellation, checkOwner);
     }
     if (body.kind == RequestBodyKind.multipart &&
         plan.formBindingForMedia(body.mediaType)?.multipart != true) {
-      throw CoreFailure('request.multipart.owner', 'Select a captured multipart declaration.');
+      throw CoreFailure(
+        'request.multipart.owner',
+        'Select a captured multipart declaration.',
+      );
     }
+    final files = List<MultipartFileValue>.unmodifiable(body.files);
+    final suppliedFields = List<RequestFormField>.unmodifiable(body.fields);
+    final choices = Map<String, String>.unmodifiable(body.partMediaTypes);
+    final headers = List<RequestPartHeaderValue>.unmodifiable(body.partHeaders);
+    final shapes = Map<String, MultipartFileShape>.unmodifiable(
+      body.fileShapes,
+    );
     final nativeForm =
         body.kind == RequestBodyKind.form ||
             body.kind == RequestBodyKind.multipart
@@ -1792,7 +1508,7 @@ class ContractRequestBuilder {
         ? await plan.formMediaTypes(
             body.mediaType!,
             {
-              ...body.fields.map((field) => field.name),
+              ...suppliedFields.map((field) => field.name),
               if (data != null)
                 ...data.fields.entries
                     .where(
@@ -1802,10 +1518,10 @@ class ContractRequestBuilder {
                     )
                     .map((entry) => entry.key),
             },
-            body.partMediaTypes,
-            fileShapes: body.fileShapes,
+            choices,
+            fileShapes: shapes,
             files: [
-              for (final file in body.files)
+              for (final file in files)
                 {
                   'name': file.name,
                   'fallback': file.mediaType,
@@ -1825,7 +1541,7 @@ class ContractRequestBuilder {
             body.mediaType!,
             data == null
                 ? [
-                    for (final field in body.fields)
+                    for (final field in suppliedFields)
                       {'name': field.name, 'kind': 'literal'},
                   ]
                 : [
@@ -1840,9 +1556,9 @@ class ContractRequestBuilder {
                               '${entry.value.kind == RequestDataKind.array ? 'item-' : ''}${value.kind == RequestDataKind.string ? 'string' : 'other'}',
                         },
                   ],
-            [for (final file in body.files) file.name],
-            headers: body.partHeaders,
-            fileShapes: body.fileShapes,
+            [for (final file in files) file.name],
+            headers: headers,
+            fileShapes: shapes,
             requestId: 'multipart-${_runIdentity()}',
             cancellation: cancellation,
           )
@@ -1850,17 +1566,17 @@ class ContractRequestBuilder {
     checkOwner();
     cancellation?.throwIfCancelled();
     var fields = nativeForm == null
-        ? body.fields
+        ? suppliedFields
         : data != null
         ? swaggerFormDataFields(
             data,
             nativeForm,
-            body.files.map((file) => file.name),
+            files.map((file) => file.name),
           ).map((field) => RequestFormField(field.$1, field.$2)).toList()
         : swaggerFormFields(
-            [for (final field in body.fields) (field.name, field.value)],
+            [for (final field in suppliedFields) (field.name, field.value)],
             nativeForm,
-            body.files.map((file) => file.name),
+            files.map((file) => file.name),
           ).map((field) => RequestFormField(field.$1, field.$2)).toList();
     final formParameters = data == null || nativeForm == null
         ? null
@@ -1881,123 +1597,88 @@ class ContractRequestBuilder {
                       (declaration['schema'] as Map)['pointer'] as String,
                 ),
           ];
-    PreparedFormValues? form;
-    final partTypes = <String, String>{};
-    final encodedFields = <RequestFormField>{};
-    final fieldOwners = <RequestFormField, String>{};
-    final fieldTransfers = <RequestFormField, MultipartTransferEncoding?>{};
-    final multipart = body.kind == RequestBodyKind.multipart;
     if (nativeForm == null &&
         declaration?['form'] is Map &&
-        (multipart || body.kind == RequestBodyKind.form)) {
-      cancellation?.throwIfCancelled();
-      form = await prepareFormValues(
+        body.kind == RequestBodyKind.form) {
+      final values = await prepareFormValues(
         [for (final field in fields) (field.name, field.value)],
         declaration!,
-        multipart,
+        false,
         plan.parameterValues,
-        encodeMedia: (name,index,text,media,structured) => plan.formContentValue(body.mediaType!,name,index,text,media,structured,bodyText:body.text,cancellation:cancellation),
         data: data,
         mediaTypes: partMediaTypes,
-        transfers: transfers,
+        encodeMedia: (name, index, text, media, structured) =>
+            plan.formContentValue(
+              body.mediaType!,
+              name,
+              index,
+              text,
+              media,
+              structured,
+              bodyText: body.text,
+              cancellation: cancellation,
+            ),
       );
       checkOwner();
       cancellation?.throwIfCancelled();
-      final serialized = <RequestFormField>[
-        for (final part in form.content) RequestFormField(part.name, part.text),
-      ];
-      for (final (index, part) in form.content.indexed) {
-        fieldTransfers[serialized[index]] = part.transfer;
-        if (part.percentEncoded) encodedFields.add(serialized[index]);
-      }
-      for (final part in form.content) {
-        if (!part.percentEncoded) validateRawTextCharset(part.contentType, [part.text]);
-        if (!multipart) validateTextCharset(body.mediaType!, [part.name, part.text]);
-        partTypes[part.name] = part.contentType;
-      }
-      for (final group in form.styled) {
-        final value = group.value;
-        if (value is List && value.any((v) => v is List || v is Map) ||
-            value is Map && value.values.any((v) => v is List || v is Map)) {
-          throw CoreFailure(
-            'request.form.style',
-            'Nested RFC6570 form values have no defined serialization. Choose a content encoding.',
-          );
-        }
-        if (!multipart) validateTextCharset(body.mediaType!, [
-          group.name,
-          if (value is List)
-            for (final item in value) item == null ? 'null' : '$item'
-          else if (value is Map)
-            for (final entry in value.entries) ...[
-              '${entry.key}',
-              entry.value == null ? 'null' : '${entry.value}',
-            ]
-          else
-            value == null ? 'null' : '$value',
-        ]);
-        final style = group.rule['style'] as String? ?? 'form';
-        final pairs = _serializeParameter(
-          {
-            'name': group.name,
-            'in': 'query',
-            'style': style,
-            'explode': group.rule['explode'] ?? (style == 'form'),
-            'allowReserved': group.rule['allowReserved'] == true,
-          },
-          value,
-          '',
-          structured: true,
-          encodeValue: multipart
-              ? (value) => value
-              : (value) => _formStyleEncode(
-                  value,
-                  group.rule['allowReserved'] == true,
-                ),
-        );
-        for (final pair in pairs) {
-          final field = RequestFormField(pair.$1, pair.$2);
-          final options = transfers[group.name];
-          final transfer = options?.strings ?? options?.other;
-          if (transfer?.schemaEncoded == true && value is! String) {
-            throw CoreFailure(
-              'request.multipart.encoding.undefined',
-              'A combined style value cannot use one item transfer encoding.',
-              kind: CoreFailureKind.unsupported,
-            );
-          }
-          serialized.add(field);
-          fieldTransfers[field] = transfer;
-          encodedFields.add(field);
-          fieldOwners[field] = group.name;
-          partTypes[pair.$1] = 'text/plain';
-        }
-      }
-      fields = serialized;
+      final bytes = preparedFormBytes(values, body.mediaType!);
+      _uploadLimit(bytes.length);
+      return PreparedRequestBody(
+        bytes.length,
+        () => Stream.value(bytes),
+        mediaType: body.mediaType,
+        formInstance: values.instance,
+      );
     }
     switch (body.kind) {
       case RequestBodyKind.none:
         return null;
       case RequestBodyKind.raw:
         if (body.capturedExample case final example?) {
-          final bytes = await plan.bodyExampleBytes(example, cancellation: cancellation);
+          final bytes = await plan.bodyExampleBytes(
+            example,
+            cancellation: cancellation,
+          );
           checkOwner();
           cancellation?.throwIfCancelled();
           _uploadLimit(bytes.length);
-          return PreparedRequestBody(bytes.length, () => Stream.value(bytes), mediaType: body.mediaType);
+          return PreparedRequestBody(
+            bytes.length,
+            () => Stream.value(bytes),
+            mediaType: body.mediaType,
+          );
         }
         if (body.modeled) {
-          final bytes = await plan.mediaBytes(body.text ?? '', body.mediaType!,
-              requestId: 'modeled-media-${_runIdentity()}', cancellation: cancellation);
+          final bytes = await plan.mediaBytes(
+            body.text ?? '',
+            body.mediaType!,
+            requestId: 'modeled-media-${_runIdentity()}',
+            cancellation: cancellation,
+          );
           checkOwner();
           cancellation?.throwIfCancelled();
           _uploadLimit(bytes.length);
-          return PreparedRequestBody(bytes.length, () => Stream.value(bytes), mediaType: body.mediaType);
+          return PreparedRequestBody(
+            bytes.length,
+            () => Stream.value(bytes),
+            mediaType: body.mediaType,
+          );
         }
         if (body.usesEngineMediaCodec) {
-          final bytes = await plan.rawMediaBytes(body.text ?? '', body.mediaType!, requestId: 'raw-media-${_runIdentity()}', cancellation: cancellation);
-          checkOwner();cancellation?.throwIfCancelled();_uploadLimit(bytes.length);
-          return PreparedRequestBody(bytes.length, () => Stream.value(bytes), mediaType: body.mediaType);
+          final bytes = await plan.rawMediaBytes(
+            body.text ?? '',
+            body.mediaType!,
+            requestId: 'raw-media-${_runIdentity()}',
+            cancellation: cancellation,
+          );
+          checkOwner();
+          cancellation?.throwIfCancelled();
+          _uploadLimit(bytes.length);
+          return PreparedRequestBody(
+            bytes.length,
+            () => Stream.value(bytes),
+            mediaType: body.mediaType,
+          );
         }
         final mediaType = RequestTextEncoding.rawMediaType(
           body.mediaType!,
@@ -2041,7 +1722,7 @@ class ContractRequestBuilder {
         // Content values use RFC1866 form encoding after media serialization.
         final text = [
           for (final field in fields)
-            '${encodedFields.contains(field) ? _formStyleEncode(field.name, false) : Uri.encodeQueryComponent(field.name)}=${encodedFields.contains(field) ? field.value : Uri.encodeQueryComponent(field.value)}',
+            '${Uri.encodeQueryComponent(field.name)}=${Uri.encodeQueryComponent(field.value)}',
         ].join('&');
         final bytes = Uint8List.fromList(utf8.encode(text));
         _uploadLimit(bytes.length);
@@ -2049,7 +1730,6 @@ class ContractRequestBuilder {
           bytes.length,
           () => Stream.value(bytes),
           mediaType: body.mediaType,
-          formInstance: form?.instance,
           formParameters: formParameters,
         );
       case RequestBodyKind.binaryFile:
@@ -2057,311 +1737,141 @@ class ContractRequestBuilder {
           body.file!,
           body.mediaType,
           cancellation,
-          checkOwner: checkOwner, projectAccess: body.fileAccess,
+          checkOwner: checkOwner,
+          projectAccess: body.fileAccess,
         );
       case RequestBodyKind.multipart:
-        if (fields.isEmpty && body.files.isEmpty) {
+        if (fields.isEmpty && files.isEmpty) {
           throw CoreFailure(
             'request.multipart.empty',
-            'A multipart body requires at least one part. Add a field or file, or omit the body when the contract permits it.',
+            'A multipart body requires at least one part.',
           );
         }
-        final declaredBoundary = ContentType.parse(body.mediaType!).parameters['boundary'];
-        final random = Random.secure();
-        final boundary = declaredBoundary ??
-            'busyapi-${List.generate(24, (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0')).join()}';
-        final chunks = <Object>[];
         final captures = <PreparedRequestBody>[];
         try {
-          var length = 0;
-          var typedFiles = form?.instance != null;
-          var instanceBytes = form?.instance == null
-              ? 0
-              : utf8.encode(form!.instance!).length;
-          final fileInstances = <String, List<String>>{};
-          final fileIdentities = <Map<String, Object?>>[];
-          final replacedFields = <String>{};
-          void bytes(String value) {
-            final encoded = Uint8List.fromList(utf8.encode(value));
-            _uploadLimit(length + encoded.length);
-            chunks.add(encoded);
-            length += encoded.length;
-          }
-
-          void octets(List<int> value) {
-            _uploadLimit(length + value.length);
-            chunks.add(Uint8List.fromList(value));
-            length += value.length;
-          }
-
-          String partHeaders(
-            String name, {
-            String? text,
-            String? mediaType,
-            MultipartTransferEncoding? transfer,
-          }) {
-            final type = mediaType ?? partMediaTypes[name] ?? partTypes[name];
-            var output = '';
-            if (type != null) {
-              _mediaType(type);
-              if (text != null) validateRawTextCharset(type, [text]);
-              output = 'Content-Type: $type\r\n';
-            }
-            if (transfer?.encoding case final String value) {
-              final validated = <(String, String)>[];
-              _addHeader(validated, 'Content-Transfer-Encoding', value);
-              output += 'Content-Transfer-Encoding: $value\r\n';
-            }
-            for (final header
-                in transfers[name]?.headers ?? const <MultipartHeaderLine>[]) {
-              output += '${header.name}: ${header.value}\r\n';
-            }
-            return output;
-          }
-
-          for (final field in fields) {
-            _partName(field.name);
-            final transfer = fieldTransfers[field];
-            final selectedPartType =
-                partMediaTypes[fieldOwners[field] ?? field.name] ??
-                partTypes[field.name];
-            final declaredPartType = selectedPartType ?? 'text/plain';
-            final type = ContentType.parse(body.mediaType!).subType == 'form-data'
-                ? declaredPartType
-                : RequestTextEncoding.rawMediaType(declaredPartType, field.value);
-            final Uint8List content;
-            try {
-              final textual = ContentType.parse(type).primaryType == 'text';
-              if (transfer?.schemaEncoded == true) {
-                content = await multipartTextBytes(field.value, transfer, textual: textual);
-              } else {
-                final raw = RequestTextEncoding.forMedia(type, rawBody: true).encode(field.value);
-                content = await _multipartEncodedBytes(raw, transfer, textual: textual);
-              }
-            } on CoreFailure catch (failure) {
-              throw _multipartFailure(failure, transfer, field.name);
-            }
-            if (typedFiles &&
-                transfer?.instanceEncoding ==
-                    MultipartInstanceEncoding.octets) {
-              final instance = await multipartOctetInstance(
-                utf8.encode(field.value),
-                16 * 1024 * 1024 - instanceBytes,
-              );
-              if (instance == null) {
-                typedFiles = false;
-              } else {
-                final name = fieldOwners[field] ?? field.name;
-                instanceBytes += instance.byteLength;
-                (fileInstances[name] ??= []).add(instance.json);
-                replacedFields.add(name);
-              }
-            }
-            checkOwner();
-            cancellation?.throwIfCancelled();
-            bytes(
-              _multipartPartPrefix(boundary, field.name, null,
-                partHeaders(fieldOwners[field] ?? field.name, text: field.value,
-                  mediaType: selectedPartType == null && type == 'text/plain' ? null : type, transfer: transfer)),
-            );
-            octets(content);
-            bytes('\r\n');
-          }
-          for (final (index, item) in body.files.indexed) {
-            _partName(item.name);
-            final mediaType = resolvedMediaTypes.files[index];
-            _mediaType(mediaType);
-            _uploadLimit(length);
-            final captured = await _multipartInput(plan, body.mediaType!, item, mediaType,
-                cancellation, checkOwner, maximumUploadBytes - length);
-            captures.add(captured);
-            final identity = await sha256.bind(captured.open()).first;
-            checkOwner();
-            cancellation?.throwIfCancelled();
-            fileIdentities.add({'name': item.name, 'position': fields.length + index,
-              'identity': identity.toString(), 'filename': item.filename ?? p.basename(item.path)});
-            final transfer = transfers[item.name]?.strings;
-            final encoded = transfer?.encoding == null
-                ? captured
-                : await _multipartFile(
-                    captured,
-                    transfer!,
-                    cancellation,
-                    checkOwner,
-                    maximumUploadBytes - length,
-                  ).onError<CoreFailure>(
-                    (failure, _) =>
-                        throw _multipartFailure(failure, transfer, item.name),
-                  );
-            if (!identical(encoded, captured)) captures.add(encoded);
-            final size = encoded.length;
-            final octets =
-                transfer?.instanceEncoding == MultipartInstanceEncoding.octets;
-            final instanceBody = octets ? captured : encoded;
-            if (typedFiles &&
-                (octets || transfer?.schemaEncoded == true) &&
-                instanceBytes + instanceBody.length < 16 * 1024 * 1024) {
-              final capturedBytes = BytesBuilder(copy: false);
-              await for (final chunk in instanceBody.open()) {
-                checkOwner();
-                cancellation?.throwIfCancelled();
-                capturedBytes.add(chunk);
-              }
-              try {
-                final ({String json, int byteLength})? instance;
-                if (octets) {
-                  instance = await multipartOctetInstance(
-                    capturedBytes.takeBytes(),
-                    16 * 1024 * 1024 - instanceBytes,
-                  );
-                } else {
-                  var text = utf8.decode(capturedBytes.takeBytes());
-                  if (transfer!.encoding!.toLowerCase() == 'base64')
-                    text = text.replaceAll('\r\n', '');
-                  final json = jsonEncode(text);
-                  instance = (json: json, byteLength: utf8.encode(json).length);
-                }
-                if (instance == null) {
-                  typedFiles = false;
-                } else {
-                  instanceBytes += instance.byteLength;
-                  (fileInstances[item.name] ??= []).add(instance.json);
-                }
-              } on FormatException {
-                typedFiles = false;
-              }
-            } else {
-              typedFiles = false;
-            }
-            final filename = item.filename ?? p.basename(item.path);
-            _partName(filename);
-            final headers = partHeaders(
-              item.name,
-              mediaType: mediaType,
-              transfer: transfer,
-            );
-            bytes(
-              _multipartPartPrefix(boundary, item.name, filename, headers),
-            );
-            chunks.add(encoded);
-            length += size;
-            bytes('\r\n');
-          }
-          bytes('--$boundary--\r\n');
-          _uploadLimit(length);
-          var instance = typedFiles ? form?.instance : null;
-          if (fileInstances.isNotEmpty &&
-              typedFiles &&
-              instanceBytes < 16 * 1024 * 1024) {
-            final values = await plan.formData(
-              form!.instance!,
-              requestId: 'multipart-instance-${_runIdentity()}',
-              cancellation: cancellation,
-            );
-            instance = multipartInstanceWithFiles(
-              values,
-              fileInstances,
-              declaration!,
-              replacedFields: replacedFields,
-              fileShapes: {
-                for (final entry in transfers.entries)
-                  if (entry.value.fileArray case final bool array)
-                    entry.key: array,
-              },
-            );
-            if (utf8.encode(instance).length > 16 * 1024 * 1024)
-              instance = null;
-          }
-          checkOwner();
-          cancellation?.throwIfCancelled();
-          final prepared = PreparedRequestBody(
-            length,
-            () async* {
-              for (final chunk in chunks) {
-                if (chunk is Uint8List) {
-                  yield chunk;
-                } else {
-                  yield* (chunk as PreparedRequestBody).open();
-                }
-              }
-            },
-            mediaType: declaredBoundary == null ? '${body.mediaType}; boundary=$boundary' : body.mediaType,
-            formInstance: instance,
-            fileShapes: {
-              for (final entry in transfers.entries)
-                if (entry.value.fileArray case final bool array)
-                  entry.key: array
-                      ? MultipartFileShape.array
-                      : MultipartFileShape.single,
-            },
-            formParameters: formParameters,
-            release: () async {
-              for (final captured in captures) {
-                await captured.close();
-              }
-            },
+          final fileBodies = await _captureMultipartFiles(
+            plan,
+            body.mediaType!,
+            files,
+            captures,
+            resolvedMediaTypes.files,
+            cancellation,
+            checkOwner,
           );
-          {
-            final wire = BytesBuilder(copy: false);
-            await for (final chunk in prepared.open()) {
-              checkOwner();
-              cancellation?.throwIfCancelled();
-              wire.add(chunk);
-            }
-            await plan.proveNamedMultipart(body.mediaType!, prepared.mediaType!,
-              base64Encode(wire.takeBytes()), files: fileIdentities,
-              expected: instance ?? form?.instance,
-              partialFiles: instance == null, fileShapes: prepared.fileShapes,
-              requestId: 'multipart-named-proof-${_runIdentity()}', cancellation: cancellation);
+          const unencoded = MultipartTransferEncoding(schemaEncoded: false);
+          final parts = <MultipartPartPlan>[
+            for (final field in fields)
+              MultipartPartPlan(
+                name: field.name,
+                contentType: partMediaTypes[field.name] ?? 'text/plain',
+                omitContentType: !partMediaTypes.containsKey(field.name),
+                transfer: transfers[field.name]?.strings ?? unencoded,
+                headers: transfers[field.name]?.headers ?? const [],
+                text: field.value,
+                bytes: Uint8List.fromList(
+                  RequestTextEncoding.forMedia(
+                    partMediaTypes[field.name] ?? 'text/plain',
+                    rawBody: true,
+                  ).encode(field.value),
+                ),
+              ),
+            for (final (index, file) in files.indexed)
+              MultipartPartPlan(
+                name: file.name,
+                contentType: resolvedMediaTypes.files[index],
+                transfer: transfers[file.name]?.strings ?? unencoded,
+                headers: transfers[file.name]?.headers ?? const [],
+                file: index,
+              ),
+          ];
+          final prepared = await _emitMultipart(
+            MultipartEntityPlan(body.mediaType!, parts),
+            plan,
+            files,
+            fileBodies,
+            captures,
+            cancellation,
+            checkOwner,
+          );
+          final wire = await _multipartWire(prepared, cancellation, checkOwner);
+          final identities = <Map<String, Object?>>[];
+          for (final (index, file) in files.indexed) {
+            final identity = await sha256.bind(fileBodies[index].open()).first;
+            identities.add({
+              'name': file.name,
+              'position': fields.length + index,
+              'identity': identity.toString(),
+              'filename': file.filename ?? p.basename(file.path),
+            });
           }
+          await plan.proveNamedMultipart(
+            body.mediaType!,
+            prepared.mediaType!,
+            base64Encode(wire),
+            files: identities,
+            partialFiles: true,
+            requestId: 'multipart-named-proof-${_runIdentity()}',
+            cancellation: cancellation,
+          );
           checkOwner();
           cancellation?.throwIfCancelled();
-          return prepared;
+          return PreparedRequestBody(
+            prepared.length,
+            prepared.open,
+            mediaType: prepared.mediaType,
+            formParameters: formParameters,
+            release: () => _releaseMultipart(captures),
+          );
         } on Object {
-          for (final captured in captures) {
-            await captured.close();
-          }
+          await _releaseMultipart(captures);
           rethrow;
         }
     }
   }
 
-  CoreFailure _multipartFailure(
-    CoreFailure failure,
-    MultipartTransferEncoding? transfer,
-    String name,
-  ) {
-    if (!failure.code.startsWith('request.multipart.')) return failure;
-    final resource = transfer?.resource,
-        pointer = transfer?.pointer,
-        range = transfer?.range;
-    return CoreFailure(
-      failure.code,
-      'Part $name: ${failure.message}',
-      kind: failure.kind,
-      source:
-          failure.source ??
-          (resource != null && pointer != null && range != null
-              ? CoreFailureSource(resource, pointer, range)
-              : null),
-    );
-  }
-
-  /// Framing is shared with the existing named serializer. The captured
-  /// Engine part tree owns all interpretation; this walker owns only bytes.
-  Future<PreparedRequestBody> _multipartInput(OperationRequestPlan plan, String bodyMediaType,
-      MultipartFileValue file, String mediaType, RunCancellation? cancellation,
-      void Function() checkOwner, int remainingBytes) async {
+  Future<PreparedRequestBody> _multipartInput(
+    OperationRequestPlan plan,
+    String bodyMediaType,
+    MultipartFileValue file,
+    String mediaType,
+    RunCancellation? cancellation,
+    void Function() checkOwner,
+    int remainingBytes,
+  ) async {
     final example = file.capturedExample;
-    if (example == null) return _fileBody(file.path, mediaType, cancellation,
-        projectAccess: file.access, remainingBytes: remainingBytes, checkOwner: checkOwner);
-    if (Uri.file(file.path).toString() != example.resource) throw CoreFailure('request.example.stale',
-        'The selected multipart resource no longer matches its captured bytes.');
-    final bytes = await plan.partExampleBytes(example, bodyMediaType, file.name, mediaType,
-        cancellation: cancellation);
-    checkOwner();cancellation?.throwIfCancelled();
-    if (bytes.length > remainingBytes) throw CoreFailure('request.upload.limit', 'Multipart example bytes exceed the remaining upload limit.');
-    return PreparedRequestBody(bytes.length, () => Stream.value(bytes), mediaType: mediaType);
+    if (example == null)
+      return _fileBody(
+        file.path,
+        mediaType,
+        cancellation,
+        projectAccess: file.access,
+        remainingBytes: remainingBytes,
+        checkOwner: checkOwner,
+      );
+    if (Uri.file(file.path).toString() != example.resource)
+      throw CoreFailure(
+        'request.example.stale',
+        'The selected multipart resource no longer matches its captured bytes.',
+      );
+    final bytes = await plan.partExampleBytes(
+      example,
+      bodyMediaType,
+      file.name,
+      mediaType,
+      cancellation: cancellation,
+    );
+    checkOwner();
+    cancellation?.throwIfCancelled();
+    if (bytes.length > remainingBytes)
+      throw CoreFailure(
+        'request.upload.limit',
+        'Multipart example bytes exceed the remaining upload limit.',
+      );
+    return PreparedRequestBody(
+      bytes.length,
+      () => Stream.value(bytes),
+      mediaType: mediaType,
+    );
   }
 
   Future<PreparedRequestBody> _multipartTreeBody(
@@ -2371,149 +1881,316 @@ class ContractRequestBuilder {
     void Function() checkOwner,
   ) async {
     final text = body.text ?? '{}';
-    final literalFields = [for (final field in body.fields) {'name': field.name, 'value': field.value}];
+    final literalFields = [
+      for (final field in body.fields)
+        {'name': field.name, 'value': field.value},
+    ];
     final choices = Map<String, String>.unmodifiable(body.partMediaTypes);
     final schemas = Map<String, String>.unmodifiable(body.partSchemas);
     final headers = List<RequestPartHeaderValue>.unmodifiable(body.partHeaders);
     final files = List<MultipartFileValue>.unmodifiable(body.files);
+    final shapes = Map<String, MultipartFileShape>.unmodifiable(
+      body.fileShapes,
+    );
     final metadata = <Map<String, Object?>>[
-      for (final file in files) {
-        'name': file.name,
-        'filename': file.filename ?? p.basename(file.path),
-        if (file.selectedMediaType != null) 'selected': file.selectedMediaType,
-      },
+      for (final file in files)
+        {
+          'name': file.name,
+          'filename': file.filename ?? p.basename(file.path),
+          if (file.selectedMediaType != null)
+            'selected': file.selectedMediaType,
+        },
     ];
-    final projected = await plan.multipartPlan(body.mediaType!, text,
-      files: metadata, choices: choices, partSchemas: schemas, headers: headers,
-      literalFields: literalFields, fileShapes: body.fileShapes,
-      requestId: 'multipart-tree-${_runIdentity()}', cancellation: cancellation);
+    final projected = await plan.multipartPlan(
+      body.mediaType!,
+      text,
+      files: metadata,
+      choices: choices,
+      partSchemas: schemas,
+      headers: headers,
+      literalFields: literalFields,
+      fileShapes: shapes,
+      requestId: 'multipart-tree-${_runIdentity()}',
+      cancellation: cancellation,
+    );
     checkOwner();
     cancellation?.throwIfCancelled();
     final captures = <PreparedRequestBody>[];
     final fileBodies = <PreparedRequestBody>[];
     try {
-      var acquired = 0;
-      for (final (index, file) in files.indexed) {
-        final captured = await _multipartInput(plan, body.mediaType!, file,
-            file.selectedMediaType ?? file.mediaType, cancellation, checkOwner,
-            maximumUploadBytes - acquired);
-        captures.add(captured);
-        fileBodies.add(captured);
-        acquired += captured.length;
-        final digest = await sha256.bind(captured.open()).first;
+      final tree = MultipartEntityPlan.fromJson(projected['tree']);
+      final types = List<String>.generate(
+        files.length,
+        (index) => files[index].selectedMediaType ?? files[index].mediaType,
+      );
+      void fileTypes(MultipartEntityPlan entity) {
+        for (final part in entity.parts) {
+          if (part.children != null) fileTypes(part.children!);
+          if (part.file case final int index) {
+            if (index >= types.length)
+              throw CoreFailure(
+                'request.multipart.protocol',
+                'Uncaptured file index',
+              );
+            types[index] = part.contentType;
+          }
+        }
+      }
+
+      fileTypes(tree);
+      fileBodies.addAll(
+        await _captureMultipartFiles(
+          plan,
+          body.mediaType!,
+          files,
+          captures,
+          types,
+          cancellation,
+          checkOwner,
+        ),
+      );
+      for (final (index, captured) in fileBodies.indexed) {
+        metadata[index]['identity'] = (await sha256.bind(captured.open()).first)
+            .toString();
+      }
+      final prepared = await _emitMultipart(
+        tree,
+        plan,
+        files,
+        fileBodies,
+        captures,
+        cancellation,
+        checkOwner,
+      );
+      final wire = await _multipartWire(prepared, cancellation, checkOwner);
+      final proof = await plan.multipartPlan(
+        body.mediaType!,
+        text,
+        files: metadata,
+        choices: choices,
+        partSchemas: schemas,
+        headers: headers,
+        literalFields: literalFields,
+        fileShapes: shapes,
+        wire: base64Encode(wire),
+        wireType: prepared.mediaType,
+        requestId: 'multipart-proof-${_runIdentity()}',
+        cancellation: cancellation,
+      );
+      checkOwner();
+      cancellation?.throwIfCancelled();
+      return PreparedRequestBody(
+        prepared.length,
+        prepared.open,
+        mediaType: prepared.mediaType,
+        formInstance: (proof['proof'] as Map)['instance'] as String?,
+        partSchemas: (projected['partSchemas'] as Map).cast<String, String>(),
+        partMediaTypes: choices,
+        fileShapes: {
+          for (final entry in (projected['fileShapes'] as Map).entries)
+            entry.key as String: MultipartFileShape.fromJson(entry.value),
+        },
+        release: () => _releaseMultipart(captures),
+      );
+    } on Object {
+      await _releaseMultipart(captures);
+      rethrow;
+    }
+  }
+
+  Future<List<PreparedRequestBody>> _captureMultipartFiles(
+    OperationRequestPlan plan,
+    String mediaType,
+    List<MultipartFileValue> inputs,
+    List<PreparedRequestBody> captures,
+    List<String> types,
+    RunCancellation? cancellation,
+    void Function() checkOwner,
+  ) async {
+    if (types.length != inputs.length)
+      throw CoreFailure(
+        'request.multipart.protocol',
+        'File media bindings do not match the captured inputs',
+      );
+    var acquired = 0;
+    final files = <PreparedRequestBody>[];
+    for (final (index, file) in inputs.indexed) {
+      final captured = await _multipartInput(
+        plan,
+        mediaType,
+        file,
+        types[index],
+        cancellation,
+        checkOwner,
+        maximumUploadBytes - acquired,
+      );
+      captures.add(captured);
+      files.add(captured);
+      acquired += captured.length;
+    }
+    return files;
+  }
+
+  Future<void> _releaseMultipart(List<PreparedRequestBody> captures) async {
+    // A failed close must not strand other owned files.
+    await Future.wait(captures.map((capture) => capture.close()));
+  }
+
+  Future<Uint8List> _multipartWire(
+    PreparedRequestBody body,
+    RunCancellation? cancellation,
+    void Function() checkOwner,
+  ) async {
+    final wire = BytesBuilder(copy: false);
+    await for (final chunk in body.open()) {
+      checkOwner();
+      cancellation?.throwIfCancelled();
+      wire.add(chunk);
+      _uploadLimit(wire.length);
+    }
+    return wire.takeBytes();
+  }
+
+  Future<PreparedRequestBody> _emitMultipart(
+    MultipartEntityPlan tree,
+    OperationRequestPlan plan,
+    List<MultipartFileValue> files,
+    List<PreparedRequestBody> fileBodies,
+    List<PreparedRequestBody> captures,
+    RunCancellation? cancellation,
+    void Function() checkOwner,
+  ) async {
+    Future<PreparedRequestBody> entity(
+      MultipartEntityPlan raw,
+      int depth,
+    ) async {
+      if (depth > 8) {
+        throw CoreFailure(
+          'request.multipart.protocol',
+          'Invalid bounded multipart tree.',
+        );
+      }
+      final declaredType = raw.contentType;
+      final selectedType = ContentType.parse(declaredType);
+      if (selectedType.primaryType != 'multipart') {
+        throw CoreFailure(
+          'request.multipart.protocol',
+          'A multipart tree omitted its media type.',
+        );
+      }
+      final boundary =
+          selectedType.parameters['boundary'] ?? _multipartBoundary();
+      final chunks = <Object>[];
+      var length = 0;
+      void bytes(List<int> value) {
+        _uploadLimit(length + value.length);
+        length += value.length;
+        chunks.add(Uint8List.fromList(value));
+      }
+
+      void text(String value) => bytes(utf8.encode(value));
+      for (final part in raw.parts) {
         checkOwner();
         cancellation?.throwIfCancelled();
-        metadata[index]['identity'] = digest.toString();
+        final transfer = part.transfer;
+        var type = part.contentType;
+        validateRequestMediaType(type);
+        PreparedRequestBody? payload;
+        Uint8List? literal;
+        String? filename;
+        if (part.children != null) {
+          payload = await entity(part.children!, depth + 1);
+          type = payload.mediaType!;
+        } else if (part.urlencoded != null) {
+          final model = part.urlencoded!;
+          final data = await plan.formData(
+            model.raw,
+            requestId: 'nested-form-${_runIdentity()}',
+            cancellation: cancellation,
+          );
+          final values = await prepareFormValues(
+            [],
+            model.declaration,
+            false,
+            plan.parameterValues,
+            data: data,
+            encodeMedia: (name, index, text, media, structured) async {
+              final values = model.mediaValues[name];
+              if (values == null || index >= values.length)
+                throw CoreFailure(
+                  'request.multipart.protocol',
+                  'A nested media field omitted its captured encoding.',
+                );
+              return values[index];
+            },
+            mediaTypes: model.mediaTypes,
+          );
+          final encoded = preparedFormBytes(values, type);
+          payload = PreparedRequestBody(
+            encoded.length,
+            () => Stream.value(encoded),
+            mediaType: type,
+          );
+        } else if (part.file case final int index) {
+          if (index < 0 || index >= files.length) {
+            throw CoreFailure(
+              'request.multipart.protocol',
+              'Uncaptured multipart file index.',
+            );
+          }
+          filename = files[index].filename ?? p.basename(files[index].path);
+          _partName(filename);
+          payload = fileBodies[index];
+        } else if (part.bytes != null && part.text != null) {
+          literal = transfer.schemaEncoded
+              ? await multipartTextBytes(
+                  part.text!,
+                  transfer,
+                  textual: ContentType.parse(type).primaryType == 'text',
+                )
+              : await _multipartEncodedBytes(
+                  part.bytes!,
+                  transfer,
+                  textual: ContentType.parse(type).primaryType == 'text',
+                );
+        } else {
+          throw CoreFailure(
+            'request.multipart.protocol',
+            'A typed multipart leaf omitted its payload.',
+          );
+        }
+        if (payload != null && transfer.encoding != null) {
+          payload = await _multipartFile(
+            payload,
+            transfer,
+            cancellation,
+            checkOwner,
+            maximumUploadBytes - length,
+          );
+          captures.add(payload);
+        }
+        var lines = part.omitContentType ? '' : 'Content-Type: $type\r\n';
+        if (transfer.encoding case final String value) {
+          _addHeader(<(String, String)>[], 'Content-Transfer-Encoding', value);
+          lines += 'Content-Transfer-Encoding: $value\r\n';
+        }
+        for (final header in part.headers) {
+          lines += '${header.name}: ${header.value}\r\n';
+        }
+        text(_multipartPartPrefix(boundary, part.name, filename, lines));
+        if (payload != null) {
+          _uploadLimit(length + payload.length);
+          chunks.add(payload);
+          length += payload.length;
+        } else {
+          bytes(literal!);
+        }
+        text('\r\n');
       }
-      var totalParts = 0;
-      Future<PreparedRequestBody> entity(Map raw, int depth) async {
-        if (depth > 8 || raw['parts'] is! List) {
-          throw CoreFailure('request.multipart.protocol', 'Invalid bounded multipart tree.');
-        }
-        final declaredType = raw['contentType'] as String;
-        final selectedType = ContentType.parse(declaredType);
-        if (selectedType.primaryType != 'multipart') {
-          throw CoreFailure('request.multipart.protocol', 'A multipart tree omitted its media type.');
-        }
-        final boundary = selectedType.parameters['boundary'] ?? _multipartBoundary();
-        final chunks = <Object>[];
-        var length = 0;
-        void bytes(List<int> value) {
-          _uploadLimit(length + value.length);
-          length += value.length;
-          chunks.add(Uint8List.fromList(value));
-        }
-        void text(String value) => bytes(utf8.encode(value));
-        for (final part in raw['parts'] as List) {
-          checkOwner();
-          cancellation?.throwIfCancelled();
-          if (part is! Map || ++totalParts > 2048) {
-            throw CoreFailure('request.multipart.protocol', 'Invalid multipart part count.');
-          }
-          final transfer = MultipartTransferEncoding.fromJson(part['transfer']);
-          var type = part['contentType'] as String;
-          _mediaType(type);
-          PreparedRequestBody? payload;
-          Uint8List? literal;
-          String? filename;
-          if (part['children'] is Map) {
-            payload = await entity(part['children'] as Map, depth + 1);
-            type = payload.mediaType!;
-          } else if (part['urlencoded'] is Map) {
-            final model = part['urlencoded'] as Map;
-            final data = await plan.formData(model['raw'] as String,
-              requestId: 'nested-form-${_runIdentity()}', cancellation: cancellation);
-            final values = await prepareFormValues([], model['declaration'] as Map, false,
-              plan.parameterValues, data: data,
-              encodeMedia: (name,index,text,media,structured) async {
-                final values = (model['mediaValues'] as Map?)?[name];
-                if (values is! List || index >= values.length || values[index] is! String) throw CoreFailure('request.multipart.protocol', 'A nested media field omitted its captured encoding.');
-                return values[index] as String;
-              },
-              mediaTypes: (model['mediaTypes'] as Map).cast<String, String>());
-            final pairs = <(String, String)>[
-              for (final part in values.content)
-                (Uri.encodeQueryComponent(part.name), part.percentEncoded ? part.text : Uri.encodeQueryComponent(part.text)),
-            ];
-            for (final group in values.styled) {
-              final value = group.value;
-              if (value is List && value.any((v) => v is List || v is Map) ||
-                  value is Map && value.values.any((v) => v is List || v is Map)) {
-                throw CoreFailure('request.form.style', 'Nested RFC6570 values have no defined serialization.');
-              }
-              final style = group.rule['style'] as String? ?? 'form';
-              final serialized = _serializeParameter({
-                'name': group.name, 'in': 'query', 'style': style,
-                'explode': group.rule['explode'] ?? (style == 'form'),
-                'allowReserved': group.rule['allowReserved'] == true,
-              }, value, '', structured: true,
-                encodeValue: (value) => _formStyleEncode(value, group.rule['allowReserved'] == true));
-              pairs.addAll(serialized.map((pair) => (_formStyleEncode(pair.$1, false), pair.$2)));
-            }
-            final encoded = Uint8List.fromList(utf8.encode(pairs.map((pair) => '${pair.$1}=${pair.$2}').join('&')));
-            payload = PreparedRequestBody(encoded.length, () => Stream.value(encoded), mediaType: type);
-          } else if (part['file'] case final int index) {
-            if (index < 0 || index >= files.length) {
-              throw CoreFailure('request.multipart.protocol', 'Uncaptured multipart file index.');
-            }
-            filename = files[index].filename ?? p.basename(files[index].path);
-            _partName(filename);
-            payload = fileBodies[index];
-          } else if (part['bytes'] is String && part['text'] is String) {
-            literal = transfer.schemaEncoded
-                ? await multipartTextBytes(part['text'] as String, transfer,
-                    textual: ContentType.parse(type).primaryType == 'text')
-                : await _multipartEncodedBytes(base64Decode(part['bytes'] as String), transfer,
-                    textual: ContentType.parse(type).primaryType == 'text');
-          } else {
-            throw CoreFailure('request.multipart.protocol', 'A typed multipart leaf omitted its payload.');
-          }
-          if (payload != null && transfer.encoding != null) {
-            payload = await _multipartFile(payload, transfer, cancellation,
-              checkOwner, maximumUploadBytes - length);
-            captures.add(payload);
-          }
-          var lines = 'Content-Type: $type\r\n';
-          if (transfer.encoding case final String value) {
-            _addHeader(<(String, String)>[], 'Content-Transfer-Encoding', value);
-            lines += 'Content-Transfer-Encoding: $value\r\n';
-          }
-          for (final rawHeader in part['headers'] as List) {
-            final header = MultipartHeaderLine.fromJson(rawHeader, allowDisposition: part['allowDisposition'] == true);
-            lines += '${header.name}: ${header.value}\r\n';
-          }
-          text(_multipartPartPrefix(boundary, part['name'] as String?, filename, lines));
-          if (payload != null) {
-            _uploadLimit(length + payload.length);
-            chunks.add(payload);
-            length += payload.length;
-          } else {
-            bytes(literal!);
-          }
-          text('\r\n');
-        }
-        text('--$boundary--\r\n');
-        return PreparedRequestBody(length, () async* {
+      text('--$boundary--\r\n');
+      return PreparedRequestBody(
+        length,
+        () async* {
           for (final chunk in chunks) {
             cancellation?.throwIfCancelled();
             checkOwner();
@@ -2523,54 +2200,42 @@ class ContractRequestBuilder {
               yield* (chunk as PreparedRequestBody).open();
             }
           }
-        }, mediaType: selectedType.parameters.containsKey('boundary')
-            ? declaredType : '$declaredType; boundary=$boundary');
-      }
-      final prepared = await entity(projected['tree'] as Map, 0);
-      final wire = BytesBuilder(copy: false);
-      await for (final chunk in prepared.open()) {
-        checkOwner();
-        cancellation?.throwIfCancelled();
-        wire.add(chunk);
-      }
-      final proof = await plan.multipartPlan(body.mediaType!, text, files: metadata,
-        choices: choices, partSchemas: schemas, headers: headers,
-        literalFields: literalFields, fileShapes: body.fileShapes,
-        wire: base64Encode(wire.takeBytes()), wireType: prepared.mediaType,
-        requestId: 'multipart-proof-${_runIdentity()}', cancellation: cancellation);
-      checkOwner();
-      cancellation?.throwIfCancelled();
-      return PreparedRequestBody(prepared.length, prepared.open,
-        mediaType: prepared.mediaType,
-        formInstance: (proof['proof'] as Map)['instance'] as String?,
-        partSchemas: (projected['partSchemas'] as Map).cast<String, String>(),
-        partMediaTypes: choices,
-        fileShapes: {for (final entry in (projected['fileShapes'] as Map).entries)
-          entry.key as String: MultipartFileShape.fromJson(entry.value)},
-        release: () async { for (final captured in captures) { await captured.close(); } });
-    } on Object {
-      for (final captured in captures) { await captured.close(); }
-      rethrow;
+        },
+        mediaType: selectedType.parameters.containsKey('boundary')
+            ? declaredType
+            : '$declaredType; boundary=$boundary',
+      );
     }
+
+    return entity(tree, 0);
   }
 
   static String _multipartBoundary() =>
       'busyapi-${List.generate(24, (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0')).join()}';
 
-  static String _multipartPartPrefix(String boundary, String? name,
-      String? filename, String headers) {
+  static String _multipartPartPrefix(
+    String boundary,
+    String? name,
+    String? filename,
+    String headers,
+  ) {
     var disposition = '';
     if (name != null) {
       if (name.length > 4096 || RegExp(r'[\x00-\x1f\x7f]').hasMatch(name)) {
-        throw CoreFailure('request.multipart.name', 'A multipart name must be bounded printable text.');
+        throw CoreFailure(
+          'request.multipart.name',
+          'A multipart name must be bounded printable text.',
+        );
       }
       disposition = 'Content-Disposition: form-data; name="${_quoted(name)}"';
       if (filename != null) disposition += '; filename="${_quoted(filename)}"';
       disposition += '\r\n';
     } else if (filename != null) {
       final extended = Uri.encodeComponent(filename)
-          .replaceAll("'", '%27').replaceAll('(', '%28')
-          .replaceAll(')', '%29').replaceAll('*', '%2A');
+          .replaceAll("'", '%27')
+          .replaceAll('(', '%28')
+          .replaceAll(')', '%29')
+          .replaceAll('*', '%2A');
       disposition = filename.runes.any((rune) => rune > 127)
           ? "Content-Disposition: attachment; filename*=utf-8''$extended\r\n"
           : 'Content-Disposition: attachment; filename="${_quoted(filename)}"\r\n';
@@ -2578,11 +2243,18 @@ class ContractRequestBuilder {
     return '--$boundary\r\n$disposition$headers\r\n';
   }
 
-  Future<Uint8List> _multipartEncodedBytes(List<int> bytes,
-      MultipartTransferEncoding? transfer, {bool textual = false}) async {
+  Future<Uint8List> _multipartEncodedBytes(
+    List<int> bytes,
+    MultipartTransferEncoding? transfer, {
+    bool textual = false,
+  }) async {
     if (transfer?.encoding == null) return Uint8List.fromList(bytes);
     final output = BytesBuilder(copy: false);
-    await for (final chunk in multipartTransferBytes(Stream.value(bytes), transfer!, textual: textual)) {
+    await for (final chunk in multipartTransferBytes(
+      Stream.value(bytes),
+      transfer!,
+      textual: textual,
+    )) {
       output.add(chunk);
       _uploadLimit(output.length);
     }
@@ -2704,8 +2376,7 @@ class ContractRequestBuilder {
   }
 
   static void _partName(String value) {
-    if (value.length > 4096 ||
-        RegExp(r'[\x00-\x1f\x7f]').hasMatch(value)) {
+    if (value.length > 4096 || RegExp(r'[\x00-\x1f\x7f]').hasMatch(value)) {
       throw CoreFailure(
         'request.multipart.name',
         'Multipart names must be bounded printable text',
@@ -2715,35 +2386,6 @@ class ContractRequestBuilder {
 
   static String _quoted(String value) =>
       value.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
-  static void validateRawTextCharset(
-    String mediaType,
-    Iterable<String> values,
-  ) {
-    _mediaType(mediaType);
-    RequestTextEncoding.forMedia(mediaType, rawBody: true).validate(values);
-  }
-
-  static void validateTextCharset(String mediaType, Iterable<String> values) {
-    _mediaType(mediaType);
-    RequestTextEncoding.forMedia(mediaType).validate(values);
-  }
-
-  static void _mediaType(String value) {
-    try {
-      final parsed = ContentType.parse(value);
-      if (RegExp(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+/[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
-              .hasMatch(parsed.mimeType) &&
-          !RegExp(r'[\x00-\x1f\x7f]').hasMatch(value)) {
-        return;
-      }
-    } on FormatException {
-      /* The authored wire media type remains invalid. */
-    } on HttpException {
-      /* The pinned header parser also rejects malformed parameters this way. */
-    }
-    throw CoreFailure('request.media-type', 'Choose a valid media type');
-  }
-
   static Map<String, Object?> effectiveTls(
     ExecutionEnvironment? environment,
     Map<String, String> selectedFiles,
@@ -2871,7 +2513,8 @@ class ContractHttpResponse {
     this.decodingComplete = true,
     this.decodingReason,
     ContractStreamSnapshot? stream,
-  }) : _stream=stream, decodedLength = decodedLength ?? bodyLength,
+  }) : _stream = stream,
+       decodedLength = decodedLength ?? bodyLength,
        receivedLength = receivedLength ?? bodyLength;
   ContractStreamSnapshot? _stream;
   ContractStreamSnapshot? get stream => _stream;
@@ -3266,10 +2909,7 @@ class ContractHttpTransport {
         for (var redirect = 0; ; redirect++) {
           cancellation?.throwIfCancelled();
           final request = await deadline.wait(
-            client.openUrl(
-              exact.clientMethod,
-              uri,
-            ),
+            client.openUrl(exact.clientMethod, uri),
             limit: input.connectTimeout,
           );
           // Abort may happen before close() (for example during upload). Observe
@@ -3340,7 +2980,9 @@ class ContractHttpTransport {
                 redirects,
                 cancellation,
                 deadline,
-                capturedFields: fields, streamControl: streamControl, onStream: onStream,
+                capturedFields: fields,
+                streamControl: streamControl,
+                onStream: onStream,
                 incompleteReason: target.userInfo.isNotEmpty
                     ? 'credential-bearing-redirect-not-followed'
                     : 'cross-origin-redirect-not-followed',
@@ -3360,7 +3002,9 @@ class ContractHttpTransport {
             redirects,
             cancellation,
             deadline,
-            capturedFields: fields, streamControl: streamControl, onStream: onStream,
+            capturedFields: fields,
+            streamControl: streamControl,
+            onStream: onStream,
           );
         }
       } on TimeoutException {
@@ -3447,7 +3091,8 @@ class ContractHttpTransport {
     var count = 0, receivedCount = 0;
     var complete = capturedFields?.completeFor(response.statusCode) == true;
     var streamEnded = false;
-    String? reason = incompleteReason ??
+    String? reason =
+        incompleteReason ??
         capturedFields?.failureFor(response.statusCode) ??
         (capturedFields == null ? 'response-field-evidence-unavailable' : null);
     final hash = sha256.startChunkedConversion(digest);
@@ -3466,7 +3111,16 @@ class ContractHttpTransport {
       input.plan.ensureCurrentOwner();
       final file = File(p.join(temp.path, 'body.bin'));
       storage = await (openResponseStorage ?? FileResponseStorage.open)(file);
-      live = await _LiveResponseStream.open(input,response.statusCode,headers,streamControl,onStream,cancellation,maximumDecodedBytes,deadline);
+      live = await _LiveResponseStream.open(
+        input,
+        response.statusCode,
+        headers,
+        streamControl,
+        onStream,
+        cancellation,
+        maximumDecodedBytes,
+        deadline,
+      );
       final done = Completer<void>();
       void finish() {
         if (!done.isCompleted) done.complete();
@@ -3495,8 +3149,14 @@ class ContractHttpTransport {
               hash.add(retained);
               count += retained.length;
               if (live != null) {
-                await live.add(retained,receivedCount);
-                if (live.failure != null || streamControl?.stopped == true) {complete=false;reason=streamControl?.stopped == true?'stopped':live.failure;finish();}
+                await live.add(retained, receivedCount);
+                if (live.failure != null || streamControl?.stopped == true) {
+                  complete = false;
+                  reason = streamControl?.stopped == true
+                      ? 'stopped'
+                      : live.failure;
+                  finish();
+                }
               }
               if (retained.length != chunk.length) {
                 reason = 'response-size-limit';
@@ -3526,9 +3186,23 @@ class ContractHttpTransport {
         cancelOnError: true,
       );
       arm();
-      if (live?.failure != null) {complete=false;reason=live!.failure;finish();}
+      if (live?.failure != null) {
+        complete = false;
+        reason = live!.failure;
+        finish();
+      }
       try {
-        await deadline.wait(streamControl == null ? done.future : Future.any<void>([done.future,streamControl.whenStopped.then((_) {complete=false;reason='stopped';})]));
+        await deadline.wait(
+          streamControl == null
+              ? done.future
+              : Future.any<void>([
+                  done.future,
+                  streamControl.whenStopped.then((_) {
+                    complete = false;
+                    reason = 'stopped';
+                  }),
+                ]),
+        );
       } on TimeoutException {
         complete = false;
         reason = deadline.reason ?? 'overall-timeout';
@@ -3544,7 +3218,8 @@ class ContractHttpTransport {
       if (storageError != null) {
         throw CoreFailure('response.storage', 'Response storage write failed.');
       }
-      if (live != null) await live.finish(streamEnded && reason == null,reason);
+      if (live != null)
+        await live.finish(streamEnded && reason == null, reason);
       // Do not detach writes on cancellation: close waits for the one owned
       // write to settle before either returning the owner or removing output.
       await storage.flush();
@@ -3572,7 +3247,8 @@ class ContractHttpTransport {
           : (null, 0, Uint8List(0), 'forbidden-response-content');
       input.plan.ensureCurrentOwner();
       return ContractHttpResponse(
-        runId: input.runId, stream: live?.snapshot,
+        runId: input.runId,
+        stream: live?.snapshot,
         status: response.statusCode,
         reason: response.reasonPhrase,
         headers: List.unmodifiable(headers),
@@ -3611,7 +3287,7 @@ class ContractHttpTransport {
           (error.code == 'cancelled' || error.code == 'request.closed')) {
         rethrow;
       }
-      if(error is TimeoutException) rethrow;
+      if (error is TimeoutException) rethrow;
       throw CoreFailure(
         'response.storage',
         'Response storage failed; check temporary disk space and permissions.',
@@ -3893,7 +3569,12 @@ class ContractHttpTransport {
 /// One monotonic transport lifetime. A timeout/cancel closes the actual socket
 /// owner and upload subscription, not just the future presented to callers.
 class _HttpDeadline {
-  _HttpDeadline(this.client, Duration duration, this.cancellation, {this.onStop}) {
+  _HttpDeadline(
+    this.client,
+    Duration duration,
+    this.cancellation, {
+    this.onStop,
+  }) {
     timer = Timer(duration, () => stop('overall-timeout'));
     cancellation?.whenCancelled.then((_) {
       if (!disposed) stop('cancelled');
@@ -4145,7 +3826,14 @@ class ContractRequestExecutor {
       final response = await transport.send(
         request,
         cancellation: cancellation,
-        streamControl: streamControl ?? ContractStreamControl(stopAfterRecords:draft.streamStopAfterRecords), onStream: onStream == null ? null : (value) => onStream(value.redacted(secretValues)),
+        streamControl:
+            streamControl ??
+            ContractStreamControl(
+              stopAfterRecords: draft.streamStopAfterRecords,
+            ),
+        onStream: onStream == null
+            ? null
+            : (value) => onStream(value.redacted(secretValues)),
       );
       try {
         ContractConformance received;
@@ -4174,10 +3862,16 @@ class ContractRequestExecutor {
             ],
             producer: response.stream?.schemaProducerName ?? 'busyapi-runtime',
             producerVersion: response.stream?.schemaProducerVersion ?? '1',
-            coverage: {'body': 'cancelled',if(response.stream!=null)'stream':response.stream!.toJson()},
+            coverage: {
+              'body': 'cancelled',
+              if (response.stream != null) 'stream': response.stream!.toJson(),
+            },
           );
         }
-        if(response.stream!=null){response._stream=response.stream!.redacted(secretValues);await onStream?.call(response.stream!);}
+        if (response.stream != null) {
+          response._stream = response.stream!.redacted(secretValues);
+          await onStream?.call(response.stream!);
+        }
         return ContractRequestResult(
           request: request,
           response: response,
@@ -4234,7 +3928,7 @@ class ContractRequestExecutor {
       ],
       producer: value.producer,
       producerVersion: value.producerVersion,
-      coverage: Map<String,Object?>.from(redact(value.coverage) as Map),
+      coverage: Map<String, Object?>.from(redact(value.coverage) as Map),
       modeledData: value.modeledData,
     );
   }
@@ -4245,7 +3939,7 @@ class ContractRequestExecutor {
     String runId, {
     PreparedRequestBody? preparedBody,
     Map<String, String> preparedMediaParameters = const {},
-    List<(String,String)>? preparedHeaders,
+    List<(String, String)>? preparedHeaders,
     RunCancellation? cancellation,
   }) async {
     final instances = <RuntimeSchemaInstance>[];
@@ -4262,28 +3956,65 @@ class ContractRequestExecutor {
           name = parameter['name'] as String,
           value = draft
               .parameters[OperationRequestDraft.parameterKey(location, name)];
-      if (location == 'header' && preparedHeaders != null && (parameter['content'] is List || value?.representation == RequestValueRepresentation.serializedParameter)) {
+      if (location == 'header' &&
+          preparedHeaders != null &&
+          (parameter['content'] is List ||
+              value?.representation ==
+                  RequestValueRepresentation.serializedParameter)) {
         final source = parameter['source'] as Map;
-        final lines = [for (final field in preparedHeaders) if (field.$1.toLowerCase() == name.toLowerCase()) field.$2];
-        if (lines.isNotEmpty) instances.add(RuntimeSchemaInstance(subject:'request-parameter',location:'$location:$name',text:'',parameter:RuntimeParameterTarget(
-          resource:source['resource'] as String,pointer:source['pointer'] as String,values:List.unmodifiable(lines))));
+        final lines = [
+          for (final field in preparedHeaders)
+            if (field.$1.toLowerCase() == name.toLowerCase()) field.$2,
+        ];
+        if (lines.isNotEmpty)
+          instances.add(
+            RuntimeSchemaInstance(
+              subject: 'request-parameter',
+              location: '$location:$name',
+              text: '',
+              parameter: RuntimeParameterTarget(
+                resource: source['resource'] as String,
+                pointer: source['pointer'] as String,
+                values: List.unmodifiable(lines),
+              ),
+            ),
+          );
         continue;
       }
       if (value == null || !value.present) continue;
-      if (value.representation == RequestValueRepresentation.serializedParameter) {
+      if (value.representation ==
+          RequestValueRepresentation.serializedParameter) {
         if (utf8.encode(value.text).length > _evaluationLimit) {
           checksComplete = false;
-          findings.add(_finding('runtime.request.parameter.limit', 'warning',
-              'The parameter exceeds the bounded evaluation input.', location: '$location:$name'));
+          findings.add(
+            _finding(
+              'runtime.request.parameter.limit',
+              'warning',
+              'The parameter exceeds the bounded evaluation input.',
+              location: '$location:$name',
+            ),
+          );
         } else {
           final source = parameter['source'];
-          if (source is! Map || source['resource'] is! String || source['pointer'] is! String) {
-            throw CoreFailure('runtime.parameter.owner', 'The serialized parameter has no captured declaration.');
+          if (source is! Map ||
+              source['resource'] is! String ||
+              source['pointer'] is! String) {
+            throw CoreFailure(
+              'runtime.parameter.owner',
+              'The serialized parameter has no captured declaration.',
+            );
           }
-          instances.add(RuntimeSchemaInstance(
-            subject: 'request-parameter', location: '$location:$name', text: value.text,
-            parameter: RuntimeParameterTarget(resource: source['resource'] as String, pointer: source['pointer'] as String),
-          ));
+          instances.add(
+            RuntimeSchemaInstance(
+              subject: 'request-parameter',
+              location: '$location:$name',
+              text: value.text,
+              parameter: RuntimeParameterTarget(
+                resource: source['resource'] as String,
+                pointer: source['pointer'] as String,
+              ),
+            ),
+          );
         }
         continue;
       }
@@ -4323,16 +4054,31 @@ class ContractRequestExecutor {
       }
       final wireFormParameter =
           _formMedia(contentMedia?['mediaType'] as String?) && !value.json;
-      final preparedParameterBytes = preparedMediaParameters[OperationRequestDraft.parameterKey(location,name)];
-      if (preparedParameterBytes != null || wireFormParameter ||
+      final preparedParameterBytes =
+          preparedMediaParameters[OperationRequestDraft.parameterKey(
+            location,
+            name,
+          )];
+      if (preparedParameterBytes != null ||
+          wireFormParameter ||
           _nativeMedia(contentMedia) &&
               value.representation !=
                   RequestValueRepresentation.serializedParameter) {
         final nativeContent = preparedParameterBytes != null;
-        if (['xml','linkset','linkset-json'].contains(contentMedia?['dataModel']) && !nativeContent)
-          throw CoreFailure('runtime.parameter.preparation', 'Modeled parameter evaluation requires its actual prepared media bytes.');
+        if ([
+              'xml',
+              'linkset',
+              'linkset-json',
+            ].contains(contentMedia?['dataModel']) &&
+            !nativeContent)
+          throw CoreFailure(
+            'runtime.parameter.preparation',
+            'Modeled parameter evaluation requires its actual prepared media bytes.',
+          );
         var text = nativeContent ? preparedParameterBytes! : value.text;
-        if (!nativeContent && value.json && contentMedia?['dataModel'] == 'text') {
+        if (!nativeContent &&
+            value.json &&
+            contentMedia?['dataModel'] == 'text') {
           final trimmed = text.trim();
           // Only a JSON string needs decoding. Numeric spelling is already
           // the exact scalar representation used by the request serializer.
@@ -4541,7 +4287,8 @@ class ContractRequestExecutor {
               mediaType: preparedBody.mediaType ?? draft.body.mediaType,
               mediaBase64: true,
               formOccurrence: plan.operation['occurrence'] as String?,
-              rootSchemaAssertions: !dataChecked || draft.body.kind == RequestBodyKind.form,
+              rootSchemaAssertions:
+                  !dataChecked || draft.body.kind == RequestBodyKind.form,
               fileShapes: preparedBody.fileShapes,
               partSchemas: preparedBody.partSchemas,
               partMediaTypes: preparedBody.partMediaTypes,
@@ -4768,10 +4515,15 @@ class ContractRequestExecutor {
     }
     // XML byte decoding, including BOM precedence over MIME, belongs to the Engine.
     final essence = contentType?.split(';').first.trim().toLowerCase();
-    final xmlMedia = media?['dataModel'] == 'xml' || essence == 'application/xml' || essence == 'text/xml' || essence?.endsWith('+xml') == true;
+    final xmlMedia =
+        media?['dataModel'] == 'xml' ||
+        essence == 'application/xml' ||
+        essence == 'text/xml' ||
+        essence?.endsWith('+xml') == true;
     final supportedCharset =
         validContentType &&
-        (declaresNoContent || xmlMedia ||
+        (declaresNoContent ||
+            xmlMedia ||
             schema?['file'] == true ||
             schema?['fileIssue'] != null ||
             media?['dataModel'] == 'event-stream' ||
@@ -4806,7 +4558,8 @@ class ContractRequestExecutor {
         !declaresNoContent &&
         response.receiptComplete &&
         response.decodingComplete &&
-        supportedCharset && !xmlMedia &&
+        supportedCharset &&
+        !xmlMedia &&
         schema?['file'] != true &&
         schema?['fileIssue'] == null &&
         media?['dataModel'] != 'event-stream' &&
@@ -4897,7 +4650,7 @@ class ContractRequestExecutor {
         );
       }
     }
-    var wholeBodyProved=false;
+    var wholeBodyProved = false;
     var evaluated = await _evaluate(
       plan,
       instances,
@@ -4919,18 +4672,34 @@ class ContractRequestExecutor {
                 'not-applicable-or-incomplete',
               ),
       },
-      onBodyProof:(proved,configuration){wholeBodyProved=proved&&configuration==response.stream?.schemaConfiguration;},
+      onBodyProof: (proved, configuration) {
+        wholeBodyProved =
+            proved && configuration == response.stream?.schemaConfiguration;
+      },
       checksComplete: checksComplete,
       cancellation: cancellation,
     );
     if (response.stream case final stream?) {
-      final bodyProof=wholeBodyProved &&
-          evaluated.producer==stream.schemaProducerName && evaluated.producerVersion==stream.schemaProducerVersion;
-      response._stream=stream.withWholeResult(evaluated.complete && response.receiptComplete && response.decodingComplete,evaluated.valid,bodyChecked:bodyProof);
-      evaluated = ContractConformance(complete:evaluated.complete && response.stream!.complete,
-        valid:evaluated.valid && stream.valid,findings:[...evaluated.findings,...response.stream!.findings],
-        producer:stream.schemaProducerName,producerVersion:stream.schemaProducerVersion,
-        coverage:{...evaluated.coverage,'stream':response.stream!.toJson()},modeledData:evaluated.modeledData);
+      final bodyProof =
+          wholeBodyProved &&
+          evaluated.producer == stream.schemaProducerName &&
+          evaluated.producerVersion == stream.schemaProducerVersion;
+      response._stream = stream.withWholeResult(
+        evaluated.complete &&
+            response.receiptComplete &&
+            response.decodingComplete,
+        evaluated.valid,
+        bodyChecked: bodyProof,
+      );
+      evaluated = ContractConformance(
+        complete: evaluated.complete && response.stream!.complete,
+        valid: evaluated.valid && stream.valid,
+        findings: [...evaluated.findings, ...response.stream!.findings],
+        producer: stream.schemaProducerName,
+        producerVersion: stream.schemaProducerVersion,
+        coverage: {...evaluated.coverage, 'stream': response.stream!.toJson()},
+        modeledData: evaluated.modeledData,
+      );
     }
     if (!response.receiptComplete && evaluated.complete) {
       return ContractConformance(
@@ -5062,7 +4831,7 @@ class ContractRequestExecutor {
     String requestId,
     Map<String, Object?> coverage, {
     bool checksComplete = true,
-    void Function(bool,String?)? onBodyProof,
+    void Function(bool, String?)? onBodyProof,
     RunCancellation? cancellation,
   }) async {
     var complete = checksComplete;
@@ -5075,19 +4844,64 @@ class ContractRequestExecutor {
         cancellation: cancellation,
       );
       complete = complete && result['complete'] == true;
-      final expectedBodies=instances.where((value)=>value.subject=='response-body').toList();
-      final proofs=(result['runtimeEvaluations'] as List).whereType<Map>().toList();
-      final bodyResultsAvailable=expectedBodies.every((instance){
-        final owned=proofs.where((proof)=>proof['subject']==instance.subject&&proof['location']==instance.location).toList();
-        return owned.isNotEmpty&&owned.every((proof)=>proof['complete']==true)&&owned.any((proof)=>proof['pointer']==''||proof['valid']==false||proof['syntax']=='no-response-content');
+      final expectedBodies = instances
+          .where((value) => value.subject == 'response-body')
+          .toList();
+      final proofs = (result['runtimeEvaluations'] as List)
+          .whereType<Map>()
+          .toList();
+      final bodyResultsAvailable = expectedBodies.every((instance) {
+        final owned = proofs
+            .where(
+              (proof) =>
+                  proof['subject'] == instance.subject &&
+                  proof['location'] == instance.location,
+            )
+            .toList();
+        return owned.isNotEmpty &&
+            owned.every((proof) => proof['complete'] == true) &&
+            owned.any(
+              (proof) =>
+                  proof['pointer'] == '' ||
+                  proof['valid'] == false ||
+                  proof['syntax'] == 'no-response-content',
+            );
       });
-      if(!bodyResultsAvailable){complete=false;findings.add(_finding('runtime.response.body.unchecked','warning','The original body evaluation omitted or could not complete its applicable proofs.',location:'response-body'));}
-      onBodyProof?.call(expectedBodies.isNotEmpty&&result['complete']==true&&bodyResultsAvailable&&expectedBodies.every((instance)=>proofs.where((proof)=>proof['subject']==instance.subject&&proof['location']==instance.location).every((proof)=>proof['valid']==true)),result['configuration'] as String?);
+      if (!bodyResultsAvailable) {
+        complete = false;
+        findings.add(
+          _finding(
+            'runtime.response.body.unchecked',
+            'warning',
+            'The original body evaluation omitted or could not complete its applicable proofs.',
+            location: 'response-body',
+          ),
+        );
+      }
+      onBodyProof?.call(
+        expectedBodies.isNotEmpty &&
+            result['complete'] == true &&
+            bodyResultsAvailable &&
+            expectedBodies.every(
+              (instance) => proofs
+                  .where(
+                    (proof) =>
+                        proof['subject'] == instance.subject &&
+                        proof['location'] == instance.location,
+                  )
+                  .every((proof) => proof['valid'] == true),
+            ),
+        result['configuration'] as String?,
+      );
       producer = result['producer'] as String;
       producerVersion = result['producerVersion'] as String;
-      for (final value in (result['runtimeEvaluations'] as List).whereType<Map>()) {
-        if (value['subject'] == 'response-body' || value['subject'] == 'request-body') {
-          if (value['modeledData'] is String && utf8.encode(value['modeledData'] as String).length <= 1024 * 1024) modeledData = value['modeledData'] as String;
+      for (final value
+          in (result['runtimeEvaluations'] as List).whereType<Map>()) {
+        if (value['subject'] == 'response-body' ||
+            value['subject'] == 'request-body') {
+          if (value['modeledData'] is String &&
+              utf8.encode(value['modeledData'] as String).length <= 1024 * 1024)
+            modeledData = value['modeledData'] as String;
         }
       }
       for (final finding

@@ -49,10 +49,12 @@ def inputs(node):
     receipt = json.loads((RUNTIME / 'build.json').read_text())
     lock = json.loads((ENGINE / 'runtime.lock.json').read_text())
     if (receipt['inputs'] != input_signature()
+            or receipt.get('profile') != 'release'
             or digest(node) != lock['binarySha256']
             or receipt['runtimeEntrypoints'] != [target for _, target in RUNTIME_ENTRYPOINTS]):
         raise RuntimeError('Production inputs are stale; run tools/build_engine.sh compile')
     for target, field in [('engine.cjs', 'helperSha256'),
+                          ('conversion-worker.cjs', 'conversionHelperSha256'),
                           ('policy-worker.cjs', 'policyHelperSha256'),
                           ('mock-server.cjs', 'mockHelperSha256')]:
         if digest(RUNTIME / target) != receipt[field]:

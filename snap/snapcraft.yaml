@@ -35,6 +35,10 @@ parts:
       # Supply verified Flutter 3.47.5 and Node 24.15.0 build inputs.
       test -n "$BUSYAPI_FLUTTER"
       test -n "$BUSYAPI_NODE"
+      test -n "$BUSYAPI_NODE_INCLUDE"
+      test -n "$BUSYAPI_SECCOMP_INCLUDE"
+      python3 tools/prepare_policy_isolation.py --output build/contract-runtime \
+        --node-include "$BUSYAPI_NODE_INCLUDE" --seccomp-include "$BUSYAPI_SECCOMP_INCLUDE"
       if test "${BUSYAPI_BUILD_OFFLINE:-0}" = 1; then
         python3 tools/prepare_m3_tools.py --output build/m3-tools
         python3 tools/prepare_generator.py --output build/generator

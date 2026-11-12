@@ -132,6 +132,39 @@ class BuildToolchain(unittest.TestCase):
         self.assertFalse(bundle_marker.exists())
 
 
+    def test_snap_policy_inputs_are_explicit_and_forwarded_to_the_existing_preparer(self):
+        import textwrap
+        recipe = (ROOT / 'snap/snapcraft.yaml').read_text()
+        policy_setup = recipe.split('override-build: |', 1)[1].split(
+            '      if test "${BUSYAPI_BUILD_OFFLINE', 1)[0]
+        script = 'set -eu\n' + textwrap.dedent(policy_setup)
+        tools = self.root / 'tools'
+        tools.mkdir()
+        captured = self.root / 'policy-args.json'
+        (tools / 'prepare_policy_isolation.py').write_text(
+            'import json,os,sys\nfrom pathlib import Path\n'
+            'Path(os.environ["POLICY_RECIPE_ARGS"]).write_text(json.dumps(sys.argv[1:]))\n')
+        environment = dict(self.env, BUSYAPI_FLUTTER='/explicit/official/flutter',
+                           POLICY_RECIPE_ARGS=str(captured))
+        environment.pop('BUSYAPI_NODE_INCLUDE', None)
+        environment.pop('BUSYAPI_SECCOMP_INCLUDE', None)
+        result = subprocess.run(['/bin/bash', '-c', script], cwd=self.root,
+                                env=environment, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(captured.exists())
+        node_headers = self.root / 'official node headers'
+        seccomp_headers = self.root / 'official seccomp headers'
+        node_headers.mkdir()
+        seccomp_headers.mkdir()
+        environment.update(BUSYAPI_NODE_INCLUDE=str(node_headers),
+                           BUSYAPI_SECCOMP_INCLUDE=str(seccomp_headers))
+        result = subprocess.run(['/bin/bash', '-c', script], cwd=self.root,
+                                env=environment, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(captured.read_text()), [
+            '--output', 'build/contract-runtime', '--node-include', str(node_headers),
+            '--seccomp-include', str(seccomp_headers)])
+
     def test_concurrent_sdk_probes_have_unique_cleaned_metadata(self):
         flutter = self.root / 'flutter'
         flutter.write_text('#!/bin/sh\nmetadata_path="$(readlink /proc/$$/fd/1)"\nprintf \'%s\\n\' "$metadata_path" >> "$SDK_META_LOG"\nprintf \'{"frameworkVersion":"3.47.5","dartSdkVersion":"3.13.4"}\\n\'\n')

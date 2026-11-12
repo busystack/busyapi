@@ -20,10 +20,10 @@ Future<Uint8List> _encodeRequest(Map<String, Object?> value, bool large) async {
 }
 
 class _EngineRequest {
-  _EngineRequest(this.id, this.method, this.params, this.cost);
+  _EngineRequest(this.id, this.method, this.params, this.cost, this.epoch);
   final String id, method;
   final Map<String, Object?> params;
-  final int cost;
+  final int cost, epoch;
   final result = Completer<Map<String, dynamic>>();
   final released = Completer<void>();
   Timer? deadline;
@@ -54,6 +54,15 @@ class _EngineRequest {
       : 1;
 }
 
+typedef EngineProcessStarter = Future<Process> Function(
+  String executable,
+  List<String> arguments, {
+  required Map<String, String> environment,
+  required bool includeParentEnvironment,
+  required String workingDirectory,
+  required bool runInShell,
+});
+
 class EngineProcess {
   /// Desktop bundles and compiled CLI use the same relocatable asset layout.
   /// Neither the current directory nor a globally installed Node is consulted.
@@ -71,12 +80,15 @@ class EngineProcess {
     required String executable,
     required String helper,
     this.timeout = const Duration(seconds: 20),
-  }) : executable = File(executable).absolute.path,
+    EngineProcessStarter? processStarter,
+  }) : _processStarter = processStarter ?? Process.start,
+       executable = File(executable).absolute.path,
        helper = File(helper).absolute.path;
   final String executable, helper;
+  final EngineProcessStarter _processStarter;
   final Duration timeout;
   Process? _process;
-  Future<void>? _starting;
+  Future<void>? _starting, _stopping, _closing;
   bool _closed = false;
   int _serial = 0;
   String? assetIdentity;
@@ -95,8 +107,21 @@ class EngineProcess {
     if (_closed) {
       throw CoreFailure('engine.closed', 'Engine has been shut down');
     }
-    if (_process != null) return;
+    final stopping = _stopping, retiringStart = _starting;
+    if (stopping != null) {
+      await stopping;
+      if (retiringStart != null && identical(_starting, retiringStart)) {
+        try {
+          await retiringStart;
+        } on Object {
+          // This is the retired handshake; a replacement starts below.
+        }
+      }
+    }
+    if (_closed)
+      throw CoreFailure('engine.closed', 'Engine has been shut down');
     if (_starting != null) return _starting;
+    if (_process != null) return;
     _starting = _launch();
     try {
       await _starting;
@@ -133,7 +158,7 @@ class EngineProcess {
             key == 'OPENSSL_MODULES' ||
             key == 'OPENSSL_ENGINES',
       );
-    final process = await Process.start(
+    final process = await _processStarter(
       executable,
       ['--disable-proto=throw', helper],
       environment: env,
@@ -158,6 +183,8 @@ class EngineProcess {
       ),
     );
     _processEpoch++;
+    final epoch = _processEpoch;
+    _queuedFrames = 0;
     _decoding = null;
     _header.clear();
     _body.clear();
@@ -179,7 +206,8 @@ class EngineProcess {
       },
     );
     process.stderr.listen((data) {
-      logBytes = (logBytes + data.length).clamp(0, 8192);
+      if (identical(_process, process))
+        logBytes = (logBytes + data.length).clamp(0, 8192);
     }); // Never retain user data from helper logs.
     unawaited(
       process.exitCode.then((code) {
@@ -193,7 +221,7 @@ class EngineProcess {
     try {
       hello = await _send('hello', {});
     } on Object {
-      await _kill();
+      await _kill(epoch: epoch);
       rethrow;
     }
     if (hello['protocol'] != 1 ||
@@ -205,7 +233,7 @@ class EngineProcess {
         hello['bom'] != 'excluded' ||
         hello['offsetUnit'] != 'utf16' ||
         hello['lineEndings'] != 'raw') {
-      await _kill();
+      await _kill(epoch: epoch);
       throw CoreFailure(
         'engine.handshake',
         'Incompatible contract engine protocol',
@@ -311,10 +339,10 @@ class EngineProcess {
       } on Object {
         if (epoch != _processEpoch || _process == null) return;
         _fail('engine.json', 'Malformed helper response');
-        unawaited(_kill());
+        unawaited(_kill(epoch: epoch));
       }
     } finally {
-      _queuedFrames--;
+      if (epoch == _processEpoch) _queuedFrames--;
     }
   }
 
@@ -385,7 +413,7 @@ class EngineProcess {
       );
     }
     final frozen = capture(params, 0) as Map<String, Object?>;
-    final request = _EngineRequest(id, method, frozen, cost);
+    final request = _EngineRequest(id, method, frozen, cost, _processEpoch);
     if (!control) _retainedRequestBytes += cost;
     _pending[id] = request;
     // The deadline includes waiting and encoding, not just helper execution.
@@ -402,7 +430,7 @@ class EngineProcess {
         _release(request);
       } else if (request.sent) {
         if (request.control) {
-          unawaited(_kill());
+          unawaited(_kill(epoch: request.epoch));
         } else {
           // Keep its data capacity until actual termination acknowledgement.
           unawaited(cancel(id));
@@ -492,8 +520,9 @@ class EngineProcess {
       process!.stdin.add(header.buffer.asUint8List());
       process.stdin.add(payload);
     } on Object {
+      if (epoch != _processEpoch) return;
       _fail('engine.input', 'Cannot write helper request');
-      unawaited(_kill());
+      unawaited(_kill(epoch: epoch));
     }
   }
 
@@ -503,6 +532,11 @@ class EngineProcess {
     String? requestId,
   }) async {
     await start();
+    while (_starting != null) {
+      // A session may have retired between the earlier readiness and this
+      // continuation. Join its replacement handshake before sending data.
+      await start();
+    }
     if (requestId != null && _cancelled.remove(requestId)) {
       throw CoreFailure('cancelled', 'Request cancelled before dispatch');
     }
@@ -540,7 +574,11 @@ class EngineProcess {
     }
     final stopped = _cancelSent(request);
     _cancelling[id] = stopped;
-    unawaited(stopped.whenComplete(() => _cancelling.remove(id)));
+    unawaited(
+      stopped.whenComplete(() {
+        if (identical(_cancelling[id], stopped)) _cancelling.remove(id);
+      }),
+    );
     return stopped;
   }
 
@@ -554,7 +592,7 @@ class EngineProcess {
       }
       _release(request);
     } on Object {
-      await _kill();
+      await _kill(epoch: request.epoch);
     }
   }
 
@@ -572,17 +610,27 @@ class EngineProcess {
     }
   }
 
-  Future<void> _kill() async {
+  Future<void> _kill({int? epoch}) {
+    if (epoch != null && epoch != _processEpoch) return Future.value();
+    final stopping = _stopping;
+    if (stopping != null) return stopping;
     final process = _process;
+    if (process == null) return Future.value();
     _process = null;
     _processEpoch++;
-    if (process == null) return;
-    process.kill(ProcessSignal.sigkill);
-    await process.exitCode;
+    // Release only this session, synchronously, before replacement is possible.
     _fail('engine.stopped', 'Contract engine stopped');
+    process.kill(ProcessSignal.sigkill);
+    final termination = process.exitCode.then<void>((_) {});
+    _stopping = termination;
+    return termination.whenComplete(() {
+      if (identical(_stopping, termination)) _stopping = null;
+    });
   }
 
-  Future<void> close() async {
+  Future<void> close() => _closing ??= _close();
+
+  Future<void> _close() async {
     if (_closed) return;
     _closed = true;
     final starting = _starting;
@@ -601,6 +649,8 @@ class EngineProcess {
         await _kill();
       }
     }
+    final stopping = _stopping;
+    if (stopping != null) await stopping;
     _fail('engine.closed', 'Contract engine closed');
   }
 }

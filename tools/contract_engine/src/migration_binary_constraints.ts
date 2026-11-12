@@ -1,6 +1,6 @@
 import {SourceError} from './document';
 import {compare,decimal} from './exact_numbers';
-import type {MigrationSource} from './migration_source';
+import type {SourcePlan} from './source_plan';
 import {universalNamePatterns} from './migration_schema_regex';
 
 /** A legacy opaque instance is the bijective Latin-1 octet view, not UTF-8
@@ -62,7 +62,7 @@ export function rawContainerLiteralUnchanged(value:Record<string,any>,path:reado
         (!Array.isArray(value.enum)||!value.enum.some(literal=>reaches(literal,path)));
 }
 
-export function projectRawConstraints(source:MigrationSource,pointer:string,value:Record<string,any>,retain:(field:string)=>void,equivalent?:string):void {
+export function projectRawConstraints(source:SourcePlan,pointer:string,value:Record<string,any>,retain:(field:string)=>void,equivalent?:string):void {
     if(equivalent!==undefined){
         // An exhaustive source certificate preserves the complete scalar
         // intersection. Authored operands keep exact neutral literal owners;

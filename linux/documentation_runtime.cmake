@@ -1,3 +1,8 @@
+if(BUSYAPI_EDITOR_DEVELOPMENT)
+  function(busyapi_install_documentation_runtime)
+  endfunction()
+  return()
+endif()
 # BusyAPI-owned optional window module, not a plugin/discovery boundary.
 add_library(busyapi_documentation MODULE
   "${CMAKE_CURRENT_LIST_DIR}/runner/documentation_window.cc"

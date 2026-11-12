@@ -2,7 +2,7 @@ import {escape} from './document';
 import {FormSemantics} from './form_semantics';
 import type {ReferenceGraph} from './reference_graph';
 import type {MigrationIssue} from './migration_schema';
-import {MigrationSource} from './migration_source';
+import {SourcePlan} from './source_plan';
 import {migrationScopes} from './migration_documents';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import {retainFormHeaderOwners} from './migration_media_schema';
@@ -10,7 +10,7 @@ import {retainFormHeaderOwners} from './migration_media_schema';
 /** OAS 3.0 §4.7.15 ignores multipart style fields. OAS 3.1 §4.8.15
  * activates them and ignores contentType instead. A declaration-only upgrade
  * would change request bytes even though both documents validate. */
-export function migrateEncodings(graph:ReferenceGraph,sources:Map<string,MigrationSource>,from:string,to:string,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph],owners?:MigrationSchemaOwners):void {
+export function migrateEncodings(graph:ReferenceGraph,sources:Map<string,SourcePlan>,from:string,to:string,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph],owners?:MigrationSchemaOwners):void {
     // 3.2 removes the request-only restriction on Encoding. This directly
     // affects R2 response semantics even when no newer media fields are used.
     for(const context of contexts)for(const scope of context.entryScopes())if(scope.kind==='media'&&scope.family===from&&((from==='3.2')!==(to==='3.2'))){

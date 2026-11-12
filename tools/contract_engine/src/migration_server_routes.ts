@@ -1,7 +1,7 @@
 import {escape,SourceError} from './document';
 import type {ReferenceGraph,OperationOccurrence} from './reference_graph';
 import type {MigrationIssue} from './migration_schema';
-import {migrationValueIdentity,type MigrationSource,type MigrationLocation} from './migration_source';
+import {sourceValueIdentity,type SourcePlan,type SourceLocation} from './source_plan';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import {ParameterSemantics} from './parameter_semantics';
 
@@ -56,9 +56,9 @@ export function checkMigrationServerRoutes(routes:readonly MigrationServerRoute[
  * keeps referenced Path Items as neutral native fragments; executable copies
  * carry the original operation/child provenance. Parameter inheritance is
  * bound locally before methods from different Path Items can meet. */
-export function relocateMigrationServerRoutes(routes:readonly MigrationServerRoute[],sources:Map<string,MigrationSource>,
- owners:MigrationSchemaOwners,issue:MigrationIssue,contexts:readonly ReferenceGraph[]):Map<string,MigrationLocation> {
- const references=new Map<string,MigrationLocation>();
+export function relocateMigrationServerRoutes(routes:readonly MigrationServerRoute[],sources:Map<string,SourcePlan>,
+ owners:MigrationSchemaOwners,issue:MigrationIssue,contexts:readonly ReferenceGraph[]):Map<string,SourceLocation> {
+ const references=new Map<string,SourceLocation>();
  if(!checkMigrationServerRoutes(routes,issue))return references;
  const changed=new Set(routes.filter(route=>route.path!==route.operation.path).map(route=>JSON.stringify([
   route.context.root,route.operation.pathItem.resource,route.operation.pathItem.pointer])));
@@ -119,7 +119,7 @@ export function relocateMigrationServerRoutes(routes:readonly MigrationServerRou
    if(field.kind==='operation'||field.kind==='operation-map'||name==='servers'||name==='parameters'||name==='$ref'||name==='summary'||name==='description')continue;
    const source=captured.get(field.resource)!,pointer=source.current(field.pointer);if(pointer===undefined)continue;
    const to=target+'/'+escape(name),existing=output.doc.dataNode(to);
-   if(existing){if(migrationValueIdentity(output.doc,to)!==migrationValueIdentity(source.doc,pointer))
+   if(existing){if(sourceValueIdentity(output.doc,to)!==sourceValueIdentity(source.doc,pointer))
     issue(field,'migration.server.route-metadata','Relocated methods require conflicting Path Item metadata at '+path,'target-representation');}
    else {owners.admit(output);output.copy(source,pointer,to,true);}
   }

@@ -1,7 +1,7 @@
 import {escape} from './document';
 import type {GraphScope,GraphReference,ReferenceGraph} from './reference_graph';
 import type {MigrationIssue} from './migration_schema';
-import type {MigrationSource} from './migration_source';
+import type {SourcePlan} from './source_plan';
 import type {MigrationPropertyPresence} from './migration_property_presence';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import {constantSchemaAssertion} from './schema_constant_assertions';
@@ -51,7 +51,7 @@ export function nativeSchemaDependencies(graph:ReferenceGraph,scope:GraphScope,r
 /** An impossible trigger does not evaluate its schema, including annotations.
  * Retain only its independently entered schema closure before child vocabulary
  * conversion, using the same retirement primitive as inactive conditions. */
-export function discardInactiveSchemaDependencies(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,
+export function discardInactiveSchemaDependencies(graph:ReferenceGraph,scope:GraphScope,source:SourcePlan,
     requirements:MigrationPropertyPresence,owners:MigrationSchemaOwners,references:readonly GraphReference[],target:string):void {
     const node=graph.docs.get(scope.resource)!.dataNode(scope.pointer+'/dependentSchemas');
     if(node?.kind!=='object')return;
@@ -71,7 +71,7 @@ export function discardInactiveSchemaDependencies(graph:ReferenceGraph,scope:Gra
 /** Validation 2020-12 6.5.4: presence implies required properties, regardless
  * of the triggering value. OAS 3.0's anyOf/not/required express the same rule.
  * Move each original array through the CST so its values and comments survive. */
-export function migrateDependentRequired(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,pointer:string,target:string,requirements:MigrationPropertyPresence,issue:MigrationIssue,owners:MigrationSchemaOwners):void {
+export function migrateDependentRequired(graph:ReferenceGraph,scope:GraphScope,source:SourcePlan,pointer:string,target:string,requirements:MigrationPropertyPresence,issue:MigrationIssue,owners:MigrationSchemaOwners):void {
     const doc=graph.docs.get(scope.resource)!,original=scope.pointer+'/dependentRequired',node=doc.dataNode(original);
     if(!node||!source.doc.dataNode(pointer+'/dependentRequired'))return;
     // This map's independent schema role has unknown keywords, rather than
@@ -134,9 +134,9 @@ export function migrateDependentRequired(graph:ReferenceGraph,scope:GraphScope,s
  * its trigger property is present. Both alternatives retain that condition,
  * keeping successful-branch annotations conditional too. required alone also
  * validates non-objects, whose assertions must remain unaffected. */
-export function migrateDependentSchemas(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,pointer:string,target:string,
+export function migrateDependentSchemas(graph:ReferenceGraph,scope:GraphScope,source:SourcePlan,pointer:string,target:string,
     requirements:MigrationPropertyPresence,issue:MigrationIssue,owners:MigrationSchemaOwners,references:readonly GraphReference[],
-    sources:ReadonlyMap<string,MigrationSource>,defer:(projection:()=>void)=>void):void {
+    sources:ReadonlyMap<string,SourcePlan>,defer:(projection:()=>void)=>void):void {
     const doc=graph.docs.get(scope.resource)!,original=scope.pointer+'/dependentSchemas',node=doc.dataNode(original);
     if(!node||!source.doc.dataNode(pointer+'/dependentSchemas'))return;
     const independent=graph.scopeAs(scope.resource,original,'schema');

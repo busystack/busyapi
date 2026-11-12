@@ -1,6 +1,6 @@
 import {compare,decimal,multiple} from './exact_numbers';
 import {escape,SourceError,valueType,type SourceDocument} from './document';
-import {migrationValueIdentity} from './migration_source';
+import {sourceValueIdentity} from './source_plan';
 import {schemaResourceContextIdentity,supportedSchemaDialect,type GraphScope,type ReferenceGraph} from './reference_graph';
 import {projectSchemaReference} from './schema_reference_projection';
 import {requiredInBothDirections} from './schema_access';
@@ -14,7 +14,7 @@ const id=(scope:GraphScope)=>JSON.stringify([scope.resource,scope.pointer]);
 export type SchemaGuardAssumptions=Readonly<{domains:ReadonlySet<string>;present?:(name:string)=>boolean;absent?:(name:string)=>boolean}>;
 
 /** Assertion equality is mathematical for numbers and ignores object member
- * order. Source-fidelity checks continue to use migrationValueIdentity. */
+ * order. Source-fidelity checks continue to use sourceValueIdentity. */
 export function migrationExactValueIdentity(doc: SourceDocument, pointer: string, state = {work: 0, depth: 0}): string {
     const node = doc.dataNode(pointer)!;
     if (++state.work > 50000 || state.depth >= 128) {
@@ -493,7 +493,7 @@ export class MigrationSchemaProofs {
         const source=a.dataNode(left.pointer)?.value,target=b.dataNode(right.pointer)?.value;
         if(id(left)===id(right)||source===false||target===true)return true;
         if(schemaResourceContextIdentity(left)===schemaResourceContextIdentity(right)&&
-            migrationValueIdentity(a,left.pointer)===migrationValueIdentity(b,right.pointer))return true;
+            sourceValueIdentity(a,left.pointer)===sourceValueIdentity(b,right.pointer))return true;
         if(!target||typeof target!=='object'||Array.isArray(target))return false;
         const next=new Set(active).add(pair),parts=this.conjuncts(left),domains=this.domains(left);
         const values=parts.map(scope=>{
@@ -619,7 +619,7 @@ export class MigrationSchemaProofs {
                         const x=doc.dataNode(at)!,y=b.dataNode(to)!;
                         return typeof x.value==='number'&&typeof y.value==='number'?
                             compare(decimal(doc.dataJson(at)),decimal(b.dataJson(to)))===0:
-                            migrationValueIdentity(doc,at)===migrationValueIdentity(b,to);
+                            sourceValueIdentity(doc,at)===sourceValueIdentity(b,to);
                     }))??false;
                 });
             }

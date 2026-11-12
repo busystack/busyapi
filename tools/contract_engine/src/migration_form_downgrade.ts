@@ -1,6 +1,6 @@
 import type {GraphScope,ReferenceGraph} from './reference_graph';
 import {escape,type Node} from './document';
-import {MigrationSource} from './migration_source';
+import {SourcePlan} from './source_plan';
 import type {MigrationIssue} from './migration_schema';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import {materializeFlatSchema} from './migration_flat_items';
@@ -18,8 +18,8 @@ const primitiveTypes:ReadonlySet<string>=new Set(['string','number','integer','b
 
 /** OAS 3.0 §4.7.15 and Swagger 2.0 §6.4.9. Flatten only independently
  * described fields; object-wide constraints are not parameter rules. */
-export function downgradeFormBody(graph:ReferenceGraph,source:MigrationSource,scope:GraphScope,pointer:string,media:string,issue:MigrationIssue,
-    owners:MigrationSchemaOwners,sources:ReadonlyMap<string,MigrationSource>):void {
+export function downgradeFormBody(graph:ReferenceGraph,source:SourcePlan,scope:GraphScope,pointer:string,media:string,issue:MigrationIssue,
+    owners:MigrationSchemaOwners,sources:ReadonlyMap<string,SourcePlan>):void {
     const body=source.doc.dataNode(pointer)!;
     const at=pointer+'/content/'+escape(media);
     const origin=scope.pointer+'/content/'+escape(media)+'/schema';

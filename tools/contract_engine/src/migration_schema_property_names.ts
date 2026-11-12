@@ -1,5 +1,5 @@
 import type {GraphScope,ReferenceGraph,GraphReference} from './reference_graph';
-import type {MigrationSource} from './migration_source';
+import type {SourcePlan} from './source_plan';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import type {MigrationIssue} from './migration_schema';
 import {restrictedBooleanSchema} from './migration_schema_values';
@@ -35,7 +35,7 @@ export function finitePropertyNameSet(value:unknown):Readonly<{names:readonly st
  * Captured finite/cofinite and string-domain certificates extend this mapping;
  * applicable annotations on names require their own representation proof. */
 export function migrateSchemaPropertyNames(graph:ReferenceGraph,scope:GraphScope,
-    source:MigrationSource,pointer:string,owners:MigrationSchemaOwners,issue:MigrationIssue,references:readonly GraphReference[],
+    source:SourcePlan,pointer:string,owners:MigrationSchemaOwners,issue:MigrationIssue,references:readonly GraphReference[],
     capturedProof?:MigrationNameRestriction,target='3.0'):void {
     const original=scope.pointer+'/propertyNames',node=graph.docs.get(scope.resource)!.dataNode(original);
     if(!node||!source.doc.dataNode(pointer+'/propertyNames'))return;

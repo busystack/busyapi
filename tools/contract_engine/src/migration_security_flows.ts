@@ -1,23 +1,23 @@
 import {escape,segments,SourceError} from './document';
 import type {ReferenceGraph} from './reference_graph';
 import type {MigrationIssue} from './migration_schema';
-import {MigrationSource,type MigrationLocation} from './migration_source';
+import {SourcePlan,type SourceLocation} from './source_plan';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import {entryComponentContainer} from './migration_schema_uses';
 import {securityFlowOrder,securityRequirementAlternatives} from './security_requirements';
 
-const key=(at:MigrationLocation)=>JSON.stringify([at.resource,at.pointer]);
+const key=(at:SourceLocation)=>JSON.stringify([at.resource,at.pointer]);
 type Binding=Readonly<{from:string;to:string}>;
 
 /** OAS OAuth Flows are supported acquisition alternatives. Swagger describes
  * one flow per scheme. Keep one material occurrence for each flow, then
  * distribute each captured AND requirement into ordered OR alternatives.
  * The common allocator and CST sequence owner retain all source provenance. */
-export function migrateSwaggerSecurityFlows(graphs:readonly ReferenceGraph[],sources:ReadonlyMap<string,MigrationSource>,
+export function migrateSwaggerSecurityFlows(graphs:readonly ReferenceGraph[],sources:ReadonlyMap<string,SourcePlan>,
     families:readonly string[],owners:MigrationSchemaOwners,issue:MigrationIssue,
-    excludedNames:ReadonlySet<string>=new Set()):ReadonlyMap<string,readonly MigrationLocation[]> {
-    const provenance=new Map<string,MigrationLocation[]>(),prepared=new Map<string,readonly MigrationLocation[]>();
-    const pristine=new Map([...sources].map(([id,source])=>[id,new MigrationSource(source.doc)]));
+    excludedNames:ReadonlySet<string>=new Set()):ReadonlyMap<string,readonly SourceLocation[]> {
+    const provenance=new Map<string,SourceLocation[]>(),prepared=new Map<string,readonly SourceLocation[]>();
+    const pristine=new Map([...sources].map(([id,source])=>[id,new SourcePlan(source.doc)]));
     const expanded=new Set<string>();let work=0;
     const inspect=()=>{if(++work>2000000)throw new SourceError('limit.migration.security','OAuth specialization exceeds its bounded graph work');};
     for(const graph of [...graphs].sort((a,b)=>a.root.localeCompare(b.root))){
@@ -42,7 +42,7 @@ export function migrateSwaggerSecurityFlows(graphs:readonly ReferenceGraph[],sou
             if(!copies){
                 const container=entryComponentContainer(graph,{...scope,family:graph.family},graph.root,owners);
                 if(!container)throw new SourceError('migration.security.container','An OAuth flow needs a captured native component holder');
-                const locations:MigrationLocation[]=[];
+                const locations:SourceLocation[]=[];
                 for(const flow of flows.slice(1)){
                     const separated=owners.separate(scope,'oauth_flow',{container,captured:pristine.get(scope.resource),excludedNames:reserved,
                         identity:JSON.stringify([graph.root,scope.resource,scope.pointer,flow])});

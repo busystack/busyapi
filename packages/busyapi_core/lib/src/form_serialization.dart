@@ -1,12 +1,20 @@
 import 'dart:convert';
-import 'dart:isolate';
+import 'dart:typed_data';
+
+import 'request_parameters.dart';
 
 import 'model.dart';
 import 'multipart_encoding.dart';
 import 'request_form_values.dart';
 
 class FormContentPart {
-  const FormContentPart(this.name, this.text, this.contentType, this.transfer, {this.percentEncoded = false});
+  const FormContentPart(
+    this.name,
+    this.text,
+    this.contentType,
+    this.transfer, {
+    this.percentEncoded = false,
+  });
   final String name, text, contentType;
   final MultipartTransferEncoding? transfer;
   final bool percentEncoded;
@@ -33,7 +41,14 @@ Future<PreparedFormValues> prepareFormValues(
   Map declaration,
   bool multipart,
   Future<Map<String, dynamic>> Function(Map<String, String>) parseJson, {
-  Future<String> Function(String name, int index, String text, String mediaType, bool structured)? encodeMedia,
+  Future<String> Function(
+    String name,
+    int index,
+    String text,
+    String mediaType,
+    bool structured,
+  )?
+  encodeMedia,
   RequestFormData? data,
   Map<String, String> mediaTypes = const {},
   Map<String, MultipartPartEncoding> transfers = const {},
@@ -156,9 +171,18 @@ Future<PreparedFormValues> prepareFormValues(
             : actual.kind == RequestDataKind.string,
       );
       final encodedInput = transfer?.schemaEncoded == true;
-      final modeledMedia = !multipart && !styled && !encodedInput && (literalMedia == 'application/xml' || literalMedia == 'text/xml' || literalMedia?.endsWith('+xml') == true || literalMedia == 'application/linkset' || literalMedia == 'application/linkset+json');
+      final modeledMedia =
+          !multipart &&
+          !styled &&
+          !encodedInput &&
+          (literalMedia == 'application/xml' ||
+              literalMedia == 'text/xml' ||
+              literalMedia?.endsWith('+xml') == true ||
+              literalMedia == 'application/linkset' ||
+              literalMedia == 'application/linkset+json');
       if (actual != null) {
-        if (!styled && !modeledMedia &&
+        if (!styled &&
+            !modeledMedia &&
             !jsonMedia &&
             ![
               'text/plain',
@@ -176,7 +200,9 @@ Future<PreparedFormValues> prepareFormValues(
         values.add(
           _FormScalar(
             '${definitions.length}:$index',
-            (jsonMedia || modeledMedia) && !encodedInput ? actual.raw : actual.text,
+            (jsonMedia || modeledMedia) && !encodedInput
+                ? actual.raw
+                : actual.text,
             actual.raw,
             false,
             supplied: true,
@@ -269,16 +295,39 @@ Future<PreparedFormValues> prepareFormValues(
       );
     } else {
       for (final (index, value) in definition.values.indexed) {
-        final media = definition.mediaType!.split(';').first.trim().toLowerCase();
-        final modeled = !multipart && value.transfer?.schemaEncoded != true &&
-            (media == 'application/xml' || media == 'text/xml' || media.endsWith('+xml') || media == 'application/linkset' || media == 'application/linkset+json');
-        if (modeled && encodeMedia == null) throw CoreFailure('request.form.media.unsupported', 'This content field requires its captured Engine media encoder.');
-        final wire = modeled ? await encodeMedia!(entry.key,index,value.text,definition.mediaType!,value.supplied) : value.text;
+        final media = definition.mediaType!
+            .split(';')
+            .first
+            .trim()
+            .toLowerCase();
+        final modeled =
+            !multipart &&
+            value.transfer?.schemaEncoded != true &&
+            (media == 'application/xml' ||
+                media == 'text/xml' ||
+                media.endsWith('+xml') ||
+                media == 'application/linkset' ||
+                media == 'application/linkset+json');
+        if (modeled && encodeMedia == null)
+          throw CoreFailure(
+            'request.form.media.unsupported',
+            'This content field requires its captured Engine media encoder.',
+          );
+        final wire = modeled
+            ? await encodeMedia!(
+                entry.key,
+                index,
+                value.text,
+                definition.mediaType!,
+                value.supplied,
+              )
+            : value.text;
         final part = FormContentPart(
           entry.key,
           wire,
           definition.mediaType!,
-          value.transfer, percentEncoded: modeled,
+          value.transfer,
+          percentEncoded: modeled,
         );
         content.add(part);
         if (data == null) contentOrder[part] = fieldOrder[entry.key]![index];
@@ -326,71 +375,65 @@ class _FormValue {
   final List<_FormScalar> values;
 }
 
-/// The engine selected an unencoded octet string (OAS 3.0 §4.4.2). Count its
-/// exact JSON transport size before allocating escaped control characters.
-Future<({String json, int byteLength})?> multipartOctetInstance(
-  List<int> bytes,
-  int budget,
-) async {
-  if (bytes.length >= 262144)
-    return Isolate.run(() => _multipartOctetInstance(bytes, budget));
-  return _multipartOctetInstance(bytes, budget);
-}
-
-({String json, int byteLength})? _multipartOctetInstance(
-  List<int> bytes,
-  int budget,
-) {
-  var size = 2;
-  for (final byte in bytes) {
-    size += byte == 34 || byte == 92 || const [8, 9, 10, 12, 13].contains(byte)
-        ? 2
-        : byte < 32
-        ? 6
-        : byte < 128
-        ? 1
-        : 2;
-    if (size > budget) return null;
+/// URL-encoded bodies and nested MIME form parts use identical framing. The
+/// engine has already selected each field's media and style representation.
+Uint8List preparedFormBytes(PreparedFormValues values, String mediaType) {
+  final pairs = <(String, String)>[];
+  for (final part in values.content) {
+    if (!part.percentEncoded)
+      validateRawTextCharset(part.contentType, [part.text]);
+    validateTextCharset(mediaType, [part.name, part.text]);
+    pairs.add((
+      part.percentEncoded
+          ? encodeFormStyle(part.name, false)
+          : Uri.encodeQueryComponent(part.name),
+      part.percentEncoded ? part.text : Uri.encodeQueryComponent(part.text),
+    ));
   }
-  if (size > budget) return null;
-  return (json: jsonEncode(latin1.decode(bytes)), byteLength: size);
-}
-
-/// Merge captured file string representations without round-tripping exact
-/// numeric field values through Dart's JSON number representation.
-String multipartInstanceWithFiles(
-  RequestFormData fields,
-  Map<String, List<String>> files,
-  Map declaration, {
-  Set<String> replacedFields = const {},
-  Map<String, bool> fileShapes = const {},
-}) {
-  final shape = (declaration['form'] as Map)['shape'] as Map;
-  final properties = shape['properties'];
-  final values = <String, String>{
-    for (final entry in fields.fields.entries) entry.key: entry.value.raw,
-  };
-  for (final entry in files.entries) {
-    final existing = fields.fields[entry.key];
-    final items = <String>[
-      if (existing != null && !replacedFields.contains(entry.key))
-        ...existing.kind == RequestDataKind.array
-            ? existing.items.map((item) => item.raw)
-            : [existing.raw],
-      ...entry.value,
-    ];
-    final property = properties is Map ? properties[entry.key] : null;
-    final type = property is Map ? property['literalType'] : null;
-    final array =
-        fileShapes[entry.key] ??
-        (type == 'array' || type == null && items.length > 1);
-    if (!array && items.length != 1) {
+  for (final group in values.styled) {
+    final value = group.value;
+    if (value is List && value.any((item) => item is List || item is Map) ||
+        value is Map &&
+            value.values.any((item) => item is List || item is Map)) {
       throw CoreFailure(
-        'request.form.scalar',
-        'This form property permits one scalar value.',
+        'request.form.style',
+        'Nested RFC6570 values have no defined serialization.',
       );
     }
-    values[entry.key] = array ? '[${items.join(',')}]' : items.single;
+    validateTextCharset(mediaType, [
+      group.name,
+      if (value is List)
+        ...value.map((item) => item == null ? 'null' : '$item')
+      else if (value is Map)
+        ...value.entries.expand(
+          (entry) => [
+            '${entry.key}',
+            entry.value == null ? 'null' : '${entry.value}',
+          ],
+        )
+      else
+        value == null ? 'null' : '$value',
+    ]);
+    final style = group.rule['style'] as String? ?? 'form';
+    final fields = serializeParameter(
+      {
+        'name': group.name,
+        'in': 'query',
+        'style': style,
+        'explode': group.rule['explode'] ?? (style == 'form'),
+        'allowReserved': group.rule['allowReserved'] == true,
+      },
+      value,
+      '',
+      structured: true,
+      encodeValue: (text) =>
+          encodeFormStyle(text, group.rule['allowReserved'] == true),
+    );
+    pairs.addAll(
+      fields.map((field) => (encodeFormStyle(field.$1, false), field.$2)),
+    );
   }
-  return '{${values.entries.map((entry) => '${jsonEncode(entry.key)}:${entry.value}').join(',')}}';
+  return Uint8List.fromList(
+    utf8.encode(pairs.map((field) => '${field.$1}=${field.$2}').join('&')),
+  );
 }

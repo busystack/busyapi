@@ -7,9 +7,9 @@ import {FiniteMigrationDomain} from './migration_finite_domain';
 import {evaluateSchemas} from './schema_evaluation';
 import {migrationScopes} from './migration_documents';
 import type {MigrationIssue} from './migration_schema';
-import {migrationValueIdentity,type MigrationLocation,type MigrationSource} from './migration_source';
+import {sourceValueIdentity,type SourceLocation,type SourcePlan} from './source_plan';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
-import {migrationLogicalPointers} from './migration_yaml_ownership';
+import {logicalSourcePointers} from './source_yaml_ownership';
 import {isNativeFamily} from './specification';
 import {capturedRuntimeMedia} from './runtime_media_owner';
 import type {Resource} from './engine';
@@ -24,17 +24,17 @@ import {migrationParameterExampleProjection,retainMigrationParameterExampleOwner
 import {parameterSerializationEvaluator} from './serialized_parameter_examples';
 import {decodeRuntimeMedia} from './runtime_media';
 
-const key=(at:MigrationLocation)=>JSON.stringify([at.resource,at.pointer]);
+const key=(at:SourceLocation)=>JSON.stringify([at.resource,at.pointer]);
 type Pair=readonly [string,string];
 type ParameterDeclaration=Record<string,unknown>&{name:string;in:string;content?:Record<string,unknown>;style?:string;explode?:boolean;required?:boolean;deprecated?:boolean;allowReserved?:boolean};
-type Declaration=Readonly<{scope:GraphScope;value:ParameterDeclaration;schema?:GraphScope;media?:string;mediaOwner?:MigrationLocation;wholeForm?:boolean;formStyles?:ReadonlySet<string>;reservedFormFields?:ReadonlySet<string>}>;
+type Declaration=Readonly<{scope:GraphScope;value:ParameterDeclaration;schema?:GraphScope;media?:string;mediaOwner?:SourceLocation;wholeForm?:boolean;formStyles?:ReadonlySet<string>;reservedFormFields?:ReadonlySet<string>}>;
 // Reuse the canonical consumer for each immutable capture; this memo owns no
 // declarations, coordinates or migration allocation decisions.
 const parameterModels=new WeakMap<ReferenceGraph,ParameterSemantics>();
 type Domain=readonly string[];
 type Wire=Readonly<{pairs:readonly Pair[];text:string;emptyFailure:boolean}>;
 export type ParameterWireProfiles=ReadonlyMap<string,string>;
-export type MigrationParameterChange=Readonly<MigrationLocation&{range:readonly number[];name:string;before:string;after:string}>;
+export type MigrationParameterChange=Readonly<SourceLocation&{range:readonly number[];name:string;before:string;after:string}>;
 class ParameterProofBudget {
  private states=0;
  private bytes=0;
@@ -66,7 +66,7 @@ class ParameterProofBudget {
 
 /** Resolve through the canonical Parameter owner, including reference chains.
  * Media references have already been materialized by the shared preparation. */
-function declaration(graph:ReferenceGraph,at:MigrationLocation):Declaration|undefined {
+function declaration(graph:ReferenceGraph,at:SourceLocation):Declaration|undefined {
  let parameters=parameterModels.get(graph);
  if(!parameters){parameters=new ParameterSemantics(graph);parameterModels.set(graph,parameters);}
  const occurrence=parameters.occurrence({...at,kind:'parameter'}),definition=occurrence.definition;
@@ -226,7 +226,7 @@ function wire(owner:Declaration,raw:string):Wire|undefined {
  catch(error){if(error instanceof URIError||error instanceof SourceError&&['runtime.media.charset','runtime.media.unsupported','runtime.media.encoding'].includes(error.code))return;throw error;}
 }
 
-export function migrationParameterExampleWire(graph:ReferenceGraph,at:MigrationLocation,raw:string):string|undefined {
+export function migrationParameterExampleWire(graph:ReferenceGraph,at:SourceLocation,raw:string):string|undefined {
  const owner=declaration(graph,at);return owner&&wire(owner,raw)?.text;
 }
 export function migrationFormExampleWire(graph:ReferenceGraph,at:GraphScope,mediaType:string,raw:string):string|undefined {
@@ -466,20 +466,20 @@ function equalFactorWire(before:Declaration,after:readonly Declaration[],raw:str
 
 /** Used only after the publication invariant has certified these owners.
  * Captured values outside the schema still need the actual codec equality. */
-export function sameMigrationQueryFields(source:ReferenceGraph,before:MigrationLocation,target:ReferenceGraph,after:readonly MigrationLocation[],raw:string):boolean {
+export function sameMigrationQueryFields(source:ReferenceGraph,before:SourceLocation,target:ReferenceGraph,after:readonly SourceLocation[],raw:string):boolean {
  const first=declaration(source,before),last=after.map(at=>declaration(target,at));
  return !!first&&last.every((value):value is Declaration=>value!==undefined)&&equalFactorWire(first,last,raw);
 }
 
 export type MigrationRawQuery=Readonly<{data:string;selections:readonly Readonly<{name:string;raw:string}>[];
- targets:readonly Readonly<MigrationLocation&{name:string}>[]}>;
+ targets:readonly Readonly<SourceLocation&{name:string}>[]}>;
 
 /** Invert only the captured form owner. The canonical decoder retains numeric
  * lexemes; its field attribution supplies authored order. A successful decode
  * is insufficient: the original schema and the exact target octets must agree.
  * Noncanonical escapes, interleaved repeated fields, missing '=' and empty
  * separators consequently cannot acquire an accidental normalization proof. */
-export async function decodeMigrationRawQuery(source:ReferenceGraph,before:MigrationLocation,text:string,
+export async function decodeMigrationRawQuery(source:ReferenceGraph,before:SourceLocation,text:string,
  examples:readonly ExternalExampleResourcePacket[]=[]):Promise<string|undefined> {
  const first=declaration(source,before);
  if(!first?.wholeForm||!first.mediaOwner||!first.schema||
@@ -497,8 +497,8 @@ export async function decodeMigrationRawQuery(source:ReferenceGraph,before:Migra
  }catch(error){if(error instanceof SourceError||error instanceof URIError)return;throw error;}
 }
 
-export async function projectMigrationRawQuery(source:ReferenceGraph,before:MigrationLocation,target:ReferenceGraph,
- after:readonly MigrationLocation[],text:string,examples:readonly ExternalExampleResourcePacket[]=[]):Promise<MigrationRawQuery|undefined> {
+export async function projectMigrationRawQuery(source:ReferenceGraph,before:SourceLocation,target:ReferenceGraph,
+ after:readonly SourceLocation[],text:string,examples:readonly ExternalExampleResourcePacket[]=[]):Promise<MigrationRawQuery|undefined> {
  const raw=await decodeMigrationRawQuery(source,before,text,examples),last=after.map(at=>declaration(target,at));
  if(raw===undefined||!last.length||!last.every((owner):owner is Declaration=>!!owner))return;
  const doc=new SourceDocument(raw,'file:///migration-decoded-query.json',true,'json'),names=[...doc.dataNode('')!.children.keys()];
@@ -522,7 +522,7 @@ export async function projectMigrationRawQuery(source:ReferenceGraph,before:Migr
  * and occurrences keep their own provenance; generated reference fields have
  * no captured edge for neutral-target reference repair to overwrite. */
 function expandQueryUses(graphs:readonly ReferenceGraph[],owners:MigrationSchemaOwners,
- factors:ReadonlyMap<string,readonly MigrationLocation[]>):void {
+ factors:ReadonlyMap<string,readonly SourceLocation[]>):void {
  const seen=new Set<string>();
  for(const graph of graphs){
   const parameters=new ParameterSemantics(graph);
@@ -535,7 +535,7 @@ function expandQueryUses(graphs:readonly ReferenceGraph[],owners:MigrationSchema
    const list=parameters.list(scope);if(!list.source||seen.has(key(list.source)))continue;seen.add(key(list.source));
    if(!list.entries.some(entry=>entry.definition&&(factors.get(key(entry.definition))?.length??0)>1))continue;
    const {source,location}=owners.uniqueLocation(list.source);
-   const originals=list.entries.map(entry=>({sourcePointer:owners.uniqueLocation(entry.source).location.pointer,value:undefined as MigrationLocation|undefined}));
+   const originals=list.entries.map(entry=>({sourcePointer:owners.uniqueLocation(entry.source).location.pointer,value:undefined as SourceLocation|undefined}));
    const additional=list.entries.flatMap((entry,index)=>{
     const outputs=entry.definition&&factors.get(key(entry.definition));
     return (outputs?.slice(1)??[]).map(output=>({sourcePointer:originals[index].sourcePointer,value:output}));
@@ -557,7 +557,7 @@ function expandQueryUses(graphs:readonly ReferenceGraph[],owners:MigrationSchema
 
 /** Captured saved inputs can lie outside the schema's permitted language.
  * Preserve their actual codec too; an enum is no permission to alter them. */
-export function sameMigrationParameterValue(source:ReferenceGraph,before:MigrationLocation,target:ReferenceGraph,after:MigrationLocation,raw:string):boolean {
+export function sameMigrationParameterValue(source:ReferenceGraph,before:SourceLocation,target:ReferenceGraph,after:SourceLocation,raw:string):boolean {
  const first=declaration(source,before),last=declaration(target,after);
  if(!first||!last)return false;
  if(first.value.in==='querystring'&&emptyTextDomain(first,[raw]))return equalEmptyTextWire(first,last,[raw]);
@@ -612,10 +612,10 @@ function sameParameterExampleOrder(graph:ReferenceGraph,after:readonly Declarati
 /** Identity-value mappings preserve cross-property assertions, requiredness,
  * independent schemas and examples without splitting one constrained object
  * into unrelated parameters. The common allocator still owns every move. */
-export async function migrateParameterSerialization(graphs:readonly ReferenceGraph[],sources:Map<string,MigrationSource>,families:readonly string[],
+export async function migrateParameterSerialization(graphs:readonly ReferenceGraph[],sources:Map<string,SourcePlan>,families:readonly string[],
  target:string,owners:MigrationSchemaOwners,issue:MigrationIssue,examples:readonly ExternalExampleResourcePacket[]=[]):Promise<boolean> {
  if(target==='3.2'||!families.includes('3.2')&&target!=='2.0')return false;
- let changed=false;const budget=new ParameterProofBudget(),factorOwners=new Map<string,readonly MigrationLocation[]>();
+ let changed=false;const budget=new ParameterProofBudget(),factorOwners=new Map<string,readonly SourceLocation[]>();
  for(const scope of migrationScopes(graphs)){
   if(scope.kind!=='parameter')continue;
   const graph=graphs.find(graph=>graph.scopeAs(scope.resource,scope.pointer,'parameter')?.family===scope.family)!;
@@ -655,7 +655,7 @@ export async function migrateParameterSerialization(graphs:readonly ReferenceGra
     // A finite contradictory scalar is a standard flat Swagger schema. Its
     // complete domain is empty, including every numeric lexical spelling.
     source.set(pointer+'/schema',{type:'integer',enum:[0],minimum:1});source.set(pointer+'/style','form');source.set(pointer+'/explode',true);
-    for(const at of migrationLogicalPointers(source.doc))if(!source.origins.has(at))source.origins.set(at,new Set([at]));
+    for(const at of logicalSourcePointers(source.doc))if(!source.origins.has(at))source.origins.set(at,new Set([at]));
    }
    source.set(pointer+'/in','query');source.presentationChanges.push(pointer);changed=true;continue;
   }
@@ -677,7 +677,7 @@ export async function migrateParameterSerialization(graphs:readonly ReferenceGra
    source.set(pointer+'/in','query');source.set(pointer+'/style','form');source.set(pointer+'/explode',true);
    if(source.doc.dataNode(pointer+'/allowEmptyValue'))owners.retainNativeHistory({...scope,pointer:scope.pointer+'/allowEmptyValue'},source,pointer+'/allowEmptyValue','inactive_whole_query_empty_value',graph);
    installMigrationParameterExamples(graph,projectedExamples,0,source,pointer,owners);
-   for(const at of migrationLogicalPointers(source.doc))if(!source.origins.has(at))source.origins.set(at,new Set([at]));
+   for(const at of logicalSourcePointers(source.doc))if(!source.origins.has(at))source.origins.set(at,new Set([at]));
    source.presentationChanges.push(pointer);changed=true;continue;
   }
   if(whole&&(!before.media||!formMedia(before.media))){
@@ -695,7 +695,7 @@ export async function migrateParameterSerialization(graphs:readonly ReferenceGra
   if(!values){fail('proof','An exhaustive finite source domain could not be established within the captured proof budget');continue;}
   const factors=queryFactors(graph,before,values,budget);
   const schemaExamples=whole?schemaExampleCandidates(graph,before.schema):undefined;
-  const layer=(at:MigrationLocation)=>{
+  const layer=(at:SourceLocation)=>{
    const doc=graph.docs.get(at.resource)!,single=doc.dataNode(at.pointer+'/example'),named=doc.dataNode(at.pointer+'/examples');
    return {present:!!single||!!named,choices:!!single||!!named?.children.size};
   };
@@ -748,7 +748,7 @@ export async function migrateParameterSerialization(graphs:readonly ReferenceGra
    if(whole)owners.retainNativeHistory({...scope,pointer:scope.pointer+'/content'},source,pointer+'/content','whole_query_media',graph);
    if(!whole&&source.doc.dataNode(pointer+'/allowReserved'))owners.retainNativeHistory({...scope,pointer:scope.pointer+'/allowReserved'},source,pointer+'/allowReserved','inactive_literal_cookie_reserved',graph);
    if(source.doc.dataNode(pointer+'/allowEmptyValue'))owners.retainNativeHistory({...scope,pointer:scope.pointer+'/allowEmptyValue'},source,pointer+'/allowEmptyValue','inactive_whole_query_empty_value',graph);
-   const base=source.fork(),outputs:MigrationLocation[]=[];
+   const base=source.fork(),outputs:SourceLocation[]=[];
    const orderedFields=projectedExamples.order.map(index=>({field:factors.fields[index],declaration:declarations[index],examples:projectedExamples.fields[index]}));
    const orderedExamples={...projectedExamples,fields:orderedFields.map(field=>field.examples)};
    for(const [index,{field,declaration}]of orderedFields.entries()){
@@ -780,7 +780,7 @@ export async function migrateParameterSerialization(graphs:readonly ReferenceGra
     // Retain the standard empty-value flag through modern/composed routes too.
     if(whole&&field.values.some(raw=>{const doc=new SourceDocument(raw,'file:///empty-field.json',true,'json');return doc.dataNode('')!.kind==='string'&&doc.dataNode('')!.value===''||doc.dataNode('')!.kind==='array'&&[...doc.dataNode('')!.children.values()].some(node=>node.kind==='string'&&node.value==='');}))output.source.set(at+'/allowEmptyValue',true);
     output.source.presentationChanges.push(at);outputs.push(output.location);
-    for(const at of migrationLogicalPointers(output.source.doc))if(!output.source.origins.has(at))output.source.origins.set(at,new Set([at]));
+    for(const at of logicalSourcePointers(output.source.doc))if(!output.source.origins.has(at))output.source.origins.set(at,new Set([at]));
    }
    factorOwners.set(key(scope),outputs);changed=true;continue;
   }
@@ -810,7 +810,7 @@ export async function migrateParameterSerialization(graphs:readonly ReferenceGra
    source.set(pointer+'/style','form');source.set(pointer+'/explode',true);
    installMigrationParameterExamples(graph,projectedExamples,0,source,pointer,owners);
    source.presentationChanges.push(pointer);changed=true;
-   for(const at of migrationLogicalPointers(source.doc))if(!source.origins.has(at))source.origins.set(at,new Set([at]));
+   for(const at of logicalSourcePointers(source.doc))if(!source.origins.has(at))source.origins.set(at,new Set([at]));
    continue;
   }
   const formTarget:Declaration={...before,media:undefined,mediaOwner:undefined,scope:{...scope,family:target},
@@ -830,7 +830,7 @@ export async function migrateParameterSerialization(graphs:readonly ReferenceGra
     source.set(pointer+'/content',{[media]:{schema:kinds.size===1?{type:[...kinds][0]}:{}}});
     const schema=pointer+'/content/'+escape(media)+'/schema';source.exact(schema+'/enum','['+projected.join(',')+']');
     installMigrationParameterExamples(graph,projectedExamples,0,source,pointer,owners);
-    for(const at of migrationLogicalPointers(source.doc))if(!source.origins.has(at))source.origins.set(at,new Set([at]));
+    for(const at of logicalSourcePointers(source.doc))if(!source.origins.has(at))source.origins.set(at,new Set([at]));
     source.presentationChanges.push(pointer);changed=true;continue;
    }
   }
@@ -886,7 +886,7 @@ export async function migrateParameterSerialization(graphs:readonly ReferenceGra
   // Subsequent stages inspect the refreshed graph's new schema/example
   // coordinates. Keep those synthetic coordinates alongside the original
   // move provenance, as in native media materialization.
-  for(const at of migrationLogicalPointers(source.doc))if(!source.origins.has(at))source.origins.set(at,new Set([at]));
+  for(const at of logicalSourcePointers(source.doc))if(!source.origins.has(at))source.origins.set(at,new Set([at]));
  }
  expandQueryUses(graphs,owners,factorOwners);
  return changed;
@@ -896,7 +896,7 @@ export async function migrateParameterSerialization(graphs:readonly ReferenceGra
  * replace instruction comparison only after an exact wire/presence proof, for
  * independently referenced owners as well as effective operation parameters. */
 export async function proveMigrationParameterSerialization(source:ReferenceGraph,target:ReferenceGraph,
- mapped:(at:MigrationLocation,scope:GraphScope)=>readonly MigrationLocation[],issue:MigrationIssue,
+ mapped:(at:SourceLocation,scope:GraphScope)=>readonly SourceLocation[],issue:MigrationIssue,
  examples:readonly ExternalExampleResourcePacket[]=[],targetExamples:readonly ExternalExampleResourcePacket[]=examples):Promise<Readonly<{before:ParameterWireProfiles;after:ParameterWireProfiles;changes:readonly MigrationParameterChange[]}>> {
  const beforeProfiles=new Map<string,string>(),afterProfiles=new Map<string,string>(),budget=new ParameterProofBudget(),changes:MigrationParameterChange[]=[];
  for(const scope of source.entryScopes()){
@@ -906,7 +906,7 @@ export async function proveMigrationParameterSerialization(source:ReferenceGraph
   if(!reserved&&(before.scope.family!=='3.2'||before.value.in!=='querystring'&&!(before.value.in==='cookie'&&before.value.style==='cookie')))continue;
   const values=await domain(source,before,examples,budget);
   const outputs=mapped(scope,scope).filter(at=>target.scopeAs(at.resource,at.pointer,'parameter')&&target.isEntryUse({...at,kind:'parameter'}));
-  const identity=(raw:string)=>migrationValueIdentity(new SourceDocument(raw,'file:///finite-value.json',true,'json'),'');
+  const identity=(raw:string)=>sourceValueIdentity(new SourceDocument(raw,'file:///finite-value.json',true,'json'),'');
   if(!values||!outputs.length){issue(scope,'migration.invariant.parameter-wire','The captured parameter lost its exhaustive domain or independent target owner','unavailable-proof');continue;}
   const signature=JSON.stringify({name:before.value.name,in:before.value.in,required:before.value.required===true,
    deprecated:before.value.deprecated===true,domain:language(values),wire:values.map(raw=>[identity(raw),wire(before,raw)]),absent:before.value.required?'required':'omitted'});

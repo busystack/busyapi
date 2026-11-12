@@ -17,7 +17,7 @@ import {caseFileLocators,movedCaseFileSource} from './case_file_configuration';
 import {richTextField} from './authoring';
 import {RefactoringMarkdownOwners} from './refactoring_markdown';
 import {assertDynamicRelocation} from './schema_relocation';
-import {MigrationSource} from './migration_source';
+import {SourcePlan} from './source_plan';
 
 const same=(a:any,b:any)=>a?.resource===b?.resource&&a?.pointer===b?.pointer;
 
@@ -371,7 +371,7 @@ function planOwnedFileMove(input:any) {
    // The physical contract occurrence owns this edit. Preserve other YAML
    // consumers of its anchor/alias through the established exact-value token
    // separation before invoking the ordinary CST writer.
-   const owned=new MigrationSource(doc);owned.set(pointer,value);outputs.set(id,owned.doc.text);
+   const owned=new SourcePlan(doc);owned.set(pointer,value);outputs.set(id,owned.doc.text);
   }
   revision++;
   changes.set(id+'#'+pointer,{resource:id,pointer,reason});

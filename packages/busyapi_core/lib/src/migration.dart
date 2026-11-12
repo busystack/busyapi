@@ -212,7 +212,7 @@ void _verifyMigrationConfigurationProjections(
         final value = whole[name];
         if (value == '' && emptyNames.remove(name)) {
           if (query.containsKey(name) || !destination.containsKey(name) || destination[name] is! List || (destination[name] as List).isNotEmpty ||
-              ContractRequestBuilder.migrationQueryRepresentation({name: destination[name]}) != '') invalid();
+              queryRepresentation({name: destination[name]}) != '') invalid();
           query[name] = destination[name];whole.remove(name);
         } else if (value is String && rawNames.contains(name)) {
           final proof = rawProofs.cast<Map>().singleWhere((proof) => proof['name'] == name);
@@ -242,7 +242,7 @@ void _verifyMigrationConfigurationProjections(
             declarations[names[index] as String] = targetDeclaration(targets[index], names[index] as String);
           }
           if (names.any(query.containsKey) ||
-              ContractRequestBuilder.migrationQueryRepresentation(selections, declarations: declarations) != value) invalid();
+              queryRepresentation(selections, declarations: declarations) != value) invalid();
           query.addAll(selections);whole.remove(name);rawNames.remove(name);
         } else if (!query.containsKey(name) && destination.containsKey(name) &&
             sameExactConfiguration(value, destination[name])) {

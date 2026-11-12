@@ -2,23 +2,23 @@ import {createHash} from 'node:crypto';
 import {SourceError} from './document';
 import type {GraphScope,ReferenceGraph} from './reference_graph';
 import {pointerFragment} from './reference_graph';
-import type {MigrationLocation,MigrationSource} from './migration_source';
+import type {SourceLocation,SourcePlan} from './source_plan';
 import type {MigrationInput} from './migration';
 import type {MigrationChoose,MigrationIssue} from './migration_schema';
 import {SchemaPropertyRequirements} from './schema_property_requirements';
 import {DiscriminatorAlternativeSelection} from './discriminator_alternatives';
 import {MigrationDiscriminatorSamples,proveDiscriminatorFallbacks,type DiscriminatorFallbackCandidate} from './migration_discriminator_samples';
 
-type OriginalChoice=MigrationLocation&{range:readonly number[];label:string};
+type OriginalChoice=SourceLocation&{range:readonly number[];label:string};
 type Plan=Readonly<{scope:GraphScope;candidates:readonly DiscriminatorFallbackCandidate[]}>;
-const key=(location:MigrationLocation)=>JSON.stringify([location.resource,location.pointer]);
+const key=(location:SourceLocation)=>JSON.stringify([location.resource,location.pointer]);
 
 /** OAS 3.2.1 Discriminator Object: choose an eligible, proved alternative.
  * Earlier undefined fallback behavior remains an explicit reviewed decision;
  * setting metadata never replaces the parent or its validation constraints. */
 export async function migrateDiscriminatorDefaults(input:MigrationInput,graph:ReferenceGraph,
-    sources:ReadonlyMap<string,MigrationSource>,issue:MigrationIssue,choose:MigrationChoose,
-    original:(location:MigrationLocation)=>OriginalChoice):Promise<void> {
+    sources:ReadonlyMap<string,SourcePlan>,issue:MigrationIssue,choose:MigrationChoose,
+    original:(location:SourceLocation)=>OriginalChoice):Promise<void> {
     const requirements=new SchemaPropertyRequirements(graph);
     const selection=new DiscriminatorAlternativeSelection(graph),samples=new MigrationDiscriminatorSamples(graph);
     const plans:Plan[]=[],candidates:DiscriminatorFallbackCandidate[]=[];

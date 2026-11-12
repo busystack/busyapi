@@ -1,32 +1,32 @@
 import {escape} from './document';
 import {pointerFragment,type ReferenceGraph,type GraphTarget} from './reference_graph';
-import {MigrationSource,type MigrationLocation} from './migration_source';
+import {SourcePlan,type SourceLocation} from './source_plan';
 import type {MigrationIssue} from './migration_schema';
 import {swaggerMedia} from './swagger_operation';
 import {MigrationSchemaOwners} from './migration_schema_owners';
 import {migrationOperationUses} from './migration_operation_contexts';
 import {migrationScopes,migrationReferences} from './migration_documents';
 
-type MediaOwner=MigrationLocation&{schema?:MigrationLocation;media:readonly string[]};
-const key=(location:MigrationLocation)=>location.resource+'#'+location.pointer;
-const reference=(location:MigrationLocation)=>location.resource+pointerFragment(location.pointer);
+type MediaOwner=SourceLocation&{schema?:SourceLocation;media:readonly string[]};
+const key=(location:SourceLocation)=>location.resource+'#'+location.pointer;
+const reference=(location:SourceLocation)=>location.resource+pointerFragment(location.pointer);
 const mediaKey=(media:readonly string[])=>JSON.stringify([...new Set(media)].sort());
 
 /** Swagger §6.4.7 media overrides belong to each operation, not to the shared
  * Parameter/Response definition. OAS 3.0 §§4.7.13/4.7.17 instead put content on
  * that definition. Preserve one schema owner and specialize the media wrapper.
  * All copies are CST planning copies, with original payload provenance. */
-export function swaggerMediaMigration(graph:ReferenceGraph,sources:Map<string,MigrationSource>,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph],owners=new MigrationSchemaOwners(graph,sources,undefined,[],contexts)) {
+export function swaggerMediaMigration(graph:ReferenceGraph,sources:Map<string,SourcePlan>,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph],owners=new MigrationSchemaOwners(graph,sources,undefined,[],contexts)) {
     const entry=sources.get(graph.root)!;
     const scopes=[...migrationScopes(contexts)].sort((a,b)=>a.resource.localeCompare(b.resource)||a.pointer.localeCompare(b.pointer));
     const parameterArrays=new Set(scopes.filter(scope=>scope.kind==='parameter-array').map(key));
     const references=[...migrationReferences(contexts)];
-    const bodies=new Map<string,MediaOwner>(),variants=new Map<string,MigrationLocation>();
+    const bodies=new Map<string,MediaOwner>(),variants=new Map<string,SourceLocation>();
     const edges=new Map(references.filter(edge=>edge.keyword==='$ref'&&edge.kind==='response').map(edge=>[key(edge),edge]));
-    const component=(group:'schemas'|'requestBodies'|'responses',scope:MigrationLocation,variant='')=>{
+    const component=(group:'schemas'|'requestBodies'|'responses',scope:SourceLocation,variant='')=>{
         return owners.allocate(entry,'/components/'+group,'media_'+group,JSON.stringify([scope.resource,scope.pointer,variant]));
     };
-    const schemaOwner=(scope:MigrationLocation,pointer:string,resource=scope.resource):MigrationLocation|undefined=>{
+    const schemaOwner=(scope:SourceLocation,pointer:string,resource=scope.resource):SourceLocation|undefined=>{
         const source=sources.get(resource)!;
         if(!source.doc.dataNode(pointer+'/schema'))return;
         const destination=component('schemas',{resource:scope.resource,pointer:scope.pointer+'/schema'});
@@ -56,7 +56,7 @@ export function swaggerMediaMigration(graph:ReferenceGraph,sources:Map<string,Mi
         variants.set(identity,destination);
         return destination;
     };
-    const body=(definition:MigrationLocation,media:readonly string[]):MigrationLocation|undefined=>{
+    const body=(definition:SourceLocation,media:readonly string[]):SourceLocation|undefined=>{
         let owner=bodies.get(key(definition));
         if(!owner){
             const source=sources.get(definition.resource)!,pointer=source.current(definition.pointer);
@@ -85,16 +85,16 @@ export function swaggerMediaMigration(graph:ReferenceGraph,sources:Map<string,Mi
             if(value?.in==='body'&&typeof value.$ref!=='string'&&!bodies.has(key(scope)))body(scope,swaggerMedia(context,context.root,'','consumes'));
         }
     };
-    const responses=():ReadonlyMap<string,MigrationLocation>=>{
-        const uses=new Map<string,{occurrence:GraphTarget;media:string[]}[]>(),retargets=new Map<string,MigrationLocation>();
-        const primary=new Map<string,MigrationLocation>(bodies);
+    const responses=():ReadonlyMap<string,SourceLocation>=>{
+        const uses=new Map<string,{occurrence:GraphTarget;media:string[]}[]>(),retargets=new Map<string,SourceLocation>();
+        const primary=new Map<string,SourceLocation>(bodies);
         for(const context of [...contexts].sort((a,b)=>a.root.localeCompare(b.root)))for(const operation of migrationOperationUses(context)){
             if(operation.source.family!=='2.0')continue;
             const declarations=graph.docs.get(operation.source.resource)!.dataNode(operation.source.pointer+'/responses');
             for(const name of declarations?.children.keys()??[]){
                 if(name.startsWith('x-'))continue;
                 const occurrence={resource:operation.source.resource,pointer:operation.source.pointer+'/responses/'+escape(name),kind:'response'};
-                let current:MigrationLocation=occurrence;const seen=new Set<string>();
+                let current:SourceLocation=occurrence;const seen=new Set<string>();
                 for(let depth=0;depth<=128;depth++){
                     const identity=key(current),value=graph.docs.get(current.resource)?.dataNode(current.pointer)?.value;
                     if(seen.has(identity)||depth===128){issue(occurrence,'migration.response.reference','A response reference chain has no bounded concrete owner','source-incomplete');break;}

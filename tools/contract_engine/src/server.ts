@@ -26,17 +26,8 @@ import {inspectPolicyCode} from './policy_code';
 import {PolicyProcessWorker} from './policy_process_worker';
 import {join} from 'node:path';
 import {policyRuntime} from './policy_runtime';
-import {planMigration} from './migration';
 import {mockFormBytes,mockMultipartBytes,requestFormContentValue,requestRawMediaBytes,planExecutionCase,requestContentParameters,requestMediaBytes,requestMultipartPlan,requestMultipartAppend,requestMultipartNamedProof} from './execution';
-const MAX = 64 * 1024 * 1024;
-const encode = (message: any) => {
-    // TextEncoder owns this ArrayBuffer; pooled Buffer allocations cannot safely
-    // be transferred. Serialize once in the worker, keeping the control loop free.
-    const payload = new TextEncoder().encode(JSON.stringify({ protocol, ...message }));
-    if (payload.byteLength > MAX)
-        throw Object.assign(Error('Response exceeds the bounded IPC frame size'), { code: 'limit.response' });
-    return payload;
-};
+import {MAX, encode} from './worker_response';
 if (!isMainThread) {
     parentPort!.on('message', async (request: any) => {
         const reply = (message: any) => {
@@ -50,7 +41,6 @@ if (!isMainThread) {
                 reviewPolicyCode:async(params:any)=>(await import('./policy_code_review')).reviewPolicyCode(params),
                 govern:async(params:any)=>(await import('./governance')).govern(params) };
             methods.normalizeResourceUris = normalizeResourceUris;
-            methods.planMigration = planMigration;
             methods.requestParameterValues = requestParameterValues;
             methods.requestFormDataValues = requestFormDataValues;
             methods.requestMimeTextBytes = requestMimeTextBytes;
@@ -93,9 +83,9 @@ else {
     const dispatcher = new WorkerDispatcher(
         request => request.method==='govern'&&request.params?.policy?.execution?
             new PolicyProcessWorker({launcher:join(__dirname,'policy-launcher'),node:process.execPath,helper:join(__dirname,'policy-worker.cjs')}):
-            new Worker(__filename, {resourceLimits: {maxOldGenerationSizeMb:512,stackSizeMb:8}}),write,
+            new Worker(request.method === 'planMigration' ? join(__dirname, 'conversion-worker.cjs') : __filename, {resourceLimits: {maxOldGenerationSizeMb:512,stackSizeMb:8}}),write,
         (id,code,message)=>send({id,ok:false,error:{code,message}}),MAX,
-        request=>request.method==='govern'&&request.params?.policy?.execution?'isolated-policy':'standard');
+        request=>request.method==='govern'&&request.params?.policy?.execution?'isolated-policy':request.method==='planMigration'?'conversion':'standard');
     const controlFailure=(id:string)=>send({id,ok:false,error:{code:'worker.stop',message:'Cannot complete contract worker termination'}});
     process.stdin.on('data', (data) => {
         bytes = Buffer.concat([bytes, data]);

@@ -2,7 +2,7 @@ import {compare,decimal} from './exact_numbers';
 import {SourceError} from './document';
 import {projectSchemaReference} from './schema_reference_projection';
 import type {GraphScope,GraphReference,ReferenceGraph} from './reference_graph';
-import type {MigrationSource} from './migration_source';
+import type {SourcePlan} from './source_plan';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import {constantSchemaAssertion} from './schema_constant_assertions';
 import {migrationUnevaluatedMapping} from './migration_schema_unevaluated';
@@ -94,7 +94,7 @@ export class MigrationArrayBounds {
  * every array item, a false schema matches none. Counts become ordinary array
  * bounds; absent contains makes both count keywords inactive. Other instance
  * types remain unaffected, including when no array can satisfy the counts. */
-export function migrateConstantContains(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,
+export function migrateConstantContains(graph:ReferenceGraph,scope:GraphScope,source:SourcePlan,
     pointer:string,owners:MigrationSchemaOwners,references:readonly GraphReference[]=graph.references):void {
     const doc=graph.docs.get(scope.resource)!,value=doc.dataNode(scope.pointer)?.value;
     if(!value||typeof value!=='object'||Array.isArray(value))return;
@@ -142,7 +142,7 @@ export function migrateConstantContains(graph:ReferenceGraph,scope:GraphScope,so
  * Retain independently referenced choices through the common owner allocator,
  * and never apply this reduction to a branch carrying other assertions or
  * annotations. This is a finite dominance proof, not schema satisfiability. */
-export function migrateArrayAlternatives(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,
+export function migrateArrayAlternatives(graph:ReferenceGraph,scope:GraphScope,source:SourcePlan,
     pointer:string,owners:MigrationSchemaOwners,references:readonly GraphReference[]=graph.references):void {
     const doc=graph.docs.get(scope.resource)!,value=doc.dataNode(scope.pointer)?.value;
     if(!Array.isArray(value?.anyOf)||!value.anyOf.length)return;

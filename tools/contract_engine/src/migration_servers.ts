@@ -1,7 +1,7 @@
 import {modernFamily} from './specification';
 import {finiteServerVariableValues,finiteServerUrls} from './server_semantics';
 import {resolveUri,type ReferenceGraph} from './reference_graph';
-import type {MigrationSource} from './migration_source';
+import type {SourcePlan} from './source_plan';
 import type {MigrationIssue} from './migration_schema';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import {migrationOperationUses} from './migration_operation_contexts';
@@ -11,7 +11,7 @@ import {migrationJoinedPath,type MigrationServerRoute} from './migration_server_
 /** 3.0 §4.7.6 sends the declared default even outside its recommended enum.
  * Modern families require membership. Appending only that already permitted
  * value retains every substitution while satisfying the target requirement. */
-export function migrateServerVariableDefaults(graph:ReferenceGraph,sources:Map<string,MigrationSource>,from:string,target:string,issue:MigrationIssue):void {
+export function migrateServerVariableDefaults(graph:ReferenceGraph,sources:Map<string,SourcePlan>,from:string,target:string,issue:MigrationIssue):void {
  if(from!=='3.0'||!modernFamily(target))return;
  for(const scope of graph.entryScopes()){
   if(scope.kind!=='server-variable'||scope.family!==from)continue;
@@ -52,7 +52,7 @@ export function migrationServerSignature(servers:readonly {url:string;base:strin
 /** Swagger permits protocol alternatives and operation-level schemes, but
  * shares one host/basePath. Prove every substitution and inherited occurrence
  * before writing that representation. Descriptions keep standard doc owners. */
-export function downgradeServers(graph:ReferenceGraph,sources:Map<string,MigrationSource>,from:string,
+export function downgradeServers(graph:ReferenceGraph,sources:Map<string,SourcePlan>,from:string,
  issue:MigrationIssue,owners:MigrationSchemaOwners,contexts:readonly ReferenceGraph[]):MigrationServerRoute[] {
  const routes:MigrationServerRoute[]=[];
  const retired=new Set<string>(),operations=new Map<string,string>();
@@ -146,7 +146,7 @@ export function downgradeServers(graph:ReferenceGraph,sources:Map<string,Migrati
 /** Omitted/empty root Servers mean '/' relative to the API retrieval URI.
  * Materialize that effective default only in the reviewed output copy; a
  * new retrieval directory must not silently choose a different API origin. */
-export function retainDefaultServers(graph:ReferenceGraph,sources:Map<string,MigrationSource>):void {
+export function retainDefaultServers(graph:ReferenceGraph,sources:Map<string,SourcePlan>):void {
  for(const [resource,specification]of graph.specifications){
   if(specification.family==='2.0')continue;
   const root=graph.docs.get(resource)!.root;

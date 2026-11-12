@@ -103,7 +103,6 @@ class SourceEditorState extends State<SourceEditor> {
   final _textHost = GlobalKey();
   void Function(String)? _showAssistance;
   late final ScrollController _scroll;
-  final _undo = UndoHistoryController();
   final _geometry = SourceGeometry();
   int _start = 0, _end = 0, _firstLine = 1;
   SourceFoldWindow? _window;
@@ -1030,7 +1029,6 @@ class SourceEditorState extends State<SourceEditor> {
     _searchController.dispose();
     _focus.dispose();
     _scroll.dispose();
-    _undo.dispose();
     super.dispose();
   }
 
@@ -1354,7 +1352,6 @@ class SourceEditorState extends State<SourceEditor> {
                                         smartQuotesType:
                                             SmartQuotesType.disabled,
                                         keyboardType: TextInputType.multiline,
-                                        undoController: _undo,
                                         decoration: const InputDecoration(
                                           isCollapsed: true,
                                           filled: false,

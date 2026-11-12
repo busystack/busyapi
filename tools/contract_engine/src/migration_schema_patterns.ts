@@ -1,6 +1,6 @@
 import {escape,SourceError} from './document';
 import type {GraphScope,GraphReference,ReferenceGraph} from './reference_graph';
-import type {MigrationSource} from './migration_source';
+import type {SourcePlan} from './source_plan';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import type {MigrationIssue} from './migration_schema';
 import {finitePropertyNameSet} from './migration_schema_property_names';
@@ -84,7 +84,7 @@ export class MigrationPatternProperties {
         this.plans.set(id,uses);return uses;
     }
 
-    discardInactive(scope:GraphScope,source:MigrationSource):void {
+    discardInactive(scope:GraphScope,source:SourcePlan):void {
         const patterns=this.graph.docs.get(scope.resource)!.dataNode(scope.pointer+'/patternProperties');
         if(patterns?.kind==='object'&&[...patterns.children.keys()].some(pattern=>universalPatterns.has(pattern))&&
             this.graph.literalContainer(scope.resource,scope.pointer)===undefined&&!this.graph.hasOverlappingScope(scope.resource,scope.pointer)){
@@ -101,7 +101,7 @@ export class MigrationPatternProperties {
         }
     }
 
-    lower(scope:GraphScope,source:MigrationSource,pointer:string,target:string):void {
+    lower(scope:GraphScope,source:SourcePlan,pointer:string,target:string):void {
         const uses=this.plan(scope);if(!uses)return;
         const context=this.owners.contextOf(scope);
         if(!context){this.issue(scope,'migration.schema.pattern-context','Finite pattern values require their captured entry and schema resource context','implementation');return;}

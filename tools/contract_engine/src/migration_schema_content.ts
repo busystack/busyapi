@@ -2,7 +2,7 @@ import {MigrationSchemaProofs} from './migration_schema_proofs';
 import {discardInactiveMigrationSchema} from './migration_schema_conditions';
 import type {GraphScope,GraphReference,ReferenceGraph} from './reference_graph';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
-import type {MigrationSource} from './migration_source';
+import type {SourcePlan} from './source_plan';
 
 /** Validation 2020-12 §8: content fields annotate strings, never assert that
  * arbitrary strings decode or conform. contentSchema is ignored without a
@@ -10,7 +10,7 @@ import type {MigrationSource} from './migration_source';
  * Active media/encoding conversion remains with the existing binary/media
  * owners. No media type, decoder, file specialization or assertion is invented.
  */
-export function discardInactiveContent(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,
+export function discardInactiveContent(graph:ReferenceGraph,scope:GraphScope,source:SourcePlan,
     owners:MigrationSchemaOwners,references:readonly GraphReference[]):void {
     if(graph.hasOverlappingScope(scope.resource,scope.pointer)||graph.literalContainer(scope.resource,scope.pointer)!==undefined)return;
     const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;

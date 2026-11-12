@@ -2,6 +2,14 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 flutter_bin="${BUSYAPI_FLUTTER:-flutter}"
+build_profile="${1:-release}"
+case "$build_profile" in
+  release|editor) ;;
+  *) echo 'Usage: tools/build_linux.sh [release|editor]' >&2; exit 2;;
+esac
+export BUSYAPI_BUILD_PROFILE="$build_profile"
+flutter_mode=release
+if [[ "$build_profile" == editor ]]; then flutter_mode=debug; fi
 case "${BUSYAPI_DISTRIBUTION:-standalone}" in
   standalone|snap) ;;
   *) echo 'Choose BUSYAPI_DISTRIBUTION=standalone or snap.' >&2; exit 1;;
@@ -29,12 +37,18 @@ sdk_root="$(dirname "$(dirname "$(readlink -f "$(command -v "$flutter_bin")")")"
 # absent cache is never permission to fetch or replace the installed SDK.
 sdk_evidence="${BUSYAPI_FLUTTER_UPSTREAM_ARTIFACTS:-$sdk_root/bin/cache/downloads/storage.googleapis.com/flutter_infra_release}"
 export BUSYAPI_FLUTTER_UPSTREAM_ARTIFACTS="$(realpath -m -- "$sdk_evidence")"
-python3 tools/verify_flutter_sdk.py --sdk "$sdk_root" --mode release \
+python3 tools/verify_flutter_sdk.py --sdk "$sdk_root" --mode "$flutter_mode" \
   --upstream-artifacts "$BUSYAPI_FLUTTER_UPSTREAM_ARTIFACTS"
 busyapi_sdk_metadata
 pub_args=(--enforce-lockfile)
 if [[ "${BUSYAPI_BUILD_OFFLINE:-0}" == 1 ]]; then pub_args+=(--offline); fi
 "$flutter_bin" pub get "${pub_args[@]}"
+if [[ "$build_profile" == editor ]]; then
+  python3 tools/prepare_contract_assets.py --profile editor --node "$node_bin" --output build/editor-contract-runtime
+  "$flutter_bin" gen-l10n
+  "$flutter_bin" build linux --debug --no-pub
+  exit 0
+fi
 tools/build_engine.sh prepare
 tools/build_engine.sh compile
 tools/build_engine.sh prepare-tests

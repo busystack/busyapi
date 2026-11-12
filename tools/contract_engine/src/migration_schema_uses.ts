@@ -7,18 +7,18 @@ import {documentUriBase,pointerFragment,resolveUri,schemaResourceContextIdentity
 import {MigrationSchemaOwners,type MigrationOwnerLayout,type MigrationOperationSlot} from './migration_schema_owners';
 import {migrationContextDifferences,migrationReferences,securityConnectionTarget,sharedNativeSecurityDefinition,type DocumentContext} from './migration_documents';
 import {defaultSchemaDialect,modernFamily,type SpecificationFamily} from './specification';
-import {MigrationSource,type MigrationLocation} from './migration_source';
+import {SourcePlan,type SourceLocation} from './source_plan';
 import type {MigrationIssue} from './migration_schema';
 import {capturedSchemaResources} from './migration_schema_resource_contexts';
 import {swaggerMedia} from './swagger_operation';
 import {ParameterSemantics} from './parameter_semantics';
 
-const key=(at:MigrationLocation)=>JSON.stringify([at.resource,at.pointer]);
+const key=(at:SourceLocation)=>JSON.stringify([at.resource,at.pointer]);
 const inside=(pointer:string,parent:string)=>pointer===parent||pointer.startsWith(parent+'/');
-type ResourceHolder=Readonly<{location:MigrationLocation;dialect:string|null}>;
-type Placement=Readonly<{scope:GraphScope;location:MigrationLocation;intrinsic:ReadonlyMap<string,string>;inheritedDialect:string|null;inheritsResource:boolean;resourceSensitive:boolean}>;
+type ResourceHolder=Readonly<{location:SourceLocation;dialect:string|null}>;
+type Placement=Readonly<{scope:GraphScope;location:SourceLocation;intrinsic:ReadonlyMap<string,string>;inheritedDialect:string|null;inheritsResource:boolean;resourceSensitive:boolean}>;
 type UseSelection=Readonly<{mode:'entry';entryNamespace:string;scopes:readonly GraphScope[];targetFamily?:SpecificationFamily}>|
-    Readonly<{mode:'role';scopes:readonly GraphScope[];references:readonly GraphReference[];containers?:ReadonlyMap<string,MigrationLocation>;preparedRoles?:ReadonlySet<string>;targetFamily?:SpecificationFamily}>;
+    Readonly<{mode:'role';scopes:readonly GraphScope[];references:readonly GraphReference[];containers?:ReadonlyMap<string,SourceLocation>;preparedRoles?:ReadonlySet<string>;targetFamily?:SpecificationFamily}>;
 const useKey=(scope:{resource:string;pointer:string;kind:string})=>JSON.stringify([scope.resource,scope.pointer,scope.kind]);
 const interpretationKey=(scope:GraphScope)=>JSON.stringify([useKey(scope),schemaResourceContextIdentity(scope),scope.schemaParent]);
 const referenceOwnerKind=(reference:GraphReference)=>reference.connection==='discriminator'?'discriminator':
@@ -31,7 +31,7 @@ const independentSchema=(graph:ReferenceGraph,scope:GraphScope)=>scope.kind==='s
  * selected entry's compatible component map; otherwise retain the captured
  * foreign document's native map. The common allocator still keys the owner by
  * entry use, and the reference/context proofs still apply to every consumer. */
-function entryComponentLocation(graph:ReferenceGraph,scope:GraphScope,namespace:string):MigrationLocation|undefined {
+function entryComponentLocation(graph:ReferenceGraph,scope:GraphScope,namespace:string):SourceLocation|undefined {
     const group=componentFamily(scope.kind,scope.family);
     if(!group)return;
     const resource=graph.specifications.get(namespace)?.family===scope.family?namespace:
@@ -84,7 +84,7 @@ function operationHolderSlot(graph:ReferenceGraph,scope:GraphScope):MigrationOpe
         .filter(parameter=>parameter.inherited).map(parameter=>parameter.source):undefined;
     let inheritedServers:MigrationOperationSlot['servers'];
     if(servers){
-        const source=new MigrationSource(graph.docs.get(servers.resource)!);
+        const source=new SourcePlan(graph.docs.get(servers.resource)!);
         const urls=[...source.doc.dataNode(servers.pointer)!.children.keys()].map(name=>{
             const pointer=servers.pointer+'/'+escape(name),node=source.doc.dataNode(pointer)!;
             const scope=graph.scopeAs(servers.resource,pointer,'server')!;
@@ -98,7 +98,7 @@ function operationHolderSlot(graph:ReferenceGraph,scope:GraphScope):MigrationOpe
     return {method,additional,parameters:inherited,servers:inheritedServers};
 }
 export function entryComponentContainer(graph:ReferenceGraph,scope:GraphScope,namespace:string,owners:MigrationSchemaOwners,
-    prepared?:(scope:GraphScope)=>boolean):MigrationLocation|undefined {
+    prepared?:(scope:GraphScope)=>boolean):SourceLocation|undefined {
     const container=entryComponentLocation(graph,scope,namespace);
     if(container){
         // A newly admitted holder must not change an independent
@@ -187,11 +187,11 @@ function dynamicSchemaDependencies(graph:ReferenceGraph,references:readonly Grap
  * owns its incoming locator. This finite closure follows typed containment and
  * captured references, never reference-looking payload keys. Cycles retain one
  * owner per occurrence; the ordinary allocator repairs the resulting graph. */
-export function separateMigrationEntryUses(contexts:readonly DocumentContext[],sources:ReadonlyMap<string,MigrationSource>,
-    issue:MigrationIssue,createSchemaResource:()=>MigrationSource,
-    preserveContext:(scope:GraphScope,destination:MigrationLocation,preserveBase:boolean,expectedBase?:string,namespace?:string)=>void,
-    allocator?:MigrationSchemaOwners,securityComponentNames=false,targetFamily?:SpecificationFamily):ReadonlyMap<string,readonly MigrationLocation[]> {
-    const differences=migrationContextDifferences(contexts),provenance=new Map<string,MigrationLocation[]>();
+export function separateMigrationEntryUses(contexts:readonly DocumentContext[],sources:ReadonlyMap<string,SourcePlan>,
+    issue:MigrationIssue,createSchemaResource:()=>SourcePlan,
+    preserveContext:(scope:GraphScope,destination:SourceLocation,preserveBase:boolean,expectedBase?:string,namespace?:string)=>void,
+    allocator?:MigrationSchemaOwners,securityComponentNames=false,targetFamily?:SpecificationFamily):ReadonlyMap<string,readonly SourceLocation[]> {
+    const differences=migrationContextDifferences(contexts),provenance=new Map<string,SourceLocation[]>();
     if(!contexts.length)return provenance;
     const owners=allocator??new MigrationSchemaOwners(contexts[0].graph,sources,createSchemaResource);
     let work=0;
@@ -200,7 +200,7 @@ export function separateMigrationEntryUses(contexts:readonly DocumentContext[],s
     // Plan all captured destinations before the first insertion. A role can
     // be dormant in the inserting entry yet live in another entry; only that
     // live capture may supply its family, resource context and namespace.
-    const destinations=new Map<string,MigrationLocation>();
+    const destinations=new Map<string,SourceLocation>();
     for(const {graph}of ordered)for(const [resource,specification]of graph.specifications){
         // Native aliases can populate an otherwise unused map in any captured
         // description. Derive all legal destinations from authoring's family
@@ -232,7 +232,7 @@ export function separateMigrationEntryUses(contexts:readonly DocumentContext[],s
     const references=[...migrationReferences(ordered.map(context=>context.graph))];
     for(const {graph}of ordered){
         const scopes=planned.get(graph)!.filter(scope=>!owners.roleOwners(scope).length);
-        const containers=new Map<string,MigrationLocation>();
+        const containers=new Map<string,SourceLocation>();
         for(const scope of scopes){
             const holder=entryComponentLocation(graph,scope,scope.resource);
             if(holder&&nativeSchemaHolderScope(graph,scope,admit))containers.set(useKey(scope),holder);
@@ -317,11 +317,11 @@ export function separateMigrationEntryUses(contexts:readonly DocumentContext[],s
  * This relation is deliberately separate from a planning copy's conversion
  * coordinates: an independently used dictionary member can still be converted
  * and moved by its structural owner without retargeting the schema copy. */
-export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<string,MigrationSource>,
-    issue:MigrationIssue,createSchemaResource:()=>MigrationSource,
-    preserveContext:(scope:GraphScope,destination:MigrationLocation,preserveBase:boolean,expectedBase?:string,namespace?:string)=>void,
-    selection?:UseSelection,owners=new MigrationSchemaOwners(graph,sources,createSchemaResource)):ReadonlyMap<string,readonly MigrationLocation[]> {
-    const provenance=new Map<string,MigrationLocation[]>();
+export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<string,SourcePlan>,
+    issue:MigrationIssue,createSchemaResource:()=>SourcePlan,
+    preserveContext:(scope:GraphScope,destination:SourceLocation,preserveBase:boolean,expectedBase?:string,namespace?:string)=>void,
+    selection?:UseSelection,owners=new MigrationSchemaOwners(graph,sources,createSchemaResource)):ReadonlyMap<string,readonly SourceLocation[]> {
+    const provenance=new Map<string,SourceLocation[]>();
     const entry=selection?.mode==='entry'?selection:undefined;
     const references=selection?.mode==='role'?selection.references:graph.entryReferences();
     const schemaScopes=graph.scopesFor('schema');
@@ -345,7 +345,7 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
     // A generated $defs owner may sit inside another independently interpreted
     // object's unknown annotation. Copy each interpretation from its captured
     // value, never from a planning document containing earlier generated uses.
-    const pristine=new Map([...new Set(candidates.map(scope=>scope.resource))].map(resource=>[resource,new MigrationSource(graph.docs.get(resource)!)]));
+    const pristine=new Map([...new Set(candidates.map(scope=>scope.resource))].map(resource=>[resource,new SourcePlan(graph.docs.get(resource)!)]));
     const placements:Placement[]=[];
     const retainedNativeRoots=new Set<string>();
     const resourceVariants=new Map<string,string>();
@@ -493,7 +493,7 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
             }
         }
     }
-    const placementFor=(at:MigrationLocation,kind:string):Placement|undefined=>{
+    const placementFor=(at:SourceLocation,kind:string):Placement|undefined=>{
         let selected:Placement|undefined;
         for(const placement of placements){
             inspect();
@@ -544,7 +544,7 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
         // usually keep the separate registry: introducing a new component model
         // name could alter implicit discriminator choices. Model-independent
         // views below cannot join an existing discriminator's namespace.
-        let container:MigrationLocation|undefined=selection?.mode==='role'?selection.containers?.get(useKey(scope)):undefined;
+        let container:SourceLocation|undefined=selection?.mode==='role'?selection.containers?.get(useKey(scope)):undefined;
         let nativeLayout:MigrationOwnerLayout|undefined;
         const operationSlot=scope.kind==='operation'?operationHolderSlot(graph,scope):undefined;
         const inheritsOperation=Boolean(operationSlot?.parameters?.length||operationSlot?.servers||
@@ -753,7 +753,7 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
             values.push(location);provenance.set(identity,values);
         }
     }
-    const mapped=(at:MigrationLocation,placement:Placement):MigrationLocation=>({resource:placement.location.resource,pointer:placement.location.pointer+at.pointer.slice(placement.scope.pointer.length)});
+    const mapped=(at:SourceLocation,placement:Placement):SourceLocation=>({resource:placement.location.resource,pointer:placement.location.pointer+at.pointer.slice(placement.scope.pointer.length)});
     for(const placement of placements)for(const [pointer,kind]of placement.intrinsic){
         const captured=graph.scopeAs(placement.scope.resource,pointer,kind);if(!captured)continue;
         const owner=placementFor(captured,kind)!;
@@ -785,8 +785,8 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
         const target=mapped(captured,owner);
         owners.resourceReferenceUse(source,slot.pointer,target,captured,{scope:placement.scope,location:placement.location});
     }
-    const set=(at:MigrationLocation,value:string)=>{const source=sources.get(at.resource)!;owners.admit(source);source.set(at.pointer,value);};
-    const repair=(at:MigrationLocation,value:string,key:boolean)=>{
+    const set=(at:SourceLocation,value:string)=>{const source=sources.get(at.resource)!;owners.admit(source);source.set(at.pointer,value);};
+    const repair=(at:SourceLocation,value:string,key:boolean)=>{
         if(!key){set(at,value);return;}
         const source=sources.get(at.resource)!,parent=at.pointer.slice(0,at.pointer.lastIndexOf('/'));
         if(at.pointer===parent+'/'+escape(value))return;
@@ -808,8 +808,8 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
         }
         owners.admit(source);source.rename(at.pointer,selected);
     };
-    const securityAlias=(reference:GraphReference,target:MigrationLocation):string=>{
-        const containers:MigrationLocation[]=[],excluded=new Set<string>();
+    const securityAlias=(reference:GraphReference,target:SourceLocation):string=>{
+        const containers:SourceLocation[]=[],excluded=new Set<string>();
         const origin=graph.scopeAs(reference.targetResource!,reference.targetPointer!,'security')!;
         let legacy=false;
         for(const [namespace,specification]of graph.specifications){
@@ -821,7 +821,7 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
             for(const name of sources.get(container.resource)!.doc.dataNode(container.pointer)?.children.keys()??[]){inspect();excluded.add(name);}
         }
         for(const connection of references){inspect();if(connection.connection==='security')excluded.add(connection.value);}
-        let definition:Readonly<{scope:GraphScope;origin:GraphScope;captured:MigrationSource}>|undefined;
+        let definition:Readonly<{scope:GraphScope;origin:GraphScope;captured:SourcePlan}>|undefined;
         if(legacy){
             const terminal=securityConnectionTarget(graph,origin,inspect),scope=graph.scopeAs(terminal.resource,terminal.pointer,'security')!;
             if(!scope||!sharedNativeSecurityDefinition(graph,scope,inspect)){
@@ -831,7 +831,7 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
             }
             // A 3.0 Reference Object cannot substitute a modern definition.
             // Copy only the proved common concrete representation instead.
-            definition={scope,origin,captured:pristine.get(scope.resource)??new MigrationSource(graph.docs.get(scope.resource)!)};
+            definition={scope,origin,captured:pristine.get(scope.resource)??new SourcePlan(graph.docs.get(scope.resource)!)};
         }
         return owners.securityAlias(containers,target,JSON.stringify([entry?.entryNamespace??graph.root,target.resource,target.pointer]),excluded,definition);
     };
@@ -910,11 +910,11 @@ export function separateMigrationUses(graph:ReferenceGraph,sources:ReadonlyMap<s
  * interpretation from another root cannot choose a fragment's source family.
  * Equal contexts share one owner; differing bindings were separated first by
  * the same allocator and are proved again after this restructuring. */
-export function separateMigrationRoles(contexts:readonly DocumentContext[],sources:ReadonlyMap<string,MigrationSource>,
-    issue:MigrationIssue,createSchemaResource:()=>MigrationSource,
-    preserveContext:(scope:GraphScope,destination:MigrationLocation,preserveBase:boolean,expectedBase?:string,namespace?:string)=>void,
-    owners:MigrationSchemaOwners,targetFamily?:SpecificationFamily):ReadonlyMap<string,readonly MigrationLocation[]> {
-    const provenance=new Map<string,MigrationLocation[]>(),seen=new Set<string>();
+export function separateMigrationRoles(contexts:readonly DocumentContext[],sources:ReadonlyMap<string,SourcePlan>,
+    issue:MigrationIssue,createSchemaResource:()=>SourcePlan,
+    preserveContext:(scope:GraphScope,destination:SourceLocation,preserveBase:boolean,expectedBase?:string,namespace?:string)=>void,
+    owners:MigrationSchemaOwners,targetFamily?:SpecificationFamily):ReadonlyMap<string,readonly SourceLocation[]> {
+    const provenance=new Map<string,SourceLocation[]>(),seen=new Set<string>();
     const references=[...migrationReferences(contexts.map(context=>context.graph))];
     for(const {graph}of [...contexts].sort((a,b)=>a.graph.root.localeCompare(b.graph.root))){
         const scopes=[...graph.entryScopes()].filter(scope=>{
@@ -938,9 +938,9 @@ export function separateMigrationRoles(contexts:readonly DocumentContext[],sourc
  * their normative URI alternative to bind the exact captured operation owner,
  * avoiding an ambiguous name among the independent documents in the project.
  * This runs after common ownership, so literal/data uses are never renamed. */
-export function materializeMigrationOperationConnections(contexts:readonly DocumentContext[],sources:ReadonlyMap<string,MigrationSource>,
+export function materializeMigrationOperationConnections(contexts:readonly DocumentContext[],sources:ReadonlyMap<string,SourcePlan>,
     owners:MigrationSchemaOwners,issue:MigrationIssue):boolean {
-    const desired=new Map<string,{source:MigrationSource;pointer:string;value:string;origin:GraphReference}>();let work=0;
+    const desired=new Map<string,{source:SourcePlan;pointer:string;value:string;origin:GraphReference}>();let work=0;
     for(const {graph}of contexts)for(const reference of graph.entryReferences()){
         if(++work>2000000)throw new SourceError('limit.migration.owners','Operation connection ownership exceeds 2000000 captured uses');
         if(reference.connection!=='operationId'||reference.resolution!=='resolved'||!owners.operationNameHasVariants(reference.value))continue;

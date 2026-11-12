@@ -1,6 +1,6 @@
 import {escape,SourceError} from './document';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
-import type {MigrationSource} from './migration_source';
+import type {SourcePlan} from './source_plan';
 import type {MigrationIssue} from './migration_schema';
 import type {GraphScope,ReferenceGraph} from './reference_graph';
 import {BinaryUses,rawBinaryUse} from './migration_binary';
@@ -11,7 +11,7 @@ import {mediaTypes} from './media_types';
 import {decimal} from './exact_numbers';
 import {MigrationArrayBounds} from './migration_schema_arrays';
 
-type Field=Readonly<{source:MigrationSource;pointer:string}>;
+type Field=Readonly<{source:SourcePlan;pointer:string}>;
 
 /** OAS 3.0/3.1 apply Encoding only to request bodies. OAS 3.2 extends
  * applicable multipart encoding to other media occurrences. Content-Type in
@@ -45,7 +45,7 @@ export function inactiveMigrationHeader(graph:ReferenceGraph,header:GraphScope):
 /** Ignored part Headers need no flat Header representation. Retain their
  * independent schemas directly; a separately referenced native Header instead
  * keeps a standard Response.headers owner and the existing B02 flat-item path. */
-export function retainFormHeaderOwners(graph:ReferenceGraph,owners:MigrationSchemaOwners,source:MigrationSource,scope:GraphScope,pointer:string):void {
+export function retainFormHeaderOwners(graph:ReferenceGraph,owners:MigrationSchemaOwners,source:SourcePlan,scope:GraphScope,pointer:string):void {
     const selected:GraphScope[]=[];let work=0;
     const inspect=()=>{if(++work>50000)throw new SourceError('limit.migration.form-headers','Ignored Header ownership exceeds 50000 captured states');};
     for(const header of graph.scopes.values()){
@@ -83,7 +83,7 @@ export function retainFormHeaderOwners(graph:ReferenceGraph,owners:MigrationSche
 /** Compare converted schemas through captured fixed references. Only Schema
  * Object connections are followed; extension/default/enum payloads remain exact
  * data. Recursive schemas keep their fixed physical target identity. */
-export function mediaSchemaIdentity(source:MigrationSource,pointer:string,sources:ReadonlyMap<string,MigrationSource>,owners:MigrationSchemaOwners,rawInstance=false):string|undefined {
+export function mediaSchemaIdentity(source:SourcePlan,pointer:string,sources:ReadonlyMap<string,SourcePlan>,owners:MigrationSchemaOwners,rawInstance=false):string|undefined {
     let work=0;
     const value=(at:Field):string=>{
         if(++work>50000)throw new SourceError('limit.migration.media-schema','Media schema comparison exceeds 50000 captured states');
@@ -158,8 +158,8 @@ export function mediaSchemaIdentity(source:MigrationSource,pointer:string,source
  * only if it is identical in every captured applicable domain. Raw target
  * instances are legacy octet strings; JSON media keep their ordinary types.
  * This is a finite structural certificate, not an arbitrary equivalence test. */
-export function commonMediaSchema(graph:ReferenceGraph,sources:ReadonlyMap<string,MigrationSource>,owners:MigrationSchemaOwners,
-    source:MigrationSource,pointer:string,scope:GraphScope,media:readonly string[]):string|undefined {
+export function commonMediaSchema(graph:ReferenceGraph,sources:ReadonlyMap<string,SourcePlan>,owners:MigrationSchemaOwners,
+    source:SourcePlan,pointer:string,scope:GraphScope,media:readonly string[]):string|undefined {
     if(media.length>2048)throw new SourceError('limit.migration.media-schema','A common schema proof exceeds 2048 media alternatives');
     const uses=new BinaryUses(graph);
     const raw=media.map(name=>{
@@ -187,8 +187,8 @@ export function commonMediaSchema(graph:ReferenceGraph,sources:ReadonlyMap<strin
 /** Materialize a finite object conjunction before its fields become flat
  * Parameters. The original whole Schema Object survives under the common
  * allocator, including independent root/property/item consumers. */
-export function materializeFormObject(graph:ReferenceGraph,sources:ReadonlyMap<string,MigrationSource>,owners:MigrationSchemaOwners,
-    source:MigrationSource,pointer:string,scope:GraphScope,issue:MigrationIssue,schemaScope?:GraphScope):ReadonlyMap<string,GraphScope>|undefined {
+export function materializeFormObject(graph:ReferenceGraph,sources:ReadonlyMap<string,SourcePlan>,owners:MigrationSchemaOwners,
+    source:SourcePlan,pointer:string,scope:GraphScope,issue:MigrationIssue,schemaScope?:GraphScope):ReadonlyMap<string,GraphScope>|undefined {
     const original=owners.capturedSchema({resource:source.doc.id,pointer})??schemaScope;
     if(!original){issue(scope,'migration.form.schema-owner','The form object has no captured Schema Object binding','source-incomplete');return;}
     const properties=new Map<string,Field[]>(),required=new Set<string>(),active=new Set<string>();let work=0,valid=true;
@@ -225,7 +225,7 @@ export function materializeFormObject(graph:ReferenceGraph,sources:ReadonlyMap<s
         schemas.set(name,captured);
     }
     // Snapshot before moving an inline root; properties can refer back into it.
-    const captured=new Map<MigrationSource,MigrationSource>();
+    const captured=new Map<SourcePlan,SourcePlan>();
     const snapshot=(at:Field):Field=>{let copy=captured.get(at.source);if(!copy){copy=at.source.fork();captured.set(at.source,copy);}return {source:copy,pointer:at.pointer};};
     const fields=new Map([...properties].map(([name,values])=>[name,values.map(snapshot)]));
     owners.move(original,source,pointer,'form_object',{context:owners.contextOf(original)??graph,layout:'array-item'});

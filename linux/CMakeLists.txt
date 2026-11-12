@@ -1,6 +1,11 @@
 # Project-level configuration.
 cmake_minimum_required(VERSION 3.13)
 project(runner LANGUAGES CXX)
+# Explicit editor development excludes optional tool assets, never release checks.
+set(BUSYAPI_EDITOR_DEVELOPMENT OFF)
+if("$ENV{BUSYAPI_BUILD_PROFILE}" STREQUAL "editor")
+  set(BUSYAPI_EDITOR_DEVELOPMENT ON)
+endif()
 
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
@@ -54,7 +59,9 @@ add_subdirectory(${FLUTTER_MANAGED_DIR})
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK REQUIRED IMPORTED_TARGET gtk+-3.0)
 pkg_check_modules(HANDY REQUIRED IMPORTED_TARGET libhandy-1)
-pkg_check_modules(WEBKIT REQUIRED IMPORTED_TARGET webkit2gtk-4.1)
+if(NOT BUSYAPI_EDITOR_DEVELOPMENT)
+  pkg_check_modules(WEBKIT REQUIRED IMPORTED_TARGET webkit2gtk-4.1)
+endif()
 pkg_check_modules(GMODULE REQUIRED IMPORTED_TARGET gmodule-2.0)
 pkg_check_modules(SECRET REQUIRED IMPORTED_TARGET libsecret-1)
 include(documentation_runtime.cmake)

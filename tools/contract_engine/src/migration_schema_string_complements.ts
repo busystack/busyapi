@@ -1,7 +1,7 @@
 import {MigrationSchemaProofs} from './migration_schema_proofs';
 import type {GraphScope,ReferenceGraph} from './reference_graph';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
-import type {MigrationSource} from './migration_source';
+import type {SourcePlan} from './source_plan';
 
 const metadata=new Set(['title','description','default','examples','deprecated','readOnly','writeOnly','externalDocs','xml']);
 const structure=new Set(['$id','$schema','$anchor','$dynamicAnchor','$ref','$dynamicRef','allOf','type']);
@@ -43,7 +43,7 @@ export function schemaStringComplement(graph:ReferenceGraph,child:GraphScope):Re
     return assertion;
 }
 
-export function migrateSchemaStringComplement(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,pointer:string,
+export function migrateSchemaStringComplement(graph:ReferenceGraph,scope:GraphScope,source:SourcePlan,pointer:string,
     owners:MigrationSchemaOwners,target:string):boolean {
     if(target!=='2.0'||!source.doc.dataNode(pointer+'/not')||graph.hasOverlappingScope(scope.resource,scope.pointer)||
         graph.literalContainer(scope.resource,scope.pointer)!==undefined)return false;

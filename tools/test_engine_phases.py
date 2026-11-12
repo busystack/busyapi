@@ -153,8 +153,8 @@ class EnginePhases(unittest.TestCase):
         node = self.root / 'node'
         node.write_bytes(b'controlled runtime')
         (engine / 'runtime.lock.json').write_text(json.dumps({'binarySha256': builder.digest(node)}))
-        receipt = {'inputs': 'production', 'runtimeEntrypoints': [target for _, target in runner.RUNTIME_ENTRYPOINTS]}
-        for target, field in [('engine.cjs', 'helperSha256'), ('policy-worker.cjs', 'policyHelperSha256'),
+        receipt = {'inputs': 'production', 'profile': 'release', 'runtimeEntrypoints': [target for _, target in runner.RUNTIME_ENTRYPOINTS]}
+        for target, field in [('engine.cjs', 'helperSha256'), ('conversion-worker.cjs', 'conversionHelperSha256'), ('policy-worker.cjs', 'policyHelperSha256'),
                               ('mock-server.cjs', 'mockHelperSha256')]:
             (runtime / target).write_text('controlled ' + target)
             receipt[field] = builder.digest(runtime / target)

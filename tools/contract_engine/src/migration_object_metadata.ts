@@ -1,6 +1,6 @@
 import {escape,SourceError,SourceDocument} from './document';
 import type {GraphScope,ReferenceGraph} from './reference_graph';
-import {MigrationSource,migrationValueIdentity,type MigrationLocation} from './migration_source';
+import {SourcePlan,sourceValueIdentity,type SourceLocation} from './source_plan';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import type {MigrationIssue} from './migration_schema';
 import {MigrationSchemaProofs} from './migration_schema_proofs';
@@ -10,7 +10,7 @@ import {exampleRepresentation} from './example_representation';
 import {retainFormHeaderOwners} from './migration_media_schema';
 import {migrationExampleBytes} from './migration_examples';
 
-type Value=Readonly<{source:MigrationSource;pointer:string;raw?:string;external?:MigrationLocation;bytes?:string;literal?:boolean;equivalents?:readonly Value[]}>;
+type Value=Readonly<{source:SourcePlan;pointer:string;raw?:string;external?:SourceLocation;bytes?:string;literal?:boolean;equivalents?:readonly Value[]}>;
 const literalWireIdentity=(value:Value,media:string):string=>migrationExampleBytes(
     exampleRepresentation('value',value.source.doc.dataNode(value.pointer)!.value,media)==='serialized'
         ?value.source.doc.dataNode(value.pointer)!.value:value.raw??value.source.doc.dataJson(value.pointer),media).toString('base64');
@@ -42,10 +42,10 @@ export function inactiveReservedExpansion(graph:ReferenceGraph,owner:GraphScope)
     return safe(schema);
 }
 export type MigrationInlineExamples=Readonly<{
-    read:(location:MigrationLocation,namespace:string)=>Readonly<{base64:string}>|undefined;
-    materialized:(location:MigrationLocation,namespace:string,media:string)=>void;
-    represented:(location:MigrationLocation,namespace:string)=>boolean;
-    literal:(location:MigrationLocation)=>string|undefined;
+    read:(location:SourceLocation,namespace:string)=>Readonly<{base64:string}>|undefined;
+    materialized:(location:SourceLocation,namespace:string,media:string)=>void;
+    represented:(location:SourceLocation,namespace:string)=>boolean;
+    literal:(location:SourceLocation)=>string|undefined;
 }>;
 
 /** R2 metadata uses captured graph roles and the common CST allocator. It does
@@ -53,12 +53,12 @@ export type MigrationInlineExamples=Readonly<{
  * A unique example means one exact value/byte representation, not the first
  * convenient member of a named map. */
 export class SwaggerObjectMetadata {
-    private readonly captured:ReadonlyMap<string,MigrationSource>;
+    private readonly captured:ReadonlyMap<string,SourcePlan>;
     private proofWork=0;
     private proofBytes=0;
-    constructor(private readonly graph:ReferenceGraph,private readonly sources:ReadonlyMap<string,MigrationSource>,
+    constructor(private readonly graph:ReferenceGraph,private readonly sources:ReadonlyMap<string,SourcePlan>,
         private readonly owners:MigrationSchemaOwners,private readonly issue:MigrationIssue,
-        private readonly external?:MigrationInlineExamples,captured?:ReadonlyMap<string,MigrationSource>){
+        private readonly external?:MigrationInlineExamples,captured?:ReadonlyMap<string,SourcePlan>){
         this.captured=captured??new Map([...sources].map(([id,source])=>[id,source.fork()]));
     }
 
@@ -71,21 +71,21 @@ export class SwaggerObjectMetadata {
         const result=literal?literalWireIdentity(value,media):wireIdentity(value,media);this.charge(result.length);return result;
     }
 
-    private history(scope:MigrationLocation,source:MigrationSource,pointer:string,label:string):void {
+    private history(scope:SourceLocation,source:SourcePlan,pointer:string,label:string):void {
         if(source.doc.dataNode(pointer))this.owners.retainNativeHistory(scope,source,pointer,label,this.graph);
     }
 
-    private literal(source:MigrationSource,pointer:string,origin:MigrationLocation):Value {
+    private literal(source:SourcePlan,pointer:string,origin:SourceLocation):Value {
         const raw=this.external?.literal(origin);
         if(raw!==undefined){
             this.charge(raw.length);
             const value=new SourceDocument(raw,'file:///migration-authored-value.json',true,'json');
-            if(!value.issues.length&&migrationValueIdentity(value,'')===migrationValueIdentity(source.doc,pointer))return {source,pointer,raw};
+            if(!value.issues.length&&sourceValueIdentity(value,'')===sourceValueIdentity(source.doc,pointer))return {source,pointer,raw};
         }
         return {source,pointer};
     }
 
-    parameter(scope:GraphScope,source:MigrationSource,pointer:string,declaration:Record<string,unknown>,schemaOwner=scope):void {
+    parameter(scope:GraphScope,source:SourcePlan,pointer:string,declaration:Record<string,unknown>,schemaOwner=scope):void {
         const field=(name:string)=>({...schemaOwner,pointer:schemaOwner.pointer+'/'+name});
         for(const name of ['deprecated','allowReserved','required','allowEmptyValue']){
             if(!Object.hasOwn(declaration,name)||name==='required'&&scope.kind!=='header'||
@@ -116,7 +116,7 @@ export class SwaggerObjectMetadata {
         }
     }
 
-    ignoredHeader(scope:GraphScope,source:MigrationSource,pointer:string):void {
+    ignoredHeader(scope:GraphScope,source:SourcePlan,pointer:string):void {
         // An earlier stage may already have archived this occurrence. Its
         // historical value must never be interpreted as a Header again.
         if(!/\/headers\/[^/]+$/.test(pointer))return;
@@ -132,7 +132,7 @@ export class SwaggerObjectMetadata {
     /** Text strings and JSON numeric/Boolean scalars have equivalent native
      * scalar serializations. JSON strings need quotes, and objects/arrays need
      * a media decoder that flat Swagger declarations cannot bind. */
-    parameterContent(scope:GraphScope,source:MigrationSource,pointer:string,schemaOwner=scope):Readonly<{schema:GraphScope;types:readonly string[]}>|undefined {
+    parameterContent(scope:GraphScope,source:SourcePlan,pointer:string,schemaOwner=scope):Readonly<{schema:GraphScope;types:readonly string[]}>|undefined {
         const content=source.doc.dataNode(pointer+'/content');if(!content)return;
         retainFormHeaderOwners(this.graph,this.owners,source,scope,pointer);
         const names=[...content.children.keys()],name=names[0];
@@ -177,11 +177,11 @@ export class SwaggerObjectMetadata {
         try{document=new SourceDocument(json?text:JSON.stringify(text),'file:///migration-inline-example.json');
             if(document.issues.length)throw new Error('invalid JSON');
         }catch{this.issue(location,'migration.example.wire-representation','The captured bytes have no valid exact Swagger example literal','unavailable-proof');return;}
-        const literal=new MigrationSource(document);
+        const literal=new SourcePlan(document);
         return {source:literal,pointer:'',external:location,bytes:captured.base64};
     }
 
-    private terminal(at:MigrationLocation):GraphScope|undefined {
+    private terminal(at:SourceLocation):GraphScope|undefined {
         const seen=new Set<string>();
         for(let depth=0;depth<128;depth++){
             const id=JSON.stringify([at.resource,at.pointer]);if(seen.has(id))break;seen.add(id);
@@ -194,7 +194,7 @@ export class SwaggerObjectMetadata {
         this.issue(at,'migration.example.reference','The Example reference chain has no bounded captured concrete owner','source-incomplete');
     }
 
-    private unique(scope:GraphScope,source:MigrationSource,pointer:string,media:string):{value?:Value;authored:boolean;valid:boolean} {
+    private unique(scope:GraphScope,source:SourcePlan,pointer:string,media:string):{value?:Value;authored:boolean;valid:boolean} {
         const direct=source.doc.dataNode(pointer+'/example');
         if(direct)return {value:this.literal(source.fork(),pointer+'/example',{resource:scope.resource,pointer:scope.pointer+'/example'}),authored:true,valid:true};
         const examples=source.doc.dataNode(pointer+'/examples');if(!examples)return {authored:false,valid:true};
@@ -218,7 +218,7 @@ export class SwaggerObjectMetadata {
         return {value:valid&&values.length?{...values[0],equivalents:values.slice(1)}:undefined,authored:true,valid};
     }
 
-    private install(value:Value,source:MigrationSource,pointer:string,media:string):boolean {
+    private install(value:Value,source:SourcePlan,pointer:string,media:string):boolean {
         this.owners.admit(source,4);
         // Synthetic literal inputs have no authored CST provenance. Ordinary
         // values retain their original payload and exact numeric lexemes.
@@ -249,10 +249,10 @@ export class SwaggerObjectMetadata {
      * intact, and specialize only the body's same-instance assertion graph.
      * Value schemas (properties/items) retain their own examples and identities.
      * Memoized allocator variants preserve recursive fixed-reference graphs. */
-    private withoutBodyExamples(root:MigrationLocation):MigrationLocation {
-        const variants=new Map<string,MigrationLocation>();let work=0;
+    private withoutBodyExamples(root:SourceLocation):SourceLocation {
+        const variants=new Map<string,SourceLocation>();let work=0;
         const inspect=()=>{if(++work>50000)throw new SourceError('limit.migration.media-schema','Body example specialization exceeds 50000 captured states');};
-        const clone=(at:MigrationLocation):MigrationLocation=>{
+        const clone=(at:SourceLocation):SourceLocation=>{
             inspect();const key=JSON.stringify([at.resource,at.pointer]),previous=variants.get(key);if(previous)return previous;
             if(variants.size>=2048)throw new SourceError('limit.migration.media-schema','Body examples exceed 2048 schema variants');
             const scope=this.owners.capturedSchema(at)??this.graph.scopeAs(at.resource,at.pointer,'schema');
@@ -280,7 +280,7 @@ export class SwaggerObjectMetadata {
         return clone(root);
     }
 
-    private exampleSchema(scope:GraphScope,source:MigrationSource,pointer:string,omit:boolean,schema?:GraphScope):boolean {
+    private exampleSchema(scope:GraphScope,source:SourcePlan,pointer:string,omit:boolean,schema?:GraphScope):boolean {
         if(!source.doc.dataNode(pointer)){source.set(pointer,{});return true;}
         const owner=this.owners.capturedSchema({resource:source.doc.id,pointer})??schema;
         if(!owner){
@@ -317,7 +317,7 @@ export class SwaggerObjectMetadata {
         });
     }
 
-    media(scope:GraphScope,source:MigrationSource,pointer:string,request:boolean):void {
+    media(scope:GraphScope,source:SourcePlan,pointer:string,request:boolean):void {
         // Encoding outside form request bodies is ignored by the normative
         // Media Type grammar. Retain independent Header/schema owners first.
         retainFormHeaderOwners(this.graph,this.owners,source,scope,pointer);
@@ -402,7 +402,7 @@ export class SwaggerObjectMetadata {
             this.history({...selection.scope,pointer:selection.scope.pointer+'/'+name},source,selection.pointer+'/'+name,'media_'+name);
     }
 
-    reusableExamples(scope:MigrationLocation,source:MigrationSource,pointer:string):void {
+    reusableExamples(scope:SourceLocation,source:SourcePlan,pointer:string):void {
         for(const example of this.graph.entryScopes())if(example.kind==='example'&&example.resource===scope.resource&&example.pointer.startsWith(scope.pointer+'/')){
             const location={resource:example.resource,pointer:example.pointer+'/externalValue'};
             if(this.graph.docs.get(example.resource)!.dataNode(location.pointer)&&!this.external?.represented(location,this.graph.root))
@@ -411,20 +411,20 @@ export class SwaggerObjectMetadata {
         this.history(scope,source,pointer,'reusable_examples');
     }
 
-    retainMediaEnvelope(scope:GraphScope,source:MigrationSource,pointer:string):void {
+    retainMediaEnvelope(scope:GraphScope,source:SourcePlan,pointer:string):void {
         // Applicable schemas/examples already have their target owners. Keep
         // authored media names as historical information as well, including
         // independently reusable wrappers without an executable consumer.
         this.history({...scope,pointer:scope.pointer+'/content'},source,pointer+'/content','media_envelope');
     }
 
-    prepareFormExamples(scope:GraphScope,source:MigrationSource,pointer:string):void {
+    prepareFormExamples(scope:GraphScope,source:SourcePlan,pointer:string):void {
         const media=[...source.doc.dataNode(pointer+'/content')?.children.values()??[]];
         if(media.some(value=>value.children.has('example')||value.children.get('examples')?.children.size))return;
         if(media.some(value=>value.children.has('examples')))this.media(scope,source,pointer,true);
     }
 
-    coalesceBodyExamples(scope:GraphScope,source:MigrationSource,pointer:string,media:readonly string[],selected:string):void {
+    coalesceBodyExamples(scope:GraphScope,source:SourcePlan,pointer:string,media:readonly string[],selected:string):void {
         const target=pointer+'/content/'+escape(selected)+'/schema/example';if(!source.doc.dataNode(target))return;
         for(const name of media)if(name!==selected){
             const from=pointer+'/content/'+escape(name)+'/schema/example';

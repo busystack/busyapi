@@ -1,6 +1,6 @@
 import {schemaDefinitionKeywords} from './schema_definitions';
 import type {GraphScope,ReferenceGraph} from './reference_graph';
-import {MigrationSource,type MigrationLocation} from './migration_source';
+import {SourcePlan,type SourceLocation} from './source_plan';
 import {modernFamily} from './specification';
 import {escape} from './document';
 import {compare,decimal} from './exact_numbers';
@@ -30,15 +30,15 @@ import {createHash} from 'node:crypto';
 import type {ExternalExampleResourcePacket} from './external_examples';
 import {flatSchemaScopes} from './migration_flat_items';
 
-export type MigrationChoice=Readonly<{value:string;label:string;target:MigrationLocation&{range:readonly number[]}}>;
+export type MigrationChoice=Readonly<{value:string;label:string;target:SourceLocation&{range:readonly number[]}}>;
 export type MigrationProblem={resource:string;pointer:string;range:number[];code:string;message:string;reason:'target-representation'|'unavailable-proof'|'implementation'|'source-incomplete'|'decision';choices?:string[];choiceDetails?:readonly MigrationChoice[];id?:string};
-export type MigrationIssueLocation=MigrationLocation&{original?:MigrationLocation;decisionKey?:string};
+export type MigrationIssueLocation=SourceLocation&{original?:SourceLocation;decisionKey?:string};
 export type MigrationIssue=(scope:MigrationIssueLocation,code:string,message:string,reason:MigrationProblem['reason'],choices?:string[],choiceDetails?:readonly MigrationChoice[])=>boolean;
 export type MigrationChoose=(scope:MigrationIssueLocation,code:string,message:string,choices:readonly MigrationChoice[])=>string|undefined;
 
 /** Normative schema mappings. No schema is evaluated under another family's
  * dialect to make a migration pass. These edits affect planning copies only. */
-export async function migrateSchemas(graph:ReferenceGraph,sources:Map<string,MigrationSource>,from:string,to:string,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph],
+export async function migrateSchemas(graph:ReferenceGraph,sources:Map<string,SourcePlan>,from:string,to:string,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph],
     resources:readonly Resource[]=[...graph.docs].map(([id,doc])=>({id,text:doc.text,generation:0,identity:createHash('sha256').update(doc.text).digest('hex')})),
     exampleResources:readonly ExternalExampleResourcePacket[]=[]):Promise<void> {
     const references=new MigrationSchemaReferences(graph,contexts);

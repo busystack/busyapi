@@ -1,7 +1,7 @@
 import type {GraphScope,ReferenceGraph,GraphReference} from './reference_graph';
 import {pointerFragment,schemaResourceContextIdentity,supportedSchemaDialect} from './reference_graph';
 import {SourceError,segments} from './document';
-import {migrationValueIdentity,type MigrationSource} from './migration_source';
+import {sourceValueIdentity,type SourcePlan} from './source_plan';
 import {MigrationSchemaOwners} from './migration_schema_owners';
 import type {MigrationIssue} from './migration_schema';
 import {constantSchemaAssertion} from './schema_constant_assertions';
@@ -217,7 +217,7 @@ function conditionalContext(graph:ReferenceGraph,scope:GraphScope,seen=new Set<s
  * retained children before moving them. Identity/dynamic/implicit connections
  * retain their existing whole-resource guard until that scope is represented.
  */
-export function discardInactiveMigrationSchema(graph:ReferenceGraph,origin:{resource:string;pointer:string},source:MigrationSource,
+export function discardInactiveMigrationSchema(graph:ReferenceGraph,origin:{resource:string;pointer:string},source:SourcePlan,
     owners:MigrationSchemaOwners,references:readonly GraphReference[]):void {
     const within=(at:{resource:string;pointer:string})=>at.resource===origin.resource&&
         (at.pointer===origin.pointer||at.pointer.startsWith(origin.pointer+'/'));
@@ -282,7 +282,7 @@ export function discardInactiveMigrationSchema(graph:ReferenceGraph,origin:{reso
  * obstruct their equivalent constant. Independently used children retain CST
  * owners and ordinary reference repair; surviving root metadata stays put.
  */
-export function lowerConstantSchemaApplicators(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,target:string,
+export function lowerConstantSchemaApplicators(graph:ReferenceGraph,scope:GraphScope,source:SourcePlan,target:string,
     owners:MigrationSchemaOwners,references:readonly GraphReference[]):void {
     if(graph.literalContainer(scope.resource,scope.pointer)!==undefined||graph.hasOverlappingScope(scope.resource,scope.pointer))return;
     const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
@@ -379,13 +379,13 @@ function equivalentConditionBranches(graph:ReferenceGraph,scope:GraphScope):bool
     const positive=graph.scopeAs(scope.resource,scope.pointer+'/then','schema'),negative=graph.scopeAs(scope.resource,scope.pointer+'/else','schema');
     return positive!==undefined&&negative!==undefined&&
         schemaResourceContextIdentity(positive)===schemaResourceContextIdentity(negative)&&
-        migrationValueIdentity(doc,positive.pointer)===migrationValueIdentity(doc,negative.pointer);
+        sourceValueIdentity(doc,positive.pointer)===sourceValueIdentity(doc,negative.pointer);
 }
 
 /** Remove a proved inactive, unconsumed branch before vocabulary conversion.
  * Otherwise an assertion that never runs could incorrectly block migration.
  * Consumed branches remain intact for normal conversion and later hoisting. */
-export function discardInactiveSchemaConditions(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,owners:MigrationSchemaOwners,
+export function discardInactiveSchemaConditions(graph:ReferenceGraph,scope:GraphScope,source:SourcePlan,owners:MigrationSchemaOwners,
     references:readonly GraphReference[],target='2.0'):void {
     if(graph.literalContainer(scope.resource,scope.pointer)!==undefined||graph.hasOverlappingScope(scope.resource,scope.pointer))return;
     const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
@@ -450,9 +450,9 @@ export function discardInactiveSchemaConditions(graph:ReferenceGraph,scope:Graph
  * condition keeps a single owner for independent references, exact values and
  * annotations. The negated branch collects no annotations from the condition;
  * the successful positive branch does, including when then is absent. */
-export function migrateSchemaConditions(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,
+export function migrateSchemaConditions(graph:ReferenceGraph,scope:GraphScope,source:SourcePlan,
     pointer:string,target:string,owners:MigrationSchemaOwners,issue:MigrationIssue,references:readonly GraphReference[],
-    sources:ReadonlyMap<string,MigrationSource>,defer:(projection:()=>void)=>void):void {
+    sources:ReadonlyMap<string,SourcePlan>,defer:(projection:()=>void)=>void):void {
     const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
     if(!value||typeof value!=='object')return;
     const fields=['if','then','else'].filter(name=>Object.hasOwn(value,name)&&source.doc.dataNode(pointer+'/'+name));

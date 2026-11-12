@@ -15,12 +15,12 @@ import {runtimeMediaKind} from './runtime_media';
 import {migrationScopes} from './migration_documents';
 import {migrationMediaTypes,migrationMediaDefinition,migrationMediaOccurrence,migrationMediaOccurrences} from './migration_media_objects';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
-import type {MigrationLocation,MigrationSource} from './migration_source';
+import type {SourceLocation,SourcePlan} from './source_plan';
 import type {MigrationIssue} from './migration_schema';
 
 type Part=NamedPart;
 export type NamedMultipartField=Readonly<{name:string;parts:readonly Part[];required:boolean;
- rule?:MigrationLocation;explicitMedia:boolean;mediaIdentity:string}>;
+ rule?:SourceLocation;explicitMedia:boolean;mediaIdentity:string}>;
 const finiteCertificates=new WeakMap<ReferenceGraph,Map<string,NamedMultipartProof>>();
 const certificateKey=(graph:ReferenceGraph,scope:GraphScope,target:string,types:readonly string[])=>
  JSON.stringify([migrationMediaOccurrence(graph,scope)?.identity??[graph.root,scope],types,target]);
@@ -30,7 +30,7 @@ export type NamedMultipartCertificate=Readonly<{
  fields?:readonly NamedMultipartField[];language?:FiniteNamedLanguage;
  name:string;schema?:GraphScope;item?:GraphScope;roots:readonly GraphScope[];
  positions:readonly Part[];tail?:Part;maximum?:number;minimum:number;required:boolean;
- rule?:MigrationLocation;explicitMedia:boolean;mediaIdentity:string;
+ rule?:SourceLocation;explicitMedia:boolean;mediaIdentity:string;
 }>;
 export type NamedMultipartProof=PositionalEncodingProof&Readonly<{certificate?:NamedMultipartCertificate}>;
 const unavailable=(reason:string):NamedMultipartProof=>({equivalent:false,classification:'unavailable-proof',reason});
@@ -86,7 +86,7 @@ export class NamedMultipartEquivalence {
  mediaIdentity(text:string):string {
   return JSON.stringify(mediaTypes(text).map(type=>[type.type,type.subtype,[...type.parameters].map(([key,value])=>[key,key==='charset'?value.toLowerCase():value]).sort()]).sort());
  }
- private headers(rule:MigrationLocation|undefined):string|undefined {
+ private headers(rule:SourceLocation|undefined):string|undefined {
   if(!rule)return '{}';
   const node=this.graph.docs.get(rule.resource)!.dataNode(rule.pointer+'/headers');if(!node)return '{}';
   const fields:string[]=[],seen=new Set<string>(),multipart=new MultipartEncoding(this.graph);
@@ -277,7 +277,7 @@ export class NamedMultipartEquivalence {
  }
  private field(scope:GraphScope,entries:readonly Readonly<{part:Part;index:number}>[],target:string,finite=false):NamedMultipartField|NamedMultipartProof {
   const media=this.graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
-  let selected:MigrationLocation|undefined,signature:string|undefined,serialization:string|undefined,identity='',explicit=false;
+  let selected:SourceLocation|undefined,signature:string|undefined,serialization:string|undefined,identity='',explicit=false;
   for(const {part,index}of entries){
    const rule=index<(media.prefixEncoding?.length??0)?{resource:scope.resource,pointer:scope.pointer+'/prefixEncoding/'+index}:
     media.itemEncoding!==undefined?{resource:scope.resource,pointer:scope.pointer+'/itemEncoding'}:undefined;
@@ -378,7 +378,7 @@ export class NamedMultipartEquivalence {
    const first=this.valueIdentity(all[0]);
    if(all.some(part=>this.valueIdentity(part)!==first))return unavailable('The 3.0 repeated-field item constraints need a finite or homogeneous tuple equivalence proof');
   }
-  let selected:MigrationLocation|undefined,signature:string|undefined,serialization:string|undefined,identity='',explicit=false;
+  let selected:SourceLocation|undefined,signature:string|undefined,serialization:string|undefined,identity='',explicit=false;
   for(const [index,part]of all.entries()){
    const prefix=media.prefixEncoding?.length??0;
    const rule=index<prefix?{resource:scope.resource,pointer:scope.pointer+'/prefixEncoding/'+index}:
@@ -542,7 +542,7 @@ export async function prepareNamedMultipart(graphs:readonly ReferenceGraph[],tar
 
 /** Selected consumers are edited locally. Whole schemas and independent part
  * Headers move through A01–A03, retaining neutral references and CST values. */
-export function migrateNamedMultipart(graphs:readonly ReferenceGraph[],sources:ReadonlyMap<string,MigrationSource>,
+export function migrateNamedMultipart(graphs:readonly ReferenceGraph[],sources:ReadonlyMap<string,SourcePlan>,
  target:string,owners:MigrationSchemaOwners,issue:MigrationIssue):boolean {
  if(!['3.0','3.1'].includes(target))return false;
  const types=migrationMediaTypes(graphs);let changed=false;
@@ -596,12 +596,12 @@ export function migrateNamedMultipart(graphs:readonly ReferenceGraph[],sources:R
  * codecs and charset decoding are unchanged under the proved name bijection.
  */
 export function proveNamedMultipartOutput(source:ReferenceGraph,target:ReferenceGraph,scope:GraphScope,output:GraphScope,
- mapped:(location:MigrationLocation,scope:GraphScope)=>readonly MigrationLocation[],issue:MigrationIssue,
+ mapped:(location:SourceLocation,scope:GraphScope)=>readonly SourceLocation[],issue:MigrationIssue,
  media:readonly string[]=[...migrationMediaTypes([source]).get(JSON.stringify([scope.resource,scope.pointer]))??[]]):boolean {
  const prover=new NamedMultipartEquivalence(source),proof=prover.prove(scope,media,output.family),c=proof.certificate;
  if(!c)return false;
  const fail=(message:string)=>issue(scope,'migration.invariant.named-multipart',message,'implementation');
- const neutral=(scope:GraphScope):MigrationLocation=>{
+ const neutral=(scope:GraphScope):SourceLocation=>{
   const locations=mapped(scope,scope).filter(at=>!!target.scopeAs(at.resource,at.pointer,scope.kind));
   const unique=new Map(locations.map(at=>[JSON.stringify([at.resource,at.pointer]),at]));
   if(unique.size!==1)throw new SourceError('migration.invariant.named-multipart','A named multipart value lost its independent neutral schema owner');
@@ -653,7 +653,7 @@ export function proveNamedMultipartOutput(source:ReferenceGraph,target:Reference
   }
  }
  const multipart=new MultipartEncoding(source),delivered=new MultipartEncoding(target);
- const expectedHeaders=new Map<string,MigrationLocation>();
+ const expectedHeaders=new Map<string,SourceLocation>();
  if(field.rule)for(const [name]of source.docs.get(field.rule.resource)!.dataNode(field.rule.pointer+'/headers')?.children??[]){
   if(name.toLowerCase()==='content-type')continue;
   const at=multipart.follow({...field.rule,pointer:field.rule.pointer+'/headers/'+escape(name),kind:'header'},'header');
@@ -662,7 +662,7 @@ export function proveNamedMultipartOutput(source:ReferenceGraph,target:Reference
   const afterHeader=target.scopeAs(next.resource,next.pointer,'header'),a=namedHeaderIdentity(source,header),b=afterHeader&&namedHeaderIdentity(target,afterHeader);
   if(a===undefined||b!==a)fail('An independently defined part Header changed its permitted values, content or transfer constraints');
  }
- const actualHeaders=new Map<string,MigrationLocation>();
+ const actualHeaders=new Map<string,SourceLocation>();
  for(const name of Object.keys(rule.headers??{})){
   if(name.toLowerCase()==='content-type')continue;
   const at=delivered.follow({...output,pointer:output.pointer+'/encoding/'+escape(field.name)+'/headers/'+escape(name),kind:'header'},'header');

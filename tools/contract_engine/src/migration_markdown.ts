@@ -3,21 +3,21 @@ import {segments,SourceDocument,SourceError} from './document';
 import {relativeMarkdownDestinations} from './markdown_links';
 import {relocateMarkdownLinks} from './markdown_relocation';
 import {specializeMigrationText} from './migration_shared_text';
-import type {MigrationLocation} from './migration_source';
+import type {SourceLocation} from './source_plan';
 import type {MigrationIssue} from './migration_schema';
 import {documentUriBase,type GraphScope,type ReferenceGraph} from './reference_graph';
 
 type CapturedMarkdown=Readonly<{
-    original:MigrationLocation;
-    owner:MigrationLocation;
+    original:SourceLocation;
+    owner:SourceLocation;
     value:string;
     base:string;
     namespace:string;
     scope:GraphScope;
 }>;
-type Mapped=(original:MigrationLocation,namespace:string,scope:GraphScope)=>readonly MigrationLocation[];
-type Target=Readonly<{source:CapturedMarkdown;location:MigrationLocation;scope:GraphScope;context:ReferenceGraph;value:string}>;
-const key=(location:MigrationLocation)=>JSON.stringify([location.resource,location.pointer]);
+type Mapped=(original:SourceLocation,namespace:string,scope:GraphScope)=>readonly SourceLocation[];
+type Target=Readonly<{source:CapturedMarkdown;location:SourceLocation;scope:GraphScope;context:ReferenceGraph;value:string}>;
+const key=(location:SourceLocation)=>JSON.stringify([location.resource,location.pointer]);
 function description(graph:ReferenceGraph,scope:GraphScope) {
     const doc=graph.docs.get(scope.resource)!,value=doc.dataNode(scope.pointer)?.value;
     return typeof value?.description==='string'&&richTextField(scope.kind,scope.family,value,'description',segments(scope.pointer).at(-1)??'',graph.allowsReference(scope))
@@ -78,7 +78,7 @@ function targets(captured:readonly CapturedMarkdown[],graph:ReferenceGraph,mappe
  * destinations. Logical YAML uses may split; a single occurrence interpreted
  * as both rendered text and literal data still needs separate semantic owners. */
 export function rewriteMigrationMarkdown(captured:readonly CapturedMarkdown[],graph:ReferenceGraph,mapped:Mapped,issue:MigrationIssue,
-    changed:(location:MigrationLocation)=>void,contexts:readonly ReferenceGraph[]=[graph],namespaces:ReadonlyMap<string,string>=new Map()):ReadonlyMap<string,SourceDocument> {
+    changed:(location:SourceLocation)=>void,contexts:readonly ReferenceGraph[]=[graph],namespaces:ReadonlyMap<string,string>=new Map()):ReadonlyMap<string,SourceDocument> {
     const desired=new Map<string,{target:Target;value:string}>(),documents=new Map<string,SourceDocument>();
     for(const target of targets(captured,graph,mapped,issue,contexts,namespaces)){
         const {source,location,scope,context}=target,finding={...location,original:source.original};

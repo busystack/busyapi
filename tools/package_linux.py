@@ -1,5 +1,5 @@
 """Bundle non-glibc shared dependencies. Never modifies a system installation."""
-import argparse, pathlib, os
+import argparse, pathlib, os, json, hashlib
 from native_distribution import assemble as assemble_native_distribution
 from verify_font_assets import verify as verify_font_assets
 from verify_application_assets import verify as verify_application_assets
@@ -19,7 +19,7 @@ bundle=args.bundle.resolve()
 if args.platform_runtime and (bundle/'share/licenses/busyapi-native/dependencies.json').exists():
     raise RuntimeError('Platform-runtime packaging requires a fresh CMake install, not an assembled standalone layout')
 for required in ['busyapi-desktop', 'busyapi', 'lib/libflutter_linux_gtk.so', 'share/busyapi/flutter-sdk.json', 'libexec/busyapi/node',
-                 'libexec/busyapi/engine.cjs', 'libexec/busyapi/policy-worker.cjs',
+                 'libexec/busyapi/engine.cjs', 'libexec/busyapi/conversion-worker.cjs', 'libexec/busyapi/policy-worker.cjs',
                  'lib/libbusyapi_documentation.so', 'share/busyapi/documentation-runtime.json',
                  'libexec/busyapi/policy-isolation.node', 'libexec/busyapi/policy-launcher',
                  'libexec/busyapi/policy-build.json', 'libexec/busyapi/mock-server.cjs',
@@ -30,6 +30,14 @@ for required in ['busyapi-desktop', 'busyapi', 'lib/libflutter_linux_gtk.so', 's
                  'libexec/busyapi/generator/generator-launcher']:
     if not (bundle/required).is_file():
         raise RuntimeError('Missing standalone asset: '+required)
+receipt = json.loads((bundle/'libexec/busyapi/build.json').read_bytes())
+if receipt.get('profile') != 'release':
+    raise RuntimeError('A complete release requires release contract assets, not an editor development profile')
+for name, field in [('engine.cjs', 'helperSha256'), ('conversion-worker.cjs', 'conversionHelperSha256'),
+                    ('mock-server.cjs', 'mockHelperSha256'), ('policy-worker.cjs', 'policyHelperSha256')]:
+    asset = bundle/'libexec/busyapi'/name
+    if asset.is_symlink() or hashlib.sha256(asset.read_bytes()).hexdigest() != receipt.get(field):
+        raise RuntimeError('Changed or unqualified release helper: '+name)
 for schema in ['oas31.json', 'oas32.json', 'oas30.json', 'oas20.json', 'draft04.json']:
     if not (bundle/'share/busyapi/schemas'/schema).is_file():
         raise RuntimeError('Missing standalone schema asset: '+schema)

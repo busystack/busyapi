@@ -3,13 +3,13 @@ import {pointerFragment,type GraphReference,type ReferenceGraph} from './referen
 import type {DocumentContext} from './migration_documents';
 import type {MigrationIssue} from './migration_schema';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
-import {migrationLocations,type MigrationLocation,type MigrationSource} from './migration_source';
+import {sourceLocations,type SourceLocation,type SourcePlan} from './source_plan';
 
 /** Converters can introduce typed reference fields before later component
  * moves. Capture their current coordinates through the same CST relation;
  * existing authored/foreign provenance remains independent. Literal-looking
  * values never enter this graph-selected inventory. */
-export function captureMigrationOwnerReferences(contexts:readonly DocumentContext[],sources:ReadonlyMap<string,MigrationSource>):void {
+export function captureMigrationOwnerReferences(contexts:readonly DocumentContext[],sources:ReadonlyMap<string,SourcePlan>):void {
     let work=0;
     for(const {graph}of contexts)for(const reference of graph.entryReferences()){
         if(++work>2000000)throw new SourceError('limit.migration.owners','Generated reference capture exceeds 2000000 fields');
@@ -31,14 +31,14 @@ export function captureMigrationOwnerReferences(contexts:readonly DocumentContex
  * Dynamic references retain their anchor spelling in the terminal resource,
  * never a pointer/static substitution. Per-entry dynamic proofs still check
  * every captured candidate and resource transition. */
-export function repairMigrationOwnerReferences(contexts:readonly DocumentContext[],sources:ReadonlyMap<string,MigrationSource>,
+export function repairMigrationOwnerReferences(contexts:readonly DocumentContext[],sources:ReadonlyMap<string,SourcePlan>,
     owners:MigrationSchemaOwners,issue:MigrationIssue,prepared:readonly ReferenceGraph[]):void {
     const graphs=new Map(prepared.map(graph=>[graph.root,graph]));
-    const current=migrationLocations(sources),edits=new Map<string,{
-        at:MigrationLocation;value:string;changed:boolean;reference:GraphReference;conflict:boolean;
+    const current=sourceLocations(sources),edits=new Map<string,{
+        at:SourceLocation;value:string;changed:boolean;reference:GraphReference;conflict:boolean;
     }>();let work=0;
     const inspect=()=>{if(++work>2000000)throw new SourceError('limit.migration.owners','Owner reference repair exceeds 2000000 captured states');};
-    const same=(a:MigrationLocation,b:MigrationLocation)=>a.resource===b.resource&&a.pointer===b.pointer;
+    const same=(a:SourceLocation,b:SourceLocation)=>a.resource===b.resource&&a.pointer===b.pointer;
     for(const {graph}of contexts)for(const reference of graph.entryReferences()){
         inspect();if(reference.resolution!=='resolved'||
             reference.connection&&!['discriminator','operationRef'].includes(reference.connection))continue;

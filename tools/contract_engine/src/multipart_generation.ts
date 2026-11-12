@@ -116,7 +116,7 @@ export function multipartStructure(graph:ReferenceGraph,content:Content){
     const modeledParts=encoding.some(rule=>object(rule)&&(mediaMatches(rule.contentType,type=>type.subtype==='xml'||type.subtype.endsWith('+xml')||['linkset','linkset+json','*'].includes(type.subtype)||type.subtype.startsWith('*+'))||
         Object.values(rule.headers??{}).some(header=>object(header)&&(header.content!==undefined||header.$ref!==undefined||header.example!==undefined||header.examples!==undefined))));
     const usesTree=modeledParts||binding==='multipart-ordered'||rootChoices.length>1||needsChoices||shape.additionalProperties!==undefined||Object.keys(shape.patternProperties??{}).length>0||nestedForm||content.family==='3.2'&&encoding.some(value=>object(value)&&(value.encoding!==undefined||value.prefixEncoding!==undefined||value.itemEncoding!==undefined||mediaMatches(value.contentType,type=>type.type==='multipart')));
-    const typedTree=usesTree||Object.values(content.form?.parts??{}).some((part:any)=>part.fileShapes?.length>0);
+    const typedTree=true;
     return {binding,usesTree,typedTree,rootChoices,
         schema:content.schema,itemSchema:content.itemSchema,source:at,parts,
         shape,encoding:binding==='multipart-named'?content.encoding:undefined,

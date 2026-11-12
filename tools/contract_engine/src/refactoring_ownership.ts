@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 import {createGraph,type Resource} from './engine';
 import {SourceDocument,SourceError,type Range} from './document';
-import {MigrationSource,migrationValueIdentity} from './migration_source';
+import {SourcePlan,sourceValueIdentity} from './source_plan';
 import {editBudget,editsFor} from './refactoring_copy';
 import {type ReferenceGraph,type GraphScope,type GraphTarget} from './reference_graph';
 import {assertRefactoringByteConsumers,assertRefactoringCaseFiles} from './refactoring_graph';
@@ -53,10 +53,10 @@ export function planYamlOwnership(input:OwnershipInput) {
     if(target.range!==undefined&&JSON.stringify(target.range)!==JSON.stringify(node.range)||
         target.expected!==undefined&&target.expected!==doc.text.slice(...node.range))
         throw new SourceError('edit.stale','The captured YAML source coordinates changed');
-    const source=new MigrationSource(doc),admitEdit=editBudget(resources,'limit.refactor.ownership');
+    const source=new SourcePlan(doc),admitEdit=editBudget(resources,'limit.refactor.ownership');
     source.own(target.pointer,true,true);
     admitEdit(resource.id,source.doc.text.length);
-    if(migrationValueIdentity(doc,'')!==migrationValueIdentity(source.doc,''))
+    if(sourceValueIdentity(doc,'')!==sourceValueIdentity(source.doc,''))
         throw new SourceError('refactor.ownership.value','Independent ownership would change a captured value; no edits were prepared');
     const outputs=new Map([[resource.id,source.doc.text]]),prepared=resources.map(value=>value.id===resource.id?{...value,text:source.doc.text}:value);
     const finalDocs=new Map(prepared.map(value=>[value.id,new SourceDocument(value.text,value.id)]));

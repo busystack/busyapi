@@ -23,7 +23,7 @@ import 'mime_text_materialization.dart';
 import 'form_media_types.dart';
 import 'multipart_encoding.dart';
 import 'exact_configuration.dart';
-import 'request.dart' show ContractRequestBuilder;
+import 'request_parameters.dart' show queryRepresentation;
 
 part 'governance.dart';
 part 'policy_code_review.dart';
@@ -162,10 +162,17 @@ class AnalysisSnapshot {
                 if (generations) 'generation': r['generation'],
               },
           ],
-        if (exampleResources.isNotEmpty) 'externalExamples': [
-          for (final resource in exampleResources.toList()..sort((a, b) => a.id.compareTo(b.id)))
-            {...resource.ownership, 'aliases': resource.aliases, if (!generations) 'generation': null},
-        ],
+        if (exampleResources.isNotEmpty)
+          'externalExamples': [
+            for (final resource
+                in exampleResources.toList()
+                  ..sort((a, b) => a.id.compareTo(b.id)))
+              {
+                ...resource.ownership,
+                'aliases': resource.aliases,
+                if (!generations) 'generation': null,
+              },
+          ],
         'engine': {'version': '0.1.0', 'assets': engine},
         'configuration': 1,
         'boundaries': boundaries.toList()..sort(),
@@ -184,29 +191,33 @@ class AnalysisSnapshot {
     'root': root,
     'snapshot': identity,
     'resources': resources,
-    if (exampleResources.isNotEmpty) 'exampleResources': [
-      for (final resource in exampleResources) resource.toJson(),
-    ],
+    if (exampleResources.isNotEmpty)
+      'exampleResources': [
+        for (final resource in exampleResources) resource.toJson(),
+      ],
   };
   bool current(BufferStore store) =>
       allInputs.every((input) => _inputCurrent(store, input));
 
   bool _examplesCurrent(BufferStore store) => exampleResources.every(
-      (resource) => _inputCurrent(store, resource.ownership));
+    (resource) => _inputCurrent(store, resource.ownership),
+  );
 
   static bool _inputCurrent(BufferStore store, Map<String, Object?> input) {
     final id = input['id'] as String;
     final buffer = store.buffers[id];
-    if (input['kind'] == 'external-example' && input['state'] == 'unavailable') {
-      return buffer == null ? input['workingIdentity'] == null
+    if (input['kind'] == 'external-example' &&
+        input['state'] == 'unavailable') {
+      return buffer == null
+          ? input['workingIdentity'] == null
           : buffer.generation == input['generation'] &&
-              buffer.sourceIdentity == input['workingIdentity'];
+                buffer.sourceIdentity == input['workingIdentity'];
     }
     return !store.isVirtuallyAbsent(id) &&
-        (buffer == null || buffer.generation == input['generation'] &&
-            buffer.sourceIdentity == input['identity']);
+        (buffer == null ||
+            buffer.generation == input['generation'] &&
+                buffer.sourceIdentity == input['identity']);
   }
-
 }
 
 /// Preserve original-source results when a required export check cannot pass.
@@ -481,62 +492,108 @@ class RefactoringPlan {
   bool get hasChanges => edits.isNotEmpty;
   String get identity =>
       result['identity'] as String? ?? result['snapshot'] as String;
+
   /// Review identity across independent CLI invocations. Source bytes, approved
   /// boundaries, configuration, external resources and engine assets remain in
   /// each source snapshot; process-local generations/revisions do not.
   String get reviewIdentity {
-    final contexts = [for (final snapshot in _snapshots)
-      {'root': snapshot.root, 'source': snapshot.sourceIdentity},
+    final contexts = [
+      for (final snapshot in _snapshots)
+        {'root': snapshot.root, 'source': snapshot.sourceIdentity},
     ]..sort((a, b) => a['root']!.compareTo(b['root']!));
     Map<String, Object?> location(dynamic value) => {
-      if (value is Map) for (final entry in value.entries)
-        if (entry.key != 'generation') (entry.key as String): entry.value,
+      if (value is Map)
+        for (final entry in value.entries)
+          if (entry.key != 'generation') (entry.key as String): entry.value,
     };
     List<Object?> locations(dynamic values) => [
-      if (values is List) for (final value in values)
-        if (value is Map) location(value) else value,
+      if (values is List)
+        for (final value in values)
+          if (value is Map) location(value) else value,
     ];
     // Retain every reviewed output/decision, including created file content.
     // Strip counters only at known protocol coordinates, never in user data.
-    return textIdentity(jsonEncode({
-      'version': 2, 'contexts': contexts, 'fileIntent': fileIntent,
-      'plan': {
-        for (final entry in result.entries)
-          if (!const ['snapshot', 'identity', 'from', 'to', 'edits', 'file', 'usages', 'blockers'].contains(entry.key))
-            entry.key: entry.value,
-        'from': location(result['from']), 'to': location(result['to']),
-        'edits': [for (final edit in edits) {
-          'buffer': edit.buffer, 'start': edit.start, 'end': edit.end,
-          'expected': edit.expected, 'replacement': edit.replacement,
-        }],
-        if (result.containsKey('file')) 'file': location(result['file']),
-        if (result.containsKey('usages')) 'usages': locations(result['usages']),
-        if (result.containsKey('blockers')) 'blockers': locations(result['blockers']),
-      },
-    }));
+    return textIdentity(
+      jsonEncode({
+        'version': 2,
+        'contexts': contexts,
+        'fileIntent': fileIntent,
+        'plan': {
+          for (final entry in result.entries)
+            if (!const [
+              'snapshot',
+              'identity',
+              'from',
+              'to',
+              'edits',
+              'file',
+              'usages',
+              'blockers',
+            ].contains(entry.key))
+              entry.key: entry.value,
+          'from': location(result['from']),
+          'to': location(result['to']),
+          'edits': [
+            for (final edit in edits)
+              {
+                'buffer': edit.buffer,
+                'start': edit.start,
+                'end': edit.end,
+                'expected': edit.expected,
+                'replacement': edit.replacement,
+              },
+          ],
+          if (result.containsKey('file')) 'file': location(result['file']),
+          if (result.containsKey('usages'))
+            'usages': locations(result['usages']),
+          if (result.containsKey('blockers'))
+            'blockers': locations(result['blockers']),
+        },
+      }),
+    );
   }
+
   Map<String, Object?> get fileIntent {
     final plan = this;
-    if (plan is FileCreationPlan) return {
-      'kind': 'create', 'resource': plan.creation.id, 'path': plan.creation.path,
-      'identity': textIdentity('${plan.creation.hasBom ? '\ufeff' : ''}${plan.creation.text}'),
-      'hasBom': plan.creation.hasBom, 'mode': plan.creation.mode,
-    };
-    if (plan is FileMovePlan) return {
-      'kind': 'move', 'resource': plan.pathEdit.buffer,
-      'source': plan.pathEdit.expectedPath, 'destination': plan.pathEdit.path,
-      'identity': textIdentity('${plan.pathEdit.expectedBom ? '\ufeff' : ''}${plan.pathEdit.expectedText}'),
-      'hasBom': plan.pathEdit.expectedBom, 'mode': result['sourceMode'],
-    };
-    if (plan is FileDeletionPlan) return {
-      'kind': 'delete', 'resource': plan.presence.buffer,
-      'path': plan.presence.expectedPath,
-      'identity': textIdentity('${plan.presence.expectedBom ? '\ufeff' : ''}${plan.presence.expectedText}'),
-      'hasBom': plan.presence.expectedBom, 'mode': result['sourceMode'],
-      'expectedPresent': plan.presence.expectedPresent, 'present': plan.presence.present,
-    };
+    if (plan is FileCreationPlan)
+      return {
+        'kind': 'create',
+        'resource': plan.creation.id,
+        'path': plan.creation.path,
+        'identity': textIdentity(
+          '${plan.creation.hasBom ? '\ufeff' : ''}${plan.creation.text}',
+        ),
+        'hasBom': plan.creation.hasBom,
+        'mode': plan.creation.mode,
+      };
+    if (plan is FileMovePlan)
+      return {
+        'kind': 'move',
+        'resource': plan.pathEdit.buffer,
+        'source': plan.pathEdit.expectedPath,
+        'destination': plan.pathEdit.path,
+        'identity': textIdentity(
+          '${plan.pathEdit.expectedBom ? '\ufeff' : ''}${plan.pathEdit.expectedText}',
+        ),
+        'hasBom': plan.pathEdit.expectedBom,
+        'mode': result['sourceMode'],
+      };
+    if (plan is FileDeletionPlan)
+      return {
+        'kind': 'delete',
+        'resource': plan.presence.buffer,
+        'path': plan.presence.expectedPath,
+        'identity': textIdentity(
+          '${plan.presence.expectedBom ? '\ufeff' : ''}${plan.presence.expectedText}',
+        ),
+        'hasBom': plan.presence.expectedBom,
+        'mode': result['sourceMode'],
+        'expectedPresent': plan.presence.expectedPresent,
+        'present': plan.presence.present,
+      };
     return const {};
   }
+
   List<String> get checkedRoots =>
       List<String>.from(result['checkedRoots'] as List);
   SemanticTransition get transition {
@@ -782,6 +839,91 @@ class BufferReloadResult {
   final BufferReloadStatus status;
   final BufferReloadCapture? applied;
   final Object? failure;
+}
+
+Future<bool> _discoverProjectFiles(
+  ProjectAccess access,
+  List<String> files, {
+  bool Function()? cancelled,
+  bool boundedBrowser = false,
+}) async {
+  // Limit traversal to the explicitly selected directory. Skip dependency/cache trees.
+  final pending = [access.boundary];
+  int visited = 0;
+  while (pending.isNotEmpty) {
+    if (cancelled?.call() ?? false) {
+      throw CoreFailure('open.cancelled', 'Project discovery cancelled');
+    }
+    final dir = pending.removeLast();
+    await for (final entry in Directory(dir).list(followLinks: false)) {
+      if (cancelled?.call() ?? false)
+        throw CoreFailure('open.cancelled', 'Project discovery cancelled');
+      if (++visited > 20000) {
+        if (boundedBrowser) return true;
+        throw CoreFailure(
+          'discovery.limit',
+          'Project discovery exceeds 20000 entries; open a narrower directory',
+        );
+      }
+      if (entry is Directory) {
+        // Generated outputs are not new canonical project roots. This
+        // classification grants no overwrite trust: replacement still
+        // verifies the complete owned receipt and every actual file.
+        var derived = isOutputStagingDirectoryName(p.basename(entry.path));
+        if (!derived) {
+          try {
+            final bytes = await access.read(
+              p.join(entry.path, AtomicDirectoryWriter.receiptName),
+            );
+            if (bytes.length <= 4 * 1024 * 1024) {
+              final marker = jsonDecode(utf8.decode(bytes));
+              derived =
+                  marker is Map &&
+                  marker['version'] == 1 &&
+                  marker['owner'] == 'io.busystack.busyapi' &&
+                  marker['files'] is Map &&
+                  marker['metadata'] is Map &&
+                  [
+                    'bundle',
+                    'generate',
+                  ].contains(marker['metadata']['operation']);
+            }
+          } on Object {
+            /* Ordinary source directories have no output marker. */
+          }
+        }
+        if (![
+              '.git',
+              'node_modules',
+              '.dart_tool',
+              'build',
+              '.cache',
+            ].contains(p.basename(entry.path)) &&
+            !isFileArchiveDirectoryName(p.basename(entry.path)) &&
+            !derived) {
+          pending.add(entry.path);
+        }
+      } else if (entry is File &&
+          [
+            '.yaml',
+            '.yml',
+            '.json',
+          ].contains(p.extension(entry.path).toLowerCase()) &&
+          p.basename(entry.path) != 'busyapi.yaml') {
+        if (!files.contains(entry.path)) {
+          if (files.length >= 2048) {
+            if (boundedBrowser) return true;
+            throw CoreFailure(
+              'discovery.limit',
+              'Project exceeds 2048 candidate documents',
+            );
+          }
+          files.add(entry.path);
+        }
+      }
+    }
+  }
+  return false;
 }
 
 class BusyProject {
@@ -1086,84 +1228,10 @@ class BusyProject {
     final roots = <ProjectRoot>[];
     String? discoveryFailure;
     try {
-      if (isFile) {
-        files.add(absolute);
-      } else {
-        // Limit traversal to the explicitly selected directory. Skip dependency/cache trees.
-        final pending = [access.boundary];
-        int visited = 0;
-        while (pending.isNotEmpty) {
-          if (cancelled?.call() ?? false) {
-            throw CoreFailure('open.cancelled', 'Project discovery cancelled');
-          }
-          final dir = pending.removeLast();
-          await for (final entry in Directory(dir).list(followLinks: false)) {
-            if (++visited > 20000) {
-              throw CoreFailure(
-                'discovery.limit',
-                'Project discovery exceeds 20000 entries; open a narrower directory',
-              );
-            }
-            if (entry is Directory) {
-              // Generated outputs are not new canonical project roots. This
-              // classification grants no overwrite trust: replacement still
-              // verifies the complete owned receipt and every actual file.
-              var derived = isOutputStagingDirectoryName(
-                p.basename(entry.path),
-              );
-              if (!derived) {
-                try {
-                  final bytes = await access.read(
-                    p.join(entry.path, AtomicDirectoryWriter.receiptName),
-                  );
-                  if (bytes.length <= 4 * 1024 * 1024) {
-                    final marker = jsonDecode(utf8.decode(bytes));
-                    derived =
-                        marker is Map &&
-                        marker['version'] == 1 &&
-                        marker['owner'] == 'io.busystack.busyapi' &&
-                        marker['files'] is Map &&
-                        marker['metadata'] is Map &&
-                        [
-                          'bundle',
-                          'generate',
-                        ].contains(marker['metadata']['operation']);
-                  }
-                } on Object {
-                  /* Ordinary source directories have no output marker. */
-                }
-              }
-              if (![
-                    '.git',
-                    'node_modules',
-                    '.dart_tool',
-                    'build',
-                    '.cache',
-                  ].contains(p.basename(entry.path)) &&
-                  !isFileArchiveDirectoryName(p.basename(entry.path)) &&
-                  !derived) {
-                pending.add(entry.path);
-              }
-            } else if (entry is File &&
-                [
-                  '.yaml',
-                  '.yml',
-                  '.json',
-                ].contains(p.extension(entry.path).toLowerCase()) &&
-                p.basename(entry.path) != 'busyapi.yaml') {
-              files.add(entry.path);
-              if (files.length > 2048) {
-                throw CoreFailure(
-                  'discovery.limit',
-                  'Project exceeds 2048 candidate documents',
-                );
-              }
-            }
-          }
-        }
-      }
+      if (isFile) files.add(absolute);
       final manifest = File(p.join(access.boundary, 'busyapi.yaml'));
-      if (!isFile && await manifest.exists()) {
+      final configured = !isFile && await manifest.exists();
+      if (configured) {
         final manifestBytes = await access.read(manifest.path);
         if (manifestBytes.length > 65536) {
           throw CoreFailure(
@@ -1205,6 +1273,8 @@ class BusyProject {
           if (!files.contains(file)) files.add(file);
         }
       } else {
+        if (!isFile)
+          await _discoverProjectFiles(access, files, cancelled: cancelled);
         // Batch content inspection, never infer roots from filename alone.
         for (var offset = 0; offset < files.length; offset += 64) {
           if (cancelled?.call() ?? false) {
@@ -1284,11 +1354,65 @@ class BusyProject {
       } on CoreFailure catch (error) {
         project.discoveryFailure = error.toString();
       }
+      if (configured) {
+        for (final root in List<ProjectRoot>.of(roots)) {
+          if (cancelled?.call() ?? false) {
+            project.close();
+            throw CoreFailure('open.cancelled', 'Project opening cancelled');
+          }
+          try {
+            await project.buffer(root.id);
+            await project.check(
+              root.id,
+              schemaEvaluation: false,
+              cancelled: cancelled,
+            );
+          } on CoreFailure catch (failure) {
+            if (failure.code == 'cancelled' ||
+                failure.code == 'open.cancelled') {
+              project.close();
+              rethrow;
+            }
+            project.discoveryFailure = failure.toString();
+          } on FileSystemException catch (failure) {
+            // Missing roots remain configured and visible for source/file
+            // recovery. They are never replaced by unrelated discovered APIs.
+            project.discoveryFailure = failure.toString();
+          }
+        }
+        for (final buffer in project.store.buffers.values) {
+          if (!files.contains(buffer.path)) files.add(buffer.path);
+        }
+        files.sort();
+      }
       return project;
     } on Object {
       access.close();
       rethrow;
     }
+  }
+
+  bool fileBrowserTruncated = false;
+  Future<void>? _browsing;
+
+  /// Browsing is optional, bounded work after configured roots are established.
+  /// It cannot invalidate the configured graph or delay adoption of the project.
+  Future<void> populateFileBrowser({bool Function()? cancelled}) =>
+      _browsing ??= _populateFileBrowser(cancelled: cancelled);
+
+  Future<void> _populateFileBrowser({bool Function()? cancelled}) async {
+    final found = <String>[];
+    fileBrowserTruncated = await _discoverProjectFiles(
+      access,
+      found,
+      boundedBrowser: true,
+      cancelled: () => _closed || (cancelled?.call() ?? false),
+    );
+    if (_closed || (cancelled?.call() ?? false)) return;
+    for (final file in found) {
+      if (!files.contains(file)) files.add(file);
+    }
+    files.sort();
   }
 
   final Map<String, Future<DocumentBuffer>> _loadingBuffers = {};
@@ -1526,25 +1650,47 @@ class BusyProject {
         final entryDiscovery = result['entryDiscovery'];
         if (captureEntries && result['info'] != null) {
           if (result['versions'] case {'entryDiscoveryRules': '1'}) {
-            if (entryDiscovery is! Map || entryDiscovery['version'] != 1 ||
-                entryDiscovery['roots'] is! List || (entryDiscovery['roots'] as List).length > 256 ||
+            if (entryDiscovery is! Map ||
+                entryDiscovery['version'] != 1 ||
+                entryDiscovery['roots'] is! List ||
+                (entryDiscovery['roots'] as List).length > 256 ||
                 !(entryDiscovery['roots'] as List).contains(root) ||
-                (entryDiscovery['roots'] as List).any((value) => value is! String) ||
-                entryDiscovery['references'] is! List || entryDiscovery['externalExamples'] is! List ||
-                (entryDiscovery['references'] as List).any((value) => value is! Map ||
-                    value['resource'] is! String || value['pointer'] is! String ||
-                    value['keyword'] is! String || value['kind'] is! String || value['resolution'] is! String ||
-                    value['targetResource'] != null && value['targetResource'] is! String ||
-                    value['candidateResources'] != null && (value['candidateResources'] is! List ||
-                        (value['candidateResources'] as List).any((candidate) => candidate is! String)))) {
-              throw CoreFailure('engine.entry-discovery', 'The engine returned invalid connected-entry discovery');
+                (entryDiscovery['roots'] as List).any(
+                  (value) => value is! String,
+                ) ||
+                entryDiscovery['references'] is! List ||
+                entryDiscovery['externalExamples'] is! List ||
+                (entryDiscovery['references'] as List).any(
+                  (value) =>
+                      value is! Map ||
+                      value['resource'] is! String ||
+                      value['pointer'] is! String ||
+                      value['keyword'] is! String ||
+                      value['kind'] is! String ||
+                      value['resolution'] is! String ||
+                      value['targetResource'] != null &&
+                          value['targetResource'] is! String ||
+                      value['candidateResources'] != null &&
+                          (value['candidateResources'] is! List ||
+                              (value['candidateResources'] as List).any(
+                                (candidate) => candidate is! String,
+                              )),
+                )) {
+              throw CoreFailure(
+                'engine.entry-discovery',
+                'The engine returned invalid connected-entry discovery',
+              );
             }
           } else {
-            throw CoreFailure('engine.entry-discovery', 'The engine omitted the connected-entry discovery revision');
+            throw CoreFailure(
+              'engine.entry-discovery',
+              'The engine omitted the connected-entry discovery revision',
+            );
           }
         }
         final discoveryReferences = captureEntries && entryDiscovery is Map
-            ? entryDiscovery['references'] as List : result['references'] as List? ?? const [];
+            ? entryDiscovery['references'] as List
+            : result['references'] as List? ?? const [];
         if (result['info'] != null) {
           final reached = <String>{root};
           for (final ref in discoveryReferences) {
@@ -1571,54 +1717,84 @@ class BusyProject {
         }
         final requestedExamples = <String>{};
         final discovery = captureEntries && entryDiscovery is Map
-            ? entryDiscovery['externalExamples'] : result['externalExamples'];
+            ? entryDiscovery['externalExamples']
+            : result['externalExamples'];
         final versions = result['versions'];
         if (discovery != null && discovery is! List ||
-            result['info'] != null && (discovery is! List || versions is! Map ||
-                versions['externalExampleRules'] != '2')) {
-          throw CoreFailure('engine.external-examples',
-              'The engine omitted the captured external example discovery revision');
+            result['info'] != null &&
+                (discovery is! List ||
+                    versions is! Map ||
+                    versions['externalExampleRules'] != '2')) {
+          throw CoreFailure(
+            'engine.external-examples',
+            'The engine omitted the captured external example discovery revision',
+          );
         }
-        if (discovery is List) for (final value in discovery) {
-          if (value is! Map || value['version'] != 1 ||
-              value['resource'] is! String || value['pointer'] is! String ||
-              value['targetResource'] != null && value['targetResource'] is! String ||
-              value['targetResource'] == null && value['problem'] is! Map) {
-            throw CoreFailure('engine.external-examples',
-                'The engine returned invalid external example discovery');
+        if (discovery is List)
+          for (final value in discovery) {
+            if (value is! Map ||
+                value['version'] != 1 ||
+                value['resource'] is! String ||
+                value['pointer'] is! String ||
+                value['targetResource'] != null &&
+                    value['targetResource'] is! String ||
+                value['targetResource'] == null && value['problem'] is! Map) {
+              throw CoreFailure(
+                'engine.external-examples',
+                'The engine returned invalid external example discovery',
+              );
+            }
+            if (value['targetResource'] case final String target) {
+              requestedExamples.add(target);
+            }
           }
-          if (value['targetResource'] case final String target) {
-            requestedExamples.add(target);
-          }
-        }
         var examplesChanged = false;
         exampleResources.removeWhere((id, resource) {
-          final obsolete = !requestedExamples.any((target) =>
-              target == id || resource.aliases.contains(target));
+          final obsolete = !requestedExamples.any(
+            (target) => target == id || resource.aliases.contains(target),
+          );
           examplesChanged |= obsolete;
           return obsolete;
         });
         for (final target in requestedExamples) {
-          if (exampleResources.values.any((resource) =>
-              resource.id == target || resource.aliases.contains(target))) continue;
-          final captured = await _captureExternalExample(target, resourceMappings,
-              saved: saved, active: ensureActive);
+          if (exampleResources.values.any(
+            (resource) =>
+                resource.id == target || resource.aliases.contains(target),
+          ))
+            continue;
+          final captured = await _captureExternalExample(
+            target,
+            resourceMappings,
+            saved: saved,
+            active: ensureActive,
+          );
           exampleResources[captured.id] = captured._withAliases(
-              exampleResources[captured.id]?.aliases ?? const []);
+            exampleResources[captured.id]?.aliases ?? const [],
+          );
           examplesChanged = true;
         }
-        final cost = resources.values.fold<int>(0,
-                (sum, value) => sum + (value['text'] as String).length * 6) +
-            exampleResources.values.fold<int>(0,
-                (sum, value) => sum + (value.bytes?.length ?? 0) * 2);
+        final cost =
+            resources.values.fold<int>(
+              0,
+              (sum, value) => sum + (value['text'] as String).length * 6,
+            ) +
+            exampleResources.values.fold<int>(
+              0,
+              (sum, value) => sum + (value.bytes?.length ?? 0) * 2,
+            );
         if (resources.length + exampleResources.length > 2048 ||
             cost > 48 * 1024 * 1024) {
-          throw CoreFailure('limit.snapshot',
-              'Contracts and external examples exceed the captured resource budget');
+          throw CoreFailure(
+            'limit.snapshot',
+            'Contracts and external examples exceed the captured resource budget',
+          );
         }
         if (examplesChanged) {
-          if (depth == 128) throw CoreFailure('limit.graph',
-              'External example discovery exceeds the captured graph depth limit');
+          if (depth == 128)
+            throw CoreFailure(
+              'limit.graph',
+              'External example discovery exceeds the captured graph depth limit',
+            );
           continue;
         }
         final missing = <String>{};
@@ -1631,7 +1807,8 @@ class BusyProject {
           }
         }
         if (missing.isEmpty) break;
-        if (resources.length + exampleResources.length + missing.length > 2048) {
+        if (resources.length + exampleResources.length + missing.length >
+            2048) {
           throw CoreFailure('limit.resources', 'Dependency count exceeds 2048');
         }
         final missingStart = clock.elapsedMicroseconds;
@@ -1669,8 +1846,13 @@ class BusyProject {
           coherent = false;
         }
       });
-      if (!await _externalExampleInputsCurrent(snapshot!,
-          saved: saved, rejectConflicts: false, cancelled: cancelled)) coherent = false;
+      if (!await _externalExampleInputsCurrent(
+        snapshot!,
+        saved: saved,
+        rejectConflicts: false,
+        cancelled: cancelled,
+      ))
+        coherent = false;
       coherence += clock.elapsedMicroseconds - coherenceStart;
       coherent =
           coherent &&
@@ -1718,10 +1900,17 @@ class BusyProject {
         }
         for (final resource in exampleResources.values) {
           final buffer = store.buffers[resource.id];
-          if (!saved && buffer != null && (buffer.dirty || buffer.externalConflict)) {
-            resourceFingerprints.putIfAbsent(resource.id, () => buffer.diskIdentity);
+          if (!saved &&
+              buffer != null &&
+              (buffer.dirty || buffer.externalConflict)) {
+            resourceFingerprints.putIfAbsent(
+              resource.id,
+              () => buffer.diskIdentity,
+            );
           } else {
-            resourceFingerprints[resource.id] = resource.available ? resource.identity : null;
+            resourceFingerprints[resource.id] = resource.available
+                ? resource.identity
+                : null;
           }
         }
         for (final finding in result!['findings'] as List) {
@@ -1816,10 +2005,15 @@ class BusyProject {
             coherent = false;
           }
         });
-        final examplesCurrent = await _externalExampleInputsCurrent(snapshot,
-            saved: saved, rejectConflicts: false, cancelled: cancelled);
+        final examplesCurrent = await _externalExampleInputsCurrent(
+          snapshot,
+          saved: saved,
+          rejectConflicts: false,
+          cancelled: cancelled,
+        );
         ensureActive();
-        if (!coherent || !examplesCurrent ||
+        if (!coherent ||
+            !examplesCurrent ||
             (!saved && !snapshot.current(store)) ||
             resourceRevision != _resourceRevision)
           continue;
@@ -2097,6 +2291,74 @@ class BusyProject {
       );
     }
     return result;
+  }
+
+  /// Recovery resolves the same generic object page as Design. Captured spelling
+  /// and physical ownership must still match before pending input is rebound.
+  Future<PropertySession> recoverPropertyDraft(PropertySession captured) async {
+    final buffer = await this.buffer(captured.buffer);
+    void requireUnconflicted() {
+      if (buffer.externalConflict) {
+        throw CoreFailure(
+          'draft.conflict',
+          'Recovered values are preserved. Resolve the changed disk source before applying fields.',
+        );
+      }
+    }
+
+    requireUnconflicted();
+    final range = captured.range;
+    if (range.length != 2 ||
+        range[0] < 0 ||
+        range[1] < range[0] ||
+        range[1] - range[0] != captured.expected.length) {
+      throw CoreFailure(
+        'draft.stale',
+        'Recovered source coordinates are invalid; values remain preserved',
+      );
+    }
+    final generation = buffer.generation;
+    final item = await inspectObject(
+      captured.root,
+      captured.buffer,
+      captured.pointer,
+    );
+    requireUnconflicted();
+    final actualRange = item['range'];
+    if (item['absent'] == true ||
+        item['resource'] != captured.buffer ||
+        item['root'] != captured.root ||
+        item['pointer'] != captured.pointer ||
+        item['generation'] != generation ||
+        buffer.generation != generation ||
+        actualRange is! List ||
+        actualRange.length != 2 ||
+        actualRange[0] is! int ||
+        actualRange[1] is! int ||
+        (actualRange[0] as int) < 0 ||
+        (actualRange[1] as int) < (actualRange[0] as int) ||
+        (actualRange[1] as int) > buffer.text.length ||
+        buffer.text.substring(actualRange[0] as int, actualRange[1] as int) !=
+            captured.expected ||
+        item['syntaxSafe'] != true ||
+        item['shared'] == true) {
+      throw CoreFailure(
+        'draft.stale',
+        'Recovered values have no current editable source occurrence',
+      );
+    }
+    final rebound = PropertySession(
+      root: captured.root,
+      buffer: captured.buffer,
+      pointer: captured.pointer,
+      generation: generation,
+      range: List<int>.from(actualRange as List),
+      expected: captured.expected,
+      shareInputFrom: captured,
+    );
+    rebound.committed.addAll(captured.committed);
+    rebound.errors.remove('session');
+    return rebound;
   }
 
   /// Fetch a complete, explicitly selected form value, never a second source
@@ -2723,9 +2985,11 @@ class BusyProject {
     String action = 'completion',
     String? contextPointer,
     String? contextKind,
-  }) => sourceAssistance(root, resource, selection).run(
-    action, contextPointer: contextPointer, contextKind: contextKind,
-  );
+  }) => sourceAssistance(
+    root,
+    resource,
+    selection,
+  ).run(action, contextPointer: contextPointer, contextKind: contextKind);
 
   SourceAssistanceJob sourceAssistance(
     String root,
@@ -2802,19 +3066,25 @@ class BusyProject {
             result['producerVersion'] != '3' ||
             result['interpretations'] is! List ||
             (result['interpretations'] as List).length > 128 ||
-            (result['interpretations'] as List).any((role) =>
-                role is! Map || role['kind'] is! String ||
-                (role['kind'] as String).isEmpty) ||
+            (result['interpretations'] as List).any(
+              (role) =>
+                  role is! Map ||
+                  role['kind'] is! String ||
+                  (role['kind'] as String).isEmpty,
+            ) ||
             ((result['interpretations'] as List).isNotEmpty &&
                 (result['contextPointer'] is! String ||
                     result['contextKind'] is! String ||
-                    !(result['interpretations'] as List).any((role) =>
-                        role['kind'] == result['contextKind']))) ||
+                    !(result['interpretations'] as List).any(
+                      (role) => role['kind'] == result['contextKind'],
+                    ))) ||
             (contextKind != null &&
                 (result['contextKind'] != contextKind ||
                     result['contextPointer'] != contextPointer)))) {
-      throw CoreFailure('assist.protocol',
-          'Source assistance returned an unowned interpretation or producer');
+      throw CoreFailure(
+        'assist.protocol',
+        'Source assistance returned an unowned interpretation or producer',
+      );
     }
     if (action == 'folds') {
       final source = snapshot.resources.firstWhere((r) => r['id'] == resource);
@@ -3310,7 +3580,8 @@ class BusyProject {
     final resources = {
       for (final s in plan._snapshots)
         for (final r in s.allInputs)
-          if (r['bundled'] != true && r['kind'] != 'external-example') r['id'] as String,
+          if (r['bundled'] != true && r['kind'] != 'external-example')
+            r['id'] as String,
     };
     if (plan.edits.any((edit) => _standardResources.containsKey(edit.buffer)))
       throw CoreFailure(
@@ -3325,10 +3596,15 @@ class BusyProject {
     });
     var examplesCurrent = true;
     for (final snapshot in plan._snapshots) {
-      if (!await _externalExampleInputsCurrent(snapshot,
-          cancelled: current == null ? null : () => !current())) examplesCurrent = false;
+      if (!await _externalExampleInputsCurrent(
+        snapshot,
+        cancelled: current == null ? null : () => !current(),
+      ))
+        examplesCurrent = false;
     }
-    if (!valid() || !examplesCurrent || resources.any((id) => store.get(id).externalConflict)) {
+    if (!valid() ||
+        !examplesCurrent ||
+        resources.any((id) => store.get(id).externalConflict)) {
       throw CoreFailure(
         'refactor.stale',
         'A source file changed after review; no proposed edits were applied',
@@ -3523,7 +3799,8 @@ class BusyProject {
     if (contextBound) {
       final inputs = {
         for (final input in snap.allInputs)
-          if (input['bundled'] != true && input['kind'] != 'external-example') input['id'] as String,
+          if (input['bundled'] != true && input['kind'] != 'external-example')
+            input['id'] as String,
       };
       // Watcher delivery is not a publication barrier. Reuse the anchored disk
       // refresh used by reviewed refactorings, including unopened context inputs.
@@ -3537,9 +3814,12 @@ class BusyProject {
         }
         await refreshDisk(input);
       });
-      final examplesCurrent = await _externalExampleInputsCurrent(snap,
-          cancelled: current == null ? null : () => !current());
-      if (_closed || !examplesCurrent ||
+      final examplesCurrent = await _externalExampleInputsCurrent(
+        snap,
+        cancelled: current == null ? null : () => !current(),
+      );
+      if (_closed ||
+          !examplesCurrent ||
           (current != null && !current()) ||
           !snap.current(store) ||
           contextRevision != _resourceRevision ||
@@ -3699,12 +3979,14 @@ class BusyProject {
     BufferReloadCapture? accepted,
     Future<void> Function()? beforeReload,
     RunCancellation? cancellation,
+    bool Function()? inputCurrent,
   }) async {
     final capture = accepted ?? captureReload(b);
     bool current() =>
         identical(capture.project, this) &&
         identical(capture.buffer, b) &&
-        capture.current;
+        capture.bufferCurrent &&
+        (inputCurrent?.call() ?? capture.current);
     if (!current()) return const BufferReloadResult(BufferReloadStatus.stale);
     late DocumentBuffer read;
     try {

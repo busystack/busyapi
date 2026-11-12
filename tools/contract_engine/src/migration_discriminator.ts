@@ -1,46 +1,46 @@
 import {SourceError} from './document';
 import {documentUriOccurrences} from './document_uris';
 import {documentUriBase,pointerFragment,resolveUri,type GraphScope,type ReferenceGraph} from './reference_graph';
-import {MigrationSource,type MigrationLocation} from './migration_source';
+import {SourcePlan,type SourceLocation} from './source_plan';
 import type {MigrationIssue} from './migration_schema';
 import {DiscriminatorModels} from './discriminator_models';
 import {MigrationSchemaOwners} from './migration_schema_owners';
 import {migrationScopes,migrationReferences} from './migration_documents';
 
-const key=(location:MigrationLocation)=>JSON.stringify([location.resource,location.pointer]);
+const key=(location:SourceLocation)=>JSON.stringify([location.resource,location.pointer]);
 const inside=(pointer:string,root:string)=>pointer===root||pointer.startsWith(root+'/');
-const address=(location:MigrationLocation)=>location.resource+pointerFragment(location.pointer);
+const address=(location:SourceLocation)=>location.resource+pointerFragment(location.pointer);
 type Mapping=Readonly<{
-    primaryTargets:ReadonlyMap<string,MigrationLocation>;
-    referenceTargets:ReadonlyMap<string,MigrationLocation>;
+    primaryTargets:ReadonlyMap<string,SourceLocation>;
+    referenceTargets:ReadonlyMap<string,SourceLocation>;
 }>;
 
 /** Swagger selection is scoped to an actual instance and active dispatcher.
  * Same-instance allOf/ref paths inherit that state; property/item instances
  * restart it. Separate target variants model the finite active-dispatcher
  * states, retaining composition instead of flattening accepted instances. */
-export function migrateSwaggerDiscriminators(graph:ReferenceGraph,sources:Map<string,MigrationSource>,issue:MigrationIssue,
-    contexts:readonly ReferenceGraph[],presentation:(original:MigrationLocation)=>void):Mapping {
+export function migrateSwaggerDiscriminators(graph:ReferenceGraph,sources:Map<string,SourcePlan>,issue:MigrationIssue,
+    contexts:readonly ReferenceGraph[],presentation:(original:SourceLocation)=>void):Mapping {
     const scopes=[...migrationScopes(contexts)].filter(scope=>scope.kind==='schema');
     const bases=scopes.filter(scope=>scope.family==='2.0'&&
         typeof graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value?.discriminator==='string'&&
         typeof graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value?.$ref!=='string');
-    const primaryTargets=new Map<string,MigrationLocation>(),referenceTargets=new Map<string,MigrationLocation>();
+    const primaryTargets=new Map<string,SourceLocation>(),referenceTargets=new Map<string,SourceLocation>();
     if(!bases.length)return {primaryTargets,referenceTargets};
     for(const base of bases)if(graph.literalContainer(base.resource,base.pointer)!==undefined){
         issue({...base,pointer:base.pointer+'/discriminator'},'migration.discriminator.literal-context','This dispatcher also belongs to literal data; separate semantic ownership is required before specialization','implementation');
         return {primaryTargets,referenceTargets};
     }
     const entry=sources.get(graph.root)!;
-    const sourceOf=(location:MigrationLocation)=>({...location,range:graph.docs.get(location.resource)!.dataNode(location.pointer)!.range});
+    const sourceOf=(location:SourceLocation)=>({...location,range:graph.docs.get(location.resource)!.dataNode(location.pointer)!.range});
     const pristine=new Map([...sources].map(([resource,source])=>[resource,source.fork()]));
-    const locations=(original:MigrationLocation):MigrationLocation[]=>[...pristine].flatMap(([resource,source])=>
+    const locations=(original:SourceLocation):SourceLocation[]=>[...pristine].flatMap(([resource,source])=>
         [...(resource===original.resource?source.origins.get(original.pointer):source.foreignOrigins.get(original.resource+'#'+original.pointer))??[]]
             .map(pointer=>({resource,pointer})));
     for(const scope of scopes)if(scope.family==='2.0'){
         const mapped=locations(scope);if(mapped.length===1)primaryTargets.set(key(scope),mapped[0]);
     }
-    const primary=(original:MigrationLocation):MigrationLocation=>{
+    const primary=(original:SourceLocation):SourceLocation=>{
         const result=primaryTargets.get(key(original));
         if(!result)throw new SourceError('migration.discriminator.owner','A selected schema needs one proved primary converted owner',sourceOf(original).range,'unsupported',sourceOf(original));
         return result;
@@ -68,27 +68,27 @@ export function migrateSwaggerDiscriminators(graph:ReferenceGraph,sources:Map<st
     }
     const references=[...migrationReferences(contexts)].filter(edge=>edge.kind==='schema'&&!edge.connection&&edge.keyword==='$ref'&&edge.resolution==='resolved');
     const uris=[...documentUriOccurrences(graph)],owners=new MigrationSchemaOwners(graph,sources);
-    const variants=new Map<string,MigrationLocation>(),choicesByName=new Map<string,MigrationLocation>(),processed=new Set<string>();
+    const variants=new Map<string,SourceLocation>(),choicesByName=new Map<string,SourceLocation>(),processed=new Set<string>();
     let edits=0,cost=0,cloneBytes=0,generated=0,inspected=0;
-    let nonObject:MigrationLocation|undefined;
-    const admit=(source:MigrationSource)=>{
+    let nonObject:SourceLocation|undefined;
+    const admit=(source:SourcePlan)=>{
         if(++edits>4096||(cost+=source.doc.text.length*2)>128*1024*1024)
             throw new SourceError('limit.migration.discriminator','Discriminator specialization exceeds its bounded CST edit work',undefined,'unsupported');
     };
     const inspect=()=>{if(++inspected>2000000)throw new SourceError('limit.migration.discriminator','Specialized reference/URI inspection exceeds its bounded work',undefined,'unsupported');};
-    const reserve=(kind:string,identity:string,scope:GraphScope):MigrationLocation=>{
+    const reserve=(kind:string,identity:string,scope:GraphScope):SourceLocation=>{
         if(++generated>2048)throw new SourceError('limit.migration.discriminator','Discriminator specialization exceeds 2048 generated schema owners',sourceOf(scope).range,'unsupported',sourceOf(scope));
         return owners.allocate(entry,'/components/schemas',kind,identity);
     };
-    const mappedWithin=(original:MigrationLocation,owner:MigrationLocation,destination:MigrationLocation)=>{
+    const mappedWithin=(original:SourceLocation,owner:SourceLocation,destination:SourceLocation)=>{
         const at=locations(original).filter(location=>location.resource===owner.resource&&inside(location.pointer,owner.pointer));
         if(at.length!==1)throw new SourceError('migration.discriminator.provenance','A specialized occurrence has no unique converted source coordinate',sourceOf(original).range,'unsupported',sourceOf(original));
         return {resource:destination.resource,pointer:destination.pointer+at[0].pointer.slice(owner.pointer.length)};
     };
-    const set=(at:MigrationLocation,value:unknown)=>{
+    const set=(at:SourceLocation,value:unknown)=>{
         const source=sources.get(at.resource)!;admit(source);source.set(at.pointer,value);
     };
-    const walk=(scope:GraphScope,owner:MigrationLocation,destination:MigrationLocation,active:ReadonlySet<string>,depth:number):void=>{
+    const walk=(scope:GraphScope,owner:SourceLocation,destination:SourceLocation,active:ReadonlySet<string>,depth:number):void=>{
         if(depth>=128)throw new SourceError('limit.migration.discriminator','Same-instance discriminator composition exceeds 128 levels',sourceOf(scope).range,'unsupported',sourceOf(scope));
         const at=mappedWithin(scope,owner,destination),state=JSON.stringify([at,[...active].sort()]);
         if(processed.has(state))return;processed.add(state);
@@ -136,7 +136,7 @@ export function migrateSwaggerDiscriminators(graph:ReferenceGraph,sources:Map<st
         set({...at,pointer:at.pointer+'/discriminator'},{propertyName:value.discriminator,mapping});
         set({...at,pointer:at.pointer+'/anyOf'},choices);
     };
-    const variant=(scope:GraphScope,active:ReadonlySet<string>):MigrationLocation=>{
+    const variant=(scope:GraphScope,active:ReadonlySet<string>):SourceLocation=>{
         const identity=JSON.stringify([scope.resource,scope.pointer,[...active].sort()]),known=variants.get(identity);
         if(known)return known;
         if(variants.size>=1024)throw new SourceError('limit.migration.discriminator','Discriminator specialization exceeds 1024 captured schema states',sourceOf(scope).range,'unsupported',sourceOf(scope));

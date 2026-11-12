@@ -4,7 +4,7 @@ import {documentUriOccurrences} from './document_uris';
 import {documentUriBase,pointerFragment,resolveUri,type GraphScope,type ReferenceGraph} from './reference_graph';
 import {propertyAccess} from './schema_access';
 import {DiscriminatorModels} from './discriminator_models';
-import {MigrationSource,type MigrationLocation} from './migration_source';
+import {SourcePlan,type SourceLocation} from './source_plan';
 import type {MigrationIssue} from './migration_schema';
 import {MigrationSchemaOwners} from './migration_schema_owners';
 import {migrationScopes,migrationReferences} from './migration_documents';
@@ -13,9 +13,9 @@ import {modernFamily} from './specification';
 type Direction='request'|'response';
 type AccessOwner=Readonly<{family:string;property:boolean;origin:GraphScope}>;
 type Child=Readonly<{scope:GraphScope;property:boolean;sameInstance:boolean}>;
-const key=(location:MigrationLocation)=>JSON.stringify([location.resource,location.pointer]);
+const key=(location:SourceLocation)=>JSON.stringify([location.resource,location.pointer]);
 const inside=(pointer:string,parent:string)=>pointer===parent||pointer.startsWith(parent+'/');
-const address=(location:MigrationLocation)=>location.resource+pointerFragment(location.pointer);
+const address=(location:SourceLocation)=>location.resource+pointerFragment(location.pointer);
 
 type DiscriminatorBindings=Readonly<{models:ReadonlyMap<string,GraphScope>;unbound:readonly GraphScope[]}>;
 
@@ -56,8 +56,8 @@ function discriminatorBindings(graph:ReferenceGraph,scope:GraphScope,selection:D
  * Original neutral definitions survive. Known consumers use explicit variants.
  * All copies and replacements belong to the existing CST/provenance owner. */
 export function migrateDirectionalSchemas(original:ReferenceGraph,graph:ReferenceGraph,
-    sources:Map<string,MigrationSource>,families:readonly string[],target:string,issue:MigrationIssue,
-    createSchemaResource:()=>MigrationSource,contexts:readonly ReferenceGraph[],sourceContexts:readonly ReferenceGraph[]=[original],
+    sources:Map<string,SourcePlan>,families:readonly string[],target:string,issue:MigrationIssue,
+    createSchemaResource:()=>SourcePlan,contexts:readonly ReferenceGraph[],sourceContexts:readonly ReferenceGraph[]=[original],
     owners=new MigrationSchemaOwners(graph,sources,createSchemaResource,[],contexts)):void {
     const converting=new Set(families.filter(family=>family==='2.0'&&target!=='2.0'||
         family==='3.0'&&(modernFamily(target)||target==='2.0')||modernFamily(family)&&target==='2.0'));
@@ -189,7 +189,7 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
         }
     }
     const uris=contexts.flatMap(context=>[...documentUriOccurrences(context)]);
-    function literalOwner(location:MigrationLocation):GraphScope|undefined {
+    function literalOwner(location:SourceLocation):GraphScope|undefined {
         if(!contexts.some(context=>context.literalContainer(location.resource,location.pointer)!==undefined))return;
         let pointer=location.pointer;
         while(true){
@@ -212,17 +212,17 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
     }
     const pristine=new Map([...sources].map(([resource,source])=>[resource,source.fork()]));
     const entry=sources.get(graph.root)!;
-    let registry:MigrationSource|undefined;
-    const variants=new Map<string,MigrationLocation>();
-    const neutralVariants=new Map<string,MigrationLocation>();
-    const headerVariants=new Map<string,MigrationLocation>();
+    let registry:SourcePlan|undefined;
+    const variants=new Map<string,SourceLocation>();
+    const neutralVariants=new Map<string,SourceLocation>();
+    const headerVariants=new Map<string,SourceLocation>();
     let edits=0,work=0,bytes=0;
-    const admit=(source:MigrationSource)=>{
+    const admit=(source:SourcePlan)=>{
         if(++edits>4096||(work+=source.doc.text.length*2)>128*1024*1024)
             throw new SourceError('limit.migration.direction','Directional specialization exceeds its bounded CST edit work');
     };
-    const set=(location:MigrationLocation,value:unknown)=>{const source=sources.get(location.resource)!;admit(source);source.set(location.pointer,value);};
-    const replace=(location:MigrationLocation,value:unknown)=>{
+    const set=(location:SourceLocation,value:unknown)=>{const source=sources.get(location.resource)!;admit(source);source.set(location.pointer,value);};
+    const replace=(location:SourceLocation,value:unknown)=>{
         const source=sources.get(location.resource)!;
         // Retire only replaced descendants. Array positions and the selected
         // occurrence itself retain their identity and cannot shift a sibling.
@@ -230,13 +230,13 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
             if(pointer!==location.pointer&&inside(pointer,location.pointer))values.delete(pointer);
         set(location,value);
     };
-    function reserve(label:string,identity:string,container='schemas'):MigrationLocation {
+    function reserve(label:string,identity:string,container='schemas'):SourceLocation {
         if(variants.size+neutralVariants.size+headerVariants.size>=1024)throw new SourceError('limit.migration.direction','Directional specialization exceeds 1024 states');
         const source=container==='schemas'?(registry??=createSchemaResource()):entry;
         const prefix=container==='schemas'?'':'/components/'+container;
         return owners.allocate(source,prefix,label,identity);
     }
-    function copy(scope:GraphScope,destination:MigrationLocation):void {
+    function copy(scope:GraphScope,destination:SourceLocation):void {
         const source=pristine.get(scope.resource)!;
         // Only the captured copy needs independent token ownership. A neutral
         // original with no edited consumer keeps its anchors and aliases.
@@ -263,7 +263,7 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
     function inspect():void {
         if(++inspections>2000000)throw new SourceError('limit.migration.direction','Directional reference and URI inspection exceeds its bounded work');
     }
-    function neutral(scope:GraphScope,depth=0):MigrationLocation {
+    function neutral(scope:GraphScope,depth=0):SourceLocation {
         const identity=key(scope),known=neutralVariants.get(identity);
         if(known)return known;
         if(depth>128)throw new SourceError('limit.migration.direction','Neutral schema reference inspection exceeds 128 levels');
@@ -283,7 +283,7 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
             rewriteBindings(nested,{resource:destination.resource,pointer:destination.pointer+nested.pointer.slice(scope.pointer.length)},undefined,depth);
         return destination;
     }
-    function rewriteBindings(scope:GraphScope,location:MigrationLocation,direction:Direction|undefined,depth:number):void {
+    function rewriteBindings(scope:GraphScope,location:SourceLocation,direction:Direction|undefined,depth:number):void {
         for(const [name,model]of bindings.get(key(scope))??[]){
             const selected=affected.has(key(model))?(direction?variant(model,direction,false,depth+1):neutral(model,depth+1)):model;
             set({...location,pointer:location.pointer+'/discriminator/mapping/'+escape(name)},address(selected));
@@ -297,7 +297,7 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
             set({...location,pointer:location.pointer+'/discriminator/defaultMapping'},address(selected));
         }
     }
-    function variant(scope:GraphScope,direction:Direction,property:boolean,depth=0):MigrationLocation {
+    function variant(scope:GraphScope,direction:Direction,property:boolean,depth=0):SourceLocation {
         const identity=JSON.stringify([key(scope),direction,property]),known=variants.get(identity);
         if(known)return known;
         if(depth>128)throw new SourceError('limit.migration.direction','Directional schema references exceed 128 levels');
@@ -321,7 +321,7 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
         sources.get(destination.resource)!.presentationChanges.push(destination.pointer);
         return destination;
     }
-    function walk(scope:GraphScope,location:MigrationLocation,direction:Direction,property:boolean,depth:number):void {
+    function walk(scope:GraphScope,location:SourceLocation,direction:Direction,property:boolean,depth:number):void {
         if(depth>128)throw new SourceError('limit.migration.direction','Directional schema traversal exceeds 128 levels');
         const source=sources.get(location.resource)!,value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
         if(!value||typeof value!=='object'||Array.isArray(value))return;
@@ -414,7 +414,7 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
         changed=false;
         for(const reference of headerReferences)if(affectedHeaders.has(key({resource:reference.targetResource!,pointer:reference.targetPointer!}))&&!affectedHeaders.has(key(reference))){affectedHeaders.add(key(reference));changed=true;}
     }
-    function headerVariant(scope:GraphScope,direction:Direction,depth=0):MigrationLocation {
+    function headerVariant(scope:GraphScope,direction:Direction,depth=0):SourceLocation {
         const identity=JSON.stringify([key(scope),direction]),known=headerVariants.get(identity);
         if(known)return known;
         if(depth>128||headerVariants.size>=512)throw new SourceError('limit.migration.direction','Directional Header specialization exceeds its bounded state/depth');

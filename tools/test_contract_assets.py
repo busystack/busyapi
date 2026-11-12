@@ -76,6 +76,10 @@ class ContractAssets(unittest.TestCase):
         self.assertNotIn('@apidevtools/json-schema-ref-parser', distributed)
         self.assertNotIn('playwright', distributed)
         self.assertNotIn('@scarf/scarf', distributed)
+        self.assertFalse(any(Path(name).name.startswith('migration')
+            for name in receipt['bundleInputs']['engine.cjs'] if 'node_modules/' not in name))
+        self.assertTrue(any(Path(name).name == 'migration.ts'
+            for name in receipt['bundleInputs']['conversion-worker.cjs']))
         self.assertNotIn('@asyncapi/specs', distributed)
         acorn = next(package for package in index['packages'] if package['name'] == 'acorn')
         self.assertEqual(acorn['version'], '8.19.0')
@@ -87,7 +91,7 @@ class ContractAssets(unittest.TestCase):
             package = next(value for value in index['packages'] if value['name'] == name)
             self.assertEqual((package['version'], package['license']), (version, license_id))
         self.assertEqual(receipt['runtimeEntrypoints'],
-                         ['engine.cjs', 'policy-worker.cjs', 'mock-server.cjs'])
+                         ['engine.cjs', 'conversion-worker.cjs', 'policy-worker.cjs', 'mock-server.cjs'])
         self.assertEqual(hashlib.sha256((self.stage / 'policy-worker.cjs').read_bytes()).hexdigest(), receipt['policyHelperSha256'])
         policy_receipt = json.loads((self.stage / 'policy-build.json').read_text())
         for name, identity in policy_receipt['files'].items():
@@ -108,6 +112,20 @@ class ContractAssets(unittest.TestCase):
                 self.assertEqual((self.stage / 'licenses' / filename).read_bytes(),
                                  (ROOT / 'tools/contract_engine' / dataset.get('noticeDirectory', 'schemas') / filename).read_bytes())
 
+    def test_editor_profile_has_authoring_and_conversion_without_policy_native_inputs(self):
+        stage = self.root / 'editor-only'
+        result = self.run_prepare(stage, '--node', str(self.node), '--profile', 'editor')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads((stage / 'build.json').read_bytes())
+        self.assertEqual(receipt['profile'], 'editor')
+        for name in ['node', 'engine.cjs', 'conversion-worker.cjs']:
+            self.assertTrue((stage / name).is_file())
+        for name in ['policy-isolation.node', 'policy-launcher', 'policy-build.json']:
+            self.assertFalse((stage / name).exists())
+        result = self.run_prepare(self.stage, '--profile', 'editor')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('separate output directory', result.stderr)
+
     def test_mismatched_runtime_is_rejected_before_publication(self):
         candidate = self.root / 'incorrect-node'
         candidate.write_text('wrong runtime')
@@ -117,7 +135,7 @@ class ContractAssets(unittest.TestCase):
         self.assertFalse((self.root / 'wrong/node').exists())
 
     def test_corrupt_or_missing_helper_is_rebuilt_from_locked_sources(self):
-        for name in ['engine.cjs','policy-worker.cjs','mock-server.cjs',
+        for name in ['engine.cjs','conversion-worker.cjs','policy-worker.cjs','mock-server.cjs',
                      'policy-isolation.node','policy-launcher']:
             helper = self.stage / name
             original = helper.read_bytes()
@@ -159,7 +177,7 @@ include("''' + str(ROOT / 'linux/contract_assets.cmake') + '''")
                                    check=True, capture_output=True)
                     self.assertTrue((bundle / 'libexec/busyapi/node').is_file())
                     self.assertTrue((bundle / 'libexec/busyapi/engine.cjs').is_file())
-                    for name in ['policy-worker.cjs','mock-server.cjs',
+                    for name in ['conversion-worker.cjs','policy-worker.cjs','mock-server.cjs',
                                  'policy-isolation.node','policy-launcher',
                                  'policy-build.json']:
                         self.assertEqual((bundle / 'libexec/busyapi' / name).read_bytes(), (self.stage / name).read_bytes())

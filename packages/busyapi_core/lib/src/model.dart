@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 
@@ -557,10 +558,83 @@ List<List<String>> decodePublicationGroups(Object? value, Set<String> allowed) {
   return groups;
 }
 
+String _historyTextIdentity(String text) {
+  // Hash UTF-16 units so temporary, unpaired IME input remains distinguishable.
+  final units = Uint8List(text.length * 2);
+  for (var index = 0; index < text.length; index++) {
+    final unit = text.codeUnitAt(index);
+    units[index * 2] = unit & 255;
+    units[index * 2 + 1] = unit >> 8;
+  }
+  return contentIdentity(units);
+}
+
+/// Retains changed spans only. Full source belongs to live/file-recovery buffers,
+/// never to each ordinary undo entry. Fingerprints detect out-of-band changes.
+class _HistoryText {
+  _HistoryText(String before, String after, List<TextEdit> edits)
+    : beforeIdentity = _historyTextIdentity(before),
+      afterIdentity = _historyTextIdentity(after),
+      forward = List.unmodifiable(
+        edits.where((edit) => edit.expected != edit.replacement),
+      ) {
+    var shift = 0;
+    final inverse = <TextEdit>[];
+    for (final edit in forward) {
+      final start = edit.start + shift;
+      inverse.add(
+        TextEdit(
+          buffer: edit.buffer,
+          generation: edit.generation,
+          start: start,
+          end: start + edit.replacement.length,
+          expected: edit.replacement,
+          replacement: edit.expected,
+        ),
+      );
+      shift += edit.replacement.length - edit.expected.length;
+    }
+    backward = List.unmodifiable(inverse);
+  }
+  final String beforeIdentity, afterIdentity;
+  final List<TextEdit> forward;
+  late final List<TextEdit> backward;
+
+  int get retainedBytes =>
+      256 +
+      forward.fold<int>(
+        0,
+        (total, edit) =>
+            total + 192 + (edit.expected.length + edit.replacement.length) * 2,
+      );
+
+  String replay(String source, {required bool undo}) {
+    final edits = undo ? backward : forward;
+    if (edits.isEmpty) return source;
+    final output = StringBuffer();
+    var cursor = 0;
+    for (final edit in edits) {
+      if (edit.start < cursor ||
+          edit.end > source.length ||
+          source.substring(edit.start, edit.end) != edit.expected) {
+        throw CoreFailure(
+          'history.stale',
+          'Historical edit no longer matches its source',
+        );
+      }
+      output
+        ..write(source.substring(cursor, edit.start))
+        ..write(edit.replacement);
+      cursor = edit.end;
+    }
+    output.write(source.substring(cursor));
+    return output.toString();
+  }
+}
+
 class _History {
   _History(
-    this.before,
-    this.after,
+    this.text,
     this.label,
     this.transitions,
     this.buffers,
@@ -568,12 +642,37 @@ class _History {
     this.afterPaths,
     this.coupledPublication,
   );
-  final Map<String, String> before, after;
+  final Map<String, _HistoryText> text;
   final String label;
   final List<SemanticTransition> transitions;
   final Map<String, DocumentBuffer> buffers;
   final Map<DocumentBuffer, _BufferPathState> beforePaths, afterPaths;
   final bool coupledPublication;
+  int get retainedBytes =>
+      text.values.fold<int>(
+        0,
+        (total, change) => total + change.retainedBytes,
+      ) +
+      label.length * 2 +
+      transitions.fold<int>(
+        0,
+        (total, transition) =>
+            total +
+            64 +
+            (transition.resource.length +
+                    transition.from.length +
+                    transition.to.length +
+                    transition.toResource.length +
+                    transition.mode.length) *
+                2,
+      ) +
+      beforePaths.values
+          .followedBy(afterPaths.values)
+          .fold<int>(
+            0,
+            (total, path) =>
+                total + (path.id.length + path.path.length) * 2 + 64,
+          );
 }
 
 class BufferStore {
@@ -724,6 +823,21 @@ class BufferStore {
   final Map<DocumentBuffer, int> _historyOwners = {};
   bool get canUndo => _undo.isNotEmpty;
   bool get canRedo => _redo.isNotEmpty;
+  int get historyRetainedBytes =>
+      _undo
+          .followedBy(_redo)
+          .fold<int>(0, (total, entry) => total + entry.retainedBytes) +
+      _historyOwners.keys
+          .where((buffer) => !buffer.present)
+          .fold<int>(
+            0,
+            (total, buffer) =>
+                total +
+                buffer.text.length * 2 +
+                (identical(buffer.text, buffer.baseline)
+                    ? 0
+                    : buffer.baseline.length * 2),
+          );
   DocumentBuffer get(String id) =>
       buffers[id] ??
       (throw CoreFailure('buffer.missing', 'Buffer is no longer open'));
@@ -882,7 +996,7 @@ class BufferStore {
       (grouped[edit.buffer] ??= []).add(edit);
     }
     final next = <String, String>{}, before = <String, String>{};
-    var estimatedBytes = 0;
+    var estimatedBytes = 0, allocatedBytes = 0;
     for (final entry in grouped.entries) {
       final b = input(entry.key);
       if (!b.present &&
@@ -937,7 +1051,20 @@ class BufferStore {
               (n, edit) =>
                   n + edit.replacement.length - (edit.end - edit.start),
             );
-        estimatedBytes += (b.text.length + length) * 2;
+        allocatedBytes += length * 2;
+        if (allocatedBytes > 64 * 1024 * 1024) {
+          throw CoreFailure(
+            'limit.buffers',
+            'Edited source exceeds the transaction allocation budget',
+          );
+        }
+        estimatedBytes += sorted.fold<int>(
+          0,
+          (total, edit) =>
+              total +
+              (edit.expected.length + edit.replacement.length) * 2 +
+              128,
+        );
         if (estimatedBytes > 64 * 1024 * 1024) {
           throw CoreFailure(
             'limit.transaction',
@@ -993,10 +1120,15 @@ class BufferStore {
       for (final b in bound.values)
         b: pathChanges[b] ?? _BufferPathState(b.id, b.path, b.present),
     };
-    final planBytes =
-        before.values.fold<int>(0, (n, t) => n + t.length * 2) +
-        next.values.fold<int>(0, (n, t) => n + t.length * 2);
-    if (planBytes > 64 * 1024 * 1024) {
+    final changes = <String, _HistoryText>{
+      for (final id in before.keys)
+        id: _HistoryText(before[id]!, next[id]!, grouped[id] ?? const []),
+    };
+    final retainedBytes = changes.values.fold<int>(
+      0,
+      (total, change) => total + change.retainedBytes,
+    );
+    if (retainedBytes > 64 * 1024 * 1024) {
       throw CoreFailure(
         'limit.transaction',
         'Transaction exceeds the 64 MiB history budget; no buffers were changed',
@@ -1064,8 +1196,7 @@ class BufferStore {
             ),
     ];
     final history = _History(
-      before,
-      next,
+      changes,
       label,
       List.unmodifiable(historyTransitions),
       bound,
@@ -1077,21 +1208,14 @@ class BufferStore {
     for (final buffer in history.buffers.values) {
       _historyOwners[buffer] = (_historyOwners[buffer] ?? 0) + 1;
     }
-    int historyBytes() => _undo.fold<int>(
-      0,
-      (sum, h) =>
-          sum +
-          h.before.values.fold<int>(0, (n, t) => n + t.length * 2) +
-          h.after.values.fold<int>(0, (n, t) => n + t.length * 2),
-    );
-    while (_undo.length > 1 &&
-        (_undo.length > 200 || historyBytes() > 64 * 1024 * 1024)) {
-      _releaseHistory(_undo.removeAt(0));
-    }
-    for (final history in _redo) {
-      _releaseHistory(history);
+    for (final entry in _redo) {
+      _releaseHistory(entry);
     }
     _redo.clear();
+    while (_undo.length > 1 &&
+        (_undo.length > 200 || historyRetainedBytes > 64 * 1024 * 1024)) {
+      _releaseHistory(_undo.removeAt(0));
+    }
     _pruneAbsent();
     if (coupledPublication) _couplePublicationBuffers(bound.values);
     onCommitted?.call(Set.unmodifiable(bound.values));
@@ -1140,10 +1264,10 @@ class BufferStore {
   List<SemanticTransition> undo() {
     if (_undo.isEmpty) return const [];
     final h = _undo.last;
-    _verifyHistory(h.after, h.buffers, h.afterPaths);
+    _verifyHistory(h, undo: true);
     _verifyPathDestinations(h.beforePaths);
     _undo.removeLast();
-    _restoreHistory(h.before, h.buffers, h.beforePaths);
+    _restoreHistory(h, undo: true);
     _redo.add(h);
     if (h.coupledPublication) _couplePublicationBuffers(h.buffers.values);
     onCommitted?.call(Set.unmodifiable(h.buffers.values));
@@ -1155,31 +1279,33 @@ class BufferStore {
   List<SemanticTransition> redo() {
     if (_redo.isEmpty) return const [];
     final h = _redo.last;
-    _verifyHistory(h.before, h.buffers, h.beforePaths);
+    _verifyHistory(h, undo: false);
     _verifyPathDestinations(h.afterPaths);
     _redo.removeLast();
-    _restoreHistory(h.after, h.buffers, h.afterPaths);
+    _restoreHistory(h, undo: false);
     _undo.add(h);
     if (h.coupledPublication) _couplePublicationBuffers(h.buffers.values);
     onCommitted?.call(Set.unmodifiable(h.buffers.values));
     return h.transitions;
   }
 
-  void _verifyHistory(
-    Map<String, String> expected,
-    Map<String, DocumentBuffer> bound,
-    Map<DocumentBuffer, _BufferPathState> paths,
-  ) {
-    for (final entry in expected.entries) {
-      final b = bound[entry.key], path = paths[b];
-      if (b == null ||
-          !(b.present ? identical(buffers[b.id], b) : _absent.contains(b)) ||
-          buffers[b.id] != null && !identical(buffers[b.id], b) ||
-          b.text != entry.value ||
-          path == null ||
-          b.id != path.id ||
-          b.path != path.path ||
-          b.present != path.present) {
+  void _verifyHistory(_History history, {required bool undo}) {
+    final paths = undo ? history.afterPaths : history.beforePaths;
+    for (final entry in history.text.entries) {
+      final buffer = history.buffers[entry.key]!;
+      final path = paths[buffer]!;
+      final identity = undo
+          ? entry.value.afterIdentity
+          : entry.value.beforeIdentity;
+      if (!(buffer.present
+              ? identical(buffers[buffer.id], buffer)
+              : _absent.contains(buffer)) ||
+          buffers[buffer.id] != null &&
+              !identical(buffers[buffer.id], buffer) ||
+          _historyTextIdentity(buffer.text) != identity ||
+          buffer.id != path.id ||
+          buffer.path != path.path ||
+          buffer.present != path.present) {
         throw CoreFailure(
           'history.stale',
           'Source changed outside this transaction; no history was replayed',
@@ -1200,18 +1326,24 @@ class BufferStore {
     }
   }
 
-  void _restoreHistory(
-    Map<String, String> text,
-    Map<String, DocumentBuffer> bound,
-    Map<DocumentBuffer, _BufferPathState> paths,
-  ) {
+  void _restoreHistory(_History history, {required bool undo}) {
+    // Construct every resource before changing any owner: replay is atomic.
+    final replacements = <DocumentBuffer, String>{
+      for (final entry in history.text.entries)
+        history.buffers[entry.key]!: entry.value.replay(
+          history.buffers[entry.key]!.text,
+          undo: undo,
+        ),
+    };
     final changed = <DocumentBuffer>{};
-    for (final entry in text.entries) {
-      final b = bound[entry.key]!;
-      if (b.text != entry.value) changed.add(b);
-      b.update(entry.value);
+    for (final entry in replacements.entries) {
+      if (entry.key.text != entry.value) changed.add(entry.key);
+      entry.key.update(entry.value);
     }
-    _setPaths(paths, textChanged: changed);
+    _setPaths(
+      undo ? history.beforePaths : history.afterPaths,
+      textChanged: changed,
+    );
   }
 
   void _setPaths(

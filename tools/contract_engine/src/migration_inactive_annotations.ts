@@ -1,6 +1,6 @@
 import {escape} from './document';
 import type {GraphScope,ReferenceGraph} from './reference_graph';
-import type {MigrationSource} from './migration_source';
+import type {SourcePlan} from './source_plan';
 import {restrictedBooleanSchema} from './migration_schema_values';
 import {MigrationSchemaOwners} from './migration_schema_owners';
 
@@ -9,8 +9,8 @@ import {MigrationSchemaOwners} from './migration_schema_owners';
  * Swagger has no corresponding fields. Remove only these false annotations;
  * a modern value also referenced as a boolean schema keeps a separate owner.
  * Active annotations still require their own faithful representation. */
-export function migrateInactiveSchemaAnnotations(graph:ReferenceGraph,scope:GraphScope,source:MigrationSource,
-    sources:ReadonlyMap<string,MigrationSource>,target:string,owners:MigrationSchemaOwners):void {
+export function migrateInactiveSchemaAnnotations(graph:ReferenceGraph,scope:GraphScope,source:SourcePlan,
+    sources:ReadonlyMap<string,SourcePlan>,target:string,owners:MigrationSchemaOwners):void {
     if(target!=='2.0'||scope.family==='2.0')return;
     const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
     if(graph.referenceObject(value,scope))return;
