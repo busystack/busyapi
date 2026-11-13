@@ -43,15 +43,18 @@ export function sourceValueIdentity(doc:SourceDocument,pointer:string):string {
     return typeof node.value==='number'?doc.dataJson(pointer).trim():JSON.stringify(node.value);
 }
 
-/** Mutable planning copies of the existing CST, never live source buffers.
- * Original coordinates remain attached to every surviving/moved occurrence. */
+/** Mutable planning coordinates over immutable captured syntax. Edits replace
+ * the parsed document; original coordinates stay with surviving occurrences. */
 export class SourcePlan {
     doc:SourceDocument;
     readonly origins=new Map<string,Set<string>>();
     readonly foreignOrigins=new Map<string,Set<string>>();
     readonly presentationChanges:string[]=[];
     constructor(readonly original:SourceDocument, copy?:SourcePlan) {
-        this.doc=copy?.doc??new SourceDocument(original.text,original.id);
+        if(!copy&&original.issues.length){
+            const error=original.issues[0];throw new SourceError(error.code,error.message,error.range,error.kind,error.source);
+        }
+        this.doc=copy?.doc??original;
         if(copy){
             for(const [origin,locations]of copy.origins)this.origins.set(origin,new Set(locations));
             for(const [origin,locations]of copy.foreignOrigins)this.foreignOrigins.set(origin,new Set(locations));

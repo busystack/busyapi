@@ -299,7 +299,9 @@ private lazy indexes remain separate from shared parsing.
 Folding captures and parses only the selected physical resource, including an
 incomplete declaration or an approved unopened fragment. It does not acquire a
 project graph; other assistance retains its captured semantic context. SourcePlan
-forks share immutable syntax and copy mutable provenance without another parse.
+construction and forks share immutable syntax and copy mutable provenance without
+another parse. Captured syntax issues retain their strict admission error; edits
+replace the parsed document without changing the capture.
 Operation moves use `planOperationMove`; same-container method changes edit only
 the key, preserving operation position and adjacent bytes.
 
