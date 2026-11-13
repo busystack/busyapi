@@ -4135,6 +4135,8 @@ info: {title: Cancellation, version: '1'}
 servers: [{url: 'http://127.0.0.1:${server!.port}'}]
 paths: {/pets: {get: {responses: {'200': {description: ok, content: {application/json: {schema: {type: object}}}}}}}}
 ''');
+        });
+        await runWidgetIo(tester, () async {
           final sending = HttpOverrides.runWithHttpOverrides(
             f.run.send,
             _NativeHttp(),

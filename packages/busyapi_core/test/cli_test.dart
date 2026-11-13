@@ -7,73 +7,78 @@ import 'package:test/test.dart';
 import 'test_support.dart';
 
 void main() {
-  test('CLI secret input failures are bounded and never echo supplied values', () async {
-    final temp = await Directory.systemTemp.createTemp('busyapi-cli-secret-');
-    addTearDown(() => temp.delete(recursive: true));
-    final root = File('${temp.path}/root.yaml')
-      ..writeAsStringSync(
-        'openapi: 3.2.1\ninfo: {title: Secrets, version: "1"}\npaths: {}\n',
-      );
-    final original = root.readAsBytesSync();
-    const canary = 'synthetic-stdin-secret-canary';
-    final inputs = <(List<int>, String)>[
-      (utf8.encode('{"reference":"$canary",}'), 'secret.input'),
-      (utf8.encode('["$canary"]'), 'secret.input'),
-      ([...utf8.encode('{"reference":"$canary'), 0xff], 'secret.input'),
-      (
-        utf8.encode('{"reference":"$canary${'x' * (1024 * 1024)}"}'),
-        'secret.input.limit',
-      ),
-    ];
-    for (final machine in [false, true]) {
-      for (final (input, code) in inputs) {
-        final process = await Process.start(
-          '$testBundle/busyapi',
-          [
-            'test',
-            root.path,
-            '--case',
-            'selected',
-            '--secrets-stdin',
-            if (machine) '--json',
-          ],
-          environment: const {'PATH': '', 'LANG': 'C.UTF-8'},
-          includeParentEnvironment: false,
-        );
-        final output = process.stdout.transform(utf8.decoder).join();
-        final errors = process.stderr.transform(utf8.decoder).join();
-        try {
-          try {
-            process.stdin.add(input);
-            await process.stdin.close();
-          } on FileSystemException {
-            // A bounded reader may close an oversized pipe before its producer.
-          }
-          expect(
-            await process.exitCode.timeout(const Duration(seconds: 15)),
-            3,
+  const canary = 'synthetic-stdin-secret-canary';
+  final inputs = <(List<int>, String)>[
+    (utf8.encode('{"reference":"$canary",}'), 'secret.input'),
+    (utf8.encode('["$canary"]'), 'secret.input'),
+    ([...utf8.encode('{"reference":"$canary'), 0xff], 'secret.input'),
+    (
+      utf8.encode('{"reference":"$canary${'x' * (1024 * 1024)}"}'),
+      'secret.input.limit',
+    ),
+  ];
+  for (final machine in [false, true]) {
+    for (final (index, (input, code)) in inputs.indexed) {
+      test(
+        'CLI secret input failures are bounded and never echo supplied values machine=$machine input=$index',
+        () async {
+          final temp = await Directory.systemTemp.createTemp(
+            'busyapi-cli-secret-',
           );
-          final stdout = await output, stderr = await errors;
-          expect('$stdout$stderr', isNot(contains(canary)));
-          if (machine) {
-            final result = jsonDecode(stdout) as Map;
-            expect(result['version'], 1);
-            expect(result['complete'], false);
-            expect(result['error']['code'], code);
-            expect(stderr, isEmpty);
-          } else {
-            expect(stdout, isEmpty);
-            expect(stderr, contains(code));
+          addTearDown(() => temp.delete(recursive: true));
+          final root = File('${temp.path}/root.yaml')
+            ..writeAsStringSync(
+              'openapi: 3.2.1\ninfo: {title: Secrets, version: "1"}\npaths: {}\n',
+            );
+          final original = root.readAsBytesSync();
+          final process = await Process.start(
+            '$testBundle/busyapi',
+            [
+              'test',
+              root.path,
+              '--case',
+              'selected',
+              '--secrets-stdin',
+              if (machine) '--json',
+            ],
+            environment: const {'PATH': '', 'LANG': 'C.UTF-8'},
+            includeParentEnvironment: false,
+          );
+          final output = process.stdout.transform(utf8.decoder).join();
+          final errors = process.stderr.transform(utf8.decoder).join();
+          try {
+            try {
+              process.stdin.add(input);
+              await process.stdin.close();
+            } on FileSystemException {
+              // A bounded reader may close an oversized pipe before its producer.
+            }
+            expect(
+              await process.exitCode.timeout(const Duration(seconds: 15)),
+              3,
+            );
+            final stdout = await output, stderr = await errors;
+            expect('$stdout$stderr', isNot(contains(canary)));
+            if (machine) {
+              final result = jsonDecode(stdout) as Map;
+              expect(result['version'], 1);
+              expect(result['complete'], false);
+              expect(result['error']['code'], code);
+              expect(stderr, isEmpty);
+            } else {
+              expect(stdout, isEmpty);
+              expect(stderr, contains(code));
+            }
+            expect(root.readAsBytesSync(), original);
+            expect(File('${temp.path}/busyapi.yaml').existsSync(), false);
+          } finally {
+            process.kill();
+            await process.exitCode;
           }
-          expect(root.readAsBytesSync(), original);
-          expect(File('${temp.path}/busyapi.yaml').existsSync(), false);
-        } finally {
-          process.kill();
-          await process.exitCode;
-        }
-      }
+        },
+      );
     }
-  });
+  }
   test('CLI explicit URI mappings resolve from original base without a display or writes', () async {
     final temp = await Directory.systemTemp.createTemp('busyapi-cli-map-');
     addTearDown(() => temp.delete(recursive: true));
