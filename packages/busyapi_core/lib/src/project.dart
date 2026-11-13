@@ -3684,7 +3684,13 @@ class BusyProject {
         plan._revision == _resourceRevision &&
         plan._snapshots.every((s) => s.current(store)) &&
         (current == null || current());
-    if (!valid())
+    // An invalidated capture still needs the consequential disk refresh below:
+    // clean buffers adopt the external version while the proposed edits remain
+    // bound to their original snapshot. Owner/approval changes admit no work.
+    if (_closed ||
+        !identical(plan._owner, this) ||
+        plan._revision != _resourceRevision ||
+        current?.call() == false)
       throw CoreFailure(
         'refactor.stale',
         'The reviewed project snapshot changed; no edits were applied',
@@ -3722,14 +3728,16 @@ class BusyProject {
         'A source file changed after review; no proposed edits were applied',
       );
     }
-    if (plan is FileMovePlan) await _verifyFileMove(plan);
-    if (plan is FileCreationPlan) await _verifyFileCreation(plan);
-    if (plan is FileDeletionPlan) await _verifyFileDeletion(plan);
-    if (!valid())
-      throw CoreFailure(
-        'refactor.stale',
-        'The reviewed project changed before applying the move',
-      );
+    if (plan is FileMovePlan || plan is FileCreationPlan || plan is FileDeletionPlan) {
+      if (plan is FileMovePlan) await _verifyFileMove(plan);
+      if (plan is FileCreationPlan) await _verifyFileCreation(plan);
+      if (plan is FileDeletionPlan) await _verifyFileDeletion(plan);
+      if (!valid())
+        throw CoreFailure(
+          'refactor.stale',
+          'The reviewed project changed before applying the file operation',
+        );
+    }
     store.apply(
       plan.edits,
       coupledPublication: true,

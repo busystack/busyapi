@@ -140,7 +140,12 @@ void main() {
       final a = await project.buffer(root.uri.toString()),
           b = await project.buffer(data.uri.toString());
       final plan = await project.planFileMove(b.id, '${temp.path}/new.json');
-      if (changed == 'source') await data.writeAsString('new external bytes');
+      if (changed == 'source') {
+        await data.writeAsString('new external bytes');
+        // Deliver the relevant watch invalidation before Commit. It must not
+        // bypass the existing exact refresh of this clean, captured source.
+        project.store.invalidateResource(b.id);
+      }
       if (changed == 'consumer') project.store.replace(a.id, '${a.text} ');
       if (changed == 'policy')
         await File('${temp.path}/.spectral.yaml').writeAsString('rules: {}\n');
