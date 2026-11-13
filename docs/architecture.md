@@ -352,6 +352,9 @@ association, including component children owned by an entry-specific map copy.
 Mixed modern families lower to Swagger in one object phase, before aliases copy
 their converted definitions. A route split retains an independently referenced
 Schema directly; that reference does not retain its old executable Path Item.
+Homogeneous tuples associate identical, fixed reference applications with the
+selected surviving application. Unconsumed aliases need no unused holder;
+independently referenced schemas keep their own material targets.
 Native Reference Object annotation overrides are `summary` and `description`.
 Unknown sibling fields keep their ignored native meaning while any independently
 referenced Schema interpretation retains its own captured data.

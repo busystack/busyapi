@@ -131,3 +131,30 @@ test(`${format} ${firstVersion} mixed native entries retain shared flat Header o
  assert.deepEqual(input.resources.map(value=>value.text),originals);
  assert.deepEqual((await planMigration({...input,resources:[...resources].reverse()})).outputs.slice().sort((a,b)=>a.id.localeCompare(b.id)),review.outputs.slice().sort((a,b)=>a.id.localeCompare(b.id)));
 });
+
+for(const [version,targetVersion]of [['3.1.2','2.0'],['3.2.1','3.0.4']])for(const format of ['yaml','json'])for(const independentTail of [false,true])
+test(`${version} ${format} identical fixed dynamic tuple applications retain references independentTail=${independentTail}`,async()=>{
+ const root='file:///fixed-tuple/api.'+format,model='file:///fixed-tuple/model.yaml';
+ const value={openapi:version,info:{title:'Fixed tuple applications',version:'1'},paths:{'/p':{get:{parameters:[{$ref:'#/components/parameters/Values'}],responses:{200:{description:'Values',headers:{'X-Values':{$ref:'#/components/headers/Alias'}}}}}}},
+  components:{schemas:{Subject:{$ref:'model.yaml#model'},Independent:{$ref:'model.yaml#/$defs/Independent'},...(independentTail?{Tail:{$ref:'model.yaml#/$defs/Actual/items'}}:{})},
+   parameters:{Values:{name:'values',in:'query',style:'form',explode:true,schema:{$ref:'#/components/schemas/Subject'}}},
+   headers:{Actual:{schema:{$ref:'#/components/schemas/Subject'}},Alias:{$ref:'#/components/headers/Actual'}}}};
+ const text=format==='json'?JSON.stringify(value):YAML.stringify(value),modelText='# Keep fixed reference metadata\r\n$schema: https://json-schema.org/draft/2020-12/schema\r\n$id: model.yaml\r\n$defs:\r\n'+
+  '  Actual: {"$anchor":"model","type":"array","prefixItems":[{"$dynamicRef":"#item"}],"items":{"$dynamicRef":"#item"},"maxItems":3}\r\n'+
+  '  Item: {"$dynamicAnchor":"item","type":"integer","format":"int64","minimum":9007199254740993.00}\r\n'+
+  '  Independent: {"$ref":"#/$defs/Actual/prefixItems/0"}\r\nx-values: &literal {number: 9007199254740993.00, flag: false}\r\nx-alias: *literal\r\n';
+ const input={root,snapshot:'fixed-tuple-applications',resources:[{id:root,text,generation:1},{id:model,text:modelText,generation:2}],targetVersion,destination:'file:///fixed-tuple-output/'};
+ const samples={Subject:['[]','[9007199254740993.00]','[9007199254740992]','[9007199254740993,9007199254740994]','[9007199254740993,9007199254740993,9007199254740993,9007199254740993]','null'],
+  Independent:['9007199254740993.00','9007199254740992','false'],...(independentTail?{Tail:['9007199254740993.00','9007199254740992','false']}:{})};
+ const evaluate=async(packet,prefix)=>{
+  const result=await evaluateSchemas({...packet,runtimeInstances:Object.entries(samples).flatMap(([name,values])=>values.map(text=>({subject:'response-body',location:name,text,schema:{resource:packet.root,pointer:prefix+'/'+name}})))});
+  assert.equal(result.complete,true,JSON.stringify(result.findings));return result.runtimeEvaluations.map(result=>result.valid);
+ };
+ const before=await evaluate(input,'/components/schemas');assert.deepEqual(before.slice(0,6),[true,true,false,true,false,false]);
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const output={root:review.outputRoot,snapshot:'fixed-tuple-cold',resources:review.outputs.map(file=>({...file,generation:0}))};
+ assert.equal(analyse(output).complete,true);assert.deepEqual(await evaluate(output,targetVersion==='2.0'?'/definitions':'/components/schemas'),before);
+ const original=new SourceDocument(modelText,model),destination=review.changes.find(change=>change.resource===model).destination,copy=createGraph(output).graph.docs.get(destination);
+ for(const pointer of ['/x-values','/x-alias'])assert.equal(copy.dataJson(pointer),original.dataJson(pointer));
+ assert.deepEqual(input.resources.map(file=>file.text),[text,modelText]);
+});

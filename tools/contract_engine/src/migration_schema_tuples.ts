@@ -166,17 +166,17 @@ function factorTupleTail(graph:ReferenceGraph,scope:GraphScope,source:SourcePlan
  * position has the same assertions and annotations. A closed tail remains a
  * length bound; unreachable positions keep independent material owners. */
 function homogeneousTupleProof(graph:ReferenceGraph,prefixes:readonly GraphScope[],tail:GraphScope|undefined,closed:boolean,maximum:number|undefined):
-    Readonly<{selected:GraphScope|undefined}>|undefined {
+    Readonly<{selected:GraphScope|undefined;aliases:readonly GraphScope[]}>|undefined {
     const count=maximum===undefined?prefixes.length:Math.min(prefixes.length,maximum);
     const tailReachable=!closed&&(maximum===undefined||maximum>prefixes.length),proofs=new MigrationSchemaProofs(graph);
     const schemas=prefixes.slice(0,count),selected=schemas[0]??(tailReachable?tail:undefined);
+    const bareAlias=(scope:GraphScope)=>{
+        const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
+        if(!value||typeof value!=='object'||Object.keys(value).length!==1)return;
+        const keyword=['$ref','$dynamicRef'].find(field=>typeof value[field]==='string');return keyword?proofs.fixed(scope,keyword):undefined;
+    };
     const equivalent=(a:GraphScope,b:GraphScope)=>{
         const left=graph.docs.get(a.resource)!,right=graph.docs.get(b.resource)!;
-        const bareAlias=(scope:GraphScope)=>{
-            const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
-            if(!value||typeof value!=='object'||Object.keys(value).length!==1)return;
-            const keyword=['$ref','$dynamicRef'].find(field=>typeof value[field]==='string');return keyword?proofs.fixed(scope,keyword):undefined;
-        };
         const x=bareAlias(a),y=bareAlias(b),sameAlias=x&&y&&x.resource===y.resource&&x.pointer===y.pointer;
         return schemaResourceContextIdentity(a)===schemaResourceContextIdentity(b)&&
             sourceValueIdentity(left,a.pointer)===sourceValueIdentity(right,b.pointer)&&
@@ -185,7 +185,13 @@ function homogeneousTupleProof(graph:ReferenceGraph,prefixes:readonly GraphScope
     };
     if(selected&&(!schemas.every(schema=>equivalent(schema,selected))||tailReachable&&
         (tail?!equivalent(tail,selected):!proofs.annotationFree(selected)||constantSchemaAssertion(graph,selected)!==true)))return;
-    return {selected};
+    const fixed=selected&&bareAlias(selected);
+    const aliases=selected&&fixed?[...schemas,...(tailReachable&&tail?[tail]:[])].filter(schema=>{
+        if(schema===selected||schemaResourceContextIdentity(schema)!==schemaResourceContextIdentity(selected)||
+            sourceValueIdentity(graph.docs.get(schema.resource)!,schema.pointer)!==sourceValueIdentity(graph.docs.get(selected.resource)!,selected.pointer))return false;
+        const target=bareAlias(schema);return target?.resource===fixed.resource&&target.pointer===fixed.pointer;
+    }):[];
+    return {selected,aliases};
 }
 
 function homogeneousTuple(graph:ReferenceGraph,scope:GraphScope,source:SourcePlan,pointer:string,
@@ -194,6 +200,25 @@ function homogeneousTuple(graph:ReferenceGraph,scope:GraphScope,source:SourcePla
     const proof=homogeneousTupleProof(graph,prefixes,tail,closed,maximum);if(!proof)return false;
     const {selected}=proof;
     const context=owners.contextOf(scope);
+    if(selected&&proof.aliases.length){
+        const keyword=Object.keys(graph.docs.get(selected.resource)!.dataNode(selected.pointer)!.value)[0];
+        const chosen=source.current(selected.pointer,selected.resource);
+        const references=graph.entryReferences();
+        for(const alias of proof.aliases){
+            if(owners.hasRootConsumer(alias,references))continue;
+            const at=source.current(alias.pointer,alias.resource);
+            if(at===undefined||chosen===undefined||at===chosen||!at.startsWith(pointer+'/'))continue;
+            source.own(at,true,true);source.own(chosen,true,true);
+            const from=source.current(alias.pointer+'/'+keyword,alias.resource),field=source.current(selected.pointer+'/'+keyword,selected.resource);
+            if(from===undefined||field===undefined||source.doc.dataNode(from)?.value!==source.doc.dataNode(field)?.value)continue;
+            // The homogeneous proof already selected this exact fixed
+            // application. Associate its captured root and reference field
+            // before retiring it; no unused tuple holder needs materializing.
+            source.associate(source,at,chosen);source.associate(source,from,field);
+            owners.rememberEntry(context?.root??graph.root,alias,selected);
+            source.remove(at,true,true,true);
+        }
+    }
     let chosen:ReturnType<MigrationSchemaOwners['move']>|undefined;
     for(const schema of prefixes){
         const at=source.current(schema.pointer,schema.resource);if(at===undefined||!at.startsWith(pointer+'/'+keyword+'/'))continue;
