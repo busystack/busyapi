@@ -104,7 +104,8 @@ void main() {
       if (index == 1) {
         final example = await project.inspectObject(root, root, '/components/examples/Payload', contextKind: 'example');
         final value = (example['fields'] as List).cast<Map>().singleWhere((value) => value['name'] == 'value');
-        expect(jsonDecode(await project.readDataValue(Map<String, dynamic>.from(value))), literal);
+        expect(value['present'], true);
+        expect((jsonDecode(await project.readDataValue(example)) as Map)['value'], literal);
       }
     }
     final cli = await Process.run('$testBundle/busyapi', ['check', relocated.path, '--json'], environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);

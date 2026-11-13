@@ -29,7 +29,6 @@ Map<String, String> r3bSources(String format, {String baseUrl = 'https://api.inv
         'schema': {'type': 'integer', 'enum': ['EXACT']},
         'examples': {'Count': ref('/components/examples/Count')},
         'encoding': {'part': {'headers': {'X-Part': {'schema': {'type': 'integer'}}}}},
-        'prefixEncoding': <Object?>[], 'itemEncoding': <String, Object?>{},
       }, if (unused == 'media') 'Unused': {'schema': {'type': 'boolean'}, 'example': false}},
       'examples': {'Count': {'externalValue': 'count.bin'}},
       'schemas': {'Independent': ref('/components/mediaTypes/Payload/schema')},

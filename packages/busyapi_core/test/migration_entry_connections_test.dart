@@ -61,7 +61,7 @@ void main() {
       expect((metadata['fields'] as List).cast<Map>().singleWhere((field) => field['name'] == 'defaultMapping')['present'], true);
       final binding = (metadata['references'] as List).cast<Map>().singleWhere((value) => value['keyword'] == 'defaultMapping');
       final target = await project.inspectObject(root, binding['targetResource'] as String, binding['targetPointer'] as String, contextKind: 'schema');
-      expect(target['value']['x-entry'], entry);
+      expect((jsonDecode(await project.readDataValue(target)) as Map)['x-entry'], entry);
       final request = await project.prepareRequest(root, resource: root, pointer: '/paths/~1dictionary/get');
       try {
         final evaluated = await request.evaluateRuntime([
@@ -82,7 +82,8 @@ void main() {
     final buffer = await source.buffer(files.first.uri.toString());
     source.store.replace(buffer.id, buffer.text.replaceFirst('First', 'Captured First'));
     final stale = await source.prepareMigration(buffer.id, '${directory.path}/stale', targetVersion: '3.2.1');
-    addTearDown(stale.close);expect(stale.publishable, true, reason: '${stale.result}');
+    addTearDown(stale.close);
+    expect(stale.publishable, true, reason: '${stale.result}');
     source.store.replace(buffer.id, buffer.text.replaceFirst('Captured First', 'Current First'));
     await expectLater(stale.publish(), throwsA(isA<CoreFailure>().having((failure) => failure.code, 'code', 'migration.stale')));
     final review = await source.prepareMigration(buffer.id, '${directory.path}/output', targetVersion: '3.2.1');
@@ -99,8 +100,17 @@ void main() {
       await exercise(cold, destination.uri.toString(), entry);
       expect(await destination.readAsString(), contains('9007199254740993.00'));
       if (index == 1) {
-        final native = await cold.inspectObject(destination.uri.toString(), destination.uri.toString(), '/components/schemas/discriminator', contextKind: 'schema');
-        expect(native['value'], {'propertyName': 'kind', 'defaultMapping': 'Fallback'});
+        var native = await cold.inspectObject(destination.uri.toString(), destination.uri.toString(), '/components/schemas/discriminator', contextKind: 'schema');
+        for (var count = 0; count < 64; count++) {
+          final reference = (native['references'] as List).cast<Map>().where((value) => value['keyword'] == r'$ref').firstOrNull;
+          if (reference == null) break;
+          expect(reference['resolution'], 'resolved');
+          native = await cold.inspectObject(destination.uri.toString(), reference['targetResource'] as String, reference['targetPointer'] as String, contextKind: 'schema');
+          expect(count, lessThan(63), reason: 'Native component forwarding remains bounded');
+        }
+        expect(jsonDecode(await cold.readDataValue(native)), {'propertyName': 'kind', 'defaultMapping': 'Fallback'});
+        final document = await cold.inspectObject(destination.uri.toString(), destination.uri.toString(), '');
+        expect((jsonDecode(await cold.readDataValue(document)) as Map)['x-history'], second['x-history']);
       }
     }
     final cli = await Process.run('$testBundle/busyapi', ['check', relocated.path, '--json'], environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);

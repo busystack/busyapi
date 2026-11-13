@@ -180,7 +180,7 @@ void main() {
     final review = await source.prepareMigration(first, '${directory.path}/converted', targetVersion: '3.2.1');addTearDown(review.close);
     expect(review.publishable, true, reason: '${review.result}');await review.publish();
     final migrated = {for (final root in [first, second]) root: review.changes.singleWhere((change) => change.resource == root).destination};
-    for (final entry in originals.entries) expect(await File('${directory.path}/${entry.key}').readAsString(), entry.value);
+    for (final entry in originals.entries) expect(await File('${directory.path}/${entry.key}').readAsBytes(), utf8.encode(entry.value));
     source.close();
     final coldDirectory = await Directory(review.destination).rename('${directory.path}/cold 雪');
     for (final name in originals.keys) await File('${directory.path}/$name').delete();

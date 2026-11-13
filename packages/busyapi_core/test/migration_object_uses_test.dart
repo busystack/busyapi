@@ -40,7 +40,7 @@ void main() {
         'example': {'description': '[Example](../guide.md)', 'externalValue': 'count.bin'},
         'queryExample': {'externalValue': 'query.bin'},
         'header': {'description': '[Header](../header.md)',
-          'content': {'application/json': {'schema': schema()}}, 'examples': {'Captured': ref('example')}},
+          'content': {'application/json': {'schema': schema(), 'examples': {'Captured': ref('example')}}}},
         'parameter': {'name': 'n', 'in': 'query', 'required': true, 'schema': schema(),
           'examples': {'Captured': ref('queryExample')}},
         'body': {r'$ref': '#/components/responses/Shared'},
@@ -61,9 +61,10 @@ void main() {
         },
         'x-data': data,
       };
-      final original = (format == 'yaml'
-          ? '# Preserve native/data source 雪\r\n${value.entries.map((entry) => '${jsonEncode(entry.key)}: ${jsonEncode(entry.value)}').join('\r\n')}\r\n'
-          : jsonEncode(value)).replaceAll('"EXACT"', count);
+      String render(Map<String, Object?> document) => (format == 'yaml'
+          ? '# Preserve native/data source 雪\r\n${document.entries.map((entry) => '${jsonEncode(entry.key)}: ${jsonEncode(entry.value)}').join('\r\n')}\r\n'
+          : jsonEncode(document)).replaceAll('"EXACT"', count);
+      final original = render(value);
       final file = File('${directory.path}/api.$format'), countFile = File('${directory.path}/count.bin'),
           queryFile = File('${directory.path}/query.bin');
       await file.writeAsString(original);
@@ -125,6 +126,18 @@ void main() {
             contextKind: 'parameter'),
         throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'inspect.context.stale')),
       );
+      final validText = project.store.buffers[root]!.text;
+      final invalidValue = jsonDecode(jsonEncode(value)) as Map<String, dynamic>;
+      final invalidHeader = (invalidValue['x-data'] as Map)['header'] as Map;
+      invalidHeader['examples'] = ((invalidHeader['content'] as Map)['application/json'] as Map).remove('examples');
+      project.store.replace(root, render(invalidValue).replaceFirst('Original', 'Captured 雪'));
+      final invalid = await project.prepareMigration(root, '${directory.path}/invalid-header', targetVersion: '3.2.1');
+      addTearDown(invalid.close);
+      expect(invalid.publishable, false);
+      expect((invalid.result['problems'] as List).any((problem) => problem['pointer'] == '/x-data/header' && problem['reason'] == 'source-incomplete'), true, reason: '${invalid.result}');
+      expect(invalid.result['outputs'], isEmpty);
+      expect(await Directory(invalid.destination).exists(), false);
+      project.store.undo();expect(project.store.buffers[root]!.text, validText);
       await send(project, root);
       final review = await project.prepareMigration(root, '${directory.path}/converted', targetVersion: '3.2.1');
       addTearDown(review.close);
@@ -281,14 +294,16 @@ void r3ObjectUses() {
               resolveSecret: (_) async => null);
             try {
               expect(result.conforming, true, reason: '${result.outgoing.findings} ${result.received.findings}');
-              expect(observed.last, ('POST', '/echo', 'application/json', utf8.encode('false')));
+              final actual = observed.last;
+              expect((actual.$1, actual.$2, actual.$3), ('POST', '/echo', 'application/json'));
+              expect(actual.$4, orderedEquals(utf8.encode('false')));
               expect(await result.response.bytes(), utf8.encode('false'));
               expect(result.response.headers, contains(('x-result', 'kept')));
             } finally { await result.close(); }
           } finally { plan.close(); }
         }
         await send(project);
-        final review = await project.prepareMigration(root, '${directory.path}/target', targetVersion: target);
+        var review = await project.prepareMigration(root, '${directory.path}/target', targetVersion: target);
         addTearDown(review.close);
         expect(review.publishable, true, reason: '${review.result}');
         expect(review.unsaved, true);if (format == 'json' && target == '3.1.2') {
@@ -309,6 +324,9 @@ void r3ObjectUses() {
           addTearDown(stale.close);project.store.replace(root, buffer.text.replaceFirst('Unsaved R3', 'Changed R3'));
           await expectLater(stale.publish(), throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'migration.stale')));
           project.store.undo();
+          await expectLater(review.publish(), throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'migration.stale')));
+          review = await project.prepareMigration(root, '${directory.path}/target', targetVersion: target);
+          addTearDown(review.close);expect(review.publishable, true, reason: '${review.result}');expect(review.unsaved, true);
         }
         await review.publish();expect(await file.readAsString(), original);
         project.close();await file.delete();
@@ -417,6 +435,17 @@ void r3bReusableOwners() {
         }
       }
       await exchange(project, file.uri.toString());
+      final validText = buffer.text;
+      final invalidText = validText.replaceFirst('"encoding":', '"prefixEncoding":[],"itemEncoding":{},"encoding":');
+      expect(invalidText, isNot(validText));project.store.replace(buffer.id, invalidText);
+      final invalid = await project.prepareMigration(file.uri.toString(), '${directory.path}/invalid-encoding', targetVersion: '2.0');
+      addTearDown(invalid.close);expect(invalid.publishable, false);
+      final problems = invalid.result['problems'] as List;
+      for (final name in ['prefixEncoding', 'itemEncoding']) {
+        expect(problems.any((problem) => problem['pointer'] == '/components/mediaTypes/Payload/$name' && problem['reason'] == 'source-incomplete'), true, reason: '${invalid.result}');
+      }
+      expect(invalid.result['outputs'], isEmpty);expect(await Directory(invalid.destination).exists(), false);
+      project.store.undo();expect(buffer.text, validText);
       final review = await project.prepareMigration(file.uri.toString(), '${directory.path}/converted', targetVersion: '2.0');
       addTearDown(review.close);expect(review.publishable, true, reason: '${review.result}');expect(review.unsaved, true);
       expect(review.exampleCopies, isEmpty);expect(review.snapshot.exampleResources.single.bytes, utf8.encode(r3bCount));

@@ -239,14 +239,14 @@ void main() {
     final entry = File('${relocated.path}/$entryName').uri.toString();await exercise(cold, entry);
     final otherName = Uri.parse(review.changes.singleWhere((change) => change.resource == other.uri.toString()).destination).pathSegments.last;
     final page = await cold.inspectObject(entry, File('${relocated.path}/$otherName').uri.toString(), '/components/schemas/additionalProperties', contextKind: 'schema');
-    expect(page['value'][r'$id'], 'https://schemas.invalid/retained');
+    expect((jsonDecode(await cold.readDataValue(page)) as Map)[r'$id'], 'https://schemas.invalid/retained');
     final literal = await cold.inspectObject(entry, File('${relocated.path}/$otherName').uri.toString(), '/components/schemas/properties', contextKind: 'schema');
-    expect(literal['value']['value'][r'$id'], 'https://schemas.invalid/secondary');
+    expect((jsonDecode(await cold.readDataValue(literal)) as Map)['value'][r'$id'], 'https://schemas.invalid/secondary');
     final view = await cold.inspectObject(entry, entry, '/components/schemas/Target', contextKind: 'schema');
     final target = (view['references'] as List).single['target'] as Map;
     final child = await cold.inspectObject(entry, target['resource'] as String, '${target['pointer']}/properties/value', contextKind: 'schema');
-    expect(child['value'][r'$id'], 'https://schemas.invalid/secondary');
-    expect(child['value']['const'], false);
+    final childData = jsonDecode(await cold.readDataValue(child)) as Map;
+    expect(childData[r'$id'], 'https://schemas.invalid/secondary');expect(childData['const'], false);
     expect(await File('${relocated.path}/$otherName').readAsString(), contains('9007199254740993.00'));
     final cli = await Process.run('$testBundle/busyapi', ['check', relocated.path, '--json'], environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
     expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');
@@ -339,9 +339,7 @@ void main() {
             'content': {'application/json': {'schema': {r'$ref': '#/components/schemas/Model'}}}}},
         }}},
         'components': {'schemas': {'Model': {r'$ref': 'models.yaml#/Forward'}}, 'examples': {
-          // Capture the second complete description without coupling the two
-          // entry-specific Schema Objects to one another's runtime consumers.
-          'Entry': title == 'Legacy' ? {r'$ref': 'modern.yaml#/components/examples/Entry'} : {'value': 'Modern entry'},
+          'Entry': {'value': '$title entry'},
         }},
       };
       final originals = {
@@ -353,12 +351,25 @@ void main() {
       for (final entry in originals.entries) {
         await File('${directory.path}/${entry.key}').writeAsString(entry.value);
       }
-      final source = await BusyProject.open('${directory.path}/legacy.yaml', engine);
+      final manifest = File('${directory.path}/busyapi.yaml');
+      const manifestText = 'version: 1\nroots: [{name: legacy, path: legacy.yaml}, {name: modern, path: modern.yaml}]\n';
+      await manifest.writeAsString(manifestText);
+      final source = await BusyProject.open(directory.path, engine);
       addTearDown(source.close);
       final legacy = File('${directory.path}/legacy.yaml').uri.toString();
       final modern = File('${directory.path}/modern.yaml').uri.toString();
       final buffer = await source.buffer(legacy);
       source.store.replace(legacy, buffer.text.replaceFirst('Legacy', 'Captured 雪'));
+      if (!modernSource) {
+        final validText = buffer.text;
+        final invalidValue = jsonDecode(validText.split('\r\n')[1]) as Map;
+        invalidValue['components']['examples']['Entry'] = {r'$ref': 'modern.yaml#/components/examples/Entry'};
+        source.store.replace(legacy, '# Keep legacy 雪\r\n${jsonEncode(invalidValue)}\r\n');
+        final invalid = await source.prepareMigration(legacy, '${directory.path}/invalid-family', targetVersion: '3.2.1');addTearDown(invalid.close);
+        expect(invalid.publishable, false);expect(invalid.result['outputs'], isEmpty);
+        expect((invalid.result['problems'] as List).whereType<Map>().any((problem) => problem['code'].toString().contains('reference.family')), true);
+        expect(Directory(invalid.destination).existsSync(), false);source.store.undo();expect(buffer.text, validText);
+      }
 
       Future<void> exercise(BusyProject project, String root, bool nullable) async {
         final plan = await project.prepareRequest(root, resource: root, pointer: '/paths/~1p/post');
@@ -399,6 +410,7 @@ void main() {
       for (final entry in originals.entries) {
         expect(await File('${directory.path}/${entry.key}').readAsString(), entry.value);
       }
+      expect(await manifest.readAsString(), manifestText);
       final migrated = {
         for (final id in [legacy, modern]) id: review.changes.singleWhere((change) => change.resource == id).destination,
       };

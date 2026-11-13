@@ -206,7 +206,7 @@ void main() {
         final reopened = await migrated.check(migratedRoot);
         expect(reopened['complete'], true, reason: '$reopened');
         expect((reopened['findings'] as List).whereType<Map>().where((value) => value['severity'] == 'error'), isEmpty);
-        expect(migrated.store.get(migratedRoot).text, contains('Unsaved'));
+        expect((await migrated.buffer(migratedRoot)).text, contains('Unsaved'));
         await send(migrated, migratedRoot, copiedFile.path);expect(observed.length, 2);
         final cli = await Process.run('$testBundle/busyapi', ['check', moved.path, '--json'],
           environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
@@ -223,8 +223,8 @@ void main() {
       final original = _source('3.2.1', format, 'latin1', logical: true);
       await file.writeAsString(original);await payload.writeAsBytes(_payload('latin1').bytes);
       final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);addTearDown(engine.close);
-      final project = await BusyProject.open(file.path, engine);addTearDown(project.close);
-      await project.approveResource('https://contracts.invalid/payload.bin', payload.uri.toString());
+      await File('${directory.path}/busyapi.yaml').writeAsString('version: 1\nroots: [{name: api, path: api.$format}]\nresourceMappings: {"https://contracts.invalid/payload.bin": payload.bin}\n');
+      final project = await BusyProject.open(directory.path, engine);addTearDown(project.close);
       final review = await project.prepareMigration(file.uri.toString(), '${directory.path}/copy', targetVersion: '3.2.0');addTearDown(review.close);
       expect(review.publishable, true, reason: '${review.result}');await review.publish();
       final moved = await Directory(review.destination).rename('${directory.path}/moved');
