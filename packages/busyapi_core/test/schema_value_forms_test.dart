@@ -65,6 +65,7 @@ PropertySession _session(Map<String, dynamic> page, DocumentBuffer buffer) {
 const _context = <String, Object?>{
   'root': 'file:///controlled/api.yaml',
   'rootVersion': '3.1.2',
+  'rootDialect': 'https://spec.openapis.org/oas/3.1/dialect/base',
   'resource': 'file:///controlled/shared.yaml',
   'resourceVersion': null,
   'pointer': '/Shared',
@@ -104,6 +105,9 @@ void main() {
     _forms({'context': null}),
     _forms({
       'context': {..._context}..remove('rootVersion'),
+    }),
+    _forms({
+      'context': {..._context}..remove('rootDialect'),
     }),
     _forms({
       'context': {..._context, 'resourceVersion': 1},
@@ -502,11 +506,12 @@ void main() {
             },
           ]);
           expect(
-            (await project.inspectObject(
-              root,
-              buffer.id,
-              '/Shared/additionalProperties',
-            ))['boolean'],
+            ((await project.inspectObject(root, buffer.id, '/Shared'))['fields']
+                    as List)
+                .cast<Map>()
+                .singleWhere(
+                  (field) => field['name'] == 'additionalProperties',
+                )['value'],
             false,
           );
           final changed = buffer.text;

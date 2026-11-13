@@ -275,7 +275,7 @@ class OAuthClient {
           default: throw CoreFailure('oauth.device.token', 'The device token endpoint refused this grant.');
         }
       }
-    } on CoreFailure catch (error) {
+    } on CoreFailure {
       if (owned.cancelled && !cancellation.cancelled) {
         throw CoreFailure(expired ? 'oauth.device.expired' : 'oauth.timeout',
             expired ? 'The device authorization code expired.' : 'Device authorization exceeded its local deadline.');

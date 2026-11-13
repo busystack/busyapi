@@ -26,6 +26,53 @@ type Part={pointer:string;name?:string;contentType:string;rule:GraphTarget;schem
 type Entity={contentType:string;parts:Part[]};
 const object=(v:unknown):v is Content=>v!==null&&typeof v==='object'&&!Array.isArray(v);
 const hash=(bytes:Buffer)=>createHash('sha256').update(bytes).digest('hex');
+
+type MultipartEvaluation = Awaited<ReturnType<typeof evaluateSchemas>>;
+
+function failMultipartEvaluation(
+    result: MultipartEvaluation,
+    encoding: MultipartEncoding,
+    at: GraphTarget,
+): never {
+    const first = result.runtimeFindings.find(value => value.severity === 'error') ?? result.runtimeFindings[0];
+    return encoding.failure('request.multipart.conformance', first?.message ??
+        'Generated multipart has no complete conforming evaluation', first?.schema ?? first?.source ?? at);
+}
+
+function multipartProjection(
+    result: MultipartEvaluation,
+    subject: 'request-body' | 'response-body',
+    encoding: MultipartEncoding,
+    at: GraphTarget,
+) {
+    if (!result.runtimeEvaluations.length || result.runtimeEvaluations.some(value => !value.complete)) {
+        failMultipartEvaluation(result, encoding, at);
+    }
+    const projection = result.runtimeEvaluations.find(value => value.subject === subject && typeof value.projectionData === 'string');
+    if (!projection) {
+        encoding.failure('request.multipart.protocol', 'The canonical decoder omitted its captured form projection', at);
+    }
+    return projection;
+}
+
+function requireMultipartConformance(
+    result: MultipartEvaluation,
+    required: unknown,
+    response: boolean,
+    encoding: MultipartEncoding,
+    at: GraphTarget,
+): void {
+    if (required !== undefined && typeof required !== 'boolean') {
+        encoding.failure('request.multipart.protocol', 'requireConformance must be a boolean', at);
+    }
+    // Construction proves byte fidelity. Request execution reports schema
+    // conformance separately, including intentionally invalid user input. Direct
+    // proofs and generated responses retain their strict conformance requirement.
+    if ((response || required !== false) && (result.runtimeEvaluations.some(value => !value.valid) ||
+        result.runtimeFindings.some(value => value.severity === 'error'))) {
+        failMultipartEvaluation(result, encoding, at);
+    }
+}
 // Projection never activates an unused Encoding Object just to discover an
 // editor mode. Syntax/codec errors belong to the actual selected instance.
 const mediaMatches=(raw:unknown,predicate:(type:ReturnType<typeof mediaTypes>[number])=>boolean)=>{
@@ -50,14 +97,13 @@ export async function proveNamedMultipart(graph:ReferenceGraph,content:Content,i
         if(hash(payload.bytes)!==file.identity)fail('request.multipart.file.identity','The emitted file bytes differ from the approved capture');
     }
     const result=await evaluateSchemas({...input,runtimeInstances:[{subject:'request-body',location:input.mediaType,
-        text:input.wire,captureData:true,mediaBase64:true,mediaType:input.wireType,form:{...at,occurrence:input.occurrence,fileShapes:input.fileShapes},
+        text:input.wire,captureData:true,mediaBase64:true,mediaType:input.wireType,
+        form:{...at,
+            ...(input.occurrence !== undefined ? {occurrence:input.occurrence} : {}),
+            ...(input.fileShapes !== undefined ? {fileShapes:input.fileShapes} : {}),
+        },
         schema:content.schema,itemSchema:content.itemSchema}]});
-    if(!result.runtimeEvaluations.length||result.runtimeEvaluations.some(value=>!value.complete||!value.valid)||result.runtimeFindings.some(value=>value.severity==='error')){
-        const first=result.runtimeFindings.find(value=>value.severity==='error')??result.runtimeFindings[0];
-        transfers.failure('request.multipart.conformance',first?.message??'Generated named multipart does not completely satisfy the original captured declaration',first?.schema??first?.source??at);
-    }
-    const projection=result.runtimeEvaluations.find(value=>value.subject==='request-body'&&typeof value.projectionData==='string');
-    if(!projection)fail('request.multipart.protocol','The canonical decoder omitted its captured form projection');
+    const projection = multipartProjection(result, 'request-body', transfers, at);
     const decoded={document:new SourceDocument(projection.projectionData,'urn:busyapi:proved-named',true,'json')};
     const actualBinary=new Set<string>(projection.projectionBinary??[]);
     if(typeof input.expected==='string'){
@@ -77,6 +123,7 @@ export async function proveNamedMultipart(graph:ReferenceGraph,content:Content,i
         };
         if(!equal(''))fail('request.multipart.roundtrip','The generated named body does not decode to its intended typed values');
     }
+    requireMultipartConformance(result, input.requireConformance, false, transfers, at);
     return {complete:true,valid:true};
 }
 
@@ -563,13 +610,7 @@ export async function proveMultipartGeneration(graph:ReferenceGraph,content:Cont
     const runtimeInstances:any[]=[{subject,location:input.mediaType,text:input.wire,captureData:true,mediaBase64:true,mediaType:input.wireType,form,
         schema:content.schema,itemSchema:content.itemSchema,originalData:generated.original,originalFiles:generated.files.map(file=>file.name)}];
     const result=await evaluateSchemas({...input,runtimeInstances});
-    if(!result.runtimeEvaluations.length||result.runtimeEvaluations.some(value=>!value.complete||!value.valid)||result.runtimeFindings.some(value=>value.severity==='error')){
-        const first=result.runtimeFindings.find(value=>value.severity==='error')??result.runtimeFindings[0];
-        const source=first?.schema??first?.source??at;
-        fail('request.multipart.conformance',first?.message??'Generated multipart does not completely satisfy the original captured declaration',source);
-    }
-    const projection=result.runtimeEvaluations.find(value=>value.subject===subject&&typeof value.projectionData==='string');
-    if(!projection)fail('request.multipart.protocol','The canonical decoder omitted its captured form projection');
+    const projection = multipartProjection(result, subject, transfers, at);
     const decoded={document:new SourceDocument(projection.projectionData,'urn:busyapi:proved-multipart',true,'json')};
     const intended=new SourceDocument(generated.raw,'file:///busyapi-intended-multipart',true,'json');
     const files=new Set<string>(generated.files.map(file=>file.name));
@@ -591,6 +632,7 @@ export async function proveMultipartGeneration(graph:ReferenceGraph,content:Cont
         return left.value===right.value;
     };
     if(!equal(''))fail('request.multipart.roundtrip','The emitted body does not decode to the intended typed input');
+    requireMultipartConformance(result, input.requireConformance, input.direction === 'response', transfers, at);
     return {complete:true,valid:true,...(content.formBinding==='multipart-named'&&!content.itemSchema&&
         !projection.projectionBinary?.length?{instance:decoded.document.dataJson('')}:{})};
 }

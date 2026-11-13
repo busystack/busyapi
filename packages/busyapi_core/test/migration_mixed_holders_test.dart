@@ -33,23 +33,23 @@ void main() {
         final checked = await project.check(root);expect(checked['status'], 'complete', reason: '$checked');
         final operations = (checked['projection']['operations'] as List).whereType<Map>().where((operation) => operation['path'] == (version == '3.0.4' && name == 'First' ? '/local' : '/p'));
         expect(operations, hasLength(1));final operation = operations.single;
-        final page = await project.inspectObject(root, operation['resource'], operation['pointer'], contextKind: 'operation');
+        final page = await project.inspectObject(root, operation['resource'] as String, operation['pointer'] as String, contextKind: 'operation');
         expect((jsonDecode(await project.readDataValue(page)) as Map)['operationId'], version == '3.0.4' && name == 'First' ? 'local' : 'shared');
         if (version == '3.0.4' && name == 'First') {
           final link = await project.inspectObject(root, root, '/components/links/Use', contextKind: 'link');
           final binding = (link['references'] as List).whereType<Map>().singleWhere((reference) => reference['connection'] == 'operationRef');
           expect(binding['resolution'], 'resolved');
-          final foreign = await project.inspectObject(root, binding['targetResource'], binding['targetPointer'], contextKind: 'operation');
+          final foreign = await project.inspectObject(root, binding['targetResource'] as String, binding['targetPointer'] as String, contextKind: 'operation');
           expect((jsonDecode(await project.readDataValue(foreign)) as Map)['operationId'], 'shared');
         }
-        final plan = await project.prepareRequest(root, resource: operation['resource'], pointer: operation['pointer'], occurrence: operation['occurrence']);
+        final plan = await project.prepareRequest(root, resource: operation['resource'] as String, pointer: operation['pointer'] as String, occurrence: operation['occurrence'] as String?);
         try {
           final body = (plan.result['responses'][0]['content'][0]['schema'] as Map);
           final evaluated = await plan.evaluateRuntime([
             for (final text in [mixedHolderWire, '{"entry":"chosen","n":9007199254740992}', '{"n":0}',
               if (version != '3.0.4') ...['{"entry":"chosen","n":9007199254740993,"child":{"entry":"chosen","n":9007199254740993}}', '{"entry":"chosen","n":9007199254740993,"child":{"n":0}}']]) RuntimeSchemaInstance(
               subject: 'response-body', location: 'application/json', text: text,
-              schemaResource: body['resource'], schemaPointer: body['pointer']),
+              schemaResource: body['resource'] as String?, schemaPointer: body['pointer'] as String?),
           ]);
           expect(evaluated['complete'], true, reason: '$evaluated');
           expect((evaluated['runtimeEvaluations'] as List).map((value) => value['valid']), [true, false, false, if (version != '3.0.4') ...[true, false]]);

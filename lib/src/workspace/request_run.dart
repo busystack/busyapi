@@ -543,7 +543,9 @@ class RequestRunController extends ChangeNotifier {
     final current = _RequestDraftState(this);
     if (current.bytes > 16 * 1024 * 1024) throw CoreFailure('request.draft.limit', 'The current draft exceeds the retained input limit.');
     _caseDrafts.remove(key);_caseDrafts[key] = current;
-    while (_caseDrafts.length > 32 || _caseDrafts.values.fold<int>(0, (n, item) => n + item.bytes) > 16 * 1024 * 1024) _caseDrafts.remove(_caseDrafts.keys.first);
+    while (_caseDrafts.length > 32 || _caseDrafts.values.fold<int>(0, (n, item) => n + item.bytes) > 16 * 1024 * 1024) {
+      _caseDrafts.remove(_caseDrafts.keys.first);
+    }
     final retained = _caseDrafts['${captured.identity}:${name ?? ''}'];
     if (retained != null) {
       if (environment != retained.environment) selectEnvironment(retained.environment);
@@ -558,7 +560,7 @@ class RequestRunController extends ChangeNotifier {
     exampleRepresentations..clear()..addAll({for (final entry in loaded.parameters.entries)
       if (entry.value.representation == RequestValueRepresentation.serializedParameter || entry.value.representation == RequestValueRepresentation.serializedMedia) entry.key: entry.value.representation});
     parameterExamples..clear()..addAll({for (final entry in loaded.parameters.entries)
-      if (entry.value.capturedExample case final example?) entry.key: example});
+      entry.key: ?entry.value.capturedExample});
     values..clear()..addAll({for (final entry in loaded.parameters.entries) entry.key: entry.value.text});
     structuredValues..clear()..addAll(loaded.parameters.entries.where((entry) => entry.value.json).map((entry) => entry.key));
     omittedValues.clear();customHeaders..clear()..addAll(loaded.headers);
@@ -575,7 +577,9 @@ class RequestRunController extends ChangeNotifier {
     requestVariables.addAll(loaded.variables);tlsFiles.addAll(loaded.tlsFiles);
     connectTimeout = loaded.connectTimeout;overallTimeout = loaded.overallTimeout;inactivityTimeout = loaded.inactivityTimeout;
     selectedCase = name;streamStopAfterRecords=loaded.streamStopAfterRecords;
-    while (_caseDrafts.length > 32) _caseDrafts.remove(_caseDrafts.keys.first);
+    while (_caseDrafts.length > 32) {
+      _caseDrafts.remove(_caseDrafts.keys.first);
+    }
     refresh();
   }
 

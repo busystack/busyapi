@@ -372,7 +372,7 @@ class OperationRequestDraft {
   final Duration connectTimeout, overallTimeout, inactivityTimeout;
 
   static String parameterKey(String location, String name) =>
-      '$location\u0000$name';
+      requestParameterKey(location, name);
 }
 
 class PreparedRequestBody {
@@ -3148,13 +3148,14 @@ class ContractHttpTransport {
               await storage!.write(retained);
               hash.add(retained);
               count += retained.length;
-              if (live != null) {
-                await live.add(retained, receivedCount);
-                if (live.failure != null || streamControl?.stopped == true) {
+              final liveStream = live;
+              if (liveStream != null) {
+                await liveStream.add(retained, receivedCount);
+                if (liveStream.failure != null || streamControl?.stopped == true) {
                   complete = false;
                   reason = streamControl?.stopped == true
                       ? 'stopped'
-                      : live.failure;
+                      : liveStream.failure;
                   finish();
                 }
               }
@@ -4075,7 +4076,7 @@ class ContractRequestExecutor {
             'runtime.parameter.preparation',
             'Modeled parameter evaluation requires its actual prepared media bytes.',
           );
-        var text = nativeContent ? preparedParameterBytes! : value.text;
+        var text = nativeContent ? preparedParameterBytes : value.text;
         if (!nativeContent &&
             value.json &&
             contentMedia?['dataModel'] == 'text') {
@@ -4171,7 +4172,6 @@ class ContractRequestExecutor {
         draft.body.mediaType,
       );
       final schema = media?['schema'];
-      final encoding = media?['encoding'];
       // A projected data instance cannot prove MIME field lines or required
       // header presence. Evaluate the captured entity whenever headers apply.
       final wireHeaders = draft.body.kind == RequestBodyKind.multipart;
@@ -4955,5 +4955,162 @@ class _DigestSink implements Sink<Digest> {
       throw StateError('Response digest was not completed');
     }
     return result;
+  }
+}
+
+/// Request execution owns capture checks and serialization of saved drafts.
+extension OperationRequestCases on OperationRequestPlan {
+  Future<RefactoringPlan> planCase(
+    String name,
+    OperationRequestDraft draft,
+  ) async {
+    ensureCurrentPreparation();
+    if (draft.planIdentity != identity) {
+      throw CoreFailure(
+        'request.stale',
+        'The saved draft differs from its current capture.',
+      );
+    }
+    await ensureParameterExampleInputs(
+      draft.parameters.values
+          .where((value) => value.present && value.capturedExample != null)
+          .map((value) => value.capturedExample!),
+    );
+    final body = draft.body;
+    if (body.capturedExample case final example?) {
+      await bodyExampleBytes(example);
+    }
+    for (final file in body.files) {
+      if (file.capturedExample case final example?) {
+        if (Uri.file(file.path).toString() != example.resource) {
+          throw CoreFailure(
+            'request.example.stale',
+            'The saved part path must identify its selected captured resource.',
+          );
+        }
+        await partExampleBytes(
+          example,
+          body.mediaType!,
+          file.name,
+          file.selectedMediaType ?? file.mediaType,
+        );
+      }
+    }
+    final parameters = <String, Map<String, Object?>>{},
+        modes = <String, Map<String, Object?>>{},
+        parameterExamples = <String, Map<String, Object?>>{};
+    for (final entry in draft.parameters.entries) {
+      if (!entry.value.present) continue;
+      final split = entry.key.indexOf('\u0000');
+      if (split < 0) {
+        throw CoreFailure('test.configuration', 'Invalid parameter identity.');
+      }
+      if (entry.value.capturedExample case final example?) {
+        ensureParameterExample(
+          example,
+          entry.key.substring(0, split),
+          entry.key.substring(split + 1),
+        );
+        (parameterExamples[example.location] ??= {})[example.parameterName] = {
+          'name': example.name ?? '',
+          if (example.mediaType != null) 'mediaType': example.mediaType,
+        };
+        continue;
+      }
+      (parameters[entry.key.substring(0, split)] ??= {})[entry.key.substring(
+        split + 1,
+      )] = entry.value.json
+          ? {'dataJson': entry.value.text}
+          : entry.value.text;
+      (modes[entry.key.substring(0, split)] ??= {})[entry.key.substring(
+        split + 1,
+      )] = entry.value.json
+          ? 'data'
+          : entry.value.representation.name;
+    }
+    final definition = <String, Object?>{
+      'operation': {'path': operation['path'], 'method': operation['method']},
+      if (draft.environment != null) 'environment': draft.environment,
+      if (draft.selectedServer != null) 'server': draft.selectedServer,
+      if (draft.securityAlternative != null)
+        'securityAlternative': draft.securityAlternative,
+      if (parameters.isNotEmpty) 'parameters': parameters,
+      if (parameterExamples.isNotEmpty) 'parameterExamples': parameterExamples,
+      if (draft.headers.any((header) => header.enabled))
+        'headers': [
+          for (final header in draft.headers)
+            if (header.enabled) {'name': header.name, 'value': header.value},
+        ],
+      if (draft.variables.isNotEmpty) 'variables': draft.variables,
+      if (draft.tlsFiles.isNotEmpty)
+        'tlsFiles': {
+          for (final entry in draft.tlsFiles.entries)
+            entry.key: entry.value.isEmpty
+                ? ''
+                : relativeInputPath(entry.value),
+        },
+      'connectTimeoutMs': draft.connectTimeout.inMilliseconds,
+      'overallTimeoutMs': draft.overallTimeout.inMilliseconds,
+      'inactivityTimeoutMs': draft.inactivityTimeout.inMilliseconds,
+      'parameterModes': modes,
+      if (draft.streamStopAfterRecords != null)
+        'stream': {'stopAfterRecords': draft.streamStopAfterRecords},
+      if (body.kind != RequestBodyKind.none)
+        'body': {
+          'mediaType': body.mediaType,
+          if (body.capturedExample != null)
+            'externalExample': body.capturedExample!.name == ''
+                ? {'name': ''}
+                : body.capturedExample!.name ?? '',
+          if (body.kind == RequestBodyKind.binaryFile)
+            'file': relativeInputPath(body.file!),
+          if (body.capturedExample == null &&
+              body.kind != RequestBodyKind.binaryFile) ...{
+            'representation':
+                (body.kind == RequestBodyKind.multipart ||
+                        body.kind == RequestBodyKind.form) &&
+                    body.text == null
+                ? 'fields'
+                : body.modeled ||
+                      body.kind == RequestBodyKind.multipart ||
+                      body.kind == RequestBodyKind.form
+                ? 'data'
+                : 'serialized',
+            'value':
+                (body.kind == RequestBodyKind.multipart ||
+                        body.kind == RequestBodyKind.form) &&
+                    body.text == null
+                ? [
+                    for (final field in body.fields)
+                      {'name': field.name, 'value': field.value},
+                  ]
+                : body.text ?? '',
+          },
+          if (body.partMediaTypes.isNotEmpty)
+            'partMediaTypes': body.partMediaTypes,
+          if (body.partSchemas.isNotEmpty) 'partSchemas': body.partSchemas,
+          if (body.fileShapes.isNotEmpty)
+            'fileShapes': {
+              for (final entry in body.fileShapes.entries)
+                entry.key: entry.value.name,
+            },
+          if (body.partHeaders.isNotEmpty)
+            'partHeaders': [
+              for (final header in body.partHeaders) header.toJson(),
+            ],
+          if (body.files.isNotEmpty)
+            'files': [
+              for (final file in body.files)
+                {
+                  'name': file.name,
+                  'path': relativeInputPath(file.path),
+                  if (file.capturedExample != null) 'capturedExample': true,
+                  if (file.filename != null) 'filename': file.filename,
+                  'mediaType': file.selectedMediaType ?? file.mediaType,
+                },
+            ],
+        },
+    };
+    return planCaseDefinition(name, definition);
   }
 }

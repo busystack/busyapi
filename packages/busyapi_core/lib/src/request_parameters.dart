@@ -4,6 +4,8 @@ import 'model.dart';
 import 'request_text_encoding.dart';
 import 'swagger_serialization.dart';
 
+String requestParameterKey(String location, String name) => '$location\u0000$name';
+
 CoreFailureSource? requestDefinitionSource(Map value) {
   final source = value['definition'] ?? value['source'];
   if (source case {

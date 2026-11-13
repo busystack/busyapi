@@ -246,8 +246,8 @@ for (const format of ['yaml', 'json']) test(`${format} one transaction retains b
         {kind: 'set', pointer: owner.pointer + '/type', value: 'array', schemaTypeChoices: type},
         {kind: 'setData', pointer: owner.pointer + '/items', raw: '{"type":"string"}', schemaValueForms: forms},
     ]}));
-    const node = new SourceDocument(changed.resources[0].text, input.root).dataNode(owner.pointer);
-    assert.deepEqual(node.value, {type: 'array', items: {type: 'string'}});
+    const document = new SourceDocument(changed.resources[0].text, input.root);
+    assert.deepEqual(JSON.parse(document.dataJson(owner.pointer)), {type: 'array', items: {type: 'string'}});
     assert.equal(analyse(changed).status, 'complete');
     assert.equal(new SourceDocument(input.resources[0].text, input.root).dataNode(owner.pointer).children.size, 0);
 });

@@ -696,6 +696,7 @@ class OperationRequestPlan {
       'pointer': (operation['source'] as Map)['pointer'],
       'occurrence': operation['occurrence'],
       'mediaType': mediaType,
+      'requireConformance': false,
       'text': text,
       'files': files,
       'choices': choices,
@@ -738,6 +739,7 @@ class OperationRequestPlan {
       'pointer': (operation['source'] as Map)['pointer'],
       'occurrence': operation['occurrence'],
       'mediaType': mediaType, 'wireType': wireType, 'wire': wire,
+      'requireConformance': false,
       'expected': expected, 'partialFiles': partialFiles, 'files': files,
       'fileShapes': {for (final entry in fileShapes.entries) entry.key: entry.value.name},
     }, requestId, cancellation);
@@ -1091,9 +1093,11 @@ class OperationRequestPlan {
     for (final parameter in (result['parameters'] as List? ?? const []).whereType<Map>()) {
       final content = parameter['content'];
       if (content is! List || content.length != 1 || content.single is! Map) continue;
-      final key = OperationRequestDraft.parameterKey(parameter['in'] as String, parameter['name'] as String);
+      final key = requestParameterKey(parameter['in'] as String, parameter['name'] as String);
       if (rawValues.containsKey(key) || values.containsKey(key) &&
-          ['xml','linkset','linkset-json','json','text'].contains((content.single as Map)['dataModel'])) expected.add(key);
+          ['xml','linkset','linkset-json','json','text'].contains((content.single as Map)['dataModel'])) {
+        expected.add(key);
+      }
     }
     if ((projected['values'] as Map).length != expected.length || !(projected['values'] as Map).keys.every(expected.contains) ||
         projected['percentEncoded'] is! Map || (projected['percentEncoded'] as Map).length != expected.length ||
@@ -1203,72 +1207,25 @@ class OperationRequestPlan {
     return result;
   }
 
-  Future<RefactoringPlan> planCase(String name, OperationRequestDraft draft) async {
+  String relativeInputPath(String path) {
     ensureCurrentPreparation();
-    if (draft.planIdentity != identity) throw CoreFailure('request.stale', 'The saved draft differs from its current capture.');
-    await ensureParameterExampleInputs(draft.parameters.values
-        .where((value) => value.present && value.capturedExample != null).map((value) => value.capturedExample!));
-    final body = draft.body;
-    if (body.capturedExample case final example?) await bodyExampleBytes(example);
-    for (final file in body.files) {
-      if (file.capturedExample case final example?) {
-        if (Uri.file(file.path).toString() != example.resource) throw CoreFailure('request.example.stale',
-            'The saved part path must identify its selected captured resource.');
-        await partExampleBytes(example, body.mediaType!, file.name, file.selectedMediaType ?? file.mediaType);
-      }
+    final relative = p.relative(path, from: _owner.access.boundary);
+    if (p.isAbsolute(relative) ||
+        relative == '..' ||
+        relative.startsWith('..${p.separator}')) {
+      throw CoreFailure(
+        'test.configuration',
+        'Saved file references must remain inside the approved project boundary.',
+      );
     }
-    String relativePath(String path) {
-      final relative = p.relative(path, from: _owner.access.boundary);
-      if (p.isAbsolute(relative) || relative == '..' || relative.startsWith('..${p.separator}')) {
-        throw CoreFailure('test.configuration', 'Saved file references must remain inside the approved project boundary.');
-      }
-      return relative;
-    }
-    final parameters = <String, Map<String, Object?>>{}, modes = <String, Map<String, Object?>>{},
-        parameterExamples = <String, Map<String, Object?>>{};
-    for (final entry in draft.parameters.entries) {
-      if (!entry.value.present) continue;
-      final split = entry.key.indexOf('\u0000');
-      if (split < 0) throw CoreFailure('test.configuration', 'Invalid parameter identity.');
-      if (entry.value.capturedExample case final example?) {
-        ensureParameterExample(example, entry.key.substring(0, split), entry.key.substring(split + 1));
-        (parameterExamples[example.location] ??= {})[example.parameterName] = {
-          'name': example.name ?? '', if (example.mediaType != null) 'mediaType': example.mediaType,
-        };
-        continue;
-      }
-      (parameters[entry.key.substring(0, split)] ??= {})[entry.key.substring(split + 1)] = entry.value.json ? {'dataJson': entry.value.text} : entry.value.text;
-      (modes[entry.key.substring(0, split)] ??= {})[entry.key.substring(split + 1)] = entry.value.json ? 'data' : entry.value.representation.name;
-    }
-    final definition = <String, Object?>{
-      'operation': {'path': operation['path'], 'method': operation['method']},
-      if (draft.environment != null) 'environment': draft.environment,
-      if (draft.selectedServer != null) 'server': draft.selectedServer,
-      if (draft.securityAlternative != null) 'securityAlternative': draft.securityAlternative,
-      if (parameters.isNotEmpty) 'parameters': parameters,
-      if (parameterExamples.isNotEmpty) 'parameterExamples': parameterExamples,
-      if (draft.headers.any((header) => header.enabled)) 'headers': [for (final header in draft.headers) if (header.enabled) {'name': header.name, 'value': header.value}],
-      if (draft.variables.isNotEmpty) 'variables': draft.variables,
-      if (draft.tlsFiles.isNotEmpty) 'tlsFiles': {for (final entry in draft.tlsFiles.entries) entry.key: entry.value.isEmpty ? '' : relativePath(entry.value)},
-      'connectTimeoutMs': draft.connectTimeout.inMilliseconds, 'overallTimeoutMs': draft.overallTimeout.inMilliseconds, 'inactivityTimeoutMs': draft.inactivityTimeout.inMilliseconds,
-      'parameterModes': modes,
-      if(draft.streamStopAfterRecords!=null)'stream':{'stopAfterRecords':draft.streamStopAfterRecords},
-      if (body.kind != RequestBodyKind.none) 'body': {
-        'mediaType': body.mediaType,
-        if (body.capturedExample != null) 'externalExample':
-          body.capturedExample!.name == '' ? {'name': ''} : body.capturedExample!.name ?? '',
-        if (body.kind == RequestBodyKind.binaryFile) 'file': relativePath(body.file!),
-        if (body.capturedExample == null && body.kind != RequestBodyKind.binaryFile) ...{
-          'representation': (body.kind == RequestBodyKind.multipart || body.kind == RequestBodyKind.form) && body.text == null ? 'fields' : body.modeled || body.kind == RequestBodyKind.multipart || body.kind == RequestBodyKind.form ? 'data' : 'serialized',
-          'value': (body.kind == RequestBodyKind.multipart || body.kind == RequestBodyKind.form) && body.text == null ? [for (final field in body.fields) {'name':field.name,'value':field.value}] : body.text ?? '',
-        },
-        if (body.partMediaTypes.isNotEmpty) 'partMediaTypes': body.partMediaTypes,
-        if (body.partSchemas.isNotEmpty) 'partSchemas': body.partSchemas,
-        if (body.fileShapes.isNotEmpty) 'fileShapes': {for (final entry in body.fileShapes.entries) entry.key: entry.value.name},
-        if (body.partHeaders.isNotEmpty) 'partHeaders': [for (final header in body.partHeaders) header.toJson()],
-        if (body.files.isNotEmpty) 'files': [for (final file in body.files) {'name': file.name, 'path': relativePath(file.path), if (file.capturedExample != null) 'capturedExample': true, if (file.filename != null) 'filename': file.filename, 'mediaType': file.selectedMediaType ?? file.mediaType}],
-      },
-    };
+    return relative;
+  }
+
+  Future<RefactoringPlan> planCaseDefinition(
+    String name,
+    Map<String, Object?> definition,
+  ) async {
+    ensureCurrentPreparation();
     final prepared = await _owner.engine.request('planExecutionCase', {
       ...snapshot.toJson(), 'source': configuration.source, 'name': name, 'definition': definition,
       'roots': [for (final root in _owner.roots) {'name': root.name, 'path': p.relative(Uri.parse(root.id).toFilePath(), from: _owner.access.boundary)}],

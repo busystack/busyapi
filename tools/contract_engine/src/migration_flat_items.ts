@@ -191,6 +191,14 @@ export function materializeFlatSchema(graph:ReferenceGraph,sources:ReadonlyMap<s
             if(output.has('maxItems')&&compare(decimal(raw(output.get('maxItems')!)),decimal('0'))===0||domain.length>0&&!members.length)
                 items={type:'string',fields:new Map([['type',{raw:'"string"'}]])};
             else{
+                if(positional.length&&output.has('maxItems')&&
+                    compare(decimal(raw(output.get('maxItems')!)),decimal('1'))<=0&&
+                    positional.every(field=>field.source.doc.dataNode(field.pointer)!.children.has('0'))){
+                    // With at most one reachable item, every tuple constrains
+                    // the same position. Its tail cannot affect any instance.
+                    for(const field of positional)itemInputs.push({source:field.source,pointer:field.pointer+'/0'});
+                    positional.length=0;
+                }
                 if(positional.length)fail(positional[0],'migration.flat-items.positional','Uniform or exhaustive finite item applicability has not been proved for these reachable positional constraints');
                 const next=new Set([...active,...walked]);
                 if(!itemInputs.length){

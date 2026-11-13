@@ -112,6 +112,10 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,SourceP
     const expandedForms=new Set<string>();
     for(const scope of scopes){
         if(scope.family!==from)continue;
+        // Schema conversion owns schema occurrences and their containers.
+        // Resolving their duplicated projection coordinates here would reject
+        // sound branch expansions even though no object rewrite uses them.
+        if(!['parameter','header','request-body','operation','response','security','path-item'].includes(scope.kind))continue;
         const context=contexts.find(context=>{
             const captured=context.scopeAs(scope.resource,scope.pointer,scope.kind);
             return captured?.family===from&&captured.base===scope.base&&captured.schemaParent===scope.schemaParent;

@@ -55,6 +55,198 @@ class _RetirementGate extends RecoveryStore {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  for (final format in ['yaml', 'json']) {
+    for (final changedTarget in [false, true]) {
+      testWidgets(
+        '$format Use Disk completes recovery with changedTarget=$changedTarget',
+        (tester) async {
+          tester.view.physicalSize = const Size(1280, 1000);
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
+          final messenger =
+              TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+          for (final channel in ['yaru_window', 'yaru_window/events']) {
+            messenger.setMockMethodCallHandler(
+              MethodChannel(channel),
+              (_) async => null,
+            );
+            addTearDown(
+              () => messenger.setMockMethodCallHandler(
+                MethodChannel(channel),
+                null,
+              ),
+            );
+          }
+          final temp = Directory.systemTemp.createTempSync(
+            'busyapi-recovered-conflict-',
+          );
+          final c = WorkspaceController(
+            EngineProcess(executable: runtimeNode, helper: runtimeHelper),
+            StateLocations(
+              config: '${temp.path}/config',
+              state: '${temp.path}/state',
+              cache: '${temp.path}/cache',
+            ),
+          );
+          final file = File('${temp.path}/api.$format');
+          String source(String title, String description) => format == 'json'
+              ? jsonEncode({
+                  'openapi': '3.2.1',
+                  'info': {'title': title, 'version': '1'},
+                  'paths': {},
+                  'components': {
+                    'schemas': {
+                      'Value': {'type': 'string', 'description': description},
+                    },
+                  },
+                })
+              : '# Preserve this comment\r\nopenapi: 3.2.1\r\ninfo: {title: $title, version: "1"}\r\npaths: {}\r\ncomponents: {schemas: {Value: {type: string, description: $description}}}\r\n';
+          late PropertySession captured;
+          late String external;
+          try {
+            await tester.runAsync(() async {
+              file.writeAsStringSync(source('Original', 'Original schema'));
+              await c.initialize();
+              await c.open(file.path);
+              final item = await c.project!.inspectObject(
+                c.root!,
+                c.active!,
+                '/components/schemas/Value',
+              );
+              c.bind(item)
+                ..bind('description', 'Original schema')
+                ..edit('description', 'Recovered schema');
+              await c.persist();
+              final recordFile = Directory(c.recovery.directory)
+                  .listSync()
+                  .whereType<File>()
+                  .single;
+              final record = Map<String, dynamic>.from(
+                jsonDecode(recordFile.readAsStringSync()) as Map,
+              )..['recordPath'] = recordFile.path;
+              await c.open(file.path);
+              external = source(
+                'External',
+                changedTarget ? 'External schema' : 'Original schema',
+              );
+              file.writeAsStringSync(external);
+              await c.project!.refreshDisk(c.buffer!);
+              await c.recoverBufferDraft(record);
+              captured = c.draft!;
+            });
+            await tester.pumpWidget(
+              ProviderScope(
+                child: MaterialApp(
+                  theme: buildBusyApiTheme(
+                    brightness: Brightness.light,
+                    accentColor: Colors.blue,
+                  ),
+                  localizationsDelegates:
+                      AppLocalizations.localizationsDelegates,
+                  supportedLocales: AppLocalizations.supportedLocales,
+                  home: Scaffold(
+                    body: WorkspaceScreen(
+                      controller: c,
+                      themeMode: ThemeMode.light,
+                      setTheme: (_) async {},
+                    ),
+                  ),
+                ),
+              ),
+            );
+            await tester.pump();
+            Object? failure;
+            var finished = false;
+            await tester.runAsync(() async {
+              tester
+                  .state<WorkspaceScreenState>(find.byType(WorkspaceScreen))
+                  .resolveConflict()
+                  .then<void>(
+                    (_) {
+                      finished = true;
+                    },
+                    onError: (Object error) {
+                      failure = error;
+                      finished = true;
+                    },
+                  );
+            });
+            await tester.pumpAndSettle();
+            final useDisk = find.widgetWithText(
+              BusyApiDialogButton,
+              'Discard draft and load disk',
+            );
+            expect(useDisk, findsOneWidget);
+            await tester.runAsync(() async {
+              tester.widget<BusyApiDialogButton>(useDisk).onPressed!();
+            });
+            final waiting = Stopwatch()..start();
+            while (!finished && waiting.elapsed < const Duration(seconds: 10)) {
+              await tester.runAsync(
+                () => Future<void>.delayed(const Duration(milliseconds: 20)),
+              );
+              await tester.pump(const Duration(milliseconds: 20));
+            }
+            expect(
+              finished,
+              isTrue,
+              reason: 'Disk resolution did not complete: ${c.error}',
+            );
+            expect(c.buffer!.text, external);
+            expect(file.readAsStringSync(), external);
+            expect(c.draft!.values['description'], 'Recovered schema');
+            if (changedTarget) {
+              expect(
+                failure,
+                isA<CoreFailure>().having(
+                  (failure) => failure.code,
+                  'code',
+                  'draft.stale',
+                ),
+              );
+              expect(c.draft, same(captured));
+              expect(
+                c.draft!.errors['session'],
+                contains('review the current source'),
+              );
+              expect(await tester.runAsync(c.flush), isFalse);
+              final record = Directory(c.recovery.directory)
+                  .listSync()
+                  .whereType<File>()
+                  .single;
+              expect(record.readAsStringSync(), contains('Recovered schema'));
+            } else {
+              expect(failure, isNull);
+              expect(c.draft!.generation, c.buffer!.generation);
+              // The dialog action alone must make fields applicable; there is no
+              // additional resumePropertyDraft call in this integration path.
+              await tester.runAsync(() async {
+                expect(await c.flush(), isTrue);
+                await c.saveAll();
+                await c.open(file.path);
+                final reopened = await c.project!.inspectObject(
+                  c.root!,
+                  c.active!,
+                  '/components/schemas/Value',
+                );
+                expect(
+                  (reopened['value'] as Map)['description'],
+                  'Recovered schema',
+                );
+                expect(file.readAsStringSync(), contains('External'));
+              });
+            }
+          } finally {
+            await tester.pumpWidget(const SizedBox.shrink());
+            await tester.runAsync(c.shutdown);
+            c.dispose();
+            temp.deleteSync(recursive: true);
+          }
+        },
+      );
+    }
+  }
   for (final heldInput in ['source', 'form']) {
     testWidgets(
       heldInput == 'source'
@@ -200,7 +392,11 @@ void main() {
             );
             await tester.pumpAndSettle();
             final row = find.widgetWithText(BusyApiActionRow, '200');
-            await waitFor(() => row.evaluate().isNotEmpty);
+            await waitFor(
+              () => row.evaluate().any(
+                (element) => (element.widget as BusyApiActionRow).onTap != null,
+              ),
+            );
             await tester.runAsync(() => tester.ensureVisible(row));
             await tester.runAsync(() => tester.tap(row));
             await waitFor(() => c.form != null);

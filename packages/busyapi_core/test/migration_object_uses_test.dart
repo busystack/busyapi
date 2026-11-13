@@ -192,7 +192,7 @@ void mixedLegacyObjectUses() {
       Future<void> send(BusyProject project, String root, String name) async {
         final checked = await project.check(root);expect(checked['status'], 'complete', reason: '$checked');
         final operation = (checked['projection']['operations'] as List).whereType<Map>().singleWhere((operation) => operation['path'] == '/p');
-        final plan = await project.prepareRequest(root, resource: operation['resource'], pointer: operation['pointer'], occurrence: operation['occurrence']);
+        final plan = await project.prepareRequest(root, resource: operation['resource'] as String, pointer: operation['pointer'] as String, occurrence: operation['occurrence'] as String?);
         try {
           final response = await const ContractRequestExecutor().execute(plan,
             OperationRequestDraft(planIdentity: plan.identity, environment: 'manual'),
@@ -274,7 +274,7 @@ void r3ObjectUses() {
           final entry = owner.roots.single.id, checked = await owner.check(owner.roots.single.id);
           expect(checked['complete'], true, reason: '$checked');
           final operation = (checked['projection']['operations'] as List).cast<Map>().singleWhere((operation) => operation['path'] == '/echo');
-          final plan = await owner.prepareRequest(entry, resource: operation['resource'], pointer: operation['pointer'], occurrence: operation['occurrence']);
+          final plan = await owner.prepareRequest(entry, resource: operation['resource'] as String, pointer: operation['pointer'] as String, occurrence: operation['occurrence'] as String?);
           try {
             final result = await const ContractRequestExecutor().execute(plan,
               OperationRequestDraft(planIdentity: plan.identity, body: const RequestBodyDraft.raw(mediaType: 'application/json', text: 'false')),
@@ -354,7 +354,7 @@ void r3aReferencedRoutes() {
       expect(checked['complete'], true, reason: '$checked');
       for (final operation in (checked['projection']['operations'] as List).cast<Map>()) {
         final method = operation['method'].toString().toUpperCase(), suffix = operation['path'].toString().endsWith('/first') ? '/first' : '/second';
-        final plan = await owner.prepareRequest(root, resource: operation['resource'], pointer: operation['pointer'], occurrence: operation['occurrence']);
+        final plan = await owner.prepareRequest(root, resource: operation['resource'] as String, pointer: operation['pointer'] as String, occurrence: operation['occurrence'] as String?);
         try {
           final result = await const ContractRequestExecutor().execute(plan,
               OperationRequestDraft(planIdentity: plan.identity, body: method == 'POST'

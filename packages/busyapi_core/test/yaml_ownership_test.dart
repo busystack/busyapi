@@ -100,7 +100,7 @@ void main() {
       await expectLater(project.applyRefactoring(reviewed), throwsA(
         isA<CoreFailure>().having((failure) => failure.code, 'code', 'refactor.stale'),
       ));
-      final range = List<int>.from(fresh['range']);
+      final range = List<int>.from(fresh['range'] as List<int>);
       final session = PropertySession(
         root: buffer.id, buffer: buffer.id, generation: buffer.generation,
         pointer: '/info', range: range,

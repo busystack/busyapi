@@ -256,3 +256,35 @@ test('unknown dialect fields remain unavailable while the resource-root dialect 
  assert.equal(page.fields.find(f=>f.name==='$schema').prohibited,undefined);
  assert.equal(page.schemaValueForms.supported,false);
 });
+
+test('alias inspection retains logical identity and physical provenance without granting virtual edits', () => {
+ const {SourceDocument} = require('./dist/document.cjs');
+ const id = 'file:///authoring/alias.yaml';
+ const text = '# Preserve the shared source\r\nopenapi: 3.2.1\r\ninfo: {title: Alias, version: "1"}\r\npaths: {}\r\ncomponents:\r\n  schemas:\r\n    Base: &shared\r\n      type: object\r\n      properties:\r\n        child: {type: string, default: special}\r\n    Alias: *shared\r\n';
+ const input = {root:id, snapshot:'alias-inspection', resources:[{id, text, generation:1}]};
+ const doc = new SourceDocument(text, id);
+ const alias = '/components/schemas/Alias';
+ const pointer = alias + '/properties/child';
+ const page = inspect({...input, resource:id, pointer});
+ assert.equal(page.pointer, pointer);
+ assert.equal(page.physicalPointer, '/components/schemas/Base/properties/child');
+ assert.deepEqual(page.range, doc.dataNode(pointer).range);
+ assert.deepEqual(page.occurrenceRange, doc.node(alias).range);
+ assert.equal(page.syntaxSafe, false);
+ assert.equal(page.shared, true);
+ assert.equal(page.fields.find(field => field.name === 'default').raw, '"special"');
+ assert.equal(page.fields.find(field => field.name === 'default').target.pointer, pointer + '/default');
+ assert.equal(doc.nodes.has(pointer), false);
+ assert.throws(() => propose({...input, target:{resource:id, generation:1, pointer, range:page.range},
+  actions:[{kind:'set', pointer:pointer+'/description', value:'Must stay pending'}]}), error => error.code === 'edit.target');
+ const rootPage = inspect({...input, resource:id, pointer:alias});
+ assert.equal(rootPage.pointer, alias);
+ assert.equal(rootPage.physicalPointer, '/components/schemas/Base');
+ assert.deepEqual(rootPage.range, doc.node(alias).range);
+ assert.equal(rootPage.nodeKind, doc.node(alias).kind);
+ assert.equal(rootPage.value.type, 'object');
+ assert.equal(rootPage.shared, true);
+ assert.throws(() => propose({...input, target:{resource:id, generation:1, pointer:alias, range:rootPage.range},
+  actions:[{kind:'set', pointer:alias+'/description', value:'Must stay pending'}]}), error => error.code === 'edit.shared');
+ assert.equal(input.resources[0].text, text);
+});

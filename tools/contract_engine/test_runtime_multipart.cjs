@@ -181,6 +181,15 @@ for(const version of ['3.2.0','3.2.1'])test(`${version} typed itemSchema is inde
  const input={...source,resource:source.root,pointer:'/paths/~1parts/post',mediaType:'multipart/mixed',text:'[0]',files:[]};
  const bad=wire([{headers:{'Content-Type':'text/plain'},body:'0'}]);
  await assert.rejects(requestMultipartPlan({...input,wire:Buffer.from(bad).toString('base64'),wireType:'multipart/mixed; boundary=Fixture'}),error=>error.code==='request.multipart.conformance'&&error.source.resource===source.root);
+ const constructed = await requestMultipartPlan({...input, requireConformance:false,
+  wire:Buffer.from(bad).toString('base64'),wireType:'multipart/mixed; boundary=Fixture'});
+ assert.equal(constructed.proof.valid, true);
+ const checked = await run(source, bad);
+ assert.equal(checked.result.complete, true);
+ assert.equal(checked.valid, false);
+ const {mockMultipartBytes} = require('./dist/execution.cjs');
+ await assert.rejects(mockMultipartBytes({...input,status:'200',requireConformance:false}),
+  error => error.code === 'request.multipart.conformance');
  const good=wire([{headers:{'Content-Type':'text/plain'},body:'1'}]);
  assert.equal((await requestMultipartPlan({...input,text:'[1]',wire:Buffer.from(good).toString('base64'),wireType:'multipart/mixed; boundary=Fixture'})).proof.valid,true);
 });

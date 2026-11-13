@@ -424,11 +424,12 @@ class WorkspaceController extends ChangeNotifier {
         !identical(_pendingOpen, attempt) ||
         (cancelled?.call() ?? false);
     void requireAttempt() {
-      if (superseded())
+      if (superseded()) {
         throw CoreFailure(
           'open.cancelled',
           'Project opening was cancelled or superseded',
         );
+      }
     }
 
     BusyProject? prepared;
@@ -451,8 +452,9 @@ class WorkspaceController extends ChangeNotifier {
           initialResource = selected;
         } on Object catch (failure) {
           if (failure is! FileSystemException &&
-              !(failure is CoreFailure && failure.code.startsWith('access.')))
+              !(failure is CoreFailure && failure.code.startsWith('access.'))) {
             rethrow;
+          }
           next.discoveryFailure ??= failure.toString();
           final manifest = Uri.file(
             p.join(next.access.boundary, 'busyapi.yaml'),
@@ -489,8 +491,9 @@ class WorkspaceController extends ChangeNotifier {
                 jsonEncode([
                   draft?.recovery(),
                   (form ?? _applyingForm)?.recovery(),
-                ]))
+                ])) {
           break;
+        }
       }
     } on Object {
       prepared?.close();
@@ -550,9 +553,9 @@ class WorkspaceController extends ChangeNotifier {
     }
     if (!current()) return;
     if (initialRoot != null) {
-      await selectRoot(initialRoot!);
+      await selectRoot(initialRoot);
     } else if (initialResource != null) {
-      _activateFile(initialResource!);
+      _activateFile(initialResource);
       mode = 'Source';
       schedule(immediate: true);
     } else if (next.roots.isEmpty && next.files.isNotEmpty) {
@@ -732,7 +735,7 @@ class WorkspaceController extends ChangeNotifier {
     _activateFile(id);
   }
 
-  void _activateFile(String id) {
+  void _activateFile(String id, {PropertySession? retainedDraft}) {
     active = id;
     if (!tabs.contains(id)) tabs.add(id);
     final entry = <String, Object?>{
@@ -752,7 +755,7 @@ class WorkspaceController extends ChangeNotifier {
       if (history.length > 200) history.removeAt(0);
       historyIndex = history.length - 1;
     }
-    draft = null;
+    draft = retainedDraft;
     notifyListeners();
   }
 
@@ -2185,24 +2188,25 @@ class WorkspaceController extends ChangeNotifier {
     final rebound = await owner.recoverPropertyDraft(captured);
     if (!current()) return;
     // The input owner is shared; edits arriving during inspection are retained.
-    draft = rebound;
     root = captured.root;
-    _activateFile(captured.buffer);
     selectedResource = captured.buffer;
     selectedPointer = captured.pointer;
     selectedOccurrence = null;
     mode = 'Design';
+    _activateFile(captured.buffer, retainedDraft: rebound);
     await persist();
-    if (disposed || !identical(project, owner) || navigation != _opening)
+    if (disposed || !identical(project, owner) || navigation != _opening) {
       return;
+    }
     schedule(immediate: true);
     notifyListeners();
   }
 
   Future<void> recoverBufferDraft(Map<String, dynamic> record) async {
     final owner = project;
-    if (owner == null)
+    if (owner == null) {
       throw CoreFailure('recovery.owner', 'Open the recovery project first');
+    }
     if (hasPendingFields) {
       throw CoreFailure(
         'draft.pending',
@@ -2210,9 +2214,33 @@ class WorkspaceController extends ChangeNotifier {
       );
     }
     final navigation = _opening;
-    final buffer = await owner.buffer(record['id'] as String, recovery: record);
-    if (disposed || !identical(project, owner) || navigation != _opening)
+    var expectedDraft = draft;
+    var expectedForm = form;
+    var expectedInput = _fieldInputIdentity();
+    bool currentInput() =>
+        !disposed &&
+        identical(project, owner) &&
+        navigation == _opening &&
+        identical(draft, expectedDraft) &&
+        identical(form, expectedForm) &&
+        expectedInput == _fieldInputIdentity();
+    final id = record['id'] as String;
+    final existing = owner.store.buffers[id];
+    // Newly decoded buffers start at generation 1. Acquisition also yields
+    // after registration, so edits to a newly loaded buffer must be detected.
+    final generation = existing?.generation ?? 1;
+    final buffer = await owner.buffer(id, recovery: record);
+    if (disposed || !identical(project, owner) || navigation != _opening) {
       return;
+    }
+    if (!currentInput() ||
+        (existing != null && !identical(existing, buffer)) ||
+        buffer.generation != generation) {
+      throw CoreFailure(
+        'recovery.stale',
+        'Input changed while recovery was loading. New input and the recovery record are preserved; retry after reviewing them.',
+      );
+    }
     final recoveredDraft = record['draft'] is Map
         ? PropertySession.restore(
             Map<String, dynamic>.from(record['draft'] as Map),
@@ -2221,30 +2249,42 @@ class WorkspaceController extends ChangeNotifier {
     final recoveredForm = record['form'] is Map
         ? FormSession.restore(Map<String, dynamic>.from(record['form'] as Map))
         : null;
-    // Retain the recovered input in the controller even if durable adoption
-    // fails. The original record remains intact until persistence succeeds.
-    draft = recoveredDraft;
-    form = recoveredForm;
-    _activateFile(buffer.id);
-    mode = 'Source';
+    var acceptedGeneration = buffer.generation;
     await recovery.adopt(
       record,
       buffer,
       draft: recoveredDraft,
       form: recoveredForm,
       current: () =>
-          !disposed &&
-          identical(project, owner) &&
-          navigation == _opening &&
-          identical(draft, recoveredDraft) &&
-          identical(form, recoveredForm),
-      onAdopted: () => owner.store.retireHistory({buffer.id}),
+          currentInput() &&
+          owner.store.ownsFileBuffer(buffer) &&
+          buffer.generation == acceptedGeneration,
+      onAdopted: () {
+        // Source and fields are adopted together, after all asynchronous checks.
+        // Keep them in the controller even if durable persistence then fails.
+        draft = expectedDraft = recoveredDraft;
+        form = expectedForm = recoveredForm;
+        expectedInput = _fieldInputIdentity();
+        acceptedGeneration = buffer.generation;
+        owner.store.retireHistory({buffer.id});
+        mode = 'Source';
+        _activateFile(buffer.id, retainedDraft: recoveredDraft);
+      },
     );
-    if (disposed || !identical(project, owner) || navigation != _opening)
+    if (disposed || !identical(project, owner) || navigation != _opening) {
       return;
+    }
     schedule(immediate: true);
     notifyListeners();
   }
+
+  String _fieldInputIdentity() => jsonEncode([
+    draft?.recovery(),
+    draft?.composing,
+    form?.recovery(),
+    form?.composing.toList(),
+    formApplying,
+  ]);
 
   void schedule({bool immediate = false, bool notify = true}) {
     if (disposed) return;
@@ -2561,10 +2601,7 @@ class WorkspaceController extends ChangeNotifier {
     }
     if (draft?.buffer == accepted.buffer.id && draft!.pending) await persist();
     final capturedDraft = draft, capturedForm = form;
-    final input = jsonEncode([
-      capturedDraft?.recovery(),
-      capturedForm?.recovery(),
-    ]);
+    final input = _fieldInputIdentity();
     final preserveInput =
         capturedDraft?.buffer == accepted.buffer.id && capturedDraft!.pending ||
         capturedForm?.target.buffer == accepted.buffer.id;
@@ -2578,16 +2615,53 @@ class WorkspaceController extends ChangeNotifier {
                 identical(project, accepted.project) &&
                 identical(draft, capturedDraft) &&
                 identical(form, capturedForm) &&
-                input == jsonEncode([draft?.recovery(), form?.recovery()])
+                input == _fieldInputIdentity()
           : null,
     );
     final applied = result.applied;
     if (applied != null && !disposed && identical(project, accepted.project)) {
+      Object? recoveryFailure;
+      if (capturedDraft != null &&
+          capturedDraft.buffer == applied.id &&
+          capturedDraft.pending &&
+          identical(draft, capturedDraft)) {
+        bool ownsDraft() =>
+            !disposed &&
+            identical(project, applied.project) &&
+            identical(draft, capturedDraft);
+        try {
+          final rebound = await applied.project.recoverPropertyDraft(
+            capturedDraft,
+          );
+          if (ownsDraft()) {
+            if (!applied.bufferCurrent) {
+              throw CoreFailure(
+                'draft.stale',
+                'Source changed during disk resolution. Fields remain preserved; review the current source before resuming them.',
+              );
+            }
+            draft = rebound;
+            await persist();
+          }
+        } on CoreFailure catch (failure) {
+          if (ownsDraft()) {
+            capturedDraft.errors['session'] = failure.message;
+            recoveryFailure = failure;
+            await persist();
+          }
+        }
+      }
+      if (disposed || !identical(project, applied.project)) return result;
       schedule(immediate: true);
       notifyListeners();
       if (draft?.buffer == applied.id && draft!.pending ||
-          form?.target.buffer == applied.id)
-        return result;
+          form?.target.buffer == applied.id) {
+        return BufferReloadResult(
+          result.status,
+          applied: applied,
+          failure: recoveryFailure,
+        );
+      }
       await recovery.retireIfCurrent(
         applied.id,
         () =>

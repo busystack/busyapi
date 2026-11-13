@@ -14,7 +14,9 @@ class ConnectMockFixture {
   final EngineProcess engine;
   final Set<Socket> peers;
   String get authority=>'approved.test:${peer.port}';
-  Future<void> close() async {for(final socket in peers.toList())socket.destroy();await peer.close();await project.close();await engine.close();await directory.delete(recursive:true);}
+  Future<void> close() async {for(final socket in peers.toList()) {
+    socket.destroy();
+  }await peer.close();project.close();await engine.close();await directory.delete(recursive:true);}
 }
 Future<ConnectMockFixture> createConnectMockFixture() async {
   final directory=await Directory.systemTemp.createTemp('busyapi-connect-workflow-');

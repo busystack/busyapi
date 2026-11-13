@@ -36,6 +36,4 @@ target_link_libraries(${BINARY_NAME} PRIVATE PkgConfig::HANDY)
 target_link_libraries(${BINARY_NAME} PRIVATE PkgConfig::GMODULE)
 target_link_libraries(${BINARY_NAME} PRIVATE PkgConfig::SECRET)
 
-add_dependencies(${BINARY_NAME} busyapi_documentation)
-
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")

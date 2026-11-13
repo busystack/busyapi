@@ -96,10 +96,10 @@ void main() {
           Future<Map<String, dynamic>> material(Map start) async {
             var at = Map<String, dynamic>.from(start);
             for (var count = 0; count < 64; count++) {
-              final page = await project.inspectObject(root, at['resource'], at['pointer'], contextKind: 'schema');
+              final page = await project.inspectObject(root, at['resource'] as String, at['pointer'] as String, contextKind: 'schema');
               final reference = (page['references'] as List).whereType<Map>().where((ref) => ref['keyword'] == r'$ref').firstOrNull;
               if (reference == null) return page;
-              expect(reference['resolution'], 'resolved');at = Map<String, dynamic>.from(reference['target']);
+        expect(reference['resolution'], 'resolved');at = Map<String, dynamic>.from(reference['target'] as Map);
             }
             fail('The reviewed material owner forwarding must remain bounded');
           }
@@ -119,13 +119,13 @@ void main() {
             final field = (assertions['fields'] as List).cast<Map>().singleWhere((field) => field['name'] == 'additionalProperties');
             expect(field['present'], true);expect(field['childKind'], 'schema');
           }
-          final mapping = await project.inspectObject(root, at['resource'], '${at['pointer']}/discriminator/mapping', contextKind: 'discriminator-map');
+          final mapping = await project.inspectObject(root, at['resource'] as String, '${at['pointer']}/discriminator/mapping', contextKind: 'discriminator-map');
           final binding = (mapping['references'] as List).whereType<Map>().single;
           expect(binding['targetResource'], root);expect(binding['targetPointer'], '/components/schemas/Choice');
           final result = await plan.evaluateRuntime([
             for (final text in [wire, '{"value":0}', '{"value":"wrong"}']) RuntimeSchemaInstance(
               subject: 'response-body', location: 'application/json', text: text,
-              schemaResource: body['resource'], schemaPointer: body['pointer']),
+              schemaResource: body['resource'] as String?, schemaPointer: body['pointer'] as String?),
           ]);
           expect(result['complete'], true, reason: '$result');
           expect((result['runtimeEvaluations'] as List).map((value) => value['valid']), [true, false, false]);
@@ -141,7 +141,7 @@ void main() {
             final result = await dictionaryPlan.evaluateRuntime([
               for (final text in [dictionaryWire, '{"雪":{"value":9007199254740993,"entry":"chosen"}}', '{"a":{"value":0,"entry":"chosen"}}', '{"bad":{"value":9007199254740993,"entry":"chosen"}}']) RuntimeSchemaInstance(
                 subject: 'response-body', location: 'application/json', text: text,
-                schemaResource: body['resource'], schemaPointer: body['pointer']),
+                schemaResource: body['resource'] as String?, schemaPointer: body['pointer'] as String?),
             ]);
             expect(result['complete'], true, reason: '$result');
             expect((result['runtimeEvaluations'] as List).map((value) => value['valid']), [true, true, false, false]);
@@ -217,7 +217,7 @@ void main() {
         final evaluated = await prepared.evaluateRuntime([
           for (final value in [wire, '{}', '{"雪":0}', '{"value":true}']) RuntimeSchemaInstance(
             subject: 'response-body', location: 'application/json', text: value,
-            schemaResource: body['resource'], schemaPointer: body['pointer']),
+            schemaResource: body['resource'] as String?, schemaPointer: body['pointer'] as String?),
         ]);
         expect(evaluated['complete'], true, reason: '$evaluated');
         expect((evaluated['runtimeEvaluations'] as List).map((value) => value['valid']), [true, true, false, false]);
@@ -244,7 +244,7 @@ void main() {
     expect(literal['value']['value'][r'$id'], 'https://schemas.invalid/secondary');
     final view = await cold.inspectObject(entry, entry, '/components/schemas/Target', contextKind: 'schema');
     final target = (view['references'] as List).single['target'] as Map;
-    final child = await cold.inspectObject(entry, target['resource'], '${target['pointer']}/properties/value', contextKind: 'schema');
+    final child = await cold.inspectObject(entry, target['resource'] as String, '${target['pointer']}/properties/value', contextKind: 'schema');
     expect(child['value'][r'$id'], 'https://schemas.invalid/secondary');
     expect(child['value']['const'], false);
     expect(await File('${relocated.path}/$otherName').readAsString(), contains('9007199254740993.00'));

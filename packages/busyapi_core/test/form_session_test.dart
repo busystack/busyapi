@@ -5,6 +5,67 @@ import 'package:busyapi_core/busyapi_core.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test(
+    'recovery stat cannot overwrite a newer buffer or retire its history',
+    () async {
+      final dir = await Directory.systemTemp.createTemp(
+        'busyapi-adoption-race-',
+      );
+      addTearDown(() => dir.delete(recursive: true));
+      final buffer = DocumentBuffer.decode(
+        '${dir.path}/api.yaml',
+        utf8.encode('Original'),
+      );
+      final oldStore = RecoveryStore('${dir.path}/state');
+      buffer.update('Recovered');
+      await oldStore.persist(buffer);
+      final recordFile = Directory(oldStore.directory)
+          .listSync()
+          .whereType<File>()
+          .single;
+      final originalRecord = recordFile.readAsBytesSync();
+      final record = Map<String, dynamic>.from(
+        jsonDecode(utf8.decode(originalRecord)) as Map,
+      )..['recordPath'] = recordFile.path;
+      final target = DocumentBuffer.decode(
+        buffer.path,
+        utf8.encode('Original'),
+      );
+      final store = BufferStore()..buffers[target.id] = target;
+      final recovery = RecoveryStore(oldStore.directory);
+      var adopted = false;
+      final pending = recovery.adopt(
+        record,
+        target,
+        onAdopted: () {
+          adopted = true;
+          store.retireHistory({target.id});
+        },
+      );
+      final rejected = expectLater(
+        pending,
+        throwsA(
+          isA<CoreFailure>().having(
+            (failure) => failure.code,
+            'code',
+            'recovery.stale',
+          ),
+        ),
+      );
+      // adopt is waiting for FileSystemEntity.type, before any source mutation.
+      store.replace(target.id, 'New source');
+      await rejected;
+      expect(target.text, 'New source');
+      expect(adopted, isFalse);
+      expect(store.canUndo, isTrue);
+      store.undo();
+      expect(target.text, 'Original');
+      store.redo();
+      expect(target.text, 'New source');
+      expect(recordFile.readAsBytesSync(), originalRecord);
+    },
+  );
+
   FormSession capture(DocumentBuffer b) {
     final third = b.text.lastIndexOf('same');
     return FormSession(

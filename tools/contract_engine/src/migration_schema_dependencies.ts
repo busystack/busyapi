@@ -127,7 +127,8 @@ export function migrateDependentRequired(graph:ReferenceGraph,scope:GraphScope,s
             else source.move(at,collection+'/'+index+(required.has(entry.trigger)?'/required':'/anyOf/1/required'));
         }
     }
-    const at=source.current(original,scope.resource);if(at!==undefined)source.remove(at,true,true,true);
+    const at=pointer+'/dependentRequired';
+    if(source.doc.dataNode(at))source.remove(at,true,true,true);
 }
 
 /** Core 2020-12 10.2.2.4 applies each schema to the whole object only when
@@ -212,5 +213,8 @@ export function migrateDependentSchemas(graph:ReferenceGraph,scope:GraphScope,so
             source.move(at,destination,true);
         }
     }
-    const at=source.current(original,scope.resource);if(at!==undefined)source.remove(at,true,true,true);
+    // Moving the last child can retire the map's provenance while leaving its
+    // empty syntax container. The isolated application owns this exact path.
+    const at=pointer+'/dependentSchemas';
+    if(source.doc.dataNode(at))source.remove(at,true,true,true);
 }

@@ -5,6 +5,7 @@ import 'model.dart';
 typedef SchemaAuthoringContext = ({
   String root,
   String? rootVersion,
+  String? rootDialect,
   String resource,
   String? resourceVersion,
   String pointer,
@@ -21,6 +22,7 @@ SchemaAuthoringContext schemaAuthoringContextFromJson(
   if (value case {
     'root': String root,
     'rootVersion': String? rootVersion,
+    'rootDialect': String? rootDialect,
     'resource': String resource,
     'resourceVersion': String? resourceVersion,
     'pointer': String pointer,
@@ -32,6 +34,7 @@ SchemaAuthoringContext schemaAuthoringContextFromJson(
     return (
       root: root,
       rootVersion: rootVersion,
+      rootDialect: rootDialect,
       resource: resource,
       resourceVersion: resourceVersion,
       pointer: pointer,

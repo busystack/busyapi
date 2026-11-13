@@ -48,10 +48,12 @@ void main() {
         await tester.runAsync(() async {await Future<void>.delayed(const Duration(milliseconds:500));});await tester.pump();
         // The current controls retain independent raw/structured drafts and
         // reject late previews when the mode/capture changes.
-        run.selectStructuredBody(false);run.bodyText = xml ? '<raw/>' : '</raw>; rel=self';run.refresh();
-        run.selectStructuredBody(true);expect(run.bodyText,value);
-        run.selectStructuredBody(false);expect(run.bodyText,xml ? '<raw/>' : '</raw>; rel=self');
-        run.selectStructuredBody(true);
+        await tester.runAsync(() async {
+          run.selectStructuredBody(false);run.bodyText = xml ? '<raw/>' : '</raw>; rel=self';run.refresh();
+          run.selectStructuredBody(true);expect(run.bodyText,value);
+          run.selectStructuredBody(false);expect(run.bodyText,xml ? '<raw/>' : '</raw>; rel=self');
+          run.selectStructuredBody(true);
+        });
         await tester.runAsync(() async {await Future<void>.delayed(const Duration(milliseconds:500));});await tester.pump();
         expect(run.previewFailure,isNull);expect(run.serializedContent,isNotNull);
         expect(run.serializedContent, xml ? contains('9007199254740993') : contains('/p'));

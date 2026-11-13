@@ -35,7 +35,8 @@ void main() {
     }
   });
   for (final version in ['3.1.2', '3.2.1']) {
-    for(final reference in [false,true])testWidgets('$version Design follows and extracts ${reference?'one reference use':'all roles'} at a shared definition', (tester) async {
+    for(final reference in [false,true]) {
+      testWidgets('$version Design follows and extracts ${reference?'one reference use':'all roles'} at a shared definition', (tester) async {
       tester.view.physicalSize=const Size(1300,1000);tester.view.devicePixelRatio=1;
       addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);
       final temp=Directory.systemTemp.createTempSync('busyapi-role-navigation-');
@@ -100,8 +101,11 @@ void main() {
           expect(c.buffer!.text,text);
           await tester.runAsync(() => tester.tap(find.widgetWithText(BusyApiDialogButton,accept?'Apply':'Cancel')));
           await waitFor(() => find.text('Review component extraction').evaluate().isEmpty);
-          if(accept)await waitFor(() => c.buffer!.text!=text);
-          else expect(c.buffer!.text,text);
+          if(accept) {
+            await waitFor(() => c.buffer!.text!=text);
+          } else {
+            expect(c.buffer!.text,text);
+          }
         }
         final accepted=c.buffer!.text;
         await runWidgetIo(tester,() async {
@@ -118,6 +122,7 @@ void main() {
         await tester.pumpWidget(const SizedBox());await runWidgetIo(tester,c.shutdown);c.dispose();temp.deleteSync(recursive:true);
       }
     });
+    }
     for (final format in ['yaml', 'json']) {
       for (final keyword in [r'$defs', 'definitions']) {
         testWidgets(

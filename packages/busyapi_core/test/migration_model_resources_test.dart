@@ -55,22 +55,22 @@ void main() {
         final page = await project.inspectObject(root, resource, at, contextKind: 'schema');
         final reference = (page['references'] as List).cast<Map>().where((value) => value['keyword'] == r'$ref').firstOrNull;
         if (reference == null) return page;
-        expect(reference['resolution'], 'resolved');resource = reference['targetResource'];at = reference['targetPointer'];
+        expect(reference['resolution'], 'resolved');resource = reference['targetResource'] as String;at = reference['targetPointer'] as String;
       }
       fail('Material schema forwarding must remain bounded');
     }
     Future<void> exercise(BusyProject project, String root, String name, {bool delivered = false}) async {
       expect((await project.check(root))['status'], 'complete');
       final base = await material(project, root, '/components/schemas/Base');
-      final metadata = await project.inspectObject(root, base['resource'], '${base['pointer']}/discriminator', contextKind: 'discriminator');
-      final mapping = await project.inspectObject(root, base['resource'], '${base['pointer']}/discriminator/mapping', contextKind: 'discriminator-map');
+      final metadata = await project.inspectObject(root, base['resource'] as String, '${base['pointer']}/discriminator', contextKind: 'discriminator');
+      final mapping = await project.inspectObject(root, base['resource'] as String, '${base['pointer']}/discriminator/mapping', contextKind: 'discriminator-map');
       final binding = (mapping['references'] as List).cast<Map>().singleWhere((value) => value['keyword'] == 'chosen');
-      final target = await project.inspectObject(root, binding['targetResource'], binding['targetPointer'], contextKind: 'schema');
+      final target = await project.inspectObject(root, binding['targetResource'] as String, binding['targetPointer'] as String, contextKind: 'schema');
       expect(target['value']['x-entry'], name);expect(metadata['kind'], 'discriminator');
       final boolean = await material(project, root, '/components/schemas/Choice');expect(boolean['boolean'], true);
       if (delivered) {
         expect(base['pointer'], contains(r'/$defs/'));expect(boolean['pointer'], contains(r'/$defs/'));
-        final choices = await project.referenceChoices(root, base['resource'], '${base['pointer']}/discriminator', keyword: 'defaultMapping', query: '', contextKind: 'discriminator');
+        final choices = await project.referenceChoices(root, base['resource'] as String, '${base['pointer']}/discriminator', keyword: 'defaultMapping', query: '', contextKind: 'discriminator');
         expect(choices.result['complete'], true);expect((choices.result['entries'] as List).map((value) => value['label']), ['Dog']);
       }
       for (final (path, schema, texts, expected) in [

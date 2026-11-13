@@ -254,7 +254,7 @@ test('absent if leaves unsupported unconsumed then and else assertions inactive 
  const text=JSON.stringify(document),input={root,snapshot:'absent-conditional',resources:[{id:root,text,generation:1}],targetVersion:'2.0',destination:'file:///absent-output/'};
  const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
  const output={root:review.outputRoot,snapshot:'cold-absent-condition',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
- assert.equal(analyse(output).status,'complete');assert.deepEqual(createGraph(output).graph.docs.get(output.root).dataNode('/definitions/Value').value,{type:'integer'});
+ assert.equal(analyse(output).status,'complete');assert.deepEqual(JSON.parse(createGraph(output).graph.docs.get(output.root).dataJson('/definitions/Value')),{type:'integer'});
  const result=await evaluateSchemas({...output,runtimeInstances:['0','9007199254740993','false','null'].map(text=>({subject:'response-body',location:'application/json',text,schema:{resource:output.root,pointer:'/definitions/Value'}}))});
  assert.equal(result.complete,true,JSON.stringify(result.findings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,true,false,false]);
  assert.equal(input.resources[0].text,text);

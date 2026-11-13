@@ -48,7 +48,7 @@ Future<List<_ProxyRoute>> _routes(String configuration) async {
 
 Future<void> _establishTunnel(Uri uri, int port, _ProxyRoute route, Socket socket) async {
   final client = HttpClient()
-    ..findProxy = (_) => route.configuration
+    ..findProxy = ((_) => route.configuration)
     ..autoUncompress = false;
   client.connectionFactory = (_, host, port) async {
     if (host != route.host || port != route.port) {

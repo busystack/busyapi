@@ -449,7 +449,7 @@ class ContractTestRunner {
     if (value.containsKey('parameterModes')) {
       final modes = value['parameterModes'];
       if (modes is! Map || modes.length > 5) invalid('parameterModes', 'Expected bounded parameter representation modes.');
-      for (final location in (modes as Map).entries) {
+      for (final location in (modes).entries) {
         if (!['path','query','querystring','header','cookie'].contains(location.key) || location.value is! Map || (location.value as Map).length > 512 ||
             (location.value as Map).entries.any((entry) => entry.key is! String || !['data','text','serializedParameter','serializedMedia'].contains(entry.value) || value['parameters'] is! Map || (value['parameters'] as Map)[location.key] is! Map || !((value['parameters'] as Map)[location.key] as Map).containsKey(entry.key) || entry.value != 'data' && ((value['parameters'] as Map)[location.key] as Map)[entry.key] is! String)) {
           invalid('parameterModes', 'Expected captured data, text or serialized parameter modes.');
@@ -459,7 +459,7 @@ class ContractTestRunner {
     if (value.containsKey('parameterExamples')) {
       final selections = value['parameterExamples'];
       if (selections is! Map || selections.length > 5) invalid('parameterExamples', 'Expected bounded captured Parameter example choices.');
-      for (final location in (selections as Map).entries) {
+      for (final location in (selections).entries) {
         if (!['path','query','querystring','header','cookie'].contains(location.key) || location.value is! Map || (location.value as Map).length > 512) {
           invalid('parameterExamples', 'Expected named choices at a supported Parameter location.');
         }

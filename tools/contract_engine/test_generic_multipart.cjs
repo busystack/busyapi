@@ -111,4 +111,10 @@ for(const version of versions)test(`${version} generated named bytes cannot subs
  await assert.rejects(requestMultipartNamedProof({...proof,wire:Buffer.from(wire('false','retained','9007199254740992')).toString('base64')}),error=>error.code==='request.multipart.roundtrip'&&error.source.resource===input.root);
  await assert.rejects(requestMultipartNamedProof({...proof,wire:Buffer.from(wire('false','retained','9007199254740993')).toString('base64')}),error=>error.code==='request.multipart.roundtrip');
  await assert.rejects(requestMultipartNamedProof({...proof,wire:Buffer.from(wire('false','retained','9007199254740992')).toString('base64'),expected:'{"flag":false,"metadata":{"id":9007199254740992}}'}),error=>error.code==='request.multipart.conformance'&&error.source.range[1]>0);
+ const invalid = {...proof, requireConformance:false,
+  wire:Buffer.from(wire('false','retained','9007199254740992')).toString('base64'),
+  expected:'{"flag":false,"metadata":{"id":9007199254740992}}'};
+ assert.equal((await requestMultipartNamedProof(invalid)).proof.valid, true);
+ await assert.rejects(requestMultipartNamedProof({...invalid, expected:proof.expected}), error => error.code === 'request.multipart.roundtrip');
+ await assert.rejects(requestMultipartNamedProof({...proof, requireConformance:'false'}), error => error.code === 'request.multipart.protocol');
 });

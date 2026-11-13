@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -67,7 +66,9 @@ void main() {
           authorization = HttpOverrides.runWithHttpOverrides(() => run.authorizeOAuth('oauth', browser: false, device: true), _NativeHttp());
         });
         await runWidgetIo(tester, () async {
-          while (run.oauthDevicePrompt == null && run.phase == 'authorizing') await Future<void>.delayed(const Duration(milliseconds: 10));
+          while (run.oauthDevicePrompt == null && run.phase == 'authorizing') {
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+          }
         });
         await tester.pumpAndSettle();
         final prompt = run.oauthDevicePrompt!;
@@ -82,7 +83,9 @@ void main() {
         await expectLater(run.openDeviceVerification(prompt), throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'oauth.stale')));
         approved = false;
         await tester.runAsync(() async {authorization = HttpOverrides.runWithHttpOverrides(() => run.authorizeOAuth('oauth', browser: false, device: true), _NativeHttp());});
-        await runWidgetIo(tester, () async {while (run.oauthDevicePrompt == null && run.phase == 'authorizing') await Future<void>.delayed(const Duration(milliseconds: 10));});
+        await runWidgetIo(tester, () async {while (run.oauthDevicePrompt == null && run.phase == 'authorizing') {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }});
         run.cancel();await runWidgetIo(tester, () => authorization!);await tester.pumpAndSettle();
         expect(run.failure, 'cancelled');expect(run.oauthDevicePrompt, isNull);expect(sent, 1);
         expect(file.readAsStringSync(), source);expect(tester.takeException(), isNull);

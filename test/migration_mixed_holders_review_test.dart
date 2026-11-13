@@ -29,7 +29,9 @@ void main() {
         final directory = Directory.systemTemp.createTempSync('busyapi-native-mixed-holders-');
         final originals = mixedHolderDocuments(version, 'https://api.invalid', invalid: outcome == 'invalid',
           overlappingContainers: outcome == 'overlap');
-        for (final entry in originals.entries) File('${directory.path}/${entry.key}').writeAsStringSync(entry.value);
+        for (final entry in originals.entries) {
+          File('${directory.path}/${entry.key}').writeAsStringSync(entry.value);
+        }
         final controller = WorkspaceController(EngineProcess(executable: runtimeNode, helper: runtimeHelper),
           StateLocations(config: '${directory.path}/config', state: '${directory.path}/state', cache: '${directory.path}/cache'));
         Future<void>? dialog;
@@ -87,7 +89,9 @@ void main() {
             }
           }
           expect(Directory('${directory.path}/busyapi-migrated').existsSync(), outcome == 'publish' || outcome == 'overlap');
-          for (final entry in originals.entries) expect(File('${directory.path}/${entry.key}').readAsStringSync(), entry.value);
+          for (final entry in originals.entries) {
+            expect(File('${directory.path}/${entry.key}').readAsStringSync(), entry.value);
+          }
           expect(controller.project!.store.get(File('${directory.path}/a.yaml').uri.toString()).dirty, true);
         } finally {
           final close = find.widgetWithText(BusyApiDialogButton, 'Close');

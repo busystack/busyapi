@@ -29,7 +29,7 @@ void main() {
         final checked = await project.check(root);expect(checked['status'], 'complete', reason: '$checked');
         final edge = await target(project, root, '/components/examples/Dictionary', 'example');
         if (copied) expect(edge['targetPointer'], startsWith('/components/examples/_migrated_object_use_'));
-        final page = await project.inspectObject(root, edge['targetResource'], edge['targetPointer'], contextKind: 'example');
+        final page = await project.inspectObject(root, edge['targetResource'] as String, edge['targetPointer'] as String, contextKind: 'example');
         final text = await project.readDataValue(page);
         expect(text, contains('9007199254740993.00'));
         final data = jsonDecode(text) as Map;
@@ -38,7 +38,7 @@ void main() {
         if (copied) for (final name in ['ExampleMap', 'SchemaMap']) {
           final schema = await target(project, root, '/components/schemas/$name', 'schema');
           expect(schema['targetPointer'], startsWith('/components/schemas/_migrated_schema_use_'));
-          final view = await project.inspectObject(root, schema['targetResource'], schema['targetPointer'], contextKind: 'schema');
+          final view = await project.inspectObject(root, schema['targetResource'] as String, schema['targetPointer'] as String, contextKind: 'schema');
           final data = jsonDecode(await project.readDataValue(view)) as Map;
           expect(data.keys.where((key) => key.toString().startsWith('_migrated_')), isEmpty,
             reason: 'Independent dictionary annotations must read the immutable capture');

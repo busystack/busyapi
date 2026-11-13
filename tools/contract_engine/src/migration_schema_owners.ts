@@ -581,7 +581,9 @@ export class MigrationSchemaOwners {
      * All fixed references use captured targets and current CST coordinates. */
     assertionVariant(context:ReferenceGraph,scope:GraphScope,source:SourcePlan,pointer:string,label:string,targetFamily:string,
         removed:readonly string[]=[]):SourceLocation {
-        const captured=source.fork(),container=componentLocation('schemas',context.family);
+        const captured=source.fork(),entry=this.sources.get(context.root)!;
+        const family=entry.doc.dataNode('/swagger')?.value==='2.0'?'2.0':context.family;
+        const container=componentLocation('schemas',family);
         if(!container)throw new SourceError('migration.owners.variant-container','This assertion variant has no native Schema Object container');
         const variant=this.separate({...scope,pointer},label,{captured,layout:'array-item',
             container:{resource:context.root,pointer:container},identity:JSON.stringify([scope.resource,scope.pointer,label])}).location;
@@ -612,6 +614,10 @@ export class MigrationSchemaOwners {
             const valueApplication=context.schemaParentsOf(schema).some(parent=>parent.resource===schema.resource&&
                 /^\/(?:properties\/[^/]*|patternProperties\/[^/]*|(?:prefixItems|items)\/\d+|items|additionalProperties|contains|unevaluatedItems|unevaluatedProperties|propertyNames)$/.test(schema.pointer.slice(parent.pointer.length)));
             if(!valueApplication)continue;
+            // Ordinary lowering can retire an inactive, unreferenced value
+            // schema. Only bodies still copied into this variant need a
+            // neutral reference; absence is not an ambiguous surviving owner.
+            if(capturedField(schema)===undefined)continue;
             const material=this.uniqueLocation(schema);
             if(material.source===source&&material.location.pointer.startsWith(pointer+'/')&&
                 captured.doc.dataNode(material.location.pointer)?.kind==='object')valueSchemas.push({scope:schema,pointer:material.location.pointer});

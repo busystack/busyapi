@@ -27,7 +27,7 @@ void main() {
       final engine=EngineProcess(executable:runtimeNode,helper:runtimeHelper);addTearDown(engine.close);
       final project=await BusyProject.open(directory.path,engine);addTearDown(project.close);
       Future<void> saved(BusyProject owner) async {
-        final report=await const ContractTestRunner().run(owner,owner.roots.single.id,resolveSecret:(_) async=>null);
+        final report=await const ContractTestRunner().run(owner,owner.roots.single.id,selectedCases: const ['saved'],resolveSecret:(_) async=>null);
         expect(report.passed,true,reason:'${report.toJson()}');expect(seen.last,'/p?q=/&q=%5Bx%5D&flag=false');
       }
       await saved(project);final review=await project.prepareMigration(project.roots.single.id,'${directory.path}/output',targetVersion:target);
@@ -52,7 +52,7 @@ void main() {
       final engine=EngineProcess(executable:runtimeNode,helper:runtimeHelper);addTearDown(engine.close);
       final project=await BusyProject.open(directory.path,engine);addTearDown(project.close);
       Future<void> saved(BusyProject owner) async {
-        final report=await const ContractTestRunner().run(owner,owner.roots.single.id,resolveSecret:(_) async=>throw StateError('No credentials'));
+        final report=await const ContractTestRunner().run(owner,owner.roots.single.id,selectedCases: const ['selected', 'omitted'],resolveSecret:(_) async=>throw StateError('No credentials'));
         expect(report.passed,true,reason:'${report.toJson()}');expect(seen.reversed.take(2),['/p','/p']);
       }
       await saved(project);final review=await project.prepareMigration(project.roots.single.id,'${directory.path}/output',targetVersion:target);

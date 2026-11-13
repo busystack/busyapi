@@ -4,7 +4,6 @@
   "frameworkRevision": "6a19cca56475dbfba1478ee68d7bd0c2ef891da1",
   "engineRevision": "af7e796e161ae0bb1ff0758c71a7105418bd9ded",
   "dartVersion": "3.13.4",
-  "dartAotRuntimeSha256": "b5d1e787ec2243de46e1ceea0a35fdd48dbb6950dcf9cc54d940c66790af8fb6",
   "target": "linux-x64",
   "source": "https://github.com/flutter/flutter/tree/6a19cca56475dbfba1478ee68d7bd0c2ef891da1",
   "archiveIndex": "https://docs.flutter.dev/install/archive",
@@ -44,7 +43,8 @@
             "gcpkms://projects/chops-kms/locations/global/keyRings/chrome-official/cryptoKeys/official-signing-key/cryptoKeyVersions/1"
           ]
         },
-        "member": "libflutter_linux_gtk.so"
+        "member": "libflutter_linux_gtk.so",
+        "memberSha256": "7a5698608a3c79ad3f123a74bce8074339ffa1a83c896d73ae853c9f92a43cc3"
       },
       "profile": {
         "url": "https://storage.googleapis.com/flutter_infra_release/flutter/af7e796e161ae0bb1ff0758c71a7105418bd9ded/linux-x64-profile/linux-x64-flutter-gtk.zip",
@@ -59,7 +59,8 @@
             "gcpkms://projects/chops-kms/locations/global/keyRings/chrome-official/cryptoKeys/official-signing-key/cryptoKeyVersions/1"
           ]
         },
-        "member": "libflutter_linux_gtk.so"
+        "member": "libflutter_linux_gtk.so",
+        "memberSha256": "c3820f8b16ba0f69f5e628468be981bce498adf34e8d83d54b334e5bfbd24aff"
       },
       "release": {
         "url": "https://storage.googleapis.com/flutter_infra_release/flutter/af7e796e161ae0bb1ff0758c71a7105418bd9ded/linux-x64-release/linux-x64-flutter-gtk.zip",
@@ -74,7 +75,8 @@
             "gcpkms://projects/chops-kms/locations/global/keyRings/chrome-official/cryptoKeys/official-signing-key/cryptoKeyVersions/1"
           ]
         },
-        "member": "libflutter_linux_gtk.so"
+        "member": "libflutter_linux_gtk.so",
+        "memberSha256": "d57449a5c2ee39e77b9e3488f0703b165c67e0b3c554089f388db96484ae62f1"
       }
     },
     "dart": {
@@ -90,7 +92,10 @@
           "gcpkms://projects/chops-kms/locations/global/keyRings/chrome-official/cryptoKeys/official-signing-key/cryptoKeyVersions/1"
         ]
       },
-      "member": "dart-sdk/bin/dartaotruntime"
+      "member": "dart-sdk/bin/dartaotruntime",
+      "memberSha256": "b5d1e787ec2243de46e1ceea0a35fdd48dbb6950dcf9cc54d940c66790af8fb6",
+      "executableMember": "dart-sdk/bin/dart",
+      "executableSha256": "327991241585ee23f10d8b239a3f8484cb55e5060c665700d19d7e01e62ec94a"
     }
   }
 }

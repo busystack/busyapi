@@ -28,6 +28,32 @@ class _PausedAnalysisEngine extends EngineProcess {
   }
 }
 
+class _PausedAdoptionStore extends RecoveryStore {
+  _PausedAdoptionStore(super.directory);
+  final entered = Completer<void>(), release = Completer<void>();
+
+  @override
+  Future<void> adopt(
+    Map<String, dynamic> record,
+    DocumentBuffer buffer, {
+    PropertySession? draft,
+    FormSession? form,
+    bool Function()? current,
+    void Function()? onAdopted,
+  }) async {
+    entered.complete();
+    await release.future;
+    await super.adopt(
+      record,
+      buffer,
+      draft: draft,
+      form: form,
+      current: current,
+      onAdopted: onAdopted,
+    );
+  }
+}
+
 void main() {
   late Directory directory;
   setUp(() async {
@@ -39,15 +65,18 @@ void main() {
     await directory.delete(recursive: true);
   });
 
-  WorkspaceController controller([EngineProcess? engine]) =>
-      WorkspaceController(
-        engine ?? EngineProcess(executable: runtimeNode, helper: runtimeHelper),
-        StateLocations(
-          config: '${directory.path}/config',
-          state: '${directory.path}/state',
-          cache: '${directory.path}/cache',
-        ),
-      );
+  WorkspaceController controller({
+    EngineProcess? engine,
+    RecoveryStore? recovery,
+  }) => WorkspaceController(
+    engine ?? EngineProcess(executable: runtimeNode, helper: runtimeHelper),
+    StateLocations(
+      config: '${directory.path}/config',
+      state: '${directory.path}/state',
+      cache: '${directory.path}/cache',
+    ),
+    recovery: recovery,
+  );
 
   String fixture(String format, {String title = 'Original'}) => format == 'json'
       ? jsonEncode({
@@ -102,7 +131,7 @@ void main() {
       '$failure open preserves pending analysis, source, fields and later transitions',
       () async {
         final engine = _PausedAnalysisEngine();
-        final c = controller(engine);
+        final c = controller(engine: engine);
         addTearDown(c.shutdown);
         await c.initialize();
         final file = File('${directory.path}/api.yaml')
@@ -155,7 +184,7 @@ void main() {
     'late analysis of an abandoned workspace cannot replace the new projection',
     () async {
       final engine = _PausedAnalysisEngine();
-      final owner = controller(engine);
+      final owner = controller(engine: engine);
       addTearDown(owner.shutdown);
       await owner.initialize();
       final first = File('${directory.path}/first.yaml')
@@ -180,7 +209,7 @@ void main() {
     'an abandoned opening cannot adopt after a later open succeeds',
     () async {
       final engine = _PausedAnalysisEngine();
-      final owner = controller(engine);
+      final owner = controller(engine: engine);
       addTearDown(owner.shutdown);
       await owner.initialize();
       final initial = File('${directory.path}/initial.yaml')
@@ -212,6 +241,103 @@ void main() {
   );
 
   for (final format in ['yaml', 'json']) {
+    for (final boundary in ['acquisition', 'adoption']) {
+      for (final input in ['property', 'form', 'source']) {
+        test('$format recovery preserves $input input during $boundary', () async {
+          var owner = controller();
+          await owner.initialize();
+          final file = File('${directory.path}/api.$format')
+            ..writeAsStringSync(fixture(format));
+          await owner.open(file.path);
+          final originalItem = await owner.project!.inspectObject(
+            owner.root!,
+            file.uri.toString(),
+            '/info',
+          );
+          owner.bind(originalItem)
+            ..bind('title', 'Original')
+            ..edit('title', 'Recovered title');
+          owner.sourceEdit(
+            owner.active!,
+            owner.buffer!.text.replaceFirst(
+              'Original schema',
+              'Recovered source',
+            ),
+          );
+          final record = await recoveryRecord(owner);
+          final recordFile = File(record['recordPath'] as String);
+          final preservedRecord = recordFile.readAsBytesSync();
+          await owner.shutdown();
+          final gate = _PausedAdoptionStore(owner.recovery.directory);
+          owner = controller(recovery: boundary == 'adoption' ? gate : null);
+          addTearDown(owner.shutdown);
+          await owner.initialize();
+          await owner.open(file.path);
+          final item = await owner.project!.inspectObject(
+            owner.root!,
+            file.uri.toString(),
+            '/info',
+          );
+          final live = owner.bind(item)..bind('title', 'Original');
+          final originalText = owner.buffer!.text;
+          final pending = owner.recoverBufferDraft(record);
+          final rejected = expectLater(
+            pending,
+            throwsA(
+              isA<CoreFailure>().having(
+                (failure) => failure.code,
+                'code',
+                'recovery.stale',
+              ),
+            ),
+          );
+          if (boundary == 'adoption') await gate.entered.future;
+          // Acquisition of an already open buffer still yields. Enter input
+          // before that continuation, or while durable adoption is held above.
+          FormSession? newForm;
+          switch (input) {
+            case 'property':
+              live.edit('title', 'New input');
+            case 'form':
+              final field = (item['fields'] as List).cast<Map>().singleWhere(
+                (field) => field['name'] == 'title',
+              );
+              newForm = owner.beginForm(
+                'object.value',
+                item,
+                {'field': Map<String, dynamic>.from(field)},
+                {'value': 'Original'},
+              )..edit('value', 'New input');
+            case 'source':
+              owner.sourceEdit(
+                owner.active!,
+                originalText.replaceFirst('Original schema', 'New source'),
+              );
+          }
+          if (boundary == 'adoption') gate.release.complete();
+          await rejected;
+          expect(owner.draft, input == 'form' ? isNull : same(live));
+          expect(owner.form, same(newForm));
+          if (input == 'property') expect(live.values['title'], 'New input');
+          if (input == 'form') {
+            expect(newForm!.values['value'], 'New input');
+            newForm.verify(owner.buffer!, owner.root!);
+          }
+          if (input == 'source') {
+            expect(owner.buffer!.text, contains('New source'));
+            expect(owner.store!.canUndo, isTrue);
+            owner.store!.undo();
+            expect(owner.buffer!.text, originalText);
+            owner.store!.redo();
+            expect(owner.buffer!.text, contains('New source'));
+          } else {
+            expect(owner.buffer!.text, originalText);
+          }
+          expect(recordFile.readAsBytesSync(), preservedRecord);
+          expect(file.readAsStringSync(), fixture(format));
+        });
+      }
+    }
     for (final target in [
       ('/info', 'title'),
       ('/paths/~1value/get', 'description'),
@@ -257,11 +383,12 @@ void main() {
             target.$1,
           );
           expect((reopened['value'] as Map)[target.$2], value);
-          if (format == 'yaml')
+          if (format == 'yaml') {
             expect(
               file.readAsStringSync(),
               startsWith('# Keep authored source\r\n'),
             );
+          }
         },
       );
     }
@@ -307,7 +434,7 @@ void main() {
         );
         expect(resolved.status, BufferReloadStatus.applied);
         expect(owner.draft!.values['description'], 'Recovered schema');
-        await owner.resumePropertyDraft();
+        expect(owner.draft!.generation, owner.buffer!.generation);
         expect(await owner.flush(), isTrue);
         await owner.saveAll();
         expect(file.readAsStringSync(), contains('External'));

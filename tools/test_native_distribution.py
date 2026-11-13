@@ -116,6 +116,11 @@ class NativeDistribution(unittest.TestCase):
             with patch('tools.native_distribution.subprocess.run', return_value=Result()) as query:
                 self.assertEqual(package_owners([source]), {source: 'libfixture1:amd64'})
                 query.assert_called_once()
+            # The directory query can return unrelated owners, including
+            # malformed lines. Only exact requested file identities contribute.
+            Result.stdout += '../unrelated: ' + str(source.with_name('unrelated.so')) + '\n'
+            with patch('tools.native_distribution.subprocess.run', return_value=Result()):
+                self.assertEqual(package_owners([source]), {source: 'libfixture1:amd64'})
             Result.stdout += 'libother1:amd64: ' + str(source) + '\n'
             with patch('tools.native_distribution.subprocess.run', return_value=Result()):
                 with self.assertRaisesRegex(RuntimeError, 'unique installed package owner'):

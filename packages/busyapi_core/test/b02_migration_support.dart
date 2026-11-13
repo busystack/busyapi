@@ -19,7 +19,7 @@ String b02Api(String version, String format, {int? port, String? mode}) {
     }}},
     'components': {'schemas': {
       'Subject': {r'$ref': './model.yaml#model'},
-      'Independent': {r'$ref': './model.yaml#/$defs/Independent'},
+      'Independent': {r'$ref': r'./model.yaml#/$defs/Independent'},
     }, if (mode == 'flat-items') ...{
       'parameters': {'Values': {'name': 'values', 'in': 'query', 'style': 'form', 'explode': true,
         'schema': {r'$ref': '#/components/schemas/Subject'}}},

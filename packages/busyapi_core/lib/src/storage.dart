@@ -1034,6 +1034,7 @@ class RecoveryStore {
     bool Function()? current,
     void Function()? onAdopted,
   }) async {
+    final generation = b.generation;
     final recordPath = p.normalize(p.absolute(record['recordPath'] as String));
     if (p.dirname(recordPath) != p.normalize(p.absolute(directory)) ||
         !recordPath.endsWith('.json') ||
@@ -1044,8 +1045,12 @@ class RecoveryStore {
         'Recovery record is outside the owning private store',
       );
     }
-    if (current != null && !current())
-      throw CoreFailure('recovery.stale', 'Recovery owner changed');
+    if (b.generation != generation || (current != null && !current())) {
+      throw CoreFailure(
+        'recovery.stale',
+        'Recovery input changed. New input and the recovery record are preserved; review them before retrying.',
+      );
+    }
     b.update(record['text'] as String);
     final recordedGeneration = record['generation'] as int? ?? 0;
     if (b.generation <= recordedGeneration) {
@@ -1057,8 +1062,10 @@ class RecoveryStore {
     b.baseline = record['baseline'] as String;
     b.diskIdentity = record['diskIdentity'] as String;
     onAdopted?.call();
+    final adoptedGeneration = b.generation;
     await persist(b, draft: draft, form: form);
-    if ((current == null || current()) &&
+    if (b.generation == adoptedGeneration &&
+        (current == null || current()) &&
         recordPath != p.normalize(p.absolute(_path(b.id)))) {
       await File(recordPath).delete();
     }

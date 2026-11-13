@@ -51,7 +51,7 @@ void main() {
         await tester.runAsync(() async {await workspace.initialize();await workspace.open(file.path);await workspace.analyse();});
         await tester.pumpWidget(MaterialApp(theme: buildBusyApiTheme(brightness: Brightness.light, accentColor: Colors.blue),
           localizationsDelegates: AppLocalizations.localizationsDelegates, supportedLocales: AppLocalizations.supportedLocales,
-          home: Scaffold(body: AnimatedBuilder(animation: workspace, builder: (_, __) => Designer(controller: workspace, run: run, reveal: (_) {})))));
+          home: Scaffold(body: AnimatedBuilder(animation: workspace, builder: (_, _) => Designer(controller: workspace, run: run, reveal: (_) {})))));
         for (final accept in [false, true]) {
           await tester.runAsync(() => workspace.selectObject({'root': workspace.root, 'resource': workspace.buffer!.id, 'pointer': '$group/Use'}));
           final action = find.widgetWithText(BusyApiActionRow, 'Inline this occurrence…');

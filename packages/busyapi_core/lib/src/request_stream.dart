@@ -37,7 +37,20 @@ class ContractStreamSnapshot {
   }
 
   ContractStreamSnapshot redacted(Set<String> secrets) {
-    Object? clean(Object? value) {if(value is String){for(final secret in secrets)if(secret.isNotEmpty)value=value.replaceAll(secret,'[REDACTED]');return value;}if(value is List)return value.map(clean).toList();if(value is Map)return {for(final entry in value.entries) entry.key:clean(entry.value)};return value;}
+    Object? clean(Object? value) {
+      if (value is String) {
+        var text = value;
+        for (final secret in secrets) {
+          if (secret.isNotEmpty) text = text.replaceAll(secret, '[REDACTED]');
+        }
+        return text;
+      }
+      if (value is List) return value.map(clean).toList();
+      if (value is Map) {
+        return {for (final entry in value.entries) entry.key: clean(entry.value)};
+      }
+      return value;
+    }
     return ContractStreamSnapshot(runId:runId,status:status,receivedBytes:receivedBytes,decodedBytes:decodedBytes,records:records,validRecords:validRecords,invalidRecords:invalidRecords,uncheckedRecords:uncheckedRecords,wholeResolvableRecords:wholeResolvableRecords,itemProofAvailable:itemProofAvailable,
       evidence:[for(final item in evidence) Map<String,Object?>.from(clean(item) as Map)],findings:[for(final item in findings) Map<String,Object?>.from(clean(item) as Map)],complete:complete,valid:valid,wholeAvailable:wholeAvailable,terminal:terminal,itemsComplete:itemsComplete,framingComplete:framingComplete,schemaProducerName:schemaProducerName,schemaProducerVersion:schemaProducerVersion,schemaConfiguration:schemaConfiguration,reason:reason,bodyFile:bodyFile);
   }

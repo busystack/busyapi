@@ -185,7 +185,7 @@ void main() {
     expect(report.complete,true);expect(report.cases.single.passed,true);expect(report.cases.single.stream!['validRecords'],2);expect(report.cases.single.stream!['receivedBytes'],wire.length);
     final cli=await Process.run('$testBundle/busyapi',['test',directory.path,'--case','all-records','--json'],environment:const {'PATH':'','LANG':'C.UTF-8'},includeParentEnvironment:false);
     expect(cli.exitCode,0,reason:'${cli.stdout} ${cli.stderr}');final output=jsonDecode(cli.stdout as String) as Map,entry=output['cases'][0] as Map;
-    expect(output['producerVersion'],'4');expect(entry['stream']['status'],'complete');expect(entry['stream']['complete'],true);expect(entry['stream']['valid'],true);expect(entry['stream']['records'],2);expect(entry['stream']['receivedBytes'],wire.length);expect(entry['bodyIdentity'],report.cases.single.bodyIdentity);expect(entry['stream']['items'].every((dynamic value)=>!value.containsKey('data')),true);
+    expect(output['producerVersion'],'4');expect(entry['stream']['status'],'complete');expect(entry['stream']['complete'],true);expect(entry['stream']['valid'],true);expect(entry['stream']['records'],2);expect(entry['stream']['receivedBytes'],wire.length);expect(entry['bodyIdentity'],report.cases.single.bodyIdentity);expect(entry['stream']['items'].every((dynamic value)=>!(value as Map).containsKey('data')),true);
     expect(await fixture.source.readAsString(),fixture.original);
   });
   test('saved stopping policy survives cold reopening and independent CLI execution',() async {

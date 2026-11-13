@@ -96,27 +96,43 @@ Object? exactConfiguration(String text) {
 /// Mapping order is immaterial; sequence order and scalar types are material.
 /// Signed zero is retained for configuration source fidelity, separately from
 /// the mathematical JSON equality offered by ExactConfigurationNumber.
-bool sameExactConfiguration(Object? a, Object? b, {bool preserveNumberSpelling = false}) {
+bool sameExactConfiguration(
+  Object? a,
+  Object? b, {
+  bool preserveNumberSpelling = false,
+}) {
   var work = 0;
   bool equal(Object? left, Object? right, int depth) {
     if (++work > 2000000 || depth > 128) {
       throw const FormatException('Configuration comparison work limit');
     }
-    if (left is int) left = ExactConfigurationNumber('$left', nativeInteger: left);
-    if (right is int) right = ExactConfigurationNumber('$right', nativeInteger: right);
+    if (left is int) {
+      left = ExactConfigurationNumber('$left', nativeInteger: left);
+    }
+    if (right is int) {
+      right = ExactConfigurationNumber('$right', nativeInteger: right);
+    }
     if (left is ExactConfigurationNumber) {
-      return right is ExactConfigurationNumber && left.sameValue(right, preserveNegativeZero: true) &&
+      return right is ExactConfigurationNumber &&
+          left.sameValue(right, preserveNegativeZero: true) &&
           (!preserveNumberSpelling || left.lexeme == right.lexeme);
     }
     if (left is Map) {
-      return right is Map && left.length == right.length && left.keys.every(
-          (key) => right.containsKey(key) && equal(left[key], right[key], depth + 1));
+      if (right is! Map || left.length != right.length) return false;
+      final own = left, other = right;
+      return own.keys.every(
+        (key) =>
+            other.containsKey(key) && equal(own[key], other[key], depth + 1),
+      );
     }
     if (left is List) {
-      return right is List && left.length == right.length &&
-          Iterable<int>.generate(left.length).every((i) => equal(left[i], right[i], depth + 1));
+      if (right is! List || left.length != right.length) return false;
+      final own = left, other = right;
+      return Iterable<int>.generate(own.length)
+          .every((i) => equal(own[i], other[i], depth + 1));
     }
     return left == right;
   }
+
   return equal(a, b, 0);
 }

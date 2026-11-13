@@ -4,19 +4,10 @@ get_directory_property(BUSYAPI_FLUTTER_SDK DIRECTORY "${FLUTTER_MANAGED_DIR}" DE
 string(TOLOWER "${CMAKE_BUILD_TYPE}" BUSYAPI_FLUTTER_SDK_MODE)
 set(BUSYAPI_SDK_VERIFY "${BUSYAPI_SOURCE_DIR}/tools/verify_flutter_sdk.py")
 set(BUSYAPI_SDK_RECEIPT "${CMAKE_CURRENT_BINARY_DIR}/busyapi-flutter-sdk.json")
-set(BUSYAPI_FLUTTER_UPSTREAM_ARTIFACTS "$ENV{BUSYAPI_FLUTTER_UPSTREAM_ARTIFACTS}" CACHE PATH
-  "Existing pinned upstream archives used as independent verification evidence")
-if(NOT BUSYAPI_FLUTTER_UPSTREAM_ARTIFACTS)
-  set(BUSYAPI_FLUTTER_UPSTREAM_ARTIFACTS
-    "${BUSYAPI_FLUTTER_SDK}/bin/cache/downloads/storage.googleapis.com/flutter_infra_release")
-endif()
-get_filename_component(BUSYAPI_FLUTTER_UPSTREAM_ARTIFACTS
-  "${BUSYAPI_FLUTTER_UPSTREAM_ARTIFACTS}" ABSOLUTE BASE_DIR "${BUSYAPI_SOURCE_DIR}")
 add_custom_target(busyapi_verify_flutter_sdk ALL
   COMMAND "${Python3_EXECUTABLE}" "${BUSYAPI_SDK_VERIFY}"
     --sdk "${BUSYAPI_FLUTTER_SDK}" --mode "${BUSYAPI_FLUTTER_SDK_MODE}"
     --library "${FLUTTER_LIBRARY}" --receipt "${BUSYAPI_SDK_RECEIPT}"
-    --upstream-artifacts "${BUSYAPI_FLUTTER_UPSTREAM_ARTIFACTS}"
   VERBATIM)
 add_dependencies(busyapi_verify_flutter_sdk flutter_assemble)
 add_dependencies(${BINARY_NAME} busyapi_verify_flutter_sdk)
@@ -24,7 +15,6 @@ install(CODE "
   execute_process(COMMAND \"${Python3_EXECUTABLE}\" \"${BUSYAPI_SDK_VERIFY}\"
     --sdk \"${BUSYAPI_FLUTTER_SDK}\" --mode \"${BUSYAPI_FLUTTER_SDK_MODE}\"
     --library \"${FLUTTER_LIBRARY}\" --receipt \"${BUSYAPI_SDK_RECEIPT}\" --check-receipt
-    --upstream-artifacts \"${BUSYAPI_FLUTTER_UPSTREAM_ARTIFACTS}\"
     RESULT_VARIABLE result)
   if(NOT result EQUAL 0)
     message(FATAL_ERROR \"Upstream Flutter SDK inputs changed before installation\")

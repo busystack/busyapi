@@ -14,7 +14,7 @@ String b03Api(String version, String format, {int? port}) {
     }}},
     'components': {'schemas': {
       'Subject': {r'$ref': './model.yaml#model'},
-      'Independent': {r'$ref': './model.yaml#/$defs/Independent'},
+      'Independent': {r'$ref': r'./model.yaml#/$defs/Independent'},
     }},
   };
   return format == 'json' ? jsonEncode(document) :
@@ -32,7 +32,7 @@ String b03Model(String mode) {
     'contains' => {'contains': number},
     'count' => {'allOf': [{'items': {'type': 'integer', 'minimum': 0}}],
       'contains': {'type': 'integer', 'description': 'Every matched item'}, 'minContains': 2, 'maxContains': 3},
-    'evaluated-properties' => {'allOf': [{r'$ref': '#/$defs/Known'}],
+    'evaluated-properties' => {'allOf': [{r'$ref': r'#/$defs/Known'}],
       'properties': {'next': {r'$ref': '#model'}}, 'unevaluatedProperties': {'type': 'boolean', 'description': 'Remaining property'}},
     'evaluated-items' => {'contains': number, 'minContains': 0,
       'unevaluatedItems': {'type': 'string', 'description': 'Remaining item'}},

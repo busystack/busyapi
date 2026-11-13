@@ -32,13 +32,7 @@ source tools/node_toolchain.sh
 busyapi_select_node
 sdk_root="$(dirname "$(dirname "$(readlink -f "$(command -v "$flutter_bin")")")")"
 # Pass the same existing evidence to SDK, CMake and installed/package checks.
-# An installed layout has no SDK from which to discover the download cache.
-# The verifier also admits independently reviewed member pins in the lock; an
-# absent cache is never permission to fetch or replace the installed SDK.
-sdk_evidence="${BUSYAPI_FLUTTER_UPSTREAM_ARTIFACTS:-$sdk_root/bin/cache/downloads/storage.googleapis.com/flutter_infra_release}"
-export BUSYAPI_FLUTTER_UPSTREAM_ARTIFACTS="$(realpath -m -- "$sdk_evidence")"
-python3 tools/verify_flutter_sdk.py --sdk "$sdk_root" --mode "$flutter_mode" \
-  --upstream-artifacts "$BUSYAPI_FLUTTER_UPSTREAM_ARTIFACTS"
+python3 tools/verify_flutter_sdk.py --sdk "$sdk_root" --mode "$flutter_mode"
 busyapi_sdk_metadata
 pub_args=(--enforce-lockfile)
 if [[ "${BUSYAPI_BUILD_OFFLINE:-0}" == 1 ]]; then pub_args+=(--offline); fi
@@ -81,8 +75,7 @@ bundle=build/linux/x64/release/bundle
 tools/build_engine.sh check-all
 package_args=("$bundle")
 if [[ "${BUSYAPI_DISTRIBUTION:-standalone}" == snap ]]; then package_args+=(--platform-runtime); fi
-python3 tools/package_linux.py "${package_args[@]}" \
-  --flutter-upstream-artifacts "$BUSYAPI_FLUTTER_UPSTREAM_ARTIFACTS"
+python3 tools/package_linux.py "${package_args[@]}"
 if [[ -n "${BUSYAPI_NATIVE_SOURCE_INDEX:-}" ]]; then
   python3 tools/native_sources.py "$bundle" --cache "$BUSYAPI_NATIVE_SOURCE_CACHE" \
     --index "$BUSYAPI_NATIVE_SOURCE_INDEX" --output "$BUSYAPI_NATIVE_SOURCE_OUTPUT"

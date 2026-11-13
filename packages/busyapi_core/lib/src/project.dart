@@ -23,7 +23,7 @@ import 'mime_text_materialization.dart';
 import 'form_media_types.dart';
 import 'multipart_encoding.dart';
 import 'exact_configuration.dart';
-import 'request_parameters.dart' show queryRepresentation;
+import 'request_parameters.dart' show queryRepresentation, requestParameterKey;
 
 part 'governance.dart';
 part 'policy_code_review.dart';
@@ -1856,11 +1856,11 @@ class BusyProject {
       coherence += clock.elapsedMicroseconds - coherenceStart;
       coherent =
           coherent &&
-          (saved || snapshot!.current(store)) &&
+          (saved || snapshot.current(store)) &&
           resourceRevision == _resourceRevision;
       if (coherent) {
         ensureActive();
-        onSnapshot?.call(snapshot!);
+        onSnapshot?.call(snapshot);
         if (!saved) {
           _workingSnapshot = snapshot;
           _workingSnapshotRevision = resourceRevision;
@@ -1914,13 +1914,13 @@ class BusyProject {
           }
         }
         for (final finding in result!['findings'] as List) {
-          finding['snapshot'] = snapshot!.sourceIdentity;
+          finding['snapshot'] = snapshot.sourceIdentity;
         }
         for (final category in (result['categories'] as Map? ?? {}).values) {
-          if (category is Map) category['snapshot'] = snapshot!.sourceIdentity;
+          if (category is Map) category['snapshot'] = snapshot.sourceIdentity;
         }
         result
-          ..['contextSnapshot'] = snapshot!.identity
+          ..['contextSnapshot'] = snapshot.identity
           ..['snapshot'] = snapshot.sourceIdentity
           ..['checkedRoots'] = [root]
           ..['unsaved'] =
@@ -2344,7 +2344,7 @@ class BusyProject {
         item['shared'] == true) {
       throw CoreFailure(
         'draft.stale',
-        'Recovered values have no current editable source occurrence',
+        'The captured object changed. Recovered fields remain preserved; review the current source, then resume or discard these fields.',
       );
     }
     final rebound = PropertySession(
@@ -2352,7 +2352,7 @@ class BusyProject {
       buffer: captured.buffer,
       pointer: captured.pointer,
       generation: generation,
-      range: List<int>.from(actualRange as List),
+      range: List<int>.from(actualRange),
       expected: captured.expected,
       shareInputFrom: captured,
     );
@@ -3738,6 +3738,9 @@ class BusyProject {
     Map<String, Object?>? acceptedValues,
     bool Function()? current,
   }) async {
+    if (current != null && !current()) {
+      throw CoreFailure('proposal.stale', 'The edit was retired');
+    }
     if (session.composing) {
       throw CoreFailure(
         'draft.composing',
@@ -3763,11 +3766,19 @@ class BusyProject {
     final AnalysisSnapshot snap;
     final int? contextRevision;
     if (contextBound) {
-      final captured = await _objectSnapshot(
-        root,
-        b.id,
-        cancelled: current == null ? null : () => !current(),
-      );
+      final (AnalysisSnapshot, int) captured;
+      try {
+        captured = await _objectSnapshot(
+          root,
+          b.id,
+          cancelled: current == null ? null : () => !current(),
+        );
+      } on CoreFailure catch (failure) {
+        if (failure.code == 'cancelled' && current != null && !current()) {
+          throw CoreFailure('proposal.stale', 'The edit was retired');
+        }
+        rethrow;
+      }
       snap = captured.$1;
       contextRevision = captured.$2;
       if (b.generation != session.generation) {

@@ -75,7 +75,7 @@ void main() {
           final page = await project.inspectObject(root, resource, pointer, contextKind: 'schema');
           final reference = (page['references'] as List).cast<Map>().where((value) => value['keyword'] == r'$ref').firstOrNull;
           if (reference == null) { expect(page['value']['externalValue'], './payload.bin');return; }
-          resource = reference['targetResource'];pointer = reference['targetPointer'];
+          resource = reference['targetResource'] as String;pointer = reference['targetPointer'] as String;
         }
         fail('The Schema data owner forwarding must remain finite');
       }

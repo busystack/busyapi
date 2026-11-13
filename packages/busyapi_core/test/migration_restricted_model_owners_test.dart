@@ -66,11 +66,11 @@ void main() {
               final choices = await project.referenceChoices(root, resource, '$pointer/discriminator', contextKind: 'discriminator', keyword: 'defaultMapping');
               expect(choices.result['complete'], true);expect((choices.result['entries'] as List).map((value) => value['label']), ['Dog']);
               final target = (choices.result['entries'] as List).single['target'];
-              final model = await project.inspectObject(root, target['resource'], target['pointer'], contextKind: 'schema');expect(model['value']['x-entry'], entry);
+              final model = await project.inspectObject(root, target['resource'] as String, target['pointer'] as String, contextKind: 'schema');expect(model['value']['x-entry'], entry);
             }
             return;
           }
-          expect(reference['resolution'], 'resolved');resource = reference['targetResource'];pointer = reference['targetPointer'];
+          expect(reference['resolution'], 'resolved');resource = reference['targetResource'] as String;pointer = reference['targetPointer'] as String;
         }
         fail('Restricted material forwarding must remain finite');
       }

@@ -1098,6 +1098,7 @@ class WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     final buffer = c.buffer;
     if (buffer == null || !mounted) return;
     if (!buffer.externalConflict && !await c.flush()) return;
+    if (!mounted) return;
     final owner = c.project;
     if (owner == null || !owner.store.ownsFileBuffer(buffer)) return;
     BufferReloadCapture? acceptedReload;

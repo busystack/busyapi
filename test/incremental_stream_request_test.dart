@@ -15,7 +15,8 @@ Future<void> _until(bool Function() ready) async {
  while(!ready()){if(watch.elapsed>const Duration(seconds:10))throw StateError('The production streaming update did not arrive');await Future<void>.delayed(const Duration(milliseconds:10));}
 }
 void main(){
- for(final stale in [false,true])testWidgets('native stream ${stale?'rejects stale capture updates':'shows live records, stops and reopens its saved case'}',(tester) async {
+ for(final stale in [false,true]) {
+   testWidgets('native stream ${stale?'rejects stale capture updates':'shows live records, stops and reopens its saved case'}',(tester) async {
   tester.view.physicalSize=const Size(1500,1200);tester.view.devicePixelRatio=1;addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);
   final directory=Directory.systemTemp.createTempSync('busyapi-live-controls-');
   final workspace=WorkspaceController(EngineProcess(executable:runtimeNode,helper:runtimeHelper),StateLocations(config:'${directory.path}/config',state:'${directory.path}/state',cache:'${directory.path}/cache'));
@@ -47,7 +48,8 @@ void main(){
    }
   }finally{
    if(!release.isCompleted)release.complete();await tester.pumpWidget(const SizedBox.shrink());
-   await tester.runAsync(() async {run.dispose();try{await sending;}on Object{}await workspace.shutdown();workspace.dispose();await server?.close(force:true);directory.deleteSync(recursive:true);});
+   await tester.runAsync(() async {run.dispose();try{await sending;}on Object{/* Disposal cancels the owned request. */}await workspace.shutdown();workspace.dispose();await server?.close(force:true);directory.deleteSync(recursive:true);});
   }
  });
+ }
 }

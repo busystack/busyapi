@@ -6,7 +6,58 @@ BusyAPI targets native Swagger 2.0 and OpenAPI 3.0.x, 3.1.x and 3.2.x.
 Standard YAML/JSON remain authoritative. Supported declarations are preserved;
 opening, editing, saving, validating and rendering do not migrate documents.
 
-## Current corrective recovery state — 2026-11-11
+## Current recovery corrections — 2026-11-12
+
+This continuation started clean at `d8f165cef2b8ed267c6e03d089f2c1c81e21a869`.
+The user authorized the previously listed local verification workloads; Snapcraft
+remains excluded. The execution-hold statements below describe historical runs.
+Disk resolution now rebinds preserved property fields through generic Design
+inspection, retaining changed targets with an actionable conflict. Recovery checks
+live fields and buffer generations across acquisition and adoption, and adopts
+source and fields together without clearing the adopted draft during navigation.
+All 41 focused controller/dialog regressions pass, including delayed live input,
+changed disk targets, undo preservation and save/reopen. Dart analysis passes.
+Compiler failures exposed missing generated localization and first-party typing,
+HTTP construction and request/project import errors; these are corrected without
+changing dependency versions. Request-case authoring uses captured definitions;
+project code no longer imports the request builder. Multipart construction retains
+invalid user input faithfully while independent execution validation reports its
+conformance. Generated responses and direct strict proofs remain strict.
+
+The installed official `/home/albert/flutter` SDK is verified against its pinned
+Git revision and independent official engine/Dart member hashes. Build, CMake,
+packaging and CI definitions no longer require retained duplicate SDK archives;
+the superseded archive reader is removed. All three installed engine modes and
+46 build-tooling/SDK regressions pass. Official versions and dependency locks are
+unchanged. Clean editor and complete native release-candidate compilation pass
+in `/tmp/busyapi-recovery-d8f165ce-20261112`; these are not accepted releases.
+Candidate package assembly and its installed SDK checks pass. Package ownership
+queries scan each containing directory once and still match exact file paths,
+architectures and unique owners; the original 30-second watchdog is unchanged.
+
+Behavioral verification also corrected alias inspection, referenced-version
+diagnostics, schema field dialect ownership, conditional projection ownership,
+retired dependency containers and concrete flat item construction. All 397
+conditional migration cases pass. Full acceptance **has not passed**: Engine
+reports a Swagger relative Terms-of-Service base mismatch, four mixed legacy/
+modern flat-Header tests encounter the existing incompatible-family refusal,
+and large-value widget recovery/save operations exceed unchanged IO watchdogs.
+The full Core gate stops at alias authoring with `edit.shared` (94 passed before
+that failure); its remaining tests are unexecuted. The focused recovery/process/
+large-history/configured-loading Core gate passes all 16 cases. The first offline
+artifact smoke attempt times out in Swagger YAML documentation export.
+Its retry passes the complete installed/offline CLI gate across seven versions
+in both syntaxes, including deterministic relocated outputs and failure paths.
+The declared release builder still exits at its mandatory Terms migration gate.
+The native JSON 3.2 journey loses trailing Title input. A plain two-field probe
+using the same official SDK/native host also loses the last character; no SDK
+modification, input throttling or reduced assertion qualifies that failure.
+The remaining native journeys and complete release qualification are incomplete.
+Original failures, command outputs and source/artifact identities are retained in
+`build/diagnostics/recovery-d8f165ce-20261112/`. Historical evidence below remains
+historical and does not qualify the changed implementation.
+
+## Historical corrective recovery state — 2026-11-11
 
 **Implemented, unverified; native and packaged acceptance has not passed.** This
 continuation started clean at `6a2c73b5d76efd1f208faab2c10fe090bd515ba5`, including

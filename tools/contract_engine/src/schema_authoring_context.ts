@@ -1,7 +1,8 @@
 import type {GraphScope, ReferenceGraph} from './reference_graph';
 
 export type SchemaAuthoringContext = Readonly<{
-    root: string; rootVersion: string | null; resource: string; resourceVersion: string | null; pointer: string;
+    root: string; rootVersion: string | null; rootDialect: string | null;
+    resource: string; resourceVersion: string | null; pointer: string;
     family: string; dialect: string | null; base: string; resourcePointer: string;
 }>;
 
@@ -10,6 +11,7 @@ export type SchemaAuthoringContext = Readonly<{
  * resource identity or schema dialect. */
 export function schemaAuthoringContext(graph: ReferenceGraph, scope: GraphScope): SchemaAuthoringContext {
     return {root: graph.root, rootVersion: graph.specifications.get(graph.root)?.declaredVersion ?? null,
+        rootDialect: graph.specifications.get(graph.root)?.schemaDialect ?? null,
         resource: scope.resource, resourceVersion: graph.specifications.get(scope.resource)?.declaredVersion ?? null,
         pointer: scope.pointer, family: scope.family, dialect: scope.dialect,
         base: scope.base, resourcePointer: scope.resourcePointer};

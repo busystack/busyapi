@@ -54,16 +54,32 @@ export function headerShapes(graph:ReferenceGraph) {
       }
       if(constraints.some(item=>item.type==='never'))return {type:'never'};
       const hints=[...constraints];
-      for(const keyword of ['anyOf','oneOf'])if(Array.isArray(value[keyword]))for(const [i]of value[keyword].entries())
-        hints.push(shape({...target,pointer:target.pointer+'/'+keyword+'/'+i},depth+1)??{type:'any'});
+      for(const keyword of ['anyOf','oneOf'])if(Array.isArray(value[keyword])){
+        const alternatives=value[keyword].map((_:unknown,i:number)=>
+          shape({...target,pointer:target.pointer+'/'+keyword+'/'+i},depth+1)??{type:'any'});
+        hints.push(...alternatives);
+        constraints.push(variants(alternatives));
+      }
       if(value.$dynamicRef!==undefined)hints.push({type:'any'});
       const flat=hints.flatMap(flatten),declared=typeof value.type==='string'?[value.type]:Array.isArray(value.type)?value.type:[];
-      const types=new Set<string>([...declared,...flat.map(item=>item.type)]);
-      if(!types.size||types.has('any'))for(const type of ['string','number','boolean','null','array','object'])types.add(type);
-      types.delete('any');
+      const allTypes=['string','number','integer','boolean','null','array','object'];
+      const expand=(types:readonly string[])=>new Set(types.flatMap(type=>
+        type==='any'?allTypes:type==='number'?['number','integer']:type==='never'?[]:[type]));
+      const types=expand(declared.length?declared:allTypes);
       if(scope.family==='3.0'&&typeof value.type==='string'&&value.nullable===true)types.add('null');
+      // An untyped maximum/pattern conjunct does not add wire interpretations
+      // to a typed conjunct. Alternatives union their hints; conjuncts restrict
+      // them. Full validity still belongs to the original schema evaluator.
+      for(const constraint of constraints){
+        const allowed=expand(flatten(constraint).map(item=>item.type));
+        for(const type of types)if(!allowed.has(type))types.delete(type);
+      }
+      if(types.has('number'))types.delete('integer');
+      if(!types.size)return {type:'never'};
+      const orderedTypes=[...new Set([...declared,...flat.map(item=>item.type),...allTypes])]
+        .filter(type=>types.has(type));
       const results:HeaderShape[]=[];
-      for(const type of types){
+      for(const type of orderedTypes){
         const result:HeaderShape={type};
         if(type==='array'){
           const arrays=flat.filter(item=>item.type==='array');

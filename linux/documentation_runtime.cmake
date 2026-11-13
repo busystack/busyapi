@@ -17,6 +17,7 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/documentation_runtime.json.in"
 
 # Call after the ordinary bundle's clean-install step has been declared.
 function(busyapi_install_documentation_runtime)
+  add_dependencies(${BINARY_NAME} busyapi_documentation)
   install(TARGETS busyapi_documentation LIBRARY DESTINATION lib COMPONENT Runtime)
   install(FILES "${BUSYAPI_DOCUMENTATION_RUNTIME_DESCRIPTOR}"
     DESTINATION share/busyapi COMPONENT Runtime)

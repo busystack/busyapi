@@ -10,7 +10,7 @@ import { ReferenceGraph, supportedSchemaDialect, referenceMarkdownContext, schem
 import { fieldsFor, fieldsForScope, removableField, allowsExtensions, componentFamily, componentLocation, authoringFieldRevision } from './authoring';
 import {sameSchemaValueForms, allowsSchemaValue, schemaOccurrenceForms, schemaEntryForms} from './schema_value_forms';
 import type {SchemaValueForms} from './schema_value_forms';
-import { SourceDocument, SourceError, RawJsonValue, escape, segments, limits } from './document';
+import { SourceDocument, SourceError, RawJsonValue, escape, segments, limits, type Node } from './document';
 import {structuralEvaluator as ajv, structuralValidators as validators, structuralRevisions, structuralSchema} from './structural_schema';
 import {specificationDeclaration, isNativeFamily, modernFamily, capabilitiesFor, dialectUriRevision} from './specification';
 import {securityDesign, safeFinding} from './security_design';
@@ -351,7 +351,8 @@ export function analyse(input: any, context?: ReturnType<typeof createGraph>) {
 }
 export function inspect(input: any) {
     const {docs, graph} = createGraph(input);
-    const doc = docs.get(input.resource), node = doc?.nodes.get(input.pointer);
+    const doc = docs.get(input.resource), node = doc?.dataNode(input.pointer);
+    const pointer: string = input.pointer;
     const scope = graph.selectedScope(input.resource,input.pointer,input.contextKind);
     const family = scope?.family??(doc ? graph.scope(doc.id,input.pointer).family : graph.family);
     if (!isNativeFamily(family))
@@ -394,48 +395,60 @@ export function inspect(input: any) {
     }
     if (!doc || !node || !scope) throw new SourceError('inspect.context', 'This occurrence has no established specification context');
     const resource = input.resources.find((r: Resource) => r.id === doc.id);
-    const tokens = segments(node.pointer), last = tokens.pop();
+    const tokens = segments(pointer), last = tokens.pop();
     const parentPointer = tokens.length ? '/' + tokens.map(escape).join('/') : '';
-    const parentNode = node.pointer ? doc.nodes.get(parentPointer) : undefined;
+    const parentNode = pointer ? doc.nodes.get(parentPointer) : undefined;
     const parentScope = parentNode && graph.scopes.get(doc.id + '#' + parentPointer);
     const fragmentDefinition = parentNode?.kind === 'object' && (!parentScope || parentScope.kind === 'root' && !graph.specifications.has(doc.id));
     const removable = !!parentNode && (fragmentDefinition || !!parentScope && removableField(parentScope.kind, family, parentNode.value, last!, tokens.at(-1),graph.allowsReference(parentScope)));
-    const located = (n: any, kind: string) => ({root: input.root, resource: doc.id, generation: resource.generation, pointer: n.pointer, range: n.range,
-        syntaxSafe: doc.syntaxSafe(n.pointer), nodeKind: kind==='schema'&&typeof n.value==='boolean'?'boolean':n.kind, shared: n.shared, kind});
+    // Semantic alias occurrences keep their logical identity and physical
+    // provenance. Reading them never creates editable virtual syntax nodes.
+    const located = (n: Node, kind: string, occurrence: string) => {
+        const provenance = doc.dataLocation(occurrence);
+        const authored = doc.nodes.get(occurrence);
+        return {
+            root: input.root, resource: doc.id, generation: resource.generation,
+            pointer: occurrence, ...provenance,
+            range: authored?.range ?? provenance.range,
+            syntaxSafe: doc.syntaxSafe(occurrence),
+            nodeKind: kind === 'schema' && typeof n.value === 'boolean' ? 'boolean' : (authored ?? n).kind,
+            shared: (authored ?? n).shared || n.pointer !== occurrence, kind,
+        };
+    };
     const definitions = fieldsForScope(graph,scope,node.value);
     const childKindAt=(name:string,value:any)=>graph.referenceObject(node.value,scope)?undefined:
         children({[name]:value},scope.kind,family,node.value)[0]?.[2]??
-        (scope.kind==='root'&&!graph.specifications.has(doc.id)?graph.scopes.get(doc.id+'#'+node.pointer+'/'+escape(name))?.kind:undefined);
+        (scope.kind==='root'&&!graph.specifications.has(doc.id)?graph.scopes.get(doc.id+'#'+pointer+'/'+escape(name))?.kind:undefined);
     const fields = definitions.map(field => {
         const child = node.children.get(field.name);
         const childKind = childKindAt(field.name,child?.value??{});
-        return {...field, childKind, present: !!child, ...(child ? {dataType: child.value===null?'null':Array.isArray(child.value)?'array':typeof child.value, target: located(child, childKind??'data'),
+        return {...field, childKind, present: !!child, ...(child ? {dataType: child.value===null?'null':Array.isArray(child.value)?'array':typeof child.value, target: located(child, childKind??'data', pointer+'/'+escape(field.name)),
             ...(typeof child.value !== 'object' && String(child.value).length <= 16384 ? {value: child.value} : {}),
-            ...(child.range[1] - child.range[0] <= 16384 ? {raw: doc.dataJson(child.pointer)} : {}), count: child.children.size} : {})};
+            ...(child.range[1] - child.range[0] <= 16384 ? {raw: doc.dataJson(pointer+'/'+escape(field.name))} : {}), count: child.children.size} : {})};
     });
     const offset = Math.min(Math.max(0, Number.isInteger(input.offset) ? input.offset : 0), Math.max(0, (Math.ceil(node.children.size / 50) - 1) * 50));
-    const ownerPointer = scope.kind === 'schema-map' && node.pointer.endsWith('/properties') ? node.pointer.slice(0, -'/properties'.length) : undefined;
-    const ownerSchema = ownerPointer === undefined ? undefined : doc.node(ownerPointer);
+    const ownerPointer = scope.kind === 'schema-map' && pointer.endsWith('/properties') ? pointer.slice(0, -'/properties'.length) : undefined;
+    const ownerSchema = ownerPointer === undefined ? undefined : doc.dataNode(ownerPointer);
     const securityBinding=(pointer:string,name:string)=>{
         const reference=graph.references.find(ref=>ref.resource===doc.id&&ref.pointer===pointer&&ref.keyword===name&&ref.connection==='security');
         return reference?{name:reference.value,kind:securityRequirementValueRule(graph,reference)}:undefined;
     };
     const binding=parentScope?.kind==='security-requirement'&&scope.kind==='string-array'?securityBinding(parentPointer,last!):undefined;
     const entries = [...node.children].slice(offset, offset + 50).map(([name, child]) => ({name,
-        ...located(child, childKindAt(name,child.value)??'data'),
+        ...located(child, childKindAt(name,child.value)??'data', pointer+'/'+escape(name)),
         ...(typeof child.value !== 'object' && String(child.value).length <= 240 ? {value: child.value} : {}),
-        ...(child.range[1] - child.range[0] <= 16384 ? {raw: doc.dataJson(child.pointer)} : {}),
+        ...(child.range[1] - child.range[0] <= 16384 ? {raw: doc.dataJson(pointer+'/'+escape(name))} : {}),
         ...(ownerSchema ? {required: Array.isArray(ownerSchema.value.required) && ownerSchema.value.required.includes(name)} : {}),
-        ...(scope.kind==='security-requirement'?{securityBinding:securityBinding(node.pointer,name)}:{}), count: child.children.size}));
-    const references = graph.referencesAt(doc.id,node.pointer,scope.kind).map(ref => ({...ref,
+        ...(scope.kind==='security-requirement'?{securityBinding:securityBinding(pointer,name)}:{}), count: child.children.size}));
+    const references = graph.referencesAt(doc.id,pointer,scope.kind).map(ref => ({...ref,
         ...(ref.resolution === 'resolved' ? {target: {root: input.root, resource: ref.targetResource, pointer: ref.targetPointer, kind:ref.kind,
             generation: input.resources.find((r: Resource) => r.id === ref.targetResource)?.generation, ...docs.get(ref.targetResource!)!.dataLocation(ref.targetPointer!)}} : {})}));
     let schemaTreeRoot:string|undefined;
     if(['schema','schema-map','schema-array'].includes(scope.kind)) {
-      let at=node.pointer;
+      let at=pointer;
       while(true) {
         const primary=graph.scopes.get(doc.id+'#'+at);
-        const parent=at===node.pointer?scope:primary&&['schema','schema-map','schema-array'].includes(primary.kind)?primary:graph.scopeAs(doc.id,at,'schema');
+        const parent=at===pointer?scope:primary&&['schema','schema-map','schema-array'].includes(primary.kind)?primary:graph.scopeAs(doc.id,at,'schema');
         if(parent?.kind==='schema')schemaTreeRoot=at;
         else if(!parent||!['schema-map','schema-array'].includes(parent.kind))break;
         if(!at)break;at=at.slice(0,at.lastIndexOf('/'));
@@ -443,30 +456,30 @@ export function inspect(input: any) {
     }
     const componentDestinations=componentFamily(scope.kind,family)?[...docs.values()].filter(candidate=>graph.specifications.get(candidate.id)?.family===family&&candidate.syntaxSafe('')&&!candidate.root.shared).map(candidate=>candidate.id):[];
     const memberPolicy=collectionMemberNamePolicy(graph,scope),componentPolicy=componentFamily(scope.kind,family)?componentNamePolicy(family):undefined;
-    const componentDefinition=!!componentPolicy&&graph.specifications.has(doc.id)&&reusableDefinitionPointer(node.pointer,family);
+    const componentDefinition=!!componentPolicy&&graph.specifications.has(doc.id)&&reusableDefinitionPointer(pointer,family);
     const schemaDefinitionPolicy=schemaDefinitionNamePolicy(graph,scope);
     let operationContext:any;
     if(scope.kind==='operation'){
-        let at=node.pointer;
+        let at=pointer;
         while(at){
             at=at.slice(0,at.lastIndexOf('/'));
             const path=graph.scopes.get(doc.id+'#'+at);
             if(path?.kind!=='path-item')continue;
             const collection=graph.scopes.get(doc.id+'#'+at.slice(0,at.lastIndexOf('/')));
-            operationContext={pathItemPointer:at,method:segments(node.pointer).at(-1),additional:parentScope?.kind==='operation-map',
+            operationContext={pathItemPointer:at,method:segments(pointer).at(-1),additional:parentScope?.kind==='operation-map',
                 canRelocatePath:collection?.kind==='path-map'&&graph.specifications.has(doc.id),path:segments(at).at(-1)};
             break;
         }
     }
-    const sharedTarget=!!componentFamily(scope.kind,family)&&graph.references.some(ref=>ref.resolution==='resolved'&&ref.targetResource===doc.id&&ref.targetPointer===node.pointer);
-    const referenceExtraction=!componentDefinition&&graph.scopes.get(doc.id+'#'+node.pointer)?.kind===scope.kind&&!!componentFamily(scope.kind,family)&&references.some(ref=>ref.keyword==='$ref'&&ref.resolution==='resolved');
-    return {version: 1, snapshot: input.snapshot, family, ...(isNativeFamily(family)?{capabilities:capabilitiesFor(family)}:{}), customSchemaKeywords: modernFamily(family), ...located(node, scope.kind), interpretations:graph.scopesAt(doc.id,node.pointer).map(({kind,family,dialect})=>({kind,family,dialect})), sharedTarget, componentDestination: graph.specifications.get(doc.id)?.family===family, componentDestinations, ...(componentFamily(scope.kind,family)?{componentFamily:componentFamily(scope.kind,family)}:{}), ...(schemaTreeRoot!==undefined?{schemaTreeRoot}:{}), removable, allowsExtensions: allowsExtensions(scope.kind, family, node.value, segments(node.pointer).at(-1),graph.allowsReference(scope)), fields, entries, offset, count: node.children.size, references,
-        ...yamlOwnershipProjection(doc,node.pointer,scope.kind),
+    const sharedTarget=!!componentFamily(scope.kind,family)&&graph.references.some(ref=>ref.resolution==='resolved'&&ref.targetResource===doc.id&&ref.targetPointer===pointer);
+    const referenceExtraction=!componentDefinition&&graph.scopes.get(doc.id+'#'+pointer)?.kind===scope.kind&&!!componentFamily(scope.kind,family)&&references.some(ref=>ref.keyword==='$ref'&&ref.resolution==='resolved');
+    return {version: 1, snapshot: input.snapshot, family, ...(isNativeFamily(family)?{capabilities:capabilitiesFor(family)}:{}), customSchemaKeywords: modernFamily(family), ...located(node, scope.kind, pointer), interpretations:graph.scopesAt(doc.id,pointer).map(({kind,family,dialect})=>({kind,family,dialect})), sharedTarget, componentDestination: graph.specifications.get(doc.id)?.family===family, componentDestinations, ...(componentFamily(scope.kind,family)?{componentFamily:componentFamily(scope.kind,family)}:{}), ...(schemaTreeRoot!==undefined?{schemaTreeRoot}:{}), removable, allowsExtensions: allowsExtensions(scope.kind, family, node.value, segments(pointer).at(-1),graph.allowsReference(scope)), fields, entries, offset, count: node.children.size, references,
+        ...yamlOwnershipProjection(doc,pointer,scope.kind),
         referenceExtraction,
         ...(scope.kind === 'schema' ? {schemaValueForms: schemaOccurrenceForms(graph, scope),
             schemaReferenceSiblings: hasSchemaReferenceSiblings(node.value, scope.kind, family)} : {}),
         ...(schemaEntryForms(graph, scope) ? {schemaEntryValueForms: schemaEntryForms(graph, scope)} : {}),
-        ...(ownerSchema ? {ownerSchema: located(ownerSchema, 'schema')} : {}),
+        ...(ownerSchema ? {ownerSchema: located(ownerSchema, 'schema', ownerPointer!)} : {}),
         schemaSuggestion:schemaInferenceSources(graph,scope),
         ...(binding?{securityBinding:binding}:{}),
         ...(memberPolicy?{memberNamePolicy:memberPolicy}:{}),

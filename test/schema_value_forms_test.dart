@@ -80,6 +80,14 @@ void main() {
             await tester.pumpAndSettle();
           }
 
+          Future<void> finishAction() async {
+            var finished = false;
+            await tester.runAsync(() async {
+              pending!.then<void>((_) { finished = true; });
+            });
+            await ready(() => finished);
+          }
+
           Future<void> apply() async {
             await tester.runAsync(
               () =>
@@ -141,7 +149,9 @@ void main() {
                   widget.values.contains('items'),
             );
             await ready(() => choice.evaluate().length == 1);
-            tester.widget<BusyApiComboRow<String>>(choice).onSelected('items');
+            await tester.runAsync(() async {
+              tester.widget<BusyApiComboRow<String>>(choice).onSelected('items');
+            });
             await tester.pumpAndSettle();
             await apply();
             await ready(() => controller.form?.kind == 'object.value');
@@ -150,7 +160,7 @@ void main() {
               matching: find.byType(EditableText),
             );
             expect(editor, findsOneWidget);
-            await tester.enterText(editor, '[false]');
+            await tester.runAsync(() => tester.enterText(editor, '[false]'));
             await apply();
             expect(
               find.textContaining('Enter a JSON value of type'),
@@ -159,7 +169,7 @@ void main() {
             expect(controller.form?.values['value'], '[false]');
             expect(controller.buffer!.text, source);
             if (version == '2.0' || version.startsWith('3.0.')) {
-              await tester.enterText(editor, 'false');
+              await tester.runAsync(() => tester.enterText(editor, 'false'));
               await apply();
               expect(
                 find.textContaining('Enter a JSON value of type'),
@@ -172,7 +182,7 @@ void main() {
                 : version.startsWith('3.0.')
                 ? '{"type":"integer","minimum":9007199254740993.00}'
                 : 'false';
-            await tester.enterText(editor, raw);
+            await tester.runAsync(() => tester.enterText(editor, raw));
             await apply();
             await ready(
               () =>
@@ -180,7 +190,7 @@ void main() {
                   !controller.checking &&
                   controller.buffer!.text != source,
             );
-            await tester.runAsync(() => pending!);
+            await finishAction();
             final changed = controller.buffer!.text;
             expect(changed, contains('9007199254740993.00'));
             expect(changed, contains('literal.json'));
@@ -215,25 +225,26 @@ void main() {
               'resource': controller.root,
               'pointer': pointer,
             }));
-            final whole = find.byWidgetPredicate((widget) =>
+            final wholeActions = find.byWidgetPredicate((widget) =>
                 widget is BusyApiActionRow &&
                 widget.title == 'Edit the complete captured value' &&
-                widget.onTap != null).first;
-            await ready(() => whole.evaluate().isNotEmpty);
+                widget.onTap != null);
+            await ready(() => wholeActions.evaluate().isNotEmpty);
+            final whole = wholeActions.first;
             await tester.ensureVisible(whole);
             await tester.runAsync(() => tester.tap(whole));
             await ready(() => controller.form?.kind == 'object.value');
             final modern = version.startsWith('3.1.') || version.startsWith('3.2.');
-            await tester.enterText(editor, 'false');
+            await tester.runAsync(() => tester.enterText(editor, 'false'));
             await apply();
             if (!modern) {
               expect(find.textContaining('Enter a JSON value of type'), findsOneWidget);
               expect(controller.buffer!.text, changed);
-              await tester.enterText(editor, '{"description":"Complete schema"}');
+              await tester.runAsync(() => tester.enterText(editor, '{"description":"Complete schema"}'));
               await apply();
             }
             await ready(() => controller.form == null && !controller.checking);
-            await tester.runAsync(() => pending!);
+            await finishAction();
             await tester.runAsync(() async {
               final reference = await controller.project!.referencePage(
                 controller.root!, controller.root!, pointer,
@@ -242,15 +253,14 @@ void main() {
               expect(reference['schemaContext']['supported'], true);
             });
             if (modern) {
-              await ready(() => whole.evaluate().isNotEmpty);
+              await ready(() => wholeActions.evaluate().isNotEmpty);
               await tester.ensureVisible(whole);
               await tester.runAsync(() => tester.tap(whole));
               await ready(() => controller.form?.kind == 'object.value');
-              await tester.enterText(editor,
-                  r'{"description":"Complete schema","$ref":"#/components/schemas/Record/allOf/0","allOf":[{}],"properties":{"child":{"$ref":"#/components/schemas/Record/allOf/0","minimum":1}}}');
+              await tester.runAsync(() => tester.enterText(editor, r'{"description":"Complete schema","$ref":"#/components/schemas/Record/allOf/0","allOf":[{}],"properties":{"child":{"$ref":"#/components/schemas/Record/allOf/0","minimum":1}}}'));
               await apply();
               await ready(() => controller.form == null && !controller.checking);
-              await tester.runAsync(() => pending!);
+              await finishAction();
               final move = find.widgetWithText(BusyApiActionRow, 'Move definition…');
               await ready(() => move.evaluate().any((entry) =>
                   (entry.widget as BusyApiActionRow).onTap != null));

@@ -71,13 +71,13 @@ void main() {
       await exercise(project, root, prefix);
       final modelAlias = await project.inspectObject(root, root, '${prefix}Value', contextKind: 'schema');
       final modelReference = (modelAlias['references'] as List).single;
-      final properties = await project.inspectObject(root, modelReference['targetResource'], '${modelReference['targetPointer']}/properties', contextKind: 'schema-map');
+      final properties = await project.inspectObject(root, modelReference['targetResource'] as String, '${modelReference['targetPointer']}/properties', contextKind: 'schema-map');
       expect((properties['entries'] as List).map((value) => value['name']), containsAll(['n', 'n2', '😀', 'a/~雪', 'child']));
-      final model = await project.inspectObject(root, modelReference['targetResource'], modelReference['targetPointer'], contextKind: 'schema');
+      final model = await project.inspectObject(root, modelReference['targetResource'] as String, modelReference['targetPointer'] as String, contextKind: 'schema');
       expect((model['fields'] as List).cast<Map>().singleWhere((field) => field['name'] == 'allOf')['present'], true);
       final independent = await project.inspectObject(root, root, '${prefix}Independent', contextKind: 'schema');
       final material = (independent['references'] as List).single;expect(material['targetPointer'], endsWith('/items'));
-      final docs = await project.inspectObject(root, material['targetResource'], '${material['targetPointer']}/externalDocs', contextKind: 'external-documentation');
+      final docs = await project.inspectObject(root, material['targetResource'] as String, '${material['targetPointer']}/externalDocs', contextKind: 'external-documentation');
       expect(docs['value']['url'], File('${directory.path}/defs/pattern.html').uri.toString());
       final document = await project.inspectObject(root, root, '');
       final history = (document['entries'] as List).cast<Map>().singleWhere((entry) => entry['name'] == 'x-patterns');

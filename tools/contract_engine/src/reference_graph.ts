@@ -222,7 +222,15 @@ export class ReferenceGraph {
         // Located semantic findings use their nearest captured role, not an
         // arbitrary physical document. Ambiguous identities still diagnose
         // every active reference that encounters the ambiguity.
+        const referencedDescriptions = new Set<string>();
+        for (const reference of this.entryReferences()) {
+            if (reference.targetResource !== undefined) referencedDescriptions.add(reference.targetResource);
+        }
         const retained=this.issues.filter(issue=>{
+            // A containing declaration governs every referenced occurrence.
+            // Invalid descriptions cannot acquire a typed entry scope, but
+            // that must not hide their declaration error from active users.
+            if (issue.kind === 'root' && referencedDescriptions.has(issue.resource)) return true;
             if(issue.connection){
                 const owner=this.referenceOwner({...issue,pointer:issue.pointer.slice(0,issue.pointer.lastIndexOf('/'))});
                 if(owner)return this.isEntryUse(owner);

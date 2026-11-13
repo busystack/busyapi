@@ -54,13 +54,13 @@ void main() {
         final page = await project.inspectObject(root, resource, at, contextKind: 'schema');
         final reference = (page['references'] as List).cast<Map>().where((value) => value['keyword'] == r'$ref').firstOrNull;
         if (reference == null) { schema = page;break; }
-        resource = reference['targetResource'];at = reference['targetPointer'];
+        resource = reference['targetResource'] as String;at = reference['targetPointer'] as String;
       }
       expect(schema, isNotNull, reason: 'Material forwarding is a finite captured graph');
       final metadata = await project.inspectObject(root, resource, '$at/discriminator', contextKind: 'discriminator');
       expect((metadata['fields'] as List).cast<Map>().singleWhere((field) => field['name'] == 'defaultMapping')['present'], true);
       final binding = (metadata['references'] as List).cast<Map>().singleWhere((value) => value['keyword'] == 'defaultMapping');
-      final target = await project.inspectObject(root, binding['targetResource'], binding['targetPointer'], contextKind: 'schema');
+      final target = await project.inspectObject(root, binding['targetResource'] as String, binding['targetPointer'] as String, contextKind: 'schema');
       expect(target['value']['x-entry'], entry);
       final request = await project.prepareRequest(root, resource: root, pointer: '/paths/~1dictionary/get');
       try {

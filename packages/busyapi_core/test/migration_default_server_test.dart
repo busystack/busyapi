@@ -235,7 +235,7 @@ void r3aServerRelocation() {
         Future<void> read(BusyProject owner) async {
           final checked = await owner.check(owner.roots.single.id);
           final operation = (checked['projection']['operations'] as List).cast<Map>().singleWhere((operation) => operation['operationId'] == 'read');
-          final plan = await owner.prepareRequest(owner.roots.single.id, resource: operation['resource'], pointer: operation['pointer'], occurrence: operation['occurrence']);
+          final plan = await owner.prepareRequest(owner.roots.single.id, resource: operation['resource'] as String, pointer: operation['pointer'] as String, occurrence: operation['occurrence'] as String?);
           try {
             final result = await const ContractRequestExecutor().execute(plan,
                 OperationRequestDraft(planIdentity: plan.identity, environment: 'manual'), resolveSecret: resolve);
@@ -284,7 +284,7 @@ void r3aServerRelocation() {
         final checked = await cold.check(cold.roots.single.id);
         final operation = (checked['projection']['operations'] as List).cast<Map>().singleWhere((operation) => operation['operationId'] == 'read');
         final plan = await cold.prepareRequest(cold.roots.single.id,
-            resource: operation['resource'], pointer: operation['pointer'], occurrence: operation['occurrence']);
+            resource: operation['resource'] as String, pointer: operation['pointer'] as String, occurrence: operation['occurrence'] as String?);
         addTearDown(plan.close);
         final prepared = await const ContractRequestBuilder().build(plan,
             OperationRequestDraft(planIdentity: plan.identity, environment: 'secure'), resolveSecret: resolve);

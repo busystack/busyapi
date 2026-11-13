@@ -78,7 +78,9 @@ void main() {
           }
         }
         expect(Directory('${directory.path}/busyapi-migrated').existsSync(), outcome == 'publish');
-        for (final entry in originals.entries) expect(File('${directory.path}/${entry.key}').readAsStringSync(), entry.value);
+        for (final entry in originals.entries) {
+          expect(File('${directory.path}/${entry.key}').readAsStringSync(), entry.value);
+        }
         expect(controller.project!.store.get(File('${directory.path}/first/api.yaml').uri.toString()).dirty, true);
       } finally {
         final close = find.widgetWithText(BusyApiDialogButton, 'Close');if (close.evaluate().isNotEmpty) await tester.tap(close);
