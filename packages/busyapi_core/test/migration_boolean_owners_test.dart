@@ -68,24 +68,46 @@ void main() {
           final output = await BusyProject.open(destination, engine);
           addTearDown(output.close);
           final outputRoot = output.roots.single.id;
-          final checked = await output.check(outputRoot);
+          AnalysisSnapshot? outputSnapshot;
+          final checked = await output.check(outputRoot,
+              onSnapshot: (snapshot) => outputSnapshot = snapshot);
           expect(checked['status'], 'complete', reason: '$checked');
           expect(checked['projection']['specification']['declaredVersion'], target);
           final prefix = target == '2.0' ? '/definitions' : '/components/schemas';
           final references = (checked['projection'] as Map)['references'] as List;
           final reference = references.singleWhere((reference) => reference['pointer'] == '$prefix/Detached/\$ref');
           expect(reference['resolution'], 'resolved');
-          expect(reference['targetResource'], outputRoot);
-          expect(reference['targetPointer'], startsWith('$prefix/_migrated_additional_'));
-          final generated = await output.inspectObject(outputRoot, outputRoot, reference['targetPointer'] as String);
-          final generatedValue = jsonDecode(await output.readDataValue(generated)) as Map;
-          expect(generatedValue, policy ? isEmpty : contains(target == '2.0' ? 'allOf' : 'not'));
+          final evaluated = await engine.request('evaluateSchemas', {
+            ...outputSnapshot!.toJson(),
+            'runtimeInstances': [
+              for (final text in ['null', 'false', '0', '"雪"', '[]', '{}'])
+                {'subject': 'authored-example', 'location': 'Detached', 'text': text,
+                  'schema': {'resource': reference['targetResource'],
+                    'pointer': reference['targetPointer']}},
+            ],
+          });
+          expect(evaluated['complete'], true, reason: '${evaluated['runtimeFindings']}');
+          final outcomes = (evaluated['runtimeEvaluations'] as List).cast<Map>();
+          expect(outcomes, hasLength(6));
+          expect(outcomes.every((value) => value['complete'] == true && value['valid'] == policy), true);
           final modelReference = references.singleWhere((reference) => reference['pointer'] == '$prefix/Model/\$ref');
-          final modelResource = modelReference['targetResource'] as String;
-          final inspected = await output.inspectObject(outputRoot, modelResource, '/Model');
+          var modelResource = modelReference['targetResource'] as String;
+          var modelPointer = modelReference['targetPointer'] as String;
+          final seen = <(String, String)>{};
+          while (true) {
+            expect(seen.add((modelResource, modelPointer)), true);
+            final next = references.where((value) => value['resource'] == modelResource &&
+                value['pointer'] == '$modelPointer/\$ref').firstOrNull;
+            if (next == null) break;
+            expect(next['resolution'], 'resolved');
+            modelResource = next['targetResource'] as String;
+            modelPointer = next['targetPointer'] as String;
+          }
+          final inspected = await output.inspectObject(outputRoot, modelResource, modelPointer);
           final converted = jsonDecode(await output.readDataValue(inspected)) as Map;
           expect(converted['additionalProperties'], policy);
-          final document = await output.inspectObject(outputRoot, modelResource, '');
+          final literalResource = fresh.changes.singleWhere((change) => change.resource == models.uri.toString()).destination;
+          final document = await output.inspectObject(outputRoot, literalResource, '');
           final entries = (document['entries'] as List).whereType<Map>();
           final literal = Map<String, dynamic>.from(entries.singleWhere((entry) => entry['name'] == 'x-literal'));
           final literalValue = jsonDecode(await output.readDataValue(literal)) as Map;

@@ -32,12 +32,22 @@ function capture(version,format,type,schema,targetVersion){
  return {root,snapshot:'binary-migration',targetVersion,destination:'file:///reviewed/copy/',resources:[{id:root,text:render(document,format).replace(/"?EXACT"?/g,'9007199254740993.00'),generation:4}]};
 }
 function cold(result){return {root:result.outputRoot,snapshot:'cold',resources:result.outputs.map(value=>({id:value.id,text:value.text,generation:0}))};}
-for(const format of ['yaml','json'])test(`R3 ${format} mixed entries prepare private secondary binary certificates`,async()=>{
- const type='application/octet-stream',input=capture('3.2.1',format,'application/json',{$ref:'secondary.'+format+'#/components/schemas/Independent'},'3.2.1');
+for(const format of ['yaml','json'])for(const crossFamily of [false,true])
+test(`R3 ${format} captured secondary binary entry ${crossFamily?'rejects unsupported legacy cross-family reference':'converts with independent native context'}`,async()=>{
+ const type='application/octet-stream',input=capture('3.2.1',format,'application/json',crossFamily?
+  {$ref:'secondary.'+format+'#/components/schemas/Independent'}:{type:'integer',enum:[0]},'3.2.1');
  const secondary=capture('3.0.4',format,type,{type:'string',format:'binary',enum:['','discarded'],maxLength:0,pattern:'^$'},'3.2.1');
  const id='file:///approved/contracts/secondary.'+format,doc=new SourceDocument(secondary.resources[0].text,id);
  secondary.resources[0]={...secondary.resources[0],id,text:doc.set('/components',{schemas:{Independent:{type:'integer',enum:[0]}}})};
  input.resources.push(secondary.resources[0]);const original=input.resources.map(resource=>resource.text),result=await planMigration(input);
+ if(crossFamily){
+  const native=await evaluateSchemas(input);
+  assert.equal(native.complete,false);
+  assert(native.findings.some(finding=>finding.code==='reference.family.unsupported'&&finding.range[1]>finding.range[0]));
+  assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);assert.deepEqual(result.changes,[]);
+  assert(result.problems.some(problem=>problem.reason==='source-incomplete'&&problem.resource===input.root&&problem.range[1]>problem.range[0]));
+  assert.deepEqual(input.resources.map(resource=>resource.text),original);return;
+ }
  assert.equal(result.complete,true,JSON.stringify(result.problems));assert.deepEqual(await planMigration(input),result);
  const output=cold(result),secondaryOutput=result.changes.find(change=>change.resource===id).destination;
  assert(result.entryRoutes.some(route=>route.resource===id&&route.from.family==='3.0'));
@@ -571,8 +581,10 @@ for(const format of ['yaml','json'])test(`R1 ${format} an exhaustive one-octet l
 });
 for(const format of ['yaml','json'])test(`R1 ${format} rejected containing nonempty byte equality retains its exact source`,async()=>{
  const {input}=r1LiteralCapture('3.0.4',format,'3.2.1'),original=input.resources.map(resource=>resource.text);
- input.resources[1].text=input.resources[1].text.replaceAll(format==='json'?'"payload":""':'payload: \'\'',format==='json'?'"payload":"PNG"':"payload: PNG");
- const captured=input.resources.map(resource=>resource.text),plan=await planMigration(input);
+ const model=new SourceDocument(input.resources[1].text,input.resources[1].id),payload=model.dataNode('/Box/enum/0/payload');
+ input.resources[1].text=model.replace(...payload.range,model.emit('PNG',payload));
+ const captured=input.resources.map(resource=>resource.text);assert.notDeepEqual(captured,original);
+ const plan=await planMigration(input);
  assert.equal(plan.complete,false,JSON.stringify(plan.problems));assert.deepEqual(plan.outputs,[]);assert.deepEqual(plan.changes,[]);
  assert(plan.problems.some(problem=>problem.code==='migration.schema.binary-literal'&&problem.reason==='unavailable-proof'&&problem.range[1]>problem.range[0]));
  assert.deepEqual(input.resources.map(resource=>resource.text),captured);assert.notDeepEqual(captured,original);
