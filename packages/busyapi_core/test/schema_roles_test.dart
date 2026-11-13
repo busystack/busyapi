@@ -70,13 +70,15 @@ void main() {
               root,
               root,
               '/components/schemas/Envelope/$keyword',
+              contextKind: 'schema-map',
             );
             expect(map['kind'], 'schema-map');
-            expect(map['memberNamePolicy'], isNull);
+            expect((map['interpretations'] as List).whereType<Map>().map((value) => value['kind']), containsAll(['schema', 'schema-map']));
             final target = await project.inspectObject(
               root,
               root,
               '/components/schemas/Envelope/$keyword/properties',
+              contextKind: 'schema',
             );
             await expectLater(
               project.planSchemaDefinitionRename(target, 'type'),
