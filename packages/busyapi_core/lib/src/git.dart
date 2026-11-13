@@ -357,24 +357,16 @@ class GitRepository {
   }
 
   Future<GitStatus> status({RunCancellation? cancellation}) async {
-    final results = await Future.wait([
-      _command(
-        const ['status', '--porcelain=v2', '-z', '--untracked-files=all'],
-        readOnly: true,
-        cancellation: cancellation,
-      ),
-      _command(
-        const ['status', '--porcelain=v2', '--branch', '--untracked-files=no'],
-        readOnly: true,
-        cancellation: cancellation,
-      ),
-    ]);
-    final result = results.first;
-    final branchResult = results.last;
+    final result = await _command(
+      const ['status', '--porcelain=v2', '-z', '--branch', '--untracked-files=all'],
+      readOnly: true,
+      cancellation: cancellation,
+    );
     await onPhase?.call('status:captured');
     var commit = info.commit, ahead = 0, behind = 0;
     String? branch = info.branch, upstream;
-    for (final field in const LineSplitter().convert(branchResult.out)) {
+    final fields = utf8.decode(result.stdout, allowMalformed: false).split('\u0000');
+    for (final field in fields) {
       if (field.startsWith('# branch.oid ')) {
         final value = field.substring(13);
         commit = value == '(initial)' ? null : value;
@@ -395,9 +387,6 @@ class GitRepository {
         }
       }
     }
-    final fields = utf8
-        .decode(result.stdout, allowMalformed: false)
-        .split('\u0000');
     final changes = <GitChange>[];
     for (var index = 0; index < fields.length; index++) {
       final field = fields[index];
