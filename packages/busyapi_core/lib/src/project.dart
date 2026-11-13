@@ -399,7 +399,18 @@ class BundleOutput {
     Map<String, dynamic> result,
     Map<String, Object?> metadata, {
     bool resultAlreadyFrozen = false,
-  }) : result = resultAlreadyFrozen ? result : _freezeResult(result),
+    required Map<String, List<int>> files,
+    Set<String> executables = const {},
+  }) : _files = Map.unmodifiable({
+         for (final entry in files.entries)
+           entry.key:
+               (entry.value is Uint8List
+                       ? entry.value as Uint8List
+                       : Uint8List.fromList(entry.value))
+                   .asUnmodifiableView(),
+       }),
+       _executables = Set.unmodifiable(executables),
+       result = resultAlreadyFrozen ? result : _freezeResult(result),
        metadata = _freezeResult(Map<String, dynamic>.from(metadata));
   final BusyProject _owner;
   final ProjectAccess _access;
@@ -409,6 +420,8 @@ class BundleOutput {
   final int _revision;
   final Map<String, dynamic> result;
   final Map<String, Object?> metadata;
+  final Map<String, List<int>> _files;
+  final Set<String> _executables;
   bool _closed = false;
   bool get outdated =>
       _owner._closed ||
@@ -427,18 +440,15 @@ class BundleOutput {
   }) async {
     if (_closed)
       throw CoreFailure('output.closed', 'The frozen output owner is closed');
-    final (document, provenance) = await _encodeBundleFiles(
-      result['output']['text'] as String,
-      metadata,
-    );
     return _access.publishOutput(
       destination,
-      {'openapi.json': document, 'provenance.json': provenance},
+      _files,
       metadata,
       replaceIdentity: replaceIdentity,
       cancelled: cancelled,
       beforePublish: beforePublish,
       afterPublish: afterPublish,
+      executableFiles: _executables,
     );
   }
 
@@ -3365,6 +3375,7 @@ class BusyProject {
         ],
         'provenance': provenance,
       };
+      final (document, provenanceBytes) = await _encodeBundleFiles(output['text'] as String, metadata);
       return BundleOutput._(
         this,
         outputAccess,
@@ -3376,6 +3387,7 @@ class BusyProject {
         result,
         metadata,
         resultAlreadyFrozen: true,
+        files: {'openapi.json': document, 'provenance.json': provenanceBytes},
       );
     } on CoreFailure catch (failure) {
       outputAccess.close();

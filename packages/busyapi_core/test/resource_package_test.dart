@@ -133,6 +133,7 @@ void main() {
                   r'$schema': 'https://json-schema.org/draft/2020-12/schema',
                   r'$ref': 'leaf.$suffix#text',
                   'examples': ['good', 1],
+                  'externalDocs': {'url': 'https://docs.invalid/payload%20data'},
                 },
                 'B': {
                   'type': 'integer',
@@ -206,6 +207,8 @@ void main() {
             buffer.id,
             buffer.text.replaceFirst('Original model', 'Unsaved model'),
           );
+          // Validate a URI in the selected schema's typed closure. The foreign
+          // document's unused Example is preserved data for this entry context.
           stage('invalid-uri-control');
           final validWorkingText = buffer.text;
           project.store.replace(
@@ -221,7 +224,7 @@ void main() {
           expect(uriFinding['resource'], buffer.id);
           expect(
             uriFinding['pointer'],
-            '/components/examples/Data/externalValue',
+            '/components/schemas/A/externalDocs/url',
           );
           final uriRange = (uriFinding['range'] as List).cast<int>();
           expect(

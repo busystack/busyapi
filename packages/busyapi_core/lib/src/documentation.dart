@@ -27,15 +27,7 @@ class DocumentationOutput extends BundleOutput {
     Map<String, dynamic> result,
     Map<String, Object?> metadata,
     Map<String, List<int>> files,
-  ) : _files = Map.unmodifiable({
-        for (final entry in files.entries)
-          entry.key:
-              (entry.value is Uint8List
-                      ? entry.value as Uint8List
-                      : Uint8List.fromList(entry.value))
-                  .asUnmodifiableView(),
-      }),
-      super._(
+  ) : super._(
         owner,
         input.access,
         input.target,
@@ -45,28 +37,8 @@ class DocumentationOutput extends BundleOutput {
         input.revision,
         result,
         metadata,
+        files: files,
       );
-  final Map<String, List<int>> _files;
-  @override
-  Future<OutputDirectoryResult> publish({
-    String? replaceIdentity,
-    bool Function()? cancelled,
-    FutureOr<void> Function()? beforePublish,
-    FutureOr<void> Function()? afterPublish,
-  }) {
-    if (_closed) {
-      throw CoreFailure('output.closed', 'The frozen output owner is closed');
-    }
-    return _access.publishOutput(
-      destination,
-      _files,
-      metadata,
-      replaceIdentity: replaceIdentity,
-      cancelled: cancelled,
-      beforePublish: beforePublish,
-      afterPublish: afterPublish,
-    );
-  }
 }
 
 class _CheckedInput {

@@ -293,7 +293,7 @@ class ResourcePackageOutput extends BundleOutput {
     _OutputInput captured,
     Map<String, dynamic> result,
     Map<String, Object?> metadata,
-    this._files,
+    Map<String, List<int>> files,
   ) : super._(
         owner,
         captured.access,
@@ -304,28 +304,9 @@ class ResourcePackageOutput extends BundleOutput {
         captured.revision,
         result,
         metadata,
+        files: files,
+        executables: const {'busyapi-resource', 'libexec/busyapi/node'},
       );
-  final Map<String, List<int>> _files;
-  @override
-  Future<OutputDirectoryResult> publish({
-    String? replaceIdentity,
-    bool Function()? cancelled,
-    FutureOr<void> Function()? beforePublish,
-    FutureOr<void> Function()? afterPublish,
-  }) {
-    if (_closed)
-      throw CoreFailure('output.closed', 'The frozen output owner is closed');
-    return _access.publishOutput(
-      destination,
-      _files,
-      metadata,
-      replaceIdentity: replaceIdentity,
-      cancelled: cancelled,
-      beforePublish: beforePublish,
-      afterPublish: afterPublish,
-      executableFiles: const {'busyapi-resource', 'libexec/busyapi/node'},
-    );
-  }
 }
 
 extension _ResourcePackageCapture on BusyProject {

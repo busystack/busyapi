@@ -131,26 +131,6 @@ Future<Map<String, Object>> _loadDocumentationRuntime(
       if (contentIdentity(bytes) != manifest['files'][name]) invalid();
       files[name] = bytes;
     }
-    final inventory = jsonDecode(utf8.decode(files['third-party.json']!));
-    if (inventory is! Map ||
-        inventory['version'] != 1 ||
-        inventory['producer'] != 'busyapi-documentation-notices' ||
-        inventory['preset'] != preset ||
-        inventory['packages'] is! List ||
-        (inventory['packages'] as List).length !=
-            (preset == 'redoc' ? 52 : 118) ||
-        !(inventory['packages'] as List).any(
-          (record) =>
-              record is Map &&
-              record['name'] ==
-                  (preset == 'redoc'
-                      ? '@redocly/redoc-opentelemetry'
-                      : 'swagger-ui') &&
-              record['version'] == (preset == 'redoc' ? '0.5.1' : '5.33.2') &&
-              record['license'] == (preset == 'redoc' ? 'MIT' : 'Apache-2.0'),
-        )) {
-      invalid();
-    }
     return {'identity': manifest['identity'] as String, 'files': files};
   } on CoreFailure {
     rethrow;

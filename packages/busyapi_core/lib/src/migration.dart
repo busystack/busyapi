@@ -524,11 +524,35 @@ Map<String, List<int>> _migrationFiles(
 /// rechecks source buffers, disk inputs and destination ownership at the last
 /// publication boundary. Original source is never an output target.
 class MigrationOutput extends BundleOutput {
-  MigrationOutput._(
+  factory MigrationOutput._(
     BusyProject owner,
     _OutputInput input,
     Map<String, dynamic> result,
     Map<String, Object?> metadata,
+  ) {
+    final frozen = _freezeResult(result);
+    final examples = List<MigrationExampleCopy>.unmodifiable(
+      (frozen['exampleOutputs'] as List).cast<Map>().map(
+        MigrationExampleCopy._,
+      ),
+    );
+    return MigrationOutput._prepared(
+      owner,
+      input,
+      frozen,
+      metadata,
+      examples,
+      _migrationFiles(frozen, metadata, examples),
+    );
+  }
+
+  MigrationOutput._prepared(
+    BusyProject owner,
+    _OutputInput input,
+    Map<String, dynamic> result,
+    Map<String, Object?> metadata,
+    this.exampleCopies,
+    Map<String, List<int>> files,
   ) : status = switch (result['status']) {
         'faithfully-convertible' => MigrationStatus.faithfullyConvertible,
         'requires-decision' => MigrationStatus.requiresDecision,
@@ -544,20 +568,25 @@ class MigrationOutput extends BundleOutput {
       changes = List.unmodifiable(
         (result['changes'] as List).cast<Map>().map(MigrationChange._),
       ),
-      exampleCopies = List.unmodifiable(
-        (result['exampleOutputs'] as List).cast<Map>().map(MigrationExampleCopy._),
-      ),
       securityBindings = List.unmodifiable(
-        (result['configurationBindings'] as List? ?? const []).cast<Map>().map(MigrationSecurityBinding._),
+        (result['configurationBindings'] as List? ?? const []).cast<Map>().map(
+          MigrationSecurityBinding._,
+        ),
       ),
       authenticationAlternatives = List.unmodifiable(
-        (result['configurationAlternatives'] as List? ?? const []).cast<Map>().map(MigrationAuthenticationAlternative._),
+        (result['configurationAlternatives'] as List? ?? const [])
+            .cast<Map>()
+            .map(MigrationAuthenticationAlternative._),
       ),
       configurationProjections = List.unmodifiable(
-        (result['configurationProjections'] as List? ?? const []).cast<Map>().map(MigrationConfigurationProjection._),
+        (result['configurationProjections'] as List? ?? const [])
+            .cast<Map>()
+            .map(MigrationConfigurationProjection._),
       ),
       parameterChanges = List.unmodifiable(
-        (result['parameterChanges'] as List).cast<Map>().map(MigrationParameterChange._),
+        (result['parameterChanges'] as List).cast<Map>().map(
+          MigrationParameterChange._,
+        ),
       ),
       target = SpecificationContext.fromJson(result['target']),
       entryRoutes = List.unmodifiable(
@@ -573,10 +602,9 @@ class MigrationOutput extends BundleOutput {
         input.revision,
         result,
         metadata,
-      ) {
-    _files = _migrationFiles(this.result, this.metadata, exampleCopies);
-  }
-  late final Map<String, List<int>> _files;
+        files: files,
+        resultAlreadyFrozen: true,
+      );
   final MigrationStatus status;
   final List<MigrationProblem> problems;
   final List<MigrationChange> changes;
@@ -601,16 +629,22 @@ class MigrationOutput extends BundleOutput {
         'The reviewed migration inputs changed; create a new review',
       );
     final inputs = snapshot.allInputs
-        .where((input) => input['bundled'] != true && input['kind'] != 'external-example')
+        .where(
+          (input) =>
+              input['bundled'] != true && input['kind'] != 'external-example',
+        )
         .map((input) => input['id'] as String)
         .toSet();
     await _resourceBatch(inputs, (id) async {
       final buffer = await _owner.buffer(id);
       await _owner.refreshDisk(buffer);
     });
-    final examplesCurrent = await _owner._externalExampleInputsCurrent(snapshot);
+    final examplesCurrent = await _owner._externalExampleInputsCurrent(
+      snapshot,
+    );
     if (_closed ||
-        outdated || !examplesCurrent ||
+        outdated ||
+        !examplesCurrent ||
         inputs.any((id) => _owner.store.get(id).externalConflict))
       throw CoreFailure(
         'migration.stale',
@@ -633,11 +667,11 @@ class MigrationOutput extends BundleOutput {
     if (cancelled?.call() == true)
       throw CoreFailure('cancelled', 'Migration publication was cancelled');
     if (_closed || outdated)
-      throw CoreFailure('migration.stale', 'The reviewed migration inputs changed; create a new review');
-    return _access.publishOutput(
-      destination,
-      _files,
-      metadata,
+      throw CoreFailure(
+        'migration.stale',
+        'The reviewed migration inputs changed; create a new review',
+      );
+    return super.publish(
       replaceIdentity: replaceIdentity,
       cancelled: () => cancelled?.call() == true || _closed || outdated,
       beforePublish: () async {

@@ -1536,7 +1536,8 @@ class WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   Future<void> generateClient() async {
     final owner = c.project, root = c.root, navigation = c.navigationGeneration;
     if (owner == null || root == null || bundleRun.busy) return;
-    final selection = await showClientGeneration(context);
+    final runtime = GeneratorRuntime();
+    final selection = await showClientGeneration(context, runtime: runtime);
     bool current() =>
         mounted &&
         !c.disposed &&
@@ -1552,6 +1553,7 @@ class WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     await bundleRun.prepare(
       destination,
       generator: selection.generator,
+      generatorRuntime: runtime,
       generatorOptions: selection.options,
       templateDirectory: selection.templates,
     );

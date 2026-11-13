@@ -28,9 +28,7 @@ class ClientOutput extends BundleOutput {
     Set<String> executables,
     Map<String, Object?> metadata,
     this.messages,
-  ) : _files = Map.unmodifiable(files),
-      _executables = Set.unmodifiable(executables),
-      _digests = Map.unmodifiable(digests),
+  ) : _digests = Map.unmodifiable(digests),
       super._(
         owner,
         input.access,
@@ -43,10 +41,10 @@ class ClientOutput extends BundleOutput {
           'output': {'identity': metadata['outputIdentity']},
         },
         metadata,
+        files: files,
+        executables: executables,
       );
-  final Map<String, List<int>> _files;
   final Map<String, String> _digests;
-  final Set<String> _executables;
   final String messages;
   List<String> get files => List.unmodifiable(_files.keys.toList()..sort());
   List<int> bytes(String name) =>
@@ -104,27 +102,6 @@ class ClientOutput extends BundleOutput {
       );
     }
     return List.unmodifiable(result);
-  }
-
-  @override
-  Future<OutputDirectoryResult> publish({
-    String? replaceIdentity,
-    bool Function()? cancelled,
-    FutureOr<void> Function()? beforePublish,
-    FutureOr<void> Function()? afterPublish,
-  }) {
-    if (_closed)
-      throw CoreFailure('output.closed', 'The frozen client output is closed');
-    return _access.publishOutput(
-      destination,
-      _files,
-      metadata,
-      replaceIdentity: replaceIdentity,
-      cancelled: cancelled,
-      beforePublish: beforePublish,
-      afterPublish: afterPublish,
-      executableFiles: _executables,
-    );
   }
 }
 
