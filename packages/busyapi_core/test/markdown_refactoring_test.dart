@@ -114,7 +114,7 @@ void main() {
         if (path == destination.path) throw StateError('Injected shared Markdown publication failure');
       });
       expect(failed.complete, false);expect(buffer.bytes(), accepted);
-      expect(destination.existsSync(), false);expect(source.readAsStringSync(), original);
+      expect(destination.existsSync(), false);expect(source.readAsBytesSync(), utf8.encode(original));
       expect((await publication.save(project, [buffer])).complete, true);
       final reopened = await BusyProject.open(directory.path, engine);
       addTearDown(reopened.close);
@@ -225,7 +225,8 @@ void main() {
         final expected = '[Guide](<${source.uri.resolve('./guide.md')}>) [local](#section)';
         final view = await project.inspectObject(buffer.id, buffer.id, '$group/Model');
         expect(view['value']['description'], expected);
-        expect(view['value']['x-data']['description'], '[literal](./payload.md)');
+        final authored = jsonDecode(await project.readDataValue(view)) as Map;
+        expect(authored['x-data']['description'], '[literal](./payload.md)');
         expect(source.readAsBytesSync(), original);
         expect(destination.existsSync(), false);
         project.store.undo();
@@ -245,6 +246,8 @@ void main() {
         expect((await reopened.check(root))['complete'], true);
         final fresh = await reopened.inspectObject(root, root, '$group/Model');
         expect(fresh['value']['description'], expected);
+        final reopenedData = jsonDecode(await reopened.readDataValue(fresh)) as Map;
+        expect(reopenedData['x-data']['description'], '[literal](./payload.md)');
       });
     }
   }

@@ -189,7 +189,7 @@ paths:
   /pets:
     get:
       responses:
-        '200': {description: Pet, examples: {application/json: {amount: 9007199254740993.00, \$ref: literal}}}
+        '200': {description: Pet, schema: {type: object}, examples: {application/json: {amount: 9007199254740993.00, \$ref: literal}}}
 ''');
       final engine = EngineProcess(
         executable: runtimeNode,
@@ -208,11 +208,9 @@ paths:
       addTearDown(() => client.close(force: true));
       final response = await (await client.getUrl(run.baseUri.resolve('/pets')))
           .close();
-      expect(response.statusCode, 200);
-      expect(
-        await utf8.decoder.bind(response).join(),
-        '{"amount":9007199254740993.00,"\$ref":"literal"}',
-      );
+      final body = await utf8.decoder.bind(response).join();
+      expect(response.statusCode, 200, reason: body);
+      expect(body, '{"amount":9007199254740993.00,"\$ref":"literal"}');
     },
   );
 }
