@@ -8,6 +8,15 @@ const {planRename}=require('./dist/refactoring.cjs');
 const root='file:///integrity/openapi.yaml';
 function input(text){return {root,snapshot:'integrity',resources:[{id:root,generation:1,text}]};}
 function apply(text,plan){for(const e of [...plan.edits].sort((a,b)=>b.start-a.start)){assert.equal(text.slice(e.start,e.end),e.expected);text=text.slice(0,e.start)+e.replacement+text.slice(e.end);}return text;}
+for(const newline of ['\n','\r\n'])test(`exact JSON values retain their entity whitespace inside another document ${JSON.stringify(newline)}`,()=>{
+ const id='file:///integrity/exact.json',raw='{\n  "n": 9007199254740993.00,\r\n "literal": "snow 雪"\n}',
+  before=['{','  "value": 0,','  "nested": {},','  "keep": false','}'].join(newline),document=new SourceDocument(before,id);
+ for(const pointer of ['/value','/nested/value']){
+  const changed=new SourceDocument(document.set(pointer,new RawJsonValue(raw)),id);
+  assert.equal(changed.dataJson(pointer),raw);assert.equal(changed.dataNode('/keep').value,false);
+  assert.equal(changed.dataJson(pointer+'/n'),'9007199254740993.00');
+ }
+});
 const header='openapi: 3.2.1\ninfo: {title: API, version: "1"}\npaths: {}\n';
 test('R02 mapping removal keeps its owning sequence and nearby source',()=>{
  const cases=[

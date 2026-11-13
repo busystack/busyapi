@@ -370,7 +370,7 @@ export class SourceDocument {
     }
     private emitValue(value: any, n?: Node, flow = false): string {
         if (value instanceof RawJsonValue)
-            return value.text.replace(/\r\n|\n|\r/g, this.newline + (n ? ' '.repeat(this.valueIndent(n) + (this.format === 'yaml' && (n.kind === 'scalar' || n.flow) ? 2 : 0)) : ''));
+            return this.format==='json'?value.text:value.text.replace(/\r\n|\n|\r/g, this.newline + (n ? ' '.repeat(this.valueIndent(n) + (n.kind === 'scalar' || n.flow ? 2 : 0)) : ''));
         if (this.format === 'json')
             return JSON.stringify(value);
         if (n?.style === 'QUOTE_SINGLE' && typeof value === 'string' && !value.includes('\n'))
