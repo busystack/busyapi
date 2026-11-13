@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/migration_r3c_fixture.dart';
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   for (final state in ['publish', 'stale', 'unsupported', 'repeated', 'factored', 'raw']) {
@@ -64,15 +65,18 @@ void main() {
         final review = find.widgetWithText(BusyApiDialogButton, 'Review migration');await ready(() => review.evaluate().isNotEmpty);
         await tester.tap(find.byWidgetPredicate((widget) => widget is BusyApiComboRow<String> && widget.title == 'Target specification'));
         await tester.pumpAndSettle();await tester.runAsync(() => tester.tap(review));
+        final destination = find.widgetWithText(BusyApiDialogButton, 'Review output');
+        await ready(() => destination.hitTestable().evaluate().isNotEmpty);
+        await tester.runAsync(() => tester.tap(destination));
         final publish = find.widgetWithText(BusyApiDialogButton, 'Create migrated copy');
-        await ready(() => publish.evaluate().isNotEmpty);
+        await ready(() => state == 'unsupported'
+          ? find.textContaining('field-free framing').evaluate().isNotEmpty
+          : find.byType(BusyApiReviewComparison).evaluate().isNotEmpty);
         if (state == 'unsupported') {
           expect(tester.widget<BusyApiDialogButton>(publish).onPressed, isNull);
           expect(find.textContaining('field-free framing'), findsOneWidget);
         } else {
           expect(find.textContaining('/tests/0/parameters'), findsOneWidget);
-          final output = find.widgetWithText(BusyApiDialogButton, 'Review output');
-          await tester.runAsync(() => tester.tap(output));await ready(() => find.byType(BusyApiReviewComparison).evaluate().isNotEmpty);
           final comparison = tester.widget<BusyApiReviewComparison>(find.byType(BusyApiReviewComparison));
           expect(comparison.before, working);if (state != 'factored' && state != 'raw') expect(comparison.after, contains('text/plain'));if (state != 'repeated') expect(comparison.after, contains('9007199254740993.00'));
           if (state == 'repeated' || state == 'factored' || state == 'raw') expect(comparison.after, contains('array'));
@@ -81,7 +85,8 @@ void main() {
           }
           await tester.runAsync(() => tester.tap(publish));
           if (state == 'publish' || state == 'repeated' || state == 'factored' || state == 'raw') {
-            await ready(() => File('${directory.path}/busyapi-migrated/openapi.yaml').existsSync());
+            await ready(() => find.text('The migrated copy was created. Original documents are preserved.').evaluate().isNotEmpty);
+            expect(File('${directory.path}/busyapi-migrated/openapi.yaml').existsSync(), true);
             await tester.runAsync(() async {
               final cold = await BusyProject.open('${directory.path}/busyapi-migrated', controller.engine);
               try {expect((await cold.check(cold.roots.single.id))['complete'], true);} finally {cold.close();}
@@ -93,9 +98,19 @@ void main() {
         }
         expect(file.readAsStringSync(), original);
         expect(configuration.readAsStringSync(), savedConfiguration);
+        final close = find.widgetWithText(BusyApiDialogButton, 'Close');
+        await ready(() => close.hitTestable().evaluate().isNotEmpty);
+        await tester.tap(close);
+        await tester.pumpAndSettle();
       } finally {
-        await tester.pumpWidget(const SizedBox.shrink());await tester.runAsync(() async {
-          controller.dispose();await dialog;await directory.delete(recursive: true);
+        final navigator = find.byType(Navigator);
+        if (navigator.evaluate().isNotEmpty) {
+          tester.state<NavigatorState>(navigator.first).popUntil((route) => route.isFirst);
+        }
+        await tester.pumpAndSettle();
+        if (dialog != null) await runWidgetIo(tester, () => dialog!);
+        await tester.pumpWidget(const SizedBox.shrink());await runWidgetIo(tester, () async {
+          await controller.shutdown();controller.dispose();await directory.delete(recursive: true);
         });
       }
     });
