@@ -8,6 +8,7 @@ case "${1:-}" in
 esac
 dart_bin="${BUSYAPI_DART:-$(command -v dart)}"
 fixture_dir="${BUSYAPI_TEST_FIXTURE_DIRECTORY:-build/test-runtime}"
+package_assets=build/test-resource-package-runtime
 mkdir -p "$fixture_dir"
 # A running fixture may still hold the previous executable. Compile beside it
 # and publish by rename instead of truncating that executable's inode.
@@ -51,12 +52,12 @@ else
 fi
 compile_executable packages/busyapi_core/bin/busyapi.dart build/test-runtime/busyapi
 "$dart_bin" packages/busyapi_core/tool/prepare_notices.dart --output=build/dart-notices
-python3 tools/prepare_resource_package_assets.py --output build/resource-package-runtime \
+python3 tools/prepare_resource_package_assets.py --output "$package_assets" \
   --dart "$dart_bin" --contract-runtime build/test-runtime/libexec/busyapi --dart-notices build/dart-notices
 # Use the same installed layout as CMake. No runtime fallback to the checkout.
-install -m 755 build/resource-package-runtime/resource-package-loader build/test-runtime/libexec/busyapi/resource-package-loader
+install -m 755 "$package_assets/resource-package-loader" build/test-runtime/libexec/busyapi/resource-package-loader
 mkdir -p build/test-runtime/share/busyapi/resource-package build/test-runtime/share/licenses/busyapi-dart build/test-runtime/share/licenses/busyapi-engine
-install -m 644 build/resource-package-runtime/runtime.json build/test-runtime/share/busyapi/resource-package/runtime.json
+install -m 644 "$package_assets/runtime.json" build/test-runtime/share/busyapi/resource-package/runtime.json
 cp -R build/dart-notices/. build/test-runtime/share/licenses/busyapi-dart/
 cp -R build/test-runtime/libexec/busyapi/licenses/. build/test-runtime/share/licenses/busyapi-engine/
 fi
