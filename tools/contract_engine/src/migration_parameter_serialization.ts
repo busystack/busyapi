@@ -891,7 +891,7 @@ export async function migrateParameterSerialization(graphs:readonly ReferenceGra
 export async function proveMigrationParameterSerialization(source:ReferenceGraph,target:ReferenceGraph,
  mapped:(at:SourceLocation,scope:GraphScope)=>readonly SourceLocation[],issue:MigrationIssue,
  examples:readonly ExternalExampleResourcePacket[]=[],targetExamples:readonly ExternalExampleResourcePacket[]=examples):Promise<Readonly<{before:ParameterWireProfiles;after:ParameterWireProfiles;changes:readonly MigrationParameterChange[]}>> {
- const beforeProfiles=new Map<string,string>(),afterProfiles=new Map<string,string>(),budget=new ParameterProofBudget(),changes:MigrationParameterChange[]=[];
+ const beforeProfiles=new Map<string,string>(),afterProfiles=new Map<string,string>(),budget=new ParameterProofBudget(),changes:MigrationParameterChange[]=[],targetProofs=new MigrationSchemaProofs(target);
  for(const scope of source.entryScopes()){
   if(scope.kind!=='parameter')continue;
   const before=declaration(source,scope);if(!before||target.specifications.get(target.root)?.family==='3.2')continue;
@@ -905,7 +905,7 @@ export async function proveMigrationParameterSerialization(source:ReferenceGraph
    deprecated:before.value.deprecated===true,domain:language(values),wire:values.map(raw=>[identity(raw),wire(before,raw)]),absent:before.value.required?'required':'omitted'});
   const resolved=outputs.map(at=>({at,owner:declaration(target,at)}));
   const factors=queryFactors(source,before,values,budget);
-  if(factors&&!factors.restriction&&factors.fields.length&&resolved.every(({owner})=>owner?.value.in===(before.value.in==='cookie'?'cookie':'query')&&owner.schema&&target.docs.get(owner.schema.resource)!.dataNode(owner.schema.pointer)?.value?.type!=='object')){
+  if(factors&&!factors.restriction&&factors.fields.length&&resolved.every(({owner})=>owner?.value.in===(before.value.in==='cookie'?'cookie':'query')&&owner.schema&&!targetProofs.domains(owner.schema).has('object'))){
    let valid=true;
    const actual=new Map<string,Declaration>();
    for(const {owner}of resolved){
