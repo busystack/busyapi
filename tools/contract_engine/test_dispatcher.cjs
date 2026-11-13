@@ -128,3 +128,35 @@ for(const method of ['evaluateSchemas','inspectPolicyCode','resolvePolicyCode','
  h.workers[1].emit('message',new Uint8Array([1,2]));assert.equal(h.workers[1].sent.at(-1).id,'schema');
  h.workers[1].emit('message',new Uint8Array([1,2]));await h.dispatcher.close();
 });
+const streamReply=(worker,id,closed=false)=>worker.emit('message',{id,payload:new Uint8Array([1,2]),closed});
+test('idle streams leave Source execution available and Source cancellation preserves stream captures',async()=>{
+ const h=harness();h.submit('open','responseStreamOpen',{stream:'live'});const stream=h.workers[0];streamReply(stream,'open');
+ h.submit('typing','analyse');const source=h.workers[1];assert.equal(source.sent.at(-1).id,'typing');
+ await h.dispatcher.stop('typing');assert(source.stopped);assert(!stream.stopped);
+ h.submit('next-chunk','responseStreamChunk',{stream:'live',text:'MQo=',end:false});assert.equal(stream.sent.at(-1).id,'next-chunk');streamReply(stream,'next-chunk');
+ h.submit('close','responseStreamClose',{stream:'live'});streamReply(stream,'close',true);
+ assert.equal(h.outputs.length,3);await h.dispatcher.close();assert(stream.stopped);
+});
+test('closing one stream cooperatively preserves another owner and acknowledges only actual cleanup',async()=>{
+ const h=harness();h.submit('open-a','responseStreamOpen',{stream:'a'});const worker=h.workers[0];streamReply(worker,'open-a');
+ h.submit('open-b','responseStreamOpen',{stream:'b'});streamReply(worker,'open-b');
+ h.submit('chunk-a','responseStreamChunk',{stream:'a',text:'MQo=',end:false});let acknowledged=false;
+ const stopped=h.dispatcher.stop('chunk-a').then(()=>acknowledged=true),control=worker.sent.at(-1);assert.equal(control.method,'responseStreamClose');assert.equal(control.params.stream,'a');
+ await flush();assert.equal(acknowledged,false);assert(!worker.stopped);
+ streamReply(worker,'chunk-a',true);assert.equal(acknowledged,false);streamReply(worker,control.id,true);await stopped;
+ h.submit('chunk-b','responseStreamChunk',{stream:'b',text:'Mgo=',end:false});assert.equal(worker.sent.at(-1).id,'chunk-b');streamReply(worker,'chunk-b');
+ assert.equal(h.failures.filter(failure=>failure.id==='chunk-a'&&failure.code==='cancelled').length,1);assert(!worker.stopped);await h.dispatcher.close();
+});
+test('stream worker death invalidates its owners while ordinary Source work survives',async()=>{
+ const h=harness();h.submit('open','responseStreamOpen',{stream:'lost'});const stream=h.workers[0];streamReply(stream,'open');
+ h.submit('source','analyse');const source=h.workers[1];
+ h.submit('chunk','responseStreamChunk',{stream:'lost',text:'MQo=',end:false});stream.emit('exit');await flush();
+ assert(h.failures.some(failure=>failure.id==='chunk'&&failure.code==='worker.exit'));assert(!source.stopped);source.emit('message',new Uint8Array([1,2]));
+ h.submit('late-chunk','responseStreamChunk',{stream:'lost',text:'',end:true});assert(h.failures.some(failure=>failure.id==='late-chunk'&&failure.code==='runtime.stream.closed'));
+ h.submit('new-open','responseStreamOpen',{stream:'new'});streamReply(h.workers.at(-1),'new-open');await h.dispatcher.close();
+});
+test('stream shutdown waits for worker termination before releasing its pending owner',async()=>{
+ const h=harness();h.submit('open','responseStreamOpen',{stream:'live'});const worker=h.workers[0];let finish;worker.gate=new Promise(resolve=>finish=resolve);
+ let closed=false;const closing=h.dispatcher.close().then(()=>closed=true);await flush();assert.equal(closed,false);assert(!h.failures.some(failure=>failure.id==='open'));
+ finish(0);await closing;assert.equal(closed,true);assert(h.failures.some(failure=>failure.id==='open'&&failure.code==='cancelled'));
+});

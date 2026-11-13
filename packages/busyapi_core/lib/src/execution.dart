@@ -367,6 +367,41 @@ final class CapturedRequestPartExample {
   int get byteLength => _bytes.length;
 }
 
+int _responseStreamSerial = 0;
+
+/// An engine-owned framer and semantic capture for one response lifetime.
+/// Only new bytes cross IPC after opening; EOF/failure/close retire that owner.
+class OperationResponseStream {
+  OperationResponseStream._(this._owner, this.id, this.mediaType, this.initial);
+  final OperationRequestPlan _owner;
+  final String id, mediaType;
+  final Map<String, dynamic> initial;
+  int _bytes = 0;
+  Future<void>? _closing;
+
+  Future<Map<String, dynamic>> add(List<int> bytes, {bool end = false, int maximumRecords = 128, RunCancellation? cancellation}) async {
+    if (_closing != null) throw CoreFailure('runtime.stream.closed', 'The stream owner is closed.');
+    if (bytes.length > 65536 || maximumRecords < 1 || maximumRecords > 128) {
+      throw CoreFailure('runtime.stream.input', 'Malformed or oversized stream chunk.');
+    }
+    final result = await _owner._streamRequest('responseStreamChunk', {
+      'stream': id, 'text': base64Encode(bytes), 'end': end, 'maximumRecords': maximumRecords,
+    }, 'stream-$id-${_owner._contentPreparationSerial++}', cancellation);
+    _owner._verifyStreamResponse(result, id, _bytes + bytes.length, maximumRecords);
+    _bytes += bytes.length;
+    return result;
+  }
+
+  Future<void> close() => _closing ??= _close();
+  Future<void> _close() async {
+    _owner._responseStreams.remove(this);
+    final result = await _owner._owner.engine.request('responseStreamClose', {'stream': id}, requestId: 'stream-close-$id');
+    if (result['version'] != 1 || result['stream'] != id || result['closed'] != true) {
+      throw CoreFailure('runtime.stream.protocol', 'The stream owner did not acknowledge closure.');
+    }
+  }
+}
+
 class OperationRequestPlan {
   OperationRequestPlan._(
     this._owner,
@@ -391,6 +426,7 @@ class OperationRequestPlan {
   final int _revision;
   bool _closed = false;
   int _contentPreparationSerial = 0;
+  final Set<OperationResponseStream> _responseStreams = {};
   bool get closed => _closed;
   bool get outdated =>
       _owner._closed ||
@@ -399,7 +435,13 @@ class OperationRequestPlan {
   String get identity => result['identity'] as String;
   Map<String, dynamic> get operation =>
       Map<String, dynamic>.from(result['operation'] as Map);
-  void close() => _closed = true;
+  void close() {
+    if (_closed) return;
+    _closed = true;
+    for (final stream in _responseStreams.toList()) {
+      unawaited(stream.close().catchError((Object _) {}));
+    }
+  }
   void ensureCurrentOwner() {
     if (_closed || _owner._closed) {
       throw CoreFailure(
@@ -1022,25 +1064,29 @@ class OperationRequestPlan {
     return Map.unmodifiable(parsed);
   }
 
-  /// One awaited chunk owns its captured media semantics and exact producer.
-  Future<Map<String, dynamic>> responseStreamChunk(
-    int status, String mediaType, List<int> bytes, Map<String, dynamic>? state, {
-    bool end = false, int maximumRecords = 128, String? runId, RunCancellation? cancellation,
-  }) async {
-    ensureCurrentOwner();
-    cancellation?.throwIfCancelled();
-    final previousBytes = state?['bytes'];
-    if (bytes.length > 65536 || maximumRecords < 1 || maximumRecords > 128 ||
-        previousBytes != null && (previousBytes is! int || previousBytes < 0)) {
-      throw CoreFailure('runtime.stream.input', 'Malformed or oversized stream continuation.');
-    }
-    final requestId = 'stream-${runId??identity}-${_contentPreparationSerial++}';
-    final work = _owner.engine.request('responseStreamChunk', {
+  Future<OperationResponseStream?> openResponseStream(int status, String mediaType, {String? runId, RunCancellation? cancellation}) async {
+    final stream = '$identity-${_responseStreamSerial++}';
+    try {
+    final result = await _streamRequest('responseStreamOpen', {
       ...snapshot.toJson(), 'resource': (operation['source'] as Map)['resource'],
       'pointer': (operation['source'] as Map)['pointer'], 'occurrence': operation['occurrence'],
-      'status': status, 'mediaType': mediaType, 'text': base64Encode(bytes),
-      'state': state, 'end': end, 'maximumRecords': maximumRecords, if(runId!=null)'runId':runId,
-    }, requestId: requestId);
+      'stream': stream, 'status': status, 'mediaType': mediaType, if (runId != null) 'runId': runId,
+    }, 'stream-open-$stream', cancellation);
+    _verifyStreamResponse(result, stream, 0, 128);
+    if (result['supported'] != true) return null;
+    final owner = OperationResponseStream._(this, stream, mediaType, result);
+    _responseStreams.add(owner);
+    return owner;
+    } on Object {
+      try { await _owner.engine.request('responseStreamClose', {'stream': stream}, requestId: 'stream-close-$stream'); } on Object { /* A failed engine has already retired its streams. */ }
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> _streamRequest(String method, Map<String, Object?> params, String requestId, RunCancellation? cancellation) async {
+    ensureCurrentOwner();
+    cancellation?.throwIfCancelled();
+    final work = _owner.engine.request(method, params, requestId: requestId);
     final interrupted = Completer<Map<String,dynamic>>();
     final unsubscribe = cancellation?.listen(() {
       unawaited(_owner.engine.cancel(requestId));
@@ -1051,7 +1097,11 @@ class OperationRequestPlan {
     finally {unsubscribe?.call();}
     cancellation?.throwIfCancelled();
     ensureCurrentOwner();
-    if (result['version'] != 1 || result['revision'] != '2' ||
+    return result;
+  }
+
+  void _verifyStreamResponse(Map<String, dynamic> result, String stream, int bytes, int maximumRecords) {
+    if (result['version'] != 1 || result['revision'] != '3' || result['stream'] != stream ||
         result['snapshot'] != snapshot.identity || result['identity'] != identity ||
         result['producer'] != 'hyperjump+busyapi-exact' ||
         result['producerVersion'] != _schemaProducerVersion ||
@@ -1066,15 +1116,14 @@ class OperationRequestPlan {
           (raw['data'] == null || raw['data'] is String && utf8.encode(raw['data'] as String).length <= 16384);
     }
     if (result['supported'] == true) {
-      final next = result['state'], records = result['records'], findings = result['findings'];
-      if (next is! Map || records is! List || records.length > maximumRecords || !records.every(item) ||
-          next['mediaType'] != mediaType || next['bytes'] != (previousBytes ?? 0) + bytes.length ||
+      final records = result['records'], findings = result['findings'];
+      if (records is! List || records.length > maximumRecords || !records.every(item) ||
+          result['receivedBytes'] != bytes || result.containsKey('state') ||
           findings is! List || findings.length > 16 || findings.any((value) => value is! Map) ||
           ['pending','framingComplete','binary','wholeSchema','wholeAvailable','binaryComplete','binaryValid'].any((key) => result[key] is! bool)) {
         throw CoreFailure('runtime.stream.protocol', 'Malformed incremental record proof.');
       }
     }
-    return result;
   }
 
   Future<Map<String, (String, bool, String)>> contentParameterValues(Map<String, String> values, {Map<String, String> rawValues = const {}, RunCancellation? cancellation}) async {

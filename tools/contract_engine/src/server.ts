@@ -1,5 +1,5 @@
-import {responseStreamChunk} from './stream_execution';
-import { Worker, isMainThread, parentPort } from 'node:worker_threads';
+import {responseStreamOpen,responseStreamChunk,responseStreamClose,responseStreamOwned} from './stream_execution';
+import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
 import {SourceError} from './document';
 import { analyse, propose, discover, inspect, readDataValue, protocol, engineVersion } from './engine';
 import { planRename, planPropertyRename, planResponseRename, planSchemaDefinitionRename } from './refactoring';
@@ -32,7 +32,7 @@ if (!isMainThread) {
     parentPort!.on('message', async (request: any) => {
         const reply = (message: any) => {
             const payload = encode({ id: request.id, snapshot: request.params?.snapshot, ...message });
-            parentPort!.postMessage(payload, [payload.buffer as ArrayBuffer]);
+            parentPort!.postMessage(workerData?.streaming?{id:request.id,payload,closed:!responseStreamOwned(request.params?.stream)}:payload, [payload.buffer as ArrayBuffer]);
         };
         try {
             const methods: any = { analyse, evaluateSchemas, standardResource, deriveBundle, referenceDisplay:referenceDisplayPacket, referenceDocument, requestOperation, semanticDiffCoverage, planResponseExample, propose, discover, inspect, readDataValue, schemaTree, referenceChoices, planReference, referencePage, planRename, planPropertyRename, planResponseRename, planSchemaDefinitionRename, planDelete, planExtract, planInline, planMoveDefinition, planFileMove, planFileDeletion, planDiagnosticFix, assistSource, sourceFolds, semanticSearch, suggestSchema, planSchemaSuggestion,
@@ -53,7 +53,9 @@ if (!isMainThread) {
             methods.planExecutionCase = planExecutionCase;
             methods.requestContentParameters = requestContentParameters;
             methods.requestMediaBytes = requestMediaBytes;
+            methods.responseStreamOpen = responseStreamOpen;
             methods.responseStreamChunk = responseStreamChunk;
+            methods.responseStreamClose = responseStreamClose;
             methods.requestMultipartPlan = requestMultipartPlan;
             methods.requestMultipartAppend = requestMultipartAppend;
             methods.requestMultipartNamedProof = requestMultipartNamedProof;
@@ -83,7 +85,7 @@ else {
     const dispatcher = new WorkerDispatcher(
         request => request.method==='govern'&&request.params?.policy?.execution?
             new PolicyProcessWorker({launcher:join(__dirname,'policy-launcher'),node:process.execPath,helper:join(__dirname,'policy-worker.cjs')}):
-            new Worker(request.method === 'planMigration' ? join(__dirname, 'conversion-worker.cjs') : __filename, {resourceLimits: {maxOldGenerationSizeMb:512,stackSizeMb:8}}),write,
+            new Worker(request.method === 'planMigration' ? join(__dirname, 'conversion-worker.cjs') : __filename, {workerData:{streaming:request.method.startsWith('responseStream')},resourceLimits: {maxOldGenerationSizeMb:512,stackSizeMb:8}}),write,
         (id,code,message)=>send({id,ok:false,error:{code,message}}),MAX,
         request=>request.method==='govern'&&request.params?.policy?.execution?'isolated-policy':request.method==='planMigration'?'conversion':'standard');
     const controlFailure=(id:string)=>send({id,ok:false,error:{code:'worker.stop',message:'Cannot complete contract worker termination'}});

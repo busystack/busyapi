@@ -225,12 +225,19 @@ export class MockNativeValidation {
         const {description}=this.plan(path,method);
         return validateMockResponse(this.context.graph,description,description.operation.method,status,headers,Buffer.alloc(0),instances=>this.evaluateInstances(instances,signal),true);
     }
-    async responseStreamChunk(path:string,method:string,status:number,mediaType:string,text:string,state:any,end:boolean,signal:AbortSignal,runId?:string):Promise<any> {
-        const source=this.plan(path,method).description.operation;
-        const result=await this.client.request('responseStreamChunk',{...this.capture,resource:source.source.resource,pointer:source.source.pointer,occurrence:source.occurrence,status,mediaType,text,state,end,runId},signal);
-        if(result.version!==1||result.revision!=='2'||result.snapshot!==this.capture.snapshot||result.identity!==this.plan(path,method).description.identity||result.producer!==this.producer?.name||result.producerVersion!==this.producer?.version||result.configuration!==this.producer?.configuration)throw new SourceError('mock.validation.protocol','Incremental response proof belongs to another capture or producer');
+    private streamProof(path:string,method:string,stream:string,result:any){
+        if(result.version!==1||result.revision!=='3'||result.stream!==stream||result.snapshot!==this.capture.snapshot||result.identity!==this.plan(path,method).description.identity||result.producer!==this.producer?.name||result.producerVersion!==this.producer?.version||result.configuration!==this.producer?.configuration)throw new SourceError('mock.validation.protocol','Incremental response proof belongs to another capture or producer');
         return result;
     }
+    async responseStreamOpen(path:string,method:string,status:number,mediaType:string,stream:string,signal:AbortSignal):Promise<any>{
+        const source=this.plan(path,method).description.operation;
+        const result=await this.client.request('responseStreamOpen',{...this.capture,resource:source.source.resource,pointer:source.source.pointer,occurrence:source.occurrence,status,mediaType,stream},signal);
+        return this.streamProof(path,method,stream,result);
+    }
+    async responseStreamChunk(path:string,method:string,stream:string,text:string,end:boolean,signal:AbortSignal):Promise<any>{
+        return this.streamProof(path,method,stream,await this.client.request('responseStreamChunk',{stream,text,end},signal));
+    }
+    async closeResponseStream(stream:string):Promise<void>{await this.client.request('responseStreamClose',{stream});}
 
     generatedResponse(path:string,method:string,status:string,actual:string,dynamic:boolean,signal:AbortSignal):Promise<string|undefined> {
         return this.samples.response(this.plan(path,method).description,status,actual,dynamic,signal);

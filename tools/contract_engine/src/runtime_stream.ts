@@ -3,24 +3,47 @@ import {runtimeMediaKind,decodeRuntimeMedia} from './runtime_media';
 import {runtimeBinaryMedia} from './runtime_binary';
 import {mimeBoundary,mimeDelimiter,mimeParts,mimeSingleton} from './mime_parts';
 
-export const streamRevision='2';
+export const streamRevision='3';
 export const streamRecordLimit=16*1024*1024;
 import {sseLine,type SseState} from './runtime_sse';
-export type StreamState={version:1;mediaType:string;buffer:string;index:number;bytes:number;offset:number;started:boolean;closed:boolean;scan:number;awaitRs?:boolean;ended?:boolean;lex?:{depth:number;quoted:boolean;escaped:boolean;started:boolean};eventStart?:number;sequence?:number;nested?:{state?:StreamState;processed:number;type:string;header:string};sse:SseState};
+/** Geometric storage keeps unfinished records local. Append copies new bytes;
+ * retained bytes move only when capacity grows or a consumed prefix is reused. */
+class StreamBytes {
+ private storage=Buffer.alloc(0);
+ private start=0;
+ private end=0;
+ get length(){return this.end-this.start;}
+ view(){return this.storage.subarray(this.start,this.end);}
+ append(chunk:Buffer):Buffer {
+  if(this.end+chunk.length>this.storage.length){
+   const length=this.length,needed=length+chunk.length;
+   if(this.start>=length&&needed<=this.storage.length){this.storage.copyWithin(0,this.start,this.end);}
+   else {
+    const storage=Buffer.allocUnsafe(Math.max(needed,Math.min(streamRecordLimit+65536,Math.max(65536,this.storage.length*2))));
+    this.view().copy(storage);this.storage=storage;
+   }
+   this.start=0;this.end=length;
+  }
+  chunk.copy(this.storage,this.end);this.end+=chunk.length;
+  return this.view();
+ }
+ consume(count:number){this.start+=count;if(this.start===this.end)this.start=this.end=0;}
+ clear(){this.storage=Buffer.alloc(0);this.start=this.end=0;}
+}
+export type StreamState={mediaType:string;storage:StreamBytes;index:number;bytes:number;offset:number;started:boolean;closed:boolean;scan:number;sseBytes:number;awaitRs?:boolean;ended?:boolean;lex?:{depth:number;quoted:boolean;escaped:boolean;started:boolean};eventStart?:number;sequence?:number;nested?:{state?:StreamState;processed:number;type:string;header:string};sse:SseState};
 export type StreamFrame={index:number;offset:number;bytes:number;path?:number[];text?:string;mime?:string;error?:{code:string;message:string;kind?:string}};
 export function streamingMedia(type:string):boolean {return ['json-lines','json-sequence','event-stream'].includes(runtimeMediaKind(type))||type.split(';')[0].trim().toLowerCase().startsWith('multipart/')||runtimeBinaryMedia(type);}
-/** Stateless bounded continuation: no worker affinity, resource acquisition,
- * global stream cache or complete-body buffering. Core owns the continuation. */
+/** One stream owner retains syntax framing across arbitrary byte boundaries.
+ * This state never crosses IPC and is never cloned for a continuation. */
 export function frameStream(mediaType:string,previous:StreamState|undefined,chunk:Buffer,end=false,maximumRecords=128,depth=0){
  if(depth>8)throw new SourceError('limit.stream.mime.depth','Nested stream framing exceeds eight levels');
  if(!Number.isInteger(maximumRecords)||maximumRecords<1||maximumRecords>128)throw new SourceError('runtime.stream.input','Expected at most 128 records per batch');
  if(chunk.length>65536)throw new SourceError('limit.stream.chunk','Stream chunks must be at most 64 KiB');
- if(previous&&(previous.version!==1||previous.mediaType!==mediaType||!Number.isSafeInteger(previous.index)||previous.index<0||!Number.isSafeInteger(previous.bytes)||previous.bytes<0||typeof previous.buffer!=='string'||previous.buffer.length>24*1024*1024||!Number.isSafeInteger(previous.offset)||previous.offset<0||!Number.isSafeInteger(previous.scan)||previous.scan<0||typeof previous.started!=='boolean'||typeof previous.closed!=='boolean'||!previous.sse||!Array.isArray(previous.sse.data)||previous.sse.data.length>65536||previous.sse.data.some(value=>typeof value!=='string')))throw new SourceError('runtime.stream.state','Malformed stream continuation');
  if(previous?.ended&&(chunk.length>0||!end))throw new SourceError('runtime.stream.closed','The stream continuation is already complete');
- const state:StreamState=previous?{...previous,lex:previous.lex?{...previous.lex}:undefined,nested:previous.nested?{...previous.nested}:undefined,sse:{...previous.sse,data:[...previous.sse.data]}}:{version:1,mediaType,buffer:'',index:0,bytes:0,offset:0,started:false,closed:false,scan:0,sse:{data:[]}};
- let bytes=Buffer.concat([Buffer.from(state.buffer,'base64'),chunk]);state.bytes+=chunk.length;
+ const state:StreamState=previous??{mediaType,storage:new StreamBytes(),index:0,bytes:0,offset:0,started:false,closed:false,scan:0,sseBytes:0,sse:{data:[]}};
+ let bytes=state.storage.append(chunk);state.bytes+=chunk.length;
  const records:StreamFrame[]=[],kind=runtimeMediaKind(mediaType),multipart=mediaType.split(';')[0].trim().toLowerCase().startsWith('multipart/');
- const consume=(count:number)=>{bytes=bytes.subarray(count);state.offset+=count;state.scan=0;};
+ const consume=(count:number)=>{state.storage.consume(count);bytes=state.storage.view();state.offset+=count;state.scan=0;};
  const emit=(wire:Buffer,length:number,mime=false)=>{
   const frame:StreamFrame={index:state.index++,offset:state.offset,bytes:length};
   if(mime){frame.path=[frame.index];frame.index=state.sequence??0;state.sequence=frame.index+1;}
@@ -106,18 +129,19 @@ export function frameStream(mediaType:string,previous:StreamState|undefined,chun
    if(end){emit(Buffer.concat([Buffer.from([30]),bytes]),bytes.length);consume(bytes.length);delete state.lex;}break;
   }state.closed=end&&bytes.length===0;
  }else if(kind==='event-stream'){
-  if(!state.started){if(bytes.length<3&&!end){state.buffer=bytes.toString('base64');return {state,records,failure:undefined,pending:false};}if(bytes.subarray(0,3).equals(Buffer.from([239,187,191])))consume(3);state.started=true;}
+  if(!state.started){if(bytes.length<3&&!end){return {state,records,failure:undefined,pending:false};}if(bytes.subarray(0,3).equals(Buffer.from([239,187,191])))consume(3);state.started=true;}
   while(records.length<maximumRecords){let at=state.scan;while(at<bytes.length&&bytes[at]!==10&&bytes[at]!==13)at++;if(at===bytes.length||bytes[at]===13&&at+1===bytes.length&&!end){state.scan=at;break;}
-   const length=at+(bytes[at]===13&&bytes[at+1]===10?2:1),line=new TextDecoder('utf-8',{ignoreBOM:true}).decode(bytes.subarray(0,at)),text=sseLine(state.sse,line);
+   const length=at+(bytes[at]===13&&bytes[at+1]===10?2:1),line=new TextDecoder('utf-8',{ignoreBOM:true}).decode(bytes.subarray(0,at)),before=state.sse.data.length,text=sseLine(state.sse,line);
+   if(!line)state.sseBytes=0;else if(state.sse.data.length>before)state.sseBytes+=Buffer.byteLength(state.sse.data.at(-1)!)+1;
    if(text!==undefined)records.push({index:state.index++,offset:state.eventStart??0,bytes:state.offset+length-(state.eventStart??0),text});if(line==='')state.eventStart=state.offset+length;consume(length);
   }
-  if(end&&records.length<maximumRecords){consume(bytes.length);state.sse.data=[];delete state.sse.event;state.closed=true;}
+  if(end&&records.length<maximumRecords){consume(bytes.length);state.sse.data=[];state.sseBytes=0;delete state.sse.event;state.closed=true;}
  }else throw new SourceError('runtime.stream.unsupported','The media representation has no incremental framing',[0,0],'unsupported');
  }catch(error){if(!(error instanceof SourceError))throw error;failure={code:error.code,message:error.message,kind:error.kind};}
- const retained=bytes.length+state.sse.data.reduce((n,value)=>n+Buffer.byteLength(value)+1,0)+(state.sse.event?.length??0)+(state.sse.id?.length??0)+(state.sse.retry?.length??0);
- if(retained>streamRecordLimit||state.sse.data.length>65536){failure={code:'limit.stream.record',message:'An unfinished stream record exceeds 16 MiB',kind:'unsupported'};bytes=Buffer.alloc(0);state.sse={data:[]};delete state.nested;}
+ const retained=bytes.length+state.sseBytes+(state.sse.event?.length??0)+(state.sse.id?.length??0)+(state.sse.retry?.length??0);
+ if(retained>streamRecordLimit||state.sse.data.length>65536){failure={code:'limit.stream.record',message:'An unfinished stream record exceeds 16 MiB',kind:'unsupported'};state.storage.clear();bytes=state.storage.view();state.sse={data:[]};state.sseBytes=0;delete state.nested;}
  if(!Number.isSafeInteger(state.bytes)||!Number.isSafeInteger(state.index))throw new SourceError('limit.stream.count','Stream counters exceed exact integer range');
  const pending=!failure&&records.length===maximumRecords&&bytes.length>0;state.ended=end&&!pending&&!failure;
- state.buffer=bytes.toString('base64');return {state,records,failure,pending};
+ return {state,records,failure,pending};
 }
 const maxScan=(scan:number,marker:number)=>Math.max(0,scan-marker);

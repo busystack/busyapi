@@ -1,20 +1,25 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),YAML=require('yaml');
-const {responseStreamChunk}=require('./dist/stream_execution.cjs');
+const {responseStreamOpen,responseStreamChunk,responseStreamClose}=require('./dist/stream_execution.cjs');
 const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
 const root='file:///streams/api.json';
 function capture(type,options={}) {
- const {version='3.2.1',yaml=false,schema={type:'array'},itemSchema={type:'number',minimum:0},encoding={}}=options,legacy=version==='2.0';
+ const {version='3.2.1',yaml=false,schema={type:'array',items:{}},itemSchema={type:'number',minimum:0},encoding={}}=options,legacy=version==='2.0';
  const media={schema,...(version.startsWith('3.2')&&itemSchema!==null?{itemSchema}:{}),...encoding};
  const document={...(legacy?{swagger:version,produces:[type]}:{openapi:version}),info:{title:'Incremental capture',version:'1'},paths:{'/events':{get:{responses:{200:{description:'Stream',...(legacy?{schema}:{content:{[type]:media}})}}}}}};
- return {root,snapshot:'stream-capture',resource:root,pointer:'/paths/~1events/get',status:200,mediaType:type,resources:[{id:root,text:yaml?YAML.stringify(document):JSON.stringify(document),generation:1}]};
+ const resource=yaml?root.replace('.json','.yaml'):root;
+ return {root:resource,snapshot:'stream-capture',resource,pointer:'/paths/~1events/get',status:200,mediaType:type,resources:[{id:resource,text:yaml?YAML.stringify(document):JSON.stringify(document),generation:1}]};
 }
+let serial=0;
+async function open(input){const stream='stream-'+(++serial);await responseStreamOpen({...input,stream});return stream;}
 async function exchange(input,chunks,end=true) {
- let state,records=[],last;const original=JSON.stringify(input.resources);
- for(const chunk of chunks){last=await responseStreamChunk({...input,state,text:Buffer.from(chunk).toString('base64'),end:false});state=last.state;records.push(...last.records);
-  while(last.pending){last=await responseStreamChunk({...input,state,text:'',end:false});state=last.state;records.push(...last.records);}
- }
- if(end){last=await responseStreamChunk({...input,state,text:'',end:true});state=last.state;records.push(...last.records);while(last.pending){last=await responseStreamChunk({...input,state,text:'',end:true});state=last.state;records.push(...last.records);}}
- assert.equal(JSON.stringify(input.resources),original);return {...last,state,records};
+ const stream=await open(input);let records=[],last;const original=JSON.stringify(input.resources);
+ try{
+  for(const chunk of chunks){last=await responseStreamChunk({stream,text:Buffer.from(chunk).toString('base64'),end:false});records.push(...last.records);
+   while(last.pending){last=await responseStreamChunk({stream,text:'',end:false});records.push(...last.records);}
+  }
+  if(end){last=await responseStreamChunk({stream,text:'',end:true});records.push(...last.records);while(last.pending){last=await responseStreamChunk({stream,text:'',end:true});records.push(...last.records);}}
+  assert.equal(JSON.stringify(input.resources),original);assert(!Object.hasOwn(last,'state'));return {...last,records};
+ }finally{await responseStreamClose({stream});}
 }
 for(const version of ['2.0','3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const yaml of [false,true])for(const type of ['application/jsonl','application/x-ndjson','application/json-seq','application/example+json-seq'])test(`${version} ${yaml?'YAML':'JSON'} ${type} captured records precede complete-content proof`,async()=>{
  const seq=type.endsWith('json-seq'),wire=Buffer.from(seq?'\x1e9007199254740993\n\x1e-1\n':'9007199254740993\n-1\n'),input=capture(type,{version,yaml});
@@ -70,29 +75,30 @@ test('multipart itemSchema and binary leaves retain original constraints at actu
  const result=await exchange(input,[Buffer.from(text)]);assert.deepEqual(result.records.map(value=>value.valid),[true,false]);assert(result.records[1].findings.some(value=>value.schema.pointer.includes('itemSchema')));
 });
 test('binary cumulative maxLength uses exact count provenance without allocating a complete body',async()=>{
- const input=capture('application/octet-stream',{schema:{maxLength:3},itemSchema:null});let state;
- for(const text of ['ab','cd']){const result=await responseStreamChunk({...input,state,text:Buffer.from(text).toString('base64'),end:false});state=result.state;assert.equal(result.binaryValid,true);assert.equal(result.binaryComplete,false);assert.equal(state.buffer,'');}
- const final=await responseStreamChunk({...input,state,text:'',end:true});assert.equal(final.binaryComplete,true);assert.equal(final.binaryValid,false);
- const inverse=capture('application/octet-stream',{schema:{not:{maxLength:3}},itemSchema:null});
- const prefix=await responseStreamChunk({...inverse,text:Buffer.from('ab').toString('base64'),end:false});assert.equal(prefix.binaryComplete,false);assert.equal(prefix.binaryValid,true);
- const complete=await responseStreamChunk({...inverse,state:prefix.state,text:Buffer.from('cd').toString('base64'),end:true});assert.equal(complete.binaryComplete,true);assert.equal(complete.binaryValid,true);
+ const input=capture('application/octet-stream',{schema:{maxLength:3},itemSchema:null}),stream=await open(input);
+ let bytes=0;for(const text of ['ab','cd']){const result=await responseStreamChunk({stream,text:Buffer.from(text).toString('base64'),end:false});bytes+=text.length;assert.equal(result.binaryValid,true);assert.equal(result.binaryComplete,false);assert.equal(result.receivedBytes,bytes);assert(!Object.hasOwn(result,'state'));}
+ const final=await responseStreamChunk({stream,text:'',end:true});assert.equal(final.binaryComplete,true);assert.equal(final.binaryValid,false);
+ const inverse=capture('application/octet-stream',{schema:{not:{maxLength:3}},itemSchema:null}),inverseStream=await open(inverse);
+ const prefix=await responseStreamChunk({stream:inverseStream,text:Buffer.from('ab').toString('base64'),end:false});assert.equal(prefix.binaryComplete,false);assert.equal(prefix.binaryValid,true);
+ const complete=await responseStreamChunk({stream:inverseStream,text:Buffer.from('cd').toString('base64'),end:true});assert.equal(complete.binaryComplete,true);assert.equal(complete.binaryValid,true);
 });
 test('bounded batches preserve every record and unfinished record limits remain explicit',async()=>{
  const input=capture('application/x-ndjson',{schema:{},itemSchema:{type:'number'}}),bytes=Buffer.from('1\n'.repeat(300));
- let state,records=[];let result=await responseStreamChunk({...input,state,text:bytes.toString('base64'),end:false,maximumRecords:1});state=result.state;records.push(...result.records);assert.equal(records.length,1);
- while(result.pending){result=await responseStreamChunk({...input,state,text:'',end:false});state=result.state;records.push(...result.records);}
- assert.equal(records.length,300);assert.equal(state.buffer,'');assert.deepEqual(records.map(value=>value.index),Array.from({length:300},(_,index)=>index));
- // Use the production response entry for overflow; every incoming chunk stays bounded.
- state=undefined;for(let n=0;n<257;n++){result=await responseStreamChunk({...input,state,text:Buffer.alloc(65536,32).toString('base64'),end:false});state=result.state;if(result.failure)break;}
+ let stream=await open(input),records=[];let result=await responseStreamChunk({stream,text:bytes.toString('base64'),end:false,maximumRecords:1});records.push(...result.records);assert.equal(records.length,1);
+ while(result.pending){result=await responseStreamChunk({stream,text:'',end:false});records.push(...result.records);}
+ assert.equal(records.length,300);assert(!Object.hasOwn(result,'state'));assert.deepEqual(records.map(value=>value.index),Array.from({length:300},(_,index)=>index));await responseStreamClose({stream});
+ // Use the production owner for overflow; every incoming chunk stays bounded.
+ stream=await open(input);for(let n=0;n<257;n++){result=await responseStreamChunk({stream,text:Buffer.alloc(65536,32).toString('base64'),end:false});if(result.failure)break;}
  assert.equal(result.failure.code,'limit.stream.record');
 });
 
-test('continuations reject replaced captures and retain original declaration identities',async()=>{
- const input={...capture('application/x-ndjson'),runId:'one-run'},first=await responseStreamChunk({...input,text:Buffer.from('1\n{"partial":').toString('base64'),end:false});
- assert.equal(first.records.length,1);
- await assert.rejects(responseStreamChunk({...input,snapshot:'changed-capture',state:first.state,text:'',end:false}),error=>error.code==='runtime.stream.capture');
- await assert.rejects(responseStreamChunk({...input,runId:'another-run',state:first.state,text:'',end:false}),error=>error.code==='runtime.stream.capture');
- assert.equal(first.state.mediaType,'application/x-ndjson');
+test('stream owners reject replacement captures, release terminal state and retain original declaration identities',async()=>{
+ const input={...capture('application/x-ndjson'),runId:'one-run'},stream=await open(input),first=await responseStreamChunk({stream,text:Buffer.from('1\n{"partial":').toString('base64'),end:false});
+ assert.equal(first.records.length,1);assert.equal(first.snapshot,input.snapshot);
+ await assert.rejects(responseStreamChunk({stream,snapshot:'changed-capture',text:'',end:false}),error=>error.code==='runtime.stream.capture');
+ await assert.rejects(responseStreamChunk({stream,runId:'another-run',text:'',end:false}),error=>error.code==='runtime.stream.capture');
+ await responseStreamClose({stream});await responseStreamClose({stream});
+ await assert.rejects(responseStreamChunk({stream,text:'',end:false}),error=>error.code==='runtime.stream.closed');
 });
 
 for(const version of ['2.0','3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const yaml of [false,true])test(`${version} ${yaml?'YAML':'JSON'} SSE preserves its event model and family keyword boundary`,async()=>{
@@ -100,7 +106,7 @@ for(const version of ['2.0','3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1
  assert.equal(result.records.length,1);assert.equal(result.records[0].valid,!version.startsWith('3.2'));assert.equal(result.framingComplete,true);
 });
 for(const version of ['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const yaml of [false,true])test(`${version} ${yaml?'YAML':'JSON'} named multipart keeps captured property constraints`,async()=>{
- const type='multipart/form-data; boundary=named',input=capture(type,{version,yaml,schema:{type:'object',properties:{n:{type:'integer',minimum:0}}},itemSchema:null});
+ const type='multipart/form-data; boundary=named',input=capture(type,{version,yaml,schema:{type:'object',properties:{n:{type:'integer',minimum:0}}},itemSchema:null,encoding:{encoding:{n:{contentType:'application/json'}}}});
  const wire=Buffer.from('--named\r\nContent-Disposition: form-data; name="n"\r\nContent-Type: application/json\r\n\r\n-1\r\n--named--\r\n');
  const result=await exchange(input,Array.from(wire,byte=>Buffer.from([byte])));assert.equal(result.records.length,1);assert.equal(result.records[0].complete,true);assert.equal(result.records[0].valid,false);assert.equal(result.framingComplete,true);
  assert(result.records[0].findings.some(value=>value.schema?.pointer.endsWith('/schema/properties/n')));

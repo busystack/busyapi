@@ -28,7 +28,7 @@ class _EngineRequest {
   final released = Completer<void>();
   Timer? deadline;
   bool sent = false, cancelled = false;
-  bool get control => const ['hello', 'cancel', 'shutdown'].contains(method);
+  bool get control => const ['hello', 'cancel', 'shutdown', 'responseStreamClose'].contains(method);
 }
 
 typedef EngineProcessStarter = Future<Process> Function(
@@ -317,7 +317,7 @@ class EngineProcess {
     Map<String, Object?> params, {
     String? requestId,
   }) async {
-    final control = const ['hello', 'cancel', 'shutdown'].contains(method);
+    final control = const ['hello', 'cancel', 'shutdown', 'responseStreamClose'].contains(method);
     if (_closed && !control) {
       throw CoreFailure('engine.closed', 'Engine has been shut down');
     }

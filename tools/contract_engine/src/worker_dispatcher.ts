@@ -27,13 +27,113 @@ export class WorkerDispatcher {
  constructor(private create:(request:DispatchRequest)=>DispatchWorker,private write:(payload:Uint8Array)=>void,
   private failure:(id:string,code:string,message:string)=>void,private maxFrame:number,
   private kind:(request:DispatchRequest)=>string=()=> 'standard'){}
+ // Stream captures use one retained worker, separate from cancellable Source
+ // jobs. Waiting for network bytes occupies no execution slot. Closing one
+ // capture is acknowledged cooperatively and does not terminate its siblings.
+ private streamWorker?:DispatchWorker;
+ private streamRetiring?:Promise<void>;
+ private streamOwners=new Set<string>();
+ private streamJobs=new Map<string,{request:DispatchRequest;sent?:boolean;cancelled?:boolean;stop?:Promise<void>;finish?:()=>void;reject?:(error:unknown)=>void;cancelFor?:string}>();
+ private streamSerial=0;
+ private streamActive?:string;
+ private streamQueue:DispatchRequest[]=[];
+ private submitStream(request:DispatchRequest){
+  if(this.streamRetiring){this.failure(request.id,'worker.stop','The previous stream worker is still retiring');return;}
+  const stream=request.params?.stream,closing=request.method==='responseStreamClose';
+  if(typeof stream!=='string'||!stream.length||stream.length>256){this.failure(request.id,'runtime.stream.input','Choose a bounded stream owner');return;}
+  if(this.streamJobs.has(request.id)||this.jobs.has(request.id)||this.queued.some(job=>job.id===request.id)||this.streamJobs.size>=(closing?16:8)){
+   this.failure(request.id,'queue.full','The bounded stream transport is full or its request identity is owned');return;
+  }
+  if(request.method==='responseStreamOpen'){
+   if(this.streamOwners.has(stream)||this.streamOwners.size>=8){this.failure(request.id,'limit.stream.owners','The bounded stream owner capacity is full or already owned');return;}
+   this.streamOwners.add(stream);
+  }else if(!this.streamOwners.has(stream)){
+   if(closing)this.write(new TextEncoder().encode(JSON.stringify({protocol:1,id:request.id,ok:true,result:{version:1,stream,closed:true}})));
+   else this.failure(request.id,'runtime.stream.closed','The stream has completed or its worker was retired');
+   return;
+  }else if(!closing&&[...this.streamJobs.values()].some(job=>job.request.params.stream===stream)){
+   this.failure(request.id,'runtime.stream.concurrent','Await the preceding stream chunk before continuing');return;
+  }
+  if(!this.streamWorker){
+   try{
+    const worker=this.create(request);this.streamWorker=worker;
+    const reply=(message:any)=>{
+     if(this.streamWorker!==worker)return;
+     worker.once('message',reply);
+     if(!message||typeof message.id!=='string'||!(message.payload instanceof Uint8Array)||message.payload.byteLength<2||message.payload.byteLength>this.maxFrame){void this.retireStreams('worker.protocol','The stream worker returned an invalid response').catch(()=>{});return;}
+     const job=this.streamJobs.get(message.id);if(!job)return;
+     if(message.closed===true)this.streamOwners.delete(job.request.params.stream);
+     if(job.cancelFor){
+      const original=this.streamJobs.get(job.cancelFor);
+      this.streamJobs.delete(message.id);this.streamJobs.delete(job.cancelFor);
+      if(original)this.failure(job.cancelFor,'cancelled','Stream request cancelled and its owner closed');
+      if(this.streamActive===job.cancelFor)this.streamActive=undefined;
+      job.finish?.();this.drainStreams();return;
+     }
+     if(this.streamActive===message.id)this.streamActive=undefined;
+     if(!job.cancelled){this.streamJobs.delete(message.id);this.write(message.payload);}
+     this.drainStreams();
+    };
+    worker.once('message',reply);
+    worker.once('error',()=>{void this.retireStreams('worker.crash','The stream worker failed').catch(()=>{});});
+    worker.once('exit',()=>{void this.retireStreams('worker.exit','The stream worker stopped; its captures were retired').catch(()=>{});});
+   }catch{this.streamOwners.delete(stream);this.failure(request.id,'worker.start','Cannot start the stream worker');return;}
+  }
+  this.streamJobs.set(request.id,{request});
+  if(closing){
+   for(const queued of this.streamQueue.filter(job=>job.params.stream===stream)){
+    this.streamJobs.delete(queued.id);this.failure(queued.id,'cancelled','The queued stream owner was closed');
+   }
+   this.streamQueue=this.streamQueue.filter(job=>job.params.stream!==stream);
+   try{this.streamWorker.postMessage(request);}catch{void this.retireStreams('worker.input','Cannot close the stream owner').catch(()=>{});}
+  }else{this.streamQueue.push(request);this.drainStreams();}
+ }
+ private drainStreams(){
+  if(this.streamActive||!this.streamWorker)return;
+  const request=this.streamQueue.shift();if(!request)return;
+  const job=this.streamJobs.get(request.id);if(!job){this.drainStreams();return;}
+  this.streamActive=request.id;job.sent=true;
+  try{this.streamWorker.postMessage(request);}catch{void this.retireStreams('worker.input','Cannot send the stream capture to its worker').catch(()=>{});}
+ }
+ private stopStream(id:string):Promise<void>{
+  const job=this.streamJobs.get(id);if(!job)return Promise.resolve();
+  if(job.stop)return job.stop;
+  this.streamQueue=this.streamQueue.filter(request=>request.id!==id);
+  if(!job.sent&&job.request.method==='responseStreamOpen'){
+   this.streamJobs.delete(id);this.streamOwners.delete(job.request.params.stream);this.failure(id,'cancelled','Stream opening cancelled before dispatch');return Promise.resolve();
+  }
+  job.cancelled=true;
+  let control:string;do{control='@stream-close-'+(++this.streamSerial);}while(this.streamJobs.has(control)||this.jobs.has(control));
+  const stopped=new Promise<void>((resolve,reject)=>{
+   this.streamJobs.set(control,{request:{id:control,method:'responseStreamClose',params:{stream:job.request.params.stream}},cancelFor:id,finish:resolve,reject});
+  });
+  job.stop=stopped;
+  try{this.streamWorker!.postMessage(this.streamJobs.get(control)!.request);}
+  catch{void this.retireStreams('worker.input','Cannot close the stream worker capture').catch(()=>{});}
+  return stopped;
+ }
+ private retireStreams(code:string,message:string):Promise<void>{
+  if(this.streamRetiring)return this.streamRetiring;
+  const worker=this.streamWorker;if(!worker)return Promise.resolve();
+  this.streamWorker=undefined;this.detach(worker);worker.once('error',()=>{});
+  const jobs=[...this.streamJobs.values()];this.streamJobs.clear();this.streamOwners.clear();this.streamQueue=[];this.streamActive=undefined;
+  const termination=Promise.resolve().then(()=>worker.terminate()).then(()=>{
+   for(const job of jobs)if(!job.cancelFor)this.failure(job.request.id,job.cancelled?'cancelled':code,message);
+   for(const job of jobs)job.finish?.();
+  },error=>{
+   this.terminationFailed=true;this.closing=true;
+   for(const job of jobs){if(!job.cancelFor)this.failure(job.request.id,'worker.stop','Cannot terminate the stream worker');job.reject?.(error);}throw error;
+  }).finally(()=>{this.detach(worker);if(this.streamRetiring===termination)this.streamRetiring=undefined;});
+  this.streamRetiring=termination;return termination;
+ }
  private priority(method:string) {
   return ['analyse','propose','assistSource'].includes(method)?0:['evaluateSchemas','govern','inspectPolicyCode','resolvePolicyCode','reviewPolicyCode','referenceDocument','referenceDisplay','deriveBundle','describeResourcePackage','planExtract','planExtractToFile','planInline','planYamlOwnership','planMoveDefinition','planOperationMove','planFileMove','planFileDeletion','planRootRemoval','sourceFolds'].includes(method)?3:
    ['inspect','readDataValue','schemaTree','referenceChoices','referencePage','semanticSearch'].includes(method)?2:1;
  }
  submit(request:DispatchRequest) {
   if(this.closing) {this.failure(request.id,'worker.closed','The contract dispatcher has closed');return;}
-  if(this.jobs.has(request.id)||this.stopping.has(request.id)||this.queued.some(q=>q.id===request.id)||this.jobs.size+this.retiring.size+this.queued.length>=4) {
+  if(['responseStreamOpen','responseStreamChunk','responseStreamClose'].includes(request.method)){this.submitStream(request);return;}
+  if(this.streamJobs.has(request.id)||this.jobs.has(request.id)||this.stopping.has(request.id)||this.queued.some(q=>q.id===request.id)||this.jobs.size+this.retiring.size+this.queued.length>=4) {
    this.failure(request.id,'queue.full','The bounded engine queue is full or the request identity is already in use');return;
   }
   this.queued.push(request);this.drain();
@@ -130,6 +230,7 @@ export class WorkerDispatcher {
   this.retiring.set(worker,promise);return promise;
  }
  stop(id:string):Promise<void> {
+  if(this.streamJobs.has(id))return this.stopStream(id);
   const existing=this.stopping.get(id);if(existing)return existing;
   const index=this.queued.findIndex(q=>q.id===id);
   if(index>=0) {this.queued.splice(index,1);this.failure(id,'cancelled','Queued request cancelled');return Promise.resolve();}
@@ -144,7 +245,7 @@ export class WorkerDispatcher {
   if(this.closed)return this.closed;
   this.closing=true;
   for(const request of this.queued.splice(0))this.failure(request.id,'cancelled','Contract engine closed before dispatch');
-  const stops=[...this.stopping.values(),...[...this.jobs.keys()].map(id=>this.stop(id)),...this.idle.splice(0).map(worker=>this.retire(worker)),...this.retiring.values()];
+  const stops=[this.retireStreams('cancelled','The stream owner closed with the engine'),...this.stopping.values(),...[...this.jobs.keys()].map(id=>this.stop(id)),...this.idle.splice(0).map(worker=>this.retire(worker)),...this.retiring.values()];
   this.closed=Promise.all(stops).then(()=>{if(this.terminationFailed||this.workers.size)throw Error('A contract worker could not be terminated');});return this.closed;
  }
 }

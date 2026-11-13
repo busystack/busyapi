@@ -56,7 +56,7 @@ void main() {
           await release.future;request.response.add(b);await request.response.close();
         });
         final fixture=await openMedia(directory,server,version,'yaml',{
-          'schema':{'type':'array','minItems':2,'maxItems':2},
+          'schema':{'type':'array','items':{},'minItems':2,'maxItems':2},
           if(version=='3.2.1')'itemSchema':sse?{'type':'object','required':['data'],'properties':{'retry':{'type':'integer','enum':['EXACT_VALUE']}}}:{'type':'object','required':['n'],'properties':{'n':{'type':'number','enum':['EXACT_VALUE']}}},
         },contentType:type);
         var completed=false;final seen=<ContractStreamSnapshot>[];
@@ -72,6 +72,32 @@ void main() {
       });
     }
   }
+  test('two waiting streams preserve Source responsiveness and independent cancellation with thin chunk IPC',() async {
+    final directory=await Directory.systemTemp.createTemp('busyapi-stream-ownership-');addTearDown(()=>directory.delete(recursive:true));
+    final server=await HttpServer.bind(InternetAddress.loopbackIPv4,0);addTearDown(()=>server.close(force:true));
+    final releases=[Completer<void>(),Completer<void>()],seen=[Completer<void>(),Completer<void>()];
+    addTearDown(() {for(final release in releases){if(!release.isCompleted)release.complete();}});
+    var connections=0;
+    server.listen((request) async {
+      final connection=connections++;await request.drain<void>();request.response.bufferOutput=false;request.response.headers.set('content-type','application/x-ndjson');
+      request.response.write('1\n');await request.response.flush();await releases[connection].future;
+      try{request.response.write('2\n');await request.response.close();}on Object{/* The cancelled peer retains its first record. */}
+    });
+    final engine=_StreamTrafficEngine();
+    final fixture=await openMedia(directory,server,'3.2.1','json',{'itemSchema':{'type':'integer'}},contentType:'application/x-ndjson',engineOverride:engine);
+    final cancelled=RunCancellation();
+    start(int index)=>const ContractRequestExecutor().execute(fixture.plan,OperationRequestDraft(planIdentity:fixture.plan.identity),resolveSecret:(_) async=>null,cancellation:index==0?cancelled:null,onStream:(value){if(value.records==1&&!value.terminal&&!seen[index].isCompleted)seen[index].complete();});
+    final first=start(0);await seen[0].future.timeout(const Duration(seconds:10));
+    final second=start(1);await seen[1].future.timeout(const Duration(seconds:10));
+    final root=fixture.project.roots.single.id,buffer=fixture.project.store.get(root);
+    fixture.project.store.replace(root,'${buffer.text}\n');
+    expect((await fixture.project.check(root))['status'],'complete');
+    cancelled.cancel();final interrupted=await first;addTearDown(interrupted.close);
+    expect(interrupted.response.stream!.records,1);expect(interrupted.response.stream!.complete,false);
+    releases[1].complete();final completed=await second;addTearDown(completed.close);
+    expect(completed.conforming,true,reason:'${completed.received.findings}');expect(completed.response.stream!.records,2);
+    expect(await completed.response.bytes(),utf8.encode('1\n2\n'));expect(engine.opens,2);expect(engine.chunks,greaterThanOrEqualTo(3));expect(engine.sourceChunks,0);expect(engine.stateChunks,0);expect(engine.closes,greaterThanOrEqualTo(2));
+  });
   for(final mode in ['stop','cancel','inactivity','overall','disconnect']) {
     test('$mode retains completed item results and original bytes without full conformance',() async {
       final directory=await Directory.systemTemp.createTemp('busyapi-stream-terminal-');addTearDown(()=>directory.delete(recursive:true));
@@ -80,7 +106,7 @@ void main() {
       server.listen((request) async {
         await request.drain<void>();request.response.headers.set('content-type','application/x-ndjson');request.response.bufferOutput=false;
         request.response.add(utf8.encode('9007199254740993\n'));await request.response.flush();
-        if(mode=='disconnect'){await Future<void>.delayed(const Duration(milliseconds:50));final socket=await request.response.detachSocket(writeHeaders:false);socket.destroy();}
+        if(mode=='disconnect'){request.response.deadline=const Duration(milliseconds:50);}
         else {await release.future;try{await request.response.close();}on Object{/* Client deliberately retired. */}}
       });
       final fixture=await openMedia(directory,server,'3.2.1','json',{'itemSchema':{'type':'number','enum':['EXACT_VALUE']}},contentType:'application/x-ndjson');
@@ -177,7 +203,7 @@ void main() {
     final server=await HttpServer.bind(InternetAddress.loopbackIPv4,0);addTearDown(()=>server.close(force:true));
     final wire=utf8.encode('\x1e9007199254740993\n\x1e2\n');
     server.listen((request) async {await request.drain<void>();request.response.headers.set('content-type','application/json-seq');for(final byte in wire){request.response.add([byte]);await request.response.flush();}await request.response.close();});
-    final fixture=await openMedia(directory,server,'3.2.1','json',{'schema':{'type':'array','minItems':2,'maxItems':2},'itemSchema':{'type':'number'}},contentType:'application/json-seq');
+    final fixture=await openMedia(directory,server,'3.2.1','json',{'schema':{'type':'array','items':{},'minItems':2,'maxItems':2},'itemSchema':{'type':'number'}},contentType:'application/json-seq');
     final changes=await fixture.project.applyRefactoring(await fixture.plan.planCase('all-records',OperationRequestDraft(planIdentity:fixture.plan.identity,headers:const [RequestHeaderValue('Accept','application/json-seq')])));
     expect((await PublicationStore('${directory.path}/publication').save(fixture.project,[for(final id in changes)fixture.project.store.get(id)])).complete,true);
     final engine=EngineProcess(executable:runtimeNode,helper:runtimeHelper);addTearDown(engine.close);final cold=await BusyProject.open(directory.path,engine);addTearDown(cold.close);
@@ -230,6 +256,19 @@ class _StreamProofFault extends EngineProcess {
       if(mode=='whole-missing'){result['runtimeEvaluations']=[];return result;}
       result['complete']=false;result['runtimeEvaluations']=[for(final raw in result['runtimeEvaluations'] as List){...(raw as Map),'complete':false,'valid':false,'reason':'evaluation-failed'}];
     }
+    return result;
+  }
+}
+
+class _StreamTrafficEngine extends EngineProcess {
+  _StreamTrafficEngine():super(executable:runtimeNode,helper:runtimeHelper);
+  int opens=0,chunks=0,sourceChunks=0,stateChunks=0,closes=0;
+  @override Future<Map<String,dynamic>> request(String method,Map<String,Object?> params,{String? requestId}) async {
+    if(method=='responseStreamOpen')opens++;
+    if(method=='responseStreamClose')closes++;
+    if(method=='responseStreamChunk'){chunks++;if(params.containsKey('resources'))sourceChunks++;if(params.containsKey('state'))stateChunks++;}
+    final result=await super.request(method,params,requestId:requestId);
+    if(method=='responseStreamChunk')expect(result.containsKey('state'),false);
     return result;
   }
 }

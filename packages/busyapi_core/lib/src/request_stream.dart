@@ -92,7 +92,7 @@ class _StreamEvaluationLease {
 }
 
 /// Uses the existing SDK codecs and the transport's one awaited storage slot.
-/// Only framing continuations and bounded evidence cross the Engine boundary.
+/// Only new response bytes and bounded evidence cross the Engine boundary.
 class _LiveResponseStream {
   _LiveResponseStream(this.request,this.status,this.mediaType,this.control,this.observer,this.cancellation,this.maximumDecodedBytes,this.layers,this.deadline) {
     final lease=_lease;
@@ -110,8 +110,12 @@ class _LiveResponseStream {
   final _HttpDeadline deadline;
   final _lease=_StreamEvaluationLease();
   RunCancellation get evaluation=>_lease.token;
-  void retire()=>_lease.retire();
-  Map<String,dynamic>? state;
+  void retire(){
+    _lease.retire();
+    final owner=stream;
+    if(owner!=null)unawaited(owner.close().catchError((Object _) {}));
+  }
+  OperationResponseStream? stream;
   final evidence=<Map<String,Object?>>[],findings=<Map<String,Object?>>[];
   int received=0,decoded=0,records=0,validRecords=0,invalidRecords=0,uncheckedRecords=0,wholeResolvableRecords=0,evidenceBytes=0,findingBytes=0;
   bool observedInvalid=false,terminal=false,framingComplete=false,wholeAvailable=false,binaryComplete=true,binaryValid=true;
@@ -135,9 +139,9 @@ class _LiveResponseStream {
     final encodings=headers.where((field)=>field.$1.toLowerCase()=='content-encoding').expand((field)=>field.$2.split(',')).map((value)=>value.trim().toLowerCase()).where((value)=>value!='identity').toList();
     if(encodings.length>8||encodings.any((value)=>value!='gzip'))return null;
     final live=_LiveResponseStream(request,status,type,control,observer,cancellation,maximum,[],deadline);
-    try {final initial=await request.plan.responseStreamChunk(status,type,const [],null,runId:request.runId,cancellation:live.evaluation);
-      if(initial['supported']!=true){live.retire();return null;}
-      live.accept(initial);live.layers.addAll([for(final _ in encodings) _StreamGzipLayer()]);await live.publish();return live;
+    try {final owner=await request.plan.openResponseStream(status,type,runId:request.runId,cancellation:live.evaluation);
+      if(owner==null){live.retire();return null;}
+      live.stream=owner;live.accept(owner.initial);live.layers.addAll([for(final _ in encodings) _StreamGzipLayer()]);await live.publish();return live;
     } on CoreFailure catch(error) {
       if(error.code=='cancelled'&&control?.stopped==true){live.terminalReason='stopped';return live;}
       if(error.code=='cancelled'){live.retire();if(deadline.reason!=null)deadline.failure();rethrow;}
@@ -146,7 +150,7 @@ class _LiveResponseStream {
   }
   void accept(Map<String,dynamic> value) {
     schemaProducerName=value['producer'] as String;schemaProducerVersion=value['producerVersion'] as String;schemaConfiguration=value['configuration'] as String;
-    state=Map<String,dynamic>.from(value['state'] as Map);framingComplete=value['framingComplete']==true;
+    framingComplete=value['framingComplete']==true;
     wholeAvailable=value['wholeAvailable']==true;binaryComplete=value['binaryComplete']==true;binaryValid=value['binaryValid']==true;
     for(final raw in value['records'] as List){
       final item=Map<String,Object?>.from(raw as Map);if(item['index']!=records)throw CoreFailure('runtime.stream.protocol','A stream item was omitted, repeated or reordered.');records++;
@@ -168,8 +172,8 @@ class _LiveResponseStream {
   Future<void> evaluate(List<int> bytes,{bool end=false}) async {
     final remaining=control?.stopAfterRecords;
     int maximum() => remaining==null?128:min(128,max(1,remaining-records));
-    var result=await request.plan.responseStreamChunk(status,mediaType,bytes,state,end:end,maximumRecords:maximum(),runId:request.runId,cancellation:evaluation);accept(result);
-    while(result['pending']==true&&failure==null&&control?.stopped!=true){result=await request.plan.responseStreamChunk(status,mediaType,const [],state,end:end,maximumRecords:maximum(),runId:request.runId,cancellation:evaluation);accept(result);}
+    var result=await stream!.add(bytes,end:end,maximumRecords:maximum(),cancellation:evaluation);accept(result);
+    while(result['pending']==true&&failure==null&&control?.stopped!=true){result=await stream!.add(const [],end:end,maximumRecords:maximum(),cancellation:evaluation);accept(result);}
   }
   Future<void> leaf(List<int> bytes) async {
     for(var offset=0;offset<bytes.length;offset+=65536){
@@ -218,6 +222,8 @@ class _LiveResponseStream {
     if(control?.stopped==true)terminalReason='stopped';
     if(!ended&&terminalReason==null)terminalReason='incomplete-receipt';
     if(!ended&&terminalReason!=null)note({'code':'runtime.stream.incomplete','severity':'warning','subject':'response-body','reason':terminalReason,'message':terminalReason=='stopped'?'The user stopped this stream. Completed items remain checked; full-body conformance is unavailable.':'Streaming receipt was interrupted: $terminalReason. Completed item results remain retained.'});
-    terminal=true;retire();await publish();
+    terminal=true;
+    try{await stream?.close();}on Object{/* A retired worker already invalidated this owner. */}
+    retire();await publish();
   }
 }

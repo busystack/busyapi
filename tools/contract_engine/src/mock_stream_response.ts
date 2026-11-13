@@ -8,21 +8,23 @@ import {SourceError} from './document';
  * evaluation each await their consumer; headers never advertise a future proof. */
 export function mockStreamResponse(native:MockNativeValidation,path:string,method:string,reply:ServerResponse,signal:AbortSignal):ExactProxyObserver {
  const runId=randomUUID();
+ const close=()=>{void native.closeResponseStream(runId).catch(()=>{});};
+ signal.addEventListener('abort',close,{once:true});
  let schemaProducer:any,receivedBytes=0,decodedBytes=0,findingBytes=0;
- let state:any,active=false,finished=false,status=0,type='',whole=false,wholeBytes=0,records=0,invalid=0,unchecked=0,wholeResolvable=0,binaryValid=true,binaryComplete=true;
+ let active=false,finished=false,status=0,type='',whole=false,wholeBytes=0,records=0,invalid=0,unchecked=0,wholeResolvable=0,binaryValid=true,binaryComplete=true;
  let framing=false,failed=false,responseInvalid=false,headersComplete=true,observedInvalid=false;
  const chunks:Buffer[]=[],findings:any[]=[];let headers:Record<string,string[]>=Object.create(null),capturedHeaders:Record<string,string[]>=Object.create(null);
  const note=(value:any)=>{if(value.severity==='error')observedInvalid=true;const bytes=Buffer.byteLength(JSON.stringify(value));if(findings.length<200&&findingBytes+bytes<=1024*1024){findingBytes+=bytes;findings.push(value);}};
  const accept=(result:any)=>{
   schemaProducer={name:result.producer,version:result.producerVersion,configuration:result.configuration};
-  state=result.state;framing=result.framingComplete===true;binaryValid=result.binaryValid===true;binaryComplete=result.binaryComplete===true;
+  framing=result.framingComplete===true;binaryValid=result.binaryValid===true;binaryComplete=result.binaryComplete===true;
   for(const record of result.records){records++;if(!record.complete){unchecked++;if(record.wholeResolvable===true)wholeResolvable++;}else if(!record.valid)invalid++;for(const finding of record.findings)note(finding);}
   for(const finding of result.findings??[])note(finding);
   if(result.failure){failed=true;note({...result.failure,severity:result.failure.kind==='unsupported'||result.failure.code.startsWith('limit.')?'warning':'error'});}
  };
  const evaluate=async(bytes:Buffer,end=false)=>{
-  let result=await native.responseStreamChunk(path,method,status,type,bytes.toString('base64'),state,end,signal,runId);accept(result);
-  while(result.pending&&!failed){result=await native.responseStreamChunk(path,method,status,type,'',state,end,signal,runId);accept(result);}
+  let result=await native.responseStreamChunk(path,method,runId,bytes.toString('base64'),end,signal);accept(result);
+  while(result.pending&&!failed){result=await native.responseStreamChunk(path,method,runId,'',end,signal);accept(result);}
   if(failed&&!end)throw new SourceError('mock.stream.framing','Streaming framing exceeded its supported representation or resource budget',[0,0],'unsupported');
  };
  const waitWrite=(bytes:Buffer)=>new Promise<void>((resolve,reject)=>{
@@ -36,7 +38,7 @@ export function mockStreamResponse(native:MockNativeValidation,path:string,metho
   async open(code,received,raw){
    if(method==='HEAD'||code<200||[204,205,304].includes(code))return false;
    status=code;type=received.get('content-type')??'';if(!type)return false;
-   const initial=await native.responseStreamChunk(path,method,status,type,'',undefined,false,signal,runId);if(!initial.supported)return false;
+   const initial=await native.responseStreamOpen(path,method,status,type,runId,signal);if(!initial.supported)return false;
    accept(initial);whole=initial.wholeAvailable!==true;
    const hop=new Set(['connection','keep-alive','proxy-connection','transfer-encoding','upgrade','te','trailer','content-length','busyapi-response-validation-complete','busyapi-request-security-complete']);
    for(const name of (received.get('connection')??'').split(',').map(value=>value.trim().toLowerCase()))if(name)hop.add(name);
@@ -54,7 +56,9 @@ export function mockStreamResponse(native:MockNativeValidation,path:string,metho
    for(let offset=0;offset<bytes.length;offset+=65536)await evaluate(bytes.subarray(offset,offset+65536));
   },
   async finish(ended,error){
-   if(!active||finished)return;finished=true;
+   if(finished)return;finished=true;
+   signal.removeEventListener('abort',close);
+   if(!active){await native.closeResponseStream(runId).catch(()=>{});return;}
    let complete=false;
    try{
     if(ended)await evaluate(Buffer.alloc(0),true);
@@ -66,7 +70,7 @@ export function mockStreamResponse(native:MockNativeValidation,path:string,metho
    if(ended&&!reply.destroyed){reply.addTrailers({'busyapi-stream-status':terminal,'busyapi-stream-records':String(records),'busyapi-stream-invalid-records':String(invalid),'busyapi-stream-unchecked-records':String(unchecked)});reply.end();}
    else if(!reply.destroyed)reply.destroy(error instanceof Error?error:undefined);
    process.stdout.write(JSON.stringify({event:'stream-result',path,method,status,stream:{producer:'busyapi-incremental-stream',producerVersion:'1',schemaProducer,status:terminal,complete,valid:complete&&valid,receivedBytes,decodedBytes,records,validRecords:records-invalid-unchecked,invalidRecords:invalid,uncheckedRecords:unchecked,findings:findings.slice(0,32)}})+'\n');
-   chunks.length=0;
+   chunks.length=0;await native.closeResponseStream(runId).catch(()=>{});
   }
  };
 }
