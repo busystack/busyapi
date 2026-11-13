@@ -207,7 +207,7 @@ const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const ref=name=>({$ref:'#/x-data/'+name});
 const node=()=>({$ref:'#/components/schemas/Count'});
 const payload=(id,bytes,aliases=[])=>({version:1,id,aliases,generation:3,state:'available',identity:hash(bytes),byteLength:bytes.length,base64:bytes.toString('base64')});
-function fixture(version,format){
+function fixture(version,format,sharedResponseBody=false){
  const root='file:///approved/contracts/api.'+format;
  const media=()=>({schema:node(),examples:{External:ref('example')}});
  const data={
@@ -234,6 +234,10 @@ function fixture(version,format){
   ...(version.startsWith('3.2')?{$self:'https://contracts.invalid/api.'+format}:{}),
   paths:{'/echo':ref('pathItem')},components:{schemas:{Count:{type:'integer',enum:['EXACT']},
    ...(!version.startsWith('3.0')?{HeaderAsSchema:ref('header')}:{})}},'x-data':data,'x-alias':data};
+ if(sharedResponseBody){
+  value.components.responses={Shared:{description:'[Shared body](../shared.md)',content:data.body.content}};
+  data.body={$ref:'#/components/responses/Shared'};
+ }
  const text=(format==='yaml'?'# Keep native/data ownership 雪\r\n'+YAML.stringify(value).replaceAll('\n','\r\n'):JSON.stringify(value))
   .replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
  return {root,snapshot:'native-object-uses',resources:[{id:root,text,generation:4,aliases:['https://retrieval.invalid/contracts/api.'+format]}],
@@ -266,6 +270,21 @@ async function wire(input){
  assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,false,true,false,true,false,true,false]);
  return result;
 }
+for(const version of ['3.0.4','3.1.2','3.2.0'])for(const format of ['yaml','json'])
+test(`${version} ${format} a retained Response and copied RequestBody share original Example fields`,async()=>{
+ const input=fixture(version,format,true);input.targetVersion=version.startsWith('3.2')?'3.1.2':'3.2.1';
+ const before=input.resources[0].text,original=new SourceDocument(before,input.root);
+ assert.equal(analyse(input).complete,true);await wire(input);
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const cold=delivered(review),graph=createGraph(cold).graph;
+ assert.equal(analyse(cold).complete,true);await wire(cold);
+ for(const pointer of ['/x-data','/x-alias'])assert.equal(graph.docs.get(cold.root).dataJson(pointer),original.dataJson(pointer));
+ const retained=graph.referenceAs(cold.root,'/components/responses/Shared/content/application~1json/examples/External','$ref','example');
+ assert.equal(retained.resolution,'resolved');assert.equal(graph.literalContainer(retained.targetResource,retained.targetPointer),undefined);
+ assert.equal(graph.docs.get(cold.root).dataNode('/x-data/example/externalValue').value,'count.bin');
+ assert.equal(input.resources[0].text,before);
+});
+
 for(const version of ['3.0.4','3.1.2','3.2.0'])for(const format of ['yaml','json'])
 test(`${version} ${format} native objects and literal values share one specialization/publication path`,async()=>{
  const input=fixture(version,format),original=input.resources[0].text,doc=new SourceDocument(original,input.root);

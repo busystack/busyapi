@@ -502,10 +502,28 @@ function materializeMigrationOwners(graph:ReferenceGraph,sources:ReadonlyMap<str
         }
     }
     const mapped=(at:SourceLocation,placement:Placement):SourceLocation=>({resource:placement.location.resource,pointer:placement.location.pointer+at.pointer.slice(placement.scope.pointer.length)});
-    for(const placement of placements)for(const [pointer,kind]of placement.intrinsic){
+    for(const placement of placements){
+      const native=graph.scopes.get(placement.scope.resource+'#'+placement.scope.pointer);
+      const retained=native&&native.kind!==placement.scope.kind&&graph.isEntryUse(native)&&!placementFor(native,native.kind);
+      for(const [pointer,kind]of placement.intrinsic){
         const captured=graph.scopeAs(placement.scope.resource,pointer,kind);if(!captured)continue;
         const owner=placementFor(captured,kind)!;
         const destination=mapped(captured,owner);
+        // A copied role can share a child with a retained native parent.
+        // Keep that actual original child and its copied use, rather than
+        // refining both parents' fields into the copy's coordinates.
+        if(retained&&owner===placement&&pointer!==placement.scope.pointer&&kind!=='schema'&&
+            graph.scopes.get(captured.resource+'#'+captured.pointer)?.kind===kind){
+            owners.retainBinding(entry.entryNamespace,captured);
+            const source=sources.get(destination.resource)!,locations=source.original.id===captured.resource?
+                source.origins.get(captured.pointer):source.foreignOrigins.get(captured.resource+'#'+captured.pointer);
+            locations?.delete(destination.pointer);
+            provenance.set(key(captured),(provenance.get(key(captured))??[]).filter(at=>
+                at.resource!==destination.resource||at.pointer!==destination.pointer));
+            owners.rememberAdditionalUse(entry.entryNamespace,captured,destination);
+            if(!entry.distinct)owners.rememberRole(entry.entryNamespace,captured,captured);
+            continue;
+        }
         owners.rememberEntry(entry.entryNamespace,captured,destination,owner.scope);
         const expectedBase=kind==='schema'?resourceVariants.get(schemaResourceContextIdentity(captured)):undefined;
         preserveContext(captured,destination,kind==='schema'&&(owner.resourceSensitive||expectedBase!==undefined),expectedBase,entry.entryNamespace);
@@ -526,6 +544,7 @@ function materializeMigrationOwners(graph:ReferenceGraph,sources:ReadonlyMap<str
         }));
         const target=mapped(captured,owner);
         owners.referenceUse(source,slot.pointer,target);
+    }
     }
     const set=(at:SourceLocation,value:string)=>{const source=sources.get(at.resource)!;owners.admit(source);source.set(at.pointer,value);};
     const securityAlias=(reference:GraphReference,target:SourceLocation):string=>{

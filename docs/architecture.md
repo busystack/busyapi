@@ -344,6 +344,9 @@ record their final endpoints in the same occurrence association. Original
 Example objects retain their separate targets. Shared captured bytes are proved
 at their actual materialized uses, rather than creating payload owners in every
 entry. Parameter projection retains each original external Example once.
+A child shared by a retained native parent and a copied object role keeps both
+actual material uses in that association; copied typed-root provenance cannot
+steal the original parent's reference fields.
 Each API retains its public Schema bindings through that same final-owner
 association, including component children owned by an entry-specific map copy.
 Mixed modern families lower to Swagger in one object phase, before aliases copy
