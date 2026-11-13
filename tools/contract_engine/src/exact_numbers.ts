@@ -1,3 +1,4 @@
+import {swaggerNativeMetaView} from './swagger_schema_rules';
 // Hyperjump 1.18.0's exported experimental keyword/instance APIs are deliberately
 // pinned and tested. Exact numeric values come from canonical CST nodes, not a
 // replacement parser or mutated JS values. One adapter belongs to one worker
@@ -112,7 +113,8 @@ function exactInstance(doc: SourceDocument,pointer='',opaque?:ReadonlySet<string
   return Array.isArray(value)?value.map((child,index)=>referenceView(child,at+'/'+index)):
    Object.fromEntries(Object.entries(value).map(([name,child])=>[name,referenceView(child,at+'/'+name.replaceAll('~','~0').replaceAll('/','~1'))]));
  };
- const meta=schemaMetaView(value,pointer,opaque);
+ const bounded=schemaMetaView(value,pointer,opaque);
+ const meta=restrictedMeta&&referenceGraph?swaggerNativeMetaView(doc,referenceGraph,pointer,bounded):bounded;
  const root=Instance.fromJs(restrictedMeta?referenceView(meta,pointer):meta,doc.id);
  let binaryCount=0;
  for(const node of Instance.allNodes(root)) {

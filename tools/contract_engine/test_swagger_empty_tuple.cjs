@@ -107,6 +107,18 @@ for (const format of ['yaml', 'json']) for (const targetVersion of ['3.0.0','3.0
     assert.equal(input.resources[0].text, original);
 });
 
+for (const format of ['yaml','json']) test(`${format} empty tuples retain independent numeric and type keyword failures`, async () => {
+    const input=capture(format), doc=new SourceDocument(input.resources[0].text,input.root);
+    for(const [field,value]of [['minItems',-1],['type','not-a-native-type']]){
+        const packet={...input,resources:[{...input.resources[0],text:doc.set('/definitions/List/'+field,value)}]};
+        const structural=analyse(packet),semantic=await evaluateSchemas(packet);
+        assert.equal(structural.status,'invalid');
+        assert(structural.findings.some(finding=>finding.pointer==='/definitions/List/'+field&&finding.severity==='error'));
+        assert(semantic.findings.some(finding=>finding.pointer==='/definitions/List/'+field&&finding.severity==='error'));
+        assert.deepEqual(doc.dataNode('/definitions/List/items').value,[]);
+    }
+});
+
 test('tuple schema bindings and migrations have distinct captured proof identities', () => {
     assert.equal(schemaProducer.version, '1.18.0+69');
     assert(schemaProducer.configuration.includes('swagger-schema-rules-v1'));

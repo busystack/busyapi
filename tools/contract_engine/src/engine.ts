@@ -1,7 +1,7 @@
 import {CapturedExampleResources,externalExampleRequests,externalExampleRevision} from './external_examples';
 import {swaggerServerContextRevision,swaggerServerRelationships} from './swagger_servers';
 import {schemaTypeChoices,sameSchemaTypeChoices,allowedSchemaType} from './schema_type_choices';
-import {swaggerSchemaRulesRevision} from './swagger_schema_artifact';
+import {swaggerSchemaRulesRevision,swaggerNativeMetaView} from './swagger_schema_rules';
 import {discriminatorContextRevision} from './discriminator_semantics';
 import {multipartProjectionRevision} from './schema_reference_projection';
 import { children, referenceKinds, standardOperationMethods, hasSchemaReferenceSiblings } from './contexts';
@@ -128,14 +128,15 @@ export function analyse(input: any, context?: ReturnType<typeof createGraph>) {
         complete = false;
         diagnostic(rootResource, 'openapi', 'dialect.unsupported', 'The root JSON Schema dialect is not supported', '/jsonSchemaDialect', undefined, 'warning');
     }
+    const graph = context?.graph??ReferenceGraph.capture(docs, input.root, family, new Map(input.resources.map((r: Resource) => [r.id, r.aliases ?? []])));
     if (supported) {
         const validate = validators[family];
-        if (!validate(data))
+        if (!validate(family==='2.0'?swaggerNativeMetaView(root,graph):data))
             for (const e of validate.errors.slice(0, 200))
                 diagnostic(rootResource, 'openapi', 'structure.' + e.keyword, e.message ?? 'Structural violation', e.instancePath);
     }
     const validatedAt = performance.now();
-    const graph = context?.graph??ReferenceGraph.capture(docs, input.root, family, new Map(input.resources.map((r: Resource) => [r.id, r.aliases ?? []])));
+
     for (const issue of graph.issues) {
         if (issue.incomplete) complete = false;
         diagnostic(input.resources.find((r: Resource) => r.id === issue.resource), 'openapi', issue.code, issue.message, issue.pointer, undefined, issue.severity??(issue.code === 'dialect.unsupported' ? 'warning' : 'error'));
@@ -177,7 +178,7 @@ export function analyse(input: any, context?: ReturnType<typeof createGraph>) {
             if(!scope.sourceKind)continue;
             const role=graph.referenceObject(value,scope)?'reference':'schema';
             const validator=ajv.getSchema(structuralSchema(scope.family).$id+'#/$defs/'+role);
-            if(validator&&!validator(value))for(const error of (validator.errors??[]).slice(0,32)){
+            if(validator&&!validator(scope.family==='2.0'?swaggerNativeMetaView(doc,graph,scope.pointer,value):value))for(const error of (validator.errors??[]).slice(0,32)){
                 if(exactNumericDeferred(doc,scope.pointer+error.instancePath))continue;
                 diagnostic(input.resources.find((resource:Resource)=>resource.id===doc.id),'openapi','schema.'+error.keyword,
                     error.message??'Invalid restricted Schema Object',scope.pointer+error.instancePath);
@@ -220,7 +221,7 @@ export function analyse(input: any, context?: ReturnType<typeof createGraph>) {
         const validator = context && validators[targetFamily] && ajv.getSchema(structuralSchema(targetFamily).$id + '#/$defs/' + context);
         const target = docs.get(ref.targetResource!)!;
         const targetValue = target.dataNode(ref.targetPointer!)!.value;
-        if (validator && !(targetValue && typeof targetValue.$ref === 'string') && !validator(targetValue))
+        if (validator && !(targetValue && typeof targetValue.$ref === 'string') && !validator(targetFamily==='2.0'?swaggerNativeMetaView(target,graph,ref.targetPointer!,targetValue):targetValue))
             for (const e of (validator.errors ?? []).slice(0, 32))
                 diagnostic(input.resources.find((r: Resource) => r.id === target.id), 'openapi', 'reference.target.' + e.keyword, e.message ?? 'Invalid referenced object', ref.targetPointer + e.instancePath);
     }

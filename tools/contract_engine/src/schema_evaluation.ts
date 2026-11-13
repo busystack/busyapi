@@ -33,7 +33,7 @@ import {discriminatorRelationships} from './authoring_relationships';
 import {restrictedSchemaDialect,swaggerSchemaDialect,modernFamily,defaultSchemaDialect} from './specification';
 import {installSwaggerSchemaDialect,schemaEvaluationScopes,swaggerMetaAddress,swaggerMetaIdentity,SchemaEvaluationScope} from './swagger_schema';
 import {swaggerFileContexts} from './swagger_file';
-import {swaggerSchemaRulesRevision} from './swagger_schema_artifact';
+import {swaggerSchemaRulesRevision} from './swagger_schema_rules';
 import {evaluateSerializedExamples} from './serialized_examples';
 import {externalExampleRevision} from './external_examples';
 import {exampleRepresentation,mediaExampleRepresentations,type ExampleValueField} from './example_representation';
