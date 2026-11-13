@@ -21,7 +21,7 @@ implementation instructions. No older passing run qualifies the changed product.
 | Capture and assistance | Root-local immutable captures are separate from full schema analysis. Disk events invalidate relevant versions with bounded reconciliation. Folding uses selected-resource syntax without a graph. Derived text cannot reuse an old parse through inherited metadata. Focused root/cache/folding tests pass. |
 | Source saving | Desktop and CLI use PublicationStore. Alternate BusyProject.save is removed. Partial publication, conflicts, permissions, interrupted records, grouped ordering and undo across save remain. Focused publication cases pass. |
 | Conversion | TypeScript owns language/configuration transformation; Dart owns bounded review, immutable reviewed bytes and publication. Final-output reference mapping removes duplicate repair phases. Further owner/holder simplification and broad behavioral adjudication are still in progress; no complete conversion qualification is claimed. |
-| Requests, mock and streams | Streams retain bounded framing/context in one engine owner, with thin continuation IPC and independent close/cancellation. Shared request serialization/preparation consolidation is in progress. Full runtime qualification remains outstanding. |
+| Requests, mock and streams | One parameter-value map owns active request input. Captured operations and immutable body inputs share secret-free aggregate preparation across Preview/Send, with fresh dispatch credentials/TLS and exact selected-file reconciliation. Shared serializers replace equivalent form/multipart reproof. Streams retain bounded framing/context in one engine owner, with thin continuation IPC and independent close/cancellation. Broad runtime qualification remains in progress. |
 | Outputs and governance | Prepared immutable files use the common output publisher. Generator selection and execution share a runtime. Verified renderer bytes are reused until installed files change; packaging inventory policy has left documentation-open actions. Governance reuses one immutable review and checks exact dispatch authority once. Focused output, approval and installed-input change cases pass. |
 | Build and distribution | Assembly is separate from current-invocation qualification. Editor assembly passed with optional tools unavailable; renderer rebuilds are skipped when unchanged. Official widget acceptance runs once; no persistent full-suite receipt is required. Full release assembly and distributed-artifact verification pass. Full behavioral/native qualification remains outstanding. |
 
@@ -39,7 +39,7 @@ product requirements. Migration compatibility is tested separately at revision 1
   native stale-client input loss below. Core/widget results cannot qualify it.
 - Finish remaining conversion holder/owner deletions and resolve retained
   conversion failures while preserving advanced semantic obligations.
-- Finish request preparation reuse and verify all actual wire, file-change,
+- Resolve retained runtime failures and verify all actual wire, file-change,
   credentials/TLS, mock, stream and cancellation boundaries together.
 - Run full current-candidate Engine, Core/CLI, official widget, native/platform and
   distribution checks after source stabilizes. `python3 tools/qualify_linux.py`
