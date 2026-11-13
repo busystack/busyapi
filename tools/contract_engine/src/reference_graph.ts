@@ -1,4 +1,4 @@
-import { children, isReferenceObject, referenceKinds, supportsReference } from './contexts';
+import { children, isReferenceObject, supportsReference } from './contexts';
 import { SourceDocument, SourceError, escape, limits, type Range } from './document';
 import {swaggerFileChoiceTargets} from './swagger_file';
 import {resolveIri} from '@hyperjump/uri';

@@ -98,7 +98,6 @@ function standards() {
  }
  configured=true;
 }
-const within=(pointer:string,parent:string)=>pointer===parent||pointer.startsWith(parent+'/');
 
 /** The core may acquire a bundled standard as an immutable, read-only resource.
  * This allowlist never invokes a default network/filesystem loader. The public

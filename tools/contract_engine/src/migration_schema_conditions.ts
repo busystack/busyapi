@@ -1,5 +1,5 @@
 import type {GraphScope,ReferenceGraph,GraphReference} from './reference_graph';
-import {pointerFragment,supportedSchemaDialect} from './reference_graph';
+import {pointerFragment} from './reference_graph';
 import {SourceError,segments} from './document';
 import {type SourcePlan} from './source_plan';
 import {MigrationSchemaOwners} from './migration_schema_owners';

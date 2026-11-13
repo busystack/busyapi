@@ -7,8 +7,8 @@ import {structuralSchema, structuralDefinition, structuralReference} from './str
 import {modernFamily} from './specification';
 import {supportedSchemaDialect} from './reference_graph';
 import type {ReferenceGraph,GraphScope} from './reference_graph';
-import {escape,segments} from './document';
-import {isReferenceObject,referenceKinds,supportsReference} from './contexts';
+import {segments} from './document';
+import {isReferenceObject,supportsReference} from './contexts';
 
 // This shared description supplies native fields, Source assistance and help.
 // Structural artifacts describe field shapes, not complete OAS semantics.
@@ -30,7 +30,6 @@ export function authoringRestrictions(findings:any[]):Record<string,string[]|nul
 }
 const evaluator = new Ajv2020({strict: false, validateFormats: false});
 const conditions = new Map<any, any>();
-const names: Record<string, string> = {security: 'security-scheme', media: 'media-type', callback: 'callbacks', 'path-item': 'path-item', 'request-body': 'request-body'};
 export function componentFamily(kind:string,family:string):string|undefined {
     if(family==='2.0'&&!['schema','parameter','response','security'].includes(kind))return;
     if(kind==='media'&&family!=='3.2')return;

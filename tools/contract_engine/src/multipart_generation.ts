@@ -10,7 +10,7 @@ import {MultipartEncoding,supportsMultipartTransfer,type MultipartTransfer} from
 import {mediaTypes,mediaTypeChoice,mediaTypeOptions} from './media_types';
 import {multipartHeaderValues} from './multipart_header_values';
 import {declaredPlainTextBytes,encodePlainText} from './text_encoding';
-import {encodeRuntimeMedia,runtimeMediaKind,runtimeMediaBytes} from './runtime_media';
+import {runtimeMediaKind,runtimeMediaBytes} from './runtime_media';
 import {mimeParts,mimeSingleton} from './mime_parts';
 import {decodeMultipartTransfer} from './multipart_transfer';
 import {decimal} from './exact_numbers';

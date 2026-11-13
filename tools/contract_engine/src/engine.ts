@@ -1,4 +1,4 @@
-import {CapturedExampleResources,externalExampleRequests,externalExampleRevision} from './external_examples';
+import {externalExampleRequests,externalExampleRevision} from './external_examples';
 import {swaggerServerContextRevision,swaggerServerRelationships} from './swagger_servers';
 import {schemaTypeChoices,sameSchemaTypeChoices,allowedSchemaType} from './schema_type_choices';
 import {swaggerSchemaRulesRevision,swaggerNativeMetaView} from './swagger_schema_rules';

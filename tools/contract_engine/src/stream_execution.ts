@@ -26,7 +26,7 @@ class ResponseStream {
   this.retained=capture.resources.reduce((bytes:number,resource:any)=>bytes+resource.text.length*2,0);
  }
  async chunk(input:any){
- const {capture,context,plan,media,base}=this;
+ const {capture,context,media,base}=this;
  if(!media||!streamingMedia(capture.mediaType))return {...base,supported:false};
  const framed=frameStream(capture.mediaType,this.state,runtimeMediaBytes(input.text,true),input.end,input.maximumRecords??128),instances:any[]=[],binary=runtimeBinaryMedia(capture.mediaType);
  this.state=framed.state;

@@ -3,7 +3,7 @@ import {mediaTypes} from './media_types';
 import {FormSemantics,formContentType} from './form_semantics';
 import {runtimeMediaKind} from './runtime_media';
 import {runtimeBinaryMedia} from './runtime_binary';
-import {schemaResourceContextIdentity,type GraphScope,type ReferenceGraph} from './reference_graph';
+import {type GraphScope,type ReferenceGraph} from './reference_graph';
 import type {SourcePlan} from './source_plan';
 import type {MigrationIssue} from './migration_schema';
 import {modernFamily} from './specification';
@@ -248,7 +248,6 @@ export function binaryUseRepresentation(use:Use):'raw'|'data'|'unknown' {
     return kinds.every(kind=>kind==='raw')?'raw':kinds.every(kind=>kind==='data')?'data':'unknown';
 }
 export const rawBinaryUse=(use:Use)=>binaryUseRepresentation(use)==='raw';
-const annotation=(name:string)=>name.startsWith('x-')||['title','description','externalDocs','xml','deprecated','readOnly','writeOnly'].includes(name);
 
 /** OAS 3.0.4 §4.4.2 / 3.1.2 §§4.4.2–4.4.2.1. Encoded strings retain
  * their type and base64 spelling. Raw leaves are outside JSON types in modern

@@ -6,7 +6,7 @@ import {createHash} from 'node:crypto';
 import {propose,Resource} from './engine';
 import {SourceDocument,SourceError,escape,segments} from './document';
 import {documentUriFields,documentUriOccurrences} from './document_uris';
-import {documentUriBase,GraphScope,implicitNameReference,resolveUri,type GraphReference} from './reference_graph';
+import {documentUriBase,implicitNameReference,resolveUri,type GraphReference} from './reference_graph';
 import {referenceValue} from './reference_choices';
 import {coldGraph} from './reference_selection';
 import {editsFor,editBudget,planInline} from './refactoring_copy';

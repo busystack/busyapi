@@ -237,12 +237,12 @@ export async function decodeMigrationParameterExample(graph:ReferenceGraph,at:Gr
  if(owner.value.in==='querystring'){
   if(owner.wholeForm)return decodeMigrationRawQuery(graph,at,text,examples);
   if(text!==''||!plainQueryMedia(owner))return;
-  const budget=new ParameterProofBudget(),decoded=decodeRuntimeMedia(text,'file:///migration-empty-text.json',owner.media).document.dataJson('');
+  const decoded=decodeRuntimeMedia(text,'file:///migration-empty-text.json',owner.media).document.dataJson('');
   const checked=await evaluateSchemas({...graphInput(graph),exampleResources:examples,snapshot:'migration-empty-text',
    runtimeInstances:[{subject:'request-parameter',location:'empty-text',text:decoded,schema:owner.schema}]});
   return checked.complete&&checked.runtimeEvaluations.length===1&&checked.runtimeEvaluations[0].complete&&checked.runtimeEvaluations[0].valid?decoded:undefined;
  }
- const budget=new ParameterProofBudget(),accepted=new Map<string,string>();
+ const accepted=new Map<string,string>();
  const evaluate=parameterSerializationEvaluator(graph,async instances=>{
   const grouped=instances.map(instance=>[instance.text,...instance.alternatives??[]].map(text=>({...instance,text,alternatives:undefined}))),candidates=grouped.flat();
   const checked=await evaluateSchemas({...graphInput(graph),exampleResources:examples,snapshot:'migration-example-inverse',runtimeInstances:candidates});
@@ -481,7 +481,7 @@ export async function decodeMigrationRawQuery(source:ReferenceGraph,before:Sourc
   const doc=decoded.document,names=[...new Set(decoded.fieldOrder)];
   if(names.length!==doc.dataNode('')!.children.size||names.some(name=>!doc.dataNode('/'+escape(name))))return;
   const raw='{'+names.map(name=>JSON.stringify(name)+':'+doc.dataJson('/'+escape(name))).join(',')+'}';
-  const budget=new ParameterProofBudget(),checked=await evaluateSchemas({...graphInput(source),exampleResources:examples,
+  const checked=await evaluateSchemas({...graphInput(source),exampleResources:examples,
    snapshot:'migration-raw-query',runtimeInstances:[{subject:'request-parameter',location:'saved-query',text:raw,schema:first.schema}]});
   if(!checked.complete||checked.runtimeEvaluations.length!==1||!checked.runtimeEvaluations[0].complete||!checked.runtimeEvaluations[0].valid||checked.findings.some(note=>note.severity==='error'))return;
   return raw;

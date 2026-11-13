@@ -1,6 +1,6 @@
 import {SourceDocument,SourceError,escape,limits,type Range,type Node} from './document';
 import {decimal,compare} from './exact_numbers';
-import {supportedSchemaDialect,type ReferenceGraph,type GraphTarget,type GraphReference} from './reference_graph';
+import {supportedSchemaDialect,type ReferenceGraph,type GraphReference} from './reference_graph';
 import {projectSchemaReference} from './schema_reference_projection';
 import {xmlInferredName} from './xml_semantics';
 import {parseXml,xmlCharacters,xmlEscape,xmlBytes,type XmlElement,type XmlText} from './xml_wire';

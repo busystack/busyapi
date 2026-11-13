@@ -8,7 +8,7 @@ import {createGraph,analyse} from './engine';
 import {SourceDocument,SourceError,escape} from './document';
 import {safeFinding} from './security_design';
 import {governanceProjection,policyRange} from './governance_projection';
-import {compare,decimal,createExactNumericAdapter,nativeNumberIsExact} from './exact_numbers';
+import {decimal,createExactNumericAdapter,nativeNumberIsExact} from './exact_numbers';
 import {evaluateSchemas} from './schema_evaluation';
 import {policyLiteralExamples,policyExampleKey} from './policy_literal_examples';
 import {serverVariableAdvice} from './server_semantics';

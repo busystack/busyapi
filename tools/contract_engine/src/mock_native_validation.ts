@@ -8,7 +8,6 @@ import {runtimeMediaBytes} from './runtime_media';
 import {exampleRepresentation} from './example_representation';
 import {parseLinkset} from './linkset';
 import {capturedMockResponseMedia} from './mock_projection';
-import {encodeRuntimeMedia} from './runtime_media';
 import {SourceDocument} from './document';
 import {createGraph,type Resource} from './engine';
 import {requestOperation} from './execution';

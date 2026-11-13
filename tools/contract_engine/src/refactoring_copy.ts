@@ -13,7 +13,7 @@ import {standardOperationMethods,hasSchemaReferenceSiblings} from './contexts';
 import {serverTemplate} from './derived_bundle';
 import {RefactoringMarkdownOwners} from './refactoring_markdown';
 import {componentNamePolicy,permitsMemberName,reusableDefinitionPointer} from './member_names';
-import {SourcePlan,sourceValueIdentity} from './source_plan';
+import {SourcePlan} from './source_plan';
 import {assertDynamicRelocation,establishedSchemaResource,type SchemaLocation} from './schema_relocation';
 
 const inside=(pointer:string,owner:string)=>pointer===owner||pointer.startsWith(owner+'/');
