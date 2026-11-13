@@ -10,7 +10,7 @@ import { ReferenceGraph, supportedSchemaDialect, referenceMarkdownContext, schem
 import { fieldsFor, fieldsForScope, removableField, allowsExtensions, componentFamily, componentLocation, authoringFieldRevision } from './authoring';
 import {sameSchemaValueForms, allowsSchemaValue, schemaOccurrenceForms, schemaEntryForms} from './schema_value_forms';
 import type {SchemaValueForms} from './schema_value_forms';
-import { SourceDocument, SourceError, RawJsonValue, escape, segments, limits, type Node } from './document';
+import { SourceDocument, SourceError, escape, segments, limits, type Node } from './document';
 import {structuralEvaluator as ajv, structuralValidators as validators, structuralRevisions, structuralSchema} from './structural_schema';
 import {specificationDeclaration, isNativeFamily, modernFamily, capabilitiesFor, dialectUriRevision} from './specification';
 import {securityDesign, safeFinding} from './security_design';
@@ -43,7 +43,7 @@ const parsed = new Map<string, {
     cost: number;
 }>();
 let parsedCost = 0;
-function parseResource(r: Resource): SourceDocument {
+export function parseResource(r: Resource): SourceDocument {
     const key = r.id + ':' + createHash('sha256').update(r.text).digest('hex');
     const previous = parsed.get(key);
     if (previous && previous.doc.text === r.text) {
@@ -583,105 +583,7 @@ export function propose(input: any) {
         if (action.pointer)
             doc.assertSafe(action.pointer);
         let text: string;
-        if (action.kind === 'moveOperation') {
-            let n = doc.node(input.target.pointer);
-            if (segments(n.pointer).includes('additionalOperations'))
-                throw new SourceError('edit.operation.custom', 'Custom operation relocation needs an explicit additionalOperations target; edit its source occurrence');
-            if (!standardOperationMethods(createGraph(input).graph.scope(doc.id,n.pointer).family).includes(action.method))
-                throw new SourceError('edit.method', 'Choose a supported Path Item method');
-            const opSegments = segments(n.pointer), oldMethod = opSegments.pop()!, oldPath = opSegments.pop()!;
-            const pathItem = doc.node('/paths/' + escape(oldPath));
-            const targetItem = doc.nodes.get('/paths/' + escape(action.path));
-            if (action.path !== oldPath) {
-                if (pathItem.value.$ref || targetItem?.value?.$ref)
-                    throw new SourceError('edit.path.reference', 'Referenced Path Item context requires an explicit source target');
-                for (const context of [pathItem.value, targetItem?.value]) {
-                    if (!context)
-                        continue;
-                    if (context.parameters != null && (!Array.isArray(context.parameters) || context.parameters.some((p: any) => !p || typeof p !== 'object' || p.$ref)))
-                        throw new SourceError('edit.path.parameters', 'Source and destination inherited parameters need explicit source review');
-                    if (context.servers != null && (!Array.isArray(context.servers) || context.servers.some((s: any) => !s || typeof s !== 'object' || typeof s.url !== 'string')))
-                        throw new SourceError('edit.path.servers', 'Source or destination servers have ambiguous context');
-                }
-                const hasContext = (v: any) => v && ['parameters', 'servers', 'summary', 'description'].some(k => Object.hasOwn(v, k));
-                if ((hasContext(pathItem.value) || hasContext(targetItem?.value)) && !['destination', 'preserve'].includes(action.context))
-                    throw new SourceError('edit.path.context', 'Choose destination context or preservation of effective parameters and servers');
-                const names = new Set([...String(action.path).matchAll(/\{([^}]+)\}/g)].map(m => m[1]));
-                const inherited = action.context === 'preserve' ? pathItem.value.parameters ?? [] : targetItem?.value?.parameters ?? [];
-                const own = n.value.parameters ?? [];
-                if (!Array.isArray(own) || !Array.isArray(inherited) || [...own, ...inherited].some((p: any) => !p || typeof p !== 'object' || p.$ref))
-                    throw new SourceError('edit.path.parameters', 'Referenced or malformed parameters require explicit source review');
-                const effective = [...own, ...inherited.filter((p: any) => !own.some((o: any) => o.name === p.name && o.in === p.in))];
-                if (effective.some((p: any) => p.in === 'path' && (!names.has(p.name) || p.required !== true)) || [...names].some(name => !effective.some((p: any) => p.in === 'path' && p.name === name && p.required === true)))
-                    throw new SourceError('edit.path.template', 'Path placeholders and effective path parameters must agree');
-                if (action.context === 'preserve') {
-                    for (const p of targetItem?.value?.parameters ?? [])
-                        if (!effective.some((o: any) => o.name === p.name && o.in === p.in))
-                            throw new SourceError('edit.path.context', 'Destination parameters cannot be removed by an operation override; choose destination context or another path');
-                    for (let i = 0; i < inherited.length; i++)
-                        if (!own.some((o: any) => o.name === inherited[i].name && o.in === inherited[i].in)) {
-                            const sourcePointer = pathItem.pointer + '/parameters/' + i;
-                            if (doc.node(sourcePointer).shared)
-                                throw new SourceError('edit.shared', 'Aliased parameters require an explicit source target');
-                            const raw = new RawJsonValue(doc.dataJson(sourcePointer));
-                            if (!doc.nodes.has(n.pointer + '/parameters'))
-                                doc = new SourceDocument(doc.set(n.pointer + '/parameters', []), resource.id, true);
-                            doc = new SourceDocument(doc.set(n.pointer + '/parameters/' + doc.node(n.pointer + '/parameters').children.size, raw), resource.id, true);
-                        }
-                    if (!Object.hasOwn(n.value, 'servers') && (pathItem.value.servers || targetItem?.value?.servers)) {
-                        const sourcePointer = pathItem.value.servers ? pathItem.pointer + '/servers' : doc.root.value.servers ? '/servers' : undefined;
-                        const value = sourcePointer ? new RawJsonValue(doc.dataJson(sourcePointer)) : [{ url: '/' }];
-                        doc = new SourceDocument(doc.set(n.pointer + '/servers', value), resource.id, true);
-                    }
-                }
-            }
-            n = doc.node(input.target.pointer);
-            if (!action.path.startsWith('/'))
-                throw new SourceError('edit.path', 'Paths must begin with /');
-            const destination = '/paths/' + escape(action.path) + '/' + escape(action.method);
-            if (doc.nodes.has(destination))
-                throw new SourceError('edit.collision', 'Destination operation already exists');
-            if (action.path === oldPath) {
-                const keyNode = n.keyRange!;
-                text = doc.replace(...keyNode, doc.emit(action.method));
-            }
-            else {
-                const newPath = '/paths/' + escape(action.path);
-                const oldEntryStart = n.entryStart ?? n.range[0];
-                const authored = doc.text.slice(doc.lineStart(oldEntryStart), n.end);
-                const baseIndent = doc.indent(oldEntryStart);
-                const removed = doc.remove(n.pointer);
-                const next = new SourceDocument(removed, resource.id);
-                const existing = next.nodes.get(newPath);
-                if (doc.format === 'json' || next.node('/paths').flow || existing?.flow && n.flow) {
-                    if (doc.format === 'yaml' && !n.flow)
-                        throw new SourceError('edit.path.flow', 'Moving an authored block into a flow container requires an explicit structure choice');
-                    const raw = doc.text.slice(...n.range);
-                    const parent = existing ?? next.node('/paths');
-                    const at = parent.range[1] - 1;
-                    const entry = existing ? JSON.stringify(action.method) + ': ' + raw : JSON.stringify(action.path) + ': {' + JSON.stringify(action.method) + ': ' + raw + '}';
-                    text = next.replace(at, at, (parent.children.size ? ', ' : '') + entry);
-                }
-                else {
-                    if (existing?.flow)
-                        throw new SourceError('edit.path.flow', 'Moving a block operation into a flow Path Item cannot preserve its authored comments; choose a block destination in Source');
-                    const parent = existing ?? next.node('/paths');
-                    if (parent.flow)
-                        throw new SourceError('edit.path.flow', 'Choose a block Paths container in Source before moving this operation');
-                    const indent = existing ? next.indent(parent.range[0]) : next.indent(parent.range[0]) + 2;
-                    let entry = authored.replace(new RegExp('(^|\\r?\\n) {' + baseIndent + '}', 'g'), '$1' + ' '.repeat(indent));
-                    const originalMethod = doc.text.slice(...n.keyRange!);
-                    const keyAt = entry.indexOf(originalMethod);
-                    entry = entry.slice(0, keyAt) + next.emit(action.method) + entry.slice(keyAt + originalMethod.length);
-                    if (!existing)
-                        entry = ' '.repeat(indent - 2) + next.emit(action.path) + ':' + next.newline + entry;
-                    const at = parent.end;
-                    const prefix = /[\r\n]$/.test(next.text.slice(0, at)) ? '' : next.newline;
-                    text = next.replace(at, at, prefix + entry + (/[\r\n]$/.test(entry) ? '' : at < next.text.length ? next.newline : ''));
-                }
-            }
-        }
-        else if (action.kind === 'setRequired') {
+        if (action.kind === 'setRequired') {
             if (typeof action.name !== 'string' || typeof action.required !== 'boolean') throw new SourceError('edit.action', 'Required membership needs a property name and boolean choice');
             const schema = doc.node(action.pointer);
             if (schema.kind !== 'object' || doc.nodes.get(action.pointer + '/properties')?.kind !== 'object' || !Object.hasOwn(schema.value.properties, action.name)) throw new SourceError('schema.property.missing', 'The property is not authored in this schema');

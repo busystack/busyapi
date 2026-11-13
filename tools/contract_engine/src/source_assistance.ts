@@ -1,4 +1,4 @@
-import { analyse, createGraph, Resource } from './engine';
+import { analyse, createGraph, parseResource, Resource } from './engine';
 import { fieldsForScope } from './authoring';
 import { escape, segments, SourceDocument, SourceError } from './document';
 import { GraphReference, supportedSchemaDialect } from './reference_graph';
@@ -19,6 +19,7 @@ function refLocation(doc: SourceDocument, ref: GraphReference) {
  * insertion is already a captured, expected-text transaction, never a second
  * mutable editor buffer. Deliberately do not infer contexts inside data. */
 export function assistSource(input: any) {
+    if (input.action === 'folds') return sourceFolds(input);
     const { docs, graph } = createGraph(input), doc = docs.get(input.resource);
     if (!doc || !Number.isInteger(input.caret) || input.caret < 0 || input.caret > doc.text.length)
         throw new SourceError('assist.location', 'The source position is outside this snapshot');
@@ -27,30 +28,6 @@ export function assistSource(input: any) {
         throw new SourceError('version.unsupported', 'Source assistance requires a supported containing OpenAPI feature family');
     const caret = input.caret, resource = (input.resources as Resource[]).find(r => r.id === doc.id)!;
     const all = [...doc.nodes.values()];
-    if (input.action === 'folds') {
-        const from=input.from??0,to=input.to??doc.text.length,folded=input.folded??[];
-        if(!Number.isInteger(from)||!Number.isInteger(to)||from<0||to<from||to>doc.text.length||
-           !Array.isArray(folded)||folded.length>20000||folded.some(p=>typeof p!=='string'||p.length>16384))
-            throw new SourceError('assist.folds.range','Choose bounded source folding coordinates');
-        const requested=new Set<string>(folded),owners=folded.map(p=>doc.nodes.get(p)).filter(Boolean).sort((a,b)=>a.range[0]-b.range[0]||b.range[1]-a.range[1]);
-        const outer:typeof owners=[];
-        for(const owner of owners)if(!outer.length||owner.range[0]>=outer.at(-1)!.range[1])outer.push(owner);
-        const hidden=(node:any)=>{
-            let low=0,high=outer.length;
-            while(low<high){const middle=(low+high)>>>1;if(outer[middle].range[1]<=node.range[0])low=middle+1;else high=middle;}
-            return low<outer.length&&outer[low].range[0]<=node.range[0]&&outer[low].pointer!==node.pointer;
-        };
-        const folds=[];
-        for(const n of all){
-            const header=doc.format==='json'||n.flow?n.range[0]:n.keyRange?.[0]??n.range[0];
-            if(!requested.has(n.pointer)&&(header<from||header>to||hidden(n)))continue;
-            if(!['object','array'].includes(n.kind)&&!n.style?.startsWith('BLOCK_')||!doc.syntaxSafe(n.pointer))continue;
-            if(!['\r','\n'].some(line=>{const at=doc.text.indexOf(line,header);return at>=0&&at<n.range[1];}))continue;
-            folds.push({pointer:n.pointer,start:n.range[0],end:n.range[1],header,flow:n.flow,kind:n.kind});
-            if(folds.length>20000)throw new SourceError('limit.folds','Request folds for a smaller source viewport');
-        }
-        return {version:1,snapshot:input.snapshot,root:input.root,resource:doc.id,generation:resource.generation,caret,pointer:'',kind:'source',completions:[],folds,from,to,complete:!doc.issues.length};
-    }
     const nodes = all.filter(n => inRange(caret, n.range)).sort((a, b) => (a.range[1] - a.range[0]) - (b.range[1] - b.range[0]));
     let node = nodes[0] ?? doc.root;
     const keyNode = all.filter(n => inRange(caret, n.keyRange)).sort((a, b) => a.keyRange![0] - b.keyRange![0])[0];
@@ -211,7 +188,37 @@ export function assistSource(input: any) {
     return result;
 }
 
-export const sourceFolds=(input:any)=>assistSource({...input,action:'folds'});
+/** Folding depends only on the selected physical source and its syntax.
+ * Incomplete declarations and unrelated resources cannot block a local fold. */
+export function sourceFolds(input:any) {
+    const resource = (input.resources as Resource[]).find(r => r.id === input.resource);
+    if (!resource || !Number.isInteger(input.caret) || input.caret < 0 || input.caret > resource.text.length)
+        throw new SourceError('assist.location', 'The source position is outside this snapshot');
+    const doc = parseResource(resource), caret = input.caret;
+    const all = doc.nodes.values();
+    const from=input.from??0,to=input.to??doc.text.length,folded=input.folded??[];
+    if(!Number.isInteger(from)||!Number.isInteger(to)||from<0||to<from||to>doc.text.length||
+       !Array.isArray(folded)||folded.length>20000||folded.some(p=>typeof p!=='string'||p.length>16384))
+        throw new SourceError('assist.folds.range','Choose bounded source folding coordinates');
+    const requested=new Set<string>(folded),owners=folded.map(p=>doc.nodes.get(p)).filter(Boolean).sort((a,b)=>a.range[0]-b.range[0]||b.range[1]-a.range[1]);
+    const outer:typeof owners=[];
+    for(const owner of owners)if(!outer.length||owner.range[0]>=outer.at(-1)!.range[1])outer.push(owner);
+    const hidden=(node:any)=>{
+        let low=0,high=outer.length;
+        while(low<high){const middle=(low+high)>>>1;if(outer[middle].range[1]<=node.range[0])low=middle+1;else high=middle;}
+        return low<outer.length&&outer[low].range[0]<=node.range[0]&&outer[low].pointer!==node.pointer;
+    };
+    const folds=[];
+    for(const n of all){
+        const header=doc.format==='json'||n.flow?n.range[0]:n.keyRange?.[0]??n.range[0];
+        if(!requested.has(n.pointer)&&(header<from||header>to||hidden(n)))continue;
+        if(!['object','array'].includes(n.kind)&&!n.style?.startsWith('BLOCK_')||!doc.syntaxSafe(n.pointer))continue;
+        if(!['\r','\n'].some(line=>{const at=doc.text.indexOf(line,header);return at>=0&&at<n.range[1];}))continue;
+        folds.push({pointer:n.pointer,start:n.range[0],end:n.range[1],header,flow:n.flow,kind:n.kind});
+        if(folds.length>20000)throw new SourceError('limit.folds','Request folds for a smaller source viewport');
+    }
+    return {version:1,snapshot:input.snapshot,root:input.root,resource:doc.id,generation:resource.generation,caret,pointer:'',kind:'source',completions:[],folds,from,to,complete:!doc.issues.length};
+}
 
 // A half-typed key may have no value node in the tolerant CST. Repair only an
 // identified mapping hole, then prove that mapping's syntax and field context

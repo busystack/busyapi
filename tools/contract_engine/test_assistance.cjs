@@ -57,6 +57,17 @@ test('folding is bounded by physical viewport and retains only requested collaps
   }
  }
 });
+test('folds remain syntax-only before a declaration is complete and ignore unrelated broken resources',()=>{
+ for(const text of ['info:\n  title: Editing\n  version: one\n', 'openapi: 9.0.0\ninfo:\n  title: Editing\n  version: one\nbroken: [unclosed\n']){
+  const input=fixture(text+'§');
+  input.root='file:///absent-root.yaml';
+  input.resources.push({id:'file:///unrelated.yaml',text:'[',generation:1});
+  const result=sourceFolds(input);
+  assert(result.folds.some(fold=>fold.pointer==='/info'));
+  assert.equal(result.complete,!text.includes('unclosed'));
+  assert.deepEqual(assistSource({...input,action:'folds'}),result);
+ }
+});
 test('fold metadata includes block scalar/data structure without treating its payload as references',()=>{
  const input=fixture('openapi: 3.1.2\ninfo:\n  title: Fold\n  version: "1"\n  description: |\n    first 雪😀\n    second\npaths: {}\nx-data:\n  $ref: literal-data\n  lines:\n    - one\n    - two\n§');
  const found=sourceFolds(input).folds;

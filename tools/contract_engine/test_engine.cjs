@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const { SourceDocument } = require('./dist/document.cjs');
 const { analyse, propose } = require('./dist/model.cjs');
+const { planOperationMove } = require('./dist/refactoring_copy.cjs');
 const resource = (text, format = 'yaml') => ({ id: 'file:///tmp/contract.' + format, text, generation: 1, identity: 'x' });
 const apply = (r, actions, target = '/info') => {
     const n = new SourceDocument(r.text, r.id, true).node(target);
@@ -8,6 +9,17 @@ const apply = (r, actions, target = '/info') => {
     let text = r.text;
     for (const e of proposal.edits)
         text = text.slice(0, e.start) + e.replacement + text.slice(e.end);
+    return text;
+};
+const move = (r, options, pointer) => {
+    const plan = planOperationMove({root:r.id,snapshot:'move',resources:[r],
+        contexts:[{root:r.id,resources:[r.id]}],target:{resource:r.id,generation:r.generation,pointer},
+        additional:false,context:'preserve',...options});
+    let text = r.text;
+    for (const edit of plan.edits.filter(edit=>edit.buffer===r.id).sort((a,b)=>b.start-a.start)) {
+        assert.equal(text.slice(edit.start,edit.end),edit.expected);
+        text = text.slice(0,edit.start)+edit.replacement+text.slice(edit.end);
+    }
     return text;
 };
 let tests = 0;
@@ -63,10 +75,10 @@ test('local escaped pointer recursion, payload ref stays data', () => { let r = 
 test('version aware additionalOperations', () => { const r = resource('openapi: 3.2.1\ninfo: {title: A, version: "1"}\npaths:\n  /a:\n    query: {}\n    additionalOperations:\n      COPY: {}\n'); const result = analyse({ root: r.id, snapshot: 's', resources: [r] }); assert.deepEqual(result.operations.map(o => o.method), ['query', 'COPY']); });
 test('alias visual mutation is refused', () => { const r = resource('info: &x {title: A, version: "1"}\nother: *x\n'); assert.throws(() => apply(r, [{ kind: 'set', pointer: '/info/title', value: 'B' }])); });
 test('stale generation and expected text', () => { const r = resource('info: {title: A}'); assert.throws(() => propose({ resources: [r], target: { resource: r.id, generation: 0, pointer: '/info' }, actions: [] })); });
-test('block operation move preserves sibling and extension bytes', () => { const r = resource('openapi: 3.2.1\ninfo: {title: A, version: "1"}\npaths:\n  /old:\n    get:\n      summary: "same" # authored\n      x-number: 1.00\n    post: {summary: sibling}\n'); const text = apply(r, [{ kind: 'moveOperation', method: 'put', path: '/new' }], '/paths/~1old/get'); const d = new SourceDocument(text, r.id); assert.equal(d.node('/paths/~1old/post/summary').value, 'sibling'); assert.equal(d.node('/paths/~1new/put/summary').value, 'same'); assert(text.includes('x-number: 1.00')); assert(text.includes('# authored')); });
+test('block operation move preserves sibling and extension bytes', () => { const r = resource('openapi: 3.2.1\ninfo: {title: A, version: "1"}\npaths:\n  /old:\n    get:\n      summary: "same" # authored\n      x-number: 1.00\n    post: {summary: sibling}\n'); const text = move(r, {method:'put',path:'/new'}, '/paths/~1old/get'); const d = new SourceDocument(text, r.id); assert.equal(d.node('/paths/~1old/post/summary').value, 'sibling'); assert.equal(d.node('/paths/~1new/put/summary').value, 'same'); assert(text.includes('x-number: 1.00')); assert(text.includes('# authored')); });
 test('block description replacement preserves following key and style', () => { let r = resource('openapi: 3.2.1\ninfo:\n  title: A\n  description: |\n    old words\n  version: "1"\npaths: {}\n'); r.text = apply(r, [{ kind: 'set', pointer: '/info/description', value: 'new words\n' }]); const d = new SourceDocument(r.text, r.id); assert.equal(d.node('/info/version').value, '1'); assert.equal(d.node('/info/description').value, 'new words\n'); assert(r.text.includes('description: |')); });
 test('renaming key preserves response schema lexemes and property siblings', () => { let r = resource('info: {}\nresponses:\n  "200":\n    description: OK # unchanged\n    x-number: 1.00\n'); const text = apply(r, [{ kind: 'rename', pointer: '/responses/200', name: '201' }]); assert.equal(text, r.text.replace('"200"', '"201"')); });
-test('new YAML flow operation changes path without reserializing fields', () => { let r = resource('openapi: 3.2.1\ninfo: {title: A, version: "1"}\npaths: {}\n'); r.text = apply(r, [{ kind: 'set', pointer: '/paths/~1old/get', value: { summary: 'Before', responses: { 200: { description: 'OK' } } } }]); r.text = apply(r, [{ kind: 'moveOperation', method: 'put', path: '/new' }], '/paths/~1old/get'); const d = new SourceDocument(r.text, r.id); assert.equal(d.node('/paths/~1new/put/summary').value, 'Before'); });
+test('new YAML flow operation changes path without reserializing fields', () => { let r = resource('openapi: 3.2.1\ninfo: {title: A, version: "1"}\npaths: {}\n'); r.text = apply(r, [{ kind: 'set', pointer: '/paths/~1old/get', value: { summary: 'Before', responses: { 200: { description: 'OK' } } } }]); r.text = move(r, {method:'put',path:'/new'}, '/paths/~1old/get'); const d = new SourceDocument(r.text, r.id); assert.equal(d.node('/paths/~1new/put/summary').value, 'Before'); });
 test('non-BMP scalar changes use whole UTF16 pairs', () => { const r = resource('info: {title: "😀"}'); const n = new SourceDocument(r.text, r.id).node('/info'); const p = propose({ root: r.id, snapshot: 's', resources: [r], target: { resource: r.id, generation: 1, pointer: '/info', range: n.range }, actions: [{ kind: 'set', pointer: '/info/title', value: '🠀' }] }); const e = p.edits[0]; assert.equal(e.expected, '😀'); assert.equal(e.replacement, '🠀'); });
 test('referenced Path Item operations retain physical ownership', () => { const r = resource('openapi: 3.2.1\ninfo: {title: A, version: "1"}\npaths: {/things: {$ref: "paths.yaml#/Things"}}'); const fragment = { id: 'file:///tmp/paths.yaml', text: 'Things: {query: {summary: QUERY, responses: {200: {description: OK}}}}', generation: 4, identity: 'f' }; const result = analyse({ root: r.id, snapshot: 's', resources: [r, fragment] }); assert.equal(result.status, 'complete'); assert.equal(result.operations[0].resource, fragment.id); assert.equal(result.operations[0].pointer, '/Things/query'); assert.equal(result.operations[0].generation, 4); assert.equal(result.operations[0].shared, true); });
 test('schema property names and default responses are interpreted by context', () => { const r = resource('openapi: 3.2.1\ninfo: {title: A, version: "1"}\npaths: {/things: {get: {responses: {default: {$ref: "#/components/responses/Missing"}}}}}\ncomponents: {schemas: {Thing: {type: object, properties: {example: {$ref: "#/components/schemas/Missing"}}}}}'); const result = analyse({ root: r.id, snapshot: 's', resources: [r] }); assert.equal(result.references.length, 2); assert.equal(result.status, 'invalid'); assert.equal(result.findings.filter(d => d.code === 'reference.missing').length, 2); });
@@ -91,7 +103,14 @@ test('optional operation responses are not a legacy validity requirement', () =>
         assert(result.findings.some(d => d.code === 'operation.responses.empty'));
     }
 });
-test('custom operation relocation cannot mistake its additionalOperations parent for a path', () => { const r = resource('openapi: 3.2.1\ninfo: {title: A, version: "1"}\npaths: {/things: {additionalOperations: {COPY: {summary: authored}}}}'); const original = r.text; assert.throws(() => apply(r, [{ kind: 'moveOperation', method: 'get', path: '/other' }], '/paths/~1things/additionalOperations/COPY'), e => e.code === 'edit.operation.custom'); assert.equal(r.text, original); });
+test('custom operation relocation keeps the actual containing path', () => {
+    const r = resource('openapi: 3.2.1\ninfo: {title: A, version: "1"}\npaths: {/things: {additionalOperations: {COPY: {summary: authored}}}}');
+    const original = r.text, text = move(r, {method:'get',path:'/other'}, '/paths/~1things/additionalOperations/COPY');
+    const doc = new SourceDocument(text, r.id);
+    assert.equal(doc.node('/paths/~1other/get/summary').value, 'authored');
+    assert.equal(doc.nodes.has('/paths/~1things/additionalOperations/COPY'), false);
+    assert.equal(r.text, original);
+});
 test('embedded schema resource pointers resolve relative to their resource root', () => {
     const r = resource('openapi: 3.2.1\ninfo: {title: A, version: "1"}\npaths: {}\ncomponents: {schemas: {Thing: {$id: "embedded.json", $ref: "#/properties/Other", examples: [{"$ref": "payload"}]}}}');
     const result = analyse({ root: r.id, snapshot: 's', resources: [r] });
@@ -110,7 +129,7 @@ test('embedded schema resource pointers resolve relative to their resource root'
 });
 test('method change within the same path preserves inherited context and siblings', () => {
     const r = resource('openapi: 3.2.1\ninfo: {title: A, version: "1"}\npaths: {/things: {parameters: [{name: q, in: query, schema: {type: string}}], get: {summary: authored}, post: {summary: sibling}}}');
-    const text = apply(r, [{ kind: 'moveOperation', method: 'query', path: '/things' }], '/paths/~1things/get');
+    const text = move(r, {method:'query',path:'/things'}, '/paths/~1things/get');
     assert.equal(text, r.text.replace('get: {summary: authored}', 'query: {summary: authored}'));
 });
 test('referenced response and parameter fragments receive context-specific structural checks', () => {
@@ -145,8 +164,8 @@ test('OpenAPI 3.2 self identity never guesses a retrieval-relative reference as 
 });
 test('moving to a path with context requires an explicit inheritance decision', () => {
  const r=resource('openapi: 3.1.2\ninfo: {title: T, version: "1"}\npaths:\n  /a:\n    get: {summary: original}\n  /b:\n    servers: [{url: /other}]\n    parameters: [{name: q, in: query, schema: {type: string}}]\n    post: {}\n');
- assert.throws(()=>apply(r,[{kind:'moveOperation',method:'get',path:'/b'}],'/paths/~1a/get'),/context/);
- const moved=apply(r,[{kind:'moveOperation',method:'get',path:'/b',context:'destination'}],'/paths/~1a/get');
+ assert.throws(()=>move(r,{method:'get',path:'/b',context:undefined},'/paths/~1a/get'),error=>error.code==='edit.path.context');
+ const moved=move(r,{method:'get',path:'/b',context:'destination'},'/paths/~1a/get');
  assert(moved.includes('servers: [{url: /other}]')); assert(moved.includes('post: {}'));
 });
 test('current CST scope outside a malformed sibling remains surgically editable',()=>{

@@ -737,16 +737,20 @@ export function planOperationMove(input:any) {
    }
   }
  }
- // Insert through the existing exact-value CST copier before removing only
- // the selected occurrence. No path key, sibling Operation or payload changes.
+ // A method rename in the same physical container changes only its key.
+ // Relocation across containers uses the exact-value copier and retains the
+ // selected entry's comments before removing its old occurrence.
  admit(resource.id);
- let moved=insertValue(prepared,destination,prepared,target.pointer);
- // A YAML value range starts after comments between its key and first child.
- // Retain those real CST comments beside the relocated occurrence; never
- // inspect comment-looking block scalar/example data or consume leading
- // comments outside the selected entry's removal range.
- moved=retainOccurrenceComments(prepared,moved,destination,target.pointer,true);
- moved=new SourceDocument(moved.remove(target.pointer),resource.id);
+ let moved:SourceDocument;
+ if(target.pointer.slice(0,target.pointer.lastIndexOf('/'))===destination.slice(0,destination.lastIndexOf('/'))){
+  const range=node.keyRange!,raw=doc.text.slice(...range);
+  const key=raw.startsWith("'")?"'"+input.method.replaceAll("'","''")+"'":raw.startsWith('"')?JSON.stringify(input.method):doc.emit(input.method);
+  moved=new SourceDocument(doc.replace(...range,key),resource.id);
+ }else{
+  moved=insertValue(prepared,destination,prepared,target.pointer);
+  moved=retainOccurrenceComments(prepared,moved,destination,target.pointer,true);
+  moved=new SourceDocument(moved.remove(target.pointer),resource.id);
+ }
  outputs.set(resource.id,moved.text);
  const move=(id:string,pointer:string)=>id===resource.id&&inside(pointer,target.pointer)?destination+pointer.slice(target.pointer.length):pointer;
  const current=()=>resources.map(value=>({...value,text:outputs.get(value.id)??value.text}));

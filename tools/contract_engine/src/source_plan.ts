@@ -50,9 +50,13 @@ export class SourcePlan {
     readonly origins=new Map<string,Set<string>>();
     readonly foreignOrigins=new Map<string,Set<string>>();
     readonly presentationChanges:string[]=[];
-    constructor(readonly original:SourceDocument) {
-        this.doc=new SourceDocument(original.text,original.id);
-        for(const pointer of logicalSourcePointers(original))this.origins.set(pointer,new Set([pointer]));
+    constructor(readonly original:SourceDocument, copy?:SourcePlan) {
+        this.doc=copy?.doc??new SourceDocument(original.text,original.id);
+        if(copy){
+            for(const [origin,locations]of copy.origins)this.origins.set(origin,new Set(locations));
+            for(const [origin,locations]of copy.foreignOrigins)this.foreignOrigins.set(origin,new Set(locations));
+            this.presentationChanges.push(...copy.presentationChanges);
+        }else for(const pointer of logicalSourcePointers(original))this.origins.set(pointer,new Set([pointer]));
     }
     own(pointer:string,descendants=true,includeKey=false):void {
         this.located(pointer,()=>{
@@ -66,15 +70,7 @@ export class SourcePlan {
     /** Capture a planning copy and its logical provenance before specialization.
      * The converted CST may use different coordinates from the original source;
      * rebuilding origins from its node names would lose moved/foreign owners. */
-    fork():SourcePlan {
-        const fork=new SourcePlan(this.original);
-        fork.doc=this.doc;
-        fork.origins.clear();
-        for(const [origin,locations]of this.origins)fork.origins.set(origin,new Set(locations));
-        for(const [origin,locations]of this.foreignOrigins)fork.foreignOrigins.set(origin,new Set(locations));
-        fork.presentationChanges.push(...this.presentationChanges);
-        return fork;
-    }
+    fork():SourcePlan {return new SourcePlan(this.original,this);}
     /** Expand an ordered sequence from its captured occurrences. Copies retain
      * original coordinates even after earlier entries acquire extra variants;
      * aliases are separated before mutation and the array's own key/trivia
