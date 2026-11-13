@@ -108,7 +108,10 @@ before the pinned SDK's setters can replace singleton values. It forwards the
 same socket chunks, retaining SDK framing, TLS, cancellation and standard method
 semantics. Captures are limited to 64 KiB including informational blocks; incomplete
 or folded evidence does not fall back to cooked headers. Each exchange has one
-connection/capture. The mock proxy uses the existing exact transport for every
+connection/capture. If the supported SDK returns a non-100/non-101 informational
+response as final, execution reports `response.informational.unsupported` without
+claiming a final body. A 100 Continue followed by a final response remains supported.
+The mock proxy uses the existing exact transport for every
 method so Fetch cannot erase repeated lines before native checks. Original body
 bytes remain separate from bounded decoded validation views. Source and protocol
 qualification remain pending.

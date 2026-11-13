@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:busyapi_core/busyapi_core.dart';
@@ -60,10 +59,16 @@ void main() {
       final references = (checked['projection'] as Map)['references'] as List;
       final model = references.firstWhere((reference) => reference['targetPointer'] == '/Model');
       final document = await output.inspectObject(output.roots.single.id, model['targetResource'] as String, '');
-      final literalTarget = Map<String, dynamic>.from((document['entries'] as List).singleWhere((entry) => entry['name'] == 'x-literal') as Map);
-      final literal = jsonDecode(await output.readDataValue(literalTarget)) as Map;
-      expect(literal.containsKey('nullable'), version == '3.0.4');
-      expect(literal['required'], ['id']);
+      final literalTarget = (document['entries'] as List).singleWhere((entry) => entry['name'] == 'x-literal') as Map;
+      final literal = await output.referencePage(output.roots.single.id,
+          literalTarget['resource'] as String, literalTarget['pointer'] as String, data: true);
+      expect((literal['entries'] as List).any((entry) => entry['name'] == 'nullable'), version == '3.0.4');
+      final required = await output.referencePage(output.roots.single.id,
+          literalTarget['resource'] as String, '/x-literal/required', data: true);
+      expect((required['entries'] as List).map((entry) => entry['text']), ['id']);
+      final exact = await output.referencePage(output.roots.single.id,
+          literalTarget['resource'] as String, '/x-literal/properties/id/enum', data: true);
+      expect((exact['entries'] as List).single['text'], '9007199254740995.00');
       expect(await root.readAsString(), original);expect(await models.readAsString(), source);
       expect(buffer.dirty, true);
     });
