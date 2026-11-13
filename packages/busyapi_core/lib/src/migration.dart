@@ -702,7 +702,7 @@ extension ContractMigration on BusyProject {
       onResourceRefreshed: onResourceRefreshed,
     );
     try {
-      final result = await engine.request('planMigration', {
+      final result = await _requestSource('planMigration', {
         ...captured.snapshot.toJson(),
         if (captured.snapshot.configuration.isNotEmpty)
           'configuration': captured.snapshot.configuration.single,

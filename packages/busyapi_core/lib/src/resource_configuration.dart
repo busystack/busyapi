@@ -1,7 +1,8 @@
 part of 'project.dart';
 
 class _ResourceConfiguration {
-  _ResourceConfiguration(this.source, this.mappings);
+  _ResourceConfiguration(this.source, this.mappings, {this.mode});
+  final int? mode;
   final Map<String, Object?>? source;
   final Map<String, String> mappings;
 }
@@ -208,6 +209,7 @@ extension ResourceConfiguration on BusyProject {
       return _ResourceConfiguration(null, Map.of(_approvedResources));
     }
     Map<String, Object?>? source;
+    int? mode;
     if (!saved && b != null) {
       if (!b.dirty && !b.externalConflict) {
         final before = (b.generation, b.externalConflict);
@@ -216,7 +218,10 @@ extension ResourceConfiguration on BusyProject {
           onResourceRefreshed?.call(b.id);
       }
       source = await b.snapshotAsync();
+      mode = b.mode;
+      resourceFingerprints.putIfAbsent(b.id, () => (identity: b.diskIdentity, mode: b.mode));
     } else if (!await access.missing(path)) {
+      final version = store.resourceVersion(_manifestResource);
       final bytes = await access.read(path);
       if (bytes.length > 65536)
         throw CoreFailure(
@@ -224,7 +229,11 @@ extension ResourceConfiguration on BusyProject {
           'Project configuration exceeds 64 KiB',
         );
       try {
-        source = await DocumentBuffer.decode(path, bytes).snapshotAsync();
+        mode = await access.mode(path);
+        source = await DocumentBuffer.decode(path, bytes, mode: mode).snapshotAsync();
+        if (!_observeDisk(_manifestResource, (identity: source['identity'] as String, mode: mode), expectedVersion: version)) {
+          throw CoreFailure('snapshot.changed', 'The configuration observation was retired during acquisition');
+        }
       } on FormatException {
         throw CoreFailure(
           'manifest.encoding',
@@ -265,7 +274,7 @@ extension ResourceConfiguration on BusyProject {
       _configureResourceMappings(source);
       _adoptRootConfiguration(configuredRoots);
       _resourceConfigurationPresent = source != null;
-      return _ResourceConfiguration(source, _resourceMappings);
+      return _ResourceConfiguration(source, _resourceMappings, mode: mode);
     }
     final approved = {
       for (final e in _approvedResources.entries)
@@ -276,6 +285,6 @@ extension ResourceConfiguration on BusyProject {
     return _ResourceConfiguration(source, {
       ..._parseResourceMappings(source, approved),
       ...approved,
-    });
+    }, mode: mode);
   }
 }

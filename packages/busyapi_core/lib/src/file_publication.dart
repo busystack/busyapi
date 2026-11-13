@@ -377,9 +377,7 @@ extension FilePublication on PublicationStore {
       b.baselineHasBom = entry['hasBom'] as bool;
       b.diskIdentity = b.publishedPresent ? entry['identity'] as String : '';
       b.externalConflict = false;
-      project.resourceFingerprints[b.id] = b.publishedPresent
-          ? b.diskIdentity
-          : null;
+      project.acknowledgeDiskPublication(b, mode: entry['mode'] as int);
     }
     batch.published.add(id);
   }

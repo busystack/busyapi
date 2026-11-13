@@ -133,9 +133,7 @@ void main() {
       ..writeAsStringSync('type: string\n');
     final project = await BusyProject.open(temp.path, engine);
     addTearDown(project.close);
-    for (final root in project.roots) {
-      await project.check(root.id);
-    }
+    await Future.wait([for (final root in project.roots) project.check(root.id)]);
     expect(project.store.buffers.containsKey(shared.uri.toString()), false);
     File('${temp.path}/unrelated.yaml').writeAsStringSync('unrelated: true');
     expect((await project.refreshResources()).roots, isEmpty);

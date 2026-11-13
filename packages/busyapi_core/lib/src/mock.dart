@@ -48,7 +48,7 @@ class MockPlan {
     final settled = Completer<void>();
     final requestId =
         'mock-${snapshot.identity.substring(0, 16)}-${DateTime.now().microsecondsSinceEpoch}-${identityHashCode(settled)}';
-    final work = _owner.engine.request('deriveBundle', {
+    final work = _owner._requestSource('deriveBundle', {
       ...snapshot.toJson(),
       'outputId': outputId,
     }, requestId: requestId);

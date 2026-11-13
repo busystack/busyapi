@@ -513,10 +513,13 @@ class WorkspaceController extends ChangeNotifier {
     project = next;
     _pendingRecovery.clear();
     _recoveryFieldVersions.clear();
-    next.onDiskInvalidated = () {
-      if (identical(project, next) && !disposed) {
-        unawaited(pollDisk(reconcile: false));
+    next.onResourcesRefreshed = (refreshed) {
+      if (!identical(project, next) || disposed) return;
+      for (final id in refreshed.roots) {
+        cached.remove(id);
       }
+      if (refreshed.roots.contains(root ?? active)) schedule();
+      if (refreshed.resources.isNotEmpty) notifyListeners();
     };
     next.onBuffersChanged = (buffers) {
       if (identical(project, next)) _pendingRecovery.addAll(buffers);
@@ -604,13 +607,7 @@ class WorkspaceController extends ChangeNotifier {
     if (captured == null) return;
     _polling = true;
     try {
-      final refreshed = await captured.refreshResources(reconcile: reconcile);
-      if (disposed || !identical(project, captured)) return;
-      for (final id in refreshed.roots) {
-        cached.remove(id);
-      }
-      if (refreshed.roots.contains(root ?? active)) schedule();
-      if (refreshed.resources.isNotEmpty) notifyListeners();
+      await captured.refreshResources(reconcile: reconcile);
     } finally {
       _polling = false;
       if (!disposed &&
@@ -692,7 +689,7 @@ class WorkspaceController extends ChangeNotifier {
           final b = store?.buffers[r['id']];
           return b != null
               ? b.generation == r['generation']
-              : project!.resourceFingerprints[r['id']] == r['identity'];
+              : project!.resourceFingerprints[r['id']]?.identity == r['identity'];
         })) {
       cached.remove(id);
     }

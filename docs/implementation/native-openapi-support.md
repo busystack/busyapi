@@ -75,6 +75,17 @@ original data, actual decoded bytes, Header/status semantics and exact correspon
 including legitimate empty-collection omissions. Separate preliminary form and
 multipart body checks have been deleted.
 
+Source acquisition and disk reconciliation now share one observation of byte
+identity and permissions. Native events schedule affected resources; they do not
+advance semantic versions themselves. Actual observations are recorded before
+capture versions, and retired reads cannot overwrite a newer publication.
+URI aliases acquire one physical resource, and missing mapped resources remain
+part of capture freshness and bounded reconciliation. The UI receives verified
+changes directly instead of reading the files again. The final focused checkpoint
+passes 123 Core boundary cases, 11 actual native-event journeys and 22 official
+Flutter boundary cases. This does not replace full current-candidate qualification
+or resolve the independent native text-input failure below.
+
 ## Remaining qualification gates
 
 - Resolve or obtain an approved official-upstream resolution for the reproduced

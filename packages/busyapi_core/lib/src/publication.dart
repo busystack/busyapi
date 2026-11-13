@@ -220,7 +220,7 @@ class PublicationStore {
           b.baseline = text;
           b.baselineHasBom = entry['hasBom'] as bool;
           b.diskIdentity = entry['identity'] as String;
-          project.resourceFingerprints[b.id] = b.diskIdentity;
+          project.acknowledgeDiskPublication(b, mode: entry['mode'] as int);
           b.externalConflict = false;
         }
         project.store.retainPublicationGroups(groupOwners);

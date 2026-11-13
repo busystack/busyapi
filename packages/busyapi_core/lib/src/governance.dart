@@ -197,6 +197,7 @@ extension BusyProjectGovernance on BusyProject {
         return null;
       }
       final path = Uri.parse(physical).toFilePath();
+      final version = store.resourceVersion(physical);
       try {
         if (!saved) _verifyVirtualResource(physical);
         final capability = accessFor(path), buffer = store.buffers[physical];
@@ -210,6 +211,7 @@ extension BusyProjectGovernance on BusyProject {
               'policy.stale',
               'Rules or configuration disappeared during collection',
             );
+          _observeDisk(physical, (identity: null, mode: null), expectedVersion: version);
           observed[physical] = null;
           return null;
         }
@@ -222,11 +224,16 @@ extension BusyProjectGovernance on BusyProject {
               onResourceRefreshed?.call(physical);
           }
           result = await buffer.snapshotAsync();
+          resourceFingerprints.putIfAbsent(physical, () => (identity: buffer.diskIdentity, mode: buffer.mode));
         } else {
           result = DocumentBuffer.decode(
             path,
             await capability.read(path),
           ).snapshot();
+          if (!_observeDisk(physical, (identity: result['identity'] as String,
+              mode: description.mode! & 0x1ff), expectedVersion: version)) {
+            throw CoreFailure('policy.stale', 'The source observation was retired during acquisition');
+          }
         }
         active();
         if ((result['text'] as String).length > 256 * 1024)
@@ -510,16 +517,6 @@ extension BusyProjectGovernance on BusyProject {
           if (resource['text'] == null)
             resource['id'] as String: resource['kind'] as String,
     };
-    for (final entry in observed.entries) {
-      final buffer = store.buffers[entry.key];
-      if (!saved &&
-          buffer != null &&
-          (buffer.dirty || buffer.externalConflict)) {
-        resourceFingerprints.putIfAbsent(entry.key, () => buffer.diskIdentity);
-      } else {
-        resourceFingerprints[entry.key] = entry.value?['identity'] as String?;
-      }
-    }
     onProgress?.call({
       ...checked,
       'complete': false,
@@ -541,7 +538,7 @@ extension BusyProjectGovernance on BusyProject {
       active();
     }
     try {
-      policy = await engine.request('govern', {
+      policy = await _requestSource('govern', {
         ...snapshot.toJson(),
         'policy': {
           'source': configurationSource,

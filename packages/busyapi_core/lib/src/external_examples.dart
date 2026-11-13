@@ -15,7 +15,8 @@ class CapturedExternalExample {
     this.problemMessage,
     this.problemCondition,
     this.workingIdentity,
-  }) : aliases = List.unmodifiable(aliases),
+    int? diskMode,
+  }) : _diskMode = diskMode, aliases = List.unmodifiable(aliases),
        bytes = bytes?.asUnmodifiableView() {
     if (bytes == null && (problemCode == null || problemMessage == null ||
             problemCondition == null) ||
@@ -27,6 +28,7 @@ class CapturedExternalExample {
 
   final String id, identity;
   final int generation;
+  final int? _diskMode;
   final List<String> aliases;
   final Uint8List? bytes;
   final String? problemCode, problemMessage, workingIdentity;
@@ -41,7 +43,7 @@ class CapturedExternalExample {
     return CapturedExternalExample._(id: id, identity: identity,
         generation: generation, aliases: merged, bytes: bytes,
         problemCode: problemCode, problemMessage: problemMessage,
-        problemCondition: problemCondition, workingIdentity: workingIdentity);
+        problemCondition: problemCondition, workingIdentity: workingIdentity, diskMode: _diskMode);
   }
 
   Map<String, Object?> get ownership => {
@@ -103,6 +105,18 @@ extension _ExternalExampleCapture on BusyProject {
         id = physical;
       }
       if (!saved) _verifyVirtualResource(id);
+      var version = store.resourceVersion(id);
+      Future<List<int>> readDisk() async {
+        version = store.resourceVersion(id);
+        try {
+          return await access.read(path);
+        } on Object {
+          if (!_observeDisk(id, (identity: null, mode: null), expectedVersion: version)) {
+            throw CoreFailure('snapshot.changed', 'The external example observation was retired during acquisition');
+          }
+          rethrow;
+        }
+      }
       final buffer = saved ? null : store.buffers[id];
       if (buffer != null && !buffer.dirty && !buffer.externalConflict) {
         await refreshDisk(buffer);
@@ -111,7 +125,7 @@ extension _ExternalExampleCapture on BusyProject {
       if (buffer != null && !buffer.dirty && buffer.externalConflict) {
         // Distinguish a missing file from an open buffer whose external bytes
         // cannot be reconciled. Neither observation substitutes stale text.
-        await access.read(path);
+        await readDisk();
         active();
         return unavailable('example.external-value.conflict',
             'The open external example conflicts with its current file; reconcile it before evaluation');
@@ -121,23 +135,30 @@ extension _ExternalExampleCapture on BusyProject {
             'The working external example contains an unpaired Unicode surrogate; no replacement bytes were captured', ExternalExampleCondition.invalid);
       }
       final generation = buffer?.generation ?? 0;
-      final bytes = buffer == null
-          ? await access.read(path)
-          : buffer.bytes();
+      version = store.resourceVersion(id);
+      final bytes = buffer == null ? await readDisk() : buffer.bytes();
+      active();
+      final identity = await contentIdentityAsync(bytes);
+      final mode = buffer == null ? await access.mode(path) : buffer.mode;
+      if (buffer != null && (buffer.dirty || buffer.externalConflict)) {
+        resourceFingerprints.putIfAbsent(id, () => (identity: buffer.diskIdentity, mode: buffer.mode));
+      } else {
+        if (!_observeDisk(id, (identity: identity, mode: mode), expectedVersion: version)) {
+          throw CoreFailure('snapshot.changed', 'The external example observation was retired during acquisition');
+        }
+      }
       active();
       if (bytes.length > 16 * 1024 * 1024) {
         return unavailable('limit.examples.external.resource',
             'An external example exceeds the 16 MiB resource limit', ExternalExampleCondition.unsupported);
       }
-      final identity = await contentIdentityAsync(bytes);
-      active();
       return CapturedExternalExample._(
         id: id, identity: identity, generation: generation, aliases: aliases,
-        bytes: Uint8List.fromList(bytes),
+        bytes: Uint8List.fromList(bytes), diskMode: mode,
       );
     } on CoreFailure catch (error) {
       active();
-      if (error.code == 'cancelled' || error.code == 'access.closed') rethrow;
+      if (error.code == 'cancelled' || error.code == 'access.closed' || error.code == 'snapshot.changed') rethrow;
       return unavailable(error.code, error.message,
           error.code.startsWith('limit.') ? ExternalExampleCondition.unsupported : ExternalExampleCondition.unavailable);
     } on FileSystemException catch (error) {
@@ -174,7 +195,7 @@ extension _ExternalExampleCapture on BusyProject {
       }
       final actual = await _captureExternalExample(captured.id, const {},
           saved: saved, active: active);
-      if (actual.identity != captured.identity ||
+      if (actual.identity != captured.identity || actual._diskMode != captured._diskMode ||
           !saved && actual.generation != captured.generation) current = false;
     });
     active();

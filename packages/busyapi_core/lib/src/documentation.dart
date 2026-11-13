@@ -291,7 +291,7 @@ extension _ContractDerivation on BusyProject {
 
     active();
     final snapshot = captured.snapshot;
-    final result = await engine.request('deriveBundle', {
+    final result = await _requestSource('deriveBundle', {
       ...snapshot.toJson(),
       'outputId': outputId,
     }, requestId: requestId == null ? null : '$requestId-bundle');
@@ -328,7 +328,7 @@ extension _ContractDerivation on BusyProject {
       ],
       engineIdentity: engine.assetIdentity,
     );
-    final evaluated = await engine.request(
+    final evaluated = await _requestSource(
       'evaluateSchemas',
       derived.toJson(),
       requestId: requestId == null ? null : '$requestId-bundle-schema',
@@ -437,7 +437,7 @@ extension DocumentationBuild on BusyProject {
     final snapshot = captured.snapshot;
     final outputId =
         'https://busyapi-display.invalid/${snapshot.sourceIdentity}/reference.json';
-    final result = await engine.request('referenceDisplay', {
+    final result = await _requestSource('referenceDisplay', {
       ...snapshot.toJson(),
       'outputId': outputId,
     }, requestId: requestId == null ? null : '$requestId-display');
@@ -583,7 +583,7 @@ extension DocumentationBuild on BusyProject {
         );
       }
 
-      final document = await engine.request(
+      final document = await _requestSource(
         'referenceDocument',
         snapshot.toJson(),
         requestId: requestId == null ? null : '$requestId-document',

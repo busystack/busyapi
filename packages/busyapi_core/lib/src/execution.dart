@@ -1263,7 +1263,7 @@ class OperationRequestPlan {
   ) async {
     ensureCurrentPreparation();
     cancellation?.throwIfCancelled();
-    final work = _owner.engine.request(method, params, requestId: requestId);
+    final work = _owner._requestSource(method, params, requestId: requestId);
     final interrupted = Completer<Map<String, dynamic>>();
     final unsubscribe = cancellation?.listen(() {
       unawaited(_owner.engine.cancel(requestId));
@@ -1297,7 +1297,7 @@ class OperationRequestPlan {
     Map<String, Object?> definition,
   ) async {
     ensureCurrentPreparation();
-    final prepared = await _owner.engine.request('planExecutionCase', {
+    final prepared = await _owner._requestSource('planExecutionCase', {
       ...snapshot.toJson(), 'source': configuration.source, 'name': name, 'definition': definition,
       'roots': [for (final root in _owner.roots) {'name': root.name, 'path': p.relative(Uri.parse(root.id).toFilePath(), from: _owner.access.boundary)}],
     });
@@ -1369,7 +1369,7 @@ class OperationRequestPlan {
       await _owner._verifyFileCreation(creation);
       return creation;
     }
-    final prepared = await _owner.engine.request('planExecutionEnvironment', {
+    final prepared = await _owner._requestSource('planExecutionEnvironment', {
       ...snapshot.toJson(),
       'source': source,
       'name': name,
@@ -1415,7 +1415,8 @@ class OperationRequestPlan {
     }
     ensureCurrentOwner();
     if (preparingRequest) ensureCurrentPreparation();
-    final work = _owner.engine.request('evaluateSchemas', {
+    final evaluate = preparingRequest ? _owner._requestSource : _owner.engine.request;
+    final work = evaluate('evaluateSchemas', {
       ...snapshot.toJson(),
       'runtimeInstances': [for (final instance in instances) instance.toJson()],
     }, requestId: requestId);
@@ -1559,7 +1560,7 @@ class OperationRequestPlan {
         'The received status and media type have no current authored response destination',
       );
     }
-    final prepared = await _owner.engine.request('planResponseExample', {
+    final prepared = await _owner._requestSource('planResponseExample', {
       ...snapshot.toJson(),
       'target': Map<String, dynamic>.from(target),
       'raw': reviewedJson,
@@ -1794,7 +1795,7 @@ extension RequestPlanning on BusyProject {
           'The captured contract could not produce an operation request plan');
     }
     final snapshot = captured.snapshot;
-    final result = await engine.request('requestOperation', {
+    final result = await _requestSource('requestOperation', {
       ...snapshot.toJson(),
       'resource': resource,
       'pointer': pointer,

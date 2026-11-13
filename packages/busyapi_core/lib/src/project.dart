@@ -999,7 +999,7 @@ class BusyProject {
   /// authority at reload application and recovery retirement, not only capture.
   bool Function(DocumentBuffer)? acceptsBufferReload;
   void Function(Set<DocumentBuffer>)? onBuffersChanged;
-  void Function()? onDiskInvalidated;
+  void Function(ResourceRefresh refresh)? onResourcesRefreshed;
   final List<ProjectRoot> roots;
   final List<String> files;
   String location;
@@ -1013,7 +1013,7 @@ class BusyProject {
   final Map<String, Set<String>> _policyDependencies = {};
   final Map<String, Map<String, String>> _policyLookupKinds = {};
   Map<String, Object?> lastTimings = {};
-  final Map<String, String?> resourceFingerprints = {};
+  final Map<String, ({String? identity, int? mode})> resourceFingerprints = {};
   final Map<String, Set<String>> _exampleDependencies = {};
   final Map<String, Map<String, Object?>> _standardResources = {};
   Future<Set<String>>? _standardCatalogue;
@@ -1136,7 +1136,7 @@ class BusyProject {
   final Map<String, StreamSubscription<FileSystemEvent>> _diskWatches = {};
   final Map<String, String> _watchedResourcePaths = {};
   final Set<String> _changedDiskResources = {};
-  bool _diskNotificationQueued = false;
+  ({Future<ResourceRefresh> result, Set<String> changes})? _diskRefresh;
   int _reconcileOffset = 0;
 
   void _watchSources(Iterable<String> resources) {
@@ -1159,16 +1159,11 @@ class BusyProject {
                   .where((entry) => p.isWithin(changed, entry.key)).map((entry) => entry.value));
             }
           }
-          for (final resource in affected) {
-            store.invalidateResource(resource);
-          }
-          _changedDiskResources.addAll(affected);
-          if (affected.isNotEmpty && !_diskNotificationQueued) {
-            _diskNotificationQueued = true;
-            scheduleMicrotask(() {
-              _diskNotificationQueued = false;
-              if (!_closed) onDiskInvalidated?.call();
-            });
+          if (!_closed && affected.isNotEmpty) {
+            _changedDiskResources.addAll(affected);
+            if (onResourcesRefreshed != null) {
+              unawaited(_reconcileResources(const {}));
+            }
           }
         }, onError: (Object _) {
           // The bounded reconciliation path retries missed/unavailable watches.
@@ -1178,6 +1173,52 @@ class BusyProject {
         // Missing directories remain in the bounded reconciliation inventory.
       }
     }
+  }
+
+  // A native event is a reconciliation hint, not a new source identity. Source
+  // RPCs await that same work before their existing capture-ownership decision.
+  Future<Map<String, dynamic>> _requestSource(
+    String method,
+    Map<String, Object?> params, {
+    String? requestId,
+  }) async {
+    final result = await engine.request(method, params, requestId: requestId);
+    if (_changedDiskResources.isNotEmpty) {
+      await _reconcileResources(const {});
+    } else {
+      await _diskRefresh?.result;
+    }
+    return result;
+  }
+
+  bool _observeDisk(String id, ({String? identity, int? mode}) actual,
+      {int? expectedVersion}) {
+    final previous = resourceFingerprints[id];
+    if (expectedVersion != null && store.resourceVersion(id) != expectedVersion) {
+      // A new capture may reuse an already owned identical fact; old captures
+      // retain their original versions and cannot become current again.
+      return previous == actual;
+    }
+    if (previous == actual) return true;
+    store.invalidateResource(id);
+    resourceFingerprints[id] = actual;
+    if (previous != null) {
+      if (_diskRefresh case final pending?) {
+        pending.changes.add(id);
+      } else if (onResourcesRefreshed != null) {
+        final refreshed = _resourceChanges({id});
+        scheduleMicrotask(() {
+          if (!_closed) onResourcesRefreshed?.call(refreshed);
+        });
+      }
+    }
+    return true;
+  }
+
+  void acknowledgeDiskPublication(DocumentBuffer buffer, {required int mode}) {
+    _observeDisk(buffer.id, buffer.publishedPresent
+        ? (identity: buffer.diskIdentity, mode: mode)
+        : (identity: null, mode: null));
   }
 
   Map<String, int> _captureDiskVersions(Iterable<String> ids) =>
@@ -1628,7 +1669,7 @@ class BusyProject {
         String? executionFailure;
         final schemaStart = clock.elapsedMicroseconds;
         try {
-          evaluated = await engine.request(
+          evaluated = await _requestSource(
             'evaluateSchemas',
             snapshot.toJson(),
             requestId: requestId == null ? null : '$requestId-schema-$attempt',
@@ -1694,14 +1735,14 @@ class BusyProject {
         );
       final resourceRevision = _resourceRevision;
       final resources = <String, Map<String, Object?>>{},
-          disk = <String, String>{};
+          disk = <String, ({String? identity, int? mode})>{};
       final exampleResources = <String, CapturedExternalExample>{};
       final configuration = configurationScope.source,
           resourceMappings = configurationScope.mappings;
       if (configuration != null &&
           (saved || store.buffers[configuration['id']]?.dirty != true))
         disk[configuration['id'] as String] =
-            configuration['identity'] as String;
+            (identity: configuration['identity'] as String, mode: configurationScope.mode);
       Future<void> collect(String id) async {
         ensureActive();
         if (Uri.parse(id).scheme != 'file') {
@@ -1749,12 +1790,38 @@ class BusyProject {
               onResourceRefreshed?.call(id);
           }
           resources[id] = await b.snapshotAsync();
-          if (!b.dirty && !b.externalConflict) disk[id] = b.diskIdentity;
+          if (!b.dirty && !b.externalConflict) {
+            disk[id] = (identity: b.diskIdentity, mode: b.mode);
+          } else {
+            resourceFingerprints.putIfAbsent(id, () => (identity: b.diskIdentity, mode: b.mode));
+          }
         } else {
-          final bytes = await fileAccess.read(path);
-          final b = DocumentBuffer.decode(path, bytes);
-          resources[id] = b.snapshot();
-          disk[id] = contentIdentity(bytes);
+          final version = store.resourceVersion(id);
+          late List<int> bytes;
+          late int mode;
+          try {
+            bytes = await fileAccess.read(path);
+            mode = await fileAccess.mode(path);
+          } on Object {
+            final missing = (identity: null, mode: null);
+            if (!_observeDisk(id, missing, expectedVersion: version)) {
+              throw CoreFailure('snapshot.changed', 'The source observation was retired during acquisition');
+            }
+            disk[id] = missing;
+            rethrow;
+          }
+          late DocumentBuffer decoded;
+          try {
+            decoded = DocumentBuffer.decode(path, bytes, mode: mode);
+          } on FormatException {
+            _observeDisk(id, (identity: await contentIdentityAsync(bytes), mode: mode), expectedVersion: version);
+            rethrow;
+          }
+          disk[id] = (identity: decoded.diskIdentity, mode: mode);
+          if (!_observeDisk(id, disk[id]!, expectedVersion: version)) {
+            throw CoreFailure('snapshot.changed', 'The source observation was retired during acquisition');
+          }
+          resources[id] = decoded.snapshot();
         }
         final aliases =
             resourceMappings.entries
@@ -1780,16 +1847,17 @@ class BusyProject {
       final entryRoots = <String>{root, if (captureEntries) ...roots.map((entry) => entry.id)};
       await _resourceBatch(entryRoots, collect);
       final known = (dependencies[root] ?? <String>{})
+          .map((id) => resourceMappings[id] ?? id)
           .where((id) => !resources.containsKey(id) && id != _manifestResource)
-          .toList();
+          .toSet();
       if (known.length + resources.length > 2048) {
         throw CoreFailure('limit.resources', 'Dependency count exceeds 2048');
       }
       await _resourceBatch(known, (id) async {
         try {
-          await collect(resourceMappings[id] ?? id);
+          await collect(id);
         } on CoreFailure catch (e) {
-          if (e.code.startsWith('limit.')) rethrow;
+          if (e.code.startsWith('limit.') || e.code == 'snapshot.changed') rethrow;
         }
       });
       collection += clock.elapsedMicroseconds - collectionStart;
@@ -1798,9 +1866,9 @@ class BusyProject {
       final unavailable = <String>{};
       for (var depth = 0; depth < 129; depth++) {
         ensureActive();
-        _watchSources(resources.keys);
+        _watchSources([...resources.keys, ...unavailable]);
         snapshot = AnalysisSnapshot(
-          resourceVersions: _captureDiskVersions([...resources.keys, ...exampleResources.keys, if (configuration != null) configuration['id'] as String]),
+          resourceVersions: _captureDiskVersions([...resources.keys, ...exampleResources.keys, ...unavailable, if (configuration != null) configuration['id'] as String]),
           root: root,
           resources: resources.values.toList()
             ..sort((a, b) => (a['id'] as String).compareTo(b['id'] as String)),
@@ -1810,7 +1878,7 @@ class BusyProject {
           exampleResources: exampleResources.values.toList(),
         );
         final ipcStart = clock.elapsedMicroseconds;
-        result = await engine.request('analyse', {
+        result = await _requestSource('analyse', {
           ...snapshot.toJson(),
           if (captureEntries) 'captureEntries': entryRoots.toList()..sort(),
           if (measure) 'measure': true,
@@ -1975,13 +2043,14 @@ class BusyProject {
             );
           continue;
         }
-        final missing = <String>{};
+        final missing = <String, Set<String>>{};
         for (final ref in discoveryReferences) {
           final target = ref['targetResource'];
           if (target is! String) continue;
           final id = target;
           if (!resources.containsKey(id) && !unavailable.contains(id)) {
-            missing.add(id);
+            final physical = resourceMappings[id] ?? id;
+            (missing[physical] ??= <String>{physical}).add(id);
           }
         }
         if (missing.isEmpty) break;
@@ -1990,13 +2059,12 @@ class BusyProject {
           throw CoreFailure('limit.resources', 'Dependency count exceeds 2048');
         }
         final missingStart = clock.elapsedMicroseconds;
-        await _resourceBatch(missing, (id) async {
+        await _resourceBatch(missing.entries, (entry) async {
           try {
-            final mapped = resourceMappings[id];
-            await collect(mapped ?? id);
+            await collect(entry.key);
           } on Object catch (e) {
-            if (e is CoreFailure && e.code.startsWith('limit.')) rethrow;
-            unavailable.add(id);
+            if (e is CoreFailure && (e.code.startsWith('limit.') || e.code == 'snapshot.changed')) rethrow;
+            unavailable.addAll(entry.value);
           }
         });
         collection += clock.elapsedMicroseconds - missingStart;
@@ -2012,17 +2080,16 @@ class BusyProject {
           (saved || snapshot!.current(store)) &&
           resourceRevision == _resourceRevision;
       await _resourceBatch(disk.entries, (e) async {
+        final version = store.resourceVersion(e.key);
+        ({String? identity, int? mode}) actual = (identity: null, mode: null);
         try {
-          if (await contentIdentityAsync(
-                await accessFor(Uri.parse(e.key).toFilePath())
-                    .read(Uri.parse(e.key).toFilePath()),
-              ) !=
-              e.value) {
-            coherent = false;
-          }
+          final path = Uri.parse(e.key).toFilePath(), capability = accessFor(path);
+          actual = (identity: await contentIdentityAsync(await capability.read(path)),
+              mode: await capability.mode(path));
         } on Object {
-          coherent = false;
+          // Captured negative observations have a coherent absence too.
         }
+        if (!_observeDisk(e.key, actual, expectedVersion: version) || actual != e.value) coherent = false;
       });
       if (!await _externalExampleInputsCurrent(
         snapshot!,
@@ -2064,34 +2131,6 @@ class BusyProject {
         for (final directory in _diskWatches.keys.toList()) {
           if (!_watchedResourcePaths.keys.any((path) => p.dirname(path) == directory)) {
             unawaited(_diskWatches.remove(directory)!.cancel());
-          }
-        }
-        for (final id in {
-          ...reachable,
-          if (configuration != null) configuration['id'] as String,
-        }) {
-          final b = store.buffers[id];
-          if (!saved && b != null && (b.dirty || b.externalConflict)) {
-            // The overlay's baseline is not the latest observed disk version.
-            // Keep deletion/replacement/conflict observations across analysis.
-            resourceFingerprints.putIfAbsent(id, () => b.diskIdentity);
-          } else {
-            resourceFingerprints[id] = disk[id] ?? b?.diskIdentity;
-          }
-        }
-        for (final resource in exampleResources.values) {
-          final buffer = store.buffers[resource.id];
-          if (!saved &&
-              buffer != null &&
-              (buffer.dirty || buffer.externalConflict)) {
-            resourceFingerprints.putIfAbsent(
-              resource.id,
-              () => buffer.diskIdentity,
-            );
-          } else {
-            resourceFingerprints[resource.id] = resource.available
-                ? resource.identity
-                : null;
           }
         }
         for (final finding in result!['findings'] as List) {
@@ -2290,7 +2329,7 @@ class BusyProject {
           'Semantic search input exceeds its 64 MiB captured-root budget',
         );
       snapshots.add(snapshot);
-      final found = await engine.request('semanticSearch', {
+      final found = await _requestSource('semanticSearch', {
         ...snapshot.toJson(),
         'query': query,
         'category': category,
@@ -2368,7 +2407,7 @@ class BusyProject {
     String? contextKind,
   }) async {
     final (snapshot, revision) = await _objectSnapshot(root, resource);
-    final result = await engine.request('inspect', {
+    final result = await _requestSource('inspect', {
       ...snapshot.toJson(),
       'resource': resource,
       'pointer': pointer,
@@ -2485,7 +2524,7 @@ class BusyProject {
       );
     }
     final representation = text ? 'text' : 'json';
-    final result = await engine.request('readDataValue', {
+    final result = await _requestSource('readDataValue', {
       ...snapshot.toJson(),
       'target': {
         'resource': resource,
@@ -2546,7 +2585,7 @@ class BusyProject {
       cancelled: cancelled,
     );
     active();
-    final result = await engine.request('referenceChoices', {
+    final result = await _requestSource('referenceChoices', {
       ...snapshot.toJson(),
       'resource': resource,
       'pointer': pointer,
@@ -2712,7 +2751,7 @@ class BusyProject {
     if (cancelled?.call() == true) {
       throw CoreFailure('cancelled', 'Tree closed');
     }
-    final result = await engine.request('schemaTree', {
+    final result = await _requestSource('schemaTree', {
       ...snapshot.toJson(),
       'resource': resource,
       'pointer': pointer,
@@ -2822,7 +2861,7 @@ class BusyProject {
       resource,
       onResourceRefreshed: onResourceRefreshed,
     );
-    final result = await engine.request('referencePage', {
+    final result = await _requestSource('referencePage', {
       ...snapshot.toJson(),
       'resource': resource,
       'pointer': pointer,
@@ -3134,7 +3173,7 @@ class BusyProject {
     }
     if (cancelled())
       throw CoreFailure('cancelled', 'Source assistance was cancelled');
-    final result = await engine.request(
+    final result = await _requestSource(
       action == 'folds' ? 'sourceFolds' : 'assistSource',
       {
         ...snapshot.toJson(),
@@ -3244,7 +3283,7 @@ class BusyProject {
     bool nullable = false,
   }) async {
     final (snapshot, revision) = await _objectSnapshot(root, resource);
-    final result = await engine.request('planSchemaSuggestion', {
+    final result = await _requestSource('planSchemaSuggestion', {
       ...snapshot.toJson(),
       'resource': resource,
       'pointer': pointer,
@@ -3634,7 +3673,7 @@ class BusyProject {
       }),
     );
     active();
-    final result = await engine.request(method, {
+    final result = await _requestSource(method, {
       'snapshot': identity,
       'resources': resources.values.toList(),
       'contexts': [
@@ -3782,46 +3821,78 @@ class BusyProject {
   }
 
   /// Monitor reachable resources even when they have no editor tab.
-  bool get hasPendingDiskChanges => _changedDiskResources.isNotEmpty;
+  bool get hasPendingDiskChanges =>
+      _changedDiskResources.isNotEmpty || _diskRefresh != null;
 
-  Future<ResourceRefresh> refreshResources({bool reconcile = true}) async {
-    final changed = <String>{};
+  Future<ResourceRefresh> refreshResources({bool reconcile = true}) {
     final known = {...resourceFingerprints.keys, ...store.buffers.keys}.toList();
     final reachable = reconcile ? known.toSet() : <String>{
-      ..._changedDiskResources,
       for (var count = 0; count < 16 && count < known.length; count++)
         known[(_reconcileOffset + count) % known.length],
     };
-    _changedDiskResources.removeAll(reachable);
     if (known.isNotEmpty) _reconcileOffset = (_reconcileOffset + 16) % known.length;
+    return _reconcileResources(reachable);
+  }
+
+  Future<ResourceRefresh> _reconcileResources(Set<String> resources) {
+    _changedDiskResources.addAll(resources);
+    if (_diskRefresh case final pending?) return pending.result;
+    final completion = Completer<ResourceRefresh>(), changed = <String>{};
+    _diskRefresh = (result: completion.future, changes: changed);
+    scheduleMicrotask(() async {
+      ResourceRefresh? refreshed;
+      try {
+        do {
+          final batch = Set<String>.of(_changedDiskResources);
+          _changedDiskResources.clear();
+          final refreshed = await _refreshResourceBatch(batch);
+          changed.addAll(refreshed.resources);
+        } while (!_closed && _changedDiskResources.isNotEmpty);
+        refreshed = _resourceChanges(changed);
+        completion.complete(refreshed);
+      } on Object catch (error, stack) {
+        completion.completeError(error, stack);
+      } finally {
+        _diskRefresh = null;
+      }
+      if (!_closed && changed.isNotEmpty && refreshed != null) {
+        onResourcesRefreshed?.call(refreshed);
+      }
+    });
+    return completion.future;
+  }
+
+  Future<ResourceRefresh> _refreshResourceBatch(Set<String> reachable) async {
+    final changed = <String>{};
     _watchSources(reachable);
     await _resourceBatch(reachable, (id) async {
       if (_standardResources.containsKey(id)) return;
       final b = store.buffers[id];
-      final conflict = b?.externalConflict;
-      final before = resourceFingerprints.containsKey(id)
-          ? resourceFingerprints[id]
-          : b?.diskIdentity;
-      String? actual;
+      final conflict = b?.externalConflict, version = store.resourceVersion(id);
+      final before = resourceFingerprints[id] ?? (identity: b?.diskIdentity, mode: b?.mode);
+      ({String? identity, int? mode}) actual = (identity: null, mode: null);
       try {
-        actual = b != null
-            ? await refreshDisk(b)
-            : await contentIdentityAsync(
-                await accessFor(Uri.parse(id).toFilePath())
-                    .read(Uri.parse(id).toFilePath()),
-              );
+        if (b != null) {
+          final observed = await refreshDisk(b);
+          if (observed == null) return;
+          actual = observed;
+        } else {
+          final path = Uri.parse(id).toFilePath(), capability = accessFor(path);
+          actual = (identity: await contentIdentityAsync(await capability.read(path)),
+              mode: await capability.mode(path));
+        }
       } on Object {
         /* Deletion/inaccessibility has an identity too. */
       }
+      if (b == null && !_observeDisk(id, actual, expectedVersion: version)) return;
       // Source typing can advance a generation while the disk read is in
       // flight. It is already notified by the source owner, not a disk reload.
       // Content changes (including format-only changes) and conflict changes
       // identify this monitor's actual work without replaying that notification.
       if (before != actual || b != null && b.externalConflict != conflict) {
-        store.invalidateResource(id);
+        if (before == actual) store.invalidateResource(id);
         changed.add(id);
       }
-      resourceFingerprints[id] = actual;
     });
     // Node lookup observations are not all text resources: a missing directory
     // becoming a directory must invalidate a captured package choice too.
@@ -3850,7 +3921,10 @@ class BusyProject {
         if (values.containsKey(entry.key)) values[entry.key] = kind;
       }
     });
-    return ResourceRefresh(changed, {
+    return _resourceChanges(changed);
+  }
+
+  ResourceRefresh _resourceChanges(Set<String> changed) => ResourceRefresh(changed, {
       for (final entry in dependencies.entries)
         if (entry.value.any(changed.contains)) entry.key,
       for (final entry in _exampleDependencies.entries)
@@ -3860,7 +3934,6 @@ class BusyProject {
       for (final entry in _policyLookupKinds.entries)
         if (entry.value.keys.any(changed.contains)) entry.key,
     });
-  }
 
   Future<PropertySession?> proposeAndApply(
     String root,
@@ -3927,7 +4000,7 @@ class BusyProject {
       );
       contextRevision = null;
     }
-    final result = await engine.request('propose', {
+    final result = await _requestSource('propose', {
       ...snap.toJson(),
       'target': session.target(),
       'actions': actions,
@@ -3996,12 +4069,19 @@ class BusyProject {
     )..committed.addAll({...session.committed, ...?acceptedValues});
   }
 
-  Future<String?> refreshDisk(
+  Future<({String? identity, int? mode})?> refreshDisk(
     DocumentBuffer b, {
     Future<void> Function()? beforeReload,
   }) async {
     final capture = BufferReloadCapture._(this, b);
-    final diskPath = b.publishedPath;
+    final diskPath = b.publishedPath, id = b.id;
+    final version = store.resourceVersion(id);
+    bool observationCurrent() => capture.publicationCurrent && store.resourceVersion(id) == version;
+    ({String? identity, int? mode})? observed(String? identity, int? mode) {
+      if (!observationCurrent()) return null;
+      final actual = (identity: identity, mode: mode);
+      return _observeDisk(id, actual, expectedVersion: version) ? actual : null;
+    }
     if (!b.publishedPresent) {
       final path = b.path;
       bool current() => capture.current && !b.publishedPresent;
@@ -4010,45 +4090,49 @@ class BusyProject {
         final identity = missing
             ? null
             : await contentIdentityAsync(await accessFor(path).read(path));
+        final mode = missing ? null : await accessFor(path).mode(path);
         // The same deterministic observation boundary as a clean reload.
         // Publication, Undo or a move can retire an expected-absence read.
         await beforeReload?.call();
+        if (!observationCurrent()) return null;
         if (current()) b.externalConflict = !missing;
-        return identity;
+        return observed(identity, mode);
       } on Object {
-        if (current()) b.externalConflict = true;
-        return null;
+        if (observationCurrent() && current()) b.externalConflict = true;
+        return observed(null, null);
       }
     }
     try {
       final bytes = await accessFor(diskPath).read(diskPath);
       final identity = await contentIdentityAsync(bytes);
-      if (!capture.publicationCurrent) return identity;
+      final mode = await accessFor(diskPath).mode(diskPath);
+      if (!observationCurrent()) return null;
       if (identity == b.diskIdentity) {
-        if (!b.dirty) {
-          final mode = await accessFor(diskPath).mode(diskPath);
-          if (capture.current) {
-            b.externalConflict = false;
-            b.mode = mode;
-          }
+        final actual = observed(identity, mode);
+        if (actual == null) return null;
+        if (!b.dirty && capture.current) {
+          b.externalConflict = false;
+          b.mode = mode;
         }
-        return identity;
+        return actual;
       }
       if (b.dirty) {
         b.externalConflict = true;
-        return identity;
+        return observed(identity, mode);
       }
       final read = DocumentBuffer.decode(
         b.path,
         bytes,
-        mode: await accessFor(diskPath).mode(diskPath),
+        mode: mode,
       );
       await beforeReload?.call();
-      if (!capture.publicationCurrent) return identity;
+      if (!observationCurrent()) return null;
       if (!capture.current || b.dirty) {
         b.externalConflict = true;
-        return identity;
+        return observed(identity, mode);
       }
+      final actual = observed(identity, mode);
+      if (actual == null) return null;
       store.retireHistory({b.id});
       store.adopt(b, read.text, hasBom: read.hasBom);
       b.baseline = read.text;
@@ -4056,10 +4140,10 @@ class BusyProject {
       b.diskIdentity = read.diskIdentity;
       b.mode = read.mode;
       b.externalConflict = false;
-      return identity;
+      return actual;
     } on Object {
-      if (capture.publicationCurrent) b.externalConflict = true;
-      return null;
+      if (observationCurrent()) b.externalConflict = true;
+      return observed(null, null);
     }
   }
 
@@ -4115,7 +4199,7 @@ class BusyProject {
     b.diskIdentity = read.diskIdentity;
     b.mode = read.mode;
     b.externalConflict = false;
-    resourceFingerprints[b.id] = b.diskIdentity;
+    _observeDisk(b.id, (identity: b.diskIdentity, mode: b.mode));
     return BufferReloadResult(
       BufferReloadStatus.applied,
       applied: captureReload(b),
@@ -4125,7 +4209,7 @@ class BusyProject {
   void close() {
     if (_closed) return;
     _closed = true;
-    onDiskInvalidated = null;
+    onResourcesRefreshed = null;
     onBuffersChanged = null;
     for (final watcher in _diskWatches.values) {
       unawaited(watcher.cancel());

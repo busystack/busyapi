@@ -298,7 +298,8 @@ extension BusyProjectPolicyCode on BusyProject {
           'Code dependency review returned malformed work',
         );
       if (requests.isEmpty) {
-        _watchSources({...inputs.observed.keys, ...metadata.keys});
+        _policyDependencies[root] = {...inputs.observed.keys, ...metadata.keys};
+        _watchSources(_policyDependencies[root]!);
         final review = PolicyCodeReview._(
           this,
           root,

@@ -283,9 +283,13 @@ line heights outside an accepted edit and adjusts cumulative positions.
 
 BusyProject acquires a coherent immutable source capture separately from full
 schema analysis. It reuses current captures per root while preserving root,
-configuration and alias interpretation. Relevant disk events invalidate captured
-resource versions; missed events are reconciled in bounded batches rather than a
-two-second full-content sweep. Explicit checks and consequential save/publication
+configuration and alias interpretation. Disk events queue affected resources for
+one project-owned reconciliation; actual byte, conflict and permission
+changes advance resource versions. Delayed events for already captured bytes do
+not impersonate a source mutation. Captured-source requests await that same work
+before their existing ownership decision, and the UI consumes its result without
+reading the files again. Missed events are reconciled in bounded batches rather
+than a two-second full-content sweep. Explicit checks and consequential save/publication
 boundaries retain exact byte checks. Read-only schema feedback does not reread its
 entire input merely to compare freshness. Captures contain sendable data, with
 current versions queried from the source owner rather than process closures.
