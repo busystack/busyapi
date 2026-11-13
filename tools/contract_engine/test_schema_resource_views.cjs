@@ -11,6 +11,25 @@ const official=(file,description)=>{
 const cases=[official('dynamicRef','A $dynamicRef to a $dynamicAnchor in the same schema resource behaves like a normal $ref to an $anchor'),
  official('dynamicRef','A $dynamicRef resolves to the first $dynamicAnchor still in scope that is encountered when the schema is evaluated'),
  official('unevaluatedProperties','unevaluatedProperties with $ref')];
+for(const version of ['3.1.2','3.2.1'])for(const format of ['json','yaml'])for(const keyword of ['dependentRequired','dependentSchemas'])
+test(`${version} ${format} dependency dictionaries retain parent and independent Schema validation ${keyword}`,async()=>{
+ const root='file:///approved/dependency-roles.'+format,pointer='/components/schemas/Model/'+keyword;
+ const dictionary=keyword==='dependentRequired'?{required:['value']}:{not:{required:['value']}};
+ const document={openapi:version,info:{title:'Dependency roles',version:'1'},paths:{},components:{schemas:{Model:{type:'object',[keyword]:dictionary},Dictionary:{$ref:'#'+pointer}}}};
+ const render=()=>format==='json'?JSON.stringify(document):YAML.stringify(document),text=render();
+ const input={root,snapshot:'dependency-roles',resources:[{id:root,text,generation:1}]};
+ assert.equal(analyse(input).status,'complete',JSON.stringify(analyse(input).findings));
+ const samples=['{}','{"required":0}','{"required":0,"value":1}','{"not":0}','{"not":0,"value":1}','null'];
+ const result=await evaluateSchemas({...input,runtimeInstances:['Model','Dictionary'].flatMap(name=>samples.map(text=>({subject:'response-body',location:name,text,schema:{resource:root,pointer:'/components/schemas/'+name}})))});
+ assert.equal(result.complete,true,JSON.stringify(result.findings));
+ const expected=keyword==='dependentRequired'?[true,false,true,true,true,false,false,false,true,false,true,true]:[true,true,true,false,true,false,true,true,false,true,false,false];
+ assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),expected);
+ assert.equal(input.resources[0].text,text);
+ document.components.schemas.Model[keyword]={type:'object'};
+ const invalid={...input,resources:[{...input.resources[0],text:render()}]};
+ for(const checked of [analyse(invalid),await evaluateSchemas(invalid)])
+  assert(checked.findings.some(finding=>finding.severity==='error'&&finding.pointer.startsWith(pointer)),JSON.stringify(checked.findings));
+});
 for(const version of ['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const json of [false,true])
 test(`${version} ${json} complete-resource extraction to a file preserves official dynamic binding outcomes`,async()=>{
  const {planExtractToFile}=require('./dist/refactoring_copy.cjs'),{coldGraph}=require('./dist/reference_selection.cjs');
@@ -213,9 +232,17 @@ for(const dialect of ['https://spec.openapis.org/oas/3.2/dialect/base','https://
 test(`an entry dialect override does not leak into an unversioned external fragment: ${dialect}`,async()=>{
  const root='file:///approved/default.json',model='file:///approved/model.json',pointer='/Thing';
  const input={root,snapshot:'entry-default',resources:[{id:root,text:JSON.stringify({openapi:'3.1.2',jsonSchemaDialect:dialect,info:{title:'Entry default',version:'1'},paths:{},
-  components:{schemas:{Model:{$ref:'model.json#/Thing'}}}}),generation:0},{id:model,text:'{"Thing":{"type":"integer"}}',generation:0}]};
+  components:{schemas:{Model:{$ref:'model.json#/Thing'}}}}),generation:0},{id:model,text:'{"Thing":{"type":"integer"}}',generation:0},
+  // Unknown dialects cannot establish $ref semantics. A separate native entry
+  // supplies the known consumer that gives this fragment its captured context.
+  {id:'file:///approved/known.json',text:JSON.stringify({openapi:'3.1.2',info:{title:'Known consumer',version:'1'},paths:{},components:{schemas:{Model:{$ref:'model.json#/Thing'}}}}),generation:0}]};
  const graph=createGraph(input).graph,scope=graph.scopeAs(model,pointer,'schema');
  assert.equal(scope.family,'3.1');assert.equal(scope.dialect,'https://spec.openapis.org/oas/3.1/dialect/base');
  const result=await evaluateSchemas({...input,runtimeInstances:[{subject:'response-body',location:'fragment',text:'7',schema:{resource:model,pointer}}]});
- assert.deepEqual(result.runtimeEvaluations.map(value=>[value.complete,value.valid]),[[true,true]]);
+ const configured=dialect==='https://spec.openapis.org/oas/3.2/dialect/base';
+ assert.deepEqual(result.runtimeEvaluations.map(value=>[value.complete,value.valid]),[[configured,configured]]);
+ if(!configured){assert.equal(result.complete,false);assert(result.findings.some(finding=>finding.code.includes('dialect')),JSON.stringify(result.findings));}
+ const independent=await evaluateSchemas({...input,root:'file:///approved/known.json',runtimeInstances:[{subject:'response-body',location:'fragment',text:'7',schema:{resource:model,pointer}}]});
+ assert.equal(independent.complete,true,JSON.stringify(independent.findings));
+ assert.deepEqual(independent.runtimeEvaluations.map(value=>[value.complete,value.valid]),[[true,true]]);
 });

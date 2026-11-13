@@ -236,7 +236,7 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
   for(const doc of docs.values())exact.addExactSource(doc,graph,views.active);
   // A parent meta-schema checks its nested schemas. Distinct dialect/resource
   // roots need their own explicit check; siblings stay independently eligible.
-  const roots=schemaRoots(all),nestedBoundaries=nestedSchemaBoundaries(roots);
+  const roots=schemaRoots(all),nestedBoundaries=nestedSchemaBoundaries(roots,graph);
   for(const scope of roots) {
    const doc=docs.get(scope.resource)!;
    if(!supportedSchemaDialect(scope)){complete=false;invalid.push(scope);add(doc,scope.pointer,'schema.dialect.incomplete','This schema dialect is not configured; its content is preserved and no instance result is claimed.','warning');continue;}

@@ -1,4 +1,4 @@
-import {schemaResourceContextIdentity,type GraphScope} from './reference_graph';
+import {schemaResourceContextIdentity,type GraphScope,type ReferenceGraph} from './reference_graph';
 
 /** Known annotations cannot constrain a value. Dialect support is checked by
  * the caller before using this to omit a schema assertion. */
@@ -19,9 +19,14 @@ export function schemaRoots<T extends GraphScope>(scopes:Iterable<T>):T[] {
  return all.filter(scope=>scope.schemaParent===undefined||!keys.has(key(scope,scope.schemaParent)));
 }
 
-export function nestedSchemaBoundaries(roots:GraphScope[]) {
+export function nestedSchemaBoundaries(roots:GraphScope[],graph:ReferenceGraph) {
  const resources=new Map<string,string[]>();
- for(const root of roots){const values=resources.get(root.resource)??[];values.push(root.pointer);resources.set(root.resource,values);}
+ for(const root of roots){
+  // Alternate interpretations of a keyword container are independent roots,
+  // but the parent still validates that container's actual authored value.
+  if(!graph.schemaParentsOf(root).length)continue;
+  const values=resources.get(root.resource)??[];values.push(root.pointer);resources.set(root.resource,values);
+ }
  for(const values of resources.values())values.sort();
  return (scope:GraphScope)=>{
   const values=resources.get(scope.resource)??[],prefix=scope.pointer+'/';

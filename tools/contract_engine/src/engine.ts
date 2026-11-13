@@ -176,7 +176,7 @@ export function analyse(input: any, context?: ReturnType<typeof createGraph>) {
     for (const [group, objects] of Object.entries(componentValues) as any)
         for (const [name, v] of Object.entries(objects ?? {}) as any)
             components.push(index(root, (componentLocations[group]??'/components/'+escape(group)) + '/' + escape(name), v, { group, name }));
-    const schemaScopes=graph.scopesFor('schema').filter(scope=>graph.isEntryUse(scope)),physicalRoots=schemaRoots(schemaScopes.filter(scope=>!scope.sourceKind)),metaRoots=[...physicalRoots,...schemaScopes.filter(scope=>scope.sourceKind)],nestedBoundaries=nestedSchemaBoundaries(physicalRoots);
+    const schemaScopes=graph.scopesFor('schema').filter(scope=>graph.isEntryUse(scope)),physicalRoots=schemaRoots(schemaScopes.filter(scope=>!scope.sourceKind)),metaRoots=[...physicalRoots,...schemaScopes.filter(scope=>scope.sourceKind)],nestedBoundaries=nestedSchemaBoundaries(physicalRoots,graph);
     const exactNumericKeywords=new Set(['minimum','maximum','exclusiveMinimum','exclusiveMaximum','multipleOf','minLength','maxLength','minItems','maxItems','minProperties','maxProperties','minContains','maxContains']);
     const exactNumericDeferred=(doc:SourceDocument,pointer:string)=>{
         const value=doc.nodes.get(pointer)?.value;

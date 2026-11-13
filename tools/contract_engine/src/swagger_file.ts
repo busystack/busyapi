@@ -72,8 +72,8 @@ export function swaggerFileSchemas(graph:ReferenceGraph) {
    const edge=edges.get(key);
    if(!edge)return graph.docs.get(scope.resource)?.dataNode(scope.pointer)?.value?.type==='file'?scope:undefined;
    if(edge.resolution!=='resolved')throw new SourceError('runtime.file.reference','The file schema reference is unresolved',[0,0],'unsupported');
-   const next=graph.scopes.get(edge.targetResource+'#'+edge.targetPointer);
-   if(!next||next.kind!=='schema'||next.family!=='2.0')throw new SourceError('runtime.file.reference','The file schema reference has no captured Swagger target',[0,0],'unsupported');
+   const next=graph.scopeAs(edge.targetResource!,edge.targetPointer!,'schema');
+   if(!next||next.family!=='2.0')throw new SourceError('runtime.file.reference','The file schema reference has no captured Swagger target',[0,0],'unsupported');
    if(!contexts.has(identity(next)))return;
    scope=next;
   }
