@@ -113,7 +113,7 @@ void main() {
               expect(
                 condition(),
                 true,
-                reason: 'pointer=${c.selectedPointer} error=${c.error}',
+                reason: 'pointer=${c.selectedPointer} error=${c.error} visible=${tester.widgetList<Text>(find.byType(Text)).map((widget) => widget.data).join(" | ")}',
               );
               await tester.pumpAndSettle();
             }

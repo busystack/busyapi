@@ -3247,6 +3247,14 @@ class ContractHttpTransport {
             request.close(),
             limit: input.inactivityTimeout,
           );
+          if (response.statusCode > 100 && response.statusCode < 200 &&
+              response.statusCode != HttpStatus.switchingProtocols) {
+            throw CoreFailure(
+              'response.informational.unsupported',
+              'The HTTP runtime exposed an informational response without the final response.',
+              kind: CoreFailureKind.unsupported,
+            );
+          }
           final fields = exact.responseFields;
           final locations = fields?.fields
               .where((field) => field.$1 == HttpHeaders.locationHeader)

@@ -103,7 +103,7 @@ export function planReference(input:any) {
    if(!added)break;
    if(pass===128)throw new SourceError('limit.reference.closure','The selected reference exceeds the bounded graph closure');
   }
-  const next=after!.graph.referencesAt(scope.resource,nextPointer,scope.kind).find(r=>r.keyword===nextKeyword);
+  const next=after!.graph.referencesAt(scope.resource,nextPointer,security?'security-requirement':scope.kind).find(r=>r.keyword===nextKeyword);
   if(!resolvedTo(next,to)||!after!.graph.scopeAs(to.resource,to.pointer,to.kind))
    throw new SourceError('refactor.context.ambiguous','The selected reference does not resolve to the same typed definition in every owning root');
   if(discriminator){

@@ -497,7 +497,7 @@ class RequestRunController extends ChangeNotifier {
     bodyKind = serialized ? RequestBodyKind.raw : _kindForMedia(bodyMediaType);
     bodyExample = null;
     final retained = _bodyDrafts.remove((bodyMediaType, bodyKind, bodyStructured));
-    if (retained != null) { retained.restore(this); } else { bodyText = '';bodyFiles.clear();partHeaders.clear();partMediaTypes.clear();partSchemas.clear();fileShapes.clear(); }
+    if (retained != null) retained.restore(this);
     refresh();
   }
 

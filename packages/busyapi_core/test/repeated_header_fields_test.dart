@@ -7,7 +7,7 @@ import 'package:test/test.dart';
 import 'test_support.dart';
 
 void main() {
-  for (final mode in ['list', 'singleton', 'date', 'unknown', 'cookies', 'informational', 'head']) {
+  for (final mode in ['list', 'singleton', 'date', 'unknown', 'cookies', 'informational', 'continue', 'head']) {
     test('actual $mode response field lines retain bytes through execution and CLI cases', () async {
       final directory = await Directory.systemTemp.createTemp('busyapi-field-lines-');
       addTearDown(() => directory.delete(recursive: true));
@@ -21,7 +21,7 @@ void main() {
         'list' => 'Cache-Control',
         'singleton' => 'ETag',
         'date' => 'Date',
-        'informational' => 'Cache-Control',
+        'informational' || 'continue' => 'Cache-Control',
         'head' => 'Cache-Control',
         'cookies' => 'Set-Cookie',
         _ => 'X-Unknown',
@@ -30,13 +30,14 @@ void main() {
         'list' => ['private="a,b"', 'max-age=9007199254740993'],
         'singleton' => ['"one"', '"two"'],
         'date' => ['Wed, 09 Jun 2021 10:18:14 GMT', 'Thu, 10 Jun 2021 10:18:14 GMT'],
-        'informational' => ['private="a,b"', 'max-age=9007199254740993'],
+        'informational' || 'continue' => ['private="a,b"', 'max-age=9007199254740993'],
         'head' => ['private="a,b"', 'max-age=9007199254740993'],
         'cookies' => ['a=1; Expires=Wed, 09 Jun 2021 10:18:14 GMT', 'b=2'],
         _ => ['a', 'b'],
       };
       final entity = utf8.encode('9007199254740993.00');
       final wire = <int>[
+        if (mode == 'continue') ...ascii.encode('HTTP/1.1 100 Continue\r\n\r\n'),
         if (mode == 'informational') ...ascii.encode('HTTP/1.1 103 Early Hints\r\nLink: </guide>; rel=preload\r\n\r\n'),
         ...ascii.encode('HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n'
             '${lines.map((value) => '$name: $value\r\n').join()}'
@@ -84,14 +85,32 @@ void main() {
           resource: operation['resource'] as String, pointer: operation['pointer'] as String,
           occurrence: operation['occurrence'] as String);
       addTearDown(plan.close);
+      if (mode == 'informational') {
+        await expectLater(const ContractRequestExecutor().execute(plan,
+            OperationRequestDraft(planIdentity: plan.identity), resolveSecret: (_) async => null),
+            throwsA(isA<CoreFailure>()
+              .having((error) => error.code, 'code', 'response.informational.unsupported')
+              .having((error) => error.kind, 'kind', CoreFailureKind.unsupported)));
+        final cli = await runCliWithSecrets(['test', directory.path, '--case', 'fields', '--json'], {});
+        expect(cli.code, 2, reason: cli.output);
+        final report = jsonDecode(cli.output) as Map;
+        expect(report['complete'], false);
+        final result = (report['cases'] as List).single as Map;
+        expect(result['dispatched'], true);
+        expect(result['operationalFailure'], false);
+        expect(cli.output, contains('response.informational.unsupported'));
+        expect(await file.readAsString(), original);
+        return;
+      }
       final result = await const ContractRequestExecutor().execute(plan,
           OperationRequestDraft(planIdentity: plan.identity), resolveSecret: (_) async => null);
       addTearDown(result.close);
-      expect(await result.response.bytes(), mode == 'head' ? isEmpty : entity);
+      expect(await result.response.bytes(), mode == 'head' ? isEmpty : entity,
+        reason: 'status=${result.response.status} receipt=${result.response.receiptComplete} received=${result.response.receivedLength} reason=${result.response.incompleteReason} findings=${result.received.findings}');
       expect(result.response.headers.where((header) => header.$1 == name.toLowerCase()).map((header) => header.$2), lines);
       expect(result.received.complete, mode != 'unknown', reason: '${result.received.findings}');
       final invalid = mode == 'singleton' || mode == 'date';
-      final valid = mode == 'list' || mode == 'cookies' || mode == 'informational' || mode == 'head';
+      final valid = mode == 'list' || mode == 'cookies' || mode == 'continue' || mode == 'head';
       expect(result.conforming, valid);
       if (invalid || mode == 'unknown') {
         expect(result.received.findings.any((finding) =>
