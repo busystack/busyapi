@@ -478,7 +478,7 @@ class WorkspaceController extends ChangeNotifier {
             buffer: buffer.generation,
         };
         final pending = _fieldInputIdentity();
-        await persist();
+        await persist(all: true);
         await persistView();
         requireAttempt();
         if (identical(project, previous) &&
@@ -514,7 +514,8 @@ class WorkspaceController extends ChangeNotifier {
     _pendingRecovery.clear();
     _recoveryFieldVersions.clear();
     next.onDiskInvalidated = () {
-      if (identical(project, next) && !disposed) unawaited(pollDisk(reconcile: false));
+      if (identical(project, next) && !disposed)
+        unawaited(pollDisk(reconcile: false));
     };
     next.onBuffersChanged = (buffers) {
       if (identical(project, next)) _pendingRecovery.addAll(buffers);
@@ -611,7 +612,9 @@ class WorkspaceController extends ChangeNotifier {
       if (refreshed.resources.isNotEmpty) notifyListeners();
     } finally {
       _polling = false;
-      if (!disposed && identical(project, captured) && captured.hasPendingDiskChanges) {
+      if (!disposed &&
+          identical(project, captured) &&
+          captured.hasPendingDiskChanges) {
         scheduleMicrotask(() => pollDisk(reconcile: false));
       }
     }
@@ -2015,7 +2018,24 @@ class WorkspaceController extends ChangeNotifier {
     }
   }
 
-  Future<void> persist({bool all = true}) async {
+  Future<void>? _persistingRecovery;
+  Future<void> persist({bool all = false}) {
+    final previous = _persistingRecovery;
+    final writing = _persist(all: all);
+    // A boundary with no new changes must still wait for checkpoints already
+    // captured by typing. Their writer retains coalescing and durability.
+    final completion = previous == null
+        ? writing
+        : Future.wait<void>([previous, writing]).then<void>((_) {});
+    _persistingRecovery = completion;
+    return completion.whenComplete(() {
+      if (identical(_persistingRecovery, completion)) {
+        _persistingRecovery = null;
+      }
+    });
+  }
+
+  Future<void> _persist({required bool all}) async {
     final captured = project;
     if (captured == null) return;
     final capturedForm = form ?? _applyingForm;
@@ -2046,13 +2066,7 @@ class WorkspaceController extends ChangeNotifier {
       ..clear()
       ..addAll(fieldVersions);
     try {
-      final grouped = selected.any(
-        (b) =>
-            b.hasFileIntent ||
-            b.pendingFilePublication ||
-            captured.store.hasPublicationGroup(b),
-      );
-      if (all || grouped) {
+      if (all || selected.isNotEmpty) {
         await recovery.persistFileMoves(
           captured.recoveryOwner,
           draft: draft?.pending == true ? draft : null,
@@ -2583,6 +2597,9 @@ class WorkspaceController extends ChangeNotifier {
         .toList();
     final generations = {for (final b in chosen) b.id: b.generation};
     final result = await publications.save(captured, chosen);
+    // Publication changes baselines rather than source revisions. These exact
+    // owners still need their recovery records retired or updated.
+    _pendingRecovery.addAll(chosen);
     if (!disposed &&
         identical(project, captured) &&
         chosen.any((b) => b.generation != generations[b.id])) {
@@ -2829,7 +2846,7 @@ class WorkspaceController extends ChangeNotifier {
     try {
       await _saving;
       _opening++;
-      await persist();
+      await persist(all: true);
       await persistView();
     } on Object {
       _shuttingDown = false;

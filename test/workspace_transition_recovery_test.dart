@@ -95,74 +95,96 @@ void main() {
     recovery: recovery,
   );
 
-  test(
-    'Source and draft checkpoints persist only the affected dirty resource',
-    () async {
-      final file = File('${directory.path}/api.yaml');
-      await file.writeAsString(
-        'openapi: 3.2.1\ninfo: {title: Original, version: "1"}\npaths: {}\n',
-      );
-      final recovery = _ObservedRecovery('${directory.path}/recovery');
-      final c = controller(recovery: recovery);
-      try {
-        await c.open(file.path);
-        await c.analyse();
-        final buffer = c.buffer!;
-        for (var i = 0; i < 32; i++) {
-          c.store!.register(
-            DocumentBuffer(
-              id: 'file://${directory.path}/other-$i.yaml',
-              path: '${directory.path}/other-$i.yaml',
-              text: 'dirty $i',
-              baseline: 'saved',
-              diskIdentity: 'captured',
-              hasBom: false,
-            ),
-          );
-        }
-        await c.persist();
-        recovery.captured.clear();
-        c.sourceDelta(
-          TextEdit(
-            buffer: buffer.id,
-            generation: buffer.generation,
-            start: 0,
-            end: 0,
-            expected: '',
-            replacement: '# exact 雪😀\r\n',
+  test('Source, field commits, history and selected saves checkpoint only affected resources', () async {
+    final file = File('${directory.path}/api.yaml');
+    await file.writeAsString(
+      'openapi: 3.2.1\ninfo: {title: Original, version: "1"}\npaths: {}\n',
+    );
+    final recovery = _ObservedRecovery('${directory.path}/recovery');
+    final c = controller(recovery: recovery);
+    try {
+      await c.open(file.path);
+      await c.analyse();
+      final buffer = c.buffer!;
+      for (var i = 0; i < 32; i++) {
+        c.store!.register(
+          DocumentBuffer(
+            id: 'file://${directory.path}/other-$i.yaml',
+            path: '${directory.path}/other-$i.yaml',
+            text: 'dirty $i',
+            baseline: 'saved',
+            diskIdentity: 'captured',
+            hasBom: false,
           ),
         );
-        await recovery.writing;
-        expect(recovery.captured, [buffer.id]);
-        await c.analyse();
-        final draft = c.bind(
-          Map<String, dynamic>.from(c.analysis!['info'] as Map),
-        );
-        draft.bind('title', 'Original');
-        draft.edit('title', 'unfinished field');
-        recovery.captured.clear();
-        c.checkpoint();
-        await recovery.writing;
-        expect(recovery.captured, [buffer.id]);
-        final records = [
-          for (final entry in Directory(
-            recovery.directory,
-          ).listSync().whereType<File>())
-            jsonDecode(entry.readAsStringSync()) as Map,
-        ];
-        expect(records, hasLength(33));
-        final changed = records.singleWhere(
-          (record) => record['id'] == buffer.id,
-        );
-        expect(changed['text'], startsWith('# exact 雪😀\r\n'));
-        expect(changed['draft']['values']['title'], 'unfinished field');
-      } finally {
-        c.dispose();
-        c.project?.close();
-        await c.engine.close();
       }
-    },
-  );
+      await c.persist(all: true);
+      recovery.captured.clear();
+      c.sourceDelta(
+        TextEdit(
+          buffer: buffer.id,
+          generation: buffer.generation,
+          start: 0,
+          end: 0,
+          expected: '',
+          replacement: '# exact 雪😀\r\n',
+        ),
+      );
+      await recovery.writing;
+      expect(recovery.captured, [buffer.id]);
+      await c.analyse();
+      final draft = c.bind(
+        Map<String, dynamic>.from(c.analysis!['info'] as Map),
+      );
+      draft.bind('title', 'Original');
+      draft.edit('title', 'unfinished field');
+      recovery.captured.clear();
+      c.checkpoint();
+      await recovery.writing;
+      expect(recovery.captured, [buffer.id]);
+      final records = [
+        for (final entry in Directory(
+          recovery.directory,
+        ).listSync().whereType<File>())
+          jsonDecode(entry.readAsStringSync()) as Map,
+      ];
+      expect(records, hasLength(33));
+      final changed = records.singleWhere(
+        (record) => record['id'] == buffer.id,
+      );
+      expect(changed['text'], startsWith('# exact 雪😀\r\n'));
+      expect(changed['draft']['values']['title'], 'unfinished field');
+      recovery.captured.clear();
+      expect(await c.flush(), true);
+      expect(recovery.captured, [buffer.id]);
+      expect(buffer.text, contains('unfinished field'));
+      recovery.captured.clear();
+      await c.undo();
+      expect(recovery.captured, [buffer.id]);
+      expect(buffer.text, contains('title: Original'));
+      recovery.captured.clear();
+      await c.redo();
+      expect(recovery.captured, [buffer.id]);
+      expect(buffer.text, contains('unfinished field'));
+      recovery.captured.clear();
+      await c.saveBuffers(only: {buffer.id});
+      expect(recovery.captured, [buffer.id]);
+      expect(file.readAsStringSync(), buffer.text);
+      final remaining = Directory(recovery.directory)
+          .listSync()
+          .whereType<File>()
+          .where((entry) => entry.path.endsWith('.json'));
+      expect(remaining, hasLength(32));
+      expect(
+        remaining.map((entry) => jsonDecode(entry.readAsStringSync())['id']),
+        isNot(contains(buffer.id)),
+      );
+    } finally {
+      c.dispose();
+      c.project?.close();
+      await c.engine.close();
+    }
+  });
 
   String fixture(String format, {String title = 'Original'}) => format == 'json'
       ? jsonEncode({

@@ -876,6 +876,19 @@ class RecoveryStore {
     final id = _filesId(project.boundary);
     final previous = _fileGroupContexts[id];
     final known = _fileGroupMembers[id];
+    // Ordinary field/source edits have no file-workspace checkpoint to update.
+    // Include former members so Undo and successful publication can retire the
+    // last intent without enumerating unrelated workspace buffers.
+    if (affected != null &&
+        !affected.any(
+          (b) =>
+              b.hasFileIntent ||
+              b.pendingFilePublication ||
+              project.store.hasPublicationGroup(b) ||
+              (known?.contains(b) ?? false),
+        )) {
+      return false;
+    }
     final reuse =
         affected != null &&
         previous != null &&
@@ -891,12 +904,16 @@ class RecoveryStore {
         )
         .toList();
     final coupled = groups.expand((group) => group).toSet();
-    final selected = (reuse ? known : project.store.fileBuffers)
+    final candidates = affected == null
+        ? project.store.fileBuffers
+        : <DocumentBuffer>{...?known, ...affected, ...coupled};
+    final selected = candidates
         .where(
           (b) =>
-              b.hasFileIntent ||
-              b.pendingFilePublication ||
-              coupled.contains(b),
+              project.store.ownsFileBuffer(b) &&
+              (b.hasFileIntent ||
+                  b.pendingFilePublication ||
+                  coupled.contains(b)),
         )
         .toList();
     final capturedRevision = project.store.publicationRevision;
