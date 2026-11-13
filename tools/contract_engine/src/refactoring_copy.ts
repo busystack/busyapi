@@ -443,7 +443,7 @@ function planOwnedCopy(input:any,moving=false) {
   admit(destinationId);
   const after=rebuilt(identity.owner,true),pointer=move(resource.id,identity.pointer);
   if(after.graph.scopeAs(destinationId,pointer,'schema')?.base===identity.base)continue;
-  if(graphs.some(g=>rebuilt(g,true).graph.literalContainer(destinationId,pointer+'/$id')!==undefined))
+  if(affected.some(g=>rebuilt(g,true).graph.literalContainer(destinationId,pointer+'/$id')!==undefined))
    throw new SourceError('refactor.literal.ownership','Repairing this schema identifier would also change literal data; choose explicit source ownership before relocating it');
   admit(destinationId);
   const current=new SourceDocument(outputs.get(destinationId)!,destinationId);

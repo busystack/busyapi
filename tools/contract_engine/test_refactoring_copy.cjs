@@ -910,3 +910,23 @@ test('extraction to a new file composes alias ownership with the existing cold r
  assert(after.text.includes('x-model: &model {type: integer, minimum: 9007199254740993.00}'));assert(after.text.includes('x-history: *model'));
  assert(after.text.includes('# extracted occurrence'));assert.equal(input.resources[0].text,text);
 });
+
+for(const version of ['3.1.2','3.2.1'])for(const json of [false,true])test(`identified local extraction ignores an unrelated configured entry ${version} ${json?'JSON':'YAML alias'}`,async()=>{
+ const root='file:///project/root.'+(json?'json':'yaml'),other='file:///project/models.'+(json?'json':'yaml'),pointer='/components/schemas/Owner/properties/child';
+ const schema={$id:'node',$anchor:'public',$schema:'https://json-schema.org/draft/2020-12/schema',type:'object',$defs:{Known:{type:'integer'}},properties:{shared:{$ref:'#/$defs/Known'}},examples:[{n:'EXACT'}]};
+ const api={openapi:version,info:{title:'Local extraction',version:'1'},paths:{},components:{schemas:{Owner:{$id:'https://schemas.invalid/owner/',properties:{child:schema}}}}};
+ let text=JSON.stringify(api,null,2).replaceAll('"EXACT"','9007199254740993.00');
+ if(!json)text='# exact shared source\r\n'+text.replace('"child": {','"child": &owned {').slice(0,-1)+',\n  "x-history": *owned\n}';
+ const resources=[{id:root,text,generation:1},{id:other,text:JSON.stringify({openapi:version,info:{title:'Unrelated',version:'1'},paths:{}}),generation:2}];
+ const input={root,snapshot:'local-with-unrelated-entry',resources,contexts:[{root,resources:[root]},{root:other,resources:[other]}],target:{root,resource:root,pointer,generation:1},name:'Stored',destinationResource:root};
+ const samples=['{"shared":2}','{"shared":"bad"}'];
+ const evaluate=resources=>evaluateSchemas({root,resources,snapshot:'local-extraction-oracle',runtimeInstances:samples.map(text=>({subject:'response-body',location:text,text,schema:{resource:root,pointer}}))});
+ const before=await evaluate(resources);assert.equal(before.complete,true,JSON.stringify(before.findings));assert.deepEqual(before.runtimeEvaluations.map(value=>value.valid),[true,false]);
+ const plan=planExtract(input),after=apply(input,plan),copied=new SourceDocument(after[0].text,root),original=new SourceDocument(text,root);
+ assert.equal(after[1].text,resources[1].text);assert(plan.edits.every(edit=>edit.buffer===root));
+ assert.equal(copied.dataNode('/components/schemas/Stored/$id').value,'https://schemas.invalid/owner/node');
+ assert(copied.dataJson('/components/schemas/Stored/examples').includes('9007199254740993.00'));
+ if(!json)assert.equal(copied.dataJson('/x-history'),original.dataJson('/x-history'));
+ const checked=await evaluate(after);assert.equal(checked.complete,true,JSON.stringify(checked.findings));assert.deepEqual(checked.runtimeEvaluations.map(value=>value.valid),[true,false]);
+ assert.equal(resources[0].text,text);
+});
