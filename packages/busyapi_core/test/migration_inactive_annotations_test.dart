@@ -39,6 +39,7 @@ void main() {
         await expectLater(review.publish(cancelled: () => true),
             throwsA(isA<CoreFailure>().having((failure) => failure.code, 'code', 'cancelled')));
         expect(await Directory(destination).exists(), false);
+        await project.buffer(root);
         project.store.replace(root, original.replaceFirst('Original', 'Captured 雪'));
         await expectLater(review.publish(),
             throwsA(isA<CoreFailure>().having((failure) => failure.code, 'code', 'migration.stale')));

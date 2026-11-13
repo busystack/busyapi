@@ -439,6 +439,7 @@ void main() {
       final project = await BusyProject.open(directory.path, engine);
       addTearDown(project.close);
       final root = project.roots.single.id, destination = '${directory.path}/converted';
+      await project.buffer(root);
       project.store.replace(root, original.replaceFirst('Original', 'Unsaved 雪'));
       Future<MigrationOutput> prepare() => project.prepareMigration(root, destination, targetVersion: target);
       final review = await prepare();

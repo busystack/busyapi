@@ -43,6 +43,7 @@ void main() {
         final project = await BusyProject.open(file.path, engine);
         addTearDown(project.close);
         final root = file.uri.toString();
+        await project.buffer(root);
         project.store.replace(root, original.replaceFirst('Original', 'Captured 雪'));
         for (final role in ['schema', 'response']) {
           final page = await project.referencePage(root, root, pointer, contextKind: role);

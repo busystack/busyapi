@@ -72,6 +72,7 @@ void main() {
       final project = await BusyProject.open(file.path, engine);
       addTearDown(project.close);
       final root = file.uri.toString();
+      await project.buffer(root);
       project.store.replace(root, original.replaceFirst('Original', 'Captured 雪'));
 
       Future<void> send(BusyProject owner, String selectedRoot, {bool valid = true}) async {
