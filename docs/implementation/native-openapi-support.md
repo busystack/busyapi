@@ -43,6 +43,12 @@ locations still fail instead of falling back to JavaScript number projections.
 The same mapping separates a whole document used as a Schema before its API
 declaration is converted, preserving the Schema's original annotation bytes.
 The former early shared-document identity refusal is removed.
+Finite conversion selects its original conjuncts from the capture even when an
+earlier step has moved an inactive child. The annotation corpus checks every
+native sample within the unchanged diagnostic bound. Two existing OpenAPI 3.0
+proof limitations remain explicit: unrestricted name-length constraints and
+conditional pattern coverage without a supported selection certificate. Their
+located refusals match the baseline; neither publishes partial outputs.
 
 Generated mock form bodies retain immutable typed input and normalized projection
 with their output bytes until the final native response check. That check validates

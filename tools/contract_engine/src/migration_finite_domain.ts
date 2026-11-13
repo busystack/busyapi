@@ -165,7 +165,7 @@ export async function migrateFiniteSchemaDomain(graph:ReferenceGraph,scope:Graph
         ['contains','minContains','maxContains'].filter(field=>Object.hasOwn(value,field)):[];
     const logicalFields=target==='2.0'?['anyOf','oneOf','not'].filter(field=>Object.hasOwn(value,field)):[];
     const evaluatedFields=modernFamily(scope.family)&&source.doc.dataNode(pointer+'/unevaluatedItems')&&!localTail?['unevaluatedItems']:[];
-    const coveredConjunction=evaluatedFields.length&&Array.isArray(value.allOf)?['allOf']:[];
+    const coveredConjunction=Object.hasOwn(value,'unevaluatedItems')&&Array.isArray(value.allOf)?['allOf']:[];
     // The exhaustive source evaluation covers their conjunction. Leaving a
     // pure conditional/dependency behind after folding positional assertions
     // would obstruct a finite language already proved by this same capture.

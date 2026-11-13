@@ -6,7 +6,7 @@ const {SourceDocument}=require('./dist/document.cjs');
 /** Shared production-path oracle. Source and target use their own captured
  * dialects; metadata is compared only for successful whole-schema evaluations.
  * Exact literals are source text, including values outside IEEE-754 integers. */
-async function assertB03({schema,models={},samples,expected,independent,format='json',version='3.2.1',targetVersion='3.0.4'}){
+async function assertB03({schema,models={},samples,expected,independent,format='json',version='3.2.1',targetVersion='3.0.4',blockedBy}){
  const root='file:///b03/api.'+format,schemas={Value:schema,...models,
   ...(independent?{Independent:{$ref:'#/components/schemas/Value/'+independent}}:{})};
  const document={openapi:version,info:{title:'B03 雪',version:'1'},paths:{},components:{schemas},'x-history':{schema,exact:'EXACT'}};
@@ -21,7 +21,14 @@ async function assertB03({schema,models={},samples,expected,independent,format='
  };
  assert.equal(analyse(input).status,'complete');const before=await run(input,'/components/schemas/');
  if(expected)assert.deepEqual(before.checked.runtimeEvaluations.slice(0,samples.length).map(value=>value.valid),expected);
- const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const review=await planMigration(input);
+ if(blockedBy){
+  assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);assert.deepEqual(review.changes,[]);
+  assert.deepEqual(new Set(review.problems.map(problem=>problem.code)),new Set(blockedBy));
+  assert(review.problems.every(problem=>problem.resource===root&&problem.pointer.startsWith('/components/schemas/Value/')&&problem.range[1]>problem.range[0]));
+  assert.equal(input.resources[0].text,text);return {input,review};
+ }
+ assert.equal(review.complete,true,JSON.stringify(review.problems));
  const output={root:review.outputRoot,snapshot:'b03-cold',resources:review.outputs.map(output=>({...output,generation:0}))};
  assert.equal(analyse(output).status,'complete',JSON.stringify(analyse(output).findings));
  const after=await run(output,targetVersion==='2.0'?'/definitions/':'/components/schemas/');

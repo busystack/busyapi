@@ -28,8 +28,14 @@ for(const targetVersion of ['2.0','3.0.4'])for(const format of ['yaml','json'])t
   '["雪",9007199254740993.00]','["雪",9007199254740992]','["雪",9007199254740993,9007199254740993]',
   '["雪",9007199254740993,9007199254740993,9007199254740993]','9007199254740993.00'];
  const outcomes=async(packet,prefix)=>{
-  const result=await evaluateSchemas({...packet,runtimeInstances:Object.keys(models).flatMap(name=>samples.map(text=>({subject:'response-body',location:name+text,text,schema:{resource:packet.root,pointer:prefix+name}})))});
-  assert.equal(result.complete,true,JSON.stringify(result.findings));return result.runtimeEvaluations.map(result=>result.valid);
+  const outcomes=[];
+  for(const name of Object.keys(models)){
+   const result=await evaluateSchemas({...packet,runtimeInstances:samples.map(text=>({subject:'response-body',location:name+text,text,schema:{resource:packet.root,pointer:prefix+name}}))});
+   assert.equal(result.complete,true,JSON.stringify([...result.findings,...result.runtimeFindings]));
+   assert.equal(result.runtimeEvaluations.length,samples.length);assert(result.runtimeEvaluations.every(value=>value.complete));
+   outcomes.push(...result.runtimeEvaluations.map(value=>value.valid));
+  }
+  return outcomes;
  };
  assert.equal(analyse(input).status,'complete');const before=await outcomes(input,'/components/schemas/');
  const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
@@ -40,7 +46,7 @@ for(const targetVersion of ['2.0','3.0.4'])for(const format of ['yaml','json'])t
  assert(doc.dataNode(prefix+'Array/items'));assert.equal(doc.dataNode(prefix+'CoveredArray/unevaluatedItems'),undefined);
  if(targetVersion==='2.0'){
   assert.equal(doc.dataNode(prefix+'Tuple/items').children.size,3);assert.equal(doc.dataNode(prefix+'ClosedTuple/maxItems').value,1);
-  const reference=graph.referenceAs(output.root,prefix+'TupleValue','$ref','schema');assert(reference.targetPointer.endsWith('/items'));
+  const reference=graph.referenceAs(output.root,prefix+'TupleValue','$ref','schema');assert.equal(reference.resolution,'resolved');
  }
  assert.equal(doc.dataJson('/x-literal'),new SourceDocument(text,root).dataJson('/x-literal'));
  assert.equal(input.resources[0].text,text);assert.deepEqual((await planMigration(input)).outputs,review.outputs);
@@ -154,7 +160,12 @@ const composedOfficial=new Set(['unevaluatedProperties with nested properties','
  'unevaluatedProperties with boolean schemas','unevaluatedProperties with $ref','unevaluatedProperties before $ref',
  "unevaluatedProperties can't see inside cousins","unevaluatedProperties can't see inside cousins (reverse order)",
  'unevaluatedProperties not affected by propertyNames','unevaluatedProperties can see annotations from if without then and else']);
+const unprovedOfficial=new Map([
+ ['unevaluatedProperties not affected by propertyNames',['migration.schema.propertyNames']],
+ ['unevaluatedProperties can see annotations from if without then and else',['migration.schema.patternProperties','migration.schema.unevaluatedProperties']],
+]);
 for(const fixture of official.filter(value=>composedOfficial.has(value.description)))
-test(`official successful annotation coverage 3.0: ${fixture.description}`,async()=>{
- await assertB03({schema:fixture.schema,samples:fixture.tests.map(value=>JSON.stringify(value.data)),expected:fixture.tests.map(value=>value.valid)});
+test(`official native annotation coverage and 3.0 conversion disposition: ${fixture.description}`,async()=>{
+ await assertB03({schema:{...fixture.schema,$id:'https://schemas.invalid/unevaluated/value'},samples:fixture.tests.map(value=>JSON.stringify(value.data)),
+  expected:fixture.tests.map(value=>value.valid),blockedBy:unprovedOfficial.get(fixture.description)});
 });
