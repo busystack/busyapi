@@ -319,7 +319,7 @@ a captured `mock.tunnels` policy with exact authority/operation/pinned-IP entrie
 and explicit concurrency, byte, idle and lifetime bounds. No policy approves no
 peers. Successful transitions have no HTTP content/framing; source-owned tunnel
 establishment/refusal/termination are separate native/Core/CLI lifecycle events.
-The [final W5 handoff](implementation/native-openapi-support.md#final-w503w504-handoff--native-mocks-and-stream-proof-2026-11-10) records configuration, supported Header representations and limits.
+The [final W5 handoff](implementation/native-openapi-support-history.md#final-w503w504-handoff--native-mocks-and-stream-proof-2026-11-10) records configuration, supported Header representations and limits.
 
 Additional-method validation proxies retain actual method/query/body bytes and
 separate received response bytes from the decoded native validation view. Gzip,

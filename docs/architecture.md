@@ -11,12 +11,10 @@ Migration protocol compatibility is tested in `migration_protocol_test.dart`:
 the shipped producer/consumer require revision 107 and reject stale producers.
 Semantic suites test meaning independently of the revision number; the former
 30/91 assertions have been removed rather than accepted as alternate protocols.
-The initial focused run passed server-template and empty-tuple cases but found
-external-dynamic discriminator conversions refused by the resource-dialect
-invariant. This remains a behavioral failure to resolve during conversion work.
-Historical native trailing-input loss, including the plain two-field fixture,
-remains recorded in the implementation history; it is not a new reproduction
-or presumed fixed by the editing changes.
+Meaningful native-family and reference semantics remain separate gates. Current
+qualification and the fresh independent native trailing-input reproduction are
+recorded in the [implementation status](implementation/native-openapi-support.md).
+History/hash removal does not qualify that platform behavior.
 
 `specification.ts` owns declared specification family/version, the applicable
 schema dialect and document capabilities. Core presentation reads the captured
@@ -43,10 +41,11 @@ schema edit, Core refreshes all captured nonbundled inputs through the existing
 anchored disk reader, then rechecks generations, identities, approvals, conflicts
 and cancellation. Watcher delivery cannot authorize a stale proposal; dirty
 working buffers retain their content when an external conflict blocks it.
-`swagger_schema_artifact.ts` binds the pinned Swagger artifact for both
-structural and schema-meta validation. It removes only the tuple-items minimum
-absent from the referenced Draft 4 text, preserving other array and flat-object
-restrictions without modifying the vendored schema.
+The pinned Swagger schema remains intact for structural and meta validation.
+`swagger_schema_rules.ts` expresses the first-party empty-tuple distinction:
+only the meta-validation view uses the equivalent unconstrained item schema,
+while original source and runtime tuple semantics remain unchanged. Flat
+Parameter/Header/Items restrictions and independent keyword failures remain.
 
 External Example Object locators are discovered from canonical graph scopes by
 `external_examples.ts`; acquisition remains in Core's existing approved
@@ -126,7 +125,7 @@ Provision declarations explicitly with `python3 tools/prepare_policy_isolation.p
 
 `reviewPolicyCode` consumes canonical policy declarations and the maintained enhanced-resolve 5.26.0 public API over an immutable virtual filesystem. The core acquires metadata/content requests through its existing anchored access and URI mappings. Missing, denied and excluded ambient parent/global-module paths are distinct; no loader reads project paths or the network. Package exports/imports, selected targets, formats and literal dependencies retain their original identities and source ranges. V8's non-invoked CommonJS wrapper compilation determines ambiguous module syntax; Acorn supplies dependency locations. Module inspection is not a claim to discover computed loads: these stay incomplete until their closure can be proved.
 
-`PolicyCodeReview` retains source generations and negative/directory observations for freshness, separately from the reusable code identity. Explicit `PolicyCodeApproval` binds the code/dependency snapshot, installed helper/native profile and selected project/root for one run. It is consumed once, never persisted in a project, lock or display preferences. Before/after execution the core rechecks bytes, generations, mappings, lookup metadata and runtime identity. Metadata/type monitoring catches new package candidates as well as changed unopened helper source.
+`PolicyCodeReview` retains source generations and negative/directory observations for freshness, separately from the reusable code identity. Explicit `PolicyCodeApproval` binds the code/dependency snapshot, installed helper/native profile and selected project/root for one run. It is consumed once, never persisted in a project, lock or display preferences. The review owns one immutable code/dependency closure and ordered ruleset/threshold selection. Approval reuses that capture. The dispatch boundary rechecks captured bytes, generations, mappings, lookup metadata and runtime identity once before consumption; read-only completion reconciles captured lookup metadata and relevant versions without rereading source or repeating project analysis. Unchanged installed file signatures reuse the admitted helper/native bytes; changes force byte/provenance verification. Actual isolated-child admission remains mandatory. Metadata/type monitoring catches new package candidates as well as changed unopened helper source.
 
 Approved execution uses a disposable `PolicyProcessWorker`, not a thread presented as a sandbox. The dispatcher reserves the background slot and waits for real exit and complete bounded output; cancellation and owner death terminate the child. After both native stages succeed, Node's supported synchronous module hooks supply only reviewed sources/bindings, with no filesystem resolver fallback. The authentic CommonJS loader supplies normal CJS/ESM interop on demand; no eager closure execution, rewritten vendor runtime or require interpreter is used. Pinned bundled Spectral APIs are explicit review bindings. Unreviewed runtime loads remain incomplete even if caught by project code. JavaScript rulesets use whole-source provenance rather than invented JSON positions. Computed/unknown dependency closures and unsupported code formats still fail closed; ordinary declarative lint remains useful without approval.
 
@@ -142,7 +141,7 @@ Reference Object interpretation is shared by graph traversal and Reference proje
 
 The Redoc CE 3.0.1 and Swagger UI 5.33.2 read-only entries are compiled separately from the contract engine. Their exact external input closures, upstream embedded-package provenance, original notices and adapted-source notices are reviewed under `tools/documentation_renderers/`; changed code, declarations or notice sets fail preparation. Each compilation has a fixed working directory so normal debug/profile/release installation produces the same content. CMake uses the staged pinned Node and installs ordinary assets/notices, with no runtime npm, CDN or renderer acquisition resolver.
 
-`DocumentationRuntime` verifies fixed installed manifest/files for the two known local renderer presets and retains immutable bytes. Missing/corrupt assets identify the preset and component without losing source. Classic local scripts, Swagger's local CSS and an inert escaped JSON block work on the native closed scheme and directly relocated `file://` HTML. Native packets bind the context snapshot and opaque source table; exports omit native source authority, retain portable original-to-derived provenance and carry required notices. The GUI presets and `prepareDocumentation(preset: 'redoc' | 'swagger')`/headless CLI share capture, exact graph-derived content and safe publication. English generated-ARB/headless labels and saved-source output parity are tested. Native Reference HTML remains independent of bundling.
+`DocumentationRuntime` verifies fixed installed manifest/files for the two known local renderer presets and retains immutable bytes. A bounded two-preset cache reuses those bytes while ordinary-file metadata is unchanged; missing, changed and symlinked inputs invalidate admission and recheck the installed digests. Runtime opening does not repeat packaging inventory policy. Missing/corrupt assets identify the preset and component without losing source. Classic local scripts, Swagger's local CSS and an inert escaped JSON block work on the native closed scheme and directly relocated `file://` HTML. Native packets bind the context snapshot and opaque source table; exports omit native source authority, retain portable original-to-derived provenance and carry required notices. The GUI presets and `prepareDocumentation(preset: 'redoc' | 'swagger')`/headless CLI share capture, exact graph-derived content and safe publication. English generated-ARB/headless labels and saved-source output parity are tested. Native Reference HTML remains independent of bundling.
 
 The workspace synchronizes outdated state through existing notifications, detaches on project replacement/disposal, and creates no hidden renderer on startup. Output failures retain independently captured source-check evidence: a complete source check is not a successful render/export. The Run area preserves failure categories, preset-specific missing-component descriptions and snapshot identity. Complete construct coverage, integrated native/performance/release and strict-Snap acceptance remain distinct from these installed/export paths.
 
@@ -355,7 +354,25 @@ Bundled selected 2020-12/dialect standards are an explicit read-only resource ca
 
 Normal CMake installation matches the current Flutter build ID and its compiler input manifest to the actual mode/entry/output before staging application/plugin notices. It reads that selected manifest directly, without scanning historical build outputs. Exact installed sources and grants are reviewed separately from package names or the headless dependency closure. Original data/codec notices, application/adaptation attribution and MPL-covered library/native source are installed as ordinary portable files. Packaging verifies the assembled bytes and refuses development entrypoints; the original SDK engine aggregate does not substitute for the upstream-engine/native-library distribution review. See `docs/third-party.md`. These build-only inspections do not add runtime parsing, downloads or package execution.
 
-Publication opens every parent relative to a held directory descriptor with `O_NOFOLLOW`, and reads/publishes through `/proc/self/fd` anchors. Staged file permissions are set before publication. Save checks content hashes before exchange and verifies displaced bytes at the publication boundary. A race preserves displaced bytes; it never rolls back over a later writer. Save All and selected grouped saves freeze generations, text, format and expected disk identities before writing a private atomic intent. Per-file publication synchronizes its directory and records receipts without truncating the previous journal. Startup inspection compares planned/current hashes, including publication without a receipt; explicit recovery transfers remaining text into buffers beside newer disk content. It never replays writes automatically. Partial outcomes identify published, failed and unattempted files.
+Documentation, ordinary bundles, client generation, conversion and resource
+packages prepare immutable bytes once and use `BundleOutput`'s common publisher.
+Conversion retains its publication decision and final captured-input check;
+source saving retains separate per-file partial outcomes. Generator selection
+and generation share the same admitted `GeneratorRuntime` instance.
+
+Selected saved-test runs own one native capture, one decoded configuration and
+one batch of exact case values before their first network action. Per-operation
+plans refer to that capture. Reopening uses the same fixed/custom HTTP-method
+selection as execution, preserving case-sensitive additional method tokens.
+
+Publication opens every parent relative to a held directory descriptor with `O_NOFOLLOW`, and reads/publishes through `/proc/self/fd` anchors. Staged file permissions are set before publication. Save checks content hashes before exchange and verifies displaced bytes at the publication boundary. A race preserves displaced bytes; it never rolls back over a later writer. Save All and selected grouped saves freeze generations, text, format and expected disk identities before writing a private atomic intent. The source intent is encoded once; checkpoints append current bounded receipts to that frozen encoding. Per-file publication synchronizes its directory and records receipts without truncating the previous journal. Startup inspection compares planned/current hashes, including publication without a receipt; explicit recovery transfers remaining text into buffers beside newer disk content. It never replays writes automatically. Partial outcomes identify published, failed and unattempted files.
+
+Each response stream opens one immutable operation/schema capture in the
+dispatcher's bounded stream lane. It retains framing bytes and scan state locally;
+continuations carry only new bytes and an owner ID. Waiting streams consume no
+ordinary execution slot. Cooperative close retires one capture; worker death
+invalidates its captures while Source retains separate workers. Framing storage
+grows geometrically and materializes completed records only for decoding.
 
 Recovery checkpoints select changed buffer owners and changed draft revisions. They
 never enumerate the workspace for a typing/field checkpoint; explicit close,
