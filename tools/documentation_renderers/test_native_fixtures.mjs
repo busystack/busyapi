@@ -12,8 +12,8 @@ const engine=createRequire(new URL('../contract_engine/package.json',import.meta
 const {deriveBundle}=engine('./dist/derived_bundle.cjs'),{referenceDocument}=engine('./dist/reference_projection.cjs'),{build}=engine('esbuild');
 const {SourceDocument,RawJsonValue}=engine('./dist/document.cjs');
 const swaggerModuleTree=process.env.BUSYAPI_TEST_SWAGGER_MODULE_TREE;
-const swagger=(swaggerModuleTree?await compileSwaggerModule({directory:swaggerModuleTree,format:'esm'}):await build({entryPoints:[fileURLToPath(new URL('./swagger_entry.mjs',import.meta.url))],nodePaths:[fileURLToPath(new URL('../probes/m2/node_modules',import.meta.url))],bundle:true,write:false,format:'esm',platform:'browser',target:'es2022',define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'})).outputFiles[0].text;
-const redoc=(await build({entryPoints:[fileURLToPath(new URL(process.env.BUSYAPI_DOCUMENTATION_TEST_TRACE==='1'?'./test_redoc_native_entry.mjs':'./redoc_entry.mjs',import.meta.url))],nodePaths:[fileURLToPath(new URL('../probes/m2/node_modules',import.meta.url))],bundle:true,write:false,format:'esm',platform:'browser',target:'es2022',define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'})).outputFiles[0].text;
+const swagger=(swaggerModuleTree?await compileSwaggerModule({directory:swaggerModuleTree,format:'esm'}):await build({entryPoints:[fileURLToPath(new URL('./swagger_entry.mjs',import.meta.url))],bundle:true,write:false,format:'esm',platform:'browser',target:'es2022',define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'})).outputFiles[0].text;
+const redoc=(await build({entryPoints:[fileURLToPath(new URL(process.env.BUSYAPI_DOCUMENTATION_TEST_TRACE==='1'?'./test_redoc_native_entry.mjs':'./redoc_entry.mjs',import.meta.url))],bundle:true,write:false,format:'esm',platform:'browser',target:'es2022',define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'})).outputFiles[0].text;
 for(const renderer of ['swagger','redoc'])for(const family of ['31','32']){
   const directory=path.join(output,renderer+'-'+family);await mkdir(directory,{recursive:true});
   const root='https://contracts.invalid/root.json',original=await readFile(new URL(`../../fixtures/compatibility/oas${family}.json`,import.meta.url),'utf8'),schema=await readFile(new URL('../../fixtures/compatibility/schema.json',import.meta.url),'utf8');
@@ -44,8 +44,8 @@ for(const renderer of ['swagger','redoc'])for(const family of ['31','32']){
   const assets={
     'index.html':`<!doctype html><html><head><meta charset="utf-8">${renderer==='swagger'?'<link rel="stylesheet" href="vendor.css">':''}<script type="module" src="bootstrap.mjs"></script></head><body><div id="reference"></div></body></html>`,
     'snapshot.json':JSON.stringify({text:derived.output.text,projection,sourceActions}),
-    'vendor.js':renderer==='swagger'&&!swaggerModuleTree?await readFile(new URL('../probes/m2/node_modules/swagger-ui-dist/swagger-ui-bundle.js',import.meta.url),'utf8'):'',
-    'vendor.css':renderer==='swagger'?await readFile(swaggerModuleTree?path.join(swaggerModuleTree,'node_modules/swagger-ui/dist/swagger-ui.css'):new URL('../probes/m2/node_modules/swagger-ui-dist/swagger-ui.css',import.meta.url),'utf8'):'',
+    'vendor.js':renderer==='swagger'&&!swaggerModuleTree?await readFile(new URL('./node_modules/swagger-ui-dist/swagger-ui-bundle.js',import.meta.url),'utf8'):'',
+    'vendor.css':renderer==='swagger'?await readFile(swaggerModuleTree?path.join(swaggerModuleTree,'node_modules/swagger-ui/dist/swagger-ui.css'):new URL('./node_modules/swagger-ui-dist/swagger-ui.css',import.meta.url),'utf8'):'',
     'graph_display.mjs':await readFile(new URL('./graph_display.mjs',import.meta.url),'utf8'),
     'source_actions.mjs':await readFile(new URL('./source_actions.mjs',import.meta.url),'utf8'),
     'adapter.mjs':renderer==='swagger'?swagger:redoc,

@@ -10,7 +10,7 @@ const engine=createRequire(new URL('../contract_engine/package.json',import.meta
 test('both exact upstream strategies preserve authored composition, recursion and payloads in strict read-only mode',async()=>{
   const temporary=await mkdtemp(path.join(tmpdir(),'busyapi-swagger-strategies-'));
   try {
-    const output=await build({entryPoints:[fileURLToPath(new URL('./swagger_entry.mjs',import.meta.url))],nodePaths:[fileURLToPath(new URL('../probes/m2/node_modules',import.meta.url))],bundle:true,write:false,format:'esm',platform:'browser',target:'es2022',define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'});
+    const output=await build({entryPoints:[fileURLToPath(new URL('./swagger_entry.mjs',import.meta.url))],bundle:true,write:false,format:'esm',platform:'browser',target:'es2022',define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'});
     const module=path.join(temporary,'entry.mjs');await writeFile(module,output.outputFiles[0].text,{flag:'wx'});
     const {configuration}=await import(pathToFileURL(module));
     for(const version of ['3.1.2','3.2.1']) {

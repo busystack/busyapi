@@ -5,8 +5,10 @@ import {before,after,test} from 'node:test';
 import {createRequire} from 'node:module';
 import {readFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
+import path from 'node:path';
+import {fileURLToPath,pathToFileURL} from 'node:url';
 import {readAuthoredPanels} from './test_authored_reader.mjs';
-const probe=createRequire(new URL('../probes/m2/package.json',import.meta.url)),{chromium}=probe('playwright');
+const probe=createRequire(new URL('./package.json',import.meta.url)),{chromium}=probe('playwright');
 const engine=createRequire(new URL('../contract_engine/package.json',import.meta.url)),{referenceDisplay:prepareDisplay}=engine('./dist/reference_display.cjs');
 const referenceDisplay=(input,outputId)=>prepareDisplay({...input,outputId});
 const {mixed}=engine('../../fixtures/compatibility/reference_display.cjs');
@@ -15,7 +17,8 @@ before(async()=>{browser=await chromium.launch({headless:true,chromiumSandbox:tr
 after(async()=>{await browser?.close();});
 for(const preset of ['swagger','redoc'])for(const version of ['3.1.2','3.2.1'])for(const pathItem of [false,true])test(`${preset} installed entry renders mixed-dialect graph content without resolution/ordinary network attempts ${version} pathItem=${pathItem}`,async()=>{
  const input=mixed(version,{pathItem}),before=JSON.stringify(input),captured=referenceDisplay(input,'https://display.invalid/reference.json');
- const directory=new URL(`../../build/test-runtime/share/busyapi/documentation/${preset}/`,import.meta.url);
+ const bundle=process.env.BUSYAPI_TEST_BUNDLE??fileURLToPath(new URL('../../build/test-runtime/',import.meta.url));
+ const directory=pathToFileURL(path.resolve(bundle,`share/busyapi/documentation/${preset}`)+path.sep);
  const manifest=JSON.parse(await readFile(new URL('assets.json',directory),'utf8'));
  const script=await readFile(new URL(preset+'.js',directory));
  const recorded=manifest.files[preset+'.js'];

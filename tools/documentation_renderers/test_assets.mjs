@@ -37,7 +37,7 @@ test('assembled Redoc assets contain exact reviewed code, all notices and no dev
 });
 test('unreviewed compilation inputs fail closed rather than producing empty notices',async()=>{
   await assert.rejects(redocRedistribution({inputs:{'tools/documentation_renderers/node_modules/unreviewed/index.js':{}}}),/unreviewed dependency/);
-  await assert.rejects(redocRedistribution({inputs:{'tools/probes/m2/node_modules/redoc/bundles/redoc.js':{}}}),/outside its locked asset tree/);
+  await assert.rejects(redocRedistribution({inputs:{'tools/foreign-renderer/node_modules/redoc/bundles/redoc.js':{}}}),/outside its locked asset tree/);
 });
 test('assembled Swagger module retains original and adapted notices with truthful distribution roles',async()=>{
   const {manifest,files}=await buildSwaggerAssets();
@@ -62,7 +62,7 @@ test('Swagger review rejects another dependency tree, incomplete input closure a
   const result=await compileSwaggerModule({directory:fileURLToPath(new URL('./swagger',import.meta.url))}),
     meta=structuredClone(result.metafile),input=Object.keys(meta.inputs).find(file=>file.includes('node_modules/@babel/runtime/'));
   delete meta.inputs[input];await assert.rejects(swaggerRedistribution(meta),/identity or compiled closure/);
-  await assert.rejects(swaggerRedistribution({inputs:{'tools/probes/m2/node_modules/swagger-ui/dist/index.js':{}},outputs:{}}),/outside its locked asset tree/);
+  await assert.rejects(swaggerRedistribution({inputs:{'tools/foreign-renderer/node_modules/swagger-ui/dist/index.js':{}},outputs:{}}),/outside its locked asset tree/);
   const changed=structuredClone(result.metafile),output=Object.values(changed.outputs).find(record=>record.inputs[input]);
   output.inputs[input].bytesInOutput++;await assert.rejects(swaggerRedistribution(changed),/identity or compiled closure/);
 });

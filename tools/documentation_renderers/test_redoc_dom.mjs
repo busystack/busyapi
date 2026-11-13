@@ -7,7 +7,7 @@ import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
 import {redocAdapterIdentity} from './redoc_adapter.mjs';
 import {authoredDocument} from './test_fixtures/authored_document.mjs';
-const probe=createRequire(new URL('../probes/m2/package.json',import.meta.url));
+const probe=createRequire(new URL('./package.json',import.meta.url));
 const engine=createRequire(new URL('../contract_engine/package.json',import.meta.url));
 const {chromium}=probe('playwright'),{build}=engine('esbuild'),{deriveBundle}=engine('./dist/derived_bundle.cjs'),{referenceDisplay}=engine('./dist/reference_display.cjs'),{referenceDocument}=engine('./dist/reference_projection.cjs');
 const {pathContexts}=engine('../../fixtures/compatibility/reference_display.cjs');
@@ -16,7 +16,7 @@ const origin='http://busyapi-redoc-test.invalid';let browser,bundle;
 before(async()=>{
   // Additional exports are test-only diagnostics of generated fixtures. No
   // vendor bundle is edited and no project data is logged by the application.
-  bundle=(await build({stdin:{contents:"export * from './redoc_entry.mjs'; export {prepareApiDocs} from 'redoc'; export {default as React} from 'react'; export {graphAddressedDisplay} from './graph_display.mjs'; export {redocAuthoredContent} from './redoc_content.mjs';",resolveDir:fileURLToPath(new URL('./',import.meta.url))},nodePaths:[fileURLToPath(new URL('../probes/m2/node_modules',import.meta.url))],bundle:true,write:false,format:'esm',platform:'browser',define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'})).outputFiles[0].text;
+  bundle=(await build({stdin:{contents:"export * from './redoc_entry.mjs'; export {prepareApiDocs} from 'redoc'; export {default as React} from 'react'; export {graphAddressedDisplay} from './graph_display.mjs'; export {redocAuthoredContent} from './redoc_content.mjs';",resolveDir:fileURLToPath(new URL('./',import.meta.url))},bundle:true,write:false,format:'esm',platform:'browser',define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'})).outputFiles[0].text;
   browser=await chromium.launch({headless:true,chromiumSandbox:true,...(process.env.BUSYAPI_TEST_BROWSER_EXECUTABLE?{executablePath:process.env.BUSYAPI_TEST_BROWSER_EXECUTABLE}:{})});
 });
 after(async()=>{await browser?.close();});

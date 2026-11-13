@@ -1,5 +1,5 @@
-// Development-only DOM qualification. Uses the retained exact probe lock;
-// Playwright/Chromium and the probe dependencies are not production assets.
+// Development-only DOM qualification with locked renderer test dependencies.
+// Playwright/Chromium are not production assets.
 import assert from 'node:assert/strict';
 import {before, after, test} from 'node:test';
 import {readFile} from 'node:fs/promises';
@@ -11,14 +11,14 @@ import {authoredDocument} from './test_fixtures/authored_document.mjs';
 import {compileSwaggerModule} from './swagger_module_build.mjs';
 import {readAuthoredPanels} from './test_authored_reader.mjs';
 
-const require = createRequire(new URL('../probes/m2/package.json', import.meta.url));
+const require = createRequire(new URL('./package.json', import.meta.url));
 const {chromium} = require('playwright');
 const engine = createRequire(new URL('../contract_engine/package.json', import.meta.url));
 const {deriveBundle} = engine('./dist/derived_bundle.cjs'),{build}=engine('esbuild');
 const {referenceDocument} = createRequire(new URL('../contract_engine/package.json', import.meta.url))('./dist/reference_projection.cjs');
 const {referenceDisplay} = engine('./dist/reference_display.cjs');
 const {pathContexts}=engine('../../fixtures/compatibility/reference_display.cjs');
-const packageRoot = new URL('../probes/m2/node_modules/swagger-ui-dist/', import.meta.url);
+const packageRoot = new URL('./node_modules/swagger-ui-dist/', import.meta.url);
 const packageInfo = JSON.parse(await readFile(new URL('package.json', packageRoot), 'utf8'));
 assert.equal(packageInfo.version, swaggerAdapterIdentity.packageVersion);
 assert.equal(packageInfo.license, 'Apache-2.0');
@@ -31,7 +31,7 @@ const ordinaryRequests=moduleTree?[origin+'/index.html']:[origin+'/index.html',o
 let browser,source;
 before(async () => {
   source=(moduleTree?await compileSwaggerModule({directory:moduleTree}):await build({entryPoints:[fileURLToPath(new URL('./swagger_entry.mjs',import.meta.url))],
-    nodePaths:[fileURLToPath(new URL('../probes/m2/node_modules',import.meta.url))],
+
     bundle:true,write:false,format:'esm',platform:'browser',target:'es2022',define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'})).outputFiles[0].text;
   browser = await chromium.launch({headless:true, chromiumSandbox:true,
     ...(process.env.BUSYAPI_TEST_BROWSER_EXECUTABLE ? {executablePath:process.env.BUSYAPI_TEST_BROWSER_EXECUTABLE} : {})});

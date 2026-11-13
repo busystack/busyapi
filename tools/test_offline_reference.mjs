@@ -8,10 +8,10 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import {createRequire} from 'node:module';
 import {spawnSync} from 'node:child_process';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
-const require=createRequire(join(root,'tools/probes/m2/package.json'));
+const require=createRequire(join(root,'tools/documentation_renderers/package.json'));
 const {chromium}=require('playwright');
 const {mixed}=createRequire(import.meta.url)('../fixtures/compatibility/reference_display.cjs');
-const cli=resolve(process.argv[2]??join(root,'build/test-runtime/busyapi'));
+const cli=resolve(process.argv[2]??join(process.env.BUSYAPI_TEST_BUNDLE??join(root,'build/test-runtime'),'busyapi'));
 const temporary=await mkdtemp(join(tmpdir(),'busyapi-offline-reference-'));
 let browser;
 try {

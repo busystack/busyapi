@@ -24,7 +24,7 @@ def capture(directory, *, source=False):
     for parent, folders, files in os.walk(directory, followlinks=False):
         folders[:] = sorted(name for name in folders if name not in excluded and
             (not source or (Path(parent) / name).relative_to(directory).as_posix() not in
-             {'linux/flutter/ephemeral', 'lib/l10n/generated', 'tools/probes/bin'}))
+             {'linux/flutter/ephemeral', 'lib/l10n/generated'}))
         for name in sorted(files + [name for name in folders if (Path(parent) / name).is_symlink()]):
             path = Path(parent) / name
             relative = path.relative_to(directory).as_posix()
@@ -62,6 +62,8 @@ def qualify(flutter):
     candidate = capture(BUNDLE)
     run('tools/build_engine.sh', 'prepare-tests')
     run('tools/build_engine.sh', 'test-all')
+    run(BUNDLE / 'libexec/busyapi/node', '--test',
+        'tools/documentation_renderers/test_assets.mjs')
     run('tools/prepare_test_runtime.sh', '--helpers-only')
     run(flutter, 'analyze', '--no-pub')
     run(flutter, 'test', '--no-pub', '--concurrency=1')

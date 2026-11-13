@@ -1248,18 +1248,20 @@ authorization. Token-shape hints follow
 and [AWS key identifiers](https://docs.aws.amazon.com/STS/latest/APIReference/API_GetAccessKeyInfo.html).
 A matching prefix does not prove that a credential is valid or leaked.
 
-## Development probes
+## Development verification
 
-`tools/probes/run.py` and the [renderer/schema probes](../tools/probes/m2/README.md)
-compare locked upstream candidates against controlled fixtures. They are
-separate from production adapters and are never invoked by opening a project.
-Their dependency locks, provisioning and outputs do not become runtime assets.
+`tools/contract_engine/test-suites.json` registers current engine and renderer
+behavior checks. Renderer browser tests use Playwright **1.58.2** from
+`tools/documentation_renderers/package-lock.json`; those dependencies and
+Chromium remain development inputs. They are not invoked by project opening or
+included in generated/distributed documentation assets. Historical candidate
+comparison and provisioning probes have been removed. Their old results do not
+qualify production behavior.
 
-Redocly CLI **2.62.1/2.64.0** and Ref Parser **16.0.5** probes expose unsupported
-bundling behavior for literal payload references, external values, exact numbers
-or nested resource bases. They are not production bundlers. BusyAPI's canonical
-graph and CST own derived output; candidate success on a minimal fixture does
-not establish compatibility.
+BusyAPI's canonical graph and CST own derived output. The current tests retain
+literal payload references, external values, exact numbers, nested resource
+bases, actual rendered content and denied resource attempts; an empty renderer
+cannot pass by blocking requests alone.
 
 ## Execution tools
 

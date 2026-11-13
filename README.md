@@ -143,6 +143,8 @@ Prepare locked dependencies explicitly:
 flutter pub get --enforce-lockfile
 tools/build_engine.sh prepare
 tools/build_documentation_assets.sh prepare
+# Explicitly provision the browser used only by renderer qualification:
+"$BUSYAPI_NODE" tools/documentation_renderers/node_modules/playwright/cli.js install chromium
 ```
 
 A full-featured build also requires the pinned diff, client-generator, and native governance inputs to be provisioned once or supplied from already verified local assets:
