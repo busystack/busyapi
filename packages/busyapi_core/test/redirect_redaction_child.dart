@@ -73,7 +73,7 @@ paths: {/pets: {get: {responses: {'200': {description: ok}, '302': {description:
       pointer: operation['pointer'] as String,
       occurrence: operation['occurrence'] as String,
     );
-    for (final length in [100, 5000, 65536]) {
+    for (final length in [100, 5000, 64512, 65536]) {
       const suffix = '/plus+equals=end';
       selected = '${'A' * (length - suffix.length)}$suffix';
       for (final mode in ['ok', 'ordinary', 'literal', 'mixed']) {
@@ -98,6 +98,18 @@ paths: {/pets: {get: {responses: {'200': {description: ok}, '302': {description:
         try {
           final label = '$location $length $mode';
           check(response.status == (mode == 'ok' ? 200 : 302), '$label status');
+          // The outbound 64 KiB credential ceiling is independent of the
+          // response evidence ceiling, which also includes names and framing.
+          if (length == 65536 && (mode == 'literal' || mode == 'mixed')) {
+            check(!response.receiptComplete, '$label bounded receipt');
+            check(response.incompleteReason == 'response-field-evidence-limit',
+                '$label evidence limit');
+            check(response.redirects.isEmpty, '$label invented redirect');
+            check(!response.headers.any((field) => field.$1 == 'location'),
+                '$label invented original field');
+            check(response.bodyLength == 2, '$label retained body');
+            continue;
+          }
           check(response.receiptComplete, '$label receipt');
           if (mode == 'ok') {
             check(response.redirects.isEmpty, '$label unexpected redirect');
@@ -123,7 +135,7 @@ paths: {/pets: {get: {responses: {'200': {description: ok}, '302': {description:
         }
       }
     }
-    check(requests == 12 && wireFailures.isEmpty, '$location outgoing wire');
+    check(requests == 16 && wireFailures.isEmpty, '$location outgoing wire');
     check(destinationRequests == 0, '$location destination received a request');
   } finally {
     plan?.close();

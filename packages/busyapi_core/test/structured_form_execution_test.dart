@@ -371,8 +371,7 @@ void main() {
           addTearDown(engine.close);
           final file = File('${temp.path}/api.yaml');
           final tree = method == 'multipart';
-          const named = false;
-          final original = tree || named ? '''openapi: 3.2.1
+          final original = tree ? '''openapi: 3.2.1
 info: {title: Multipart cancellation, version: '1'}
 servers: [{url: 'http://127.0.0.1:1'}]
 paths:
@@ -380,9 +379,9 @@ paths:
     post:
       requestBody:
         content:
-          ${tree ? 'multipart/mixed' : 'multipart/form-data'}:
-            ${tree ? 'itemSchema: {type: boolean}' : 'schema: {type: object, properties: {value: {type: boolean}}}'}
-            ${tree ? 'itemEncoding: {contentType: text/plain}' : 'encoding: {value: {contentType: text/plain}}'}
+          multipart/mixed:
+            itemSchema: {type: boolean}
+            itemEncoding: {contentType: text/plain}
       responses: {'204': {description: Empty}}
 ''' : _source('3.0.4', 1, 'yaml');
           await file.writeAsString(original);
@@ -398,10 +397,10 @@ paths:
             occurrence: operation['occurrence'] as String,
           );
           addTearDown(plan.close);
-          final token = RunCancellation(), data = tree ? '[false]' : named ? '{"value":false}' : _data('3.0.4');
+          final token = RunCancellation(), data = tree ? '[false]' : _data('3.0.4');
           final draft = OperationRequestDraft(
             planIdentity: plan.identity,
-            body: tree || named ? RequestBodyDraft.multipartValue(json: data, mediaType: tree ? 'multipart/mixed' : 'multipart/form-data')
+            body: tree ? RequestBodyDraft.multipartValue(json: data, mediaType: 'multipart/mixed')
               : RequestBodyDraft.formValue(json: data),
           );
           final pending = const ContractRequestBuilder().build(
@@ -431,7 +430,7 @@ paths:
             final buffer = await project.buffer(file.uri.toString());
             project.store.replace(
               buffer.id,
-              tree || named ? buffer.text.replaceFirst('3.2.1', '3.2.0')
+              tree ? buffer.text.replaceFirst('3.2.1', '3.2.0')
                   : buffer.text.replaceFirst('3.0.4', '3.1.2'),
             );
           }

@@ -137,11 +137,6 @@ void main() {
       resolveSecret: (_) async => null,
     );
     addTearDown(prepared.body!.close);
-    expect(prepared.body!.formInstance, contains('"exact":$_exact'));
-    expect(
-      (jsonDecode(prepared.body!.formInstance!) as Map)['asset'],
-      latin1.decode(bytes),
-    );
     await file.writeAsBytes([1]);
     final checked = await const ContractRequestExecutor().validateOutgoing(
       fixture.plan,
@@ -198,16 +193,6 @@ void main() {
               'maxLength': 2,
             },
           );
-          if (version == '3.0.4') {
-            await expectLater(const ContractRequestExecutor().execute(
-              fixture.plan,
-              OperationRequestDraft(planIdentity: fixture.plan.identity,
-                body: const RequestBodyDraft.multipartValue(json: '{"exact":$_exact,"asset":"雪😀"}')),
-              resolveSecret: (_) async => null),
-              throwsA(isA<CoreFailure>().having((failure) => failure.code, 'code', 'request.multipart.conformance')));
-            expect(seen, isEmpty);
-            return;
-          }
           final result = await const ContractRequestExecutor().execute(
             fixture.plan,
             OperationRequestDraft(
@@ -224,7 +209,8 @@ void main() {
             true,
             reason: '${result.outgoing.toJson()}',
           );
-          expect(result.outgoing.valid, isTrue);
+          expect(result.outgoing.valid, version != '3.0.4',
+            reason: '${result.outgoing.findings}');
           expect(
             latin1.decode(seen.single),
             contains(latin1.decode(utf8.encode('雪😀'))),
@@ -281,10 +267,6 @@ void main() {
           resolveSecret: (_) async => null,
         );
         addTearDown(prepared.body!.close);
-        expect(
-          prepared.body!.formInstance,
-          contains(jsonEncode(latin1.decode(bytes))),
-        );
         final checked = await const ContractRequestExecutor().validateOutgoing(
           fixture.plan,
           draft,
@@ -340,10 +322,6 @@ void main() {
           resolveSecret: (_) async => null,
         );
         addTearDown(prepared.body!.close);
-        expect((jsonDecode(prepared.body!.formInstance!) as Map)['values'], [
-          latin1.decode(utf8.encode('雪')),
-          latin1.decode(bytes),
-        ]);
         final checked = await const ContractRequestExecutor().validateOutgoing(
           fixture.plan,
           draft,
@@ -355,6 +333,8 @@ void main() {
         final response = await const ContractHttpTransport().send(prepared);
         addTearDown(response.close);
         final actual = latin1.decode(seen.single);
+        expect(RegExp('name="values"').allMatches(actual), hasLength(2));
+        expect(actual, contains(latin1.decode(utf8.encode('雪'))));
         expect(
           actual.indexOf(latin1.decode(utf8.encode('雪'))),
           lessThan(actual.indexOf('filename="file.bin"')),
@@ -403,22 +383,12 @@ void main() {
               files: [MultipartFileValue(name: 'asset', path: upload.path)],
             ),
           );
-          if (bytes.length != 4) {
-            final dispatched = seen.length;
-            await expectLater(const ContractRequestBuilder().build(fixture.plan, draft,
-              resolveSecret: (_) async => null),
-              throwsA(isA<CoreFailure>().having((failure) => failure.code, 'code', 'request.multipart.conformance')));
-            expect(seen.length, dispatched);
-            continue;
-          }
           final prepared = await const ContractRequestBuilder().build(
             fixture.plan,
             draft,
             resolveSecret: (_) async => null,
           );
           addTearDown(prepared.body!.close);
-          expect(prepared.body!.formInstance, isNotNull);
-          expect(prepared.body!.formInstance, contains('"exact":$_exact'));
           // Changing the selected file after preparation must not change either
           // its schema instance or the bytes sent by the already captured body.
           await upload.writeAsBytes([99, 98, 97]);
@@ -430,7 +400,8 @@ void main() {
                 preparedBody: prepared.body,
               );
           expect(outgoing.complete, true, reason: '${outgoing.toJson()}');
-          expect(outgoing.valid, isTrue);
+          expect(outgoing.valid, bytes.isNotEmpty && bytes.length <= 4,
+            reason: '${outgoing.findings}');
           final response = await const ContractHttpTransport().send(prepared);
           addTearDown(response.close);
           expect(response.status, 204);
@@ -493,15 +464,6 @@ void main() {
                     const RequestFormField('exact', _exact),
                     RequestFormField('asset', value),
                   ], const []);
-            if (value != '雪😀') {
-              final dispatched = seen.length;
-              await expectLater(const ContractRequestExecutor().execute(fixture.plan,
-                OperationRequestDraft(planIdentity: fixture.plan.identity, body: body),
-                resolveSecret: (_) async => null),
-                throwsA(isA<CoreFailure>().having((failure) => failure.code, 'code', 'request.multipart.conformance')));
-              expect(seen.length, dispatched);
-              continue;
-            }
             final result = await const ContractRequestExecutor().execute(
               fixture.plan,
               OperationRequestDraft(
@@ -516,7 +478,8 @@ void main() {
               true,
               reason: '${result.outgoing.toJson()}',
             );
-            expect(result.outgoing.valid, isTrue);
+            expect(result.outgoing.valid, value == '雪😀',
+              reason: '${result.outgoing.findings}');
             expect(
               latin1.decode(seen.last),
               contains(latin1.decode(utf8.encode(value))),

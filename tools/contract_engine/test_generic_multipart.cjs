@@ -118,3 +118,19 @@ for(const version of versions)test(`${version} generated named bytes cannot subs
  await assert.rejects(requestMultipartPlan({...invalid, text:proof.text}), error => error.code === 'request.multipart.identity');
  await assert.rejects(requestMultipartPlan({...proof, requireConformance:'false'}), error => error.code === 'request.multipart.protocol');
 });
+
+for(const version of ['3.0.0','3.0.4'])test(`${version} typed binary input keeps its native octet model and exact numbers`,async()=>{
+ const {requestMultipartPlan}=require('./dist/execution.cjs');
+ const root='file:///binary-intent/api.json',schema={type:'object',required:['asset','exact'],properties:{asset:{type:'string',format:'binary',minLength:7,maxLength:7},exact:{type:'integer',enum:['EXACT']}}};
+ const source=JSON.stringify({openapi:version,info:{title:'Native binary intent',version:'1'},paths:{'/parts':{post:{requestBody:{content:{'multipart/form-data':{schema}}},responses:{204:{description:'Empty'}}}}}}).replace('"EXACT"','9007199254740993.00');
+ const input={root,resource:root,pointer:'/paths/~1parts/post',snapshot:version,mediaType:'multipart/form-data',files:[],resources:[{id:root,generation:1,text:source}]};
+ const text=value=>'"asset":'+JSON.stringify(value)+',"exact":9007199254740993.00';
+ const wire=value=>Buffer.from('--Native\r\nContent-Disposition: form-data; name="asset"\r\nContent-Type: application/octet-stream\r\n\r\n'+value+'\r\n--Native\r\nContent-Disposition: form-data; name="exact"\r\nContent-Type: text/plain\r\n\r\n9007199254740993.00\r\n--Native--\r\n').toString('base64');
+ const prepare=value=>requestMultipartPlan({...input,text:'{'+text(value)+'}',wire:wire(value),wireType:'multipart/form-data; boundary=Native'});
+ const prepared=await prepare('雪😀');
+ assert.equal(prepared.proof.valid,true);
+ assert.equal(JSON.parse(prepared.original).asset,Buffer.from('雪😀').toString('latin1'));
+ assert.match(prepared.original,/9007199254740993\.00/);
+ await assert.rejects(prepare('雪'),error=>error.code==='request.multipart.conformance');
+ assert.equal(input.resources[0].text,source);
+});

@@ -162,7 +162,7 @@ void main() {
       await run.stop();
       final cli = await _cli(file.path);addTearDown(cli.close);
       await _wire(client, cli.base, expected);await cli.close();
-      expect(await file.readAsString(), text);
+      expect(await file.readAsBytes(), utf8.encode(text));
     });
   }
   for (final version in ['2.0', '3.0.4', '3.1.2', '3.2.1']) {
@@ -211,8 +211,8 @@ void main() {
         addTearDown(cli.close);
         await _wire(client, cli.base, '9007199254740993');
         await cli.close();
-        expect(await file.readAsString(), original);
-        expect(await fragment.readAsString(), source);
+        expect(await file.readAsBytes(), utf8.encode(original));
+        expect(await fragment.readAsBytes(), utf8.encode(source));
         expect(model.dirty, true);
       });
     }

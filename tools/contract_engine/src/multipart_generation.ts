@@ -202,7 +202,7 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
     if(Object.keys(input.fileShapes??{}).some(name=>!groups.has(name)))fail('request.multipart.file-shape.stale','A file shape choice has no selected named file group');
     const byFile=new Map<string,number>();
     files.forEach((file,index)=>{if(byFile.has(file.name))fail('request.multipart.files','Each ordered file needs its own instance position');byFile.set(file.name,index);});
-    const normalizations=new Map<string,string>();
+    const normalizations=new Map<string,{text:string;intent?:true}>();
     const used=new Set<string>(),usedFiles=new Set<number>(),controls:any[]=[],selectedChecks:{pointer:string;schema:GraphTarget}[]=[],intentOmissions=new Set<string>();
     const descend=(hint:Hint,step:Hint['path'][number]):Hint=>({...hint,path:[...hint.path,step],
         shape:forms.pathShape(hint.schema,[...hint.path,step],'property' in step?hint.shape.properties?.[step.property]??{}:step.item===undefined?hint.shape.items??{}:hint.shape.prefixItems?.[step.item]??hint.shape.items??{})});
@@ -444,7 +444,7 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
                             if(!selected)fail('request.multipart.schema','The nested form media field needs its own captured representation',fieldAt,true);
                             const prepared=await prepareModeledMedia(input,doc.dataJson(node.pointer),types[name],selected.schema,false,input.direction==='response'?'response':'request',context);
                             encoded.push(Array.from(prepared.bytes,byte=>byte===32?'+':/[A-Za-z0-9._~-]/.test(String.fromCharCode(byte))?String.fromCharCode(byte):'%'+byte.toString(16).toUpperCase().padStart(2,'0')).join(''));
-                            normalizations.set(node.pointer,prepared.text);
+                            normalizations.set(node.pointer,{text:prepared.text});
                         }
                         mediaValues[name]=encoded;
                     }
@@ -465,7 +465,7 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
                     const schema=selected??(candidates.length===1?candidates[0]:undefined);
                     if(kind==='xml'&&!schema)fail('request.multipart.schema','XML part requires its own unique captured schema',entry.at,true);
                     const prepared=await prepareModeledMedia(input,doc.dataJson(pointer),selectedType!,schema,false,input.direction==='response'?'response':'request',context);
-                    part.bytes=prepared.bytes.toString('base64');normalizations.set(pointer,prepared.text);parts.push(part);continue;
+                    part.bytes=prepared.bytes.toString('base64');normalizations.set(pointer,{text:prepared.text});parts.push(part);continue;
                 }
                 let text:string;
                 try{text=literalText!==undefined?literalText:styled&&!entry.expanded?multipartStyleText(doc,entry.node,entry.rule):kind==='json'?doc.dataJson(pointer):entry.node.kind==='string'?entry.node.value:doc.dataJson(pointer);}
@@ -476,7 +476,9 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
                         // Existing native text entry uses UTF-8. Its legacy
                         // binary-string model counts those octets; files keep
                         // their independently captured raw representation.
-                        part.bytes=Buffer.from(text,'utf8').toString('base64');
+                        const bytes=Buffer.from(text,'utf8');
+                        part.bytes=bytes.toString('base64');
+                        normalizations.set(pointer,{text:JSON.stringify(bytes.toString('latin1')),intent:true});
                     }else if(literalText!==undefined&&kind==='xml'&&!transfer.schemaEncoded){
                         part.bytes=rawXmlBytes(text,media.parameters.get('charset')).toString('base64');
                     }else if(kind==='text'&&!transfer.schemaEncoded&&!form){
@@ -508,13 +510,13 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
         for(const map of [choices,headers,selections])for(const pointer of Object.keys(map))if(!used.has(pointer))fail('request.multipart.choice.stale','Part input '+pointer+' has no emitted position');
         if(usedFiles.size!==files.length)fail('request.multipart.file.stale','A selected file has no emitted instance position');
     }
-    let normalized=doc.text;
-    for(const [pointer,value]of [...normalizations].sort((a,b)=>doc.dataNode(b[0])!.range[0]-doc.dataNode(a[0])!.range[0])){
-        const node=doc.dataNode(pointer)!;normalized=normalized.slice(0,node.range[0])+value+normalized.slice(node.range[1]);
-    }
-    const normalizedDocument=new SourceDocument(normalized,'urn:busyapi:normalized-multipart',true,'json');
-    if(normalizedDocument.issues.length)throw normalizedDocument.issues[0];
-    return {tree,controls,selectedChecks,input:hash(Buffer.from(input.text)),original:doc.dataJson(''),raw:normalizedDocument.dataJson(''),partSchemas:selections,files,fileShapes,intentOmissions:[...intentOmissions]};
+    const project=(intent:boolean)=>doc.dataJson('',(_node,pointer)=>{
+        const normalized=normalizations.get(pointer);
+        return normalized&&(!intent||normalized.intent)?normalized.text:undefined;
+    });
+    const original=[...normalizations.values()].some(value=>value.intent)?project(true):doc.dataJson('');
+    const raw=[...normalizations.values()].every(value=>value.intent)?original:project(false);
+    return {tree,controls,selectedChecks,input:hash(Buffer.from(input.text)),original,raw,partSchemas:selections,files,fileShapes,intentOmissions:[...intentOmissions]};
 }
 
 /** A MIME body and a simplified schema are insufficient evidence. Decode the

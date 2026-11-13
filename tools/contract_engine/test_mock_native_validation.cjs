@@ -203,3 +203,16 @@ for(const mediaType of ['application/linkset','application/linkset+json'])test(`
  if(mediaType==='application/linkset+json')assert.deepEqual(JSON.parse(response.text),{linkset:[]});else assert.equal(response.text,'');
  assert.equal(response.headers.link,'');
 });
+
+for(const version of ['3.0.0','3.0.4'])test(`${version} mock binary Unicode examples share native octet normalization`,{timeout:20000},async t=>{
+ const document={openapi:version,info:{title:'Binary Unicode example',version:'1'},paths:{'/binary':{post:{responses:{200:{description:'Binary form',content:{'multipart/form-data':{
+  schema:{type:'object',required:['asset','exact'],properties:{asset:{type:'string',format:'binary',minLength:7,maxLength:7},exact:{type:'integer',enum:['__exact__']}}},
+  example:{asset:'雪😀',exact:'__exact__'},
+ }}}}}}}};
+ const source=JSON.stringify(document).replaceAll('"__exact__"','9007199254740993.00');
+ const {port}=await start(t,mockStart(source)),response=await request(port,'/binary');
+ assert.equal(response.status,200,response.text);
+ assert.equal(response.headers['busyapi-response-validation-complete'],'true');
+ assert(response.bytes.includes(Buffer.from('\r\n\r\n雪😀\r\n')),response.text);
+ assert(response.bytes.includes(Buffer.from('9007199254740993.00')),response.text);
+});
