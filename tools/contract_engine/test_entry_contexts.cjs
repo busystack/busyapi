@@ -4,6 +4,19 @@ const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
 const {requestOperation}=require('./dist/execution.cjs');
 const {planMigration}=require('./dist/migration.cjs');
 const a='file:///entries/a.json',b='file:///entries/b.json',model='file:///entries/model.json';
+test('reusing a capture retains late located Path Item family diagnostics',()=>{
+ const entry=(version,paths)=>({openapi:version,info:{title:'Captured Path Item',version:'1'},paths});
+ const input={root:a,snapshot:'late-family-issue',resources:[
+  {id:a,generation:1,text:JSON.stringify(entry('3.0.4',{'/p':{$ref:'b.json#/paths/~1p'}}))},
+  {id:b,generation:1,text:JSON.stringify(entry('3.1.2',{'/p':{get:{responses:{204:{description:'Empty'}}}}}))},
+ ]};
+ const context=createGraph(input),direct=analyse(input),reused=analyse(input,context);
+ for(const result of [direct,reused]){
+  assert.equal(result.complete,false);
+  assert(result.findings.some(finding=>finding.code==='reference.family.unsupported'&&finding.resource===a&&finding.pointer==='/paths/~1p/$ref'&&finding.range[1]>finding.range[0]),JSON.stringify(result.findings));
+ }
+ assert.deepEqual(reused.findings,direct.findings);
+});
 function fixture(){
  const doc=(version,name)=>({openapi:version,info:{title:name,version:'1'},paths:{'/p':{get:{responses:{200:{description:'Value',content:{'application/json':{schema:{$ref:'#/components/schemas/Model'}}}}}}}},
   security:[{[name]:[]}],components:{schemas:{Model:{$ref:'model.json#/Value'}},securitySchemes:{[name]:{type:'apiKey',in:'header',name:'X-'+name}},examples:{
