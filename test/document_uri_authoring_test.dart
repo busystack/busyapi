@@ -132,7 +132,7 @@ void main() {
             expect(tester.takeException(), null);
           } finally {
             await tester.pumpWidget(const SizedBox());
-            await tester.runAsync(c.shutdown);
+            await runWidgetIo(tester, c.shutdown);
             c.dispose();
             await tester.runAsync(c.engine.close);
             temp.deleteSync(recursive: true);

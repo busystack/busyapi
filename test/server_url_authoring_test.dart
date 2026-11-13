@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   for (final version in ['3.0.4', '3.1.2', '3.2.1']) {
@@ -91,7 +92,7 @@ void main() {
                   ? '{"openapi":"$version","info":{"title":"Servers 🐾","version":"1"},"paths":{},"servers":[{"url":${jsonEncode(invalid)}}],"x-exact":900719925474099312345}'
                   : 'openapi: $version\r\ninfo: {title: "Servers 🐾", version: "1"}\npaths: {}\nservers:\n  - url: $invalid\nx-exact: 900719925474099312345';
               final original = [239, 187, 191, ...utf8.encode(source)];
-              await tester.runAsync(() async {
+              await runWidgetIo(tester, () async {
                 await file.writeAsBytes(original);
                 await c.initialize();
                 await c.open(file.path);
@@ -154,7 +155,7 @@ void main() {
               expect(field.text, repaired);
               expect(c.analysis!['status'], 'complete');
               expect(file.readAsBytesSync(), original);
-              await tester.runAsync(c.undo);
+              await runWidgetIo(tester, c.undo);
               await tester.runAsync(c.analyse);
               await waitFor(
                 () =>
@@ -166,7 +167,7 @@ void main() {
                 tester.widget<BusyApiGroupedTextEntry>(row).errorText,
                 isNotNull,
               );
-              await tester.runAsync(c.redo);
+              await runWidgetIo(tester, c.redo);
               await tester.runAsync(c.analyse);
               await waitFor(
                 () =>
@@ -192,7 +193,7 @@ void main() {
               expect(tester.takeException(), isNull);
             } finally {
               await tester.pumpWidget(const SizedBox.shrink());
-              await tester.runAsync(c.shutdown);
+              await runWidgetIo(tester, c.shutdown);
               c.dispose();
               await tester.runAsync(c.engine.close);
               temp.deleteSync(recursive: true);

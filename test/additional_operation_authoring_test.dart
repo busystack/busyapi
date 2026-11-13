@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   for (final format in ['yaml', 'json']) {
@@ -78,7 +79,7 @@ void main() {
         }
 
         try {
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await controller.initialize();
             await controller.open(file.path);
             await controller.selectObject({
@@ -158,7 +159,7 @@ void main() {
           expect(file.readAsStringSync(), original);
           expect(controller.buffer!.text, contains('COPY'));
           final created = controller.buffer!.text;
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await tester.enterText(
               find.descendant(of: summary, matching: find.byType(EditableText)),
               'Case preserved',
@@ -170,12 +171,12 @@ void main() {
           expect(changed, isNot(created));
           expect(changed, contains('COPY'));
           expect(changed, contains('Case preserved'));
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await controller.undo();
             await controller.analyse();
           });
           expect(controller.buffer!.text, created);
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await controller.redo();
             await controller.analyse();
           });
@@ -186,7 +187,7 @@ void main() {
           expect(tester.takeException(), isNull);
         } finally {
           await tester.pumpWidget(const SizedBox.shrink());
-          await tester.runAsync(controller.shutdown);
+          await runWidgetIo(tester, controller.shutdown);
           controller.dispose();
           temp.deleteSync(recursive: true);
         }

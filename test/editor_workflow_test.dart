@@ -24,6 +24,7 @@ import 'package:busyapi/src/platform/native_menu_service.dart';
 import 'package:busyapi/src/platform/gtk_animation_settings_service.dart';
 import 'package:busyapi/src/platform/gtk_window_preferences_service.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'widget_io.dart';
 
 Widget host(Widget body) => MaterialApp(
   theme: buildBusyApiTheme(
@@ -159,7 +160,7 @@ void main() {
         expect(tester.takeException(), isNull);
       } finally {
         await tester.pumpWidget(const SizedBox.shrink());
-        await tester.runAsync(c.shutdown);
+        await runWidgetIo(tester, c.shutdown);
         c.dispose();
         await tester.runAsync(c.engine.close);
         temp.deleteSync(recursive: true);
@@ -274,7 +275,7 @@ void main() {
             }
             engine.release = null;
             await tester.pumpWidget(const SizedBox.shrink());
-            await tester.runAsync(c.shutdown);
+            await runWidgetIo(tester, c.shutdown);
             c.dispose();
             temp.deleteSync(recursive: true);
           }
@@ -323,7 +324,7 @@ void main() {
         await tester.pumpAndSettle();
         final title = find.widgetWithText(TextFormField, 'Title');
         await tester.runAsync(() => tester.enterText(title, 'Changed'));
-        await tester.runAsync(() async {
+        await runWidgetIo(tester, () async {
           expect(await c.flush(), true);
           await c.analyse();
         });
@@ -384,7 +385,7 @@ void main() {
         expect(tester.takeException(), isNull);
       } finally {
         await tester.pumpWidget(const SizedBox());
-        await tester.runAsync(c.shutdown);
+        await runWidgetIo(tester, c.shutdown);
         c.dispose();
         temp.deleteSync(recursive: true);
       }
@@ -435,7 +436,7 @@ void main() {
         expect(tester.takeException(), isNull);
       } finally {
         await tester.pumpWidget(const SizedBox());
-        await tester.runAsync(c.shutdown);
+        await runWidgetIo(tester, c.shutdown);
         c.dispose();
         temp.deleteSync(recursive: true);
       }
@@ -478,7 +479,7 @@ void main() {
           find.widgetWithText(DraftField, 'Title'),
         );
         await tester.runAsync(() => tester.enterText(field, 'Changed'));
-        await tester.runAsync(() async {
+        await runWidgetIo(tester, () async {
           expect(await c.flush(), true);
           await c.analyse();
         });
@@ -490,7 +491,7 @@ void main() {
             )
             .focusNode!;
         expect(focus.hasFocus, true);
-        await tester.runAsync(() async {
+        await runWidgetIo(tester, () async {
           engine.release = Completer<void>();
           engine.entered = Completer<void>();
           await c.undo();
@@ -531,7 +532,7 @@ void main() {
               .readOnly,
           false,
         );
-        await tester.runAsync(c.redo);
+        await runWidgetIo(tester, c.redo);
         await tester.runAsync(c.analyse);
         await tester.pump();
         expect(tester.widget<TextFormField>(field).controller!.text, 'Changed');
@@ -549,7 +550,7 @@ void main() {
           await tester.runAsync(() => delayedAnalysis!);
         }
         await tester.pumpWidget(const SizedBox());
-        await tester.runAsync(c.shutdown);
+        await runWidgetIo(tester, c.shutdown);
         c.dispose();
         temp.deleteSync(recursive: true);
       }
@@ -569,7 +570,7 @@ void main() {
           cache: '${temp.path}/cache',
         ),
       );
-      await tester.runAsync(() async {
+      await runWidgetIo(tester, () async {
         await c.initialize();
         await Initializer.create(
           destination: '${temp.path}/api',
@@ -605,7 +606,7 @@ void main() {
           'Changed',
         ),
       );
-      await tester.runAsync(() async {
+      await runWidgetIo(tester, () async {
         expect(await c.flush(), true);
         await c.analyse();
       });
@@ -677,7 +678,7 @@ void main() {
       expect(tester.state(find.byType(Designer)), same(design));
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
-      await tester.runAsync(c.shutdown);
+      await runWidgetIo(tester, c.shutdown);
       c.dispose();
       temp.deleteSync(recursive: true);
     },
@@ -750,7 +751,7 @@ void main() {
       expect(find.textContaining('engine.closed'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
-      await tester.runAsync(c.shutdown);
+      await runWidgetIo(tester, c.shutdown);
       c.dispose();
       temp.deleteSync(recursive: true);
     },
@@ -896,7 +897,7 @@ void main() {
       expect(b.dirty, false);
       expect(published.where((id) => id == a.id).length, 2);
       expect(published.where((id) => id == b.id).length, 1);
-      await tester.runAsync(c.shutdown);
+      await runWidgetIo(tester, c.shutdown);
       c.dispose();
       temp.deleteSync(recursive: true);
     },
@@ -978,7 +979,7 @@ void main() {
         expect(File(c.buffer!.path).readAsStringSync(), contains('First'));
         expect(pendingField ? c.hasPendingFields : c.buffer!.dirty, true);
         await tester.pumpWidget(const SizedBox());
-        await tester.runAsync(() async {
+        await runWidgetIo(tester, () async {
           await c.discardDrafts();
           await c.shutdown();
         });
@@ -1121,7 +1122,7 @@ void main() {
       }
       expect(c.analysis!['complete'], true);
       await tester.pumpWidget(const SizedBox());
-      await tester.runAsync(c.shutdown);
+      await runWidgetIo(tester, c.shutdown);
       c.dispose();
       temp.deleteSync(recursive: true);
     },
@@ -1142,7 +1143,7 @@ void main() {
         ),
       );
       late File fragment;
-      await tester.runAsync(() async {
+      await runWidgetIo(tester, () async {
         await c.initialize();
         await Initializer.create(
           destination: '${temp.path}/api',
@@ -1197,7 +1198,7 @@ void main() {
       expect(c.buffer!.text, 'notes: draft\n');
       expect(fragment.readAsStringSync(), 'notes: third\n');
       await tester.pumpWidget(const SizedBox());
-      await tester.runAsync(c.shutdown);
+      await runWidgetIo(tester, c.shutdown);
       c.dispose();
       temp.deleteSync(recursive: true);
     },
@@ -1219,7 +1220,7 @@ void main() {
               cache: '${temp.path}/cache',
             ),
           );
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await c.initialize();
             for (final name in ['a', 'b']) {
               await Initializer.create(
@@ -1263,7 +1264,7 @@ void main() {
           expect(lateNotifications, 0);
           if (replace) {
             expect(c.buffer!.text, contains('"b"'));
-            await tester.runAsync(c.shutdown);
+            await runWidgetIo(tester, c.shutdown);
             c.dispose();
           } else {
             await tester.runAsync(c.engine.close);
@@ -1798,7 +1799,7 @@ void main() {
           'Changed',
         ),
       );
-      await tester.runAsync(() async {
+      await runWidgetIo(tester, () async {
         expect(await c.flush(), true);
         await c.analyse();
       });
@@ -1810,7 +1811,7 @@ void main() {
             .text,
         'Changed',
       );
-      await tester.runAsync(() async {
+      await runWidgetIo(tester, () async {
         await c.undo();
         await c.analyse();
       });
@@ -1822,7 +1823,7 @@ void main() {
             .text,
         'Original',
       );
-      await tester.runAsync(() async {
+      await runWidgetIo(tester, () async {
         await c.redo();
         await c.analyse();
       });
@@ -1922,7 +1923,7 @@ void main() {
           ),
         );
       });
-      await tester.runAsync(() async {
+      await runWidgetIo(tester, () async {
         expect(await c.flush(), true);
         await c.analyse();
       });
@@ -1931,7 +1932,7 @@ void main() {
       expect(tester.state(find.byType(Designer)), same(originalState));
       expect(c.projection!['info']['value']['title'], 'First field');
       await tester.pumpWidget(const SizedBox.shrink());
-      await tester.runAsync(c.shutdown);
+      await runWidgetIo(tester, c.shutdown);
       c.dispose();
       temp.deleteSync(recursive: true);
     },
@@ -1988,7 +1989,7 @@ void main() {
           'Safe metadata',
         ),
       );
-      await tester.runAsync(() async {
+      await runWidgetIo(tester, () async {
         expect(await c.flush(), true);
         await c.analyse();
       });
@@ -2017,7 +2018,7 @@ void main() {
       });
       await tester.pumpWidget(const SizedBox.shrink());
       c.dispose();
-      await tester.runAsync(() async {
+      await runWidgetIo(tester, () async {
         engine.release!.complete();
         expect(await flushing, false);
         await c.shutdown();
@@ -2042,7 +2043,7 @@ void main() {
       );
       late String path, partId;
       late List<int> before;
-      await tester.runAsync(() async {
+      await runWidgetIo(tester, () async {
         await c.initialize();
         path = await Initializer.create(
           destination: '${temp.path}/api',
@@ -2087,7 +2088,7 @@ void main() {
       expect(restored.buffer!.scroll, 48);
       expect(File(path).readAsBytesSync(), before);
       expect(restored.layoutState['fraction'], .64);
-      await tester.runAsync(restored.shutdown);
+      await runWidgetIo(tester, restored.shutdown);
       restored.dispose();
       temp.deleteSync(recursive: true);
     },
@@ -2117,7 +2118,7 @@ void main() {
           cache: '${temp.path}/cache',
         ),
       );
-      await tester.runAsync(() async {
+      await runWidgetIo(tester, () async {
         await c.initialize();
         await c.open(temp.path);
         await c.selectRoot(c.project!.roots.first.id);
@@ -2149,7 +2150,7 @@ void main() {
         1,
       );
       await tester.pumpWidget(const SizedBox.shrink());
-      await tester.runAsync(c.shutdown);
+      await runWidgetIo(tester, c.shutdown);
       c.dispose();
       temp.deleteSync(recursive: true);
     },
@@ -2201,7 +2202,7 @@ void main() {
       expect(c.project, isNotNull);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
-      await tester.runAsync(c.shutdown);
+      await runWidgetIo(tester, c.shutdown);
       c.dispose();
       temp.deleteSync(recursive: true);
     },
@@ -2239,7 +2240,7 @@ void main() {
         refresh = c.pollDisk();
       });
       c.dispose();
-      await tester.runAsync(() async {
+      await runWidgetIo(tester, () async {
         engine.release!.complete();
         await analysis;
         await refresh;
@@ -2264,7 +2265,7 @@ void main() {
           cache: '${temp.path}/cache',
         ),
       );
-      await tester.runAsync(() async {
+      await runWidgetIo(tester, () async {
         await c.initialize();
         await Initializer.create(
           destination: '${temp.path}/api',
@@ -2482,7 +2483,7 @@ void main() {
           expect(c.projection!['operations'], isEmpty);
           expect(tester.takeException(), isNull);
           await tester.pumpWidget(const SizedBox.shrink());
-          await tester.runAsync(c.shutdown);
+          await runWidgetIo(tester, c.shutdown);
           c.dispose();
           temp.deleteSync(recursive: true);
         },
@@ -2644,7 +2645,7 @@ void main() {
           expect(contract.readAsStringSync(), original);
           expect(manifest.readAsStringSync(), 'concurrent manifest');
           await tester.pumpWidget(const SizedBox.shrink());
-          await tester.runAsync(c.shutdown);
+          await runWidgetIo(tester, c.shutdown);
           c.dispose();
           temp.deleteSync(recursive: true);
           return;
@@ -2716,7 +2717,7 @@ void main() {
         expect(find.text('Create Project'), findsNothing);
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox.shrink());
-        await tester.runAsync(c.shutdown);
+        await runWidgetIo(tester, c.shutdown);
         c.dispose();
         temp.deleteSync(recursive: true);
       },
@@ -2864,10 +2865,10 @@ void main() {
           await form(() => addOperation(context, c), {'Path': '/items'});
           expect(operation()['method'], 'get');
           expect(operation()['value'], isEmpty); // No invented response/body.
-          await tester.runAsync(c.undo);
+          await runWidgetIo(tester, c.undo);
           await tester.pump();
           expect(c.buffer!.text, baseline);
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await c.redo();
             await c.analyse();
           });
@@ -2909,7 +2910,7 @@ void main() {
           expect(operation()['value']['responses']['205'], {
             'description': 'Changed only',
           });
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await c.undo();
             await c.analyse();
           });
@@ -2917,7 +2918,7 @@ void main() {
           expect(operation()['value']['responses']['204'], {
             'description': 'Changed only',
           });
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await c.redo();
             await c.analyse();
           });
@@ -3085,13 +3086,13 @@ void main() {
             ),
             findsOneWidget,
           );
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await c.undo();
             await c.analyse();
           });
           await tester.pumpAndSettle();
           expect(c.projection!['info']['value']['title'], 'test');
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await c.redo();
             await c.analyse();
             await c.saveAll();
@@ -3103,7 +3104,7 @@ void main() {
           expect(c.analysis!['status'], 'complete');
           expect(c.buffer!.dirty, false);
           await tester.pumpWidget(const SizedBox.shrink());
-          await tester.runAsync(c.shutdown);
+          await runWidgetIo(tester, c.shutdown);
           c.dispose();
           temp.deleteSync(recursive: true);
         },
@@ -3171,7 +3172,7 @@ void main() {
         await pickerStarted.future;
       });
       await tester.pumpWidget(const SizedBox.shrink());
-      await tester.runAsync(() async {
+      await runWidgetIo(tester, () async {
         directory.complete(parent.path);
         await creation;
         await c.shutdown();
@@ -3243,7 +3244,7 @@ void main() {
       expect(c.buffer!.text, baseline);
       expect(calls, 0);
       expect(tester.takeException(), isNull);
-      await tester.runAsync(c.shutdown);
+      await runWidgetIo(tester, c.shutdown);
       c.dispose();
       temp.deleteSync(recursive: true);
     },
@@ -3404,14 +3405,14 @@ void main() {
       ),
     );
     expect(c.draft!.pending, true);
-    await tester.runAsync(() async {
+    await runWidgetIo(tester, () async {
       expect(await c.flush(), true);
     });
     await tester.pump();
     expect(c.buffer!.text, contains('Draft title'));
     expect(c.buffer!.text, contains('"2"'));
     await tester.pumpWidget(const SizedBox.shrink());
-    await tester.runAsync(c.shutdown);
+    await runWidgetIo(tester, c.shutdown);
     c.dispose();
     temp.deleteSync(recursive: true);
   });

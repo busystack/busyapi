@@ -13,6 +13,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -328,7 +329,7 @@ void main() {
         } finally {
           if (!release.isCompleted) release.complete();
           await tester.pumpWidget(const SizedBox.shrink());
-          await tester.runAsync(c.shutdown);
+          await runWidgetIo(tester, c.shutdown);
           c.dispose();
           await tester.runAsync(c.engine.close);
           temp.deleteSync(recursive: true);

@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   for (final version in ['2.0', '3.0.4', '3.1.2', '3.2.1']) {
@@ -71,7 +72,7 @@ void main() {
 
           try {
             late RefactoringPlan plan;
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await root.writeAsString(
                 jsonEncode({
                   version == '2.0' ? 'swagger' : 'openapi': version,
@@ -174,7 +175,7 @@ void main() {
             expect(tester.takeException(), isNull);
           } finally {
             await tester.pumpWidget(const SizedBox.shrink());
-            await tester.runAsync(c.shutdown);
+            await runWidgetIo(tester, c.shutdown);
             c.dispose();
             await tester.runAsync(c.engine.close);
             await tester.runAsync(() => temp.delete(recursive: true));

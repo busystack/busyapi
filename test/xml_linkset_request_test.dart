@@ -8,6 +8,7 @@ import 'package:busyapi_core/busyapi_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 class _NativeHttp extends HttpOverrides {}
 class _PreparationEngine extends EngineProcess {
   _PreparationEngine() : super(executable: runtimeNode, helper: runtimeHelper);
@@ -69,7 +70,7 @@ void main() {
         expect(run.serializedContent, xml ? contains('9007199254740993') : contains('/p'));
         final preparations = engine.preparations;
         expect(preparations, greaterThan(0));
-        await tester.runAsync(() => HttpOverrides.runWithHttpOverrides(run.send,_NativeHttp()));await tester.pump();
+        await runWidgetIo(tester, () => HttpOverrides.runWithHttpOverrides(run.send,_NativeHttp()));await tester.pump();
         expect(engine.preparations, preparations);
         expect(run.failure,isNull,reason:run.failureMessage);expect(run.result!.conforming,true);
         expect(run.result!.received.modeledData,isNotNull);expect(run.result!.outgoing.modeledData,isNotNull);expect(seen,hasLength(1));
@@ -89,7 +90,7 @@ void main() {
         expect(file.readAsStringSync(),original);
       } finally {
         await tester.pumpWidget(const SizedBox.shrink());
-        await tester.runAsync(() async {run.dispose();await workspace.shutdown();workspace.dispose();await server?.close(force:true);directory.deleteSync(recursive:true);});
+        await runWidgetIo(tester, () async {run.dispose();await workspace.shutdown();workspace.dispose();await server?.close(force:true);directory.deleteSync(recursive:true);});
       }
     });
   }

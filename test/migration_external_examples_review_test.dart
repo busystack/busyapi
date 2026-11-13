@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -341,7 +342,7 @@ void main() {
                 await tester.runAsync(() => dialog!);
               } finally {
                 await tester.pumpWidget(const SizedBox.shrink());
-                await tester.runAsync(controller.shutdown);
+                await runWidgetIo(tester, controller.shutdown);
                 controller.dispose();
                 directory.deleteSync(recursive: true);
               }
@@ -510,7 +511,7 @@ void _r3bUnusedReviews() {
           await tester.runAsync(() => dialog!);
         } finally {
           await tester.pumpWidget(const SizedBox.shrink());
-          await tester.runAsync(controller.shutdown);
+          await runWidgetIo(tester, controller.shutdown);
           controller.dispose();
           directory.deleteSync(recursive: true);
         }

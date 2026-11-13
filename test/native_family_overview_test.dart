@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   for (final version in ['2.0', '3.0.4', '3.1.2', '3.2.1']) {
@@ -46,7 +47,7 @@ void main() {
         Future<void>? pending;
         void run(Future<void> Function() action) => pending = action();
         try {
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await c.initialize();
             await c.open(file.path);
             await c.selectObject({
@@ -121,7 +122,7 @@ void main() {
           expect(c.buffer!.text.contains('summary:'), false);
         } finally {
           await tester.pumpWidget(const SizedBox());
-          await tester.runAsync(c.shutdown);
+          await runWidgetIo(tester, c.shutdown);
           c.dispose();
           await tester.runAsync(() => temp.delete(recursive: true));
         }

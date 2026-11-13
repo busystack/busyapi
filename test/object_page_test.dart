@@ -14,6 +14,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -91,7 +92,7 @@ void main() {
         home: Scaffold(body: child),
       );
       try {
-        await tester.runAsync(() async {
+        await runWidgetIo(tester, () async {
           await c.initialize(); await c.open(file.path);
           await c.selectObject({'root': c.root, 'resource': c.root, 'pointer': '/components/responses/Shared'});
           await c.analyse();
@@ -124,7 +125,7 @@ void main() {
         expect(tester.takeException(), isNull);
       } finally {
         await tester.pumpWidget(const SizedBox.shrink());
-        await tester.runAsync(c.shutdown); c.dispose(); temp.deleteSync(recursive: true);
+        await runWidgetIo(tester, c.shutdown); c.dispose(); temp.deleteSync(recursive: true);
       }
     });
   }
@@ -207,7 +208,7 @@ void main() {
             final file = File('${temp.path}/root.${json ? 'json' : 'yaml'}');
             final original =
                 '${json ? '' : '# retained 😀\r\n'}{"openapi":"$version","info":{"title":"T","version":"1","contact":{}},"paths":{},"x-number":9007199254740993.00}';
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await file.writeAsString(original);
               await c.initialize();
               await c.open(file.path);
@@ -284,13 +285,13 @@ void main() {
               withEmpty,
               reason: 'An unchanged string dialog must be byte-identical',
             );
-            await tester.runAsync(c.undo);
+            await runWidgetIo(tester, c.undo);
             expect(
               c.buffer!.text,
               original,
               reason: 'No-op Apply must not add another history step',
             );
-            await tester.runAsync(c.redo);
+            await runWidgetIo(tester, c.redo);
             await waitFor(
               () => find.text('Authored empty string').evaluate().isNotEmpty,
             );
@@ -302,7 +303,7 @@ void main() {
             );
             await settleAction('remove value');
             expect(c.buffer!.text, isNot(contains('"email"')));
-            await tester.runAsync(c.undo);
+            await runWidgetIo(tester, c.undo);
             expect(c.buffer!.text, withEmpty);
             await tester.runAsync(() async {
               await publishSources(c.project!, [c.buffer!]);
@@ -314,7 +315,7 @@ void main() {
             });
           } finally {
             await tester.pumpWidget(const SizedBox.shrink());
-            await tester.runAsync(c.shutdown);
+            await runWidgetIo(tester, c.shutdown);
             c.dispose();
             temp.deleteSync(recursive: true);
           }
@@ -376,7 +377,7 @@ void main() {
         }
 
         try {
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await c.initialize();
             await Initializer.create(
               destination: '${temp.path}/api',
@@ -511,7 +512,7 @@ void main() {
           expect(File(c.buffer!.path).readAsStringSync(), contains('Original'));
           final modelId = c.buffer!.id;
           final beforeRequired = c.buffer!.text;
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await c.analyse();
             await c.selectObject({
               'root': c.root,
@@ -552,7 +553,7 @@ void main() {
           expect(jsonDecode(c.buffer!.text)['Model']['required'], ['name']);
           c.store!.undo();
           expect(c.buffer!.text, beforeRequired);
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await c.analyse();
             await c.selectObject({
               'root': c.root,
@@ -595,14 +596,14 @@ void main() {
           expect(jsonDecode(c.buffer!.text)['Model']['default'], {
             'name': 'sample',
           });
-          await tester.runAsync(c.undo);
+          await runWidgetIo(tester, c.undo);
           expect(c.selectedPointer, '/Model/properties/name');
           expect(c.buffer!.text, beforeProperty);
-          await tester.runAsync(c.redo);
+          await runWidgetIo(tester, c.redo);
           expect(c.selectedPointer, '/Model/properties/wire~1😀');
-          await tester.runAsync(c.undo);
+          await runWidgetIo(tester, c.undo);
           expect(c.buffer!.text, beforeProperty);
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await c.analyse();
             await c.selectObject({
               ...Map<String, dynamic>.from(c.projection!['info']),
@@ -645,7 +646,7 @@ void main() {
           expect(jsonDecode(c.store!.get(c.root!).text)['servers'], [
             {'url': 'https://{host}/v1'},
           ]);
-          await tester.runAsync(c.undo);
+          await runWidgetIo(tester, c.undo);
           expect(
             jsonDecode(c.store!.get(c.root!).text)['servers'],
             <Object?>[],
@@ -655,7 +656,7 @@ void main() {
             jsonDecode(c.store!.get(c.root!).text).containsKey('servers'),
             false,
           );
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await c.analyse();
             await c.selectObject({
               ...Map<String, dynamic>.from(c.projection!['info']),
@@ -692,7 +693,7 @@ void main() {
           expect(jsonDecode(c.store!.get(c.root!).text)['security'], [
             {'Key': []},
           ]);
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await c.selectObject({
               'root': c.root,
               'resource': c.root,
@@ -715,7 +716,7 @@ void main() {
           expect(jsonDecode(c.store!.get(c.root!).text)['security'], [
             {'Key': [], 'Other': []},
           ]);
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await c.selectObject({
               'root': c.root,
               'resource': c.root,
@@ -768,9 +769,9 @@ void main() {
             'original',
             r'literal $ref 😀',
           ]);
-          await tester.runAsync(c.undo);
+          await runWidgetIo(tester, c.undo);
           expect(c.buffer!.text, beforeTags);
-          await tester.runAsync(c.redo);
+          await runWidgetIo(tester, c.redo);
           await waitFor(
             () => find
                 .widgetWithText(BusyApiActionRow, r'literal $ref 😀')
@@ -886,10 +887,10 @@ void main() {
             )['paths']['/suggest']['post']['responses']['204'],
             {'description': 'Bodyless'},
           );
-          await tester.runAsync(c.undo);
+          await runWidgetIo(tester, c.undo);
           expect(c.buffer!.text, beforeSuggestion);
-          await tester.runAsync(c.redo);
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, c.redo);
+          await runWidgetIo(tester, () async {
             await c.analyse();
             await c.selectObject({
               'resource': c.root,
@@ -979,7 +980,7 @@ void main() {
             )['components']['schemas']['Alias'][r'$ref'],
             '#/components/schemas/Renamed',
           );
-          await tester.runAsync(c.undo);
+          await runWidgetIo(tester, c.undo);
           await tester.pumpAndSettle();
           expect(c.selectedPointer, '/components/schemas/Model');
           expect(
@@ -987,13 +988,13 @@ void main() {
             contains('/components/schemas/Model'),
           );
           expect(c.buffer!.text, beforeRename);
-          await tester.runAsync(c.redo);
+          await runWidgetIo(tester, c.redo);
           await tester.pumpAndSettle();
           expect(c.selectedPointer, '/components/schemas/Renamed');
           expect(tester.takeException(), isNull);
         } finally {
           await tester.pumpWidget(const SizedBox.shrink());
-          await tester.runAsync(c.shutdown);
+          await runWidgetIo(tester, c.shutdown);
           c.dispose();
           temp.deleteSync(recursive: true);
         }

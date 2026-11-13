@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -126,7 +127,7 @@ environments:
 ''';
               final manifest = File('${directory.path}/busyapi.yaml')
                 ..writeAsStringSync(configuration);
-              await tester.runAsync(() async {
+              await runWidgetIo(tester, () async {
                 await controller.initialize();
                 await controller.open(directory.path);
                 await controller.selectObject({
@@ -233,7 +234,7 @@ environments:
                 expect(manifest.readAsStringSync(), configuration);
                 await button('Cancel');
                 await settleAction();
-                await tester.runAsync(controller.undo);
+                await runWidgetIo(tester, controller.undo);
                 expect(
                   controller.store!.get(manifest.uri.toString()).text,
                   configuration,
@@ -257,13 +258,13 @@ environments:
                 acceptedConfiguration,
                 contains('${jsonEncode(binding)}: {secretRef:'),
               );
-              await tester.runAsync(controller.undo);
+              await runWidgetIo(tester, controller.undo);
               expect(controller.store!.get(root).text, source);
               expect(
                 controller.store!.get(manifest.uri.toString()).text,
                 configuration,
               );
-              await tester.runAsync(controller.redo);
+              await runWidgetIo(tester, controller.redo);
               expect(controller.store!.get(root).text, accepted);
               expect(
                 controller.store!.get(manifest.uri.toString()).text,
@@ -285,7 +286,7 @@ environments:
               expect(tester.takeException(), isNull);
             } finally {
               await tester.pumpWidget(const SizedBox.shrink());
-              await tester.runAsync(controller.shutdown);
+              await runWidgetIo(tester, controller.shutdown);
               controller.dispose();
               directory.deleteSync(recursive: true);
             }

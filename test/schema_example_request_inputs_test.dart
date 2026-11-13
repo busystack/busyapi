@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   for (final version in ['2.0', '3.0.4', '3.1.2', '3.2.1']) {
@@ -147,7 +148,7 @@ void main() {
               expect(tester.takeException(), isNull);
             } finally {
               await tester.pumpWidget(const SizedBox.shrink());
-              await tester.runAsync(() async {
+              await runWidgetIo(tester, () async {
                 run.dispose();
                 await workspace.shutdown();
                 workspace.dispose();

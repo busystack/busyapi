@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -134,7 +135,7 @@ void main() {
           final file = File('${temp.path}/openapi.json')
             ..writeAsStringSync(original);
           try {
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await c.initialize();
               await c.open(file.path);
               await c.analyse();
@@ -240,9 +241,9 @@ void main() {
                   parsed['components']['parameters']['Consumer']['\$ref'],
                   '#/paths/~1pets/get/parameters/0',
                 );
-                await tester.runAsync(c.undo);
+                await runWidgetIo(tester, c.undo);
                 expect(c.buffer!.text, original);
-                await tester.runAsync(c.redo);
+                await runWidgetIo(tester, c.redo);
                 expect(c.buffer!.text, accepted);
                 return;
               }
@@ -338,13 +339,13 @@ void main() {
                 contains('/properties/new'),
               );
             }
-            await tester.runAsync(c.undo);
+            await runWidgetIo(tester, c.undo);
             expect(c.buffer!.text, original);
-            await tester.runAsync(c.redo);
+            await runWidgetIo(tester, c.redo);
             expect(c.buffer!.text, accepted);
           } finally {
             await tester.pumpWidget(const SizedBox.shrink());
-            await tester.runAsync(c.shutdown);
+            await runWidgetIo(tester, c.shutdown);
             c.dispose();
             await tester.runAsync(c.engine.close);
             temp.deleteSync(recursive: true);

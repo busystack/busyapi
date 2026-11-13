@@ -14,6 +14,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   for (final brightness in Brightness.values) {
@@ -171,7 +172,7 @@ void main() {
             search.dispose();
             previous.dispose();
             query.dispose();
-            await tester.runAsync(workspace.shutdown);
+            await runWidgetIo(tester, workspace.shutdown);
             workspace.dispose();
             directory.deleteSync(recursive: true);
           }

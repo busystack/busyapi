@@ -14,6 +14,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -84,7 +85,7 @@ void main() {
           }
 
           try {
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await c.initialize();
               final extension = json ? 'json' : 'yaml';
               final value = {
@@ -308,7 +309,7 @@ void main() {
           } finally {
             semantics.dispose();
             await tester.pumpWidget(const SizedBox.shrink());
-            await tester.runAsync(c.shutdown);
+            await runWidgetIo(tester, c.shutdown);
             c.dispose();
             temp.deleteSync(recursive: true);
             messenger.setMockMethodCallHandler(

@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 Future<void> ready(WidgetTester tester, bool Function() condition) async {
   final deadline = DateTime.now().add(const Duration(seconds: 8));
@@ -186,7 +187,7 @@ void main() {
           expect(find.byType(ReferenceObjectView), findsOneWidget);
         } finally {
           await tester.pumpWidget(const SizedBox());
-          await tester.runAsync(c.shutdown);
+          await runWidgetIo(tester, c.shutdown);
           c.dispose();
           temp.deleteSync(recursive: true);
         }

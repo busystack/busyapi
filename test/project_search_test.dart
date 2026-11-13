@@ -15,6 +15,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
 import 'support/search_test_host.dart';
+import 'widget_io.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -193,7 +194,7 @@ void main() {
         await tester.pumpWidget(const SizedBox.shrink());
         enteredSession?.dispose();
         session?.dispose();
-        await tester.runAsync(c.shutdown);
+        await runWidgetIo(tester, c.shutdown);
         c.dispose();
         await tester.runAsync(c.engine.close);
         temp.deleteSync(recursive: true);
@@ -450,7 +451,7 @@ void main() {
         } finally {
           await tester.pumpWidget(const SizedBox.shrink());
           session?.dispose();
-          await tester.runAsync(c.shutdown);
+          await runWidgetIo(tester, c.shutdown);
           c.dispose();
           temp.deleteSync(recursive: true);
         }
@@ -538,7 +539,7 @@ void main() {
         // callback itself is synchronous and must not touch its selection.
         expect(c.buffer!.text, contains('Second'));
         final second = c.buffer!.text;
-        await tester.runAsync(c.shutdown);
+        await runWidgetIo(tester, c.shutdown);
         c.dispose();
         final count = notifications;
         await tester.runAsync(() async {
@@ -553,7 +554,7 @@ void main() {
       } finally {
         await tester.pumpWidget(const SizedBox.shrink());
         if (!c.disposed) {
-          await tester.runAsync(c.shutdown);
+          await runWidgetIo(tester, c.shutdown);
           c.dispose();
         }
         temp.deleteSync(recursive: true);

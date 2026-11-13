@@ -14,6 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   setUp(() {
@@ -167,7 +168,7 @@ paths:
           expect(tester.takeException(), isNull);
         } finally {
           await tester.pumpWidget(const SizedBox.shrink());
-          await tester.runAsync(c.shutdown);
+          await runWidgetIo(tester, c.shutdown);
           c.dispose();
           dir.deleteSync(recursive: true);
         }

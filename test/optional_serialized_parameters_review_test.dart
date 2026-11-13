@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   for (final version in ['3.2.0', '3.2.1']) {
@@ -111,7 +112,7 @@ void main() {
           }
 
           try {
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await c.initialize();
               await c.open(file.path);
               await c.selectObject({
@@ -192,20 +193,20 @@ void main() {
               c.buffer!.text.substring(diagnostic.start, diagnostic.end),
               '""',
             );
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await c.undo();
               await c.analyse();
             });
             await tester.pumpAndSettle();
             expectExample(true);
             expect(c.buffer!.text, designed);
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await c.redo();
               await c.analyse();
             });
             await tester.pumpAndSettle();
             expectExample(false);
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await c.undo();
               await c.analyse();
               await c.saveAll();
@@ -216,7 +217,7 @@ void main() {
             expect(tester.takeException(), isNull);
           } finally {
             await tester.pumpWidget(const SizedBox());
-            await tester.runAsync(c.shutdown);
+            await runWidgetIo(tester, c.shutdown);
             c.dispose();
             await tester.runAsync(() => temp.delete(recursive: true));
           }

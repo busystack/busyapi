@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 class _NativeHttp extends HttpOverrides {}
 
@@ -197,7 +198,7 @@ paths:
             expect(run.partHeaderValue, 'retained');
             run.partHeaderName = run.partHeaderValue = '';
             run.refresh();
-            await tester.runAsync(
+            await runWidgetIo(tester, 
               () => HttpOverrides.runWithHttpOverrides(run.send, _NativeHttp()),
             );
             expect(run.failure, isNull, reason: run.failureMessage);
@@ -219,7 +220,7 @@ paths:
             String wire(String boundary) =>
                 '--$boundary\r\n${ordered ? '' : 'Content-Disposition: form-data; name="value"\r\n'}Content-Type: text/plain\r\nX-Meta: $_meta\r\n\r\nfalse\r\n--$boundary--\r\n';
             expect(seen.single.$4, utf8.encode(wire(boundary)));
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               workspace.sourceEdit(
                 workspace.active!,
                 source.replaceFirst(
@@ -237,7 +238,7 @@ paths:
             expect(file.readAsStringSync(), source);
           } finally {
             await tester.pumpWidget(const SizedBox.shrink());
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               run.dispose();
               await workspace.shutdown();
               workspace.dispose();

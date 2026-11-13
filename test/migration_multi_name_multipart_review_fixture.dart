@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void multiNameMultipartReviewRegressions() {
   for (final finite in [false, true]) {
@@ -88,7 +89,7 @@ void multiNameMultipartReviewRegressions() {
         await tester.runAsync(() => tester.tap(find.widgetWithText(BusyApiDialogButton, 'Close')));
         await tester.pumpAndSettle();await tester.runAsync(() => dialog!);
       } finally {
-        await tester.pumpWidget(const SizedBox.shrink());await tester.runAsync(controller.shutdown);controller.dispose();temp.deleteSync(recursive: true);
+        await tester.pumpWidget(const SizedBox.shrink());await runWidgetIo(tester, controller.shutdown);controller.dispose();temp.deleteSync(recursive: true);
       }
     });
   }

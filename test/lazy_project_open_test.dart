@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 class _SelectionEngine extends EngineProcess {
   _SelectionEngine() : super(executable: runtimeNode, helper: runtimeHelper);
@@ -106,7 +107,7 @@ void main() {
       }
 
       try {
-        await tester.runAsync(() async {
+        await runWidgetIo(tester, () async {
           await c.initialize();
           await c.open(projectDirectory.path);
           expect(c.project!.roots.map((root) => root.name), [
@@ -134,7 +135,7 @@ void main() {
         expect(tester.widget<TextField>(title).controller!.text, 'Second');
         expect(tester.widget<TextField>(title).readOnly, false);
         await tester.pumpWidget(const SizedBox.shrink());
-        await tester.runAsync(c.shutdown);
+        await runWidgetIo(tester, c.shutdown);
         c.dispose();
 
         engine = _SelectionEngine();
@@ -147,7 +148,7 @@ void main() {
         });
         await showDesigner();
         expect(tester.widget<TextField>(title).controller!.text, 'Second');
-        await tester.runAsync(() async {
+        await runWidgetIo(tester, () async {
           expect(await c.selectRoot(first), true);
           await c.analyse();
         });
@@ -162,7 +163,7 @@ void main() {
         expect(errors, isEmpty);
       } finally {
         await tester.pumpWidget(const SizedBox.shrink());
-        if (!c.disposed) await tester.runAsync(c.shutdown);
+        if (!c.disposed) await runWidgetIo(tester, c.shutdown);
         c.dispose();
         directory.deleteSync(recursive: true);
       }

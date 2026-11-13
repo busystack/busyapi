@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/server_context_support.dart';
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 class _NativeHttp extends HttpOverrides {}
 
@@ -174,7 +175,7 @@ tests:
             expect(received, isEmpty);
             expect(project.store.get(root).text, missing);
             expect(await tester.runAsync(file.readAsBytes), original);
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               controller.sourceEdit(root, valid);
               await controller.flush();
             });
@@ -203,7 +204,7 @@ tests:
             expect(await tester.runAsync(file.readAsBytes), original);
           } finally {
             await tester.pumpWidget(const SizedBox.shrink());
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await controller.shutdown();
               await controller.engine.close();
               await server?.close(force: true);

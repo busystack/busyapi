@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 class _ObservedEngine extends EngineProcess {
   _ObservedEngine() : super(executable: runtimeNode, helper: runtimeHelper);
@@ -179,7 +180,7 @@ void main() {
                 '${json ? '' : '# retained\r\n'}${const JsonEncoder.withIndent('  ').convert(value)}';
             const fragment =
                 '{ "Model": { "type": "object", "properties": { "old": { "type": "string", "maxLength": 12 }, "keep": { "type": "number" } }, "required": ["old", "keep"], "example": {"old":9007199254740993}, "x-kept": 1.00 } }\r\n';
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await file.writeAsString(original);
               await part.writeAsString('\ufeff$fragment');
               await c.initialize();
@@ -278,10 +279,10 @@ void main() {
             expect(source.text, contains('1.00'));
             expect(c.selectedResource, source.id);
             expect(c.selectedPointer, '/Model/properties');
-            await tester.runAsync(c.undo);
+            await runWidgetIo(tester, c.undo);
             expect(source.bytes(), before);
             expect(c.selectedPointer, '/Model/properties/old');
-            await tester.runAsync(c.redo);
+            await runWidgetIo(tester, c.redo);
             expect(source.bytes(), accepted);
             expect(c.selectedPointer, '/Model/properties');
             await tester.runAsync(() async {
@@ -292,7 +293,7 @@ void main() {
             expect(tester.takeException(), isNull);
           } finally {
             await tester.pumpWidget(const SizedBox.shrink());
-            await tester.runAsync(c.shutdown);
+            await runWidgetIo(tester, c.shutdown);
             c.dispose();
             temp.deleteSync(recursive: true);
           }

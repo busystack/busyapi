@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 class _NativeHttp extends HttpOverrides {}
 
@@ -62,10 +63,10 @@ void main() {
       expect(run.failure, isNull, reason: run.failureMessage);expect(run.bodyExample?.byteLength, bytes.length);
       expect(run.draft().body.capturedExample, same(run.bodyExample));expect(run.bodyEnabled, true);expect(run.bodyFiles, isEmpty);
       expect(find.byWidgetPredicate((widget) => widget is BusyApiActionRow && widget.subtitle?.contains(payload.uri.toString()) == true), findsOneWidget);
-      await tester.runAsync(() => HttpOverrides.runWithHttpOverrides(run.send, _NativeHttp()));await tester.pumpAndSettle();
+      await runWidgetIo(tester, () => HttpOverrides.runWithHttpOverrides(run.send, _NativeHttp()));await tester.pumpAndSettle();
       expect(run.failure, isNull, reason: run.failureMessage);expect(seen, [bytes]);expect(await tester.runAsync(() => run.result!.response.bytes()), bytes);
       expect(targets, ['/echo?q=%00%FF%80%00']);
-      await tester.runAsync(() async { await payload.writeAsBytes([1, 2]);await HttpOverrides.runWithHttpOverrides(run.send, _NativeHttp()); });
+      await runWidgetIo(tester, () async { await payload.writeAsBytes([1, 2]);await HttpOverrides.runWithHttpOverrides(run.send, _NativeHttp()); });
       await tester.pumpAndSettle();expect(run.failure, isNotNull);expect(seen, hasLength(1));
       final text = find.byWidgetPredicate((widget) => widget is BusyApiActionRow && widget.title == 'Use text instead of the selected file');
       await tester.ensureVisible(text);await tester.tap(text);await tester.pumpAndSettle();expect(run.bodyExample, isNull);
@@ -73,7 +74,7 @@ void main() {
       expect(tester.takeException(), isNull);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
-      await tester.runAsync(() async { run.dispose();await workspace.shutdown();workspace.dispose();await server?.close(force: true);directory.deleteSync(recursive: true); });
+      await runWidgetIo(tester, () async { run.dispose();await workspace.shutdown();workspace.dispose();await server?.close(force: true);directory.deleteSync(recursive: true); });
     }
   });
 }

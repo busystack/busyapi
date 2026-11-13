@@ -9,6 +9,7 @@ import 'package:busyapi_core/busyapi_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 class _StreamingHttp extends HttpOverrides {}
 Future<void> _until(bool Function() ready) async {
  final watch=Stopwatch()..start();
@@ -32,7 +33,7 @@ void main(){
     await workspace.initialize();await workspace.open(file.path);await workspace.analyse();await run.open(Map<String,dynamic>.from((workspace.projection!['operations'] as List).single as Map));
    });
    await tester.pumpWidget(MaterialApp(theme:buildBusyApiTheme(brightness:Brightness.light,accentColor:Colors.blue),localizationsDelegates:AppLocalizations.localizationsDelegates,supportedLocales:AppLocalizations.supportedLocales,home:Scaffold(body:RequestRunPanel(run:run))));
-   await tester.runAsync(() async {sending=HttpOverrides.runWithHttpOverrides(run.send,_StreamingHttp());await _until(()=>run.liveStream?.records==1);});await tester.pump();
+   await runWidgetIo(tester, () async {sending=HttpOverrides.runWithHttpOverrides(run.send,_StreamingHttp());await _until(()=>run.liveStream?.records==1);});await tester.pump();
    expect(run.result,isNull);expect(run.liveStream!.status,'active');expect(run.liveStream!.complete,false);expect(find.text('Received records'),findsWidgets);expect(find.text('Stop stream'),findsOneWidget);
    if(stale){
     await tester.runAsync(() async {workspace.sourceEdit(workspace.active!,original.replaceFirst('Live request','Unsaved request'));await workspace.analyse();release.complete();await sending;});await tester.pump();
@@ -48,7 +49,7 @@ void main(){
    }
   }finally{
    if(!release.isCompleted)release.complete();await tester.pumpWidget(const SizedBox.shrink());
-   await tester.runAsync(() async {run.dispose();try{await sending;}on Object{/* Disposal cancels the owned request. */}await workspace.shutdown();workspace.dispose();await server?.close(force:true);directory.deleteSync(recursive:true);});
+   await runWidgetIo(tester, () async {run.dispose();try{await sending;}on Object{/* Disposal cancels the owned request. */}await workspace.shutdown();workspace.dispose();await server?.close(force:true);directory.deleteSync(recursive:true);});
   }
  });
  }

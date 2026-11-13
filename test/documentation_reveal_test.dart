@@ -13,6 +13,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 class _HeldRevealController extends WorkspaceController {
   _HeldRevealController(super.engine, super.locations);
@@ -439,7 +440,7 @@ void main() {
                 c.mode,
                 c.buffer!.selection.base,
               ), before);
-              await tester.runAsync(c.undo);
+              await runWidgetIo(tester, c.undo);
             } else if (behavior == 'external-fragment') {
               final bytes = utf8.encode(
                 '\ufeff${fixture.part.readAsStringSync().replaceFirst('Fragment', 'External')}',
@@ -682,7 +683,7 @@ Future<void> _fixture(
   try {
     late DocumentationPresentation presentation;
     late BusyProject owner;
-    await tester.runAsync(() async {
+    await runWidgetIo(tester, () async {
       await c.initialize();
       await c.open(temp.path);
       await c.selectRoot(root.uri.toString());
@@ -719,7 +720,7 @@ Future<void> _fixture(
   } finally {
     await tester.pumpWidget(const SizedBox.shrink());
     c.releaseWaiting();
-    await tester.runAsync(c.shutdown);
+    await runWidgetIo(tester, c.shutdown);
     c.dispose();
     await tester.runAsync(c.engine.close);
     temp.deleteSync(recursive: true);

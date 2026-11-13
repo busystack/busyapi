@@ -297,7 +297,7 @@ paths:
         expect(tester.takeException(), isNull);
       } finally {
         await tester.pumpWidget(const SizedBox.shrink());
-        await tester.runAsync(fixture.dispose);
+        await runWidgetIo(tester, fixture.dispose);
       }
     });
   }
@@ -398,7 +398,7 @@ paths:
             expect(tester.takeException(), isNull);
           } finally {
             await tester.pumpWidget(const SizedBox.shrink());
-            await tester.runAsync(fixture.dispose);
+            await runWidgetIo(tester, fixture.dispose);
           }
         },
       );
@@ -518,7 +518,7 @@ paths:
           expect(tester.takeException(), isNull);
         } finally {
           await tester.pumpWidget(const SizedBox.shrink());
-          await tester.runAsync(fixture.dispose);
+          await runWidgetIo(tester, fixture.dispose);
         }
       },
     );
@@ -627,7 +627,7 @@ paths: {/items: {get: {responses: {'204': {description: Empty}}}}}
           expect(manifest.readAsStringSync(), configurationText);
         } finally {
           await tester.pumpWidget(const SizedBox.shrink());
-          await tester.runAsync(fixture.dispose);
+          await runWidgetIo(tester, fixture.dispose);
         }
       },
     );
@@ -803,7 +803,7 @@ paths:
           );
         } finally {
           await tester.pumpWidget(const SizedBox.shrink());
-          await tester.runAsync(fixture.dispose);
+          await runWidgetIo(tester, fixture.dispose);
         }
       },
     );
@@ -830,7 +830,7 @@ paths:
           var destinationRequests = 0;
           try {
             late String expected;
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               destination = await HttpServer.bind(
                 InternetAddress.loopbackIPv4,
                 0,
@@ -1057,7 +1057,7 @@ paths: {/pets: {get: {security: [{oauth: []}], responses: {'200': {description: 
             );
           });
           expect(tester.takeException(), null);
-          await tester.runAsync(f.dispose);
+          await runWidgetIo(tester, f.dispose);
         }
       }
     },
@@ -1070,7 +1070,7 @@ paths: {/pets: {get: {security: [{oauth: []}], responses: {'200': {description: 
     ServerSocket? server;
     final sockets = <Socket>{};
     try {
-      await tester.runAsync(() async {
+      await runWidgetIo(tester, () async {
         server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
         server!.listen((socket) async {
           sockets.add(socket);
@@ -1152,7 +1152,7 @@ paths: {/reset: {get: {responses: {'205': {description: Reset, content: {applica
     HttpServer? server;
     var meta = '{"n":9007199254740993}', requests = 0;
     try {
-      await tester.runAsync(() async {
+      await runWidgetIo(tester, () async {
         server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
         server!.listen((request) async {
           requests++;
@@ -1204,7 +1204,7 @@ paths:
         find.byWidgetPredicate((w) => w is SelectableText && w.data == meta),
         findsOneWidget,
       );
-      await tester.runAsync(() async {
+      await runWidgetIo(tester, () async {
         meta = 'not json';
         await HttpOverrides.runWithHttpOverrides(f.run.send, _NativeHttp());
         expect(f.run.result!.received.complete, true);
@@ -1249,7 +1249,7 @@ paths:
       HttpServer? server;
       _GateResult? old;
       try {
-        await tester.runAsync(() async {
+        await runWidgetIo(tester, () async {
           server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
           server!.listen((request) async {
             await request.drain<void>();
@@ -1316,7 +1316,7 @@ paths: {/pets: {get: {responses: {'204': {description: ok}}}}}
       HttpServer? server;
       _GateResult? old;
       try {
-        await tester.runAsync(() async {
+        await runWidgetIo(tester, () async {
           server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
           server!.listen((request) async {
             await request.drain<void>();
@@ -1372,7 +1372,7 @@ paths: {/pets: {get: {responses: {'204': {description: ok}}}}}
       final f = _Fixture();
       HttpServer? server;
       try {
-        await tester.runAsync(() async {
+        await runWidgetIo(tester, () async {
           server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
           server!.listen((request) async {
             await request.drain<void>();
@@ -1510,7 +1510,7 @@ paths:
       );
       HttpServer? server;
       try {
-        await tester.runAsync(() async {
+        await runWidgetIo(tester, () async {
           server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
           server!.listen((request) async {
             expect(request.headers.value('authorization'), 'Bearer $secret');
@@ -1589,7 +1589,7 @@ paths: {/pets: {get: {responses: {'200': {description: ok, content: {application
       try {
         const prefix = '{"message":"';
         var body = '$prefix${'a' * (16383 - prefix.length)}😀${'b' * 5000}"}';
-        await tester.runAsync(() async {
+        await runWidgetIo(tester, () async {
           server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
           server!.listen((request) async {
             request.response.headers.contentType = ContentType.json;
@@ -1893,7 +1893,7 @@ paths: {/pets: {get: {responses: {'204': {description: ok}}}}}
             expect(prepared.uri.host, 'production.example.test');
           });
         } finally {
-          await tester.runAsync(f.dispose);
+          await runWidgetIo(tester, f.dispose);
         }
       }
     },
@@ -1907,7 +1907,7 @@ paths: {/pets: {get: {responses: {'204': {description: ok}}}}}
       HttpServer? server;
       late Completer<void> received, release;
       try {
-        await tester.runAsync(() async {
+        await runWidgetIo(tester, () async {
           received = Completer<void>();
           release = Completer<void>();
           server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -2103,7 +2103,7 @@ paths: {/pets: {get: {responses: {'204': {description: ok}}}}}
         expect(tester.takeException(), isNull);
       } finally {
         await tester.pumpWidget(const SizedBox.shrink());
-        await tester.runAsync(f.dispose);
+        await runWidgetIo(tester, f.dispose);
       }
     },
   );
@@ -2221,7 +2221,7 @@ paths: {/pets: {get: {responses: {'204': {description: ok}}}}}
           expect(tester.takeException(), isNull);
         } finally {
           await tester.pumpWidget(const SizedBox.shrink());
-          await tester.runAsync(f.dispose);
+          await runWidgetIo(tester, f.dispose);
         }
       },
     );
@@ -2246,7 +2246,7 @@ paths: {/pets: {get: {responses: {'204': {description: ok}}}}}
           expect(tester.takeException(), isNull);
         } finally {
           await tester.pumpWidget(const SizedBox.shrink());
-          await tester.runAsync(f.dispose);
+          await runWidgetIo(tester, f.dispose);
         }
       },
     );
@@ -2277,7 +2277,7 @@ paths: {/pets: {get: {responses: {'204': {description: ok}}}}}
           expect(tester.takeException(), isNull);
         } finally {
           await tester.pumpWidget(const SizedBox.shrink());
-          await tester.runAsync(f.dispose);
+          await runWidgetIo(tester, f.dispose);
         }
       },
     );
@@ -2362,7 +2362,7 @@ paths: {/pets: {get: {responses: {'204': {description: ok}}}}}
           expect(tester.takeException(), isNull);
         } finally {
           await tester.pumpWidget(const SizedBox.shrink());
-          await tester.runAsync(f.dispose);
+          await runWidgetIo(tester, f.dispose);
         }
       },
     );
@@ -2587,7 +2587,7 @@ paths: {/pets: {get: {responses: {'204': {description: ok}}}}}
           expect(tester.takeException(), isNull);
         } finally {
           await tester.pumpWidget(const SizedBox.shrink());
-          await tester.runAsync(f.dispose);
+          await runWidgetIo(tester, f.dispose);
         }
       },
     );
@@ -2689,7 +2689,7 @@ paths: {/pets: {get: {responses: {'204': {description: ok}}}}}
         }
       } finally {
         await tester.pumpWidget(const SizedBox.shrink());
-        await tester.runAsync(f.dispose);
+        await runWidgetIo(tester, f.dispose);
       }
     },
   );
@@ -2891,7 +2891,7 @@ paths:
       final f = _Fixture();
       HttpServer? server;
       try {
-        await tester.runAsync(() async {
+        await runWidgetIo(tester, () async {
           server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
           final received = <String>[];
           server!.listen((request) async {
@@ -3087,7 +3087,7 @@ paths:
           expect(f.file.readAsStringSync(), original);
           expect(f.c.buffer!.text, original);
           if (version == '2.0') {
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               f.c.sourceEdit(
                 f.c.active!,
                 original.replaceFirst(
@@ -3201,7 +3201,7 @@ components:
             input,
             '{"encoded":"Zg==","json":{"n":9007199254740993}}',
           );
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             final upload = File('${f.dir.path}/file.bin');
             await upload.writeAsBytes([0, 255, 1]);
             f.run.bodyFilePart = 'file';
@@ -3372,7 +3372,7 @@ paths:
           f.run.selectEnvironment(null);
           await tester.pumpAndSettle();
           expect(f.run.bodyFiles.single.selectedMediaType, 'image/png');
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             f.c.sourceEdit(
               f.c.active!,
               original.replaceFirst(
@@ -3408,7 +3408,7 @@ paths:
       HttpServer? endpoint;
       final observed = <(String, String, String)>[];
       try {
-        await tester.runAsync(() async {
+        await runWidgetIo(tester, () async {
           endpoint = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
           endpoint!.listen((request) async {
             final bytes = await request.fold<List<int>>(
@@ -3884,7 +3884,7 @@ paths:
         }
       } finally {
         await tester.pumpWidget(const SizedBox.shrink());
-        await tester.runAsync(f.dispose);
+        await runWidgetIo(tester, f.dispose);
       }
     },
   );
@@ -3951,7 +3951,7 @@ paths:
           );
         });
       } finally {
-        await tester.runAsync(f.dispose);
+        await runWidgetIo(tester, f.dispose);
       }
     },
   );
@@ -4009,7 +4009,7 @@ paths:
           expect(f.run.bodyText, 'retained overridden draft');
         });
       } finally {
-        await tester.runAsync(f.dispose);
+        await runWidgetIo(tester, f.dispose);
       }
     },
   );
@@ -4069,7 +4069,7 @@ paths: {/pets: {get: {responses: {'204': {description: ok}}}}}
           expect(f.run.parameters['query\u0000kept']?.text, 'retained');
         });
       } finally {
-        await tester.runAsync(f.dispose);
+        await runWidgetIo(tester, f.dispose);
       }
     },
   );
@@ -4105,7 +4105,7 @@ paths: {/pets: {get: {responses: {'204': {description: ok}}}}}
           expect(f.run.canSend, isTrue);
         });
       } finally {
-        await tester.runAsync(f.dispose);
+        await runWidgetIo(tester, f.dispose);
       }
     },
   );
@@ -4120,7 +4120,7 @@ paths: {/pets: {get: {responses: {'204': {description: ok}}}}}
       final owned = f.engine as _GateResponseEngine;
       HttpServer? server;
       try {
-        await tester.runAsync(() async {
+        await runWidgetIo(tester, () async {
           server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
           server!.listen((request) async {
             request.response.headers.contentType = ContentType.json;
@@ -4260,7 +4260,7 @@ environments:
         try {
           await tester.tap(session);
           await tester.pump();
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await saved.future.timeout(
               const Duration(seconds: 5),
               onTimeout: () {
@@ -4281,7 +4281,7 @@ environments:
         );
         expect(f.run.result?.conforming, isTrue);
         final retained = f.run.result;
-        await tester.runAsync(() async {
+        await runWidgetIo(tester, () async {
           await f.run.writeSecret(
             '123e4567-e89b-42d3-a456-426614174000',
             'wrong-password',

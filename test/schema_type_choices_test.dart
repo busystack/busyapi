@@ -14,6 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 import '../packages/busyapi_core/test/schema_type_choices_test.dart'
     as fixtures;
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   for (final version in ['3.0.4', '2.0', '3.1.2', '3.2.1']) {
@@ -72,7 +73,7 @@ void main() {
           }
 
           try {
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await controller.initialize();
               await controller.open(file.path);
               await controller.selectObject({
@@ -140,19 +141,19 @@ void main() {
             );
             if (pending != null) await tester.runAsync(() => pending!);
             expect(file.readAsStringSync(), original);
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await controller.undo();
               await controller.analyse();
             });
             await ready(() => controller.buffer!.text == original);
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await controller.redo();
               await controller.analyse();
             });
             await ready(() => controller.buffer!.text == changed);
           } finally {
             await tester.pumpWidget(const SizedBox.shrink());
-            await tester.runAsync(controller.shutdown);
+            await runWidgetIo(tester, controller.shutdown);
             controller.dispose();
             directory.deleteSync(recursive: true);
           }

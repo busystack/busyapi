@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 class _NativeHttp extends HttpOverrides {}
 
@@ -152,7 +153,7 @@ void main() {
             await tester.ensureVisible(input);
             await tester.enterText(input, text);
             await tester.pumpAndSettle();
-            await tester.runAsync(
+            await runWidgetIo(tester, 
               () => HttpOverrides.runWithHttpOverrides(run.send, _NativeHttp()),
             );
             expect(run.failure, isNull, reason: run.failureMessage);
@@ -169,7 +170,7 @@ void main() {
             expect(seen.single, latin1.encode(text));
             await tester.enterText(input, '€');
             await tester.pumpAndSettle();
-            await tester.runAsync(
+            await runWidgetIo(tester, 
               () => HttpOverrides.runWithHttpOverrides(run.send, _NativeHttp()),
             );
             expect(run.failure, 'request.charset');
@@ -179,7 +180,7 @@ void main() {
             expect(tester.takeException(), isNull);
           } finally {
             await tester.pumpWidget(const SizedBox.shrink());
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               run.dispose();
               await workspace.shutdown();
               workspace.dispose();

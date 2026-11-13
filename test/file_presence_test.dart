@@ -14,6 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 String _sidebarSelection = 'Files';
 Finder sidebarViewMenu() => find.byWidgetPredicate(
@@ -205,11 +206,11 @@ void main() {
               () => c.saveBuffers(only: {destination.uri.toString()}),
             );
             expect(destination.readAsBytesSync(), isEmpty);
-            await tester.runAsync(c.undo);
+            await runWidgetIo(tester, c.undo);
             expect(c.tabs, isNot(contains(destination.uri.toString())));
             expect(c.active, root.uri.toString());
             expect(destination.existsSync(), true);
-            await tester.runAsync(c.redo);
+            await runWidgetIo(tester, c.redo);
             expect(c.active, destination.uri.toString());
             expect(c.buffer!.dirty, false);
             await tester.runAsync(() => c.openFile(unused.uri.toString()));
@@ -252,13 +253,13 @@ void main() {
             expect(b.dirty, true);
             expect((c.layoutState['sourceFolds'] as Map)[foldsKey], ['/Value']);
             expect(unused.readAsBytesSync(), sourceBytes);
-            await tester.runAsync(c.undo);
+            await runWidgetIo(tester, c.undo);
             expect(c.active, id);
             expect(c.buffer, same(b));
             expect(b.selection.base, caret.base);
             expect(b.selection.extent, caret.extent);
             expect(b.scroll, scroll);
-            await tester.runAsync(c.redo);
+            await runWidgetIo(tester, c.redo);
             expect(c.active, root.uri.toString());
             final screen = tester.state<WorkspaceScreenState>(
               find.byType(WorkspaceScreen),
@@ -302,7 +303,7 @@ void main() {
           () => !c.store!.buffers.containsKey(unused.uri.toString()),
         );
         await tester.runAsync(() => c.openFile(root.uri.toString()));
-        await tester.runAsync(c.undo);
+        await runWidgetIo(tester, c.undo);
         expect(c.active, root.uri.toString());
         expect(c.tabs, contains(unused.uri.toString()));
         expect(c.store!.buffers.containsKey(unused.uri.toString()), true);
@@ -601,7 +602,7 @@ Future<void> fixture(
     await run(c, root, unused);
   } finally {
     await tester.pumpWidget(const SizedBox.shrink());
-    await tester.runAsync(c.shutdown);
+    await runWidgetIo(tester, c.shutdown);
     c.dispose();
     await tester.runAsync(c.engine.close);
     temp.deleteSync(recursive: true);

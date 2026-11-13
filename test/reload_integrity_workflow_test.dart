@@ -14,6 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 class _DecisionGate extends WorkspaceController {
   _DecisionGate(super.engine, super.locations);
@@ -210,7 +211,7 @@ void main() {
                 c.draft!.errors['session'],
                 contains('review the current source'),
               );
-              expect(await tester.runAsync(c.flush), isFalse);
+              expect(await runWidgetIo(tester, c.flush), isFalse);
               final record = Directory(c.recovery.directory)
                   .listSync()
                   .whereType<File>()
@@ -221,7 +222,7 @@ void main() {
               expect(c.draft!.generation, c.buffer!.generation);
               // The dialog action alone must make fields applicable; there is no
               // additional resumePropertyDraft call in this integration path.
-              await tester.runAsync(() async {
+              await runWidgetIo(tester, () async {
                 expect(await c.flush(), isTrue);
                 await c.saveAll();
                 await c.open(file.path);
@@ -239,7 +240,7 @@ void main() {
             }
           } finally {
             await tester.pumpWidget(const SizedBox.shrink());
-            await tester.runAsync(c.shutdown);
+            await runWidgetIo(tester, c.shutdown);
             c.dispose();
             temp.deleteSync(recursive: true);
           }
@@ -299,7 +300,7 @@ void main() {
         }
 
         try {
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             final file = await Initializer.create(
               destination: '${temp.path}/api',
               title: 'Original',
@@ -442,7 +443,7 @@ void main() {
         } finally {
           if (!c.release.isCompleted) c.release.complete();
           await tester.pumpWidget(const SizedBox.shrink());
-          await tester.runAsync(c.shutdown);
+          await runWidgetIo(tester, c.shutdown);
           c.dispose();
           await tester.runAsync(c.engine.close);
           temp.deleteSync(recursive: true);

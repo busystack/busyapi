@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 class _NativeHttp extends HttpOverrides {}
 
@@ -159,7 +160,7 @@ paths:
           expect(run.bodyKind, RequestBodyKind.raw);
           expect(run.bodyText, _wire);
           expect(run.bodyFiles.single.path, part.path);
-          await tester.runAsync(
+          await runWidgetIo(tester, 
             () => HttpOverrides.runWithHttpOverrides(run.send, _NativeHttp()),
           );
           expect(run.failure, isNull, reason: run.failureMessage);
@@ -186,7 +187,7 @@ paths:
           expect(run.bodyKind, RequestBodyKind.binaryFile);
           expect(run.bodyFiles.single.path, entity.path);
           expect(run.draft().body.kind, RequestBodyKind.binaryFile);
-          await tester.runAsync(
+          await runWidgetIo(tester, 
             () => HttpOverrides.runWithHttpOverrides(run.send, _NativeHttp()),
           );
           expect(run.failure, isNull, reason: run.failureMessage);
@@ -202,7 +203,7 @@ paths:
           );
           expect(seen, hasLength(2));
           expect(seen.last.$4, utf8.encode(_wire));
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             workspace.sourceEdit(
               workspace.active!,
               source.replaceFirst('enum: [false]', 'enum: [true]'),
@@ -226,7 +227,7 @@ paths:
           expect(entity.readAsBytesSync(), utf8.encode(_wire));
         } finally {
           await tester.pumpWidget(const SizedBox.shrink());
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             run.dispose();
             await workspace.shutdown();
             workspace.dispose();

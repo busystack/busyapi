@@ -241,7 +241,7 @@ void main() {
           } finally {
             await tester.pumpWidget(const SizedBox.shrink());
             run.dispose();
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await server?.close(force: true);
               await workspace.shutdown();
               workspace.dispose();

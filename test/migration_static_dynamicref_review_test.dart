@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
 import '../packages/busyapi_core/test/static_dynamicref_support.dart';
+import 'widget_io.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -274,7 +275,7 @@ void _registerMigrationTests(String definitionKeyword) {
           expect(file.readAsStringSync(), original);
         } finally {
           await tester.pumpWidget(const SizedBox.shrink());
-          await tester.runAsync(c.shutdown);
+          await runWidgetIo(tester, c.shutdown);
           c.dispose();
           temp.deleteSync(recursive: true);
         }

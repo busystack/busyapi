@@ -13,6 +13,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   for (final version in ['3.0.4', '2.0', '3.1.2', '3.2.1']) {
@@ -97,7 +98,7 @@ void main() {
           }
 
           try {
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await controller.initialize();
               await controller.open(file.path);
               await controller.selectObject({
@@ -199,7 +200,7 @@ void main() {
             final pointer = version == '2.0'
                 ? '/definitions/Record'
                 : '/components/schemas/Record';
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               final page = await controller.project!.inspectObject(
                 controller.root!,
                 controller.root!,
@@ -281,7 +282,7 @@ void main() {
             expect(failures, isEmpty);
           } finally {
             await tester.pumpWidget(const SizedBox.shrink());
-            await tester.runAsync(controller.shutdown);
+            await runWidgetIo(tester, controller.shutdown);
             controller.dispose();
             directory.deleteSync(recursive: true);
           }

@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   for (final version in ['2.0', '3.0.4', '3.1.2', '3.2.1']) {
@@ -70,11 +71,11 @@ void main() {
         expect(values['Node']['properties']['next'][r'$ref'], '#$group/Node');
         expect(values['Use']['properties']['next'][r'$ref'], '#$group/Node');expect(values['Use']['type'], 'object');
         expect(workspace.buffer!.text, contains('9007199254740993.00'));
-        await tester.runAsync(() async {await workspace.undo();expect(workspace.buffer!.text, original);await workspace.redo();expect(workspace.buffer!.bytes(), accepted);await workspace.saveAll();});
+        await runWidgetIo(tester, () async {await workspace.undo();expect(workspace.buffer!.text, original);await workspace.redo();expect(workspace.buffer!.bytes(), accepted);await workspace.saveAll();});
         expect(file.readAsBytesSync(), accepted);expect(tester.takeException(), isNull);
       } finally {
         await tester.pumpWidget(const SizedBox.shrink());
-        await tester.runAsync(() async {await workspace.shutdown();workspace.dispose();directory.deleteSync(recursive: true);});
+        await runWidgetIo(tester, () async {await workspace.shutdown();workspace.dispose();directory.deleteSync(recursive: true);});
       }
     });
   }

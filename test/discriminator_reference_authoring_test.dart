@@ -12,6 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/discriminator_reference_support.dart';
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   for (final version in ['3.1.2', '3.2.0', '3.2.1']) {
@@ -83,7 +84,7 @@ void main() {
           }
 
           try {
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await c.initialize();
               await c.open(rootFile.path);
               await c.selectObject({
@@ -156,7 +157,7 @@ void main() {
             );
             expect(c.buffer!.text, changed);
             expect(rootFile.readAsBytesSync(), original);
-            await tester.runAsync(c.undo);
+            await runWidgetIo(tester, c.undo);
             await tester.runAsync(c.analyse);
             expect(c.buffer!.bytes(), original);
             expect(
@@ -164,7 +165,7 @@ void main() {
               version.startsWith('3.2.') ? hasLength(1) : isEmpty,
               reason: '${c.analysis}',
             );
-            await tester.runAsync(c.redo);
+            await runWidgetIo(tester, c.redo);
             await tester.runAsync(c.analyse);
             expect(c.buffer!.text, changed);
             expect(c.analysis!['status'], 'complete');
@@ -185,7 +186,7 @@ void main() {
               reason: '${c.analysis}',
             );
             expect(rootFile.readAsBytesSync(), original);
-            await tester.runAsync(c.undo);
+            await runWidgetIo(tester, c.undo);
             await tester.runAsync(c.analyse);
             expect(c.buffer!.text, changed);
             expect(c.analysis!['status'], 'complete');
@@ -204,7 +205,7 @@ void main() {
             expect(tester.takeException(), isNull);
           } finally {
             await tester.pumpWidget(const SizedBox.shrink());
-            await tester.runAsync(c.shutdown);
+            await runWidgetIo(tester, c.shutdown);
             c.dispose();
             await tester.runAsync(c.engine.close);
             temp.deleteSync(recursive: true);

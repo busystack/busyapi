@@ -14,6 +14,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 enum _AfterReview {
   none,
@@ -419,7 +420,7 @@ void main() {
           expect(tester.takeException(), isNull);
         } finally {
           await tester.pumpWidget(const SizedBox());
-          await tester.runAsync(controller.shutdown);
+          await runWidgetIo(tester, controller.shutdown);
           controller.dispose();
           await tester.runAsync(controller.engine.close);
           temp.deleteSync(recursive: true);

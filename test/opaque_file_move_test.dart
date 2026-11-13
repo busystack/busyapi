@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   for (final policy in [false, true]) {
@@ -74,7 +75,7 @@ void main() {
               destination = File('${temp.path}/moved 雪.yaml');
           const opaque =
               '\ufeffopenapi: payload data\r\n\$ref: literal only\ninvalid: [ 900719925474099312345678901 雪😀';
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await root.writeAsString(
               'openapi: 3.2.1\ninfo: {title: Controls, version: "1"}\npaths: {}\ncomponents: {examples: {External: {externalValue: payload.yaml}}}\n',
             );
@@ -162,10 +163,10 @@ void main() {
               c.project!.store.get(root.uri.toString()).text,
               contains('moved%20%E9%9B%AA.yaml'),
             );
-            await tester.runAsync(c.undo);
+            await runWidgetIo(tester, c.undo);
             expect(c.active, source.uri.toString());
             expect(b.bytes(), original);
-            await tester.runAsync(c.redo);
+            await runWidgetIo(tester, c.redo);
             expect(c.active, destination.uri.toString());
             expect(b.bytes(), original);
             await tester.runAsync(() => c.saveBuffers(only: {b.id}));
@@ -181,7 +182,7 @@ void main() {
           expect(tester.takeException(), isNull);
         } finally {
           await tester.pumpWidget(const SizedBox.shrink());
-          await tester.runAsync(c.shutdown);
+          await runWidgetIo(tester, c.shutdown);
           c.dispose();
           await tester.runAsync(c.engine.close);
           await tester.runAsync(() => temp.delete(recursive: true));

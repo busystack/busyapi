@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   for (final format in ['yaml', 'json']) {
@@ -70,7 +71,7 @@ void main() {
         }
 
         try {
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await c.initialize();
             await c.open(file.path);
             await c.selectObject({
@@ -142,12 +143,12 @@ void main() {
           );
           await ready(() => c.buffer!.text == changed && !c.checking);
           expect(file.readAsStringSync(), original);
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await c.undo();
             await c.analyse();
           });
           expect(c.buffer!.text, original);
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await c.redo();
             await c.analyse();
             await c.saveBuffers();
@@ -157,7 +158,7 @@ void main() {
           expect(failures, isEmpty);
         } finally {
           await tester.pumpWidget(const SizedBox.shrink());
-          await tester.runAsync(c.shutdown);
+          await runWidgetIo(tester, c.shutdown);
           c.dispose();
           temp.deleteSync(recursive: true);
         }

@@ -220,7 +220,7 @@ void main() {
           } finally {
             await tester.pumpWidget(const SizedBox());
             run.dispose();
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await c.shutdown();
               c.dispose();
               await server.close(force: true);

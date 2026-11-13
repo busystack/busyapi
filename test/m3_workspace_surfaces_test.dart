@@ -18,6 +18,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -207,7 +208,7 @@ void main() {
         expect(contract.readAsStringSync(), contains('title: First'));
       } finally {
         await tester.pumpWidget(const SizedBox.shrink());
-        await tester.runAsync(workspace.shutdown);
+        await runWidgetIo(tester, workspace.shutdown);
         workspace.dispose();
         await tester.runAsync(workspace.engine.close);
         temp.deleteSync(recursive: true);
@@ -452,7 +453,7 @@ tests:
         );
       } finally {
         await tester.pumpWidget(const SizedBox.shrink());
-        await tester.runAsync(workspace.shutdown);
+        await runWidgetIo(tester, workspace.shutdown);
         workspace.dispose();
         await tester.runAsync(workspace.engine.close);
         temp.deleteSync(recursive: true);
@@ -545,7 +546,7 @@ ${media == null ? '' : '      requestBody: {required: true, content: {$media: {s
         expect(tester.takeException(), isNull);
         expect(request.outdated, false);
         expect(sendButton().onPressed, isNull);
-        await tester.runAsync(request.send);
+        await runWidgetIo(tester, request.send);
         expect(request.phase, 'ready');
         expect(request.result, isNull);
         expect(request.history, isEmpty);
@@ -603,7 +604,7 @@ ${media == null ? '' : '      requestBody: {required: true, content: {$media: {s
       } finally {
         await tester.pumpWidget(const SizedBox.shrink());
         request.dispose();
-        await tester.runAsync(workspace.shutdown);
+        await runWidgetIo(tester, workspace.shutdown);
         workspace.dispose();
         await tester.runAsync(workspace.engine.close);
         temp.deleteSync(recursive: true);
@@ -723,7 +724,7 @@ environments:
       }
 
       try {
-        await tester.runAsync(() async {
+        await runWidgetIo(tester, () async {
           await workspace.initialize();
           await workspace.open(contract.path);
           await workspace.analyse();
@@ -835,7 +836,7 @@ environments:
       } finally {
         await tester.pumpWidget(const SizedBox.shrink());
         request.dispose();
-        await tester.runAsync(workspace.shutdown);
+        await runWidgetIo(tester, workspace.shutdown);
         workspace.dispose();
         await tester.runAsync(workspace.engine.close);
         temp.deleteSync(recursive: true);

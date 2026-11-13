@@ -14,6 +14,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 Future<void> ready(WidgetTester tester, bool Function() done) async {
   final deadline = DateTime.now().add(const Duration(seconds: 10));
@@ -201,7 +202,7 @@ void main() {
             expect(tester.takeException(), isNull);
           } finally {
             await tester.pumpWidget(const SizedBox());
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await c.shutdown();
               c.dispose();
               await temp.delete(recursive: true);

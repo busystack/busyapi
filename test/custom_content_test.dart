@@ -200,7 +200,7 @@ void main() {
 
           Future<void> select(String pointer) async {
             stage('select:start:$pointer');
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await c.selectObject({
                 'root': c.root,
                 'resource': c.root,
@@ -222,7 +222,7 @@ void main() {
             stage('open:end');
             final original =
                 '${json ? '' : '# retained 😀\r\n'}{"openapi":"$version","info":{"title":"T","version":"1","contact":$kept},"paths":{},"components":{"schemas":{"Model":{"properties":{}}}},"x-number":9007199254740993.00}';
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await file.writeAsBytes([
                 239,
                 187,

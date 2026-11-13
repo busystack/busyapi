@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -97,7 +98,7 @@ void main() {
           await tester.pump();
           expect(tester.takeException(), isNull);
         } finally {
-          await tester.runAsync(c.shutdown);
+          await runWidgetIo(tester, c.shutdown);
           c.dispose();
           await tester.runAsync(c.engine.close);
           await tester.runAsync(() => temp.delete(recursive: true));
@@ -338,11 +339,11 @@ void main() {
                 ])],
                 91.0,
               );
-              await tester.runAsync(c.undo);
+              await runWidgetIo(tester, c.undo);
               expect(c.root, root.uri.toString());
               expect(b.id, c.root);
               expect(c.sourceFolds(c.root!, b.id), folded);
-              await tester.runAsync(c.redo);
+              await runWidgetIo(tester, c.redo);
               expect(c.root, b.id);
               expect(b.id, destination.uri.toString());
               await tester.runAsync(() => c.saveBuffers(only: {b.id}));
@@ -352,7 +353,7 @@ void main() {
               expect(tester.takeException(), isNull);
             } finally {
               await tester.pumpWidget(const SizedBox.shrink());
-              await tester.runAsync(c.shutdown);
+              await runWidgetIo(tester, c.shutdown);
               c.dispose();
               await tester.runAsync(c.engine.close);
               await tester.runAsync(() => temp.delete(recursive: true));

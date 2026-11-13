@@ -146,7 +146,7 @@ void main() {
       } finally {
         ownedWindows.dispose();
         await tester.pumpWidget(const SizedBox.shrink());
-        await tester.runAsync(c.shutdown);
+        await runWidgetIo(tester, c.shutdown);
         c.dispose();
         dir.deleteSync(recursive: true);
       }
@@ -274,7 +274,7 @@ void main() {
         } finally {
           ownedWindows.dispose();
           await tester.pumpWidget(const SizedBox.shrink());
-          await tester.runAsync(c.shutdown);
+          await runWidgetIo(tester, c.shutdown);
           c.dispose();
           dir.deleteSync(recursive: true);
         }

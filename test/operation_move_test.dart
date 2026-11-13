@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -136,7 +137,7 @@ void main() {
                 : '# preserved 雪😀\r\nopenapi: $version\r\ninfo: {title: Controls, version: \'1\'}\r\npaths:\r\n  /old:\r\n    get:\r\n      operationId: moveMe\r\n      summary: \'Before\'\r\n      responses: {204: {description: Bodyless}}\r\n  /new:\r\n    post: {operationId: sibling, responses: {204: {description: Sibling}}}\r\ncomponents:\r\n  links:\r\n    Usage: {\$ref: "links.json#/Usage"}\r\nx-kept: {n: 9007199254740993.00, \$ref: "#/paths/~1old/get"}';
             final linkText =
                 '{"Usage":{"operationRef":"root.$extension#/paths/~1old/get"}}';
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await source.writeAsString('\uFEFF$text');
               await links.writeAsString(linkText);
               await c.initialize();
@@ -313,11 +314,11 @@ void main() {
             expect(linkBuffer!.text, contains(destination));
             expect(c.buffer!.text, contains('9007199254740993.00'));
             expect(c.buffer!.text, contains('#/paths/~1old/get'));
-            await tester.runAsync(c.undo);
+            await runWidgetIo(tester, c.undo);
             await tester.pump();
             expect(c.buffer!.bytes(), before);
             expect(linkBuffer.text, linkText);
-            await tester.runAsync(c.redo);
+            await runWidgetIo(tester, c.redo);
             await tester.pump();
             expect(c.buffer!.bytes(), moved);
             expect(linkBuffer.text, contains(destination));
@@ -342,7 +343,7 @@ void main() {
             expect(tester.takeException(), isNull);
           } finally {
             await tester.pumpWidget(const SizedBox.shrink());
-            await tester.runAsync(c.shutdown);
+            await runWidgetIo(tester, c.shutdown);
             c.dispose();
             temporary.deleteSync(recursive: true);
           }

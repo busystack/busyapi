@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   for (final version in ['3.0.4', '2.0', '3.1.2', '3.2.1']) {
@@ -107,7 +108,7 @@ void main() {
           }
 
           try {
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await controller.initialize();
               await controller.open(file.path);
               await controller.selectObject({
@@ -186,12 +187,12 @@ void main() {
                   : {'type': 'null'},
             );
             expect(file.readAsStringSync(), source);
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await controller.undo();
               await controller.analyse();
             });
             expect(controller.buffer!.text, source);
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await controller.redo();
               await controller.analyse();
               await controller.saveAll();
@@ -204,7 +205,7 @@ void main() {
             expect(tester.takeException(), isNull);
           } finally {
             await tester.pumpWidget(const SizedBox.shrink());
-            await tester.runAsync(controller.shutdown);
+            await runWidgetIo(tester, controller.shutdown);
             controller.dispose();
             directory.deleteSync(recursive: true);
           }

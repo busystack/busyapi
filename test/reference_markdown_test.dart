@@ -13,6 +13,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 Future<void> ready(WidgetTester tester, bool Function() done) async {
   final limit = DateTime.now().add(const Duration(seconds: 8));
@@ -305,14 +306,14 @@ void main() {
           tester,
           () => find.text('entry260 雪').evaluate().isNotEmpty,
         );
-        await tester.runAsync(c.undo);
+        await runWidgetIo(tester, c.undo);
         pointer = '/components/schemas/Model/description';
         await tester.pumpWidget(owned());
         await ready(
           tester,
           () => find.text('entry260 雪').evaluate().isNotEmpty,
         );
-        await tester.runAsync(c.redo);
+        await runWidgetIo(tester, c.redo);
         pointer = '/components/schemas/Renamed/description';
         await tester.pumpWidget(owned());
         await ready(

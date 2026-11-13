@@ -15,6 +15,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 class _NativeHttp extends HttpOverrides {}
 
@@ -226,7 +227,7 @@ void main() {
                 'asset': MultipartFileShape.array,
               });
               expect(run.bodyFiles.single.path, upload.path);
-              await tester.runAsync(
+              await runWidgetIo(tester, 
                 () =>
                     HttpOverrides.runWithHttpOverrides(run.send, _NativeHttp()),
               );
@@ -251,7 +252,7 @@ void main() {
                 ),
               );
               await choose('Single value');
-              await tester.runAsync(
+              await runWidgetIo(tester, 
                 () =>
                     HttpOverrides.runWithHttpOverrides(run.send, _NativeHttp()),
               );
@@ -262,7 +263,7 @@ void main() {
               expect(workspace.buffer!.text, original);
               expect(upload.readAsBytesSync(), [97, 98, 99]);
               final previousIdentity = run.plan!.identity;
-              await tester.runAsync(() async {
+              await runWidgetIo(tester, () async {
                 workspace.sourceEdit(
                   file.uri.toString(),
                   original.replaceFirst(
@@ -282,7 +283,7 @@ void main() {
               expect(seen, hasLength(1));
               expect(run.plan!.identity, isNot(previousIdentity));
               expect(file.readAsStringSync(), original);
-              await tester.runAsync(() async {
+              await runWidgetIo(tester, () async {
                 await workspace.undo();
                 await run.reconcileDraft();
                 run.selectFileShape('asset', MultipartFileShape.array);
@@ -307,7 +308,7 @@ void main() {
               expect(file.readAsStringSync(), original);
             } finally {
               await tester.pumpWidget(const SizedBox.shrink());
-              await tester.runAsync(() async {
+              await runWidgetIo(tester, () async {
                 run.dispose();
                 await workspace.shutdown();
                 workspace.dispose();

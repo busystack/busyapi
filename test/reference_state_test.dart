@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 class _ReferenceStateEngine extends EngineProcess {
   _ReferenceStateEngine()
@@ -90,7 +91,7 @@ void main() {
           final text = const JsonEncoder.withIndent('  ').convert(value),
               a = File('${temp.path}/a.json'),
               b = File('${temp.path}/b.json');
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await a.writeAsString(text);
             await b.writeAsString(text);
             await File('${temp.path}/busyapi.yaml').writeAsString(
@@ -139,7 +140,7 @@ void main() {
             'scope-group',
           );
           expect(controller().position.pixels, closeTo(offset, 1));
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await c.selectRoot(c.project!.roots.last.id);
             await c.analyse();
           });
@@ -156,7 +157,7 @@ void main() {
           engine.heldRoot = first;
           engine.entered = Completer<void>();
           engine.release = Completer<void>();
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             c.store!.replace(first, changed);
             await c.selectRoot(first);
           });
@@ -186,7 +187,7 @@ void main() {
           expect(c.store!.get(first).text, changed);
           expect(tester.takeException(), isNull);
           await tester.pumpWidget(const SizedBox.shrink());
-          await tester.runAsync(c.shutdown);
+          await runWidgetIo(tester, c.shutdown);
           c.dispose();
           c = workspace();
           await tester.runAsync(() async {
@@ -211,7 +212,7 @@ void main() {
           }
           engine.release = null;
           await tester.pumpWidget(const SizedBox.shrink());
-          await tester.runAsync(c.shutdown);
+          await runWidgetIo(tester, c.shutdown);
           c.dispose();
           temp.deleteSync(recursive: true);
         }

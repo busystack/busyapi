@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -166,7 +167,7 @@ void main() {
                   },
                 }).replaceAll('"EXACT"', '900719925474099312345678901')
               : '# retained 雪😀\r\nswagger: "2.0"\r\ninfo: {title: Extraction, version: "1"}\npaths:\n  /items:\n    get:\n      responses:\n        "200":\n          description: Native response # retained\n          schema: {\$ref: "#/definitions/Model"}\n          examples: {application/json: {n: 900719925474099312345678901, \$ref: "literal payload"}}\ndefinitions:\n  Model:\n    type: object\n    properties:\n      n: {type: integer}\n      next: {\$ref: "#/definitions/Model"}';
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await root.writeAsString('\ufeff$source');
             await c.initialize();
             await c.open(root.path);
@@ -340,14 +341,14 @@ void main() {
             'complete',
             reason: '${checked['findings']}',
           );
-          await tester.runAsync(c.undo);
+          await runWidgetIo(tester, c.undo);
           expect(owner.bytes(), original);
           expect(c.selectedResource, owner.id);
           expect(c.selectedPointer, pointer);
           expect(c.store!.canUndo, false);
           expect(c.sourceFolds(c.root!, owner.id), contains(pointer));
           expect((c.layoutState['referenceText'] as Map)[reading], {'page': 1});
-          await tester.runAsync(c.redo);
+          await runWidgetIo(tester, c.redo);
           expect(c.selectedResource, created.id);
           expect(c.selectedPointer, movedPointer);
           expect(owner.bytes(), changed);

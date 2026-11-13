@@ -12,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -93,7 +94,7 @@ void main() {
       expect(c.store!.canUndo, false);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
-      await tester.runAsync(c.shutdown);
+      await runWidgetIo(tester, c.shutdown);
       c.dispose();
       await tester.runAsync(c.engine.close);
       dir.deleteSync(recursive: true);

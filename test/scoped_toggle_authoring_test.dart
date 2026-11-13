@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   testWidgets(
@@ -79,7 +80,7 @@ void main() {
       }
 
       try {
-        await tester.runAsync(() async {
+        await runWidgetIo(tester, () async {
           await c.initialize();
           await c.open(file.path);
           await c.selectObject({
@@ -178,18 +179,18 @@ void main() {
           before,
           reason: 'A field-scoped action cannot remove an invalid sibling',
         );
-        await tester.runAsync(() async {
+        await runWidgetIo(tester, () async {
           await c.undo();
           await c.analyse();
         });
         expect(c.buffer!.text, contains('Pending metadata'));
         expect(c.buffer!.text, isNot(contains('deprecated')));
-        await tester.runAsync(() async {
+        await runWidgetIo(tester, () async {
           await c.undo();
           await c.analyse();
         });
         expect(c.buffer!.text, original);
-        await tester.runAsync(() async {
+        await runWidgetIo(tester, () async {
           await c.redo();
           await c.redo();
           await c.analyse();
@@ -201,7 +202,7 @@ void main() {
         expect(errors, isEmpty);
       } finally {
         await tester.pumpWidget(const SizedBox.shrink());
-        await tester.runAsync(c.shutdown);
+        await runWidgetIo(tester, c.shutdown);
         c.dispose();
         temp.deleteSync(recursive: true);
       }

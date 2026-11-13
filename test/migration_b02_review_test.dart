@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/b02_migration_support.dart';
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -124,7 +125,7 @@ void main() {
         final close = find.widgetWithText(BusyApiDialogButton, 'Close');
         await tester.runAsync(() => tester.tap(close));await tester.pumpAndSettle();await tester.runAsync(() => dialog!);
       } finally {
-        await tester.pumpWidget(const SizedBox.shrink());await tester.runAsync(controller.shutdown);controller.dispose();
+        await tester.pumpWidget(const SizedBox.shrink());await runWidgetIo(tester, controller.shutdown);controller.dispose();
         directory.deleteSync(recursive: true);
       }
     });

@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   for (final version in ['3.0.4', '3.1.2', '3.2.1']) {
@@ -132,7 +133,7 @@ void main() {
             expect(input!.text, 'Committed');
             expect(c.buffer!.bytes(), utf8.encode(original));
             expect(c.draft!.pending, true);
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               expect(await c.flush(), true);
               await c.analyse();
             });
@@ -174,7 +175,7 @@ void main() {
             );
             expect(c.hasPendingFields, true);
             expect(c.draft!.values['version'], '2');
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await c.persist();
               final records = await Directory(c.recovery.directory)
                   .list()
@@ -199,7 +200,7 @@ void main() {
                 .replaceFirst('"1"', '"2"');
             expect(c.buffer!.hasBom, true);
             expect(c.buffer!.text, expected.substring(1));
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               c.sourceEdit(
                 c.buffer!.id,
                 c.buffer!.text.replaceFirst(
@@ -239,7 +240,7 @@ void main() {
             });
           } finally {
             await tester.pumpWidget(const SizedBox.shrink());
-            await tester.runAsync(c.shutdown);
+            await runWidgetIo(tester, c.shutdown);
             c.dispose();
             directory.deleteSync(recursive: true);
           }

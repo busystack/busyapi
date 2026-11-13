@@ -173,7 +173,7 @@ void main() {
                     'x-kept': {r'$ref': 'literal', 'text': '雪😀'},
                   })
                 : '# keep 雪😀\r\nopenapi: $version\r\ninfo: {title: Picker, version: "1"}\r\npaths: {}\r\ncomponents:\r\n  schemas:\r\n    Use: {\$ref: \'#/components/schemas/Old\'}\r\n    Old: true\r\n${entries.entries.map((e) => '    ${e.key}: ${e.value == false ? 'false' : '{type: string}'}').join('\r\n')}\r\nx-number: 9007199254740993.00';
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await file.writeAsBytes([
                 239,
                 187,
@@ -455,7 +455,7 @@ void main() {
               },
             });
             late Map<String, dynamic> item;
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await file.writeAsString(original);
               await c.initialize();
               await c.open(file.path);

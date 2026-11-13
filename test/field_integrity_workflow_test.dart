@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -177,7 +178,7 @@ void main() {
         final file = File('${temp.path}/openapi.yaml')
           ..writeAsStringSync(original);
         try {
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await c.initialize();
             await c.open(file.path);
             await c.analyse();
@@ -246,9 +247,9 @@ void main() {
             expect(value, ['string', 'null']);
             final accepted = c.buffer!.text;
             expect(accepted, contains('      description: keep # unchanged\n'));
-            await tester.runAsync(c.undo);
+            await runWidgetIo(tester, c.undo);
             expect(c.buffer!.text, original);
-            await tester.runAsync(c.redo);
+            await runWidgetIo(tester, c.redo);
             expect(c.buffer!.text, accepted);
             return;
           }
@@ -357,9 +358,9 @@ void main() {
             }
           }
           expect(accepted, endsWith('x-kept: 9007199254740993.00\n'));
-          await tester.runAsync(c.undo);
+          await runWidgetIo(tester, c.undo);
           expect(c.buffer!.text, original);
-          await tester.runAsync(c.redo);
+          await runWidgetIo(tester, c.redo);
           expect(c.buffer!.text, accepted);
           if (structured) {
             await tester.runAsync(() async {
@@ -389,7 +390,7 @@ void main() {
           }
         } finally {
           await tester.pumpWidget(const SizedBox.shrink());
-          await tester.runAsync(c.shutdown);
+          await runWidgetIo(tester, c.shutdown);
           c.dispose();
           await tester.runAsync(c.engine.close);
           temp.deleteSync(recursive: true);

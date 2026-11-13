@@ -12,6 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
 import 'support/search_test_host.dart';
+import 'widget_io.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -58,7 +59,7 @@ void main() {
       }
 
       try {
-        await tester.runAsync(() async {
+        await runWidgetIo(tester, () async {
           await c.initialize();
           await File('${temp.path}/busyapi.yaml').writeAsString(
             'version: 1\nroots:\n  - name: primary\n    path: root.yaml\n  - name: alternate\n    path: second.yaml\n',
@@ -155,7 +156,7 @@ void main() {
       } finally {
         await tester.pumpWidget(const SizedBox.shrink());
         session?.dispose();
-        await tester.runAsync(c.shutdown);
+        await runWidgetIo(tester, c.shutdown);
         c.dispose();
         temp.deleteSync(recursive: true);
         messenger.setMockMethodCallHandler(

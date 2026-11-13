@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   for (final version in ['3.1.2', '3.2.1']) {
@@ -104,7 +105,7 @@ void main() {
         }
 
         Future<void> select(String at) async {
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await c.selectObject({
               'root': c.root,
               'resource': c.root,
@@ -128,7 +129,7 @@ void main() {
             )
             .controller!;
         try {
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await c.initialize();
             await c.open(file.path);
             c.mode = 'Reference';
@@ -212,7 +213,7 @@ void main() {
             false,
             reason: 'Disposed old pages must not resurrect their pre-rename state key',
           );
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await c.undo();
             await c.analyse();
           });
@@ -228,7 +229,7 @@ void main() {
                     .isNotEmpty,
           );
           expect(scroll().offset, closeTo(offset, 1));
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await c.redo();
             await c.analyse();
           });
@@ -275,7 +276,7 @@ void main() {
             await c.persistView();
           });
           await tester.pumpWidget(const SizedBox.shrink());
-          await tester.runAsync(c.shutdown);
+          await runWidgetIo(tester, c.shutdown);
           c.dispose();
           c = workspace();
           await tester.runAsync(() async {
@@ -299,7 +300,7 @@ void main() {
           expect(c.buffer!.text, current);
         } finally {
           await tester.pumpWidget(const SizedBox.shrink());
-          await tester.runAsync(c.shutdown);
+          await runWidgetIo(tester, c.shutdown);
           c.dispose();
           temp.deleteSync(recursive: true);
         }

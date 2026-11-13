@@ -29,6 +29,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:yaru/yaru.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 Widget host(Widget child) => MaterialApp(
   theme: buildBusyApiTheme(
@@ -160,7 +161,7 @@ void main() {
         expect(tester.takeException(), isNull);
       } finally {
         await tester.pumpWidget(const SizedBox.shrink());
-        await tester.runAsync(c.shutdown);
+        await runWidgetIo(tester, c.shutdown);
         c.dispose();
         await tester.runAsync(c.engine.close);
         dir.deleteSync(recursive: true);
@@ -421,7 +422,7 @@ void main() {
       expect(workspace.search.active, false);
       expect(query.text, 'part中');
       await tester.pumpWidget(const SizedBox.shrink());
-      await tester.runAsync(c.shutdown);
+      await runWidgetIo(tester, c.shutdown);
       c.dispose();
       await tester.runAsync(c.engine.close);
       dir.deleteSync(recursive: true);
@@ -733,7 +734,7 @@ void main() {
       findsNothing,
     );
     await tester.pumpWidget(const SizedBox.shrink());
-    await tester.runAsync(c.shutdown);
+    await runWidgetIo(tester, c.shutdown);
     c.dispose();
     await tester.runAsync(c.engine.close);
     dir.deleteSync(recursive: true);

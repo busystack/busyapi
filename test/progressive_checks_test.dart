@@ -17,6 +17,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 class _ProgressEngine extends EngineProcess {
   _ProgressEngine() : super(executable: runtimeNode, helper: runtimeHelper);
@@ -141,7 +142,7 @@ void main() {
           await pending;
         });
         await tester.pumpWidget(const SizedBox.shrink());
-        await tester.runAsync(c.shutdown);
+        await runWidgetIo(tester, c.shutdown);
         c.dispose();
         dir.deleteSync(recursive: true);
       }
@@ -322,7 +323,7 @@ void main() {
             if (gate != null && !gate.isCompleted) gate.complete();
           });
           await tester.pumpWidget(const SizedBox());
-          await tester.runAsync(c.shutdown);
+          await runWidgetIo(tester, c.shutdown);
           if (!disposed) c.dispose();
           temp.deleteSync(recursive: true);
         }

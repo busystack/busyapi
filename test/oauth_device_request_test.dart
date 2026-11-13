@@ -78,7 +78,7 @@ void main() {
         await runWidgetIo(tester, () => authorization!);await tester.pumpAndSettle();
         expect(run.failure, isNull, reason: run.failureMessage);expect(run.oauthDevicePrompt, isNull);
         expect(await tester.runAsync(() => secrets.read(reference)), 'native-device-token');
-        await tester.runAsync(() => HttpOverrides.runWithHttpOverrides(run.send, _NativeHttp()));await tester.pumpAndSettle();
+        await runWidgetIo(tester, () => HttpOverrides.runWithHttpOverrides(run.send, _NativeHttp()));await tester.pumpAndSettle();
         expect(sent, 1);expect(run.result!.conforming, true);expect(polls, greaterThan(0));
         await expectLater(run.openDeviceVerification(prompt), throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'oauth.stale')));
         approved = false;
@@ -92,7 +92,7 @@ void main() {
       } finally {
         run.cancel();
         await tester.pumpWidget(const SizedBox.shrink());
-        await tester.runAsync(() async {if (authorization != null) await authorization;run.dispose();await workspace.shutdown();workspace.dispose();await server?.close(force: true);directory.deleteSync(recursive: true);});
+        await runWidgetIo(tester, () async {if (authorization != null) await authorization;run.dispose();await workspace.shutdown();workspace.dispose();await server?.close(force: true);directory.deleteSync(recursive: true);});
       }
     });
   }

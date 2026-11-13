@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 class _MockSnapshotGate extends EngineProcess {
   _MockSnapshotGate() : super(executable: runtimeNode, helper: runtimeHelper);
@@ -67,7 +68,7 @@ void main() {
         );
         final mock = MockRunController(workspace);
         try {
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await workspace.initialize();
             await workspace.open(temp.path);
             expect(workspace.project!.roots.length, 2);
@@ -103,7 +104,7 @@ void main() {
                 await engine.entered.future;
               });
             }
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               expect(await workspace.selectRoot(file.uri.toString()), true);
             });
             await tester.pumpAndSettle();
@@ -146,7 +147,7 @@ void main() {
           if (!engine.release.isCompleted) engine.release.complete();
           await tester.pumpWidget(const SizedBox.shrink());
           mock.dispose();
-          await tester.runAsync(workspace.shutdown);
+          await runWidgetIo(tester, workspace.shutdown);
           workspace.dispose();
           temp.deleteSync(recursive: true);
         }
@@ -243,7 +244,7 @@ void main() {
           } finally {
             await tester.pumpWidget(const SizedBox.shrink());
             mock.dispose();
-            await tester.runAsync(workspace.shutdown);
+            await runWidgetIo(tester, workspace.shutdown);
             workspace.dispose();
             temp.deleteSync(recursive: true);
           }

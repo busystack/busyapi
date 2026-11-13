@@ -13,6 +13,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -83,7 +84,7 @@ void main() {
       expect(data['components']['schemas']['Holder']['default']['description'], '[Guide](guide.md)');
       expect(data['components']['schemas']['Use'][r'$ref'], '#/components/schemas/Independent');
       expect(c.buffer!.text, contains('9007199254740993.00'));
-      await tester.runAsync(() async {
+      await runWidgetIo(tester, () async {
         await c.undo();expect(c.buffer!.text, original);
         await c.redo();expect(c.buffer!.bytes(), accepted);
       });
@@ -99,14 +100,14 @@ void main() {
       final moved = c.buffer!.bytes(), movedData = jsonDecode(c.buffer!.text);
       expect(movedData['components']['schemas']['Owner']['properties']['Reply']['description'], '[Reply](reply.md)');
       expect(movedData['paths']['/value']['get']['responses']['200']['description'], '[Reply](<${file.uri.resolve('reply.md')}>)');
-      await tester.runAsync(() async {
+      await runWidgetIo(tester, () async {
         await c.undo();expect(c.buffer!.bytes(), accepted);expect(c.buffer!.id, file.uri.toString());
         await c.redo();expect(c.buffer!.bytes(), moved);await c.saveAll();
       });
       expect(destination.readAsBytesSync(), moved);expect(file.existsSync(), false);expect(tester.takeException(), isNull);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
-      await tester.runAsync(c.shutdown);c.dispose();directory.deleteSync(recursive: true);
+      await runWidgetIo(tester, c.shutdown);c.dispose();directory.deleteSync(recursive: true);
     }
   });
   for (final version in ['3.1.0', '3.1.1', '3.1.2', '3.2.0', '3.2.1']) {
@@ -245,7 +246,7 @@ void main() {
                     '  "x-history": *owned\n}';
               }
               const pointer = '/components/schemas/Owner/properties/child';
-              await tester.runAsync(() async {
+              await runWidgetIo(tester, () async {
                 await file.writeAsString('\ufeff$original');
                 await destination.writeAsString(
                   jsonEncode({
@@ -593,16 +594,16 @@ void main() {
                 c.store!.get(destination.uri.toString()).text,
                 contains('900719925474099312345'),
               );
-              await tester.runAsync(c.undo);
+              await runWidgetIo(tester, c.undo);
               expect(c.selectedPointer, '/components/schemas/Extracted');
               expect(c.selectedResource, destinationId);
               for (final entry in beforeMove.entries) {
                 expect(c.store!.get(entry.key).bytes(), entry.value);
               }
-              await tester.runAsync(c.redo);
+              await runWidgetIo(tester, c.redo);
               expect(c.store!.get(destination.uri.toString()).bytes(), moved);
-              await tester.runAsync(c.undo);
-              await tester.runAsync(c.undo);
+              await runWidgetIo(tester, c.undo);
+              await runWidgetIo(tester, c.undo);
               expect(buffer.bytes(), originalBytes);
               expect(c.selectedPointer, pointer);
               expect(c.selectedResource, buffer.id);
@@ -614,7 +615,7 @@ void main() {
               final restoredTree =
                   (c.layoutState['schemaTrees'] as Map)[ownerTreeKey] as Map;
               expect(restoredTree['expanded'], contains('$pointer/properties'));
-              await tester.runAsync(c.redo);
+              await runWidgetIo(tester, c.redo);
               expect(buffer.bytes(), extracted);
               expect(c.selectedPointer, '/components/schemas/Extracted');
               if (identified) {
@@ -694,9 +695,9 @@ void main() {
                 definitionData['components']['schemas']['Extracted']['type'],
                 'object',
               );
-              await tester.runAsync(c.undo);
+              await runWidgetIo(tester, c.undo);
               expect(buffer.bytes(), extracted);
-              await tester.runAsync(c.redo);
+              await runWidgetIo(tester, c.redo);
               expect(buffer.bytes(), inlined);
               await tester.runAsync(c.saveAll);
               expect(file.readAsBytesSync(), inlined);
@@ -706,7 +707,7 @@ void main() {
               expect(tester.takeException(), isNull);
             } finally {
               await tester.pumpWidget(const SizedBox.shrink());
-              await tester.runAsync(c.shutdown);
+              await runWidgetIo(tester, c.shutdown);
               c.dispose();
               temp.deleteSync(recursive: true);
             }

@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   for (final version in ['3.1.2', '3.2.1']) {
@@ -97,7 +98,7 @@ void main() {
             }
 
             try {
-              await tester.runAsync(() async {
+              await runWidgetIo(tester, () async {
                 await c.initialize();
                 await c.open(file.path);
                 await c.selectObject({
@@ -157,7 +158,7 @@ void main() {
                 () => tester.enterText(summary, 'Native safe summary'),
               );
               expect(c.draft!.pending, true);
-              await tester.runAsync(() async {
+              await runWidgetIo(tester, () async {
                 expect(await c.flush(), true);
                 await c.analyse();
               });
@@ -172,12 +173,12 @@ void main() {
                 isNot('complete'),
                 reason: 'Editing a safe field does not silently repair or clear invalid source',
               );
-              await tester.runAsync(() async {
+              await runWidgetIo(tester, () async {
                 await c.undo();
                 await c.analyse();
               });
               expect(c.buffer!.text, text);
-              await tester.runAsync(() async {
+              await runWidgetIo(tester, () async {
                 await c.redo();
                 await c.analyse();
                 await c.saveBuffers();
@@ -188,7 +189,7 @@ void main() {
               expect(errors, isEmpty);
             } finally {
               await tester.pumpWidget(const SizedBox.shrink());
-              await tester.runAsync(c.shutdown);
+              await runWidgetIo(tester, c.shutdown);
               c.dispose();
               temp.deleteSync(recursive: true);
             }

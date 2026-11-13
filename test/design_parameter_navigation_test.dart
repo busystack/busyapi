@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   for (final version in ['3.0.4', '3.1.2', '3.2.1']) {
@@ -137,7 +138,7 @@ void main() {
           }
 
           try {
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await c.initialize();
               await c.open(file.path);
               await c.selectObject({
@@ -203,7 +204,7 @@ void main() {
             await tester.runAsync(
               () => tester.enterText(description, 'Native definition'),
             );
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               expect(await c.flush(), true);
               await c.analyse();
             });
@@ -216,12 +217,12 @@ void main() {
                 'Native definition',
               ),
             );
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await c.undo();
               await c.analyse();
             });
             expect(c.store!.get(part.uri.toString()).text, originalPart);
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await c.redo();
               await c.analyse();
               await c.saveBuffers();
@@ -278,7 +279,7 @@ void main() {
                 tester.widget<TextField>(lastName).controller!.text,
                 'InheritedKey200',
               );
-              await tester.runAsync(() async {
+              await runWidgetIo(tester, () async {
                 await c.selectObject({
                   'root': root,
                   'resource': root,
@@ -337,7 +338,7 @@ void main() {
             expect(c.store!.get(root).dirty, false);
           } finally {
             await tester.pumpWidget(const SizedBox.shrink());
-            await tester.runAsync(c.shutdown);
+            await runWidgetIo(tester, c.shutdown);
             c.dispose();
             temp.deleteSync(recursive: true);
           }

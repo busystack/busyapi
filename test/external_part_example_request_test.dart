@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 class _NativeHttp extends HttpOverrides {}
 
@@ -67,14 +68,14 @@ void main() {
       final headerChoice = find.byWidgetPredicate((widget) => widget is BusyApiActionRow && widget.title == '/upload · X-Meta · Examples · Approved');
       await tester.ensureVisible(headerChoice);await tester.tap(headerChoice);await tester.pumpAndSettle();
       expect(run.partHeaders.single.exampleName, 'Approved');
-      await tester.runAsync(() => HttpOverrides.runWithHttpOverrides(run.send, _NativeHttp()));await tester.pumpAndSettle();
+      await runWidgetIo(tester, () => HttpOverrides.runWithHttpOverrides(run.send, _NativeHttp()));await tester.pumpAndSettle();
       expect(run.failure, isNull, reason: run.failureMessage);expect(run.result!.conforming, true, reason: '${run.result!.outgoing.findings}');
       expect(String.fromCharCodes(seen.single), contains('X-Meta: $meta\r\n'));
       expect(String.fromCharCodes(seen.single), contains(String.fromCharCodes(bytes)));
       expect(source.readAsStringSync(), original);expect(tester.takeException(), isNull);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
-      await tester.runAsync(() async {run.dispose();await workspace.shutdown();workspace.dispose();await server?.close(force: true);directory.deleteSync(recursive: true);});
+      await runWidgetIo(tester, () async {run.dispose();await workspace.shutdown();workspace.dispose();await server?.close(force: true);directory.deleteSync(recursive: true);});
     }
   });
 }

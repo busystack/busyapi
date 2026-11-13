@@ -13,6 +13,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   for (final version in ['3.1.2', '3.2.1']) {
@@ -157,7 +158,7 @@ void main() {
         }
 
         try {
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await c.initialize();
             await c.open(file.path);
             c.mode = 'Reference';
@@ -265,12 +266,12 @@ void main() {
                 .target['resource'],
             part.uri.toString(),
           );
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await c.undo();
             await c.analyse();
           });
           await ready(() => c.root == root && combo()?.selected == two);
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await c.redo();
             await c.analyse();
           });
@@ -283,7 +284,7 @@ void main() {
             await c.persistView();
           });
           await tester.pumpWidget(const SizedBox.shrink());
-          await tester.runAsync(c.shutdown);
+          await runWidgetIo(tester, c.shutdown);
           c.dispose();
           c = workspace();
           await tester.runAsync(() async {
@@ -302,7 +303,7 @@ void main() {
           expect(part.readAsStringSync(), partText);
         } finally {
           await tester.pumpWidget(const SizedBox.shrink());
-          await tester.runAsync(c.shutdown);
+          await runWidgetIo(tester, c.shutdown);
           c.dispose();
           temp.deleteSync(recursive: true);
         }

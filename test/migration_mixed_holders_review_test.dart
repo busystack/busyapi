@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/migration_mixed_holder_fixture.dart';
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   for (final version in ['3.0.4', '3.1.2']) {
@@ -97,7 +98,7 @@ void main() {
           final close = find.widgetWithText(BusyApiDialogButton, 'Close');
           if (close.evaluate().isNotEmpty) await tester.tap(close);
           await tester.pumpAndSettle();if (dialog != null) await tester.runAsync(() => dialog!);
-          await tester.pumpWidget(const SizedBox.shrink());await tester.runAsync(controller.shutdown);controller.dispose();directory.deleteSync(recursive: true);
+          await tester.pumpWidget(const SizedBox.shrink());await runWidgetIo(tester, controller.shutdown);controller.dispose();directory.deleteSync(recursive: true);
         }
       });
     }

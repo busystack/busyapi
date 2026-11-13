@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   for (final format in ['yaml', 'json']) {
@@ -89,7 +90,7 @@ void main() {
         }
 
         try {
-          await tester.runAsync(() async {
+          await runWidgetIo(tester, () async {
             await controller.initialize();
             await controller.open(file.path);
             await controller.selectObject({
@@ -127,7 +128,7 @@ void main() {
               ('consumes', 'multipart/form-data'),
               ('produces', 'application/json'),
             ]) {
-              await tester.runAsync(() async {
+              await runWidgetIo(tester, () async {
                 await controller.selectObject({
                   'root': controller.root,
                   'resource': controller.root,
@@ -157,12 +158,12 @@ void main() {
               final created = controller.buffer!.text;
               expect(created, isNot(before));
               expect(file.readAsStringSync(), original);
-              await tester.runAsync(() async {
+              await runWidgetIo(tester, () async {
                 await controller.undo();
                 await controller.analyse();
               });
               expect(controller.buffer!.text, before);
-              await tester.runAsync(() async {
+              await runWidgetIo(tester, () async {
                 await controller.redo();
                 await controller.analyse();
               });
@@ -202,12 +203,12 @@ void main() {
               expect(list!['nodeKind'], 'array');
               expect(list['count'], 1);
               expect((list['entries'] as List).single['value'], value);
-              await tester.runAsync(() async {
+              await runWidgetIo(tester, () async {
                 await controller.undo();
                 await controller.analyse();
               });
               expect(controller.buffer!.text, created);
-              await tester.runAsync(() async {
+              await runWidgetIo(tester, () async {
                 await controller.redo();
                 await controller.analyse();
               });
@@ -228,7 +229,7 @@ void main() {
           expect(tester.takeException(), isNull);
         } finally {
           await tester.pumpWidget(const SizedBox.shrink());
-          await tester.runAsync(controller.shutdown);
+          await runWidgetIo(tester, controller.shutdown);
           controller.dispose();
           temp.deleteSync(recursive: true);
         }

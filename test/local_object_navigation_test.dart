@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'widget_io.dart';
 
 void main() {
   for (final version in ['3.1.2', '3.2.1']) {
@@ -79,7 +80,7 @@ void main() {
           }
 
           try {
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await c.initialize();
               await c.open(root.path);
               await c.analyse();
@@ -164,7 +165,7 @@ void main() {
               () => tester.enterText(field, 'Edited parameter'),
             );
             expect(c.hasPendingFields, true);
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               expect(await c.flush(), true);
               await c.analyse();
             });
@@ -184,7 +185,7 @@ void main() {
                 utf8.encode(source),
               );
             }
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await c.undo();
               expect(target.bytes(), utf8.encode(original));
               await c.redo();
@@ -201,7 +202,7 @@ void main() {
             expect(tester.takeException(), isNull);
           } finally {
             await tester.pumpWidget(const SizedBox.shrink());
-            await tester.runAsync(c.shutdown);
+            await runWidgetIo(tester, c.shutdown);
             c.dispose();
             directory.deleteSync(recursive: true);
           }

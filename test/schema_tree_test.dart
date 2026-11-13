@@ -160,7 +160,7 @@ void main() {
               '${json ? '' : '# retained 😀\r\n'}${const JsonEncoder.withIndent('  ').convert(value)}'
                   .replaceFirst('9007199254740993', '9007199254740993.00');
           try {
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
               await file.writeAsBytes([
                 239,
                 187,
