@@ -1777,11 +1777,12 @@ class BusyProject {
       }
 
       final collectionStart = clock.elapsedMicroseconds;
-      await collect(root);
+      final entryRoots = <String>{root, if (captureEntries) ...roots.map((entry) => entry.id)};
+      await _resourceBatch(entryRoots, collect);
       final known = (dependencies[root] ?? <String>{})
-          .where((id) => id != root && id != _manifestResource)
+          .where((id) => !resources.containsKey(id) && id != _manifestResource)
           .toList();
-      if (known.length + 1 > 2048) {
+      if (known.length + resources.length > 2048) {
         throw CoreFailure('limit.resources', 'Dependency count exceeds 2048');
       }
       await _resourceBatch(known, (id) async {
@@ -1811,7 +1812,7 @@ class BusyProject {
         final ipcStart = clock.elapsedMicroseconds;
         result = await engine.request('analyse', {
           ...snapshot.toJson(),
-          if (captureEntries) 'captureEntries': true,
+          if (captureEntries) 'captureEntries': entryRoots.toList()..sort(),
           if (measure) 'measure': true,
         }, requestId: requestId == null ? null : '$requestId-$depth-$attempt');
         ensureActive();
@@ -1829,7 +1830,7 @@ class BusyProject {
                 entryDiscovery['version'] != 1 ||
                 entryDiscovery['roots'] is! List ||
                 (entryDiscovery['roots'] as List).length > 256 ||
-                !(entryDiscovery['roots'] as List).contains(root) ||
+                !entryRoots.every((id) => (entryDiscovery['roots'] as List).contains(id)) ||
                 (entryDiscovery['roots'] as List).any(
                   (value) => value is! String,
                 ) ||
@@ -1867,7 +1868,9 @@ class BusyProject {
             ? entryDiscovery['references'] as List
             : result['references'] as List? ?? const [];
         if (result['info'] != null) {
-          final reached = <String>{root};
+          final reached = <String>{root,
+            if (captureEntries && entryDiscovery is Map) ...List<String>.from(entryDiscovery['roots'] as List),
+          };
           for (final ref in discoveryReferences) {
             if (ref['resource'] is String) {
               reached.add(ref['resource'] as String);

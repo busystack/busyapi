@@ -69,10 +69,14 @@ extension _OutputCapture on BusyProject {
   }) async {
     AnalysisSnapshot? frozen;
     int? revision;
+    final migration = operation == 'migration';
+    // Conversion owns source and target validation. Capture its inputs without
+    // repeating that semantic pass or intercepting its located blocked review.
     final checked = await check(
       root,
       saved: saved,
-      captureEntries: operation == 'migration',
+      captureEntries: migration,
+      schemaEvaluation: !migration,
       requestId: requestId,
       cancelled: cancelled,
       onResourceRefreshed: onResourceRefreshed,
@@ -92,14 +96,14 @@ extension _OutputCapture on BusyProject {
       ...checked,
       'sourceSnapshot': snapshot.sourceIdentity,
     };
-    if (checked['complete'] != true) {
+    if (!migration && checked['complete'] != true) {
       throw OutputAnalysisFailure(
         '$operation.incomplete',
         'Required analysis did not complete; no output was produced',
         sourced,
       );
     }
-    if (checked['status'] == 'invalid') {
+    if (!migration && checked['status'] == 'invalid') {
       throw OutputAnalysisFailure(
         '$operation.contract',
         'Repair validity errors before producing documentation',

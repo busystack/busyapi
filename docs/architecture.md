@@ -300,7 +300,11 @@ CLI. It preserves exact disk conflict checks, interrupted-publication records,
 ordered grouped operations and honest partial receipts. TypeScript exclusively
 owns conversion language/configuration semantics. Dart bounds the review packet,
 freezes reviewed file bytes once and checks captured authority, freshness and safe
-publication paths.
+publication paths. Explicit conversion captures configured entries and their
+closures, including unsaved unselected consumers. Ordinary opening and selected
+root checks stay lazy. Dart acquires that source without a duplicate full schema
+validation; the conversion engine owns source/target validation and returns
+located blocked reviews for unsupported inputs.
 
 Conversion assigns final typed owners in one captured-source traversal. Static
 references are emitted as one batch before contextual dynamic/security edges;

@@ -9,6 +9,7 @@ import 'test_support.dart';
 class _LoadingEngine extends EngineProcess {
   _LoadingEngine() : super(executable: runtimeNode, helper: runtimeHelper);
   final analyses = <({String root, Set<String> resources})>[];
+  var schemaEvaluations = 0;
   void Function()? onNormalization;
   @override
   Future<Map<String, dynamic>> request(
@@ -16,6 +17,7 @@ class _LoadingEngine extends EngineProcess {
     Map<String, Object?> params, {
     String? requestId,
   }) async {
+    if (method == 'evaluateSchemas') schemaEvaluations++;
     if (method == 'analyse') {
       analyses.add((
         root: params['root'] as String,
@@ -169,6 +171,36 @@ void main() {
       expect(second.readAsBytesSync(), [0xff]);
     },
   );
+
+  test('explicit migration captures unselected configured consumers and their unsaved source', () async {
+    final first = File('${directory.path}/first.yaml')..writeAsStringSync(
+      '${contract.replaceFirst('Configured', 'First')}'
+      'components: {schemas: {Value: {\$ref: shared.yaml#/Value}}}\n',
+    );
+    final second = File('${directory.path}/second.yaml')..writeAsStringSync(
+      '${contract.replaceFirst('Configured', 'Second')}'
+      'components: {schemas: {Value: {\$ref: shared.yaml#/Value}, Private: {\$ref: second-part.yaml#/Private}}}\n',
+    );
+    final shared = File('${directory.path}/shared.yaml')..writeAsStringSync('Value: {type: integer}\n');
+    final private = File('${directory.path}/second-part.yaml')..writeAsStringSync('Private: {type: string}\n');
+    final originals = {for (final file in [first, second, shared, private]) file: file.readAsBytesSync()};
+    manifest('version: 1\nroots: [{name: First, path: first.yaml}, {name: Second, path: second.yaml}]\n');
+    final project = await BusyProject.open(directory.path, engine);
+    addTearDown(project.close);
+    expect(project.store.buffers, isEmpty);expect(engine.analyses, isEmpty);
+    await project.check(first.uri.toString(), schemaEvaluation: false);
+    expect(engine.analyses.every((job) => !job.resources.contains(second.uri.toString())), true);
+    final buffer = await project.buffer(second.uri.toString());
+    project.store.replace(buffer.id, buffer.text.replaceFirst('Second', 'Captured Second'));
+    final review = await project.prepareMigration(first.uri.toString(), '${directory.path}/review', targetVersion: '3.2.1');
+    addTearDown(review.close);
+    expect(review.publishable, true, reason: '${review.result}');expect(review.unsaved, true);
+    expect(engine.schemaEvaluations, 0, reason: 'The conversion semantic owner validates its captured inputs');
+    expect(review.changes.map((change) => change.resource).toSet(), containsAll(originals.keys.map((file) => file.uri.toString())));
+    expect(review.changes.singleWhere((change) => change.resource == second.uri.toString()).after, contains('Captured Second'));
+    for (final entry in originals.entries) expect(entry.key.readAsBytesSync(), entry.value);
+    expect(Directory('${directory.path}/review').existsSync(), false);
+  });
 
   test(
     'configured opening honors cancellation without running analysis',

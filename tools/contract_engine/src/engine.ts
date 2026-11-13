@@ -56,11 +56,23 @@ function authoringFields(graph:ReferenceGraph,scope:ReturnType<ReferenceGraph['s
 /** Migration captures connected complete descriptions in their own entry
  * contexts. Discovery is separate from the selected root's native projection
  * and validity; Core retains its existing acquisition/approval boundary. */
-function discoverEntries(input:{resources:Resource[]},primary:ReferenceGraph) {
+function discoverEntries(input:{resources:Resource[];captureEntries:string[]},primary:ReferenceGraph) {
     type Reference=Pick<GraphReference,'resource'|'pointer'|'keyword'|'kind'|'connection'|'resolution'|'targetResource'|'candidateResources'>;
     const roots=[primary.root],queued=new Set(roots),references=new Map<string,Reference>(),examples=new Map<string,ReturnType<typeof externalExampleRequests>[number]>();
     const aliases=new Map<string,string[]>(input.resources.map(resource=>[resource.id,resource.aliases??[]]));
     let work=0,uses=0;
+    const consider=(resource:string|undefined)=>{
+        if(resource!==undefined&&primary.specifications.has(resource)&&!queued.has(resource)){
+            if(roots.length>=256)throw new SourceError('limit.discovery.entries','Connected entry discovery exceeds 256 descriptions');
+            queued.add(resource);roots.push(resource);
+        }
+    };
+    for(const root of input.captureEntries){
+        if(root===primary.root)continue;
+        const doc=primary.docs.get(root);
+        if(!doc||!primary.specifications.has(root))throw new SourceError('analysis.discovery.specification','A requested entry has no captured supported specification declaration',doc?.root.range??[0,0],'unsupported',{resource:root,pointer:'',range:doc?.root.range??[0,0]});
+        consider(root);
+    }
     for(let index=0;index<roots.length;index++){
         const root=roots[index],specification=primary.specifications.get(root);
         const graph=root===primary.root?primary:ReferenceGraph.capture(primary.docs,root,specification!.family,aliases);
@@ -68,12 +80,6 @@ function discoverEntries(input:{resources:Resource[]},primary:ReferenceGraph) {
             const range=primary.docs.get(scope.resource)!.dataNode(scope.pointer)!.range;
             throw new SourceError('limit.discovery.entries','Connected entry discovery exceeds 200000 semantic uses',range,'unsupported',{...scope,range});
         }
-        const consider=(resource:string|undefined)=>{
-            if(resource!==undefined&&primary.specifications.has(resource)&&!queued.has(resource)){
-                if(roots.length>=256)throw new SourceError('limit.discovery.entries','Connected entry discovery exceeds 256 descriptions');
-                queued.add(resource);roots.push(resource);
-            }
-        };
         for(const reference of graph.entryReferences()){
             if(++work>2000000)throw new SourceError('limit.discovery.entries','Connected entry discovery exceeds 2000000 references');
             const value={resource:reference.resource,pointer:reference.pointer,keyword:reference.keyword,kind:reference.kind,connection:reference.connection,
@@ -88,7 +94,7 @@ function discoverEntries(input:{resources:Resource[]},primary:ReferenceGraph) {
     return {version:1,roots,references:[...references.values()],externalExamples:[...examples.values()]};
 }
 export function analyse(input: any, context?: ReturnType<typeof createGraph>) {
-    if(input.captureEntries!==undefined&&typeof input.captureEntries!=='boolean')throw new SourceError('analysis.discovery','Entry discovery must be an explicit boolean');
+    if(input.captureEntries!==undefined&&(!Array.isArray(input.captureEntries)||input.captureEntries.length>128||input.captureEntries.some((root:unknown)=>typeof root!=='string')))throw new SourceError('analysis.discovery','Entry discovery requires at most 128 captured entry identities');
     const started = performance.now();
     const docs = new Map<string, SourceDocument>(), findings: any[] = [], references: any[] = [], operations: any[] = [], components: any[] = [];
     let complete = true, supported = true;

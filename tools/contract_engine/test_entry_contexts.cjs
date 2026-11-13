@@ -7,7 +7,7 @@ const a='file:///entries/a.json',b='file:///entries/b.json',model='file:///entri
 function fixture(){
  const doc=(version,name)=>({openapi:version,info:{title:name,version:'1'},paths:{'/p':{get:{responses:{200:{description:'Value',content:{'application/json':{schema:{$ref:'#/components/schemas/Model'}}}}}}}},
   security:[{[name]:[]}],components:{schemas:{Model:{$ref:'model.json#/Value'}},securitySchemes:{[name]:{type:'apiKey',in:'header',name:'X-'+name}},examples:{
-   Entry:name==='A'?{$ref:'b.json#/components/examples/Entry'}:{value:'B'},
+   Entry:{value:name},
   }}});
  return {root:a,snapshot:'entry-contexts',resources:[{id:a,text:JSON.stringify(doc('3.0.4','A')),generation:0},
   {id:b,text:JSON.stringify(doc('3.2.1','B')),generation:0},{id:model,text:'{"Value":{"type":"string","nullable":true}}',generation:0}]};
@@ -81,13 +81,19 @@ test('ordinary discovery stays in its entry while explicit migration capture dis
  const input={root:a,snapshot:'entry-discovery',resources:[{id:a,text:JSON.stringify(primary),generation:0},
   {id:b,text:JSON.stringify(secondary),generation:0},{id:'file:///entries/stale.json',text:JSON.stringify(unrelated),generation:0}]};
  const ordinary=analyse(input);assert.equal(ordinary.status,'complete',JSON.stringify(ordinary.findings));assert.deepEqual(ordinary.externalExamples,[]);
- const captured=analyse({...input,captureEntries:true});assert.equal(captured.status,'complete',JSON.stringify(captured.findings));
+ const captured=analyse({...input,captureEntries:[a]});assert.equal(captured.status,'complete',JSON.stringify(captured.findings));
  assert.deepEqual(captured.references,ordinary.references,'Collection purpose does not replace the native selected-entry projection');
  assert.deepEqual(captured.entryDiscovery.roots,[a,b]);
  assert(captured.entryDiscovery.references.some(reference=>reference.targetResource==='file:///entries/numbers.json'));
  assert(captured.entryDiscovery.externalExamples.some(request=>request.targetResource==='file:///entries/b.bin'));
  assert(!captured.entryDiscovery.externalExamples.some(request=>request.targetResource?.includes('unapproved.invalid')));
  assert(!captured.entryDiscovery.references.some(reference=>reference.targetResource?.includes('literal-only')));
+ const independent={...input,resources:input.resources.map(resource=>resource.id===a?{...resource,text:JSON.stringify({...primary,components:{}})}:resource)};
+ const configured=analyse({...independent,captureEntries:[a,b]});
+ assert.deepEqual(configured.entryDiscovery.roots,[a,b],'Explicit configured roots do not need a forward link from the selected root');
+ assert(configured.entryDiscovery.references.some(reference=>reference.targetResource==='file:///entries/numbers.json'));
+ assert(configured.entryDiscovery.externalExamples.some(request=>request.targetResource==='file:///entries/b.bin'));
+ assert(!configured.entryDiscovery.externalExamples.some(request=>request.targetResource?.includes('unapproved.invalid')));
 });
 
 test('an independent native schema does not activate a physical containing schema resource with another base or dialect',async()=>{

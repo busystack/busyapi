@@ -56,7 +56,7 @@ class _ChangedEntryDiscovery extends EngineProcess {
   @override
   Future<Map<String, dynamic>> request(String method, Map<String, Object?> params, {String? requestId}) async {
     final result = await super.request(method, params, requestId: requestId);
-    if (method != 'analyse' || params['captureEntries'] != true) return result;
+    if (method != 'analyse' || params['captureEntries'] is! List) return result;
     final changed = jsonDecode(jsonEncode(result)) as Map<String, dynamic>;
     if (defect == 'missing') changed.remove('entryDiscovery');
     if (defect == 'revision') (changed['versions'] as Map)['entryDiscoveryRules'] = 'obsolete';
