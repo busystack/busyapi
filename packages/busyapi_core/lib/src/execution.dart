@@ -500,7 +500,7 @@ class OperationRequestPlan {
     final examples = (owner['examples'] as List? ?? const []).whereType<Map>()
         .where((value) => value['name'] == name && value['external'] is Map).toList();
     if (examples.length != 1) throw CoreFailure('request.example.external',
-        'This occurrence has no unique available external example.');
+        'This occurrence has no unique available external example.',kind:CoreFailureKind.unsupported);
     final example = examples.single;
     final bytes = _capturedExampleBytes(example);
     final text = example[mediaType == null ? 'raw' : 'parameterSerialization'];
@@ -556,7 +556,7 @@ class OperationRequestPlan {
     }
     final captured = snapshot.exampleResources.where((value) => value.id == resource && value.available).toList();
     if (captured.length != 1) throw CoreFailure('request.example.external',
-        'Choose an available external example from the approved current capture.');
+        'Choose an available external example from the approved current capture.',kind:CoreFailureKind.unsupported);
     return CapturedRequestPartExample._(this, bodyMediaType, part, mediaType,
         resource, captured.single.identity, captured.single.bytes!);
   }

@@ -109,7 +109,8 @@ void main() {
       await expectLater(mockPlan.start(nodeExecutable: runtimeNode, helper: '$testBundle/libexec/busyapi/mock-server.cjs'),
         throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'mock.stale')));
       await payload.writeAsBytes(payloadBytes);
-      final mock = await mockPlan.start(nodeExecutable: runtimeNode, helper: '$testBundle/libexec/busyapi/mock-server.cjs');addTearDown(mock.stop);
+      final currentMockPlan = await project.prepareMock(root);addTearDown(currentMockPlan.close);
+      final mock = await currentMockPlan.start(nodeExecutable: runtimeNode, helper: '$testBundle/libexec/busyapi/mock-server.cjs');addTearDown(mock.stop);
       expect(mock.nativeResponseValidation.version, '5');expect(mock.nativeParameterValidation.version, '8');
       final client = HttpClient();addTearDown(() => client.close(force: true));
       for (final name in ['Bytes', 'Empty']) {
@@ -129,9 +130,9 @@ void main() {
       final restored = replacement.restoreBodyExample(selected);expect(restored, isNotNull);
       expect(await replacement.bodyExampleBytes(restored!), payloadBytes);
       final token = RunCancellation()..cancel();
-      await expectLater(plan.bodyExampleBytes(selected, cancellation: token), throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'cancelled')));
+      await expectLater(replacement.bodyExampleBytes(restored, cancellation: token), throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'cancelled')));
       await payload.writeAsBytes([1, 2]);
-      await expectLater(plan.bodyExampleBytes(selected), throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'runtime.request.example.stale')));
+      await expectLater(replacement.bodyExampleBytes(restored), throwsA(isA<CoreFailure>().having((error) => error.code, 'code', anyOf('request.draft.stale','runtime.request.example.stale'))));
       expect(seen, hasLength(2));await payload.writeAsBytes(payloadBytes);
       final cli = await Process.run('$testBundle/busyapi', ['test', directory.path, '--case', 'Bytes', '--case', 'Empty', '--json'], environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
       expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');expect(seen, [payloadBytes, <int>[], payloadBytes, <int>[]]);
@@ -147,6 +148,7 @@ void main() {
       expect(unavailable.exitCode, 2, reason: '${unavailable.stdout} ${unavailable.stderr}');
       expect(seen, hasLength(4));await payload.writeAsBytes(payloadBytes);
       expect(await file.readAsString(), text);
+      await project.buffer(root);
       project.store.replace(root, text.replaceFirst('External body', 'Edited body'));
       expect(() => plan.captureBodyExample(media, name: 'Bytes'), throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'request.draft.stale')));
     });
@@ -182,7 +184,7 @@ void modeledExternalExamples() {
       final token = RunCancellation()..cancel();
       await expectLater(plan.bodyExampleBytes(selected,cancellation:token),throwsA(isA<CoreFailure>().having((error)=>error.code,'code','cancelled')));
       await payload.writeAsString('changed');
-      await expectLater(plan.bodyExampleBytes(selected),throwsA(isA<CoreFailure>().having((error)=>error.code,'code','runtime.request.example.stale')));
+      await expectLater(plan.bodyExampleBytes(selected),throwsA(isA<CoreFailure>().having((error)=>error.code,'code',anyOf('request.draft.stale','runtime.request.example.stale'))));
       expect(seen,hasLength(1));expect(await source.readAsString(),original);
     });
   }

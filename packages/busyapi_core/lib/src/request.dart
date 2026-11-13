@@ -1460,8 +1460,7 @@ class ContractRequestBuilder {
         'Header names and values must not contain control characters',
       );
     }
-    if (RegExp(r'[\x80-\x9f]').hasMatch(value) ||
-        value.codeUnits.any((unit) => unit > 255)) {
+    if (value.codeUnits.any((unit) => unit > 127)) {
       throw CoreFailure(
         'request.header.octets.unsupported',
         'The native HTTP SDK cannot emit these authored Header octets. Keep the literal input or choose a modeled representation.',

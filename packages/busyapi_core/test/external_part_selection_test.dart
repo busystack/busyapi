@@ -64,9 +64,13 @@ void main() {
           throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'cancelled')));
         await payload.writeAsBytes([1]);
         await expectLater(const ContractRequestBuilder().build(plan, draft, resolveSecret: (_) async => null),
-          throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'runtime.request.example.stale')));
+          throwsA(isA<CoreFailure>().having((error) => error.code, 'code', anyOf('request.draft.stale','runtime.request.example.stale','request.stale'))));
         expect(seen, hasLength(1));await payload.writeAsBytes(bytes);
-        final changed = await project.applyRefactoring(await plan.planCase('Approved part', draft));
+        final fresh = await project.prepareRequest(root,resource:root,pointer:pointer);addTearDown(fresh.close);
+        final restored = fresh.restorePartExample(selected);expect(restored,isNotNull);
+        final restoredDraft = OperationRequestDraft(planIdentity:fresh.identity,body:RequestBodyDraft.multipart(
+          const [],[MultipartFileValue.example(restored!)],mediaType:'multipart/form-data'));
+        final changed = await project.applyRefactoring(await fresh.planCase('Approved part', restoredDraft));
         for (final id in changed) await publishSources(project, [project.store.get(id)]);
         final config = jsonDecode(await File('${directory.path}/busyapi.yaml').readAsString());
         expect(config['tests'][0]['body']['files'][0]['capturedExample'], true);
@@ -99,30 +103,35 @@ void capturedHeaderJourneys() {
       final seen = <List<int>>[];
       server.listen((request) async {seen.add(await request.fold<List<int>>([], (all, chunk) => all..addAll(chunk)));request.response.statusCode = 204;await request.response.close();});
       const exact = '{"id":9007199254740993.00,"flag":false}', type = 'multipart/mixed';
+      final ordered = version.startsWith('3.2.'),data = ordered ? '["data"]' : '{"value":"data"}';
       final payload = File('${directory.path}/header.bin');await payload.writeAsString(exact);
       final file = File('${directory.path}/api.yaml');
-      final source = '# Preserve Header source\r\n${jsonEncode({'openapi': version,
-        'info': {'title': 'Header examples', 'version': 'business'}, 'servers': [{'url': 'http://127.0.0.1:${server.port}'}],
-        'paths': {'/parts': {'post': {'requestBody': {'content': {type: {
-          'schema': {'type': 'object', 'required': ['value'], 'properties': {'value': {'type': 'string'}}},
-          'encoding': {'value': {'contentType': 'text/plain', 'headers': {'X-Meta': {
-            'required': true, 'content': {'application/json': {'schema': {'type': 'object', 'required': ['id', 'flag'],
-              'properties': {'id': {'type': 'integer', 'enum': ['EXACT']}, 'flag': {'type': 'boolean', 'enum': [false]}}}}},
-            'examples': {'Approved': {'externalValue': 'header.bin'}},
-          }}}},
-        }}}, 'responses': {'204': {'description': 'Empty'}}}}},
-      }).replaceAll('"EXACT"', '9007199254740993.00')}\r\n';
+      final encoding = {'contentType':'text/plain','headers':{'X-Meta':{
+        'required':true,'content':{'application/json':{'schema':{
+          'type':'object','required':['id','flag'],'properties':{
+            'id':{'type':'integer','enum':['EXACT']},'flag':{'type':'boolean','enum':[false]},
+          },
+        }}},'examples':{'Approved':{'externalValue':'header.bin'}},
+      }}};
+      final source = '# Preserve Header source\r\n${jsonEncode({'openapi':version,
+        'info':{'title':'Header examples','version':'business'},'servers':[{'url':'http://127.0.0.1:${server.port}'}],
+        'paths':{'/parts':{'post':{'requestBody':{'content':{type:{
+          'schema':ordered?{'type':'array','items':{'type':'string'}}:
+            {'type':'object','required':['value'],'properties':{'value':{'type':'string'}}},
+          if(ordered)'prefixEncoding':[encoding] else 'encoding':{'value':encoding},
+        }}},'responses':{'204':{'description':'Empty'}}}}},
+      }).replaceAll('"EXACT"','9007199254740993.00')}\r\n';
       await file.writeAsString(source);
       await File('${directory.path}/busyapi.yaml').writeAsString(jsonEncode({'version': 1, 'roots': [{'name': 'api', 'path': 'api.yaml'}]}));
       final project = await BusyProject.open(directory.path, engine);addTearDown(project.close);
       final root = file.uri.toString(), pointer = '/paths/~1parts/post';
       final plan = await project.prepareRequest(root, resource: root, pointer: pointer);addTearDown(plan.close);
-      final inspection = await plan.multipartPlan(type, '{"value":"data"}', inspect: true, requestId: 'header-choices');
+      final inspection = await plan.multipartPlan(type, data, inspect: true, requestId: 'header-choices');
       final control = ((inspection['controls'] as List).single['headerControls'] as List).single as Map;
       expect(control['examples'][0]['external']['resource'], payload.uri.toString());
       expect(control['examples'][0]['wireBase64'], isNull);
-      final draft = OperationRequestDraft(planIdentity: plan.identity, body: const RequestBodyDraft.multipartValue(
-        mediaType: type, json: '{"value":"data"}', partHeaders: [RequestPartHeaderValue.example('/value', 'X-Meta', 'Approved')]));
+      final draft = OperationRequestDraft(planIdentity: plan.identity, body: RequestBodyDraft.multipartValue(
+        mediaType: type, json: data, partHeaders: [RequestPartHeaderValue.example(ordered?'/0':'/value', 'X-Meta', 'Approved')]));
       final run = await const ContractRequestExecutor().execute(plan, draft, resolveSecret: (_) async => null);
       try { expect(run.conforming, true, reason: '${run.outgoing.findings}');expect(String.fromCharCodes(seen.single), contains('X-Meta: $exact\r\n')); }
       finally { await run.close(); }

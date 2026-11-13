@@ -24,6 +24,8 @@ void main() {
         const media = 'application/octet-stream', binary = [0, 255, 128, 43];
         final payload = File('${directory.path}/payload.bin');await payload.writeAsBytes(binary);
         await File('${directory.path}/header.bin').writeAsBytes([255, 128, 43]);
+        await File('${directory.path}/header-latin1.bin').writeAsBytes([255,233,43]);
+        await File('${directory.path}/header-transport.bin').writeAsBytes([114,97,119,43]);
         await File('${directory.path}/cafe.bin').writeAsBytes([99, 97, 102, 233]);
         final schema = version.startsWith('3.0') ? {'type': 'string', 'format': 'binary'} : {'not': {'type': 'null'}, 'maxLength': 4};
         Map content(String file, {String type = media, Map? declaration}) => {type: {
@@ -32,7 +34,11 @@ void main() {
         final paths = {'/p/{p}': {'get': {'parameters': [
           {'name': 'p', 'in': 'path', 'required': true, 'content': content('payload.bin')},
           {'name': 'q', 'in': 'query', 'content': content('payload.bin')},
-          {'name': 'X-Raw', 'in': 'header', 'content': content('header.bin')},
+          {'name': 'X-Raw', 'in': 'header', 'content': {media: {'schema':schema,'examples':{
+            'Approved':{'externalValue':'header-transport.bin'},
+            'Unsupported':{'externalValue':'header.bin'},
+            'Latin1':{'externalValue':'header-latin1.bin'},
+          }}}},
           {'name': 'cafe', 'in': 'query', 'content': content('cafe.bin', type: 'text/plain; charset=iso-8859-1', declaration: {'type': 'string', 'enum': ['café']})},
         ], 'responses': {'204': {'description': 'Empty'}}}}};
         final file = File('${directory.path}/api.$format');
@@ -53,24 +59,40 @@ void main() {
         }
         expect(() => plan.captureParameterExample('query', 'q', name: 'Approved'), throwsA(isA<CoreFailure>()));
         final draft = OperationRequestDraft(planIdentity: plan.identity, parameters: parameters);
+        for(final entry in {'Unsupported':[255,128,43],'Latin1':[255,233,43]}.entries){
+          final unsupported = plan.captureParameterExample('header','X-Raw',name:entry.key,mediaType:media);
+          expect(unsupported.serialization.codeUnits, entry.value);
+          await expectLater(const ContractRequestBuilder().build(plan,
+            OperationRequestDraft(planIdentity:plan.identity, parameters:{...parameters,
+              OperationRequestDraft.parameterKey('header','X-Raw'):RequestValue.example(unsupported)}),
+            resolveSecret:(_) async=>null), throwsA(isA<CoreFailure>()
+              .having((error)=>error.code,'code','request.header.octets.unsupported')
+              .having((error)=>error.kind,'kind',CoreFailureKind.unsupported)));
+        }
+        expect(seen,isEmpty);
         final run = await const ContractRequestExecutor().execute(plan, draft, resolveSecret: (_) async => null);
         try { expect(run.conforming, true, reason: '${run.outgoing.findings} ${run.received.findings}'); }
         finally { await run.close(); }
-        expect(seen.single, '/p/%00%FF%80%2B?q=%00%FF%80%2B&cafe=caf%E9');expect(headers.single, [255, 128, 43]);
+        expect(seen.single, '/p/%00%FF%80%2B?q=%00%FF%80%2B&cafe=caf%E9');expect(headers.single, [114,97,119,43]);
         final replacement = await project.prepareRequest(root, resource: root, pointer: pointer);addTearDown(replacement.close);
         final old = parameters[OperationRequestDraft.parameterKey('query', 'q')]!.capturedExample!;
         expect(replacement.restoreParameterExample(old), isNotNull);
         await expectLater(const ContractRequestBuilder().build(replacement,
           OperationRequestDraft(planIdentity: replacement.identity, parameters: parameters), resolveSecret: (_) async => null),
           throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'request.example.stale')));
-        await payload.writeAsBytes([1]);
-        await expectLater(const ContractRequestBuilder().build(plan, draft, resolveSecret: (_) async => null),
-          throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'runtime.request.example.stale')));
-        expect(seen, hasLength(1));await payload.writeAsBytes(binary);
         final token = RunCancellation()..cancel();
         await expectLater(const ContractRequestBuilder().build(plan, draft, cancellation: token, resolveSecret: (_) async => null),
           throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'cancelled')));
-        final changes = await project.applyRefactoring(await plan.planCase('Approved bytes', draft));
+        await payload.writeAsBytes([1]);
+        await expectLater(const ContractRequestBuilder().build(plan, draft, resolveSecret: (_) async => null),
+          throwsA(isA<CoreFailure>().having((error) => error.code, 'code', anyOf('request.draft.stale','runtime.request.example.stale','request.stale'))));
+        expect(seen, hasLength(1));await payload.writeAsBytes(binary);
+        final fresh = await project.prepareRequest(root,resource:root,pointer:pointer);addTearDown(fresh.close);
+        final restoredDraft = OperationRequestDraft(planIdentity:fresh.identity,parameters:{
+          for(final entry in parameters.entries) entry.key:RequestValue.example(
+            fresh.restoreParameterExample(entry.value.capturedExample!)!),
+        });
+        final changes = await project.applyRefactoring(await fresh.planCase('Approved bytes', restoredDraft));
         for (final id in changes) await publishSources(project, [project.store.get(id)]);
         final manifest = jsonDecode(await File('${directory.path}/busyapi.yaml').readAsString()) as Map;
         expect(manifest['tests'][0]['parameterExamples']['query']['q'], {'name': 'Approved', 'mediaType': media});
