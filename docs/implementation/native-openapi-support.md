@@ -72,9 +72,6 @@ multipart body checks have been deleted.
   final-owner mapping while preserving advanced semantic obligations.
 - Resolve retained runtime failures and verify all actual wire, file-change,
   credentials/TLS, mock, stream and cancellation boundaries together.
-- Complete the 6,400-schema eight-second worker gate after removing the native
-  empty-tuple adapter's repeated graph scan. Current concurrent qualification
-  runs still exceed that unchanged deadline; complete results alone do not pass it.
 - Run full current-candidate Engine, Core/CLI, official widget, native/platform and
   distribution checks after source stabilizes. `python3 tools/qualify_linux.py`
   assembles and rejects failing automated candidates; native/platform acceptance
@@ -112,6 +109,7 @@ The paired process memory observations and complete inputs are in `editing/`.
 | One changed resource among 33 dirty buffers | Typing, field commit, undo, redo and a selected save each checkpoint only that buffer; unchanged records survive |
 | Two folding requests | One shared parse, zero semantic graphs in the new path |
 | Two SourcePlan forks | Zero new parses in the new path |
+| 6,400 independent Schema roots in each native family | All four existing eight-second cases pass in 3.35–3.85 seconds on the relieved host; the native empty-tuple adapter performs no whole-graph scan per checked value |
 | Three saved cases for one operation | Full captures 4 → 1; configuration decodes 4 → 1; exact-input requests 3 → 1; operation plans 3 → 1 |
 | Same three actual requests | Input IPC 13,150 → 7,185 bytes; exact received queries remain `x=1`, `x=2`, `x=3` |
 | Twelve XML URL-form fields | Graphs 25 → 1; source transfers 13 → 1; input IPC 37,993 → 2,947 bytes |
