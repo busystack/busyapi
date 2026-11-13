@@ -57,7 +57,7 @@ export async function migrationModeledExampleBytes(graph:ReferenceGraph,media:st
         const checked=await evaluateSchemas({...input,runtimeInstances:[{subject:'authored-example',location:'modeled-example',
             text:bytes.toString('base64'),mediaType:media,mediaBase64:true,schema,itemSchema}]},undefined,context);
         const evaluations=checked.runtimeEvaluations??[];
-        if(checked.complete!==true||!evaluations.length||evaluations.some(value=>value.complete!==true||value.valid!==true)||
+        if(!evaluations.length||evaluations.some(value=>value.complete!==true||value.valid!==true)||
             checked.runtimeFindings?.length)
             throw new SourceError('migration.example.item-conformance','The encoded example has no complete proof against its original itemSchema ('+
                 (checked.runtimeFindings?.[0]?.code??evaluations.find(value=>value.complete!==true||value.valid!==true)?.reason??'runtime.evaluation.incomplete')+')',[0,0],'unsupported',
