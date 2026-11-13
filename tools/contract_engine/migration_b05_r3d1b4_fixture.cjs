@@ -95,14 +95,17 @@ module.exports=function register(group){
  });
 
  if(group==='media')for(const rule of [{}, {contentType:'application/json'}])for(const target of ['3.1.2','3.0.4'])
- test(`R3d1b4 ${target} compatible form/mixed ${JSON.stringify(rule)} keeps ordered unnamed parts`,async()=>{
-  const {input}=shared('3.2.1','json',target,rule,['multipart/form-data','multipart/mixed']),{cold,graph}=await review(input);
-  const mixed=at+escape('multipart/mixed'),schema=terminal(graph,cold.root,mixed+'/schema','schema');
-  assert.equal(graph.docs.get(schema.resource).dataNode(schema.pointer).value.type,'array');assert.equal(graph.docs.get(cold.root).dataNode(mixed+'/encoding'),undefined);
-  for(const value of ['[]','[{"tag":"x"}]','[{"tag":"x"},{"tag":"y"}]'])assert.equal(await valid(input,'multipart/mixed',value),await valid(cold,'multipart/mixed',value));
+ test(`R3d1b4 ${target} unnamed mixed occurrence refuses while source form/ordered bytes stay distinct`,async()=>{
+  const {input}=shared('3.2.1','json',target,rule,['multipart/form-data','multipart/mixed']),original=JSON.stringify(input);
+  for(const value of ['[]','[{"tag":"x"}]','[{"tag":"x"},{"tag":"y"}]'])assert.equal(await valid(input,'multipart/mixed',value),true);
   const content=rule.contentType?'"雪"':'雪',type=rule.contentType??'text/plain; charset=utf-8';
   const bytes=Buffer.from('--Mixed\r\nContent-Disposition: form-data; name="tag"\r\nContent-Type: '+type+'\r\n\r\n'+content+'\r\n--Mixed--\r\n');
-  assert.equal(await valid(input,'multipart/form-data',bytes,true),true);assert.equal(await valid(cold,'multipart/form-data',bytes,true),true);
+  assert.equal(await valid(input,'multipart/form-data',bytes,true),true);
+  const generic=Buffer.from('--Mixed\r\nContent-Type: application/json\r\n\r\n{"tag":"雪"}\r\n--Mixed--\r\n');
+  assert.equal(await valid(input,'multipart/mixed',generic,true),true);
+  const result=await planMigration(input);assert.equal(result.complete,false);assert.equal(result.status,'blocked');assert.deepEqual(result.outputs,[]);
+  assert.equal(JSON.stringify(input),original);
+  assert(result.problems.some(problem=>problem.reason==='target-representation'&&problem.pointer.startsWith(at+escape('multipart/mixed'))),JSON.stringify(result.problems));
  });
 
  if(group==='owners')for(const format of ['yaml','json'])test(`R3d1b4 ${format} cross-file identified children and mixed-family entries keep neutral identities`,async()=>{
@@ -110,6 +113,7 @@ module.exports=function register(group){
   media.schema={type:'array',maxItems:3,items:{$ref:'children.json#/Part'}};
   media.itemEncoding.headers={'X-Mode':{$ref:'children.json#/Header'}};
   value.components.mediaTypes.Shared={$ref:'media.json#/Shared'};
+  value.components.schemas.Original={$ref:'media.json#/Shared/schema'};
   value.components.schemas.Value={$ref:'children.json#/Part/properties/tag'};
   value.components.headers={Independent:{$ref:'children.json#/Header'}};
   value.components.examples={Independent:{$ref:'children.json#/Example'}};

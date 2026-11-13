@@ -441,9 +441,11 @@ test(`R3b ${format} inactive ${intermediate} holders stay inactive on a subseque
  const fixture=require('./migration_b05_r3b_fixture.cjs'),{input}=fixture.capture(format),first=await planMigration({...input,targetVersion:intermediate});
  assert.equal(first.complete,true,JSON.stringify(first.problems));const middle=fixture.reopened(first),graph=createGraph(middle).graph;
  assert.equal(graph.operations().length,2);assert(!graph.operations().some(op=>op.role==='callback'));
- const contentKeys=[...graph.entryScopes()].filter(scope=>scope.kind==='media'&&scope.pointer.startsWith('/components/responses/')).map(scope=>scope.pointer.split('/').at(-1));
- assert(contentKeys.includes('application~1json'));assert(contentKeys.includes('application~1vnd.count+json'));
- assert(!contentKeys.includes('application~1octet-stream'),'A bound object retains actual media contexts');
+ for(const operation of graph.operations()){
+  const plan=requestOperation({...middle,resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
+  assert.deepEqual(plan.requestBody.content.map(media=>media.mediaType),['application/json']);
+  assert.deepEqual(plan.responses[0].content.map(media=>media.mediaType),['application/vnd.count+json']);
+ }
  const last=await planMigration({...middle,targetVersion:'2.0',destination:'file:///r3b-composed/'});
  if(intermediate==='3.0.4'){
   // Once delivered as a native Callback definition, its independent callback

@@ -81,7 +81,10 @@ export function decodeRuntimeForm(text:string,id:string,contentType:string,base6
         text=embeddedMimeTextBytes(text,contentType).toString('base64');base64=true;
     }
     const unicode=textSerialization==='unicode'?'unicode':undefined;
-    const owner=graph.docs.get(target.resource),node=owner?.dataNode(target.pointer),scope=graph.scopes.get(target.resource+'#'+target.pointer);
+    const transfers=new MultipartEncoding(graph);
+    if(graph.scopeAs(target.resource,target.pointer,'media'))
+        target={...target,...transfers.follow({...target,kind:'media'},'media')};
+    const owner=graph.docs.get(target.resource),node=owner?.dataNode(target.pointer),scope=graph.scopeAs(target.resource,target.pointer,'media')??graph.scopes.get(target.resource+'#'+target.pointer);
     const failure=(code:string,message:string,at:Location=target,unsupported=true):never=>{
         const source=graph.docs.get(at.resource)?.dataNode(at.pointer),range:Range=source?.range??[0,0];
         throw new SourceError(code,message,range,unsupported?'unsupported':undefined,{...at,range});
@@ -98,7 +101,7 @@ export function decodeRuntimeForm(text:string,id:string,contentType:string,base6
         if(decoded)return decoded;
     }
     const input=parts(runtimeMediaBytes(text,base64),contentType,scope.kind==='media'&&(scope.family==='3.0'||scope.family==='3.1')),multipart=mediaTypes(contentType,false)[0].type==='multipart';
-    const forms=new FormSemantics(graph),transfers=new MultipartEncoding(graph);
+    const forms=new FormSemantics(graph);
     const genericHeaders=mimeHeaders(graph,id+'/headers',transfers,decodeHeaderForm);
     const checks:FormCheck[]=[],issues:FormIssue[]=[],members=new Map<string,string>(),claimed=new Map<Part,string>(),notes=new Set<string>();
     const binary=new Map<string,Buffer>();

@@ -210,14 +210,30 @@ export function materializeMediaReferences(graphs:readonly ReferenceGraph[],sour
  * slot when the target has no mediaTypes component map. All actual consumers
  * above retain their own media keys; the holder adds no executable response. */
 export function relocateMediaComponents(graphs:readonly ReferenceGraph[],sources:Map<string,SourcePlan>,
- families:readonly string[],target:string,owners:MigrationSchemaOwners):void {
+ families:readonly string[],target:string,owners:MigrationSchemaOwners,captured:readonly ReferenceGraph[],
+ capturedTypes:ReadonlyMap<string,ReadonlySet<string>>):void {
  if(!['3.0','3.1'].includes(target))return;
- const mediaTypes=migrationMediaTypes(graphs);
+ const mediaTypes=new Map<string,Set<string>>();
+ // The actual content keys belong to the capture before references materialize.
+ // Follow their existing semantic owner and CST relation to the neutral holder;
+ // rebuilding the graph now would mistake these formerly bound definitions for
+ // unused objects and invent an octet-stream representation for their examples.
+ for(const [identity,types]of capturedTypes){
+  const [resource,pointer]=JSON.parse(identity) as [string,string];
+  for(const graph of captured){
+   const scope=graph.scopeAs(resource,pointer,'media');if(!scope||!graph.isEntryUse(scope))continue;
+   const owner=owners.entryOwner(graph.root,scope,'media');
+   for(const {location}of owners.materialLocations(owner)){
+    const key=JSON.stringify([location.resource,location.pointer]),values=mediaTypes.get(key)??new Set<string>();
+    for(const type of types)values.add(type);mediaTypes.set(key,values);
+   }
+  }
+ }
  for(const scope of migrationScopes(graphs))if(scope.kind==='media'&&families.includes(scope.family)&&
   /^\/components\/mediaTypes\/[^/]+$/.test(scope.pointer)){
   const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);if(pointer===undefined||!source.doc.dataNode(pointer))continue;
   const destination=owners.allocate(source,'/components/responses','media_type',JSON.stringify([scope.resource,scope.pointer]));
-  const types=[...mediaTypes.get(JSON.stringify([scope.resource,scope.pointer]))??[]].sort();
+  const types=[...mediaTypes.get(JSON.stringify([source.doc.id,pointer]))??[]].sort();
   // The fallback is storage syntax for an entirely inactive, unbound object.
   // It supplies no evidence of an authored codec. Bound definitions retain
   // every actual key, so a later downgrade never substitutes this placeholder

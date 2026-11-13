@@ -1,3 +1,4 @@
+const {createHash}=require('node:crypto');
 const {test}=require('node:test'),assert=require('node:assert/strict'),YAML=require('yaml');
 const {planMigration}=require('./dist/migration.cjs'),{createGraph,analyse}=require('./dist/model.cjs');
 const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
@@ -102,20 +103,20 @@ module.exports=function register(group){
   const {cold,graph}=await review(input);assert(graph.entryReferences().filter(edge=>['schema','header'].includes(edge.kind)).every(edge=>edge.resolution==='resolved'));
   const bytes=wire([{bytes:Buffer.from('ref'),transfer:'binary'}]);assert.equal(await valid(input,bytes),true);assert.equal(await valid(cold,bytes),true);
  });
- if(group==='downgrade')test('R3d1b a shared form/mixed owner keeps its unavailable context proof',async()=>{
+ if(group==='downgrade')test('R3d1b a shared form/mixed owner keeps its precise target-representation refusal',async()=>{
   const {input,value,encode}=capture(),media=value.paths['/parts'].post.requestBody.content['multipart/form-data'];
   value.components={mediaTypes:{Shared:media}};
   value.paths['/parts'].post.requestBody.content={'multipart/form-data':{$ref:'#/components/mediaTypes/Shared'},'multipart/mixed':{$ref:'#/components/mediaTypes/Shared'}};
   input.resources[0].text=encode(value);const original=input.resources[0].text,result=await planMigration(input);
   assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);assert.equal(input.resources[0].text,original);
-  assert(result.problems.some(problem=>problem.reason==='unavailable-proof'),JSON.stringify(result.problems));
+  assert(result.problems.some(problem=>problem.reason==='target-representation'),JSON.stringify(result.problems));
  });
  if(group==='media')test('R3d1b existing named media/Header selections stay exact and file inverses refuse explicitly',async()=>{
   const {input}=capture();
   const configuration=files=>({id:'file:///named/busyapi.yaml',generation:1,text:JSON.stringify({version:1,roots:[{name:'api',path:'api.json'}],tests:[{name:'saved',operation:{entry:'api',method:'POST',path:'/parts'},body:{mediaType:'multipart/form-data',value:{tag:['snow','']},partMediaTypes:{tag:'text/plain; charset=utf-8'},partHeaders:[],...(files?{files:[{name:'tag',path:'original.bin',mediaType:'text/plain'}]}:{})}}]})});
-  input.configuration=configuration(false);const {result}=await review(input);assert.equal(result.configurationProjections.filter(value=>value.multipart).length,0);
+  input.configuration=configuration(false);input.configuration.identity=createHash('sha256').update(input.configuration.text).digest('hex');const {result}=await review(input);assert.equal(result.configurationProjections.filter(value=>value.multipart).length,0);
   assert.deepEqual(result.manifest.tests[0].body,JSON.parse(input.configuration.text).tests[0].body);
-  input.configuration=configuration(true);const blocked=await planMigration(input);assert.equal(blocked.complete,false);assert.deepEqual(blocked.outputs,[]);
+  input.configuration=configuration(true);input.configuration.identity=createHash('sha256').update(input.configuration.text).digest('hex');const blocked=await planMigration(input);assert.equal(blocked.complete,false);assert.deepEqual(blocked.outputs,[]);
   assert(blocked.problems.some(problem=>problem.code==='migration.multipart.saved-proof'&&problem.reason==='unavailable-proof'),JSON.stringify(blocked.problems));
  });
  if(group==='swagger')test('R3d1b named positional media with active part Headers retains the Swagger restriction',async()=>{
@@ -124,6 +125,7 @@ module.exports=function register(group){
  if(group==='media')test('R3d1b saved ordered values retain empty selections, exact numbers and unrelated configuration',async()=>{
   const {input}=capture('3.2.1','json','3.1.2',{schema:{type:'array',items:singleton('tag',{type:'integer',minimum:'EXACT'})},itemEncoding:{contentType:'text/plain'}});
   input.configuration={id:'file:///named/busyapi.yaml',generation:3,text:'version: 1\nroots: [{name: api, path: api.json}]\nenvironments: {dev: {variables: {keep: unchanged}}}\ntests:\n- name: selected\n  operation: {entry: api, method: POST, path: /parts}\n  body: {mediaType: multipart/form-data, value: [{tag: 9007199254740993.00}, {tag: 9007199254740994e0}]}\n- name: empty\n  operation: {entry: api, method: POST, path: /parts}\n  body: {mediaType: multipart/form-data, value: []}\n- name: omitted\n  operation: {entry: api, method: POST, path: /parts}\n'};
+  input.configuration.identity=createHash('sha256').update(input.configuration.text).digest('hex');
   const {result}=await review(input);assert.equal(result.configurationProjections.filter(value=>value.multipart).length,2);
   assert(result.manifestText.includes('9007199254740993.00'));assert(result.manifestText.includes('9007199254740994e0'));assert.equal(result.manifest.tests[2].body,undefined);
   assert.deepEqual(result.manifest.environments.dev.variables,{keep:'unchanged'});

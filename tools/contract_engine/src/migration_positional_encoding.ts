@@ -125,34 +125,6 @@ export class PositionalEncodingEquivalence {
   if(schema){const domains=this.proofs.domains(schema);if(domains.size!==1||!domains.has('array'))return unknown('The complete multipart schema does not establish an array-only part model');}
   if(types.some(type=>type.split(';')[0].trim().toLowerCase()==='multipart/form-data'))
    return unknown('No named target certificate establishes each ordered form-data part identity while retaining multiplicity, order and the original array instance model');
-  let boundary=prefix.length;
-  for(const part of roots??[]){const count=this.graph.docs.get(part.resource)!.dataNode(part.pointer)?.value?.prefixItems?.length??0;boundary=Math.max(boundary,count);}
-  if(boundary>2048)throw new SourceError('limit.migration.positional-encoding','Positional schema partition exceeds 2048 positions');
-  // Include omitted rules and the tail: retiring one field must never
-  // activate a previously ignored named/default rule during composition.
-  const positions=Array.from({length:boundary+1},(_,index)=>index);
-  let present=false;
-  for(const index of positions){
-   this.inspect();if(maximum!==undefined&&index>=maximum)continue;present=true;
-   const rule=index<prefix.length?prefix[index]:value.itemEncoding??{};
-   if(!rule||typeof rule!=='object'||Array.isArray(rule))return unknown('A positional rule is not a captured Encoding Object');
-   if(['encoding','prefixEncoding','itemEncoding'].some(name=>Object.hasOwn(rule,name)))return unknown('Nested Encoding requires its separately assigned equivalence proof');
-   if(Object.keys(rule.headers??{}).some(name=>name.toLowerCase()!=='content-type'))
-    return restriction('The older target has no positional owner for this part header or transfer requirement');
-   const children:GraphScope[]=item?[item]:[];
-   for(const part of roots??[]){
-    const value=this.graph.docs.get(part.resource)!.dataNode(part.pointer)?.value;
-    const at=part.pointer+(index<(value?.prefixItems?.length??0)?'/prefixItems/'+index:'/items');
-    const child=this.graph.scopeAs(part.resource,at,'schema');if(child)children.push(child);
-   }
-   const before=this.defaults(children,'3.2'),after=this.defaults(children,target);
-   if(before===undefined||after===undefined)return unknown('The applicable part schemas do not establish a single source and target default media representation');
-   if((rule.contentType??before)!==after)
-    return restriction('The positional media selection differs from the older default; no standard positional target owner preserves its alternatives');
-   // RFC6570 fields are ignored for non-form multipart in both families.
-   if(Object.keys(rule).some(name=>!['contentType','headers','style','explode','allowReserved'].includes(name)&&!name.startsWith('x-')))
-    return unknown('The Encoding Object contains a field outside the bounded positional default certificate');
-  }
-  return equivalent(!present);
+  return restriction('The older target has no native unnamed positional multipart binding; removing Encoding fields would change its instance model');
  }
 }

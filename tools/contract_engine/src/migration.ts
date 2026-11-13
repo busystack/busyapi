@@ -11,7 +11,7 @@ import {migrateSchemas,MigrationProblem,MigrationIssue,type MigrationChoose,type
 import {upgradeSwagger} from './migration_swagger';
 import {downgradeSwagger} from './migration_downgrade';
 import {migrateNewerObjects,relocatePathItemComponents} from './migration_newer_objects';
-import {materializeMediaReferences,relocateMediaComponents} from './migration_media_objects';
+import {materializeMediaReferences,relocateMediaComponents,migrationMediaTypes} from './migration_media_objects';
 import {checkReusableSwaggerTargets} from './migration_reusable_targets';
 import {migrateExampleVersions} from './migration_example_versions';
 import {inactiveMigrationHeader} from './migration_media_schema';
@@ -323,7 +323,8 @@ export async function planMigration(input:MigrationInput) {
             if(problems.length)break;
             if(after==='2.0')retainNativeCopies(migrateSwaggerSecurityFlows(contexts.map(context=>context.graph),sources,stage.sources,owners,issue,configuredNames));
             if(problems.length)break;
-            if(materializeMediaReferences(contexts.map(context=>context.graph),sources,stage.sources,after,owners,issue)){
+            const capturedMediaContexts=contexts.map(context=>context.graph),capturedMediaTypes=['3.0','3.1'].includes(after)?migrationMediaTypes(capturedMediaContexts):new Map<string,ReadonlySet<string>>();
+            if(materializeMediaReferences(capturedMediaContexts,sources,stage.sources,after,owners,issue)){
                 const mediaInput=preparationInput(),mediaGraph=createGraph(mediaInput);
                 contexts=migrationDocumentContexts(mediaInput,mediaGraph,issue);graph=mediaGraph.graph;
             }
@@ -454,7 +455,7 @@ export async function planMigration(input:MigrationInput) {
                 return migrationDocumentContexts(capture,prepared,issue,true);
             })():undefined;
             if(mediaReferences)captureMigrationOwnerReferences(mediaReferences,sources);
-            relocateMediaComponents(contexts.map(context=>context.graph),sources,stage.sources,after,owners);
+            relocateMediaComponents(contexts.map(context=>context.graph),sources,stage.sources,after,owners,capturedMediaContexts,capturedMediaTypes);
             if(mediaReferences){
                 const capture=preparationInput(),prepared=createGraph(capture);
                 const delivered=migrationDocumentContexts(capture,prepared,issue,true);

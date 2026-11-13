@@ -192,7 +192,12 @@ export function materializeFormObject(graph:ReferenceGraph,sources:ReadonlyMap<s
     const original=owners.capturedSchema({resource:source.doc.id,pointer})??schemaScope;
     if(!original){issue(scope,'migration.form.schema-owner','The form object has no captured Schema Object binding','source-incomplete');return;}
     const properties=new Map<string,Field[]>(),required=new Set<string>(),active=new Set<string>();let work=0,valid=true;
-    const fail=(at:Field,message:string)=>{valid=false;issue({resource:at.source.doc.id,pointer:at.pointer},'migration.form.object-constraint',message,'target-representation');};
+    const fail=(at:Field,message:string,parent=at)=>{
+        const owner=owners.capturedSchema({resource:parent.source.doc.id,pointer:parent.pointer})??
+            (parent.source===source&&parent.pointer===pointer?original:undefined);
+        valid=false;issue(owner?{resource:owner.resource,pointer:owner.pointer+(at===parent?'':at.pointer.slice(at.pointer.lastIndexOf('/')))}:
+            {resource:at.source.doc.id,pointer:at.pointer},'migration.form.object-constraint',message,'target-representation');
+    };
     const collect=(at:Field)=>{
         if(++work>50000)throw new SourceError('limit.migration.form','Form object materialization exceeds 50000 states');
         const id=JSON.stringify([at.source.doc.id,at.pointer]);
@@ -208,7 +213,7 @@ export function materializeFormObject(graph:ReferenceGraph,sources:ReadonlyMap<s
             else if(name==='properties')for(const [key,member]of child.children){const values=properties.get(key)??[];values.push({source:at.source,pointer:member.pointer});properties.set(key,values);}
             else if(name==='required')for(const member of child.children.values())required.add(member.value);
             else if(name==='type'&&child.value==='object'||name==='additionalProperties'&&child.value===true)continue;
-            else fail({source:at.source,pointer:child.pointer},'Swagger formData parameters cannot retain the applicable object-wide '+name+' rule or annotation');
+            else fail({source:at.source,pointer:child.pointer},'Swagger formData parameters cannot retain the applicable object-wide '+name+' rule or annotation',at);
         }
         active.delete(id);
     };

@@ -1,3 +1,4 @@
+const {createHash}=require('node:crypto');
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const {planMigration}=require('./dist/migration.cjs'),{createGraph,analyse}=require('./dist/model.cjs');
 const {SourceDocument}=require('./dist/document.cjs'),{evaluateSchemas}=require('./dist/schema_evaluation.cjs');
@@ -10,8 +11,17 @@ const bytes=parts=>Buffer.concat([...parts.flatMap(({name,value,type='text/plain
  (transfer?'Content-Transfer-Encoding: '+transfer+'\r\n':'')+headers.map(([name,value])=>name+': '+value+'\r\n').join('')+'\r\n'),
  Buffer.isBuffer(value)?value:Buffer.from(value),Buffer.from('\r\n')]),Buffer.from('--Multi--\r\n')]);
 async function valid(input,text,schema=at+'/schema',wire=false){
+ let resource=input.root;
+ if(schema===at+'/schema'){
+  const graph=createGraph(input).graph;let pointer=at;
+  for(let depth=0;depth<128;depth++){
+   const edge=graph.referenceAs(resource,pointer,'$ref','media');if(!edge)break;
+   assert.equal(edge.resolution,'resolved');resource=edge.targetResource;pointer=edge.targetPointer;
+  }
+  schema=pointer+'/schema';
+ }
  const result=await evaluateSchemas({...input,runtimeInstances:[{subject:'request-body',location:'multi',text:wire?text.toString('base64'):text,
-  schema:{resource:input.root,pointer:schema},...(wire?{form:{resource:input.root,pointer:at},mediaType:'multipart/form-data; boundary=Multi',mediaBase64:true}:{})}]});
+  schema:{resource,pointer:schema},...(wire?{form:{resource:input.root,pointer:at},mediaType:'multipart/form-data; boundary=Multi',mediaBase64:true}:{})}]});
  assert.equal(result.complete,true,JSON.stringify(result.runtimeFindings));return result.runtimeEvaluations.every(value=>value.complete&&value.valid===true);
 }
 async function review(input){
@@ -90,20 +100,31 @@ module.exports=function register(group){
  if(group==='media')test('R3d1b2 saved grouping retains exact order, empty and omitted selections; interleaved choices refuse',async()=>{
   const {input}=capture('3.2.1','json','3.1.2',{schema:{type:'array',maxItems:3,items:{type:'object',properties:{a:{type:'integer'},b:{type:'string'}},minProperties:1,maxProperties:1,additionalProperties:false}},itemEncoding:{contentType:'application/json'}});
   input.configuration={id:'file:///named/busyapi.yaml',generation:8,text:'version: 1\nroots: [{name: api, path: api.json}]\nenvironments: {dev: {variables: {keep: original}}}\ntests:\n- name: ordered\n  operation: {entry: api, method: POST, path: /parts}\n  body: {mediaType: multipart/form-data, value: [{b: 雪}, {a: 9007199254740993.00}, {a: 9007199254740994e0}], partMediaTypes: {a: application/json, b: application/json}}\n- name: empty\n  operation: {entry: api, method: POST, path: /parts}\n  body: {mediaType: multipart/form-data, value: []}\n- name: omitted\n  operation: {entry: api, method: POST, path: /parts}\n- name: named\n  operation: {entry: api, method: POST, path: /parts}\n  body: {mediaType: multipart/form-data, value: {a: [], b: [雪]}}\n'};
+  input.configuration.identity=createHash('sha256').update(input.configuration.text).digest('hex');
   const {result}=await review(input);assert.equal(result.configurationProjections.filter(record=>record.multipart).length,2);
   assert(result.manifestText.includes('9007199254740993.00'));assert(result.manifestText.includes('9007199254740994e0'));assert.deepEqual(Object.keys(result.manifest.tests[0].body.value),['b','a']);
   assert.deepEqual(result.manifest.tests[1].body.value,{a:[],b:[]});assert.equal(result.manifest.tests[2].body,undefined);assert.deepEqual(result.manifest.tests[3].body.value,{a:[],b:['雪']});
   input.configuration.text=input.configuration.text.replace('[{b: 雪}, {a: 9007199254740993.00}, {a: 9007199254740994e0}]','[{a: 9007199254740993.00}, {b: 雪}, {a: 9007199254740994e0}]');
+  input.configuration.identity=createHash('sha256').update(input.configuration.text).digest('hex');
   const refused=await planMigration(input);assert.equal(refused.complete,false);assert(refused.problems.some(problem=>problem.code==='migration.multipart.saved-proof'));assert.deepEqual(refused.outputs,[]);
  });
  if(group==='media')test('R3d1b2 final correspondence rejects changed correlations, field bounds and Encoding activation',async()=>{
-  const {input}=capture('3.2.1','json','3.1.2',{schema:{type:'array',maxItems:2,items:alternatives(['a','b'])},itemEncoding:{contentType:'text/plain'}}),{result,cold}=await review(input);
+  const {input,value,encode}=capture('3.2.1','json','3.1.2',{schema:{type:'array',maxItems:2,items:alternatives(['a','b'])},itemEncoding:{contentType:'text/plain'}});
+  value.components={schemas:Object.fromEntries(['a','b'].map((name,index)=>[name,{$ref:'#'+at+'/schema/items/anyOf/'+index+'/properties/'+name}]))};
+  input.resources[0].text=encode(value);const {result,cold}=await review(input);
   const source=createGraph(input).graph,baseline=createGraph(cold).graph;await require('./dist/migration_invariants.cjs').prepareNamedMultipart([source],'3.1');
-  const neutral=name=>{const edge=baseline.referenceAs(cold.root,at+'/schema/properties/'+name+'/items/allOf/0','$ref','schema');assert.equal(edge.resolution,'resolved');return {resource:edge.targetResource,pointer:edge.targetPointer};};
+  const neutral=name=>{const edge=baseline.referenceAs(cold.root,'/components/schemas/'+name,'$ref','schema');assert.equal(edge.resolution,'resolved');return {resource:edge.targetResource,pointer:edge.targetPointer};};
+  const check=target=>{
+   const problems=[];
+   try{
+    require('./dist/migration_invariants.cjs').proveMigrationPositionalEncoding(source,target,(location,scope)=>scope.kind==='media'?[{resource:cold.root,pointer:at}]:[neutral(location.pointer.endsWith('/a')?'a':'b')],(location,code,message,reason)=>problems.push({code,message,reason}));
+   }catch(error){assert.equal(error.code,'migration.invariant.named-multipart');problems.push({code:error.code});}
+   return problems;
+  };
+  assert.deepEqual(check(baseline),[]);
   for(const [pointer,value]of [[at+'/schema/anyOf',[{properties:{a:{maxItems:99}}}]],[at+'/schema/properties/b/items',{type:'integer'}],[at+'/encoding/b/contentType','application/json'],[at+'/encoding/other',{}]]){
    const outputs=result.outputs.map(output=>({...output,text:output.id===cold.root?new SourceDocument(output.text,output.id).set(pointer,value):output.text}));
-   const target=createGraph({...cold,resources:outputs}).graph,problems=[];
-   require('./dist/migration_invariants.cjs').proveMigrationPositionalEncoding(source,target,(location,scope)=>scope.kind==='media'?[{resource:cold.root,pointer:at}]:[neutral(location.pointer.endsWith('/a')?'a':'b')],(location,code,message,reason)=>problems.push({code,message,reason}));
+   const target=createGraph({...cold,resources:outputs}).graph,problems=check(target);
    assert(problems.some(problem=>problem.code==='migration.invariant.named-multipart'),JSON.stringify(problems));
   }
  });

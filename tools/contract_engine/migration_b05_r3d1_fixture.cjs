@@ -14,27 +14,27 @@ async function evaluate(input,body){
 }
 const wire=(values)=>Buffer.from(values.map(value=>'--Parts\r\nContent-Type: text/plain\r\n\r\n'+value+'\r\n').join('')+'--Parts--\r\n');
 module.exports=function register(group){
- if(group==='media')for(const version of ['3.2.0','3.2.1'])for(const format of ['yaml','json'])for(const target of ['3.1.2','3.0.4'])test(`R3d1 ${version} ${format} redundant positional defaults to ${target}`,async()=>{
+ if(group==='media')for(const version of ['3.2.0','3.2.1'])for(const format of ['yaml','json'])for(const target of ['3.1.2','3.0.4'])test(`R3d1 ${version} ${format} unnamed positional parts retain source semantics and refuse ${target}`,async()=>{
   const {input}=capture(version,format,{schema:{type:'array',minItems:0,maxItems:3,items:{type:'integer',minimum:'EXACT'}},prefixEncoding:[{contentType:'text/plain'},{style:'form',explode:false}],itemEncoding:{contentType:'text/plain'}},target);
-  const original=JSON.stringify(input),review=await planMigration(input);
-  assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(JSON.stringify(input),original);
-  const cold={root:review.outputRoot,snapshot:'cold-positional',resources:review.outputs.map(value=>({...value,generation:0}))};
-  assert.equal(analyse(cold).complete,true,JSON.stringify(analyse(cold).findings));
-  const graph=createGraph(cold).graph,value=graph.docs.get(cold.root).dataNode(at).value;
-  assert.equal(value.prefixEncoding,undefined);assert.equal(value.itemEncoding,undefined);
+  const original=JSON.stringify(input);
+  const emptySchema=await evaluateSchemas({...input,runtimeInstances:[{subject:'request-body',location:'typed-data',text:'[]',schema:{resource:input.root,pointer:at+'/schema'}}]});
+  assert.equal(emptySchema.complete,true);assert.equal(emptySchema.runtimeEvaluations[0].valid,true);
   for(const [values,valid]of [[[],true],[['9007199254740993.00'],true],[['9007199254740993','9007199254740994','9007199254740995'],true],[['9007199254740992'],false],[['9007199254740993','9007199254740993','9007199254740993','9007199254740993'],false]]){
-   const bytes=wire(values),before=await evaluate(input,bytes),after=await evaluate(cold,bytes);
-   assert.equal(before.complete,true,JSON.stringify(before.runtimeFindings));assert.equal(after.complete,true,JSON.stringify(after.runtimeFindings));
-   assert.deepEqual(after.runtimeEvaluations.map(value=>value.valid),before.runtimeEvaluations.map(value=>value.valid));
-   assert.equal(after.runtimeEvaluations.every(value=>value.valid===true),valid);
+   const before=await evaluate(input,wire(values));
+   assert.equal(before.complete,true,JSON.stringify(before.runtimeFindings));
+   assert.equal(before.runtimeEvaluations.every(value=>value.valid===true),valid&&values.length>0,
+    'A closing delimiter without a body part is invalid MIME, even when the Schema accepts an empty array');
   }
-  assert.equal((await planMigration(input)).identity,review.identity);
+  const review=await planMigration(input);
+  assert.equal(review.complete,false);assert.equal(review.status,'blocked');assert.deepEqual(review.outputs,[]);
+  assert.equal(JSON.stringify(input),original);
+  assert(review.problems.some(problem=>problem.code.startsWith('migration.encoding.')&&problem.reason==='target-representation'&&problem.pointer.startsWith(at)),JSON.stringify(review.problems));
  });
  if(group==='downgrade')for(const [label,media,reason]of [
   ['active media',{schema:{type:'array',items:{type:'string'}},itemEncoding:{contentType:'application/json'}},'target-representation'],
   ['media alternatives',{schema:{type:'array',items:{type:'string'}},itemEncoding:{contentType:'text/plain, application/json'}},'target-representation'],
   ['part transfer header',{schema:{type:'array',items:{type:'string'}},itemEncoding:{headers:{'Content-Transfer-Encoding':{required:true,schema:{const:'base64'}}}}},'target-representation'],
-  ['conditional shape',{schema:{type:'array',items:{oneOf:[{type:'string'},{type:'object'}]}},itemEncoding:{contentType:'text/plain'}},'unavailable-proof'],
+  ['conditional shape',{schema:{type:'array',items:{oneOf:[{type:'string'},{type:'object'}]}},itemEncoding:{contentType:'text/plain'}},'target-representation'],
   ['unknown shape',{itemEncoding:{contentType:'text/plain'}},'unavailable-proof'],
  ])test(`R3d1 ${label} keeps a located ${reason} refusal`,async()=>{
   const {input}=capture('3.2.1','yaml',media),original=input.resources[0].text,review=await planMigration(input);
@@ -54,14 +54,14 @@ module.exports=function register(group){
   const review=await planMigration(input);assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);
   assert(review.problems.some(problem=>problem.reason==='target-representation'),JSON.stringify(review.problems));
  });
- if(group==='multipart')test('R3d1 mixed structured and encoded parts retain exact wire under default removal',async()=>{
+ if(group==='multipart')test('R3d1 mixed structured and encoded source parts retain exact wire with an explicit older-target refusal',async()=>{
   const {input}=capture('3.2.1','json',{schema:{type:'array',maxItems:2,prefixItems:[{type:'object',properties:{n:{const:'EXACT'}}},{type:'string',contentEncoding:'base64'}]},prefixEncoding:[{contentType:'application/json'},{contentType:'application/octet-stream'}]});
-  const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
-  const cold={root:review.outputRoot,resources:review.outputs,snapshot:'cold-bytes'};
+  const original=JSON.stringify(input);
   const body=Buffer.from('--Parts\r\nContent-Type: application/json\r\n\r\n{"n":9007199254740993.00}\r\n--Parts\r\nContent-Type: application/octet-stream\r\nContent-Transfer-Encoding: base64\r\n\r\nAP8=\r\n--Parts--\r\n');
-  const before=await evaluate(input,body),after=await evaluate(cold,body);
-  assert.equal(before.complete,true,JSON.stringify(before.runtimeFindings));assert.equal(after.complete,true,JSON.stringify(after.runtimeFindings));assert(after.runtimeEvaluations.every(value=>value.valid));
-  assert.deepEqual(after.runtimeEvaluations.map(value=>value.valid),before.runtimeEvaluations.map(value=>value.valid));
+  const before=await evaluate(input,body);
+  assert.equal(before.complete,true,JSON.stringify(before.runtimeFindings));assert(before.runtimeEvaluations.every(value=>value.valid));
+  const review=await planMigration(input);assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);assert.equal(JSON.stringify(input),original);
+  assert(review.problems.some(problem=>problem.reason==='target-representation'),JSON.stringify(review.problems));
  });
 };
 module.exports.capture=capture;
