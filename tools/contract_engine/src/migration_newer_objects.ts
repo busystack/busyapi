@@ -13,9 +13,9 @@ import {PositionalEncodingEquivalence} from './migration_positional_encoding';
 import {NamedMultipartEquivalence} from './migration_named_multipart';
 
 /** Versioned native fields use captured roles and the existing material/CST
- * owners. A redundant instruction retains its authored value as history;
- * active instructions require a standard target owner, never an extension
- * pretending to implement the missing target behavior. */
+ * owners. Retire redundant native flags directly; actual alias/literal and
+ * semantic consumers keep their captured owners. Active instructions require
+ * a standard target owner preserving their behavior. */
 export function migrateNewerObjects(graphs:readonly ReferenceGraph[],sources:Map<string,SourcePlan>,
  families:readonly string[],target:string,owners:MigrationSchemaOwners,issue:MigrationIssue):void {
  // Media references have already been materialized. Only the actual content
@@ -34,19 +34,16 @@ export function migrateNewerObjects(graphs:readonly ReferenceGraph[],sources:Map
   if(!material||!value||typeof value!=='object')continue;
   const {source,location:{pointer}}=material;
   const field=(name:string)=>({...scope,pointer:scope.pointer+'/'+escape(name)});
-  const history=(name:string,label:string)=>{
-   const at=pointer+'/'+escape(name);if(source.doc.dataNode(at))owners.retainNativeHistory(field(name),source,at,label,graph);
-  };
   // 3.1/3.2 can be component-only descriptions. Earlier roots require Paths;
   // an empty map preserves their empty executable-route set.
   if(scope.kind==='root'&&['2.0','3.0'].includes(target)&&!source.doc.dataNode(pointer+'/paths'))source.set(pointer+'/paths',{});
   if(scope.kind==='root'&&['2.0','3.0'].includes(target)&&Object.hasOwn(value,'webhooks')){
    if(Object.keys(value.webhooks).length)issue(field('webhooks'),'migration.webhooks','The target has no independent Webhook entry category; callback or ordinary route placement would change invocation semantics','target-representation');
-   else history('webhooks','empty_webhooks');
+   else source.remove(pointer+'/webhooks');
   }
   if(['2.0','3.0'].includes(target)&&['3.1','3.2'].includes(scope.family)){
    if(scope.kind==='info'&&Object.hasOwn(value,'summary')){
-    if(value.summary===value.title)history('summary','redundant_info_summary');
+    if(value.summary===value.title)source.remove(pointer+'/summary');
     else issue(field('summary'),'migration.info.summary','The target Info Object has no separate display summary','target-representation');
    }
    if(scope.kind==='license'&&Object.hasOwn(value,'identifier'))issue(field('identifier'),'migration.license.identifier','The target License Object has no SPDX identifier field; no captured equivalent license URL is established','unavailable-proof');
@@ -54,7 +51,7 @@ export function migrateNewerObjects(graphs:readonly ReferenceGraph[],sources:Map
   if(scope.family!=='3.2'||target==='3.2')continue;
   if(scope.kind==='path-item'&&Object.hasOwn(value,'additionalOperations')){
    if(Object.keys(value.additionalOperations).length)issue(field('additionalOperations'),'migration.operation.additional','The older target has no slot for these case-sensitive additional HTTP methods','target-representation');
-   else history('additionalOperations','empty_additional_operations');
+   else source.remove(pointer+'/additionalOperations');
   }
   if(scope.kind==='server'&&Object.hasOwn(value,'name'))issue(field('name'),'migration.server.name',
    'The older Server representation has no independently named Server choice; a description cannot preserve that label field','target-representation');
@@ -62,7 +59,7 @@ export function migrateNewerObjects(graphs:readonly ReferenceGraph[],sources:Map
    if(Object.hasOwn(value,'summary')){
     // Older tag viewers already display the unchanged tag name. No rename is
     // allowed: operation tags and implicit connections use that identity.
-    if(value.summary===value.name)history('summary','redundant_tag_summary');
+    if(value.summary===value.name)source.remove(pointer+'/summary');
     else issue(field('summary'),'migration.tag.summary','The target has no separate Tag display summary; changing the tag name would change its implicit operation connections','target-representation');
    }
    for(const name of ['kind','parent'])if(Object.hasOwn(value,name))issue(field(name),'migration.tag.'+name,
@@ -72,10 +69,10 @@ export function migrateNewerObjects(graphs:readonly ReferenceGraph[],sources:Map
    const parent=graph.scopeAs(scope.resource,scope.pointer.slice(0,-4),'schema');
    if(!parent){issue(field('nodeType'),'migration.xml.owner','No captured Schema Object establishes XML node applicability','unavailable-proof');continue;}
    const proofs=new MigrationSchemaProofs(graph);
-   if(proofs.validationConstant(parent)===false){history('nodeType','inactive_xml_node_type');continue;}
+   if(proofs.validationConstant(parent)===false){source.remove(pointer+'/nodeType');continue;}
    const domains=proofs.domains(parent),array=domains.size===1&&domains.has('array'),nonArray=!domains.has('array');
    if(value.nodeType==='attribute'&&nonArray&&!domains.has('object')||value.nodeType==='element'&&(array||nonArray)||value.nodeType==='none'&&array){
-    const nodeType=value.nodeType;history('nodeType','xml_node_type');
+    const nodeType=value.nodeType;source.remove(pointer+'/nodeType');
     source.set(pointer+'/attribute',nodeType==='attribute');
     if(array){
      // Older XML wrapping takes effect alongside a literal type: array. A
@@ -135,7 +132,7 @@ export function migrateNewerObjects(graphs:readonly ReferenceGraph[],sources:Map
   }
   if(scope.kind==='security'){
    if(Object.hasOwn(value,'deprecated')){
-    if(value.deprecated===false)history('deprecated','inactive_security_deprecation');
+    if(value.deprecated===false)source.remove(pointer+'/deprecated');
     else issue(field('deprecated'),'migration.security.deprecated','The older Security Scheme Object has no standard deprecation instruction','target-representation');
    }
    if(Object.hasOwn(value,'oauth2MetadataUrl'))issue(field('oauth2MetadataUrl'),'migration.security.metadata','The older Security Scheme Object cannot retain OAuth authorization-server metadata discovery','target-representation');
@@ -204,7 +201,7 @@ export function migrateNewerObjects(graphs:readonly ReferenceGraph[],sources:Map
        if(source.doc.dataNode(from))owners.move(child,source,from,'inactive_encoding_schema',{context:graph,layout:'array-item'});
       }
      }
-     history(name,'default_'+name);
+     owners.retainNativeHistory(field(name),source,pointer+'/'+escape(name),'default_'+name,graph);
     }
     else issue(field(name),'migration.encoding.'+name,named?.reason??positional?.reason??'No captured part-shape certificate maps these positional or nested encoding instructions into the older named Encoding representation',named?.classification??positional?.classification??'unavailable-proof');
    }

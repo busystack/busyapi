@@ -189,10 +189,6 @@ export async function migrationParameterExampleProjection(graph:ReferenceGraph,c
 export function installMigrationParameterExamples(graph:ReferenceGraph,projection:ParameterExampleProjection,index:number,
  output:SourcePlan,pointer:string,owners:MigrationSchemaOwners):void {
  const values=projection.fields[index];
- // Generated literal cookie content must not reactivate the original schema
- // fallback beneath a second Media Type selection layer.
- if(output.doc.dataNode(pointer+'/in')?.value==='cookie')for(const name of output.doc.dataNode(pointer+'/content')?.children.keys()??[])
-  output.set(pointer+'/content/'+escape(name)+'/examples',{});
  if(index===0)for(const external of projection.retainedExternal){
   const held=owners.reserve(external.location,'whole_query_external_example',JSON.stringify(external.location),
    {resource:graph.root,pointer:'/components/examples'});
@@ -203,6 +199,13 @@ export function installMigrationParameterExamples(graph:ReferenceGraph,projectio
  }
  for(const field of ['example','examples'])if(output.doc.dataNode(pointer+'/'+field))
   owners.retainNativeHistory({resource:output.doc.id,pointer:pointer+'/'+field},output,pointer+'/'+field,'parameter_examples',graph);
+ // A content Parameter delegates examples to its one selected Media Type.
+ // One explicit layer also suppresses the original schema example fallback.
+ const media=output.doc.dataNode(pointer+'/in')?.value==='cookie'?output.doc.dataNode(pointer+'/content'):undefined;
+ if(media){
+  if(media.children.size!==1)throw new SourceError('migration.parameter.example-target','Projected examples require one selected Parameter media owner');
+  pointer+='/content/'+escape(media.children.keys().next().value!);
+ }
  if(!values.length){output.set(pointer+'/examples',{});return;}
  if(values.length===1&&values[0].name===undefined&&!values[0].external){output.exact(pointer+'/example',values[0].raw);return;}
  output.set(pointer+'/examples',{});
@@ -227,14 +230,15 @@ export function sameMigrationParameterExamples(source:ReferenceGraph,projection:
  target:ReferenceGraph,outputs:readonly SourceLocation[],packets:readonly ExternalExampleResourcePacket[]=[]):boolean {
  const captured=new CapturedExampleResources(packets);
  return outputs.length===projection.fields.length&&outputs.every((output,index)=>{
-  const doc=target.docs.get(output.resource)!,values=projection.fields[index];
-  if(doc.dataNode(output.pointer+'/in')?.value==='cookie')for(const name of doc.dataNode(output.pointer+'/content')?.children.keys()??[]){
-   const media=capturedRuntimeMedia(target)({...output,pointer:output.pointer+'/content/'+escape(name)}).source;
-   const owner=target.docs.get(media.resource)!,named=owner.dataNode(media.pointer+'/examples');
-   if(owner.dataNode(media.pointer+'/example')||named?.kind!=='object'||named.children.size)return false;
-  }
+  let doc=target.docs.get(output.resource)!;const values=projection.fields[index];
   if(target.scopeAs(output.resource,output.pointer,'parameter')?.family==='2.0')
    return values.length===0&&!doc.dataNode(output.pointer+'/example')&&!doc.dataNode(output.pointer+'/examples');
+  const media=doc.dataNode(output.pointer+'/content');
+  if(media){
+   if(media.children.size!==1||doc.dataNode(output.pointer+'/example')||doc.dataNode(output.pointer+'/examples'))return false;
+   output=capturedRuntimeMedia(target)({...output,pointer:output.pointer+'/content/'+escape(media.children.keys().next().value!)}).source;
+   doc=target.docs.get(output.resource)!;
+  }
   if(values.length===1&&values[0].name===undefined&&!values[0].external)
    return doc.dataNode(output.pointer+'/example')!==undefined&&doc.dataJson(output.pointer+'/example')===values[0].raw&&!doc.dataNode(output.pointer+'/examples');
   const named=doc.dataNode(output.pointer+'/examples');

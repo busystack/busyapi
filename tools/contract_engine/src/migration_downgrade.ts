@@ -14,6 +14,7 @@ import {migrationScopes,migrationReferences} from './migration_documents';
 import {migrationOperationUses} from './migration_operation_contexts';
 import {downgradeServers} from './migration_servers';
 import {relocateMigrationServerRoutes} from './migration_server_routes';
+import {ParameterSemantics} from './parameter_semantics';
 
 /** Inspect a captured Schema reference chain before a Header/parameter loses
  * its schema wrapper. A referenced object is just as unrepresentable in a
@@ -146,7 +147,7 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,SourceP
                 }
                 if(!target){issue(scope,'migration.header.reference','The captured Header chain has no bounded concrete target','source-incomplete');continue;}
                 const material=owners.uniqueLocation(target);
-                owners.materializeHeaderUse(scope,source,pointer,material.source,material.location.pointer);
+                owners.materializeNativeUse(scope,source,pointer,material.source,material.location.pointer);
                 declaration=graph.docs.get(target.resource)!.dataNode(target.pointer)!.value;schemaOwner=target;
             }
             if(scope.kind==='parameter'&&!['query','path','header'].includes(declaration.in)){
@@ -254,7 +255,7 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,SourceP
             else if(represented[0]?.length)source.set(pointer+'/produces',represented[0]);
             if(value.callbacks){
                 if(Object.keys(value.callbacks).length)issue({...scope,pointer:scope.pointer+'/callbacks'},'migration.callbacks','Swagger has no standard Callback Object representation','target-representation');
-                else owners.retainNativeHistory({...scope,pointer:scope.pointer+'/callbacks'},source,pointer+'/callbacks','empty_callbacks',context);
+                else source.remove(pointer+'/callbacks');
             }
         }
         if(scope.kind==='response'&&typeof value?.$ref!=='string'){
@@ -268,7 +269,7 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,SourceP
             annotations.retainMediaEnvelope(scope,source,pointer);
             if(value.links){
                 if(Object.keys(value.links).length)issue({...scope,pointer:scope.pointer+'/links'},'migration.links','Swagger has no standard Link Object representation','target-representation');
-                else owners.retainNativeHistory({...scope,pointer:scope.pointer+'/links'},source,pointer+'/links','empty_links',context);
+                else source.remove(pointer+'/links');
             }
         }
         if(scope.kind==='security'){
@@ -382,7 +383,7 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,SourceP
         if(components?.children.size)for(const name of components.children.keys()){
             if(name.startsWith('x-'))owners.retainNativeHistory({resource,pointer:'/components/'+escape(name)},source,'/components/'+escape(name),'components_metadata');
             else if(!source.doc.dataNode('/components/'+escape(name))?.children.size)
-                owners.retainNativeHistory({resource,pointer:'/components/'+escape(name)},source,'/components/'+escape(name),'empty_component_category');
+                source.remove('/components/'+escape(name));
             else issue({resource,pointer:'/components/'+escape(name)},'migration.components.'+name,
                 ['links','callbacks'].includes(name)?'Swagger has no standard reusable '+name+' category or equivalent invocation/connection semantics':
                 'This reusable '+name+' category still needs a faithful independently typed Swagger owner',
@@ -391,6 +392,17 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,SourceP
         if(!source.doc.dataNode('/components')?.children.size)source.remove('/components');
         if(source.doc.nodes.has('/webhooks'))issue({resource,pointer:'/webhooks'},'migration.webhooks','Swagger has no independent Webhook invocation category','target-representation');
         source.remove('/openapi');source.set('/swagger','2.0');
+    }
+    // Swagger's Parameter Definitions map requires concrete Parameter Objects.
+    // Resolve captured pure aliases once, then copy the already converted
+    // terminal owner; ordinary use-site references retain their named target.
+    for(const scope of scopes)if(scope.family===from&&scope.kind==='parameter'&&/^\/components\/parameters\/[^/]+$/.test(scope.pointer)){
+        const context=owners.contextOf(scope)??graph,value=context.docs.get(scope.resource)!.dataNode(scope.pointer)!.value;
+        if(typeof value?.$ref!=='string'||Object.keys(value).length!==1)continue;
+        const definition=new ParameterSemantics(context).occurrence(scope).definition;
+        if(!definition){issue(scope,'migration.parameter.alias','This reusable Parameter alias has no captured concrete target','source-incomplete');continue;}
+        const material=owners.uniqueLocation(definition),alias=owners.uniqueLocation(scope);
+        owners.materializeNativeUse(scope,alias.source,alias.location.pointer,material.source,material.location.pointer);
     }
     return relocateMigrationServerRoutes(serverRoutes,sources,owners,issue,contexts);
 }

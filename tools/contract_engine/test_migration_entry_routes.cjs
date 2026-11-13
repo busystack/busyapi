@@ -3,6 +3,38 @@ const {planMigration}=require('./dist/migration.cjs'),{analyse}=require('./dist/
 const {SourceDocument}=require('./dist/document.cjs');
 const {createHash}=require('node:crypto'),configurationIdentity=text=>createHash('sha256').update(text).digest('hex');
 
+for(const format of ['yaml','json'])for(const targetVersion of ['3.1.2','3.0.4'])test(`${format} retired cookie flags retain actual literal and Schema consumers in ${targetVersion}`,async()=>{
+ const root='file:///cookie-flags/api.'+format;
+ const text=`openapi: 3.2.1
+info: {title: Scalar owners, version: '1'}
+paths:
+  /p:
+    get:
+      parameters: [{$ref: '#/components/parameters/P'}]
+      responses: {'204': {description: Empty}}
+components:
+  parameters:
+    P:
+      name: cookie
+      in: cookie
+      style: &style cookie
+      explode: &explode true
+      schema: {type: string, enum: ['a%20b']}
+  schemas:
+    Explode: {$ref: '#/components/parameters/P/explode'}
+x-literal: {style: *style, explode: *explode}
+`;
+ const input={root,snapshot:'cookie-flags',resources:[{id:root,text:format==='yaml'?text:JSON.stringify(YAML.parse(text)),generation:1}],targetVersion,destination:'file:///cookie-flags-output/'};
+ const before=input.resources[0].text,review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const cold={root:review.outputRoot,resources:review.outputs,snapshot:'cold-cookie-flags'},doc=new SourceDocument(review.outputs.find(output=>output.id===review.outputRoot).text,review.outputRoot);
+ assert.equal(doc.dataJson('/x-literal'),new SourceDocument(before,root).dataJson('/x-literal'));
+ assert.equal(doc.dataNode('/components/parameters/P/style'),undefined);assert.equal(doc.dataNode('/components/parameters/P/explode'),undefined);
+ assert.equal(analyse(cold).complete,true,JSON.stringify(analyse(cold).findings));
+ const evaluated=await evaluateSchemas({...cold,runtimeInstances:['false','null','0','{}'].map(text=>({subject:'request-body',text,location:'flag',schema:{resource:cold.root,pointer:'/components/schemas/Explode'}}))});
+ assert.equal(evaluated.complete,true,JSON.stringify(evaluated.findings));assert(evaluated.runtimeEvaluations.every(value=>value.complete&&value.valid));
+ assert.equal(input.resources[0].text,before);
+});
+
 test('R3c-3 shared raw cases cannot acquire incompatible decoded selections',async()=>{
  const input=require('./migration_b05_r3c3_fixture.cjs')('3.2.1','json','3.1.2',true).configure('q=a%2Bb');
  const second=JSON.parse(input.resources[0].text);second.components.parameters.Whole.content['application/x-www-form-urlencoded'].schema.properties.q={type:'string',enum:['a+b']};

@@ -131,8 +131,7 @@ export function swaggerMediaMigration(graph:ReferenceGraph,sources:Map<string,So
                 continue;
             }
             if(schema)for(const name of [...examples?.children.keys()??[]])source.move(pointer+'/examples/'+escape(name),pointer+'/content/'+escape(name)+'/example');
-            if(!schema&&examples)owners.retainNativeHistory({...scope,pointer:scope.pointer+'/examples'},source,pointer+'/examples','empty_bodyless_examples');
-            else source.remove(pointer+'/examples');
+            source.remove(pointer+'/examples');
             for(const consumer of consumers){
                 const selected=variant(owner,'responses',schema?consumer.media:[]);
                 if(typeof graph.docs.get(consumer.occurrence.resource)!.dataNode(consumer.occurrence.pointer)!.value?.$ref==='string')retargets.set(key(consumer.occurrence),selected);

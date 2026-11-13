@@ -501,11 +501,13 @@ export class MigrationSchemaOwners {
         }
     }
 
-    materializeHeaderUse(scope:GraphScope,source:SourcePlan,pointer:string,input:SourcePlan,from:string):void {
+    materializeNativeUse(scope:GraphScope,source:SourcePlan,pointer:string,input:SourcePlan,from:string):void {
         const captured=input.fork();
-        // Retain the authored reference object as literal history. Its ignored
-        // siblings must never acquire Header constraints during inlining.
-        this.retainLiteralValue(scope,source,pointer,'header_reference',true);
+        // Ignored siblings remain literal data. A pure Reference Object needs
+        // no historical holder once its actual native use is materialized.
+        if(Object.keys(source.doc.dataNode(pointer)!.value).some(name=>name!=='$ref'))
+            this.retainLiteralValue(scope,source,pointer,'native_reference',true);
+        else source.remove(pointer);
         for(const current of this.sources.values()){
             const roots=current.original.id===scope.resource?current.origins.get(scope.pointer):current.foreignOrigins.get(scope.resource+'#'+scope.pointer);
             roots?.clear();
@@ -514,12 +516,12 @@ export class MigrationSchemaOwners {
             locations?.clear();
         }
         this.admit(source,4);source.copy(captured,from,pointer,true);
-        for(const context of this.contexts)for(const original of context.entryScopes())if(['schema','header'].includes(original.kind)){
+        for(const context of this.contexts)for(const original of context.entryScopes())if(original.kind==='schema'||original.kind===scope.kind){
             this.inspectUse();const locations=original.resource===source.original.id?source.origins.get(original.pointer):source.foreignOrigins.get(original.resource+'#'+original.pointer);
             for(const at of [...locations??[]])if(at===pointer||at.startsWith(pointer+'/'))locations!.delete(at);
         }
-        // The use retains its own native identity. The source target's schema
-        // and Header identities stay with their independent neutral owners.
+        // The use retains its own native identity. The source target's typed
+        // identities stay with their independent neutral owners.
         const locations=source.original.id===scope.resource?source.origins:source.foreignOrigins;
         const id=source.original.id===scope.resource?scope.pointer:scope.resource+'#'+scope.pointer;
         locations.set(id,new Set([pointer]));
