@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:busyapi_core/busyapi_core.dart';
+import 'package:busyapi_core/src/request_parameters.dart' show serializeParameter;
 import 'package:test/test.dart';
 
 import 'test_support.dart';
@@ -50,10 +51,31 @@ void main() {
           });
           final empty=data=='[]'||data=='{}',object=data=='{"k":""}';
           final expansion=empty?'':style=='matrix'?object?';k':';p':style=='label'?object?'.k':'.':object?'k':'';
+          expect(serializeParameter({'name':'p','in':'path','style':style,'explode':true},
+            jsonDecode(data),data,structured:true).single.$2, expansion);
+          if (expansion == '.') {
+            final dispatched = seen.length;
+            expect(Uri.parse('http://127.0.0.1/label/.').path, '/label/');
+            await expectLater(const ContractRequestExecutor().execute(plan,draft,resolveSecret:(_) async=>null),
+              throwsA(isA<CoreFailure>()
+                .having((error) => error.code, 'code', 'request.parameter.path-normalization')
+                .having((error) => error.kind, 'kind', CoreFailureKind.unsupported)));
+            expect(seen.length, dispatched);
+            continue;
+          }
           final result=await const ContractRequestExecutor().execute(plan,draft,resolveSecret:(_) async=>null);
           try {expect(result.conforming,true,reason:'${result.outgoing.findings} ${result.received.findings}');
             expect(seen.last,'/$style/$expansion');} finally {await result.close();}
           savedPlan=plan;savedDraft=draft;
+        }
+        if (style == 'simple') {
+          for (final raw in ['.', '..', '%2e', '.%2E']) {
+            final draft = OperationRequestDraft(planIdentity: plan.identity, parameters: {
+              OperationRequestDraft.parameterKey('path','p'):RequestValue.serialized(raw),
+            });
+            await expectLater(const ContractRequestBuilder().build(plan,draft,resolveSecret:(_) async=>null),
+              throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'request.parameter.path-normalization')));
+          }
         }
       }
       final changes=await project.applyRefactoring(await savedPlan!.planCase('Empty member',savedDraft!));
@@ -114,6 +136,7 @@ void main() {
         ]);
         final original = jsonEncode(value).replaceAll('"EXACT"', '9007199254740993.00');
         final settings = jsonDecode(r3cConfiguration('json').replaceAll('9007199254740993.00', '"EXACT"')) as Map;
+        settings['environments']['manual']['authentication']['alternative'] = 0;
         settings['tests'][0]['parameters']['cookie']['bundle'] = {'percent':'%2C','flag2':false};
         settings['tests'][0]['parameters']['cookie']['single'] = ['a%20b'];
         final configuration = jsonEncode(settings).replaceAll('"EXACT"', '9007199254740993.00');
@@ -195,8 +218,16 @@ void main() {
       addTearDown(() => directory.delete(recursive: true));
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);addTearDown(() => server.close(force: true));
       final seen = <String>[];
-      server.listen((request) async {seen.add(request.uri.toString());request.response.statusCode = 204;await request.response.close();});
+      server.listen((request) async {
+        expect(request.headers.value('cookie'), 'auth=credential');
+        seen.add(request.uri.toString());request.response.statusCode = 204;await request.response.close();
+      });
       final file = File('${directory.path}/api.json');await file.writeAsString(r3cRepeatedSource(version, server.port));
+      await File('${directory.path}/busyapi.yaml').writeAsString(jsonEncode({
+        'version':1,'roots':[{'name':'api','path':'api.json'}],
+        'environments':{'manual':{'authentication':{'alternative':0,
+          'schemes':{'Access':{'secretRef':r3cSecret}}}}},
+      }));
       final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);addTearDown(engine.close);
       final project = await BusyProject.open(file.path, engine);addTearDown(project.close);
       final review = await project.prepareMigration(project.roots.single.id, '${directory.path}/output', targetVersion: '3.0.4');
@@ -209,7 +240,7 @@ void main() {
           final plan = await owner.prepareRequest(root, resource: root, pointer: '/paths/~1shared/get');
           try {
             final response = await const ContractRequestExecutor().execute(plan,
-              OperationRequestDraft(planIdentity: plan.identity, parameters: {
+              OperationRequestDraft(planIdentity: plan.identity, environment: 'manual', parameters: {
                 OperationRequestDraft.parameterKey(owner == project ? 'querystring' : 'query', owner == project ? 'descriptionOnly' : 'q'):
                   RequestValue.json(jsonEncode(owner == project ? {'q': values} : values)),
               }), resolveSecret: (_) async => 'credential');

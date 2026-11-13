@@ -321,7 +321,7 @@ void main() {
     );
   for (final version in ['3.1.2', '3.2.1'])
     test(
-      'R05-B aliased required constraints reject the complete core rename $version',
+      'R05-B reviewed aliased required rename preserves literals and atomic history $version',
       () async {
         final original =
             'openapi: $version\ninfo: {title: Shared, version: "1"}\npaths: {}\nx-shared: &names [old]\ncomponents:\n  schemas:\n    Model: {type: object, properties: {old: {type: string}}, required: *names}\n';
@@ -335,30 +335,36 @@ void main() {
           root,
           '/components/schemas/Model/properties/old',
         );
-        await expectLater(
-          project.planPropertyRename(
-            target,
-            'new',
-            actions: [
-              {
-                'kind': 'set',
-                'pointer':
-                    '/components/schemas/Model/properties/old/description',
-                'value': 'no partial edit',
-              },
-            ],
-          ),
-          throwsA(
-            isA<CoreFailure>().having(
-              (e) => e.code,
-              'code',
-              'refactor.property.shared',
-            ),
-          ),
-        );
+        final plan = await project.planPropertyRename(target, 'new', actions: [
+          {
+            'kind': 'set',
+            'pointer': '/components/schemas/Model/properties/old/description',
+            'value': 'one complete edit',
+          },
+        ]);
         expect(b.text, original);
+        await project.applyRefactoring(plan);
+        final changed = b.text;
+        final data = loadYaml(changed);
+        expect(data['x-shared'], ['old']);
+        expect(changed, contains('x-shared: &names [old]\n'));
+        expect(data['components']['schemas']['Model']['required'], ['new']);
+        expect(data['components']['schemas']['Model']['properties'], {
+          'new': {'type': 'string', 'description': 'one complete edit'},
+        });
+        expect((await project.check(root))['status'], 'complete');
         expect(b.baseline, original);
+        expect(await file.readAsString(), original);
+        project.store.undo();
+        expect(b.text, original);
         expect(project.store.canUndo, false);
+        project.store.redo();
+        expect(b.text, changed);
+        await publishSources(project, [b]);
+        final cold = await BusyProject.open(file.path, engine);
+        addTearDown(cold.close);
+        expect((await cold.buffer(root)).text, changed);
+        expect((await cold.check(root))['status'], 'complete');
       },
     );
   for (final version in ['3.1.2', '3.2.1']) {

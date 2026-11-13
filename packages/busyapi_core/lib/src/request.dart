@@ -1082,7 +1082,17 @@ class ContractRequestBuilder {
               'Path parameter $name has no matching template expression',
             );
           }
-          path = path.replaceAll(marker, serialized.single.$2);
+          final previousSegments = path.split('/');
+          final expanded = path.replaceAll(marker, serialized.single.$2);
+          for (final (index, segment) in expanded.split('/').indexed) {
+            if (segment != previousSegments[index] &&
+                RegExp(r'^(?:\.|%2[eE]){1,2}$').hasMatch(segment)) {
+              throw CoreFailure('request.parameter.path-normalization',
+                'This Path Parameter creates a URI dot segment that the HTTP transport cannot send unchanged.',
+                kind: CoreFailureKind.unsupported, source: requestDefinitionSource(raw));
+            }
+          }
+          path = expanded;
           break;
         case 'query':
           for (final item in serialized) {
