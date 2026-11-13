@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 
@@ -36,6 +37,7 @@ class PublicationStore {
   final Future<void> Function()? beforeCheckpoint;
   final Future<void> Function(String id)? afterPublish;
   final String owner = '$pid-${DateTime.now().microsecondsSinceEpoch}';
+  late final String? _processIdentity = processIdentity(pid);
   final Map<BusyProject, _FilePublication> _filePublications = {};
 
   Future<PublicationBatchResult> save(
@@ -100,8 +102,7 @@ class PublicationStore {
       }
     }
     if (plan.isEmpty) return PublicationBatchResult([], cleanFailures, []);
-    if (plan.length > 512 ||
-        utf8.encode(jsonEncode(plan)).length > 128 * 1024 * 1024) {
+    if (plan.length > 512) {
       throw CoreFailure(
         'publication.limit',
         'Publication intent exceeds the private state budget',
@@ -140,7 +141,7 @@ class PublicationStore {
       'version': 1,
       'owner': owner,
       'pid': pid,
-      'processIdentity': processIdentity(pid),
+      'processIdentity': _processIdentity,
       'project': project.location,
       'boundary': project.access.boundary,
       'planned': plan,
@@ -149,8 +150,8 @@ class PublicationStore {
         'publicationDependencies': dependencies,
       },
     };
-    final intentBytes = utf8.encode(jsonEncode(intent)).length;
-    if (intentBytes > 128 * 1024 * 1024) {
+    final intentBytes = utf8.encode(jsonEncode(intent));
+    if (intentBytes.length > 128 * 1024 * 1024) {
       throw CoreFailure(
         'publication.limit',
         'Linked publication intent exceeds its recoverable state budget',
@@ -164,7 +165,7 @@ class PublicationStore {
         .where((f) => f.path.endsWith('.json'))
         .toList();
     if (entries.length >= 64 ||
-        entries.fold<int>(0, (n, f) => n + f.lengthSync()) + intentBytes >
+        entries.fold<int>(0, (n, f) => n + f.lengthSync()) + intentBytes.length >
             256 * 1024 * 1024) {
       throw CoreFailure(
         'publication.limit',
@@ -178,13 +179,9 @@ class PublicationStore {
     final published = <String>[], failed = <String, String>{...cleanFailures};
     Future<void> checkpoint() async {
       await beforeCheckpoint?.call();
-      final record = {...intent, 'published': published, 'failed': failed};
-      if (utf8.encode(jsonEncode(record)).length > 128 * 1024 * 1024)
-        throw CoreFailure(
-          'publication.limit',
-          'The publication checkpoint exceeds its recoverable state budget',
-        );
-      await writePrivateJson(journal, record);
+      await _writePrivateBytes(journal, _publicationCheckpointBytes(
+        intentBytes, {'published': published, 'failed': failed},
+      ));
     }
 
     // Failure here leaves every project file untouched.
@@ -491,9 +488,27 @@ Future<PublicationBatchResult> publishBatch(
 
 /// Private state replacement never truncates the sole recoverable copy.
 Future<void> writePrivateJson(String path, Object value) async {
+  await _writePrivateBytes(path, utf8.encode(jsonEncode(value)));
+}
+
+// Only receipts change between checkpoints. The frozen source intent is encoded
+// once, while each atomic replacement still contains the complete recovery JSON.
+Uint8List _publicationCheckpointBytes(Uint8List intent, Map<String, Object?> receipt) {
+  final suffix = utf8.encode(jsonEncode(receipt));
+  final length = intent.length + suffix.length - 1;
+  if (length > 128 * 1024 * 1024) {
+    throw CoreFailure('publication.limit',
+        'The publication checkpoint exceeds its recoverable state budget');
+  }
+  return Uint8List(length)
+    ..setRange(0, intent.length - 1, intent)
+    ..[intent.length - 1] = 44
+    ..setRange(intent.length, length, suffix, 1);
+}
+
+Future<void> _writePrivateBytes(String path, List<int> bytes) async {
   await Directory(p.dirname(path)).create(recursive: true);
   privatePermissions(p.dirname(path), 448);
-  final bytes = utf8.encode(jsonEncode(value));
   await const AtomicFileWriter().writeBytes(
     path,
     bytes,

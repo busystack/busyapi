@@ -1,10 +1,11 @@
 part of 'publication.dart';
 
 class _FilePublication {
-  _FilePublication(this.journal, this.plan, this.buffers);
+  _FilePublication(this.journal, this.plan, this.buffers, this.intentBytes);
   final String journal;
   final List<Map<String, dynamic>> plan;
   final Map<String, DocumentBuffer> buffers;
+  final Uint8List intentBytes;
   final Set<String> published = {}, archived = {};
 }
 
@@ -124,7 +125,8 @@ extension FilePublication on PublicationStore {
         plan.add(entry);
         buffers[b.id] = b;
       }
-      if (utf8.encode(jsonEncode(plan)).length > 128 * 1024 * 1024)
+      final intentBytes = _fileIntent(project, plan);
+      if (intentBytes.length > 128 * 1024 * 1024)
         throw CoreFailure(
           'publication.limit',
           'The grouped file intent exceeds its private storage budget',
@@ -164,7 +166,7 @@ extension FilePublication on PublicationStore {
           .toList();
       if (existing.length >= 64 ||
           existing.fold<int>(0, (n, f) => n + f.lengthSync()) +
-                  utf8.encode(jsonEncode(plan)).length >
+                  intentBytes.length >
               256 * 1024 * 1024) {
         throw CoreFailure(
           'publication.limit',
@@ -182,6 +184,7 @@ extension FilePublication on PublicationStore {
         ),
         plan,
         buffers,
+        intentBytes,
       );
       for (final b in batch.buffers.values) {
         b.pendingFilePublication = true;
@@ -388,21 +391,24 @@ extension FilePublication on PublicationStore {
     bool completed = false,
   }) async {
     await beforeCheckpoint?.call();
-    await writePrivateJson(batch.journal, {
-      'version': 2,
-      'kind': 'file-operations',
-      'owner': owner,
-      'pid': pid,
-      'processIdentity': processIdentity(pid),
-      'project': project.location,
-      'boundary': project.access.boundary,
-      'planned': batch.plan,
+    await _writePrivateBytes(batch.journal, _publicationCheckpointBytes(batch.intentBytes, {
       'published': batch.published.toList(),
       'archived': batch.archived.toList(),
       'failed': failures,
       'completed': completed,
-    });
+    }));
   }
+
+  Uint8List _fileIntent(BusyProject project, List<Map<String, dynamic>> plan) => utf8.encode(jsonEncode({
+      'version': 2,
+      'kind': 'file-operations',
+      'owner': owner,
+      'pid': pid,
+      'processIdentity': _processIdentity,
+      'project': project.location,
+      'boundary': project.access.boundary,
+      'planned': plan,
+    }));
 
   Future<String?> _fileIdentity(BusyProject project, String path) async {
     try {
@@ -498,12 +504,13 @@ extension FilePublication on PublicationStore {
     if (current == null) return;
     final entries = (current['outcomes'] as List).cast<Map<String, dynamic>>();
     final restored = await project.restoreFileSnapshot(entries);
-    final batch = _FilePublication(path, [
+    final plan = [
       for (final e in entries)
         Map<String, dynamic>.from(e)
           ..remove('outcome')
           ..remove('sourceOutcome'),
-    ], restored);
+    ];
+    final batch = _FilePublication(path, plan, restored, _fileIntent(project, plan));
     for (final e in entries) {
       if (e['outcome'] == 'published') batch.published.add(e['id'] as String);
       if (e['sourceOutcome'] == 'archived')
