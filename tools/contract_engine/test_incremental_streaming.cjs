@@ -133,3 +133,14 @@ test('only a deferred original whole-context MIME binding carries a resolvable i
  const independent=capture(type,{schema,itemSchema:{type:'object'},encoding:{encoding:{value:{contentType:'application/json'}}}});
  const unchecked=await exchange(independent,[Buffer.from(wire)]);assert(unchecked.records.every(value=>value.wholeResolvable===false));
 });
+
+for(const version of ['3.1.2','3.2.1'])for(const yaml of [false,true])for(const composed of [false,true])test(`${version} ${yaml?'YAML':'JSON'} encoded whole strings composed=${composed} retain complete-content proof`,async()=>{
+ const encoded={type:'string',contentEncoding:'base64',minLength:4,maxLength:8};
+ const input=capture('application/octet-stream',{version,yaml,itemSchema:null,schema:composed?{allOf:[encoded]}:encoded});
+ for(const wire of [Buffer.from('AP+A'),Buffer.alloc(0),Buffer.from([255,128])]){
+  const framed=await exchange(input,Array.from(wire,byte=>Buffer.from([byte])));
+  assert.equal(framed.framingComplete,true);assert.equal(framed.wholeAvailable,false);assert.equal(framed.binaryValid,true);assert.deepEqual(framed.findings,[]);
+ }
+ const checked=await evaluateSchemas({...input,runtimeInstances:[Buffer.from('AP+A'),Buffer.alloc(0),Buffer.from([255,128])].map((wire,index)=>({subject:'response-body',location:String(index),text:wire.toString('base64'),mediaType:input.mediaType,mediaBase64:true,schema:{resource:input.root,pointer:'/paths/~1events/get/responses/200/content/application~1octet-stream/schema'}}))});
+ assert.equal(checked.complete,true,JSON.stringify(checked.runtimeFindings));assert.deepEqual(checked.runtimeEvaluations.map(value=>[value.complete,value.valid]),[[true,true],[true,false],[true,false]]);
+});

@@ -6,6 +6,7 @@ import {runtimeBinaryMedia} from './runtime_binary';
 import {selectNativeMedia} from './mock_projection';
 import {evaluateSchemas,schemaProducer} from './schema_evaluation';
 import {runtimeMediaBytes} from './runtime_media';
+import {wholeBodyEncoding} from './whole_body_encoding';
 
 /** One immutable semantic capture and one mutable framer belong to a stream.
  * Continuations contain new bytes only; original sources stay in this worker. */
@@ -18,15 +19,21 @@ class ResponseStream {
  busy?:Promise<any>;
  closed=false;
  readonly retained:number;
+ readonly rawBinary:boolean;
  constructor(readonly capture:any,context?:ReturnType<typeof createGraph>){
   this.context=context??createGraph(capture);this.plan=requestOperation(capture,this.context);
   const declaration=this.plan.responses.find(item=>item.status===String(capture.status))??this.plan.responses.find(item=>item.status===String(capture.status)[0]+'XX')??this.plan.responses.find(item=>item.status==='default');
   this.media=declaration?.bodyAllowed===false?undefined:declaration&&selectNativeMedia<any>(declaration.content,capture.mediaType);
+  this.rawBinary=false;
+  if(runtimeBinaryMedia(capture.mediaType)&&['3.1','3.2'].includes(this.media?.family)&&this.media.schema){
+   try{this.rawBinary=wholeBodyEncoding(this.context.graph,{...this.media.schema,kind:'schema'})===undefined;}
+   catch(error){if(!(error instanceof SourceError)||error.kind!=='unsupported')throw error;}
+  }
   this.base={version:1,revision:streamRevision,stream:capture.stream,snapshot:capture.snapshot,identity:this.plan.identity,producer:schemaProducer.name,producerVersion:schemaProducer.version,configuration:schemaProducer.configuration};
   this.retained=capture.resources.reduce((bytes:number,resource:any)=>bytes+resource.text.length*2,0);
  }
  async chunk(input:any){
- const {capture,context,media,base}=this;
+ const {capture,context,media,base,rawBinary}=this;
  if(!media||media.schema?.file||!streamingMedia(capture.mediaType))return {...base,supported:false};
  const framed=frameStream(capture.mediaType,this.state,runtimeMediaBytes(input.text,true),input.end,input.maximumRecords??128),instances:any[]=[],binary=runtimeBinaryMedia(capture.mediaType);
  this.state=framed.state;
@@ -37,7 +44,8 @@ class ResponseStream {
   if(record.mime!==undefined)instances.push({subject:'response-body',location,text:record.mime,mediaBase64:true,mediaType:capture.mediaType,form:{...media.definition,streamIndex:record.path?.[0]??record.index,streamPath:record.path},schema:media.schema,...((record.path?.length??1)===1?{itemSchema}:{}),captureData:true});
   else instances.push({subject:'response-item',location,text:record.text,...(itemSchema?{schema:itemSchema}:{})});
  }
- const rawBinary=binary&&['3.1','3.2'].includes(media.family)&&media.schema;
+ // Encoded strings require the existing complete-content decoder; a byte
+ // count cannot prove their string type, encoding, or character constraints.
  // Even a byte-length schema can be non-monotone under not/alternatives.
  // Retain exact cumulative provenance, but evaluate the original whole schema
  // only at EOF; a short prefix must not create a permanent false violation.
