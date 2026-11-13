@@ -61,7 +61,7 @@ environments:
 ''';
             manifest.writeAsStringSync(configuration);
             final state = '${directory.path}/state';
-            final child = await Process.start('$testBundle/publication-child', [
+            final child = await Process.start('$fixtureDirectory/publication-child', [
               directory.path,
               state,
               'security-${phase == 'draft' ? 'draft' : 'published'}',

@@ -117,6 +117,9 @@ class EnginePhases(unittest.TestCase):
         self.assertTrue(any(command[-1] == '--helpers-only' for command in commands))
         self.assertTrue(all(call.kwargs['env']['BUSYAPI_TEST_BUNDLE'] == str(qualification.BUNDLE)
                             for call in run.call_args_list))
+        self.assertTrue(all(call.kwargs['env']['BUSYAPI_TEST_FIXTURE_DIRECTORY'] == str(qualification.FIXTURES)
+                            for call in run.call_args_list))
+        self.assertFalse(qualification.FIXTURES.is_relative_to(qualification.BUNDLE))
 
     def test_changed_candidate_or_source_rejects_qualification(self):
         for captures in [

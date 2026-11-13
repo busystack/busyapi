@@ -7,7 +7,8 @@ case "${1:-}" in
   *) echo 'Usage: tools/prepare_test_runtime.sh [--core|--helpers-only]' >&2; exit 2;;
 esac
 dart_bin="${BUSYAPI_DART:-$(command -v dart)}"
-mkdir -p build/test-runtime
+fixture_dir="${BUSYAPI_TEST_FIXTURE_DIRECTORY:-build/test-runtime}"
+mkdir -p "$fixture_dir"
 # A running fixture may still hold the previous executable. Compile beside it
 # and publish by rename instead of truncating that executable's inode.
 compile_executable() (
@@ -59,10 +60,10 @@ install -m 644 build/resource-package-runtime/runtime.json build/test-runtime/sh
 cp -R build/dart-notices/. build/test-runtime/share/licenses/busyapi-dart/
 cp -R build/test-runtime/libexec/busyapi/licenses/. build/test-runtime/share/licenses/busyapi-engine/
 fi
-compile_executable packages/busyapi_core/test/recovery_child.dart build/test-runtime/recovery-child
+compile_executable packages/busyapi_core/test/recovery_child.dart "$fixture_dir/recovery-child"
 
-compile_executable packages/busyapi_core/test/publication_child.dart build/test-runtime/publication-child
-compile_executable packages/busyapi_core/test/cli_fault_child.dart build/test-runtime/cli-fault-child
-compile_executable packages/busyapi_core/test/definition_move_child.dart build/test-runtime/definition-move-child
-compile_executable packages/busyapi_core/test/file_move_child.dart build/test-runtime/file-move-child
-compile_executable packages/busyapi_core/test/redirect_redaction_child.dart build/test-runtime/redirect-redaction-child
+compile_executable packages/busyapi_core/test/publication_child.dart "$fixture_dir/publication-child"
+compile_executable packages/busyapi_core/test/cli_fault_child.dart "$fixture_dir/cli-fault-child"
+compile_executable packages/busyapi_core/test/definition_move_child.dart "$fixture_dir/definition-move-child"
+compile_executable packages/busyapi_core/test/file_move_child.dart "$fixture_dir/file-move-child"
+compile_executable packages/busyapi_core/test/redirect_redaction_child.dart "$fixture_dir/redirect-redaction-child"

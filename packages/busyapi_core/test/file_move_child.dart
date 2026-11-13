@@ -4,13 +4,12 @@ import 'dart:io';
 import 'package:busyapi_core/busyapi_core.dart';
 import 'package:path/path.dart' as p;
 
+import 'test_support.dart';
+
 Future<void> main(List<String> args) async {
-  final bundle =
-      Platform.environment['BUSYAPI_TEST_BUNDLE'] ??
-      p.dirname(Platform.resolvedExecutable);
   final engine = EngineProcess(
-    executable: p.join(bundle, 'libexec/busyapi/node'),
-    helper: p.join(bundle, 'libexec/busyapi/engine.cjs'),
+    executable: runtimeNode,
+    helper: runtimeHelper,
   );
   final project = await BusyProject.open(args[0], engine);
   if (args[2].startsWith('extract-file-')) {

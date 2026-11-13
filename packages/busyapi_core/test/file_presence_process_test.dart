@@ -33,7 +33,7 @@ void main() {
           final draft = phase == 'draft', newer = phase.endsWith('-newer');
           final mode =
               'presence-${deletion ? 'delete' : 'create'}${draft ? '-draft' : ''}';
-          final child = await Process.start('$testBundle/file-move-child', [
+          final child = await Process.start('$fixtureDirectory/file-move-child', [
             temp.path,
             '${temp.path}/state',
             mode,

@@ -289,7 +289,7 @@ process.stdin.on('data',data=>{
     );
     final part = File('$destination/part.yaml')
       ..writeAsStringSync('part original\n');
-    final process = await Process.start('$testBundle/publication-child', [
+    final process = await Process.start('$fixtureDirectory/publication-child', [
       destination,
       '${temp.path}/state',
     ]);
@@ -340,7 +340,7 @@ process.stdin.on('data',data=>{
       addTearDown(() => temp.delete(recursive: true));
       final file = File('${temp.path}/api.yaml');
       await file.writeAsString('info: {title: original}\n');
-      final process = await Process.start('$testBundle/recovery-child', [
+      final process = await Process.start('$fixtureDirectory/recovery-child', [
         file.path,
         '${temp.path}/state',
       ]);

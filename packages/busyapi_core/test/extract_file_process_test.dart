@@ -24,7 +24,7 @@ void main() {
         await root.writeAsString(original);
         final before = await root.readAsBytes();
         final mode = 'extract-file-$phase',
-            child = await Process.start('$testBundle/file-move-child', [
+            child = await Process.start('$fixtureDirectory/file-move-child', [
               root.path,
               '${temp.path}/state',
               mode,

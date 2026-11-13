@@ -231,7 +231,11 @@ This runs the registered Engine/renderer suites, analysis, the official Flutter
 widget harness once, Core/CLI tests against the installed candidate, and installed
 artifact smoke checks. A retained behavior failure, changed candidate input or
 changed installed file rejects qualification. Process-test helpers are prepared
-separately without rebuilding production assets. CI retains additional tooling,
+separately without rebuilding production assets. `BUSYAPI_TEST_BUNDLE` selects
+the installed product; `BUSYAPI_TEST_FIXTURE_DIRECTORY` selects only development
+process executables (default `build/test-runtime`). Qualification fixes these to
+the release candidate and the separate helper directory, respectively; helpers
+never enter the distributed bundle. CI retains additional tooling,
 kernel, SDK and native-lifetime gates. No earlier successful test run qualifies a
 later candidate.
 

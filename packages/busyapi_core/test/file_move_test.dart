@@ -31,8 +31,7 @@ void main() {
           'version: 1\nroots:\n  - name: Main\n    path: root.json # retain\nunknown: {\$ref: data}\n',
         );
         final child = await Process.start(
-          Platform.environment['BUSYAPI_FILE_MOVE_FIXTURE'] ??
-              '$testBundle/file-move-child',
+          '$fixtureDirectory/file-move-child',
           [temp.path, '${temp.path}/state', phase],
         );
         addTearDown(() async {

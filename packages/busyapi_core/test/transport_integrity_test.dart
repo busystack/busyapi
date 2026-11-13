@@ -420,7 +420,7 @@ paths: {"/pets": {get: {responses: {'200': {description: ok}}}}}
         '$version R14-E $location credentials retain redirects through the accepted size limit in AOT',
         () async {
           final result = await Process.run(
-            '$testBundle/redirect-redaction-child',
+            '$fixtureDirectory/redirect-redaction-child',
             [location, version],
           );
           expect(

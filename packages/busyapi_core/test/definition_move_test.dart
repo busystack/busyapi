@@ -23,7 +23,7 @@ void main() {
     await File('${temp.path}/busyapi.yaml').writeAsString(
       'version: 1\nroots:\n  - name: working\n    path: root.json\n  - name: models\n    path: models.json\n',
     );
-    final child = await Process.start('$testBundle/definition-move-child', [
+    final child = await Process.start('$fixtureDirectory/definition-move-child', [
       temp.path,
       '${temp.path}/state',
     ]);

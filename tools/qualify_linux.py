@@ -13,6 +13,7 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 BUNDLE = ROOT / 'build/linux/x64/release/bundle'
+FIXTURES = ROOT / 'build/test-runtime'
 
 
 def capture(directory, *, source=False):
@@ -48,7 +49,8 @@ def qualify(flutter):
     flutter = Path(executable).resolve()
     dart = flutter.parent / 'cache/dart-sdk/bin/dart'
     environment = dict(os.environ, BUSYAPI_FLUTTER=str(flutter),
-                       BUSYAPI_DART=str(dart), BUSYAPI_TEST_BUNDLE=str(BUNDLE))
+                       BUSYAPI_DART=str(dart), BUSYAPI_TEST_BUNDLE=str(BUNDLE),
+                       BUSYAPI_TEST_FIXTURE_DIRECTORY=str(FIXTURES))
 
     def run(*command):
         subprocess.run(list(map(str, command)), cwd=ROOT, env=environment, check=True)

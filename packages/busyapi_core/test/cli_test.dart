@@ -120,7 +120,7 @@ void main() {
     // never an installed application asset. A relocated production bundle must
     // still exercise its own CLI below, without shipping this fault helper.
     final result = await Process.run(
-      '$repositoryRoot/build/test-runtime/cli-fault-child',
+      '$fixtureDirectory/cli-fault-child',
       ['init', '${temp.path}/api', '--title', 'test', '--api-version', '1.0.0'],
     );
     expect(result.exitCode, 3);

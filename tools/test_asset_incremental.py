@@ -69,8 +69,11 @@ include(linux/contract_assets.cmake)
             source = Path(temporary)
             (source / 'tools').mkdir()
             shutil.copy2(ROOT / 'tools/prepare_test_runtime.sh', source / 'tools/prepare_test_runtime.sh')
-            runtime = source / 'build/test-runtime'
+            runtime = source / 'separate-process-fixtures'
             runtime.mkdir(parents=True)
+            candidate = source / 'installed-candidate'
+            candidate.mkdir()
+            (candidate / 'busyapi').write_bytes(b'captured product bytes')
             old = runtime / 'recovery-child'
             shutil.copy2('/bin/sleep', old)
             process = subprocess.Popen([str(old), '30'])
@@ -90,7 +93,9 @@ output.chmod(0o755)
 ''')
             dart.chmod(0o755)
             result = subprocess.run(['bash', str(source / 'tools/prepare_test_runtime.sh'), '--helpers-only'],
-                                    env=dict(os.environ, BUSYAPI_DART=str(dart)),
+                                    env=dict(os.environ, BUSYAPI_DART=str(dart),
+                                             BUSYAPI_TEST_BUNDLE=str(candidate),
+                                             BUSYAPI_TEST_FIXTURE_DIRECTORY=str(runtime)),
                                     capture_output=True, text=True, timeout=20)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(old.read_bytes(), b'new fixture executable')
@@ -99,6 +104,9 @@ output.chmod(0o755)
             process.wait(timeout=5)
             self.assertTrue((runtime / 'redirect-redaction-child').is_file())
             self.assertEqual(list(runtime.glob('compiled.*')), [])
+            self.assertEqual({path.name: path.read_bytes() for path in candidate.iterdir()},
+                             {'busyapi': b'captured product bytes'})
+            self.assertFalse((source / 'build/test-runtime').exists())
 
 
 if __name__ == '__main__':

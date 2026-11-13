@@ -13,6 +13,10 @@ String get repositoryRoot =>
 String get testBundle =>
     Platform.environment['BUSYAPI_TEST_BUNDLE'] ??
     p.join(repositoryRoot, 'build/test-runtime');
+// Development process oracles are never installed application assets.
+String get fixtureDirectory =>
+    Platform.environment['BUSYAPI_TEST_FIXTURE_DIRECTORY'] ??
+    p.join(repositoryRoot, 'build/test-runtime');
 String get runtimeNode => p.join(testBundle, 'libexec/busyapi/node');
 String get runtimeHelper => p.join(testBundle, 'libexec/busyapi/engine.cjs');
 /// Assert a successful source publication through the same journalled publisher
