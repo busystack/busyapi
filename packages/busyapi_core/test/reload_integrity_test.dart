@@ -223,6 +223,58 @@ void main() {
     expect(project.store.canUndo, true);
   });
 
+  test('R01-A retired disk read preserves a newer publication and capture', () async {
+    final dir = await Directory.systemTemp.createTemp(
+      'busyapi-refresh-publication-',
+    );
+    addTearDown(() => dir.delete(recursive: true));
+    final engine = EngineProcess(
+      executable: runtimeNode,
+      helper: runtimeHelper,
+    );
+    addTearDown(engine.close);
+    final file = await Initializer.create(
+      destination: dir.path,
+      title: 'Original',
+      apiVersion: '1',
+    );
+    final project = await BusyProject.open(dir.path, engine);
+    addTearDown(project.close);
+    final root = project.roots.single.id;
+    expect((await project.check(root))['status'], 'complete');
+    final buffer = await project.buffer(root);
+    final external = buffer.text.replaceFirst('Original', 'External');
+    await File(file).writeAsString(external);
+    late SourceAssistance captured;
+    final published = external.replaceFirst('External', 'Published');
+    await project.refreshDisk(
+      buffer,
+      beforeReload: () async {
+        expect((await project.reload(buffer)).status, BufferReloadStatus.applied);
+        project.store.replace(root, published);
+        await publishSources(project, [buffer]);
+        captured = await project.assistSource(
+          root,
+          root,
+          const SourceSelection(0, 0),
+        );
+        expect(captured.current, true);
+      },
+    );
+    expect(buffer.text, published);
+    expect(await File(file).readAsBytes(), utf8.encode(published));
+    expect(buffer.dirty, false);
+    expect(buffer.externalConflict, false);
+    expect(captured.current, true,
+        reason: 'A retired read cannot replace the newer published disk observation');
+    expect(project.store.canUndo, true);
+    project.store.undo();
+    expect(buffer.text, external);
+    project.store.redo();
+    expect(buffer.text, published);
+    expect(buffer.dirty, false);
+  });
+
   for (final replacement in [false, true])
     test(
       'R01-A automatic disk refresh ignores ${replacement ? 'replacement' : 'closed'} owners',
