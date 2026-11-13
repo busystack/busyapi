@@ -300,6 +300,13 @@ test('selected saved cases retain exact values and reject an invalid later case 
  assert.throws(()=>executionCaseValues({source,names:['first','absent']}),error=>error.code==='test.configuration');
 });
 
+test('batched case capture retains long existing names and duplicate selection semantics',()=>{
+ const name='case-'+ '雪'.repeat(150),source={id:'file:///execution/busyapi.yaml',text:JSON.stringify({version:1,tests:[{name,body:{value:9000}}]})};
+ const packet=executionCaseValues({source,names:[name,name]});
+ assert.equal(packet.cases[name].body.text,'9000');
+ assert.equal(Object.keys(packet.cases).length,1);
+});
+
 test('U4 JSON formatting preserves exact numeric lexemes and treats data refs literally',()=>{
  const {inspectExecutionJson}=require('./dist/execution.cjs');
  const raw='{"n":1.0000000000000000001,"big":9007199254740993,"$ref":"literal","items":[1e100]}';

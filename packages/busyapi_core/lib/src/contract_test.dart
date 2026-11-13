@@ -158,7 +158,7 @@ class ContractTestRunner {
     }
     cancellation?.throwIfCancelled();
     final exactPacket = await project.engine.request('executionCaseValues', {
-      'source': configuration.source, 'names': selectedCases,
+      'source': configuration.source, 'names': selectedCases.toSet().toList(growable: false),
     });
     if (exactPacket['version'] != 1 || exactPacket['cases'] is! Map ||
         selectedCases.any((name) => exactPacket['cases'][name] is! Map ||
@@ -173,109 +173,115 @@ class ContractTestRunner {
         : const <Map>[];
     final selectionFailure = _selectionFailure(captured.analysis);
     final results = <ContractCaseResult>[], executed = <String>{};
-    for (final name in selectedCases) {
-      cancellation?.throwIfCancelled();
-      final definition = definitions[name]!;
-      Map? selected;
-      final operation = definition['operation'];
-      if (operation is Map &&
-          (operation['entry'] == null || operation['entry'] == configuration.entryName(root))) {
-        if (operation['occurrence'] is String) {
-          selected = operations
-              .where(
-                (candidate) =>
-                    candidate['occurrence'] == operation['occurrence'],
-              )
-              .singleOrNull;
-        } else {
-          selected = selectHttpOperation(operations, operation['path'] as String, operation['method'] as String);
-        }
-      }
-      if (selected == null ||
-          selected['resource'] is! String ||
-          selected['pointer'] is! String) {
-        results.add(
-          selectionFailure == null
-              ? _failedCase(
-                  name,
-                  'unresolved operation',
-                  captured.snapshot.identity,
-                  'test.operation',
-                  'The configured operation is not uniquely available in the captured contract.',
+    OperationRequestPlan? plan;
+    try {
+      for (final name in selectedCases) {
+        cancellation?.throwIfCancelled();
+        final definition = definitions[name]!;
+        Map? selected;
+        final operation = definition['operation'];
+        if (operation is Map &&
+            (operation['entry'] == null || operation['entry'] == configuration.entryName(root))) {
+          if (operation['occurrence'] is String) {
+            selected = operations
+                .where(
+                  (candidate) =>
+                      candidate['occurrence'] == operation['occurrence'],
                 )
-              : ContractCaseResult(
-                  name: name,
-                  operation: 'unresolved operation',
-                  snapshot: captured.snapshot.identity,
-                  status: selectionFailure.complete ? 'failed' : 'incomplete',
-                  complete: selectionFailure.complete,
-                  passed: false,
-                  findings: selectionFailure.findings,
-                  dispatched: false,
-                ),
-        );
-        continue;
-      }
-      final label = '${httpOperationMethod(selected)} ${selected['path']}';
-      final operationIdentity = selected['occurrence']?.toString() ?? label;
-      var dispatched = false;
-      OperationRequestPlan? plan;
-      final clock = Stopwatch()..start();
-      try {
-        plan = await project.prepareCapturedRequest(
-          captured,
-          resource: selected['resource'] as String,
-          pointer: selected['pointer'] as String,
-          occurrence: selected['occurrence'] as String?,
-          requestId:
-              'test-${captured.snapshot.identity.substring(0, 12)}-$name',
-          cancelled: () => cancellation?.cancelled == true,
-        );
-        final draft = _draft(
-          plan,
-          definition,
-          environment,
-          Map<String, dynamic>.from(exactCases[name] as Map),
-          project.access,
-        );
-        final result = await executor.execute(
-          plan,
-          draft,
-          resolveSecret: resolveSecret,
-          cancellation: cancellation,
-          onRequestDispatched: () {
-            dispatched = true;
-            executed.add(operationIdentity);
-          },
-        );
-        try {
-          results.add(_assert(name, label, definition, result, clock.elapsed));
-        } finally {
-          await result.close();
+                .singleOrNull;
+          } else {
+            selected = selectHttpOperation(operations, operation['path'] as String, operation['method'] as String);
+          }
         }
-      } on CoreFailure catch (failure) {
-        if (failure.code == 'cancelled') rethrow;
-        results.add(
-          _failedCase(
-            name,
-            label,
-            plan?.snapshot.identity ?? captured.snapshot.identity,
-            failure.code,
-            failure.message,
-            source: failure.source,
-            elapsed: clock.elapsed,
-            dispatched: dispatched,
-            complete:
-                !failure.code.startsWith('runtime.') &&
-                !failure.code.contains('timeout') &&
-                !failure.code.contains('transport') &&
-                !failure.unsupported,
-            operationalFailure: failure.kind == CoreFailureKind.operational,
-          ),
-        );
-      } finally {
-        plan?.close();
+        if (selected == null ||
+            selected['resource'] is! String ||
+            selected['pointer'] is! String) {
+          results.add(
+            selectionFailure == null
+                ? _failedCase(
+                    name,
+                    'unresolved operation',
+                    captured.snapshot.identity,
+                    'test.operation',
+                    'The configured operation is not uniquely available in the captured contract.',
+                  )
+                : ContractCaseResult(
+                    name: name,
+                    operation: 'unresolved operation',
+                    snapshot: captured.snapshot.identity,
+                    status: selectionFailure.complete ? 'failed' : 'incomplete',
+                    complete: selectionFailure.complete,
+                    passed: false,
+                    findings: selectionFailure.findings,
+                    dispatched: false,
+                  ),
+          );
+          continue;
+        }
+        final label = '${httpOperationMethod(selected)} ${selected['path']}';
+        final operationIdentity = selected['occurrence']?.toString() ?? label;
+        var dispatched = false;
+        final clock = Stopwatch()..start();
+        try {
+          if (plan == null || plan.operation['occurrence'] != selected['occurrence']) {
+            plan?.close();
+            plan = null;
+            plan = await project.prepareCapturedRequest(
+              captured,
+              resource: selected['resource'] as String,
+              pointer: selected['pointer'] as String,
+              occurrence: selected['occurrence'] as String?,
+              requestId:
+                  'test-${captured.snapshot.identity.substring(0, 12)}-$name',
+              cancelled: () => cancellation?.cancelled == true,
+            );
+          }
+          final draft = _draft(
+            plan,
+            definition,
+            environment,
+            Map<String, dynamic>.from(exactCases[name] as Map),
+            project.access,
+          );
+          final result = await executor.execute(
+            plan,
+            draft,
+            resolveSecret: resolveSecret,
+            cancellation: cancellation,
+            onRequestDispatched: () {
+              dispatched = true;
+              executed.add(operationIdentity);
+            },
+          );
+          try {
+            results.add(_assert(name, label, definition, result, clock.elapsed));
+          } finally {
+            await result.close();
+          }
+        } on CoreFailure catch (failure) {
+          if (failure.code == 'cancelled') rethrow;
+          results.add(
+            _failedCase(
+              name,
+              label,
+              plan?.snapshot.identity ?? captured.snapshot.identity,
+              failure.code,
+              failure.message,
+              source: failure.source,
+              elapsed: clock.elapsed,
+              dispatched: dispatched,
+              complete:
+                  !failure.code.startsWith('runtime.') &&
+                  !failure.code.contains('timeout') &&
+                  !failure.code.contains('transport') &&
+                  !failure.unsupported,
+              operationalFailure: failure.kind == CoreFailureKind.operational,
+            ),
+          );
+        }
       }
+    } finally {
+      plan?.close();
     }
     final all = operations
         .map(

@@ -374,7 +374,7 @@ export function executionCaseValues(input:any) {
   return {version:1,parameters,body:bodyValue};
   };
   if(input.names!==undefined){
-    if(!Array.isArray(input.names)||input.names.length>2048||input.names.some((name:unknown)=>typeof name!=='string'||name.length>128))
+    if(!Array.isArray(input.names)||input.names.length>2048||input.names.some((name:unknown)=>typeof name!=='string'||name.length>65536))
       throw new SourceError('test.configuration','Select bounded named cases');
     return {version:1,cases:Object.fromEntries(input.names.map((name:string)=>[name,projectCase(name)]))};
   }
