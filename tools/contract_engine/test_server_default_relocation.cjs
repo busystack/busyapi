@@ -72,8 +72,10 @@ for(const targetVersion of ['3.1.2','3.2.1'])for(const kind of ['variable','enum
  const root='file:///approved/alias.yaml',fallback=changed?'other':'known',held=kind==='variable'?`x-held: &held {default: ${fallback}, enum: [known]}\n`:'x-held: &held [known]\n',variable=kind==='variable'?'*held':`{default: ${fallback}, enum: *held}`;
  const text='openapi: 3.0.4\ninfo: {title: "Keep shared choices", version: "1"}\n'+held+'servers: [{url: "https://api.example.invalid/{v}", variables: {v: '+variable+'}}]\npaths: {}\n',input={root,snapshot:kind+changed,resources:[{id:root,text,generation:3}]};
  const result=await planMigration({...input,targetVersion,destination:'file:///output/alias/'});
- if(changed){assert.equal(result.status,'blocked');assert.deepEqual(result.outputs,[]);assert(result.problems.some(problem=>problem.resource===root&&problem.reason==='implementation'&&problem.pointer===(kind==='variable'?'/servers/0/variables/v':'/servers/0/variables/v/enum')&&problem.range[1]>problem.range[0]));}
- else {assert.equal(result.status,'faithfully-convertible',JSON.stringify(result.problems));assert(result.outputs.find(output=>output.id===result.outputRoot).text.includes('*held'));}
+ assert.equal(result.status,'faithfully-convertible',JSON.stringify(result.problems));const output=result.outputs.find(output=>output.id===result.outputRoot),before=YAML.parse(text),after=YAML.parse(output.text),server=after.servers[0];
+ assert.deepEqual(after['x-held'],before['x-held']);assert.equal(server.variables.v.default,fallback);assert.deepEqual(server.variables.v.enum,changed?['known',fallback]:['known']);
+ for(const choice of ['known',fallback])assert.equal(new URL(server.url.replace('{v}',choice),output.id).href,new URL(before.servers[0].url.replace('{v}',choice),root).href);
+ if(!changed)assert(output.text.includes('*held'));assert.equal(analyse({root:output.id,snapshot:'cold-alias',resources:result.outputs.map(o=>({id:o.id,text:o.text,generation:0}))}).status,'complete');
  assert.equal(input.resources[0].text,text);
 });
 for(const targetVersion of ['3.1.2','3.2.1'])for(const flow of [false,true])test(`3.0 YAML ${flow?'flow':'block'} enum comments remain byte-exact while upgrading to ${targetVersion}`,async()=>{
