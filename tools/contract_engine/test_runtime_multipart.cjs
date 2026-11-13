@@ -223,11 +223,12 @@ test('nested URL-encoded content applies its own form codec and ignores MIME-onl
   itemEncoding:{contentType:'application/x-www-form-urlencoded',encoding:{metadata:{contentType:'application/json'},ids:{style:'form',explode:false},note:{contentType:'text/plain',headers:{'X-Ignored':{required:true,schema:false}}}}}};
  const source=capture('3.2.1','json',media),text='[{"n":9007199254740993.00,"note":"a+b &雪","metadata":{"ok":false},"ids":[1,2]}]';
  const input={...source,resource:source.root,pointer:'/paths/~1parts/post',mediaType:'multipart/mixed',text,files:[]};
- const plan=await requestMultipartPlan(input);assert.equal(plan.tree.parts[0].urlencoded.raw,text.slice(1,-1));
+ const plan=await requestMultipartPlan(input);
  const encoded='n=9007199254740993.00&note=a%2Bb+%26%E9%9B%AA&metadata=%7B%22ok%22%3Afalse%7D&ids=1,2';
+ assert.equal(Buffer.from(plan.tree.parts[0].bytes,'base64').toString(),encoded);
  const body=wire([{headers:{'Content-Type':'application/x-www-form-urlencoded'},body:encoded}]);
  assert.equal((await requestMultipartPlan({...input,wire:Buffer.from(body).toString('base64'),wireType:'multipart/mixed; boundary=Fixture'})).proof.valid,true);
- await assert.rejects(requestMultipartPlan({...input,wire:Buffer.from(body.replace('a%2Bb','a+b')).toString('base64'),wireType:'multipart/mixed; boundary=Fixture'}),error=>error.code==='request.multipart.roundtrip');
+ await assert.rejects(requestMultipartPlan({...input,wire:Buffer.from(body.replace('a%2Bb','a+b')).toString('base64'),wireType:'multipart/mixed; boundary=Fixture'}),error=>error.code==='request.multipart.identity');
 });
 
 test('nested URL form retains captured schema and media alternatives through generated-byte proof',async()=>{

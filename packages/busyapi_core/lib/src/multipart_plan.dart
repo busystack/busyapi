@@ -36,7 +36,6 @@ class MultipartEntityPlan {
         final transfer = MultipartTransferEncoding.fromJson(raw['transfer']);
         final payloads = [
           raw['children'],
-          raw['urlencoded'],
           raw['file'],
           raw['bytes'],
         ].where((value) => value != null).length;
@@ -73,9 +72,6 @@ class MultipartEntityPlan {
             children: raw['children'] == null
                 ? null
                 : read(raw['children'], depth + 1),
-            urlencoded: raw['urlencoded'] == null
-                ? null
-                : MultipartUrlencodedPlan.fromJson(raw['urlencoded']),
           ),
         );
       }
@@ -99,7 +95,6 @@ class MultipartPartPlan {
     this.bytes,
     this.text,
     this.children,
-    this.urlencoded,
     this.omitContentType = false,
   });
   final String? name, text;
@@ -109,43 +104,7 @@ class MultipartPartPlan {
   final int? file;
   final Uint8List? bytes;
   final MultipartEntityPlan? children;
-  final MultipartUrlencodedPlan? urlencoded;
   final bool omitContentType;
-}
-
-class MultipartUrlencodedPlan {
-  const MultipartUrlencodedPlan(
-    this.raw,
-    this.declaration,
-    this.mediaTypes,
-    this.mediaValues,
-  );
-  final String raw;
-  final Map<String, Object?> declaration;
-  final Map<String, String> mediaTypes;
-  final Map<String, List<String>> mediaValues;
-  factory MultipartUrlencodedPlan.fromJson(Object? value) {
-    if (value is! Map ||
-        value['raw'] is! String ||
-        value['declaration'] is! Map ||
-        value['mediaTypes'] is! Map ||
-        value['mediaValues'] != null && value['mediaValues'] is! Map)
-      _invalid();
-    try {
-      return MultipartUrlencodedPlan(
-        value['raw'] as String,
-        Map<String, Object?>.unmodifiable(value['declaration'] as Map),
-        Map<String, String>.unmodifiable(value['mediaTypes'] as Map),
-        Map.unmodifiable({
-          for (final entry
-              in (value['mediaValues'] as Map? ?? const {}).entries)
-            entry.key as String: List<String>.unmodifiable(entry.value as List),
-        }),
-      );
-    } on TypeError {
-      _invalid();
-    }
-  }
 }
 
 Never _invalid() => throw CoreFailure(

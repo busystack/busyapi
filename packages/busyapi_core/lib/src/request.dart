@@ -12,7 +12,6 @@ import 'model.dart';
 import 'content_selection.dart';
 import 'credential_values.dart';
 import 'swagger_serialization.dart';
-import 'form_serialization.dart';
 import 'form_media_types.dart';
 import 'multipart_encoding.dart';
 import 'multipart_plan.dart';
@@ -1062,9 +1061,9 @@ class ContractRequestBuilder {
       final tls = previewOnly
           ? const RequestTlsConfiguration()
           : await _tls(plan, environment, resolveSecret, draft.tlsFiles);
-      // Credential resolution can outlive its native dialog or project. Never
-      // let that delayed completion construct a request for a closed owner.
-      plan.ensureCurrentPreparation();
+      // Reconcile captured external inputs once at the completed preparation.
+      // Send still checks them at its final runtime/dispatch boundary.
+      await plan.ensurePreparationInputs(cancellation: cancellation);
       return PreparedContractRequest(
         runId: previewOnly ? 'preview' : _runIdentity(),
         plan: plan,
@@ -1478,6 +1477,29 @@ class ContractRequestBuilder {
         'Select a captured multipart declaration.',
       );
     }
+    if (body.kind == RequestBodyKind.form &&
+        declaration?['swaggerForm'] is! List &&
+        declaration?['form'] is Map) {
+      final prepared = await plan.formBytes(
+        body.mediaType!,
+        fields: [
+          for (final field in body.fields)
+            {'name': field.name, 'value': field.value},
+        ],
+        text: body.text,
+        choices: Map<String, String>.unmodifiable(body.partMediaTypes),
+        cancellation: cancellation,
+      );
+      checkOwner();
+      cancellation?.throwIfCancelled();
+      _uploadLimit(prepared.$1.length);
+      return PreparedRequestBody(
+        prepared.$1.length,
+        () => Stream.value(prepared.$1),
+        mediaType: body.mediaType,
+        formInstance: prepared.$2,
+      );
+    }
     final files = List<MultipartFileValue>.unmodifiable(body.files);
     final suppliedFields = List<RequestFormField>.unmodifiable(body.fields);
     final choices = Map<String, String>.unmodifiable(body.partMediaTypes);
@@ -1597,39 +1619,6 @@ class ContractRequestBuilder {
                       (declaration['schema'] as Map)['pointer'] as String,
                 ),
           ];
-    if (nativeForm == null &&
-        declaration?['form'] is Map &&
-        body.kind == RequestBodyKind.form) {
-      final values = await prepareFormValues(
-        [for (final field in fields) (field.name, field.value)],
-        declaration!,
-        false,
-        plan.parameterValues,
-        data: data,
-        mediaTypes: partMediaTypes,
-        encodeMedia: (name, index, text, media, structured) =>
-            plan.formContentValue(
-              body.mediaType!,
-              name,
-              index,
-              text,
-              media,
-              structured,
-              bodyText: body.text,
-              cancellation: cancellation,
-            ),
-      );
-      checkOwner();
-      cancellation?.throwIfCancelled();
-      final bytes = preparedFormBytes(values, body.mediaType!);
-      _uploadLimit(bytes.length);
-      return PreparedRequestBody(
-        bytes.length,
-        () => Stream.value(bytes),
-        mediaType: body.mediaType,
-        formInstance: values.instance,
-      );
-    }
     switch (body.kind) {
       case RequestBodyKind.none:
         return null;
@@ -2101,36 +2090,6 @@ class ContractRequestBuilder {
         if (part.children != null) {
           payload = await entity(part.children!, depth + 1);
           type = payload.mediaType!;
-        } else if (part.urlencoded != null) {
-          final model = part.urlencoded!;
-          final data = await plan.formData(
-            model.raw,
-            requestId: 'nested-form-${_runIdentity()}',
-            cancellation: cancellation,
-          );
-          final values = await prepareFormValues(
-            [],
-            model.declaration,
-            false,
-            plan.parameterValues,
-            data: data,
-            encodeMedia: (name, index, text, media, structured) async {
-              final values = model.mediaValues[name];
-              if (values == null || index >= values.length)
-                throw CoreFailure(
-                  'request.multipart.protocol',
-                  'A nested media field omitted its captured encoding.',
-                );
-              return values[index];
-            },
-            mediaTypes: model.mediaTypes,
-          );
-          final encoded = preparedFormBytes(values, type);
-          payload = PreparedRequestBody(
-            encoded.length,
-            () => Stream.value(encoded),
-            mediaType: type,
-          );
         } else if (part.file case final int index) {
           if (index < 0 || index >= files.length) {
             throw CoreFailure(
@@ -2527,8 +2486,8 @@ class ContractHttpResponse {
   final Uint8List displayBytes;
   final String? incompleteReason;
 
-  /// Original entity bytes remain in bodyFile. Inspection uses this separately
-  /// bounded representation; receipt and decoding have independent outcomes.
+  /// Original entity bytes remain in bodyFile. Uncompressed inspection shares
+  /// that file; compressed inspection has a separately bounded representation; receipt and decoding have independent outcomes.
   final String? decodedBodyFile, decodingReason, ownedDirectory;
   final int decodedLength, receivedLength;
   final bool decodingComplete;

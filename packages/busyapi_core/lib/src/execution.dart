@@ -1163,19 +1163,53 @@ class OperationRequestPlan {
     return {for (final entry in (projected['values'] as Map).entries) entry.key as String: (entry.value as String, (projected['percentEncoded'] as Map)[entry.key] == true, (projected['bodies'] as Map)[entry.key] as String)};
   }
 
-  Future<String> formContentValue(String formType, String name, int index, String text, String mediaType, bool structured, {String? bodyText, RunCancellation? cancellation}) async {
-    final result = await _formProjection('requestFormContentValue', {
-      ...snapshot.toJson(), 'resource': (operation['source'] as Map)['resource'], 'pointer': (operation['source'] as Map)['pointer'],
-      'occurrence': operation['occurrence'], 'formType': formType, 'name': name, 'index': index, 'text': text, 'mediaType': mediaType, 'structured': structured,
-      if (bodyText != null) 'bodyText': bodyText,
-    }, 'form-content-${identity}-${_contentPreparationSerial++}', cancellation);
-    if (result['version'] != 1 || result['snapshot'] != snapshot.identity || result['identity'] != identity || result['name'] != name || result['index'] != index || result['mediaType'] != mediaType || result['input'] != textIdentity(text) || result['value'] is! String ||
-        (result['value'] as String).length > 48 * 1024 * 1024 || !RegExp(r'^(?:[A-Za-z0-9._~+\-]|%[0-9A-F]{2})*$').hasMatch(result['value'] as String)) throw CoreFailure('request.form.protocol', 'The encoded media field differs from its captured input.');
-    return result['value'] as String;
+  Future<(Uint8List, String?)> formBytes(
+    String mediaType, {
+    required List<Map<String, String>> fields,
+    String? text,
+    Map<String, String> choices = const {},
+    RunCancellation? cancellation,
+  }) async {
+    final projected = await _formProjection(
+      'requestFormBytes',
+      {
+        ...snapshot.toJson(),
+        'resource': (operation['source'] as Map)['resource'],
+        'pointer': (operation['source'] as Map)['pointer'],
+        'occurrence': operation['occurrence'],
+        'mediaType': mediaType,
+        'fields': fields,
+        if (text != null) 'text': text,
+        'choices': choices,
+      },
+      'form-bytes-$identity-${_contentPreparationSerial++}',
+      cancellation,
+    );
+    if (projected['version'] != 1 ||
+        projected['snapshot'] != snapshot.identity ||
+        projected['identity'] != identity ||
+        projected['mediaType'] != mediaType ||
+        projected['base64'] is! String ||
+        projected['byteLength'] is! int ||
+        projected['instance'] != null && projected['instance'] is! String) {
+      throw CoreFailure(
+        'request.form.protocol',
+        'The prepared form differs from its captured operation.',
+      );
+    }
+    final bytes = base64Decode(projected['base64'] as String);
+    if (bytes.length != projected['byteLength'] ||
+        base64Encode(bytes) != projected['base64']) {
+      throw CoreFailure(
+        'request.form.protocol',
+        'The prepared form has inconsistent bytes.',
+      );
+    }
+    return (bytes, projected['instance'] as String?);
   }
 
   Future<Uint8List> rawMediaBytes(String text, String mediaType, {required String requestId, RunCancellation? cancellation}) async {
-    final prepared = await _formProjection('requestRawMediaBytes', {...snapshot.toJson(), 'text': text, 'mediaType': mediaType}, requestId, cancellation);
+    final prepared = await _formProjection('requestRawMediaBytes', {'snapshot': snapshot.identity, 'text': text, 'mediaType': mediaType}, requestId, cancellation);
     if (prepared['version'] != 1 || prepared['snapshot'] != snapshot.identity || prepared['input'] != textIdentity(text) || prepared['mediaType'] != mediaType || prepared['base64'] is! String) throw CoreFailure('request.media.protocol', 'Literal XML materialization differs from its captured input.');
     final bytes = base64Decode(prepared['base64'] as String);
     if (base64Encode(bytes) != prepared['base64'] || bytes.length != prepared['byteLength']) throw CoreFailure('request.media.protocol', 'Literal XML materialization has inconsistent bytes.');
@@ -1209,7 +1243,7 @@ class OperationRequestPlan {
   }) async {
     final result = await _formProjection(
       'requestMimeTextBytes',
-      {...snapshot.toJson(), 'text': text, 'mediaType': mediaType},
+      {'snapshot': snapshot.identity, 'text': text, 'mediaType': mediaType},
       requestId,
       cancellation,
     );
@@ -1221,6 +1255,18 @@ class OperationRequestPlan {
     );
   }
 
+  /// Exact external-input reconciliation belongs to the completed preparation,
+  /// rather than repeating a workspace walk for each field/codec helper.
+  Future<void> ensurePreparationInputs({RunCancellation? cancellation}) async {
+    ensureCurrentPreparation();
+    cancellation?.throwIfCancelled();
+    final current = await _owner._externalExampleInputsCurrent(snapshot, saved: saved,
+        cancelled: () { ensureCurrentPreparation(); cancellation?.throwIfCancelled(); return false; });
+    ensureCurrentPreparation();
+    cancellation?.throwIfCancelled();
+    if (!current) throw CoreFailure('request.stale', 'An external example changed after request capture');
+  }
+
   Future<Map<String, dynamic>> _formProjection(
     String method,
     Map<String, Object?> params,
@@ -1229,29 +1275,17 @@ class OperationRequestPlan {
   ) async {
     ensureCurrentPreparation();
     cancellation?.throwIfCancelled();
-    if (!await _owner._externalExampleInputsCurrent(snapshot, saved: saved,
-        cancelled: () => cancellation?.cancelled == true)) {
-      throw CoreFailure('request.stale', 'An external example changed after request capture');
-    }
-    ensureCurrentPreparation();
     final work = _owner.engine.request(method, params, requestId: requestId);
-    final result = cancellation == null
-        ? await work
-        : await Future.any<Map<String, dynamic>>([
-            work,
-            cancellation.whenCancelled.then((_) async {
-              await _owner.engine.cancel(requestId);
-              throw CoreFailure(
-                'cancelled',
-                'Form preparation cancelled; late results are discarded.',
-              );
-            }),
-          ]);
+    final interrupted = Completer<Map<String, dynamic>>();
+    final unsubscribe = cancellation?.listen(() {
+      unawaited(_owner.engine.cancel(requestId));
+      if (!interrupted.isCompleted) interrupted.completeError(CoreFailure(
+          'cancelled', 'Form preparation cancelled; late results are discarded.'));
+    });
+    late Map<String, dynamic> result;
+    try { result = cancellation == null ? await work : await Future.any([work, interrupted.future]); }
+    finally { unsubscribe?.call(); }
     cancellation?.throwIfCancelled();
-    if (!await _owner._externalExampleInputsCurrent(snapshot, saved: saved,
-        cancelled: () => cancellation?.cancelled == true)) {
-      throw CoreFailure('request.stale', 'An external example changed during request preparation');
-    }
     ensureCurrentPreparation();
     return result;
   }

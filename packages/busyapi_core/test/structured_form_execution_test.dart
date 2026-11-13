@@ -358,7 +358,7 @@ void main() {
       );
     }
 
-  for (final method in ['requestFormDataValues', 'requestFormMediaTypes', 'requestMultipartPlan', 'requestMultipartNamedProof'])
+  for (final method in ['requestFormBytes', 'requestMultipartPlan'])
     for (final outcome in ['cancelled', 'closed', 'version-changed']) {
       test(
         'structured form $method preparation cannot send after $outcome',
@@ -371,7 +371,7 @@ void main() {
           addTearDown(engine.close);
           final file = File('${temp.path}/api.yaml');
           final tree = method == 'requestMultipartPlan';
-          final named = method == 'requestMultipartNamedProof';
+          const named = false;
           final original = tree || named ? '''openapi: 3.2.1
 info: {title: Multipart cancellation, version: '1'}
 servers: [{url: 'http://127.0.0.1:1'}]

@@ -1,44 +1,9 @@
 import {createHash} from 'node:crypto';
-import {SourceDocument,SourceError} from './document';
+import {SourceError} from './document';
 import {mediaTypes} from './media_types';
 import {decodeMultipartTransfer} from './multipart_transfer';
-import {declaredPlainTextBytes} from './text_encoding';
 
 const fail=(message:string):never=>{throw new SourceError('mock.multipart.unsupported',message,[0,0],'unsupported');};
-const pct=(bytes:Buffer)=>Array.from(bytes,byte=>byte===32?'+':/[A-Za-z0-9._~-]/.test(String.fromCharCode(byte))?String.fromCharCode(byte):'%'+byte.toString(16).toUpperCase().padStart(2,'0')).join('');
-export function mockUrlEncodedWire(model:any):Buffer {
-  const doc=new SourceDocument(model.raw,'urn:busyapi:mock-form',true,'json');if(doc.issues.length)throw doc.issues[0];
-  const output:string[]=[];
-  const scalar=(node:any)=>{if(['object','array'].includes(node.kind))return fail('Nested styled form values have no RFC6570 serialization');return node.kind==='string'?node.value:doc.dataJson(node.pointer);};
-  const pair=(name:string,value:string)=>output.push(pct(Buffer.from(name))+'='+value);
-  for(const [name,physical]of doc.root.children){
-   const node=doc.dataNode(physical.pointer)!,rule=model.declaration.encoding?.[name]??{};
-   const styled=['style','explode','allowReserved'].some(key=>Object.hasOwn(rule,key));
-   if(styled){
-    const style=rule.style??'form',explode=rule.explode??(style==='form');
-    if(style==='deepObject'){
-     if(!explode||node.kind!=='object')fail('deepObject requires an exploded object');
-     for(const [key,child]of node.children)pair(name+'['+key+']',pct(Buffer.from(scalar(doc.dataNode(child.pointer)))));
-    }else if(node.kind==='array'){
-     const values=[...node.children.values()].map(child=>pct(Buffer.from(scalar(doc.dataNode(child.pointer)))));
-     if(explode)values.forEach(value=>pair(name,value));else pair(name,values.join(style==='spaceDelimited'?'%20':style==='pipeDelimited'?'|':','));
-    }else if(node.kind==='object'){
-     if(style!=='form')fail('This object form style has no serialization');
-     const values=[...node.children].flatMap(([key,child])=>[pct(Buffer.from(key)),pct(Buffer.from(scalar(doc.dataNode(child.pointer))))]);
-     if(explode)for(let index=0;index<values.length;index+=2)output.push(values[index]+'='+values[index+1]);else pair(name,values.join(','));
-    }else pair(name,pct(Buffer.from(scalar(node))));
-    continue;
-   }
-   const values=node.kind==='array'?[...node.children.values()].map(child=>doc.dataNode(child.pointer)!):[node];
-   for(const [index,value]of values.entries()){
-    const prepared=model.mediaValues?.[name]?.[index];if(typeof prepared==='string'){pair(name,prepared);continue;}
-    const type=model.mediaTypes[name]??'text/plain',media=mediaTypes(type,false)[0],json=media.subtype==='json'||media.subtype.endsWith('+json');
-    const text=json?doc.dataJson(value.pointer):scalar(value);
-    pair(name,pct(json?Buffer.from(text):declaredPlainTextBytes(text,media.parameters.get('charset')??'utf-8')));
-   }
-  }return Buffer.from(output.join('&'));
-}
-
 /** Mock response framing consumes the same captured multipart directives as
  * Core. XML/Linkset leaves are already canonical codec bytes, never re-encoded. */
 export function mockMultipartWire(tree:any,seed:string):{bytes:Buffer;mediaType:string} {
@@ -59,7 +24,6 @@ export function mockMultipartWire(tree:any,seed:string):{bytes:Buffer;mediaType:
    let bytes:Buffer,type=part.contentType;
    if(part.file!==undefined)fail('Mock multipart files require approved serialized external example bytes');
    if(part.children){const child=entity(part.children,depth+1);bytes=child.bytes;type=child.mediaType;}
-   else if(part.urlencoded)bytes=mockUrlEncodedWire(part.urlencoded);
    else bytes=part.transfer.schemaEncoded?Buffer.from(part.text,'ascii'):Buffer.from(part.bytes,'base64');
    if(!part.transfer.schemaEncoded)bytes=transfer(bytes,part.transfer.encoding??'binary');
    const fields=[{name:'Content-Type',value:type},...(part.name===undefined?[]:[{name:'Content-Disposition',value:'form-data; name='+quote(part.name)}]),

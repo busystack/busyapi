@@ -1,3 +1,5 @@
+import type {createGraph} from './source_capture';
+import {urlEncodedWire} from './url_form_serialization';
 import {prepareModeledMedia} from './modeled_media';
 import {createHash} from 'node:crypto';
 import {SourceDocument,SourceError,escape} from './document';
@@ -22,7 +24,7 @@ import {requestExampleProjection} from './request_examples';
 type Hint={schema:GraphTarget;path:({property:string}|{item:number|undefined})[];shape:FormShape;selection?:GraphTarget};
 type Content=Record<string,any>;
 type Part={pointer:string;name?:string;contentType:string;rule:GraphTarget;schemas:GraphTarget[];transfer:MultipartTransfer;
-    headers:{name:string;value:string}[];allowDisposition:boolean;bytes?:string;text?:string;file?:number;children?:Entity;urlencoded?:{raw:string;declaration:Content;mediaTypes:Record<string,string>;mediaValues?:Record<string,string[]>}};
+    headers:{name:string;value:string}[];allowDisposition:boolean;bytes?:string;text?:string;file?:number;children?:Entity};
 type Entity={contentType:string;parts:Part[]};
 const object=(v:unknown):v is Content=>v!==null&&typeof v==='object'&&!Array.isArray(v);
 const hash=(bytes:Buffer)=>createHash('sha256').update(bytes).digest('hex');
@@ -173,7 +175,7 @@ export function multipartStructure(graph:ReferenceGraph,content:Content){
 
 /** Produces only serialization directives. Core feeds these directives to its
  * existing MIME serializer and transfer codecs, retaining resource ownership. */
-export async function multipartGeneration(graph:ReferenceGraph,content:Content,input:any){
+export async function multipartGeneration(graph:ReferenceGraph,content:Content,input:any,context?:ReturnType<typeof createGraph>){
     const forms=new FormSemantics(graph),transfers=new MultipartEncoding(graph),at:GraphTarget={...content.definition,kind:'media'};
     const examples=requestExampleProjection(graph,new CapturedExampleResources(input.exampleResources));
     const headerExamples=(owner:GraphTarget,value:any)=>{
@@ -389,7 +391,7 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
                 const instances=candidate.values.map((value,index)=>headerContent?{subject:'request-part-transfer-'+index,location:pointer,text:value,mediaType:headerContent.type,
                     schema:headerContent.captured.schema,itemSchema:headerContent.captured.itemSchema,...(runtimeFormMedia(headerContent.type)?{form:headerContent.captured.source}:{})}:
                     {subject:'request-part-transfer-'+index,location:pointer,text:JSON.stringify(value),schema:candidate.schema});
-                const evaluated=await evaluateSchemas({...input,runtimeInstances:instances});
+                const evaluated=await evaluateSchemas({...input,runtimeInstances:instances},undefined,context);
                 const results=candidate.values.map((_,index)=>evaluated.runtimeEvaluations.filter(value=>value.subject==='request-part-transfer-'+index));
                 if(results.some(values=>!values.length||values.some(value=>value.complete!==true)))fail('request.multipart.encoding.unsupported','The transfer Header could not be completely evaluated',candidate.source,true);
                 const valid=results.findIndex(values=>values.every(value=>value.valid===true));
@@ -424,7 +426,7 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
                     const owner=transfers.follow({...entry.at,pointer:entry.at.pointer+'/headers/'+escape(declaration!),kind:'header'},'header');
                     const captured=capturedMimeHeaderContent(graph,transfers)(owner);
                     if(field.name.toLowerCase()==='link'&&runtimeMediaKind(captured.type)==='linkset-json')fail('runtime.linkset.header','HTTP Link must declare application/linkset',owner);
-                    const prepared=await prepareModeledMedia(input,field.value,captured.type,captured.captured.schema,true,input.direction==='response'?'response':'request');
+                    const prepared=await prepareModeledMedia(input,field.value,captured.type,captured.captured.schema,true,input.direction==='response'?'response':'request',context);
                     const value=prepared.bytes.toString('latin1');
                     if(/[^\x09\x20-\x7e]/.test(value))fail('request.multipart.header.codec','The selected charset or node content cannot produce an ASCII MIME Header field',owner,true);
                     preparedHeaders.push({name:field.name,value});
@@ -487,15 +489,16 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
                             const candidates=hint?forms.partRepresentations(at,hint.schema,[...hint.path,...(field.kind==='array'?[{item:index}]:[])]):[];
                             const selected=candidates.find(choice=>choice.id===selections[node.pointer])??(candidates.length===1?candidates[0]:undefined);
                             if(!selected)fail('request.multipart.schema','The nested form media field needs its own captured representation',fieldAt,true);
-                            const prepared=await prepareModeledMedia(input,doc.dataJson(node.pointer),types[name],selected.schema,false,input.direction==='response'?'response':'request');
+                            const prepared=await prepareModeledMedia(input,doc.dataJson(node.pointer),types[name],selected.schema,false,input.direction==='response'?'response':'request',context);
                             encoded.push(Array.from(prepared.bytes,byte=>byte===32?'+':/[A-Za-z0-9._~-]/.test(String.fromCharCode(byte))?String.fromCharCode(byte):'%'+byte.toString(16).toUpperCase().padStart(2,'0')).join(''));
                             normalizations.set(node.pointer,prepared.text);
                         }
                         mediaValues[name]=encoded;
                     }
                 }
-                part.urlencoded={raw:doc.dataJson(pointer),mediaTypes:types,mediaValues,declaration:{encoding,
+                const model={raw:doc.dataJson(pointer),mediaTypes:types,mediaValues,declaration:{encoding,
                     form:{shape:{...shape,properties:fieldShapes},defaultContentType:'text/plain',multipartStyle:content.family!=='3.0',legacyBinary:content.family==='3.0',styles:['form','spaceDelimited','pipeDelimited','deepObject']}}};
+                const encoded=input.inspect?Buffer.alloc(0):urlEncodedWire(model);part.bytes=encoded.toString('base64');part.text=encoded.toString('utf8');
             }else if(input.inspect){if(file!==undefined)usedFiles.add(file);parts.push(part);continue;}
             else if(file!==undefined){
                 if(entry.node.kind!=='null')fail('request.multipart.file.placeholder','A selected file replaces an explicit null at its instance pointer',entry.at);
@@ -507,7 +510,7 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
                 if(!styled&&!transfer.schemaEncoded&&transfer.instanceEncoding!=='octets'&&['xml','linkset','linkset-json'].includes(kind)){
                     const schema=selected??(candidates.length===1?candidates[0]:undefined);
                     if(kind==='xml'&&!schema)fail('request.multipart.schema','XML part requires its own unique captured schema',entry.at,true);
-                    const prepared=await prepareModeledMedia(input,doc.dataJson(pointer),selectedType!,schema,false,input.direction==='response'?'response':'request');
+                    const prepared=await prepareModeledMedia(input,doc.dataJson(pointer),selectedType!,schema,false,input.direction==='response'?'response':'request',context);
                     part.bytes=prepared.bytes.toString('base64');normalizations.set(pointer,prepared.text);parts.push(part);continue;
                 }
                 let text:string;
@@ -561,7 +564,7 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
 /** A MIME body and a simplified schema are insufficient evidence. Decode the
  * actual emitted bytes, check leaf identity and exact typed values, then run
  * the existing evaluator against the original media/whole/item declarations. */
-export async function proveMultipartGeneration(graph:ReferenceGraph,content:Content,input:any,generated:Awaited<ReturnType<typeof multipartGeneration>>){
+export async function proveMultipartGeneration(graph:ReferenceGraph,content:Content,input:any,generated:Awaited<ReturnType<typeof multipartGeneration>>,context?:ReturnType<typeof createGraph>){
     const transfers=new MultipartEncoding(graph),at:GraphTarget={...content.definition,kind:'media'};
     const fail=(code:string,message:string,source=at):never=>transfers.failure(code,message,source);
     mediaTypeChoice(input.mediaType,input.wireType);
@@ -595,7 +598,6 @@ export async function proveMultipartGeneration(graph:ReferenceGraph,content:Cont
             }
             const payload=decodeMultipartTransfer(actual.bytes,transfer);
             if(part.children)check(part.children,payload.bytes,actualType);
-            else if(part.urlencoded){ /* The shared form decoder below proves these values through the original nested schema context. */ }
             else if(part.file!==undefined){
                 const identity=input.files[part.file].identity;
                 if(typeof identity!=='string'||hash(payload.bytes)!==identity)fail('request.multipart.file.identity','Emitted file bytes differ from the approved capture',part.rule);
@@ -609,7 +611,7 @@ export async function proveMultipartGeneration(graph:ReferenceGraph,content:Cont
     const subject=input.direction==='response'?'response-body':'request-body';
     const runtimeInstances:any[]=[{subject,location:input.mediaType,text:input.wire,captureData:true,mediaBase64:true,mediaType:input.wireType,form,
         schema:content.schema,itemSchema:content.itemSchema,originalData:generated.original,originalFiles:generated.files.map(file=>file.name)}];
-    const result=await evaluateSchemas({...input,runtimeInstances});
+    const result=await evaluateSchemas({...input,runtimeInstances},undefined,context);
     const projection = multipartProjection(result, subject, transfers, at);
     const decoded={document:new SourceDocument(projection.projectionData,'urn:busyapi:proved-multipart',true,'json')};
     const intended=new SourceDocument(generated.raw,'file:///busyapi-intended-multipart',true,'json');

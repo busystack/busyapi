@@ -26,7 +26,7 @@ import {inspectPolicyCode} from './policy_code';
 import {PolicyProcessWorker} from './policy_process_worker';
 import {join} from 'node:path';
 import {policyRuntime} from './policy_runtime';
-import {mockFormBytes,mockMultipartBytes,requestFormContentValue,requestRawMediaBytes,planExecutionCase,requestContentParameters,requestMediaBytes,requestMultipartPlan,requestMultipartAppend,requestMultipartNamedProof} from './execution';
+import {mockFormBytes,mockMultipartBytes,requestFormBytes,requestRawMediaBytes,planExecutionCase,requestContentParameters,requestMediaBytes,requestMultipartPlan,requestMultipartAppend,requestMultipartNamedProof} from './execution';
 import {MAX, encode} from './worker_response';
 if (!isMainThread) {
     parentPort!.on('message', async (request: any) => {
@@ -46,9 +46,9 @@ if (!isMainThread) {
             methods.requestMimeTextBytes = requestMimeTextBytes;
             methods.requestFormMediaTypes = requestFormMediaTypes;
             methods.requestMultipartEncoding = requestMultipartEncoding;
+            methods.requestFormBytes = requestFormBytes;
             methods.mockFormBytes = mockFormBytes;
             methods.mockMultipartBytes = mockMultipartBytes;
-            methods.requestFormContentValue = requestFormContentValue;
             methods.requestRawMediaBytes = requestRawMediaBytes;
             methods.planExecutionCase = planExecutionCase;
             methods.requestContentParameters = requestContentParameters;

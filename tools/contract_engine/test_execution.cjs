@@ -132,7 +132,7 @@ for(const version of ['3.2.0','3.2.1'])for(const format of ['yaml','json'])test(
 });
 for(const version of ['3.0.4','3.1.2','3.2.1'])test(`explicit part media choices use captured ${version} encoding semantics`,()=>{
  const value={openapi:version,info:{title:'Part choices',version:'1'},paths:{'/form':{post:{requestBody:{content:{'multipart/form-data':{
-   schema:{type:'object',properties:{metadata:{type:'string'},image:{type:'string'},default:{type:'string'}}},
+   schema:{type:'object',properties:{metadata:{type:'string'},image:{type:'string'},literal:{type:'string'},ignored:{type:'string'},default:{type:'string'}}},
    encoding:{metadata:{contentType:'application/json; profile="a,b", text/plain'},image:{contentType:'image/*'},literal:{contentType:'application/*+json;; profile="a,b"'},ignored:{style:'form',contentType:'application/json, text/plain'}}
  }}},responses:{204:{description:'ok'}}}}}};
  const packet={root:id,snapshot:version,resource:id,pointer:'/paths/~1form/post',resources:[{id,text:JSON.stringify(value),generation:1}],mediaType:'multipart/form-data',files:[]};
@@ -175,7 +175,7 @@ test('part media list validation locates malformed quoted parameters without tre
 });
 test('repeated media parameters are an execution limitation rather than a grammar violation',()=>{
  for(const contentType of ['text/plain; charset=utf-8; charset=utf-8','text/plain; charset=utf-8; charset=us-ascii']){
-  const value={openapi:'3.2.1',info:{title:'Parameter ambiguity',version:'1'},paths:{'/':{post:{requestBody:{content:{'multipart/form-data':{schema:{type:'object'},encoding:{a:{contentType}}}}},responses:{204:{description:'ok'}}}}}};
+  const value={openapi:'3.2.1',info:{title:'Parameter ambiguity',version:'1'},paths:{'/':{post:{requestBody:{content:{'multipart/form-data':{schema:{type:'object',properties:{a:{type:'string'}}},encoding:{a:{contentType}}}}},responses:{204:{description:'ok'}}}}}};
   const packet={root:id,snapshot:'ambiguity',resources:[{id,text:JSON.stringify(value),generation:1}],resource:id,pointer:'/paths/~1/post',mediaType:'multipart/form-data',parts:['a'],choices:{},files:[]};
   const analysis=analyse(packet);assert.equal(analysis.complete,true);assert.equal(analysis.findings.some(finding=>finding.severity==='error'),false);
   assert.throws(()=>requestFormMediaTypes(packet),error=>error.code==='request.form.media-parameters.unsupported');
@@ -384,4 +384,21 @@ paths:
    assert.deepEqual(a.fields,b.fields);assert.equal(a.compositeFields,true);assert.equal(a.conversionError,b.conversionError);assert(a.conversionError);
   }
  }
+});
+
+for(const version of ['3.0.4','3.1.2','3.2.1'])test(`${version} request and mock URL forms share exact values and empty-collection presence`,async()=>{
+ const {requestFormBytes,mockFormBytes}=require('./dist/execution.cjs'),root='file:///execution/shared-form.json';
+ const media={schema:{type:'object',properties:{emptyArray:{type:'array',items:{type:'string'}},emptyObject:{type:'object'},empty:{type:'string'},exact:{type:'number'}}},encoding:{emptyArray:{style:'form',explode:false},emptyObject:{style:'form',explode:false}}};
+ const value={openapi:version,info:{title:'Form',version:'1'},paths:{'/':{post:{requestBody:{content:{'application/x-www-form-urlencoded':media}},responses:{200:{description:'ok',content:{'application/x-www-form-urlencoded':media}}}}}}};
+ const input={root,snapshot:version,resource:root,pointer:'/paths/~1/post',resources:[{id:root,text:JSON.stringify(value),generation:0}],mediaType:'application/x-www-form-urlencoded',text:version==='3.2.1'?'{"emptyArray":[],"emptyObject":{},"empty":"","exact":9007199254740993.00}':'{"emptyArray":[],"empty":"","exact":9007199254740993.00}',fields:[]};
+ const request=await requestFormBytes(input),mock=await mockFormBytes({...input,status:'200'});
+ assert.equal(Buffer.from(request.base64,'base64').toString(),'empty=&exact=9007199254740993.00');
+ assert.equal(mock.base64,request.base64);assert.equal(request.instance,'{"empty":"","exact":9007199254740993.00}');
+});
+test('literal form rows retain interleaving and invalid serialized JSON without source-per-field work',async()=>{
+ const {requestFormBytes}=require('./dist/execution.cjs'),root='file:///execution/literal-form.json';
+ const media={schema:{type:'object',properties:{a:{type:'array',items:{type:'string'}},b:{type:'string'},opaque:{type:'number'}}},encoding:{opaque:{contentType:'application/opaque'}}};
+ const value={openapi:'3.2.1',info:{title:'Form',version:'1'},paths:{'/':{post:{requestBody:{content:{'application/x-www-form-urlencoded':media}},responses:{204:{description:'ok'}}}}}};
+ const prepared=await requestFormBytes({root,snapshot:'literal',resource:root,pointer:'/paths/~1/post',resources:[{id:root,text:JSON.stringify(value),generation:0}],mediaType:'application/x-www-form-urlencoded',choices:{},fields:[{name:'a',value:'first'},{name:'b',value:'a+b &雪'},{name:'a',value:'last'},{name:'opaque',value:'not a number'}]});
+ assert.equal(Buffer.from(prepared.base64,'base64').toString(),'a=first&b=a%2Bb+%26%E9%9B%AA&a=last&opaque=not+a+number');assert.equal(prepared.instance,null);
 });

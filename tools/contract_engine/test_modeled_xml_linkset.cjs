@@ -5,7 +5,8 @@ const root='file:///modeled-wire/api.json';
 function capture(schema,version='3.2.1',yaml=false,components={}){
  const legacy=version==='2.0',document={...(legacy?{swagger:version,consumes:['application/xml']}:{openapi:version}),info:{title:'Modeled wire',version:'1'},paths:{'/p':{post:{
   ...(legacy?{parameters:[{name:'body',in:'body',schema}]}:{requestBody:{content:{'application/xml':{schema}}}}),responses:{200:{description:'OK',...(legacy?{schema}:{content:{'application/xml':{schema}}})}}}}},...(legacy?{definitions:components}:{components:{schemas:components}})};
- return {root,snapshot:'modeled-wire',resource:root,pointer:'/paths/~1p/post',resources:[{id:root,text:(yaml?YAML.stringify(document):JSON.stringify(document)).replaceAll(yaml?'EXACT':'"EXACT"','9007199254740993'),generation:1}]};
+ const id=yaml?root.replace(/json$/,'yaml'):root;
+ return {root:id,snapshot:'modeled-wire',resource:id,pointer:'/paths/~1p/post',resources:[{id,text:(yaml?YAML.stringify(document):JSON.stringify(document)).replaceAll(yaml?'EXACT':'"EXACT"','9007199254740993'),generation:1}]};
 }
 async function wire(input,text,mediaType='application/xml'){
  const prepared=await requestMediaBytes({...input,text,mediaType});
@@ -251,7 +252,7 @@ test('literal XML media parameters retain MIME charset bytes and single URI esca
 });
 test('named XML/Linkset multipart preparation enters the same captured tree and full wire proof',async()=>{
  const {requestMultipartPlan,requestOperation}=require('./dist/execution.cjs');
- const input=capture({}),document=JSON.parse(input.resources[0].text),xml={type:'object',xml:{name:'Part'},required:['n'],properties:{n:{type:'number',enum:['EXACT']}}},link={type:'object',required:['linkset']};
+ const input=capture({},'3.1.2'),document=JSON.parse(input.resources[0].text),xml={type:'object',xml:{name:'Part'},required:['n'],properties:{n:{type:'number',enum:['EXACT']}}},link={type:'object',required:['linkset']};
  document.paths['/p'].post.requestBody.content={'multipart/mixed':{schema:{type:'object',required:['xml','links'],properties:{xml,links:link}},encoding:{xml:{contentType:'application/xml; charset=utf-16be',headers:{Link:{content:{'application/linkset':{schema:link}}}}},links:{contentType:'application/linkset'}}}};
  input.resources[0].text=JSON.stringify(document).replaceAll('"EXACT"','9007199254740993');
  const plan=requestOperation(input);assert.equal(plan.requestBody.content[0].multipart.usesTree,true);

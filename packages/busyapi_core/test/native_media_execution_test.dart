@@ -615,7 +615,7 @@ components:
     expect(result.received.valid, true);
     expect(result.conforming, false);
     final finding = result.received.findings.singleWhere(
-      (f) => f['code'] == 'runtime.response.body.unchecked',
+      (f) => f['code'] == 'runtime.response.body.unchecked' && f['schema'] is Map,
     );
     expect(finding['kind'], 'unsupported');
     expect(
