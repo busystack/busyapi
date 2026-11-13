@@ -194,6 +194,7 @@ void main() {
           await c.redo();
           await c.analyse();
           await c.saveBuffers();
+          await c.analyse();
         });
         expect(file.readAsStringSync(), before);
         expect(c.analysis!['status'], isNot('complete'));

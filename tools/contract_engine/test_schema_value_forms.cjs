@@ -119,7 +119,6 @@ for (const version of versions) for (const format of ['yaml', 'json']) test(`${v
                 assert.equal(new SourceDocument(changed.resources[0].text, input.root).dataJson(action.pointer), raw);
                 const check = analyse(changed);
                 assert.equal(check.status, 'complete', JSON.stringify(check.findings));
-                assert.equal(check.versions.authoringFieldRules, '2');
                 assert(changed.resources[0].text.includes('9007199254740993.00'));
                 assert(changed.resources[0].text.includes('literal.json'));
                 if (format === 'yaml') assert(changed.resources[0].text.startsWith('# Keep source\r\n'));

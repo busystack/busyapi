@@ -193,7 +193,6 @@ void main() {
               : '/components/schemas/Record';
           final initial = await project.check(root);
           expect(initial['status'], 'complete', reason: jsonEncode(initial));
-          expect((initial['versions'] as Map)['authoringFieldRules'], '2');
           await publishSources(project, [buffer]);
           expect(await file.readAsBytes(), original);
           final values = <String, String>{

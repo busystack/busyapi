@@ -150,97 +150,97 @@ class WorkspaceController extends ChangeNotifier {
         (v) => v['outdated'] == true,
       );
   bool get designSafe => scopeSafe(projection?['info']);
-  bool authoredFieldShared(dynamic item, String field) =>
-      item is Map &&
-      (item['fields'] as List? ?? const []).any(
-        (entry) =>
-            entry is Map &&
-            entry['name'] == field &&
-            entry['target'] is Map &&
-            entry['target']['shared'] == true,
-      );
   bool scopeSafe(
     dynamic item, {
     String? referenceField,
     String? authoredField,
     bool reviewedCopy = false,
+    bool retainDraft = false,
   }) {
-    // A string field can remain editable beside an invalid child collection.
-    // This narrows the diagnostic scope, not the transaction: bind/flush still
-    // verify the whole original owner, generation and expected source text.
     if ((referenceField != null && authoredField != null) ||
-        (reviewedCopy && (referenceField != null || authoredField != null))) {
-      return false;
-    }
-    if (_disposed ||
-        checking ||
-        analysis == null ||
+        (reviewedCopy && (referenceField != null || authoredField != null)) ||
+        _disposed ||
         item is! Map ||
-        analysis?['status'] == 'unsupported') {
+        analysis?['status'] == 'unsupported' ||
+        item['root'] != null && item['root'] != root) {
       return false;
     }
     final resource = item['resource'], buffer = store?.buffers[resource];
     if (resource is! String || Uri.parse(resource).scheme != 'file') {
       return false;
     }
-    // Only reviewed structural operations can ask the engine to separate YAML
-    // tokens. This does not grant ordinary controls permission to edit aliases.
+    final fieldName = authoredField ?? referenceField;
+    final field = fieldName == null
+        ? null
+        : (item['fields'] as List? ?? const [])
+              .whereType<Map>()
+              .where((field) => field['name'] == fieldName)
+              .firstOrNull;
+    if (fieldName != null &&
+        (field == null ||
+            field['prohibited'] == true ||
+            (field['blockedBy'] as List? ?? const []).isNotEmpty ||
+            field['target'] is Map && field['target']['shared'] == true ||
+            referenceField != null && field['referenceSelector'] != true)) {
+      return false;
+    }
+    // An inline field retains its owned draft while checking/rebinding. It
+    // cannot acquire a different field capability or retarget source ownership.
+    final retained =
+        retainDraft &&
+        authoredField != null &&
+        draft?.root == root &&
+        draft?.buffer == resource &&
+        draft?.pointer == item['pointer'] &&
+        buffer != null &&
+        buffer.generation == draft?.generation;
+    if ((checking || analysis == null) && !retained) return false;
     final ownedCopy = reviewedCopy && item['reviewedCopySource'] is Map;
     final nodeKind = ownedCopy
         ? item['reviewedCopySource']['nodeKind']
         : item['nodeKind'];
-    if (item['outdated'] == true ||
+    if (item['outdated'] == true && !retained ||
         item['syntaxSafe'] != true ||
-        (item['shared'] == true && !ownedCopy) ||
+        item['shared'] == true && !ownedCopy ||
         !const ['object', 'array', 'boolean'].contains(nodeKind)) {
       return false;
     }
+    // Capturing unpublished text must survive a scheduled check clearing its
+    // feedback. Mutations still call this without retainDraft at final dispatch.
+    if (retained && analysis == null) return true;
     final current = (analysis?['resources'] as List? ?? [])
         .where((r) => r['id'] == resource)
         .firstOrNull;
-    if (current == null ||
-        current['generation'] != item['generation'] ||
-        buffer != null &&
-            (buffer.generation != item['generation'] ||
-                buffer.sourceIdentity != current['identity'])) {
+    if (!retained &&
+        (current == null ||
+            current['generation'] != item['generation'] ||
+            buffer != null &&
+                (buffer.generation != item['generation'] ||
+                    buffer.sourceIdentity != current['identity']))) {
+      return false;
+    }
+    // The engine owns diagnostic/reference eligibility. Native controls only
+    // query its captured restrictions at the selected source scope or field.
+    final restrictions = analysis?['authoring'];
+    if (restrictions is! Map ||
+        restrictions.containsKey(resource) && restrictions[resource] == null) {
       return false;
     }
     final ownerPointer = item['pointer'] as String;
-    if (authoredField != null && authoredFieldShared(item, authoredField)) {
-      return false;
-    }
     final pointer = authoredField == null
         ? ownerPointer
         : '$ownerPointer/${authoredField.replaceAll('~', '~0').replaceAll('/', '~1')}';
-    return !(analysis?['findings'] as List? ?? []).any((d) {
-      if (d['resource'] != resource) return false;
-      if ((d['code'] as String).startsWith('limit.')) {
-        return true;
-      }
-      final at = d['pointer'] as String? ?? '';
-      // Choosing a new, graph-proved reference can repair this exact authored
-      // field. It does not authorize editing an ambiguous parent, alias or
-      // another invalid local constraint. Ordinary forms keep their eligibility.
-      if (const [
-            r'$ref',
-            r'$dynamicRef',
-            'operationRef',
-            'defaultMapping',
-          ].contains(referenceField) &&
-          item['nodeKind'] == 'object' &&
-          at == '$ownerPointer/$referenceField') {
-        return false;
-      }
-      final unsafe =
-          d['code'] == 'structure.type' ||
-          d['code'] == 'parameter.container.type' ||
-          d['code'] == 'reference.missing';
-      return unsafe &&
+    final repair = referenceField == null
+        ? null
+        : '$ownerPointer/${referenceField.replaceAll('~', '~0').replaceAll('/', '~1')}';
+    return !(restrictions[resource] as List? ?? const []).any(
+      (at) =>
+          at != repair &&
           (at.isEmpty ||
               at == pointer ||
               at.startsWith('$pointer/') ||
-              pointer.startsWith('$at/'));
-    });
+              pointer.startsWith('$at/')),
+    );
   }
 
   Future<void> initialize() async {

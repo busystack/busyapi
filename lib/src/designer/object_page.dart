@@ -191,17 +191,13 @@ class _NativeObjectPageState extends State<_NativeObjectPage> {
   };
   Widget withReferenceSelector(
     Map<String, dynamic> item,
-    String key,
+    Map<String, dynamic> field,
     Widget input,
   ) {
-    if (!const [
-      r'$ref',
-      r'$dynamicRef',
-      'operationRef',
-      'defaultMapping',
-    ].contains(key)) {
+    if (field['referenceSelector'] != true) {
       return input;
     }
+    final key = field['name'] as String;
     return Column(
       children: [
         input,
@@ -411,7 +407,7 @@ class _NativeObjectPageState extends State<_NativeObjectPage> {
         title,
         multiline: key == 'description',
       );
-      return withReferenceSelector(item, key, input);
+      return withReferenceSelector(item, field, input);
     }
     final target = field['target'] as Map?;
     if (target != null && target['kind'] != 'data' ||
@@ -440,7 +436,7 @@ class _NativeObjectPageState extends State<_NativeObjectPage> {
     }
     return withReferenceSelector(
       item,
-      key,
+      field,
       BusyApiActionRow(
         title: title,
         subtitle: present
@@ -2326,7 +2322,7 @@ Future<Map<String, dynamic>?> _prepareObjectAction(
     contextKind: item['kind'] as String?,
   );
   if (!current()) return null;
-  if (buffer.generation != generation || fresh['generation'] != generation) {
+  if (buffer.generation != generation) {
     throw CoreFailure('draft.stale', staleMessage);
   }
   return fresh;

@@ -173,6 +173,15 @@ export function securityBindings(graph:ReferenceGraph,selection:SecuritySelectio
  return result;
 }
 
+/** Shared field capability for inspection and the actual choice operation. */
+export function referenceFieldAvailable(graph:ReferenceGraph,scope:GraphScope,keyword:string,
+ fields=fieldsForScope(graph,scope,graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value)):boolean {
+ if(!['$ref','$dynamicRef','operationRef','defaultMapping'].includes(keyword)||
+   keyword==='defaultMapping'&&!discriminatorSelectionParent(graph,scope))return false;
+ return graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.kind==='object'&&
+  fields.some(field=>field.name===keyword&&!field.prohibited&&!field.blockedBy?.length);
+}
+
 /** Current-root, approved-snapshot choices; never a filesystem/network scan or
  * a name-matching schema picker. Inline, reusable and identified definitions
  * remain visibly distinct physical occurrences. */
@@ -182,8 +191,7 @@ export function referenceChoices(input:any) {
  const keyword=input.keyword??'$ref';
  const security=keyword==='security'&&scope?securitySelectionScope(graph,scope):undefined;
  const discriminator=keyword==='defaultMapping'&&scope?discriminatorSelectionParent(graph,scope):undefined;
- if(!doc||!scope||!['$ref','$dynamicRef','operationRef','security','defaultMapping'].includes(keyword)||keyword==='defaultMapping'&&!discriminator||
-   (keyword==='security'?!security:doc.node(input.pointer).kind!=='object'||!fieldsForScope(graph,scope,doc.node(input.pointer).value).some(field=>field.name===keyword&&!field.prohibited&&!field.blockedBy?.length))||
+ if(!doc||!scope||(keyword==='security'?!security:!referenceFieldAvailable(graph,scope,keyword))||
    input.bindingForm!==undefined&&(!security||!['name','uri'].includes(input.bindingForm)))
   throw new SourceError('reference.choice.context','This field is not a reference selector in the selected object context');
  const expectedKind=security?'security':discriminator?'schema':keyword==='operationRef'?'operation':scope.kind;

@@ -79,7 +79,7 @@ void main() {
         )),
       ));
       await ready(() => find.text('Make this YAML occurrence independent…').evaluate().isNotEmpty);
-      expect(tester.widget<TextField>(title()).enabled, false);
+      expect(tester.widget<TextField>(title()).readOnly, true);
       for (final accept in [false, true]) {
         await tap('Make this YAML occurrence independent…');
         await ready(review);
@@ -89,7 +89,7 @@ void main() {
         await ready(() => !review() && !c.checking);
         if (!accept) expect(c.buffer!.text, original);
       }
-      await ready(() => title().evaluate().isNotEmpty && tester.widget<TextField>(title()).enabled == true);
+      await ready(() => title().evaluate().isNotEmpty && tester.widget<TextField>(title()).readOnly == false);
       final owned = c.buffer!.text;
       expect(owned, contains('9007199254740993.00'));
       expect(owned, contains('x-history: *info'));
@@ -99,7 +99,7 @@ void main() {
         await c.redo();
         expect(c.buffer!.text, owned);
       });
-      await ready(() => title().evaluate().isNotEmpty && tester.widget<TextField>(title()).enabled == true);
+      await ready(() => title().evaluate().isNotEmpty && tester.widget<TextField>(title()).readOnly == false);
       await tester.runAsync(() => tester.enterText(title(), 'Independent 雪'));
       await runWidgetIo(tester, () async {
         expect(await c.flush(), true);

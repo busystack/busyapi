@@ -6,7 +6,7 @@ import {discriminatorContextRevision} from './discriminator_semantics';
 import {multipartProjectionRevision} from './schema_reference_projection';
 import { children, referenceKinds, standardOperationMethods, hasSchemaReferenceSiblings } from './contexts';
 import { ReferenceGraph, supportedSchemaDialect, referenceMarkdownContext, schemaRoleContextRevision,type GraphReference } from './reference_graph';
-import { fieldsFor, fieldsForScope, removableField, allowsExtensions, componentFamily, componentLocation, authoringFieldRevision } from './authoring';
+import { fieldsForScope, removableField, allowsExtensions, componentFamily, componentLocation, authoringFieldRevision, authoringRestrictions } from './authoring';
 import {sameSchemaValueForms, allowsSchemaValue, schemaOccurrenceForms, schemaEntryForms} from './schema_value_forms';
 import type {SchemaValueForms} from './schema_value_forms';
 import { SourceDocument, SourceError, escape, segments, limits, type Node } from './document';
@@ -22,6 +22,7 @@ import {restrictedSchemaIssues,restrictedSchemaRevision} from './restricted_sche
 import {securityRequirementIssues,securityRequirementValueRule} from './security_requirements';
 import {formMediaIssues} from './form_semantics';
 import {schemaInferenceSources} from './schema_inference';
+import {referenceFieldAvailable} from './reference_choices';
 import {mediaTypeIssues} from './media_validation';
 import {documentUriRevision,documentUriRelationships} from './document_uris';
 import {xmlContextRevision,xmlRelationships} from './xml_semantics';
@@ -39,6 +40,17 @@ function yamlOwnershipProjection(doc:SourceDocument,pointer:string,kind:string) 
     if(doc.format!=='yaml'||!node||!data||!doc.dataSyntaxSafe(pointer))return {};
     return {reviewedCopySource:{nodeKind:kind==='schema'&&typeof data.value==='boolean'?'boolean':data.kind},
         ...(doc.sharedNode(pointer,true)?{yamlOwnershipAvailable:true}:{})};
+}
+
+/** Specialized and generic Design surfaces share these captured definitions. */
+function authoringFields(graph:ReferenceGraph,scope:ReturnType<ReferenceGraph['scope']>,node:Node|undefined) {
+    const definitions=fieldsForScope(graph,scope,node?.value??{});
+    return definitions.map(field=>{
+        const child=node?.children.get(field.name);
+        return {...field,present:!!child,
+            ...(referenceFieldAvailable(graph,scope,field.name,definitions)?{referenceSelector:true}:{}),
+            ...(child?.shared?{target:{shared:true}}:{})};
+    });
 }
 
 /** Migration captures connected complete descriptions in their own entry
@@ -147,10 +159,11 @@ export function analyse(input: any, context?: ReturnType<typeof createGraph>) {
         if(!view.complete)complete=false;
         const inherited=(name:string)=>{const field=view.fields.get(name);return field?docs.get(field.resource)!.dataNode(field.pointer)!.value:undefined;};
         operations.push(index(document,source.pointer,document.dataNode(source.pointer)?.value,{
-            kind:'operation',markdownBase:referenceMarkdownContext(graph,source.resource,source.pointer,graph.scopeAs(source.resource,source.pointer,'operation')),
+            kind:'operation',...yamlOwnershipProjection(document,source.pointer,'operation'),
+            fields:authoringFields(graph,graph.scopeAs(source.resource,source.pointer,'operation')!,document.dataNode(source.pointer)),markdownBase:referenceMarkdownContext(graph,source.resource,source.pointer,graph.scopeAs(source.resource,source.pointer,'operation')),
             path:occurrence.path,method:occurrence.method,customMethod:occurrence.customMethod===true,role:occurrence.role,shared:occurrence.shared,
             occurrence:occurrence.occurrence,family:graph.scope(source.resource,source.pointer).family,
-            inheritedParameters:inherited('parameters')??[],
+            inheritedParameters:view.fields.has('parameters')?inherited('parameters'):[],
             pathContext:{...pathItem,complete:view.complete,fields:Object.fromEntries(view.fields),
                 reference:docs.get(pathItem.resource)!.dataNode(pathItem.pointer)?.value?.$ref,
                 summary:inherited('summary'),description:inherited('description'),servers:inherited('servers')},
@@ -305,7 +318,7 @@ export function analyse(input: any, context?: ReturnType<typeof createGraph>) {
     findings.push(...security.findings);
     if(!security.complete)complete=false;
     const categories={...categoryStates(),security:Object.fromEntries(Object.entries(security).filter(([name])=>name!=='findings'))};
-    return { ...(input.captureEntries ? {entryDiscovery:discoverEntries(input,graph)} : {}), ...(input.measure ? { timings: { parseMs: parsedAt - started, structuralMs: validatedAt - parsedAt, projectionMs: performance.now() - validatedAt } } : {}), version: 1, snapshot: input.snapshot, status: findings.some(d => d.category === 'syntax') ? 'invalid' : !supported ? 'unsupported' : !complete ? 'incomplete' : findings.some(d => d.severity === 'error') ? 'invalid' : 'complete', complete: complete && supported, findings, categories, info: index(root, '/info', data?.info ?? {}, {kind:'info',...yamlOwnershipProjection(root,'/info','info'),fields: fieldsFor('info', family, data?.info ?? {}).map(field => ({...field, present: Object.hasOwn(data?.info ?? {}, field.name),...(root.nodes.get('/info/'+escape(field.name))?{target:{shared:root.nodes.get('/info/'+escape(field.name))!.shared}}:{})}))}), specification, openapi: specification?.declaredVersion, pathItems: ['paths','webhooks'].flatMap(role => data?.[role] && typeof data[role]==='object' && !Array.isArray(data[role]) ? Object.keys(data[role]).filter(name=>role==='webhooks'||name.startsWith('/')).map(name=>index(root,'/'+role+'/'+escape(name),undefined,{name,role})) : []), operations, components, componentLocations, references, externalExamples:externalExampleRequests(graph), coverage: { syntax: 'strict-json-and-yaml12-core', openapi: 'official-structural-shapes-and-initial-authoring-semantics', schemas: '2020-12-keyword-shapes', references: 'uri-resource-identities-pointers-anchors-and-contextual-dynamic-navigation', formats: 'not-validated', security:security.coverage }, versions, resources: input.resources.map((r: Resource) => ({ id: r.id, generation: r.generation, identity: r.identity })), otherRootFields: Object.keys(data ?? {}).filter(k => !['openapi', 'info', 'paths', 'components'].includes(k)), otherRootObjects: Object.keys(data ?? {}).filter(k => !['openapi', 'info', 'paths', 'components'].includes(k)).map(name => index(root, '/' + escape(name), data[name], { name })) };
+    return { ...(input.captureEntries ? {entryDiscovery:discoverEntries(input,graph)} : {}), ...(input.measure ? { timings: { parseMs: parsedAt - started, structuralMs: validatedAt - parsedAt, projectionMs: performance.now() - validatedAt } } : {}), version: 1, snapshot: input.snapshot, authoring:authoringRestrictions(findings), status: findings.some(d => d.category === 'syntax') ? 'invalid' : !supported ? 'unsupported' : !complete ? 'incomplete' : findings.some(d => d.severity === 'error') ? 'invalid' : 'complete', complete: complete && supported, findings, categories, info: index(root, '/info', data?.info ?? {}, {kind:'info',...yamlOwnershipProjection(root,'/info','info'),fields: authoringFields(graph,graph.scopeAs(root.id,'/info','info')??{...graph.scope(root.id,''),pointer:'/info',kind:'info'},root.dataNode('/info'))}), specification, openapi: specification?.declaredVersion, pathItems: ['paths','webhooks'].flatMap(role => data?.[role] && typeof data[role]==='object' && !Array.isArray(data[role]) ? Object.keys(data[role]).filter(name=>role==='webhooks'||name.startsWith('/')).map(name=>index(root,'/'+role+'/'+escape(name),undefined,{name,role})) : []), operations, components, componentLocations, references, externalExamples:externalExampleRequests(graph), coverage: { syntax: 'strict-json-and-yaml12-core', openapi: 'official-structural-shapes-and-initial-authoring-semantics', schemas: '2020-12-keyword-shapes', references: 'uri-resource-identities-pointers-anchors-and-contextual-dynamic-navigation', formats: 'not-validated', security:security.coverage }, versions, resources: input.resources.map((r: Resource) => ({ id: r.id, generation: r.generation, identity: r.identity })), otherRootFields: Object.keys(data ?? {}).filter(k => !['openapi', 'info', 'paths', 'components'].includes(k)), otherRootObjects: Object.keys(data ?? {}).filter(k => !['openapi', 'info', 'paths', 'components'].includes(k)).map(name => index(root, '/' + escape(name), data[name], { name })) };
 }
 export function inspect(input: any) {
     const {docs, graph} = createGraph(input);
@@ -373,7 +386,7 @@ export function inspect(input: any) {
             shared: (authored ?? n).shared || n.pointer !== occurrence, kind,
         };
     };
-    const definitions = fieldsForScope(graph,scope,node.value);
+    const definitions = authoringFields(graph,scope,node);
     const childKindAt=(name:string,value:any)=>graph.referenceObject(node.value,scope)?undefined:
         children({[name]:value},scope.kind,family,node.value)[0]?.[2]??
         (scope.kind==='root'&&!graph.specifications.has(doc.id)?graph.scopes.get(doc.id+'#'+pointer+'/'+escape(name))?.kind:undefined);

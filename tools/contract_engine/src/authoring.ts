@@ -12,7 +12,22 @@ import {isReferenceObject,referenceKinds,supportsReference} from './contexts';
 
 // This shared description supplies native fields, Source assistance and help.
 // Structural artifacts describe field shapes, not complete OAS semantics.
-export const authoringFieldRevision = '2';
+export const authoringFieldRevision = '3';
+/** Capture only diagnostics that make a source scope unavailable for authoring.
+ * Presentation consumes these restrictions without interpreting diagnostic codes.
+ * A null value blocks the resource; pointers block intersecting scopes/fields. */
+export function authoringRestrictions(findings:any[]):Record<string,string[]|null> {
+    const resources=new Map<string,Set<string>|null>();
+    for(const finding of findings) {
+        const resource=finding.resource;
+        if(finding.code.startsWith('limit.'))resources.set(resource,null);
+        else if(resources.get(resource)!==null&&['structure.type','parameter.container.type','reference.missing'].includes(finding.code)) {
+            if(!resources.has(resource))resources.set(resource,new Set());
+            resources.get(resource)!.add(finding.pointer??'');
+        }
+    }
+    return Object.fromEntries([...resources].map(([resource,pointers])=>[resource,pointers&&[...pointers]]));
+}
 const evaluator = new Ajv2020({strict: false, validateFormats: false});
 const conditions = new Map<any, any>();
 const names: Record<string, string> = {security: 'security-scheme', media: 'media-type', callback: 'callbacks', 'path-item': 'path-item', 'request-body': 'request-body'};

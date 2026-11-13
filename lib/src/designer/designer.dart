@@ -39,21 +39,13 @@ class Designer extends StatefulWidget {
 
 class _DesignerState extends State<Designer> {
   WorkspaceController get c => widget.controller;
-  bool fieldsAvailable(Map<String, dynamic> item, String field) =>
-      !c.authoredFieldShared(item, field) &&
-      (c.scopeSafe(item, authoredField: field) ||
-          (c.draft != null &&
-              c.draft!.root == c.root &&
-              c.draft!.buffer == item['resource'] &&
-              c.draft!.pointer == item['pointer'] &&
-              c.store!.get(c.draft!.buffer).generation == c.draft!.generation));
   Widget field(
     Map<String, dynamic> item,
     String key,
     String label, {
     bool multiline = false,
   }) {
-    final available = fieldsAvailable(item, key);
+    final available = c.scopeSafe(item, authoredField: key, retainDraft: true);
     final source = c.store?.buffers[item['resource']];
     final captured = c.draft;
     final ownsDraft =
@@ -253,17 +245,6 @@ class _DesignerState extends State<Designer> {
             pathFields['parameters']['kind'] == 'parameter-array'
         ? Map<String, dynamic>.from(pathFields['parameters'] as Map)
         : null;
-    final inheritedContainerInvalid =
-        inheritedOwner != null &&
-        (c.analysis?['findings'] as List? ?? const []).whereType<Map>().any(
-          (finding) =>
-              finding['resource'] == inheritedOwner['resource'] &&
-              finding['pointer'] == inheritedOwner['pointer'] &&
-              const [
-                'parameter.container.type',
-                'structure.type',
-              ].contains(finding['code']),
-        );
     void openParameters(Map<String, dynamic> owner, [int? index]) {
       widget.run(
         () => c.selectObject({
@@ -425,14 +406,11 @@ class _DesignerState extends State<Designer> {
                       Text(l.pathItemParameterDeclarations),
                     if (operation['pathContext']?['complete'] == false)
                       Text(l.referenceEffectiveIncomplete),
-                    if (inheritedContainerInvalid ||
-                        inheritedValue != null && inheritedValue is! List)
+                    if (inheritedOwner != null && inheritedValue is! List)
                       BusyApiActionRow(
                         title: l.fieldValueInvalid,
                         subtitle: l.pathItemParameterDeclarations,
-                        onTap: inheritedOwner == null
-                            ? null
-                            : () => openParameters(inheritedOwner),
+                        onTap: () => openParameters(inheritedOwner),
                       ),
                     for (var i = 0; i < inherited.length && i < 50; i++)
                       BusyApiActionRow(
@@ -1009,10 +987,6 @@ class _EditFormDialogState extends State<_EditFormDialog> {
   Future<void> submit({bool remove = false}) async {
     // Guard before the first await, including callbacks retained before rebuild.
     if (!active || applying) return;
-    if (!ownsDraft) {
-      failed(CoreFailure('draft.owner', context.l10n.capturedFormInactive));
-      return;
-    }
     setState(() => applying = true);
     try {
       final result = remove
@@ -1226,7 +1200,6 @@ Future<void> moveOperation(
     c.selectedOccurrence,
   );
   bool current() =>
-      context.mounted &&
       !c.disposed &&
       identical(c.project, capturedOwner) &&
       c.root == capturedRoot &&
@@ -1351,8 +1324,7 @@ Future<void> moveOperation(
   if (selected != null &&
       plan?.hasChanges == true &&
       context.mounted &&
-      current() &&
-      identical(c.project, owner)) {
+      current()) {
     await showRefactoringReview(context, c, owner, plan!);
   }
 }

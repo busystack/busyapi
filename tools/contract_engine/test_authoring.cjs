@@ -288,3 +288,47 @@ test('alias inspection retains logical identity and physical provenance without 
   actions:[{kind:'set', pointer:alias+'/description', value:'Must stay pending'}]}), error => error.code === 'edit.shared');
  assert.equal(input.resources[0].text, text);
 });
+
+for(const version of ['2.0','3.0.4','3.1.2','3.2.1'])
+test(`${version} specialized and generic operation fields share the engine definitions`,()=>{
+ const value={...(version==='2.0'?{swagger:version}:{openapi:version}),info:{title:'Same fields',version:'1'},
+  paths:{'/p':{get:{summary:'Kept summary',deprecated:false,responses:{204:{description:'No body'}}}}}};
+ const input={root,snapshot:'shared-fields',resources:[{id:root,generation:1,text:YAML.stringify(value)}]};
+ const projected=analyse(input);
+ for(const [pointer,fields]of [['/info',projected.info.fields],['/paths/~1p/get',projected.operations[0].fields]]){
+  const inspected=inspect({...input,resource:root,pointer});
+  const metadata=fields=>fields.map(({name,type,required,present,blockedBy,prohibited,referenceSelector})=>
+   ({name,type,required,present,blockedBy,prohibited,referenceSelector}));
+  assert.deepEqual(metadata(fields),metadata(inspected.fields));
+ }
+});
+test('authoring restrictions capture invalid collections while retaining separate field definitions',()=>{
+ const value={openapi:'3.2.1',info:{title:'Scoped',version:'1'},paths:{'/p':{get:{summary:'Editable',parameters:'invalid',responses:{204:{description:'No body'}}}}}};
+ const input={root,snapshot:'restricted-fields',resources:[{id:root,generation:1,text:YAML.stringify(value)}]};
+ const result=analyse(input),pointer='/paths/~1p/get';
+ assert.deepEqual(result.authoring[root],[pointer+'/parameters']);
+ assert.equal(result.operations[0].fields.find(field=>field.name==='summary').type,'string');
+ assert.equal(result.operations[0].fields.find(field=>field.name==='parameters').type,'array');
+});
+for(const version of ['3.0.4','3.1.2','3.2.1'])
+test(`${version} reference field capability belongs only to the declared native context`,()=>{
+ const value={openapi:version,info:{title:'Reference capability',version:'1'},paths:{},
+  components:{schemas:{Use:{$ref:'#/components/schemas/Absent'}},examples:{Data:{value:{$ref:'opaque payload'}}}}};
+ const input={root,snapshot:'reference-fields',resources:[{id:root,generation:1,text:YAML.stringify(value)}]};
+ const result=analyse(input),schema=inspect({...input,resource:root,pointer:'/components/schemas/Use'});
+ assert.equal(schema.fields.find(field=>field.name==='$ref').referenceSelector,true);
+ assert.equal(schema.fields.some(field=>field.name==='$dynamicRef'&&field.referenceSelector),version!=='3.0.4');
+ assert(result.authoring[root].includes('/components/schemas/Use/$ref'));
+ assert.throws(()=>inspect({...input,resource:root,pointer:'/components/examples/Data/value'}),error=>error.code==='inspect.context');
+});
+
+test('inherited malformed parameter containers retain their captured value without diagnostic reconstruction',()=>{
+ for(const parameters of [null,false,{},'invalid']){
+  const value={openapi:'3.2.1',info:{title:'Inherited',version:'1'},paths:{'/p':{parameters,get:{responses:{204:{description:'No body'}}}}}};
+  const input={root,snapshot:'inherited-container',resources:[{id:root,generation:1,text:YAML.stringify(value)}]};
+  const result=analyse(input),operation=result.operations[0];
+  assert.deepEqual(operation.inheritedParameters,parameters);
+  assert.equal(operation.pathContext.fields.parameters.pointer,'/paths/~1p/parameters');
+  assert(result.authoring[root].includes('/paths/~1p/parameters'));
+ }
+});

@@ -77,6 +77,18 @@ void main() {
             await tester.runAsync(
               () => tester.enterText(field('Title'), 'Committed'),
             );
+            final input = tester.widget<TextField>(field('Title')).controller;
+            c.schedule();
+            await tester.pump();
+            expect(c.analysis, isNull);
+            expect(tester.widget<TextField>(field('Title')).readOnly, false);
+            expect(
+              tester.widget<TextField>(field('Title')).controller,
+              same(input),
+            );
+            expect(input!.text, 'Committed');
+            expect(c.buffer!.bytes(), utf8.encode(original));
+            expect(c.draft!.pending, true);
             await tester.runAsync(() async {
               expect(await c.flush(), true);
               await c.analyse();
