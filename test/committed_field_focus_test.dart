@@ -13,7 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 import '../packages/busyapi_core/test/test_support.dart';
 
 void main() {
-  for (final version in ['3.1.2', '3.2.1']) {
+  for (final version in ['3.0.4', '3.1.2', '3.2.1']) {
     for (final format in ['yaml', 'json']) {
       testWidgets(
         'committed field blur keeps the next mounted input owner $version $format',
@@ -74,6 +74,49 @@ void main() {
               ),
             );
             await tester.runAsync(() => tester.tap(field('Title')));
+            await tester.pump();
+            // The initial clean binding owns a client before the first edit.
+            // Feedback invalidation must retain that focused input connection.
+            final untouched = c.draft;
+            final focused = tester.widget<TextField>(field('Title'));
+            final inputClient =
+                (tester.testTextInput.log
+                            .lastWhere(
+                              (call) => call.method == 'TextInput.setClient',
+                            )
+                            .arguments
+                        as List)
+                    .first;
+            final connectionLog = tester.testTextInput.log.length;
+            expect(untouched!.pending, false);
+            expect(focused.focusNode!.hasFocus, true);
+            c.schedule();
+            await tester.pump();
+            expect(c.analysis, isNull);
+            expect(c.draft, same(untouched));
+            expect(tester.widget<TextField>(field('Title')).readOnly, false);
+            expect(
+              tester.widget<TextField>(field('Title')).focusNode,
+              same(focused.focusNode),
+            );
+            expect(focused.focusNode!.hasFocus, true);
+            expect(tester.testTextInput.hasAnyClients, true);
+            expect(
+              tester.testTextInput.log
+                  .skip(connectionLog)
+                  .where((call) => call.method == 'TextInput.clearClient'),
+              isEmpty,
+            );
+            expect(
+              (tester.testTextInput.log
+                          .lastWhere(
+                            (call) => call.method == 'TextInput.setClient',
+                          )
+                          .arguments
+                      as List)
+                  .first,
+              inputClient,
+            );
             await tester.runAsync(
               () => tester.enterText(field('Title'), 'Committed'),
             );
