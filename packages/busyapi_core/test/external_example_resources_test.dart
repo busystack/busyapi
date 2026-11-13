@@ -247,7 +247,7 @@ void main() {
       addTearDown(() => directory.delete(recursive: true));
       final file = File('${directory.path}/api.$format');
       final payload = File('${directory.path}/payload.txt');
-      final source = _source('3.0.4', format, './payload.txt', 'text/plain');
+      final source = _source('3.0.4', format, './payload.txt', 'text/plain; charset=utf-8');
       await file.writeAsString(source);
       await payload.writeAsString('café');
       final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);

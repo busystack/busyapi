@@ -2,6 +2,19 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const YAML=require('yaml');
 const {SourceDocument}=require('./dist/document.cjs');
+for(const [text,pointer]of [
+ ['# keep\r\nvalue: {pattern: old, other: 9007199254740993.00} # tail\r\n','/value/pattern'],
+ ['# keep\r\nvalue: [old, 9007199254740993.00] # tail\r\n','/value/0'],
+ ["# keep\r\nvalue: {pattern: 'old', other: 9007199254740993.00} # tail\r\n",'/value/pattern'],
+])test(`editing a YAML flow scalar retains punctuation and exact surrounding source ${pointer} ${text.includes("'old'")}`,()=>{
+ const before=new SourceDocument(text,'flow.yaml'),range=before.node(pointer).range,value='^[\\s\\S]*$';
+ const changed=before.set(pointer,value),after=new SourceDocument(changed,'flow.yaml');
+ assert.equal(after.dataNode(pointer).value,value);
+ assert.equal(changed.slice(0,range[0]),text.slice(0,range[0]));
+ assert(changed.endsWith(text.slice(range[1])));
+ assert.equal(after.dataJson(pointer==='/value/0'?'/value/1':'/value/other'),'9007199254740993.00');
+ if(text.includes("'old'"))assert.equal(changed.slice(...after.node(pointer).range),"'"+value+"'");
+});
 test('production contract extraction retains the literal anchor and aliases while independently owning the copied contract',()=>{
  const {planExtract}=require('./dist/refactoring_copy.cjs'),{createGraph}=require('./dist/model.cjs'),root='file:///tokens/api.yaml',pointer='/components/schemas/Holder/default';
  const text='openapi: 3.2.1\ninfo: {title: Separate, version: "1"}\npaths: {}\n'+

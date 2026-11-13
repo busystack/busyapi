@@ -345,7 +345,8 @@ export class SourceDocument {
     lineStart(pos: number) { return Math.max(this.text.lastIndexOf('\n', pos - 1), this.text.lastIndexOf('\r', pos - 1)) + 1; }
     emit(value: any, n?: Node, flow = false): string {
         // A collection replacing a scalar must fit that value's inline slot.
-        let emitted = this.emitValue(value, n, flow || n?.kind === 'scalar' && value !== null && typeof value === 'object' || typeof value === 'string' && value.includes('\n') && !n?.style?.startsWith('BLOCK_'));
+        const parentFlow = n?.pointer ? this.nodes.get(n.pointer.slice(0, n.pointer.lastIndexOf('/')))?.flow : false;
+        let emitted = this.emitValue(value, n, flow || parentFlow || n?.kind === 'scalar' && value !== null && typeof value === 'object' || typeof value === 'string' && value.includes('\n') && !n?.style?.startsWith('BLOCK_'));
         if(this.format==='yaml'&&n&&n.range[1]>n.range[0]&&!/[\r\n]$/.test(emitted))emitted+=this.text.slice(...n.range).match(/(?:\r\n|\r|\n)$/)?.[0]??'';
         const token = this.format === 'yaml' && n ? this.syntaxTokens.get(n.pointer) : undefined;
         if (token?.type === 'block-scalar') {
@@ -370,11 +371,13 @@ export class SourceDocument {
     private emitValue(value: any, n?: Node, flow = false): string {
         if (value instanceof RawJsonValue)
             return value.text.replace(/\r\n|\n|\r/g, this.newline + (n ? ' '.repeat(this.valueIndent(n) + (this.format === 'yaml' && (n.kind === 'scalar' || n.flow) ? 2 : 0)) : ''));
-        if (this.format === 'json' || flow)
+        if (this.format === 'json')
             return JSON.stringify(value);
         if (n?.style === 'QUOTE_SINGLE' && typeof value === 'string' && !value.includes('\n'))
             return "'" + value.replaceAll("'", "''") + "'";
         if (n?.style === 'QUOTE_DOUBLE' && typeof value === 'string')
+            return JSON.stringify(value);
+        if (flow)
             return JSON.stringify(value);
         if (n?.style?.startsWith('BLOCK_') && typeof value === 'string') {
             const block = this.yamlValue(value, n).replaceAll('\n', this.newline + ' '.repeat(this.valueIndent(n) + 2));

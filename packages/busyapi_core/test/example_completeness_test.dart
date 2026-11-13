@@ -346,7 +346,7 @@ void main() {
               expect(finding['severity'], 'warning');
               expect(
                 finding['detailCode'],
-                'example.external-value.unavailable',
+                'access.read',
               );
             }
             expect(schema['producerVersion'], '1.18.0+69');
