@@ -90,7 +90,7 @@ void main() {
           'kind': 'setData', 'pointer': '/Model', 'raw': '{}', 'schemaValueForms': page['schemaValueForms'],
         }]), throwsA(isA<CoreFailure>().having((e) => e.code, 'code', 'draft.stale')));
         expect(buffer.text, changed);
-        await project.save(buffer);
+        await publishSources(project, [buffer]);
         project.close();
         project = await BusyProject.open(file.path, engine);
         expect((await project.buffer(model)).text, changed);
@@ -154,7 +154,7 @@ void main() {
       final root = file.uri.toString(), model = modelFile.uri.toString();
       final buffer = await project.buffer(root);
       expect((await project.check(root))['status'], 'complete');
-      await project.save(buffer);
+      await publishSources(project, [buffer]);
       expect(await file.readAsBytes(), originalDisk);
       final reference = await project.referencePage(root, root, '/paths/~1orders/post');
       expect(reference['family'], fixture == 'swagger20' ? '2.0' : (version as String).substring(0, 3));
@@ -209,7 +209,7 @@ void main() {
       expect(html, contains('Warehouse inventory'));
       expect(html, contains('Stock'));
       for (final item in [buffer, modelBuffer]) {
-        await project.save(item);
+        await publishSources(project, [item]);
       }
       final saved = buffer.text, savedModel = modelBuffer.text;
       final savedBytes = buffer.bytes();
@@ -248,7 +248,7 @@ void main() {
       try {expect(read.conforming, true, reason: '${read.outgoing.findings} ${read.received.findings}');}
       finally {await read.close();}
       final caseChanges = await project.applyRefactoring(await post.planCase('Warehouse order', postDraft));
-      for (final id in caseChanges) await project.save(project.store.get(id));
+      for (final id in caseChanges) await publishSources(project, [project.store.get(id)]);
       final caseSource = await File('${temp.path}/busyapi.yaml').readAsString();
       expect(caseSource, contains(credential));expect(caseSource, isNot(contains('warehouse-session-secret')));
       expect(caseSource, contains('9007199254740993'));
@@ -315,14 +315,14 @@ void main() {
       final diskBeforeRecovery = {for (final source in [file, modelFile]) source.path: await source.readAsBytes()};
       project.close();project = await BusyProject.open(temp.path, engine);
       final nextRecovery = RecoveryStore(recovery.directory);
-      for (final record in records) await nextRecovery.adopt(record, await project.buffer(record['id'] as String));
+      for (final record in records) await nextRecovery.adopt(record, await project.buffer(record['id'] as String), store: project.store);
       final recovered = await project.buffer(root), recoveredModel = await project.buffer(model);
       expect(recovered.text, invalid);expect(recoveredModel.text, unsavedModel);
       expect(recovered.hasBom, format == 'yaml');expect(recoveredModel.hasBom, format == 'yaml');
       expect(recovered.externalConflict, false);expect(recoveredModel.externalConflict, false);
       expect((await project.check(root))['status'], 'invalid');
       expect(() => post.ensureCurrentPreparation(), throwsA(isA<CoreFailure>()));
-      await expectLater(nextRecovery.adopt(records.first, await project.buffer(records.first['id'] as String)),
+      await expectLater(nextRecovery.adopt(records.first, await project.buffer(records.first['id'] as String), store: project.store),
           throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'recovery.record')));
       for (final source in [file, modelFile]) expect(await source.readAsBytes(), diskBeforeRecovery[source.path]);
       project.store.replace(root, saved);

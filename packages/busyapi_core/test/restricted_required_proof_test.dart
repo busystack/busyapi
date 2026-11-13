@@ -124,7 +124,7 @@ void main() {
           expect((await project.check(rootBuffer.id))['complete'], true);
           project.store.redo();
           expect((await project.check(rootBuffer.id))['complete'], false);
-          await project.save(sharedBuffer);
+          await publishSources(project, [sharedBuffer]);
           expect((await cli(2))['complete'], false);
           expect(await root.readAsBytes(), originalRoot);
           final repaired = rootBuffer.text.replaceFirst(
@@ -136,14 +136,14 @@ void main() {
           expect(checked['complete'], true, reason: jsonEncode(checked));
           expect(checked['status'], 'complete');
           expect((await cli(2))['complete'], false);
-          await project.save(rootBuffer);
+          await publishSources(project, [rootBuffer]);
           expect((await cli(0))['complete'], true);
           expect(await root.readAsBytes(), rootBuffer.bytes());
           expect(await shared.readAsBytes(), sharedBuffer.bytes());
           expect(rootBuffer.text, contains('9007199254740993.00'));
           expect(rootBuffer.text, contains('literal.json'));
           final saved = await root.readAsBytes();
-          await project.save(rootBuffer);
+          await publishSources(project, [rootBuffer]);
           expect(await root.readAsBytes(), saved);
         },
       );

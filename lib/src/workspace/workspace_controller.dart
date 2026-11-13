@@ -23,6 +23,8 @@ class WorkspaceController extends ChangeNotifier {
   final StateLocations locations;
   final RecoveryStore recovery;
   final Future<void> Function(String, Object) _viewStateWriter;
+  final Set<DocumentBuffer> _pendingRecovery = {};
+  final Map<String, Object> _recoveryFieldVersions = {};
   Future<void>? _viewWriting;
   String? _pendingView;
   final PublicationStore publications;
@@ -475,10 +477,7 @@ class WorkspaceController extends ChangeNotifier {
               in previous?.store.fileBuffers ?? const <DocumentBuffer>[])
             buffer: buffer.generation,
         };
-        final pending = jsonEncode([
-          draft?.recovery(),
-          (form ?? _applyingForm)?.recovery(),
-        ]);
+        final pending = _fieldInputIdentity();
         await persist();
         await persistView();
         requireAttempt();
@@ -487,11 +486,7 @@ class WorkspaceController extends ChangeNotifier {
             generations.entries.every(
               (entry) => entry.key.generation == entry.value,
             ) &&
-            pending ==
-                jsonEncode([
-                  draft?.recovery(),
-                  (form ?? _applyingForm)?.recovery(),
-                ])) {
+            pending == _fieldInputIdentity()) {
           break;
         }
       }
@@ -515,6 +510,11 @@ class WorkspaceController extends ChangeNotifier {
       previous.close();
     }
     project = next;
+    _pendingRecovery.clear();
+    _recoveryFieldVersions.clear();
+    next.onBuffersChanged = (buffers) {
+      if (identical(project, next)) _pendingRecovery.addAll(buffers);
+    };
     bool current() =>
         !disposed && identical(project, next) && opening == _opening;
     next.acceptsBufferReload = (buffer) =>
@@ -2008,30 +2008,57 @@ class WorkspaceController extends ChangeNotifier {
     }
   }
 
-  Future<void> persist() async {
+  Future<void> persist({bool all = true}) async {
     final captured = project;
     if (captured == null) return;
+    final capturedForm = form ?? _applyingForm;
+    final selected = all
+        ? captured.store.fileBuffers.toSet()
+        : _pendingRecovery.where(captured.store.ownsFileBuffer).toSet();
+    _pendingRecovery.removeAll(selected);
+    final fieldVersions = <String, Object>{
+      for (final id in {
+        draft?.buffer,
+        capturedForm?.target.buffer,
+      }.whereType<String>())
+        id: (
+          draft?.buffer == id ? draft : null,
+          draft?.buffer == id ? draft?.inputRevision : null,
+          capturedForm?.target.buffer == id ? capturedForm : null,
+          capturedForm?.target.buffer == id
+              ? capturedForm?.inputRevision
+              : null,
+        ),
+    };
+    for (final id in {..._recoveryFieldVersions.keys, ...fieldVersions.keys}) {
+      if (_recoveryFieldVersions[id] == fieldVersions[id]) continue;
+      final buffer = captured.store.buffers[id];
+      if (buffer != null) selected.add(buffer);
+    }
+    _recoveryFieldVersions
+      ..clear()
+      ..addAll(fieldVersions);
     try {
-      if (await recovery.persistFileMoves(
-        captured.recoveryOwner,
-        draft: draft?.pending == true ? draft : null,
-        form: form ?? _applyingForm,
-      )) {
-        if (identical(project, captured)) storageError = null;
-        return;
+      final grouped = selected.any(
+        (b) =>
+            b.hasFileIntent ||
+            b.pendingFilePublication ||
+            captured.store.hasPublicationGroup(b),
+      );
+      if (all || grouped) {
+        await recovery.persistFileMoves(
+          captured.recoveryOwner,
+          draft: draft?.pending == true ? draft : null,
+          form: capturedForm,
+          affected: all ? null : selected,
+        );
       }
-      for (final b in captured.store.buffers.values.toList()) {
-        if (captured.store.fileBuffers.any(
-          (b) => b.hasFileIntent || b.pendingFilePublication,
-        )) {
-          await recovery.persistFileMoves(
-            captured.recoveryOwner,
-            draft: draft?.pending == true ? draft : null,
-            form: form ?? _applyingForm,
-          );
-          return;
+      for (final b in selected) {
+        if (b.hasFileIntent ||
+            b.pendingFilePublication ||
+            captured.store.hasPublicationGroup(b)) {
+          continue;
         }
-        final capturedForm = form ?? _applyingForm;
         await recovery.persist(
           b,
           draft: draft?.buffer == b.id && draft!.pending ? draft : null,
@@ -2040,7 +2067,10 @@ class WorkspaceController extends ChangeNotifier {
       }
       if (identical(project, captured)) storageError = null;
     } on Object catch (e) {
-      if (identical(project, captured)) storageError = e.toString();
+      if (identical(project, captured)) {
+        _pendingRecovery.addAll(selected);
+        storageError = e.toString();
+      }
       if (!_disposed) notifyListeners();
       rethrow;
     }
@@ -2048,7 +2078,7 @@ class WorkspaceController extends ChangeNotifier {
 
   void checkpoint() {
     unawaited(
-      persist().catchError((Object e) {
+      persist(all: false).catchError((Object e) {
         if (!_disposed) {
           error = e.toString();
           notifyListeners();
@@ -2253,6 +2283,7 @@ class WorkspaceController extends ChangeNotifier {
     await recovery.adopt(
       record,
       buffer,
+      store: owner.store,
       draft: recoveredDraft,
       form: recoveredForm,
       current: () =>
@@ -2278,13 +2309,17 @@ class WorkspaceController extends ChangeNotifier {
     notifyListeners();
   }
 
-  String _fieldInputIdentity() => jsonEncode([
-    draft?.recovery(),
+  Object _fieldInputIdentity() => (
+    draft,
+    draft?.inputRevision,
     draft?.composing,
-    form?.recovery(),
-    form?.composing.toList(),
+    form,
+    form?.inputRevision,
+    form?.composing.join(','),
+    _applyingForm,
+    _applyingForm?.inputRevision,
     formApplying,
-  ]);
+  );
 
   void schedule({bool immediate = false, bool notify = true}) {
     if (disposed) return;
@@ -2749,7 +2784,7 @@ class WorkspaceController extends ChangeNotifier {
     // A late discard decision cannot erase input entered during persistence.
     if (captures.any((capture) => !capture.current)) return;
     for (final b in selected) {
-      b.update(b.baseline);
+      owner.store.adopt(b, b.baseline, hasBom: b.baselineHasBom);
     }
     owner.store.retireHistory(selected.map((b) => b.id).toSet());
     final discarded = [for (final b in selected) owner.captureReload(b)];

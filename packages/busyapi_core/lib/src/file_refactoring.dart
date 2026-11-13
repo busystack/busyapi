@@ -212,6 +212,7 @@ extension FileRefactoring on BusyProject {
         path: path,
         text: e['text'] as String,
         baseline: e['baseline'] as String,
+        baselineHasBom: e['baselineHasBom'] as bool?,
         diskIdentity: e['expected'] as String,
         hasBom: e['hasBom'] as bool,
         mode: e['mode'] as int,
@@ -241,6 +242,7 @@ extension FileRefactoring on BusyProject {
             'A published output changed during recovery inspection',
           );
         b.baseline = b.text;
+        b.baselineHasBom = b.hasBom;
         b.diskIdentity = current;
         b.publishedPath = b.present ? path : source;
         b.publishedPresent = b.present;

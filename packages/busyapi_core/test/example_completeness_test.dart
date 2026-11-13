@@ -122,7 +122,7 @@ void main() {
           expect(buffer.bytes(), bytes);
           await check(true);
           project.store.redo();
-          await project.save(buffer);
+          await publishSources(project, [buffer]);
           final after = await Process.run('$testBundle/busyapi', [
             'check',
             file.path,
@@ -259,11 +259,11 @@ void main() {
           project.store.redo();
           expect(buffer.text, bound);
           await checked(true);
-          await project.save(buffer);
+          await publishSources(project, [buffer]);
           await cli(2, 'incomplete');
           project.store.undo();
           await checked(false);
-          await project.save(buffer);
+          await publishSources(project, [buffer]);
           await cli(0, 'complete');
           expect(await file.readAsBytes(), bytes);
         },
@@ -388,7 +388,7 @@ void main() {
           await verifyOriginal();
           project.store.redo();
           expect(buffer.text, repaired);
-          await project.save(buffer);
+          await publishSources(project, [buffer]);
           final after = await Process.run('$testBundle/busyapi', [
             'check',
             file.path,

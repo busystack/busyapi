@@ -271,7 +271,7 @@ void main() {
           final current = c.buffer!.text;
           expect(file.readAsStringSync(), original);
           await tester.runAsync(() async {
-            await c.project!.save(c.buffer!);
+            await publishSources(c.project!, [c.buffer!]);
             await c.persistView();
           });
           await tester.pumpWidget(const SizedBox.shrink());

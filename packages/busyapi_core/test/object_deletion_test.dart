@@ -148,7 +148,7 @@ void main() {
     );
     expect(buffer.text, before);
     expect(dependency.text, '{"Model":{"type":"number"}}');
-    await project.save(dependency);
+    await publishSources(project, [dependency]);
     final external = await plan();
     await part.writeAsString('{"Model":{"type":"boolean"}}');
     await expectLater(

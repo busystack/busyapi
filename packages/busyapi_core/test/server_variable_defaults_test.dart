@@ -171,7 +171,7 @@ void main() {
               expect(requests, hasLength(count + 1));
               expect(requests.last, expected);
               final buffer = await project.buffer(root);
-              await project.save(buffer);
+              await publishSources(project, [buffer]);
               expect(file.readAsBytesSync(), bytes);
             },
           );

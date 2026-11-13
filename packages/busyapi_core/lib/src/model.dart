@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'dart:isolate';
-import 'dart:typed_data';
+import 'dart:collection';
 
 import 'package:crypto/crypto.dart';
 
@@ -316,15 +316,20 @@ class DocumentBuffer {
   DocumentBuffer({
     required String id,
     required String path,
-    required this.text,
+    required String text,
     required this.baseline,
     required this.diskIdentity,
-    required this.hasBom,
-    this.generation = 1,
+    bool? baselineHasBom,
+    required bool hasBom,
+    int generation = 1,
     this.mode = 420,
     bool present = true,
     this.publishedPresent = true,
-  }) : _id = id,
+  }) : _text = text,
+       _hasBom = hasBom,
+       baselineHasBom = baselineHasBom ?? hasBom,
+       _generation = generation,
+       _id = id,
        _path = path,
        _present = present,
        publishedPath = path,
@@ -365,9 +370,16 @@ class DocumentBuffer {
   bool get hasPathIntent =>
       present && publishedPresent && path != publishedPath;
   bool get hasFileIntent => present != publishedPresent || hasPathIntent;
-  String text, baseline, diskIdentity;
-  bool hasBom;
-  int generation, mode;
+  String _text;
+  String get text => _text;
+  String baseline, diskIdentity;
+  bool baselineHasBom;
+  bool _hasBom;
+  bool get hasBom => _hasBom;
+  int _generation;
+  int get generation => _generation;
+  Object _historyState = Object();
+  int mode;
   SourceLineIndex lines;
   SourceSelection selection = const SourceSelection(0, 0);
   double scroll = 0;
@@ -376,7 +388,9 @@ class DocumentBuffer {
   bool get dirty =>
       hasFileIntent ||
       pendingFilePublication ||
-      present && publishedPresent && text != baseline;
+      present &&
+          publishedPresent &&
+          (text != baseline || hasBom != baselineHasBom);
   List<int> bytes() {
     for (var i = 0; i < text.length; i++) {
       final unit = text.codeUnitAt(i);
@@ -403,7 +417,7 @@ class DocumentBuffer {
     ];
   }
 
-  void update(String value, {int? start, int? end}) {
+  void _update(String value, {int? start, int? end}) {
     if (value == text) return;
     lines = start != null && end != null
         ? SourceLineIndex.updated(
@@ -413,7 +427,7 @@ class DocumentBuffer {
             oldEnd: end,
           )
         : SourceLineIndex(value);
-    text = value;
+    _text = value;
     int clamp(int offset) {
       var at = offset.clamp(0, text.length);
       if (at > 0 &&
@@ -426,7 +440,7 @@ class DocumentBuffer {
     }
 
     selection = SourceSelection(clamp(selection.base), clamp(selection.extent));
-    generation++;
+    _generation++;
   }
 
   String? _sourceIdentity, _identityText;
@@ -558,23 +572,13 @@ List<List<String>> decodePublicationGroups(Object? value, Set<String> allowed) {
   return groups;
 }
 
-String _historyTextIdentity(String text) {
-  // Hash UTF-16 units so temporary, unpaired IME input remains distinguishable.
-  final units = Uint8List(text.length * 2);
-  for (var index = 0; index < text.length; index++) {
-    final unit = text.codeUnitAt(index);
-    units[index * 2] = unit & 255;
-    units[index * 2 + 1] = unit >> 8;
-  }
-  return contentIdentity(units);
-}
-
-/// Retains changed spans only. Full source belongs to live/file-recovery buffers,
-/// never to each ordinary undo entry. Fingerprints detect out-of-band changes.
+/// Reversible spans and logical states owned exclusively by BufferStore.
 class _HistoryText {
-  _HistoryText(String before, String after, List<TextEdit> edits)
-    : beforeIdentity = _historyTextIdentity(before),
-      afterIdentity = _historyTextIdentity(after),
+  _HistoryText(DocumentBuffer buffer, List<TextEdit> edits, {bool? hasBom})
+    : beforeBom = buffer.hasBom,
+      afterBom = hasBom ?? buffer.hasBom,
+      beforeState = buffer._historyState,
+      afterState = Object(),
       forward = List.unmodifiable(
         edits.where((edit) => edit.expected != edit.replacement),
       ) {
@@ -596,7 +600,8 @@ class _HistoryText {
     }
     backward = List.unmodifiable(inverse);
   }
-  final String beforeIdentity, afterIdentity;
+  final Object beforeState, afterState;
+  final bool beforeBom, afterBom;
   final List<TextEdit> forward;
   late final List<TextEdit> backward;
 
@@ -676,21 +681,70 @@ class _History {
 }
 
 class BufferStore {
-  final Map<String, DocumentBuffer> buffers = {};
+  final Map<String, DocumentBuffer> _buffers = {};
+  final Map<String, int> _retiredGenerations = {};
+  late final Map<String, DocumentBuffer> buffers = UnmodifiableMapView(
+    _buffers,
+  );
+
+  void register(DocumentBuffer buffer) {
+    if (!buffer.present) {
+      throw CoreFailure(
+        'buffer.absent',
+        'Use grouped recovery to install an absent owner',
+      );
+    }
+    final previous = _buffers[buffer.id];
+    if (identical(previous, buffer)) return;
+    final previousRevision =
+        previous?.generation ?? _retiredGenerations[buffer.id] ?? 0;
+    if (buffer.generation <= previousRevision)
+      buffer._generation = previousRevision + 1;
+    if (previous != null) retireHistory({buffer.id});
+    _buffers[buffer.id] = buffer;
+  }
+
+  void registerAll(Iterable<DocumentBuffer> buffers) {
+    for (final buffer in buffers) register(buffer);
+  }
+
+  DocumentBuffer? forget(String id) {
+    retireHistory({id});
+    final previous = _buffers.remove(id);
+    if (previous != null) _retiredGenerations[id] = previous.generation;
+    return previous;
+  }
+
+  void clearBuffers() {
+    clearHistory();
+    for (final b in fileBuffers) {
+      _retiredGenerations[b.id] = b.generation;
+    }
+    _buffers.clear();
+    _absent.clear();
+    _absentIdentities.clear();
+    _publicationGroups.clear();
+  }
+
   final Set<DocumentBuffer> _absent = {};
   final Map<String, int> _absentIdentities = {};
 
   /// Active source plus retained file/history owners. Ordinary source readers
-  /// use [buffers], which never exposes a virtually deleted file as current.
+  /// use [_buffers], which never exposes a virtually deleted file as current.
   Iterable<DocumentBuffer> get fileBuffers sync* {
-    yield* buffers.values;
+    yield* _buffers.values;
     yield* _absent;
   }
 
   bool ownsFileBuffer(DocumentBuffer buffer) =>
-      identical(buffers[buffer.id], buffer) || _absent.contains(buffer);
+      identical(_buffers[buffer.id], buffer) || _absent.contains(buffer);
 
   final Map<DocumentBuffer, Set<DocumentBuffer>> _publicationGroups = {};
+  int _publicationRevision = 0;
+  int get publicationRevision => _publicationRevision;
+
+  bool hasPublicationGroup(DocumentBuffer buffer) =>
+      (_publicationGroups[buffer]?.length ?? 0) > 1;
 
   void _prunePublicationGroups() {
     final groups = _publicationGroups.values.toSet();
@@ -733,6 +787,7 @@ class BufferStore {
         )
         .toSet();
     if (members.length < 2) return;
+    _publicationRevision++;
     for (final buffer in members) {
       _publicationGroups[buffer] = members;
     }
@@ -761,10 +816,10 @@ class BufferStore {
   }
 
   bool isVirtuallyAbsent(String id) =>
-      !buffers.containsKey(id) && _absentIdentities.containsKey(id);
+      !_buffers.containsKey(id) && _absentIdentities.containsKey(id);
 
   DocumentBuffer fileBuffer(String id) {
-    final active = buffers[id];
+    final active = _buffers[id];
     if (active != null) return active;
     final matching = _absent.where((buffer) => buffer.id == id).toList();
     final pending = matching.where((buffer) => buffer.dirty).toList();
@@ -785,7 +840,7 @@ class BufferStore {
     final values = recovered.toList(), ids = <String>{};
     for (final b in values) {
       if (!ids.add(b.id) ||
-          buffers[b.id] != null && !replacing.contains(buffers[b.id]) ||
+          _buffers[b.id] != null && !replacing.contains(_buffers[b.id]) ||
           _absent.any(
             (other) =>
                 other.id == b.id && other.dirty && !replacing.contains(other),
@@ -798,12 +853,12 @@ class BufferStore {
     }
     retireHistory({...ids, for (final b in replacing) b.id});
     for (final b in replacing) {
-      if (identical(buffers[b.id], b)) buffers.remove(b.id);
+      if (identical(_buffers[b.id], b)) _buffers.remove(b.id);
       if (_absent.remove(b)) _releaseAbsentIdentity(b.id);
     }
     for (final b in values) {
       if (b.present) {
-        buffers[b.id] = b;
+        _buffers[b.id] = b;
       } else {
         _absent.add(b);
         _absentIdentities[b.id] = (_absentIdentities[b.id] ?? 0) + 1;
@@ -839,7 +894,7 @@ class BufferStore {
                     : buffer.baseline.length * 2),
           );
   DocumentBuffer get(String id) =>
-      buffers[id] ??
+      _buffers[id] ??
       (throw CoreFailure('buffer.missing', 'Buffer is no longer open'));
   void apply(
     List<TextEdit> edits, {
@@ -849,11 +904,13 @@ class BufferStore {
     List<BufferCreation> creations = const [],
     List<BufferPresenceEdit> presences = const [],
     bool coupledPublication = false,
+    Map<String, bool> boms = const {},
   }) {
     if (edits.isEmpty &&
         paths.isEmpty &&
         creations.isEmpty &&
-        presences.isEmpty)
+        presences.isEmpty &&
+        boms.isEmpty)
       return;
     final created = <String, DocumentBuffer>{};
     for (final addition in creations) {
@@ -874,7 +931,7 @@ class BufferStore {
           'Choose an absolute physical file identity and ordinary permission bits',
         );
       }
-      if (buffers.containsKey(addition.id) ||
+      if (_buffers.containsKey(addition.id) ||
           created.containsKey(addition.id) ||
           _absent.any((buffer) => buffer.id == addition.id && buffer.dirty)) {
         throw CoreFailure(
@@ -917,7 +974,7 @@ class BufferStore {
         if (edit.present) edit.buffer,
     };
     DocumentBuffer input(String id) =>
-        buffers[id] ??
+        _buffers[id] ??
         created[id] ??
         (presenceIds.contains(id) ? fileBuffer(id) : get(id));
     final pathChanges = <DocumentBuffer, _BufferPathState>{};
@@ -954,8 +1011,8 @@ class BufferStore {
       if (edit.destination == b.id && edit.path == b.path) continue;
       if (pathChanges.containsKey(b) ||
           !destinations.add(edit.destination) ||
-          buffers.containsKey(edit.destination) ||
-          buffers.values.any(
+          _buffers.containsKey(edit.destination) ||
+          _buffers.values.any(
             (other) => !identical(other, b) && other.path == edit.path,
           )) {
         throw CoreFailure(
@@ -1068,7 +1125,7 @@ class BufferStore {
         if (estimatedBytes > 64 * 1024 * 1024) {
           throw CoreFailure(
             'limit.transaction',
-            'Transaction exceeds the 64 MiB history budget; no buffers were changed',
+            'Transaction exceeds the 64 MiB history budget; no _buffers were changed',
           );
         }
       }
@@ -1110,6 +1167,12 @@ class BufferStore {
       before.putIfAbsent(buffer.id, () => buffer.text);
       next.putIfAbsent(buffer.id, () => buffer.text);
     }
+    for (final entry in boms.entries) {
+      final b = get(entry.key);
+      if (entry.value == b.hasBom) continue;
+      before.putIfAbsent(b.id, () => b.text);
+      next.putIfAbsent(b.id, () => b.text);
+    }
     if (next.isEmpty) return;
     final bound = {for (final id in before.keys) id: input(id)};
     final beforePaths = {
@@ -1122,7 +1185,7 @@ class BufferStore {
     };
     final changes = <String, _HistoryText>{
       for (final id in before.keys)
-        id: _HistoryText(before[id]!, next[id]!, grouped[id] ?? const []),
+        id: _HistoryText(bound[id]!, grouped[id] ?? const [], hasBom: boms[id]),
     };
     final retainedBytes = changes.values.fold<int>(
       0,
@@ -1131,16 +1194,24 @@ class BufferStore {
     if (retainedBytes > 64 * 1024 * 1024) {
       throw CoreFailure(
         'limit.transaction',
-        'Transaction exceeds the 64 MiB history budget; no buffers were changed',
+        'Transaction exceeds the 64 MiB history budget; no _buffers were changed',
       );
     }
     for (final e in next.entries) {
       final edits = grouped[e.key];
-      bound[e.key]!.update(
+      bound[e.key]!._update(
         e.value,
         start: edits?.first.start,
         end: edits?.last.end,
       );
+    }
+    for (final entry in changes.entries) {
+      final b = bound[entry.key]!;
+      if (b.hasBom != entry.value.afterBom) {
+        b._hasBom = entry.value.afterBom;
+        if (next[entry.key] == before[entry.key]) b._generation++;
+      }
+      b._historyState = entry.value.afterState;
     }
     _setPaths(
       afterPaths,
@@ -1221,6 +1292,36 @@ class BufferStore {
     onCommitted?.call(Set.unmodifiable(bound.values));
   }
 
+  /// Adopt externally acquired source after the caller has checked its capture.
+  /// This retires only affected history and always invalidates async captures,
+  /// including a reload whose text happens to be unchanged.
+  void adopt(
+    DocumentBuffer buffer,
+    String text, {
+    bool? hasBom,
+    int minimumGeneration = 0,
+  }) {
+    if (!ownsFileBuffer(buffer)) {
+      throw CoreFailure(
+        'buffer.owner',
+        'Source belongs to another buffer store',
+      );
+    }
+    retireHistory({buffer.id});
+    final previous = buffer.generation;
+    buffer._update(text);
+    buffer._hasBom = hasBom ?? buffer.hasBom;
+    if (buffer.generation <= previous) buffer._generation = previous + 1;
+    if (buffer.generation <= minimumGeneration) {
+      buffer._generation = minimumGeneration + 1;
+    }
+    buffer._historyState = Object();
+    onCommitted?.call({buffer});
+  }
+
+  void setBom(String id, bool value) =>
+      apply([], label: 'BOM', boms: {id: value});
+
   void replace(String id, String value, {String label = 'Source'}) {
     final b = get(id);
     var a = 0;
@@ -1294,15 +1395,13 @@ class BufferStore {
     for (final entry in history.text.entries) {
       final buffer = history.buffers[entry.key]!;
       final path = paths[buffer]!;
-      final identity = undo
-          ? entry.value.afterIdentity
-          : entry.value.beforeIdentity;
+      final identity = undo ? entry.value.afterState : entry.value.beforeState;
       if (!(buffer.present
-              ? identical(buffers[buffer.id], buffer)
+              ? identical(_buffers[buffer.id], buffer)
               : _absent.contains(buffer)) ||
-          buffers[buffer.id] != null &&
-              !identical(buffers[buffer.id], buffer) ||
-          _historyTextIdentity(buffer.text) != identity ||
+          _buffers[buffer.id] != null &&
+              !identical(_buffers[buffer.id], buffer) ||
+          !identical(buffer._historyState, identity) ||
           buffer.id != path.id ||
           buffer.path != path.path ||
           buffer.present != path.present) {
@@ -1316,7 +1415,7 @@ class BufferStore {
 
   void _verifyPathDestinations(Map<DocumentBuffer, _BufferPathState> paths) {
     for (final entry in paths.entries) {
-      final occupant = buffers[entry.value.id];
+      final occupant = _buffers[entry.value.id];
       if (occupant != null && !identical(occupant, entry.key)) {
         throw CoreFailure(
           'history.stale',
@@ -1338,7 +1437,17 @@ class BufferStore {
     final changed = <DocumentBuffer>{};
     for (final entry in replacements.entries) {
       if (entry.key.text != entry.value) changed.add(entry.key);
-      entry.key.update(entry.value);
+      entry.key._update(entry.value);
+    }
+    for (final entry in history.text.entries) {
+      final b = history.buffers[entry.key]!;
+      final bom = undo ? entry.value.beforeBom : entry.value.afterBom;
+      if (b.hasBom != bom) {
+        b._hasBom = bom;
+        if (!changed.contains(b)) b._generation++;
+        changed.add(b);
+      }
+      b._historyState = undo ? entry.value.beforeState : entry.value.afterState;
     }
     _setPaths(
       undo ? history.beforePaths : history.afterPaths,
@@ -1358,12 +1467,15 @@ class BufferStore {
               e.key.present != e.value.present,
         )
         .toList();
+    if (changed.isNotEmpty) _publicationRevision++;
     final identities = {
       for (final entry in changed) entry.key.id: entry.value.id,
     };
     for (final entry in changed) {
-      if (identical(buffers[entry.key.id], entry.key))
-        buffers.remove(entry.key.id);
+      if (identical(_buffers[entry.key.id], entry.key)) {
+        _retiredGenerations[entry.key.id] = entry.key.generation;
+        _buffers.remove(entry.key.id);
+      }
       if (_absent.remove(entry.key)) _releaseAbsentIdentity(entry.key.id);
     }
     for (final entry in changed) {
@@ -1372,10 +1484,10 @@ class BufferStore {
         b._id = path.id;
         b._path = path.path;
         b._present = path.present;
-        if (!textChanged.contains(b)) b.generation++;
+        if (!textChanged.contains(b)) b._generation++;
       }
       if (b.present) {
-        buffers[b.id] = b;
+        _buffers[b.id] = b;
       } else {
         _absent.add(b);
         _absentIdentities[b.id] = (_absentIdentities[b.id] ?? 0) + 1;
@@ -1424,9 +1536,9 @@ class BufferStore {
     }
   }
 
-  void retireHistory(Set<String> buffers) {
+  void retireHistory(Set<String> _buffers) {
     bool touches(_History h) => h.buffers.entries.any(
-      (e) => buffers.contains(e.key) || buffers.contains(e.value.id),
+      (e) => _buffers.contains(e.key) || _buffers.contains(e.value.id),
     );
     bool retire(_History history) {
       if (!touches(history)) return false;
@@ -1441,8 +1553,58 @@ class BufferStore {
 }
 
 /// Field ownership survives widget rebuilds and navigation. A flush is one plan.
+bool _sameDraftValue(Object? left, Object? right) {
+  if (identical(left, right)) return true;
+  if (left is Map && right is Map) {
+    return left.length == right.length &&
+        left.keys.every(
+          (key) =>
+              right.containsKey(key) && _sameDraftValue(left[key], right[key]),
+        );
+  }
+  if (left is List && right is List) {
+    if (left.length != right.length) return false;
+    for (var i = 0; i < left.length; i++) {
+      if (!_sameDraftValue(left[i], right[i])) return false;
+    }
+    return true;
+  }
+  return left.runtimeType == right.runtimeType && left == right;
+}
+
+/// Input remains separate from source; every change has an owned revision.
+class _DraftValues extends MapBase<String, Object?> {
+  final Map<String, Object?> _values = {};
+  int revision = 0;
+  @override
+  Iterable<String> get keys => _values.keys;
+  @override
+  Object? operator [](Object? key) => _values[key];
+  @override
+  void operator []=(String key, Object? value) {
+    if (_values.containsKey(key) && _sameDraftValue(_values[key], value))
+      return;
+    _values[key] = value;
+    revision++;
+  }
+
+  @override
+  void clear() {
+    if (_values.isEmpty) return;
+    _values.clear();
+    revision++;
+  }
+
+  @override
+  Object? remove(Object? key) {
+    if (!_values.containsKey(key)) return null;
+    revision++;
+    return _values.remove(key);
+  }
+}
+
 class _PropertyInput {
-  final Map<String, Object?> values = {};
+  final _DraftValues values = _DraftValues();
   final Map<String, String> errors = {};
   bool composing = false;
 }
@@ -1494,7 +1656,8 @@ class PropertySession {
   Map<String, String> get errors => _input.errors;
   bool get composing => _input.composing;
   set composing(bool value) => _input.composing = value;
-  bool get pending => jsonEncode(values) != jsonEncode(committed);
+  int get inputRevision => _input.values.revision;
+  bool get pending => !_sameDraftValue(values, committed);
   void bind(String field, Object? value) {
     if (!values.containsKey(field)) {
       values[field] = value;
@@ -1548,14 +1711,16 @@ class FormSession {
     required Map<String, Object?> initial,
   }) : arguments = Map.unmodifiable(arguments),
        initial = Map.unmodifiable(initial),
-       values = Map.of(initial);
+       values = _DraftValues()..addAll(initial);
 
   final String kind, contentIdentity;
   final PropertySession target;
-  final Map<String, Object?> arguments, initial, values;
+  final Map<String, Object?> arguments, initial;
+  final _DraftValues values;
   final Set<String> composing = {};
   String? error;
-  bool get pending => jsonEncode(values) != jsonEncode(initial);
+  int get inputRevision => values.revision;
+  bool get pending => !_sameDraftValue(values, initial);
   void edit(String field, Object? value, {bool isComposing = false}) {
     values[field] = value;
     if (isComposing) {

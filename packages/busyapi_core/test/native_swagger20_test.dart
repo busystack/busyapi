@@ -35,7 +35,7 @@ void main() {
           '2.0',
         );
         final buffer = await project.buffer(root);
-        await project.save(buffer);
+        await publishSources(project, [buffer]);
         expect(await file.readAsBytes(), original);
         final page = await project.inspectObject(root, root, '');
         final fields = (page['fields'] as List).cast<Map>();
@@ -73,7 +73,7 @@ void main() {
         expect(utf8.encode(buffer.text), original);
         project.store.redo();
         expect(buffer.text, changed);
-        await project.save(buffer);
+        await publishSources(project, [buffer]);
         expect(await file.readAsString(), changed);
         project.close();
         project = await BusyProject.open(path, engine);

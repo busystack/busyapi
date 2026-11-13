@@ -41,7 +41,7 @@ void main() {
     final draft = OperationRequestDraft(planIdentity: plan.identity,
         body: RequestBodyDraft.example(plan.captureBodyExample(media, name: '')));
     final changes = await project.applyRefactoring(await plan.planCase('Empty named', draft));
-    for (final id in changes) await project.save(project.store.get(id));
+    for (final id in changes) await publishSources(project, [project.store.get(id)]);
     final manifest = jsonDecode(await File('${temp.path}/busyapi.yaml').readAsString());
     expect(manifest['tests'][0]['body']['externalExample'], {'name': ''});
     project.close();project = await BusyProject.open(temp.path, engine);

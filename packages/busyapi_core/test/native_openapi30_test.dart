@@ -181,7 +181,7 @@ tests:
       expect(checked['status'], 'complete', reason: '${checked['findings']}');
       expect(checked['projection']['specification']['family'], '3.0');
       final buffer = await project.buffer(root);
-      await project.save(buffer);
+      await publishSources(project, [buffer]);
       expect(await file.readAsBytes(), bytes);
       final page = await project.inspectObject(
         root,
@@ -254,7 +254,7 @@ tests:
       expect(html, contains('After 雪😀'));
       expect(html, contains('9007199254740993.00'));
       expect(await file.readAsBytes(), bytes);
-      await project.save(buffer);
+      await publishSources(project, [buffer]);
       expect(await file.readAsBytes(), [
         239,
         187,

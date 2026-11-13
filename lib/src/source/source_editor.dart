@@ -807,23 +807,35 @@ class SourceEditorState extends State<SourceEditor> {
 
   void _retainViewport(int from, int to, String replacement) {
     final before = _indexed, after = widget.buffer.lines;
-    if (before != null &&
-        after.source == _full &&
-        before.lineCount == after.lineCount &&
-        !replacement.contains(RegExp(r'[\r\n]'))) {
-      final line = before.lineAtOffset(from);
-      // Single-line text changes that retain the estimated wrapped height do
-      // not alter any cumulative viewport position. Keep the existing index
-      // instead of allocating a document-sized list of tops on every key.
-      if (to <= line.endOffset &&
-          math.max(1, (line.text.length / _columns).ceil()) ==
-              math.max(
-                1,
-                (after.lineAt(line.number).text.length / _columns).ceil(),
-              )) {
-        _indexed = after;
-        return;
+    if (before != null && after.source == _full && !_folding.map.folded) {
+      // Include both sides of line-break boundaries. Reuse heights outside
+      // the changed lines; only their cumulative positions need adjustment.
+      final first = before.lineAtOffset(math.max(0, from - 1)).number;
+      final oldLast = before
+          .lineAtOffset(math.min(before.source.length, to + 1))
+          .number;
+      final newLast = after
+          .lineAtOffset(
+            math.min(after.source.length, from + replacement.length + 1),
+          )
+          .number;
+      var top = _tops[first - 1];
+      final changed = <double>[];
+      for (var line = first; line <= newLast; line++) {
+        top +=
+            math.max(1, (after.lineAt(line).text.length / _columns).ceil()) *
+            _lineHeight;
+        changed.add(top);
       }
+      final shift = top - _tops[oldLast];
+      _tops.replaceRange(first, oldLast + 1, changed);
+      if (shift != 0) {
+        for (var i = newLast + 1; i < _tops.length; i++) {
+          _tops[i] += shift;
+        }
+      }
+      _indexed = after;
+      return;
     }
     _indexed = null;
   }

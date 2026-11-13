@@ -22,8 +22,7 @@ import 'request_form_values.dart';
 import 'mime_text_materialization.dart';
 import 'form_media_types.dart';
 import 'multipart_encoding.dart';
-import 'exact_configuration.dart';
-import 'request_parameters.dart' show queryRepresentation, requestParameterKey;
+import 'request_parameters.dart' show requestParameterKey;
 
 part 'governance.dart';
 part 'policy_code_review.dart';
@@ -937,7 +936,10 @@ class BusyProject {
     bool standalone = false,
   }) : _standalone = standalone {
     store.onPathsChanged = _pathsChanged;
-    store.onCommitted = _rootConfigurationCommitted;
+    store.onCommitted = (participants) {
+      _rootConfigurationCommitted(participants);
+      onBuffersChanged?.call(participants);
+    };
   }
 
   /// Validate generated configuration with the same URI normalization and
@@ -972,6 +974,7 @@ class BusyProject {
   /// The UI owns input that has not entered the source buffer. Recheck this
   /// authority at reload application and recovery retirement, not only capture.
   bool Function(DocumentBuffer)? acceptsBufferReload;
+  void Function(Set<DocumentBuffer>)? onBuffersChanged;
   final List<ProjectRoot> roots;
   final List<String> files;
   String location;
@@ -1480,7 +1483,7 @@ class BusyProject {
         'Open buffers exceed the memory budget; close a project before opening more resources',
       );
     }
-    store.buffers[id] = b;
+    store.register(b);
     return b;
   }
 
@@ -3017,13 +3020,36 @@ class BusyProject {
     List<String> foldedPointers = const [],
     void Function(String resource)? onResourceRefreshed,
   }) async {
-    final (snapshot, revision) = await _objectSnapshot(
-      root,
-      resource,
-      requestId: '$requestId-collect',
-      cancelled: cancelled,
-      onResourceRefreshed: onResourceRefreshed,
-    );
+    final AnalysisSnapshot snapshot;
+    final int revision;
+    if (action == 'folds') {
+      if (_closed) throw CoreFailure('access.closed', 'The source workspace is closed');
+      final source = store.buffers[resource];
+      final Map<String, Object?> captured;
+      if (source != null) {
+        if (!source.dirty) {
+          final before = source.generation;
+          await refreshDisk(source);
+          if (source.generation != before) onResourceRefreshed?.call(resource);
+        }
+        captured = await source.snapshotAsync();
+      } else {
+        _verifyVirtualResource(resource);
+        final path = Uri.parse(resource).toFilePath();
+        final bytes = await accessFor(path).read(path);
+        captured = {...await DocumentBuffer.decode(path, bytes).snapshotAsync(), 'generation': 0};
+      }
+      revision = _resourceRevision;
+      snapshot = AnalysisSnapshot(root: root, resources: [captured]);
+    } else {
+      (snapshot, revision) = await _objectSnapshot(
+        root,
+        resource,
+        requestId: '$requestId-collect',
+        cancelled: cancelled,
+        onResourceRefreshed: onResourceRefreshed,
+      );
+    }
     if (cancelled())
       throw CoreFailure('cancelled', 'Source assistance was cancelled');
     final result = await engine.request(
@@ -3865,48 +3891,6 @@ class BusyProject {
     )..committed.addAll({...session.committed, ...?acceptedValues});
   }
 
-  Future<void> save(DocumentBuffer b) async {
-    if (b.hasFileIntent || b.pendingFilePublication) {
-      throw CoreFailure(
-        'file.intent.publication',
-        'Staged paths require their grouped file-operation publication plan',
-      );
-    }
-    if (!b.dirty) {
-      await refreshDisk(b);
-      if (b.externalConflict) {
-        throw CoreFailure(
-          'save.conflict',
-          'Saved source changed or became unavailable; the buffer is preserved',
-        );
-      }
-      return;
-    }
-    if (b.externalConflict) {
-      throw CoreFailure(
-        'save.conflict',
-        'Resolve the external conflict explicitly before publishing',
-      );
-    }
-    final generation = b.generation;
-    final publishedText = b.text;
-    final bytes = b.bytes();
-    try {
-      await accessFor(b.path)
-          .publish(b.path, bytes, expected: b.diskIdentity, mode: b.mode);
-    } on Object {
-      b.externalConflict = true;
-      rethrow;
-    }
-    b.diskIdentity = contentIdentity(bytes);
-    resourceFingerprints[b.id] = b.diskIdentity;
-    b.baseline = publishedText;
-    b.externalConflict = false;
-    if (b.generation != generation) {
-      /* Later input remains dirty relative to the published generation. */
-    }
-  }
-
   Future<String?> refreshDisk(
     DocumentBuffer b, {
     Future<void> Function()? beforeReload,
@@ -3961,12 +3945,10 @@ class BusyProject {
         return identity;
       }
       store.retireHistory({b.id});
-      final previousGeneration = b.generation;
-      b.update(read.text);
-      if (b.generation == previousGeneration) b.generation++;
+      store.adopt(b, read.text, hasBom: read.hasBom);
       b.baseline = read.text;
+      b.baselineHasBom = read.hasBom;
       b.diskIdentity = read.diskIdentity;
-      b.hasBom = read.hasBom;
       b.mode = read.mode;
       b.externalConflict = false;
       return identity;
@@ -4022,12 +4004,10 @@ class BusyProject {
     }
     if (!current()) return const BufferReloadResult(BufferReloadStatus.stale);
     store.retireHistory({b.id});
-    final previousGeneration = b.generation;
-    b.update(read.text);
-    if (b.generation == previousGeneration) b.generation++;
+    store.adopt(b, read.text, hasBom: read.hasBom);
     b.baseline = read.text;
+      b.baselineHasBom = read.hasBom;
     b.diskIdentity = read.diskIdentity;
-    b.hasBom = read.hasBom;
     b.mode = read.mode;
     b.externalConflict = false;
     resourceFingerprints[b.id] = b.diskIdentity;

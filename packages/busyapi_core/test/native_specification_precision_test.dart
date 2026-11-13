@@ -59,7 +59,7 @@ void main() {
               valid ? 'complete' : 'invalid',
               reason: '$schema: $report',
             );
-            await project.save(await project.buffer(file.uri.toString()));
+            await publishSources(project, [await project.buffer(file.uri.toString())]);
             expect(await file.readAsString(), source);
           } finally {
             project.close();

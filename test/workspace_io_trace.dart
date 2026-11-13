@@ -67,7 +67,7 @@ class TracedWorkspaceController extends WorkspaceController {
       );
   final WorkspaceIoTrace trace;
   @override
-  Future<void> persist() => trace.run('persist', super.persist);
+  Future<void> persist({bool all = true}) => trace.run('persist', super.persist);
   @override
   Future<void> initialize() => trace.run('initialize', super.initialize);
   @override

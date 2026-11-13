@@ -180,7 +180,7 @@ void main() {
         project.store.redo();
         expect(buffer.bytes(), accepted);
         expect((await project.check(buffer.id))['complete'], true);
-        await project.save(buffer);
+        await publishSources(project, [buffer]);
         expect(destination.readAsBytesSync(), accepted);
         expect(source.readAsBytesSync(), original);
         final reopened = await BusyProject.open(directory.path, engine);

@@ -41,7 +41,8 @@ void main() {
       final b = DocumentBuffer.decode(
         '${temp.path}/source.yaml',
         utf8.encode('saved'),
-      )..update('captured 雪😀\r\n');
+      );
+      (BufferStore()..register(b)).replace(b.id, 'captured 雪😀\r\n');
       final recovery = RecoveryStore('${temp.path}/recovery');
       late Future<void> checkpoint;
       WidgetsBinding.instance.addPostFrameCallback((_) {

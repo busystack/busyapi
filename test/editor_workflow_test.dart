@@ -764,7 +764,7 @@ void main() {
         (i) => 'field$i: ${i == 350 ? needle : 'value 😀'}\n',
       ).join();
       final b = DocumentBuffer.decode('/tmp/find.yaml', utf8.encode(original));
-      final store = BufferStore()..buffers[b.id] = b;
+      final store = BufferStore()..register(b);
       late StateSetter rebuild;
       var clipboard = needle;
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -1288,7 +1288,7 @@ void main() {
       191,
       ...utf8.encode(original),
     ]);
-    final store = BufferStore()..buffers[b.id] = b;
+    final store = BufferStore()..register(b);
     final key = GlobalKey<SourceEditorState>();
     late StateSetter rebuild;
     await tester.pumpWidget(
@@ -1397,7 +1397,7 @@ void main() {
         191,
         ...utf8.encode(original),
       ]);
-      final store = BufferStore()..buffers[b.id] = b;
+      final store = BufferStore()..register(b);
       late StateSetter rebuild;
       await tester.pumpWidget(
         host(
@@ -1592,7 +1592,7 @@ void main() {
             'field$i: "😀 cross boundary ${'x' * 30}"${i % 2 == 0 ? '\r\n' : '\n'}',
       ).join();
       final b = DocumentBuffer.decode('/tmp/windows.yaml', utf8.encode(source));
-      final store = BufferStore()..buffers[b.id] = b;
+      final store = BufferStore()..register(b);
       final key = GlobalKey<SourceEditorState>();
       late StateSetter rebuild;
       await tester.pumpWidget(
@@ -1716,7 +1716,7 @@ void main() {
               rebuild = setState;
               return SourceEditor(
                 buffer: current,
-                onChanged: (text) => current.update(text),
+                onChanged: (text) => (BufferStore()..register(current)).replace(current.id, text),
                 undo: () {},
                 redo: () {},
               );
@@ -3256,7 +3256,7 @@ void main() {
         '/tmp/a.yaml',
         utf8.encode('info:\n  title: original\n'),
       );
-      store.buffers[b.id] = b;
+      store.register(b);
       late StateSetter rebuild;
       await tester.pumpWidget(
         host(
@@ -3423,7 +3423,7 @@ void main() {
         '/tmp/accepted.yaml',
         utf8.encode(original),
       );
-      final store = BufferStore()..buffers[b.id] = b;
+      final store = BufferStore()..register(b);
       final key = GlobalKey<SourceEditorState>();
       var reject = true;
       await tester.pumpWidget(
@@ -3484,7 +3484,7 @@ void main() {
       ).join();
       final b = DocumentBuffer.decode('/tmp/large.yaml', utf8.encode(text));
       final timings = <int>[];
-      final store = BufferStore()..buffers[b.id] = b;
+      final store = BufferStore()..register(b);
       late StateSetter rebuild;
       await tester.pumpWidget(
         host(
@@ -3618,7 +3618,7 @@ void main() {
         '/tmp/composing.yaml',
         utf8.encode('title: "AB"\r\n'),
       );
-      final store = BufferStore()..buffers[b.id] = b;
+      final store = BufferStore()..register(b);
       final key = GlobalKey<SourceEditorState>();
       late StateSetter rebuild;
       await tester.pumpWidget(
@@ -3707,7 +3707,7 @@ void main() {
         '/tmp/client.yaml',
         utf8.encode('title: "CD"\n'),
       );
-      final store = BufferStore()..buffers[oldBuffer.id] = oldBuffer;
+      final store = BufferStore()..register(oldBuffer);
       var active = oldBuffer;
       var owner = Object();
       late StateSetter rebuild;
@@ -3743,12 +3743,13 @@ void main() {
       rebuild(() {
         active = newBuffer;
         owner = Object();
-        store.buffers[newBuffer.id] = newBuffer;
+        store.register(newBuffer);
       });
       await tester.pump();
       await tester.tap(find.byType(TextField));
       await tester.pump();
       expect(client(), isNot(previousClient));
+      final acceptedGeneration = newBuffer.generation;
       await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
         'flutter/textinput',
         const JSONMethodCodec().encodeMethodCall(
@@ -3769,7 +3770,7 @@ void main() {
         tester.widget<TextField>(find.byType(TextField)).controller!.text,
         newBuffer.text,
       );
-      expect(newBuffer.generation, 1);
+      expect(newBuffer.generation, acceptedGeneration);
       expect(tester.takeException(), isNull);
     },
   );
@@ -3787,7 +3788,7 @@ void main() {
           utf8.encode(original),
         );
         expect(b.bytes().length, greaterThan(1024 * 1024));
-        final store = BufferStore()..buffers[b.id] = b;
+        final store = BufferStore()..register(b);
         final key = GlobalKey<SourceEditorState>();
         var active = b;
         late StateSetter rebuild;
@@ -3870,7 +3871,7 @@ void main() {
           utf8.encode(b.text),
         );
         active.selection = b.selection;
-        store.buffers[active.id] = active;
+        store.register(active);
         rebuild(() {});
         await tester.pump();
         expect(controller.value.composing, TextRange.empty);
@@ -3959,10 +3960,10 @@ class PersistGateWorkspace extends WorkspaceController {
   }
 
   @override
-  Future<void> persist() async {
+  Future<void> persist({bool all = true}) async {
     final wait = _pause;
     _pause = false;
-    await super.persist();
+    await super.persist(all: all);
     if (wait) {
       entered!.complete();
       await release!.future;

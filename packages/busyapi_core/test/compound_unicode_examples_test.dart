@@ -334,7 +334,7 @@ void main() {
                     as List;
             expect(reports.single['complete'], false);
             expect(reports.single['valid'], false);
-            await project.save(rootBuffer);
+            await publishSources(project, [rootBuffer]);
             expect(await root.readAsBytes(), [
               239,
               187,

@@ -178,10 +178,10 @@ void main() {
           await execute(migrated);
           expect(file.readAsBytesSync(), bytes);
           expect(buffer.text, working);
-          await project.save(buffer);
+          await publishSources(project, [buffer]);
           final saved = file.readAsBytesSync();
           expect(saved, [0xef, 0xbb, 0xbf, ...utf8.encode(working)]);
-          await project.save(buffer);
+          await publishSources(project, [buffer]);
           expect(file.readAsBytesSync(), saved);
           project.close();
           project = await BusyProject.open(file.path, engine);

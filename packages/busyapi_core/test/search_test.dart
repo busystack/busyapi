@@ -101,7 +101,7 @@ void main() {
     project.store.redo();
     expect(project.store.get(part.id).text, contains('New unsaved 😀'));
     for (final b in project.store.buffers.values)
-      if (b.dirty) await project.save(b);
+      if (b.dirty) await publishSources(project, [b]);
     expect(File(part.path).readAsBytesSync(), part.bytes());
     expect(
       DocumentBuffer.decode(part.path, File(part.path).readAsBytesSync()).text,
@@ -257,7 +257,7 @@ void main() {
     }, originals);
     project.store.redo();
     for (final b in project.store.buffers.values) {
-      if (b.dirty) await project.save(b);
+      if (b.dirty) await publishSources(project, [b]);
     }
     expect((await partFile.readAsBytes()).take(3), [0xef, 0xbb, 0xbf]);
     project.close();

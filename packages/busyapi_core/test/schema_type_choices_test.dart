@@ -153,7 +153,7 @@ void main() {
           expect(buffer.text, original);
           project.store.redo();
           expect(buffer.text, changed);
-          await project.save(buffer);
+          await publishSources(project, [buffer]);
           expect(await file.readAsString(), changed);
           project.close();
           final reopened = await BusyProject.open(file.path, engine);
@@ -272,7 +272,7 @@ void main() {
         expect(part.text, sharedOriginal);
         project.store.redo();
         expect(part.text, changedPart);
-        await project.save(part);
+        await publishSources(project, [part]);
         expect(await shared.readAsString(), changedPart);
         expect(await file.readAsString(), original);
       },

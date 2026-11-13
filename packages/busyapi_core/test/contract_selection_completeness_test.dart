@@ -220,7 +220,7 @@ void main() {
           expect((await run('held')).passed, false);
           expect(requests, ['/items', '/items']);
           project.store.redo();
-          await project.save(buffer);
+          await publishSources(project, [buffer]);
           expect(file.readAsBytesSync(), [
             0xef,
             0xbb,

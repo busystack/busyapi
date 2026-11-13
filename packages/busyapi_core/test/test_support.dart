@@ -2,6 +2,8 @@ import 'dart:io';
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
+import 'package:busyapi_core/busyapi_core.dart';
+import 'package:test/test.dart';
 import 'package:path/path.dart' as p;
 
 String get repositoryRoot =>
@@ -13,6 +15,19 @@ String get testBundle =>
     p.join(repositoryRoot, 'build/test-runtime');
 String get runtimeNode => p.join(testBundle, 'libexec/busyapi/node');
 String get runtimeHelper => p.join(testBundle, 'libexec/busyapi/engine.cjs');
+/// Assert a successful source publication through the same journalled publisher
+/// used by desktop and CLI. Failure/partial-outcome tests inspect that publisher
+/// directly so its honest receipts remain part of their assertions.
+Future<void> publishSources(
+  BusyProject project,
+  Iterable<DocumentBuffer> buffers,
+) async {
+  final state = await Directory.systemTemp.createTemp('busyapi-publication-test-');
+  addTearDown(() => state.delete(recursive: true));
+  final result = await PublicationStore(state.path).save(project, buffers);
+  expect(result.complete, true, reason: '${result.failed}; unattempted: ${result.notAttempted}');
+}
+
 Future<({int code, String output, String error})> runCliWithSecrets(
   List<String> arguments,
   Map<String, String> secrets,

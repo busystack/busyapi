@@ -147,7 +147,7 @@ void main() {
           project.store.undo();
           expect(b.bytes(), original);
           project.store.redo();
-          await project.save(b);
+          await publishSources(project, [b]);
           final cliValid = await Process.run('$testBundle/busyapi', [
             'check',
             file.path,

@@ -104,7 +104,7 @@ void main() {
       final result = await const ContractRequestExecutor().execute(plan,draft,resolveSecret: (_) async => null);
       try {expect(result.conforming,true,reason:'${result.outgoing.findings}');} finally {await result.close();}
       final changed = await project.applyRefactoring(await plan.planCase('Declared bytes',draft));
-      for (final id in changed) await project.save(project.store.get(id));
+      for (final id in changed) await publishSources(project, [project.store.get(id)]);
       project.close();project = await BusyProject.open(temp.path,engine);
       final cold = await project.prepareRequest(root,resource:root,pointer:pointer);addTearDown(cold.close);
       final reopened = await ContractTestRunner.reopenCase(cold,'Declared bytes',project.access);

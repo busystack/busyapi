@@ -24,7 +24,7 @@ void main() {
         diskIdentity: '',
         hasBom: false,
       );
-      final store = BufferStore()..buffers[buffer.id] = buffer;
+      final store = BufferStore()..register(buffer);
       buffer.selection = SourceSelection(original.length, original.length);
       final changes = ValueNotifier(0);
       var current = true;
@@ -152,7 +152,7 @@ void main() {
             )
             ..selection = SourceSelection(0, text.length)
             ..scroll = 1200;
-      final store = BufferStore()..buffers[buffer.id] = buffer;
+      final store = BufferStore()..register(buffer);
       final changes = ValueNotifier(0);
       final key = GlobalKey<SourceEditorState>();
       Widget host() => MaterialApp(

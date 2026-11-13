@@ -105,7 +105,7 @@ void main() {
               checked['projection']['info']['value']['version'],
               'business-version',
             );
-            await project.save(buffer);
+            await publishSources(project, [buffer]);
             expect(file.readAsBytesSync(), original);
             final page = await project.inspectObject(root, root, '/info');
             final range = List<int>.from(page['range'] as List);
@@ -135,7 +135,7 @@ void main() {
             project.store.redo();
             expect(buffer.text, changed);
             expect((await project.check(root))['status'], 'complete');
-            await project.save(buffer);
+            await publishSources(project, [buffer]);
             expect(file.readAsStringSync(), changed);
             final sourceEdit = format == 'yaml'
                 ? '$changed# Source edit\nx-exact: 9007199254740993.00\n'
@@ -145,7 +145,7 @@ void main() {
                   );
             project.store.replace(root, sourceEdit);
             expect((await project.check(root))['status'], 'complete');
-            await project.save(buffer);
+            await publishSources(project, [buffer]);
             expect(file.readAsStringSync(), sourceEdit);
             project.close();
             final reopened = await BusyProject.open(path, engine);
@@ -541,7 +541,7 @@ void main() {
           expect(file.readAsStringSync(), text);
           await selected.applyRefactoring(await rename());
           expect(buffer.text, contains('Renamed'));
-          await selected.save(buffer);
+          await publishSources(selected, [buffer]);
           for (final args in [
             ['check', path, '--json'],
             ['check', temp.path, '--json'],

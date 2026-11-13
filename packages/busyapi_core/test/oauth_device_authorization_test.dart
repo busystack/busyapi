@@ -94,7 +94,7 @@ void main() {
       final sent = await const ContractRequestExecutor().execute(fixture.plan, fixture.draft, resolveSecret: (_) async => issued.accessToken);
       try {expect(sent.conforming, true, reason: '${sent.outgoing.findings}');} finally {await sent.close();}
       final changed = await fixture.project.applyRefactoring(await fixture.plan.planCase('Device authenticated', fixture.draft));
-      for (final id in changed) await fixture.project.save(fixture.project.store.get(id));
+      for (final id in changed) await publishSources(fixture.project, [fixture.project.store.get(id)]);
       final manifest = await File('${fixture.directory.path}/busyapi.yaml').readAsString();
       expect(manifest, isNot(contains('device-token')));expect(manifest, isNot(contains('private-device-code')));
       final cli = await runCliWithSecrets(['test', fixture.directory.path, '--case', 'Device authenticated', '--json'], {_reference: issued.accessToken});

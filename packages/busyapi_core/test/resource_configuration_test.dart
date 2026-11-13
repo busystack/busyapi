@@ -233,7 +233,7 @@ void main() {
       isNotEmpty,
       reason: 'A saved check cannot retarget the working projection',
     );
-    await project.save(b);
+    await publishSources(project, [b]);
     await manifest.writeAsString('${b.text}# external\n');
     final refresh = await project.refreshResources();
     expect(refresh.resources, contains(b.id));

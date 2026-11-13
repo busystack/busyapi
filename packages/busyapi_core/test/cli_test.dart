@@ -174,7 +174,7 @@ void main() {
         buffer.id,
         buffer.text.replaceFirst('Parity', 'Authored'),
       );
-      await project.save(buffer);
+      await publishSources(project, [buffer]);
       final live = await project.check(project.roots.single.id);
       final core = await project.check(project.roots.single.id, saved: true);
       expect(live['snapshot'], core['snapshot']);

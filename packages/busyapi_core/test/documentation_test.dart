@@ -649,7 +649,7 @@ void main() {
           expect(jsonEncode(packet), capturedPacket);
           expect(await source.readAsBytes(), sourceBytes);
           expect(await File(model.path).readAsBytes(), disk);
-          await project!.save(model);
+          await publishSources(project!, [model]);
           expect(await File(model.path).readAsString(), model.text);
           final next = await project!.captureDocumentationPresentation(
             source.uri.toString(),

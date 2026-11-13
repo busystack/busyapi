@@ -214,7 +214,7 @@ void main() {
             version == '2.0' ? 1 : 0,
             reason: '${saved.stdout}${saved.stderr}',
           );
-          await project.save(buffer);
+          await publishSources(project, [buffer]);
           final published = await part.readAsString();
           expect(
             published,
@@ -226,7 +226,7 @@ void main() {
           project = await BusyProject.open(temp.path, engine);
           expect((await project.check(root))['complete'], true);
           final reopened = await project.buffer(partId);
-          await project.save(reopened);
+          await publishSources(project, [reopened]);
           expect(await part.readAsString(), published);
           expect(await source.readAsString(), original);
         },

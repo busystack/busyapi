@@ -412,7 +412,7 @@ void main() {
           expect(buffer.text, contains('Unsaved model'));
           expect(buffer.text, isNot(contains('Later model')));
           stage('source-save');
-          await project.save(buffer);
+          await publishSources(project, [buffer]);
           final cliPath = '${temp.path}/CLI package';
           stage('saved-package-capture');
           final savedPlan = await project.prepareBundle(

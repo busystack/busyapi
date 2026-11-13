@@ -186,7 +186,7 @@ void main() {
           for (final entry in original.entries)
             expect(await entry.key.readAsBytes(), entry.value);
           for (final buffer in [rootBuffer, modelBuffer])
-            await project.save(buffer);
+            await publishSources(project, [buffer]);
           for (final buffer in [rootBuffer, modelBuffer]) {
             expect(buffer.text, working[buffer.id]);
             expect(await File(buffer.path).readAsBytes(), [
@@ -195,7 +195,7 @@ void main() {
               191,
               ...utf8.encode(working[buffer.id]!),
             ]);
-            await project.save(buffer);
+            await publishSources(project, [buffer]);
             expect(await File(buffer.path).readAsBytes(), [
               239,
               187,

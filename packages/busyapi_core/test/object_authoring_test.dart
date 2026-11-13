@@ -105,7 +105,7 @@ void main() {
           isA<CoreFailure>().having((e) => e.code, 'code', 'inspect.resource'),
         ),
       );
-      await project.save(buffer);
+      await publishSources(project, [buffer]);
       expect(await File(buffer.path).readAsBytes(), buffer.bytes());
     } finally {
       project?.close();
@@ -130,10 +130,10 @@ void main() {
         resources: [before.snapshot()],
       );
       await File(path).writeAsString('{"new": true}');
-      store.buffers[before.id] = DocumentBuffer.decode(
+      store.register(DocumentBuffer.decode(
         path,
         await File(path).readAsBytes(),
-      );
+      ));
       expect(store.get(before.id).generation, before.generation);
       expect(snapshot.current(store), false);
     } finally {

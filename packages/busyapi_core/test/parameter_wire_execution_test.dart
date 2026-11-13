@@ -57,7 +57,7 @@ void main() {
         }
       }
       final changes=await project.applyRefactoring(await savedPlan!.planCase('Empty member',savedDraft!));
-      for(final id in changes)await project.save(project.store.get(id));
+      for(final id in changes)await publishSources(project, [project.store.get(id)]);
       project.close();project=await BusyProject.open(temp.path,engine);
       final plan=await project.prepareRequest(root,resource:root,pointer:'/paths/~1matrix~1{p}/get');addTearDown(plan.close);
       final loaded=await ContractTestRunner.reopenCase(plan,'Empty member',project.access);

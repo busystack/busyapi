@@ -47,7 +47,7 @@ void main() {
       project.store.undo();expect(buffer.bytes(), before);
       project.store.redo();expect(buffer.bytes(), accepted);
       await expectLater(project.applyRefactoring(review), throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'refactor.stale')));
-      await project.save(buffer);project.close();
+      await publishSources(project, [buffer]);project.close();
       project = await BusyProject.open(directory.path, engine);
       expect((await project.buffer(root)).bytes(), accepted);expect((await project.check(root))['status'], 'complete');
       final cold = await requestPlan();await prove(cold);cold.close();project.close();

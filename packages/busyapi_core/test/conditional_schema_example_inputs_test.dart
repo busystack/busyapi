@@ -268,7 +268,7 @@ void main() {
               (savedMedia['examples'] as List).first['raw'],
               expected.first.replaceFirst('Unsaved 雪😀', 'Saved'),
             );
-            await project.save(rootBuffer);
+            await publishSources(project, [rootBuffer]);
             expect(await file.readAsBytes(), [
               239,
               187,

@@ -129,7 +129,7 @@ void main() {
         expect(report['cases'][0]['operationalFailure'], false);
         expect(received, ['/v%E9%9B%AA/items', '/v1/items']);
         project.store.replace(root, source);
-        await project.save(buffer);
+        await publishSources(project, [buffer]);
         expect(file.readAsBytesSync(), original);
         expect(manifest.readAsBytesSync(), manifestBytes);
       });

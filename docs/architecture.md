@@ -254,6 +254,30 @@ Literal data and an established schema occurrence may share one source value wit
 
 ## Canonical source ownership
 
+`BufferStore` exclusively mutates source text, BOM, path/presence and revisions,
+including reload, recovery, undo and buffer replacement. Its buffer map is
+read-only outside the owner. History retains reversible spans and logical state
+tokens, never document digests. Undo restores the logical token while advancing
+the asynchronous revision. Disk receipts retain a separate saved text/BOM baseline;
+a save does not discard undo. Draft maps advance an input revision instead of
+serializing themselves to detect changes. The existing windowed editor reuses
+line heights outside an accepted edit and adjusts cumulative positions.
+
+Folding captures and parses only the selected physical resource, including an
+incomplete declaration or an approved unopened fragment. It does not acquire a
+project graph; other assistance retains its captured semantic context. SourcePlan
+forks share immutable syntax and copy mutable provenance without another parse.
+Operation moves use `planOperationMove`; same-container method changes edit only
+the key, preserving operation position and adjacent bytes.
+
+`PublicationStore` is the single source-save implementation used by desktop and
+CLI. It preserves exact disk conflict checks, interrupted-publication records,
+ordered grouped operations and honest partial receipts. TypeScript exclusively
+owns conversion language/configuration semantics. Dart bounds the review packet,
+freezes reviewed file bytes once and checks captured authority, freshness and safe
+publication paths.
+
+
 Client generation is a focused core extension (`generation.dart`) and packaged-process adapter (`generator_runtime.dart`). Its native action reuses the compact `BundleRunController` output review; widgets neither launch processes nor publish files. The official catalog/options determine choices. `prepareClient` captures the ordinary immutable graph, including unsaved resources, uses its semantics-preserving single-file derivation, and runs the pinned JAR in a private stage. Conversion metadata checks original operation occurrences before publication; this is not a compatibility engine or a claim of complete generator schema support.
 
 `ClientOutput` freezes bounded generated files and snapshot/options/template/tool provenance. Lazy changes and before/after inspection use captured bytes and an unchanged existing receipt. Foreign files, hand edits, linked/escaping outputs and destination races cannot authorize replacement. Publication remains the anchored `AtomicDirectoryWriter`, retaining displaced output. Missing generation assets affect this action only; ordinary editing never initializes Java. The generator-only JVM launcher grants packaged input/runtime reads and private-stage writes, without external networking or executable project hooks. Governance's independent startup/final seal, renderer permissions and corrected Flutter engine are unchanged.
@@ -262,7 +286,14 @@ Client generation is a focused core extension (`generation.dart`) and packaged-p
 
 All offsets use **UTF-16 code units**, half-open `[start,end)` intervals, and exclude the UTF-8 BOM. Text retains authored CR, LF and CRLF sequences. Lines/columns are one-based; columns count code units. Non-BMP boundaries are checked before mutations. BOM is a separate buffer flag. Strict decoding fails without replacing undecodable bytes. Saving never normalizes line endings or trailing newlines.
 
-IPC version **1** uses a four-byte big-endian UTF-8 payload length followed by a JSON envelope with protocol, request ID, method and parameters. Responses distinguish structured success/error. Analysis/edit IPC carries generation-bound snapshot identity. Public check snapshots normalize the same canonical bytes and helper asset hash, while retaining the request context separately; saved GUI/CLI findings therefore agree after authoring, not only on newly opened generation-one buffers. Physical resources include generation/content identity. Resource reads are bounded to 16 MiB, snapshot collection to a conservative 48 MiB escaped-text budget, frames to 64 MiB, and jobs to two workers. Dart admits four data requests to the helper and retains at most four more waiting requests, with a 128-MiB conservative captured-container/text budget. Immutable strings are shared; mutable containers are captured before waiting. Source feedback/transactions precede queued derived views and full schema evaluation, retaining arrival order within each priority. Four separate control slots and four bounded control waiters do not consume data capacity; each control request is limited to 64 KiB of captured data. Deadlines include waiting and encoding. Cancellation of queued work never dispatches it, prefix cancellation marks every captured owner before awaiting termination, and running cancellation retains capacity until the helper acknowledges actual termination. Crashes/closure fail waiting owners rather than returning empty successes. Two reusable workers retain compiled validators and bounded CST caches; cancellation terminates an active worker and a later job creates its replacement. Cache identity uses actual source hashes. Parsing runs with memory limits. Runtime loading environment variables are removed. Logs are not retained as text. The packaged helper is launched with an executable and argument array.
+IPC version **1** uses a four-byte big-endian UTF-8 payload length followed by a JSON envelope with protocol, request ID, method and parameters. Responses distinguish structured success/error. Analysis/edit IPC carries generation-bound snapshot identity. Public check snapshots normalize the same canonical bytes and helper asset hash, while retaining the request context separately; saved GUI/CLI findings therefore agree after authoring, not only on newly opened generation-one buffers. Physical resources include generation/content identity. Resource reads are bounded to 16 MiB, snapshot collection to a conservative 48 MiB escaped-text budget, frames to 64 MiB, and jobs to two workers. Node’s WorkerDispatcher owns execution admission and priority. Dart immediately
+encodes bounded immutable requests and owns transport correlation, deadlines,
+cancellation and process epochs, with separate reserved control capacity. Awaited
+stdout decoding applies stream backpressure; retired-process continuations cannot
+consume replacement-session state. Prefix cancellation marks every captured owner
+before awaiting termination, and sent requests retain capacity until actual
+cancellation acknowledgement. Crashes and closure fail captured owners rather
+than returning empty successes. Two reusable workers retain compiled validators and bounded CST caches; cancellation terminates an active worker and a later job creates its replacement. Cache identity uses actual source hashes. Parsing runs with memory limits. Runtime loading environment variables are removed. Logs are not retained as text. The packaged helper is launched with an executable and argument array.
 
 Full schema/governance execution has background-worker affinity within the same two-worker bound. One background job runs at a time; foreground requests may still use two workers when available. A cancelled evaluator cannot consume and then destroy the sole idle foreground parser/cache owner. Retiring workers retain capacity until termination completes. This preserves progressive feedback during overlapping edits without acknowledging unfinished evaluation or changing the parser/input implementation.
 
@@ -311,7 +342,16 @@ Normal CMake installation matches the current Flutter build ID and its compiler 
 
 Publication opens every parent relative to a held directory descriptor with `O_NOFOLLOW`, and reads/publishes through `/proc/self/fd` anchors. Staged file permissions are set before publication. Save checks content hashes before exchange and verifies displaced bytes at the publication boundary. A race preserves displaced bytes; it never rolls back over a later writer. Save All and selected grouped saves freeze generations, text, format and expected disk identities before writing a private atomic intent. Per-file publication synchronizes its directory and records receipts without truncating the previous journal. Startup inspection compares planned/current hashes, including publication without a receipt; explicit recovery transfers remaining text into buffers beside newer disk content. It never replays writes automatically. Partial outcomes identify published, failed and unattempted files.
 
-Recovery checkpoints retain frozen per-resource records and await the coalesced writer, not merely submission. If directory inspection outlasts a newer captured checkpoint for the same resource, the obsolete record can be skipped before encoding/flushing. At most one is skipped before that resource publishes again, so sustained input cannot starve recovery progress. Published records still flush before rename; retirement, storage bounds and source authority are unchanged. A local optional phase observer contains only fixed operation labels, with no source/path values or implicit logging/network activity. Regression tests cover immutable captures, retirement during encoding, drain completion and bounded supersession.
+Recovery checkpoints select changed buffer owners and changed draft revisions. They
+never enumerate the workspace for a typing/field checkpoint; explicit close,
+replacement and publication drains may collect all resources. Connected file
+intent membership is reused until a structural transition changes it, and unrelated
+dirty sources retain individual records. The coalescing writer inventories its
+private directory once per batch of at most sixteen records under a cross-process
+directory lock, updating sizes as it writes. Each batch releases ownership for
+other writers and reconciles their records before continuing. Encoding runs off
+the UI isolate; flushed atomic replacement, bounded storage, guarded retirement
+and explicit errors remain. Process identity is captured once per recovery session.
 
 Private staging and adjacent archive directories use visible `busyapi-*` names with enforced `0700` permissions. File staging sets that mode through its retained directory handle before writing bytes; confidentiality does not depend on a hidden basename or the process umask. This permits a selected contract/output directly under home through Snap's ordinary home interface, without hidden-file grants. Existing version-1 recovery records naming the original dot-prefixed archives remain subject to the same adjacency, source/destination identity, collision and no-replay checks. Namespace classification alone grants no access or publication authority.
 

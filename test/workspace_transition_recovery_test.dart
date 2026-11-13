@@ -36,6 +36,7 @@ class _PausedAdoptionStore extends RecoveryStore {
   Future<void> adopt(
     Map<String, dynamic> record,
     DocumentBuffer buffer, {
+    required BufferStore store,
     PropertySession? draft,
     FormSession? form,
     bool Function()? current,
@@ -46,11 +47,27 @@ class _PausedAdoptionStore extends RecoveryStore {
     await super.adopt(
       record,
       buffer,
+      store: store,
       draft: draft,
       form: form,
       current: current,
       onAdopted: onAdopted,
     );
+  }
+}
+
+class _ObservedRecovery extends RecoveryStore {
+  _ObservedRecovery(super.directory);
+  final List<String> captured = [];
+  Future<void>? writing;
+  @override
+  Future<void> persist(
+    DocumentBuffer buffer, {
+    PropertySession? draft,
+    FormSession? form,
+  }) {
+    captured.add(buffer.id);
+    return writing = super.persist(buffer, draft: draft, form: form);
   }
 }
 
@@ -76,6 +93,75 @@ void main() {
       cache: '${directory.path}/cache',
     ),
     recovery: recovery,
+  );
+
+  test(
+    'Source and draft checkpoints persist only the affected dirty resource',
+    () async {
+      final file = File('${directory.path}/api.yaml');
+      await file.writeAsString(
+        'openapi: 3.2.1\ninfo: {title: Original, version: "1"}\npaths: {}\n',
+      );
+      final recovery = _ObservedRecovery('${directory.path}/recovery');
+      final c = controller(recovery: recovery);
+      try {
+        await c.open(file.path);
+        await c.analyse();
+        final buffer = c.buffer!;
+        for (var i = 0; i < 32; i++) {
+          c.store!.register(
+            DocumentBuffer(
+              id: 'file://${directory.path}/other-$i.yaml',
+              path: '${directory.path}/other-$i.yaml',
+              text: 'dirty $i',
+              baseline: 'saved',
+              diskIdentity: 'captured',
+              hasBom: false,
+            ),
+          );
+        }
+        await c.persist();
+        recovery.captured.clear();
+        c.sourceDelta(
+          TextEdit(
+            buffer: buffer.id,
+            generation: buffer.generation,
+            start: 0,
+            end: 0,
+            expected: '',
+            replacement: '# exact 雪😀\r\n',
+          ),
+        );
+        await recovery.writing;
+        expect(recovery.captured, [buffer.id]);
+        await c.analyse();
+        final draft = c.bind(
+          Map<String, dynamic>.from(c.analysis!['info'] as Map),
+        );
+        draft.bind('title', 'Original');
+        draft.edit('title', 'unfinished field');
+        recovery.captured.clear();
+        c.checkpoint();
+        await recovery.writing;
+        expect(recovery.captured, [buffer.id]);
+        final records = [
+          for (final entry in Directory(
+            recovery.directory,
+          ).listSync().whereType<File>())
+            jsonDecode(entry.readAsStringSync()) as Map,
+        ];
+        expect(records, hasLength(33));
+        final changed = records.singleWhere(
+          (record) => record['id'] == buffer.id,
+        );
+        expect(changed['text'], startsWith('# exact 雪😀\r\n'));
+        expect(changed['draft']['values']['title'], 'unfinished field');
+      } finally {
+        c.dispose();
+        c.project?.close();
+        await c.engine.close();
+      }
+    },
   );
 
   String fixture(String format, {String title = 'Original'}) => format == 'json'

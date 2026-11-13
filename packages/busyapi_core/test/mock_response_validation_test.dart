@@ -188,8 +188,8 @@ void main() {
             isEmpty,
             reason: 'A running mock retains its coherent captured graph',
           );
-          await project.save(buffer);
-          await project.save(shared);
+          await publishSources(project, [buffer]);
+          await publishSources(project, [shared]);
           expect(await file.readAsBytes(), utf8.encode(original));
           expect(await fragment.readAsBytes(), utf8.encode(model));
         },

@@ -118,7 +118,7 @@ void main() {
               ),
               hasLength(value ? 0 : 2),
             );
-            await project.save(buffer);
+            await publishSources(project, [buffer]);
             final destination = '${temp.path}/CLI output 雪';
             final saved = await project.prepareBundle(
               source.uri.toString(),

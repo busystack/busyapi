@@ -155,7 +155,7 @@ void main() {
               allowed ? List.filled(2, '/v1/items?base=0') : isEmpty,
             );
             final buffer = await project.buffer(root);
-            await project.save(buffer);
+            await publishSources(project, [buffer]);
             expect(file.readAsBytesSync(), original);
           },
         );

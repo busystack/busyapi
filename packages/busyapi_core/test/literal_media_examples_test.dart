@@ -229,7 +229,7 @@ void main() {
             project.store.undo();
             expect(buffer.bytes(), originalBytes);
             project.store.redo();
-            await project.save(buffer);
+            await publishSources(project, [buffer]);
             final cli = await Process.run('$testBundle/busyapi', [
               'check',
               file.path,

@@ -62,7 +62,7 @@ void main() {
         expect(buffer.text, text);
         project.store.redo();
         expect(buffer.bytes(), accepted);
-        await project.save(buffer);
+        await publishSources(project, [buffer]);
         expect(await file.readAsBytes(), accepted);
         project.store.undo();
         final current = await project.inspectObject(root, root, media);

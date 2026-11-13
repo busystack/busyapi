@@ -48,7 +48,7 @@ void main() {
         buffer.id,
         contract.replaceFirst('Configured', 'Saved'),
       );
-      await project.save(buffer);
+      await publishSources(project, [buffer]);
       await project.populateFileBrowser();
       expect(project.fileBrowserTruncated, isTrue);
       expect(root.readAsStringSync(), contains('Saved'));

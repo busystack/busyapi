@@ -97,7 +97,7 @@ void main() {
             '/servers/0/url',
           );
           final buffer = await project.buffer(root);
-          await project.save(buffer);
+          await publishSources(project, [buffer]);
           expect(file.readAsBytesSync(), original);
         },
       );

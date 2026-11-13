@@ -17,7 +17,7 @@ void main() {
         utf8.encode('Original'),
       );
       final oldStore = RecoveryStore('${dir.path}/state');
-      buffer.update('Recovered');
+      (BufferStore()..register(buffer)).replace(buffer.id, 'Recovered');
       await oldStore.persist(buffer);
       final recordFile = Directory(oldStore.directory)
           .listSync()
@@ -31,12 +31,13 @@ void main() {
         buffer.path,
         utf8.encode('Original'),
       );
-      final store = BufferStore()..buffers[target.id] = target;
+      final store = BufferStore()..register(target);
       final recovery = RecoveryStore(oldStore.directory);
       var adopted = false;
       final pending = recovery.adopt(
         record,
         target,
+        store: store,
         onAdopted: () {
           adopted = true;
           store.retireHistory({target.id});
@@ -97,8 +98,9 @@ void main() {
     expect(restored.target.range, [10, 14]);
     expect(restored.values['name'], 'third');
     expect(restored.arguments['index'], 2);
-    b.update('changed');
-    b.update(
+    final buffers = BufferStore()..register(b);
+    buffers.replace(b.id, 'changed');
+    buffers.replace(b.id,
       'same same same',
     ); // An undo cannot revive the captured generation.
     expect(() => restored.verify(b, b.id), throwsA(isA<CoreFailure>()));
@@ -107,7 +109,7 @@ void main() {
       b.id,
       restoring: true,
     ); // Explicit restore of byte-identical buffer only.
-    b.update('same SAME same');
+    buffers.replace(b.id, 'same SAME same');
     expect(
       () => restored.verify(b, b.id, restoring: true),
       throwsA(isA<CoreFailure>()),
@@ -151,7 +153,7 @@ void main() {
     final next = DocumentBuffer.decode(file.path, await file.readAsBytes());
     record['recordPath'] = recordFile.path;
     final nextRecovery = RecoveryStore('${dir.path}/state');
-    await nextRecovery.adopt(record, next, form: restored);
+    await nextRecovery.adopt(record, next, store: BufferStore()..register(next), form: restored);
     expect(next.externalConflict, true);
     expect(next.generation, greaterThan(b.generation));
     restored.verify(next, next.id, restoring: true);
@@ -188,13 +190,15 @@ void main() {
     addTearDown(project.close);
     final missing = await project.buffer(b.id, recovery: record);
     final resumed = FormSession.restore(record['form'] as Map<String, dynamic>);
-    await recovery.adopt(record, missing, form: resumed);
+    await recovery.adopt(record, missing, store: project.store, form: resumed);
     expect(missing.externalConflict, true);
     expect(missing.text, b.text);
-    await expectLater(
-      project.save(missing..update('new draft')),
-      throwsA(isA<CoreFailure>()),
-    );
+    project.store.replace(missing.id, 'new draft');
+    final receipt = await PublicationStore('${dir.path}/publication').save(project, [missing]);
+    expect(receipt.complete, false);
+    expect(receipt.failed, contains(missing.id));
+    expect(receipt.published, isEmpty);
+    expect(receipt.notAttempted, isEmpty);
     expect(await File(path).exists(), false);
   });
 }

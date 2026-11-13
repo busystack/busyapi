@@ -199,7 +199,7 @@ tests:
             expect(received, ['/v1/items']);
             expect(project.store.get(root).text, valid);
             expect(await tester.runAsync(file.readAsBytes), original);
-            await tester.runAsync(() => project.save(project.store.get(root)));
+            await tester.runAsync(() => publishSources(project, [project.store.get(root)]));
             expect(await tester.runAsync(file.readAsBytes), original);
           } finally {
             await tester.pumpWidget(const SizedBox.shrink());

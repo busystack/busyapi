@@ -66,7 +66,7 @@ void main() {
       await exchange();expect(buffer.text,contains('9007199254740993.00'));
       project.store.undo();expect(buffer.bytes(),before);project.store.redo();expect(buffer.bytes(),accepted);
       await expectLater(project.applyRefactoring(review),throwsA(isA<CoreFailure>().having((error)=>error.code,'code','refactor.stale')));
-      await project.save(buffer);project.close();project=await BusyProject.open(temp.path,engine);
+      await publishSources(project, [buffer]);project.close();project=await BusyProject.open(temp.path,engine);
       expect((await project.buffer(root)).bytes(),accepted);expect((await project.check(root))['status'],'complete');
       await exchange();
       final checked=await Process.run('$testBundle/busyapi',['test',temp.path,'--case','Header proof','--json'],

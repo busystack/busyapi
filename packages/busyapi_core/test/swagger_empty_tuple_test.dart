@@ -307,7 +307,7 @@ tests:
             reason: '${checked.stdout}\n${checked.stderr}',
           );
           expect(jsonDecode(checked.stdout as String)['complete'], true);
-          await project.save(buffer);
+          await publishSources(project, [buffer]);
           final executed = await Process.run('$testBundle/busyapi', [
             'test',
             directory.path,
@@ -331,7 +331,7 @@ tests:
           expect(await manifest.readAsBytes(), originalManifest);
           final saved = await shared.readAsBytes();
           expect(saved, buffer.bytes());
-          await project.save(buffer);
+          await publishSources(project, [buffer]);
           expect(await shared.readAsBytes(), saved);
         },
       );

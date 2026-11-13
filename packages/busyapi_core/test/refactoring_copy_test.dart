@@ -111,7 +111,7 @@ void main() {
             isA<CoreFailure>().having((e) => e.code, 'code', 'refactor.stale'),
           ));
           expect(buffer.bytes(), accepted);
-          await project.save(buffer);
+          await publishSources(project, [buffer]);
           project.close();
           project = await BusyProject.open(file.path, engine);
           expect((await project.buffer(root)).bytes(), accepted);

@@ -179,7 +179,7 @@ void main() {
               expect(checked['findings'], isEmpty);
               expect(await root.readAsString(), source);
               expect(await fragment.readAsBytes(), before);
-              await project!.save(buffer);
+              await publishSources(project!, [buffer]);
               expect(await fragment.readAsBytes(), accepted);
             });
           } finally {

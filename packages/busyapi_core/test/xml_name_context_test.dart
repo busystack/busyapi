@@ -91,7 +91,7 @@ void main() {
             );
             project.store.redo();
             expect(buffer.text, changed);
-            await project.save(buffer);
+            await publishSources(project, [buffer]);
             expect(await file.readAsBytes(), utf8.encode(changed));
             project.close();
             project = await BusyProject.open(file.path, engine);

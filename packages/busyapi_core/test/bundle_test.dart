@@ -207,7 +207,7 @@ void main() {
             ),
             hasLength(2),
           );
-          await project.save(buffer);
+          await publishSources(project, [buffer]);
           final saved = await project.prepareBundle(
             source.uri.toString(),
             '${temp.path}/saved literal',
@@ -474,7 +474,7 @@ void main() {
             ),
             hasLength(1),
           );
-          await project.save(buffer);
+          await publishSources(project, [buffer]);
           final savedBytes = buffer.bytes();
           project.close();
           project = await BusyProject.open(source.path, engine);
@@ -700,7 +700,7 @@ void main() {
             hasLength(1),
           );
           final savedBytes = buffer.bytes();
-          await project.save(buffer);
+          await publishSources(project, [buffer]);
           expect(await model.readAsBytes(), savedBytes);
           final cliDestination = '${temp.path}/CLI output 雪';
           final saved = await project.prepareBundle(

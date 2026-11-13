@@ -112,7 +112,7 @@ void main() {
             1,
           );
           expect(await rules.readAsBytes(), originalRules);
-          await project.save(policy);
+          await publishSources(project, [policy]);
           final clean = await Process.run('$testBundle/busyapi', [
             'lint',
             file.path,

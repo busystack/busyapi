@@ -151,8 +151,8 @@ void main() {
         expect(partBuffer.text, partText);
         expect(await root.readAsString(), rootText);
         expect(await part.readAsString(), partText);
-        await project.save(rootBuffer);
-        await project.save(partBuffer);
+        await publishSources(project, [rootBuffer]);
+        await publishSources(project, [partBuffer]);
         expect(await root.readAsString(), edited);
         expect(await part.readAsString(), partText);
         project.close();

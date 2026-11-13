@@ -62,7 +62,7 @@ class _FormValueEditorState extends State<FormValueEditor> {
       selection.extentOffset.clamp(0, text.length),
     );
     buffer = draft;
-    store.buffers[draft.id] = draft;
+    store.register(draft);
   }
 
   void observe() {
@@ -80,7 +80,7 @@ class _FormValueEditorState extends State<FormValueEditor> {
       });
     } else if (expanded && buffer!.text != widget.controller.text) {
       // An explicit parent reconciliation is not a draft undo operation.
-      buffer!.update(widget.controller.text);
+      store.adopt(buffer!, widget.controller.text);
       store.clearHistory();
       changes.value++;
     }
@@ -126,7 +126,7 @@ class _FormValueEditorState extends State<FormValueEditor> {
     if (!identical(widget.controller, oldWidget.controller)) {
       oldWidget.controller.removeListener(observe);
       widget.controller.addListener(observe);
-      store.buffers.clear();
+      store.clearBuffers();
       store.clearHistory();
       buffer = null;
       composing = false;

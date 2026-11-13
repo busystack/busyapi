@@ -218,7 +218,7 @@ void main() {
             }
 
             final initial = await check(true);
-            await project.save(buffer);
+            await publishSources(project, [buffer]);
             expect(await file.readAsBytes(), originalBytes);
             final cli = await _cli(['check', path, '--json']);
             expect(cli.exitCode, 0, reason: '${cli.stdout}\n${cli.stderr}');
@@ -370,8 +370,8 @@ void main() {
               expect(seen.last.$3, isNull);
               expect(seen.last.$4, isEmpty);
             }
-            await project.save(buffer);
-            await project.save(sharedBuffer);
+            await publishSources(project, [buffer]);
+            await publishSources(project, [sharedBuffer]);
             expect(await file.readAsBytes(), originalBytes);
             expect(await shared.readAsString(), sharedText);
             expect(

@@ -111,6 +111,7 @@ extension FilePublication on PublicationStore {
           'generation': b.generation,
           'text': b.text,
           'baseline': b.baseline,
+          'baselineHasBom': b.baselineHasBom,
           'expected': b.diskIdentity,
           'hasBom': b.hasBom,
           'mode': b.mode,
@@ -370,6 +371,7 @@ extension FilePublication on PublicationStore {
           entry[entry['present'] == false ? 'sourcePath' : 'path'] as String;
       b.publishedPresent = entry['present'] != false;
       b.baseline = entry['text'] as String;
+      b.baselineHasBom = entry['hasBom'] as bool;
       b.diskIdentity = b.publishedPresent ? entry['identity'] as String : '';
       b.externalConflict = false;
       project.resourceFingerprints[b.id] = b.publishedPresent

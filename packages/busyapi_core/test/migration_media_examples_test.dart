@@ -59,7 +59,7 @@ void main() {
       await File('${directory.path}/payload.bin').writeAsBytes(seen.single);
       final examples=(value['components'] as Map)['examples'] as Map;
       (examples['Choice'] as Map)['externalValue']='payload.bin';
-      source.store.replace(root,render());await source.save(source.store.get(root));
+      source.store.replace(root,render());await publishSources(source, [source.store.get(root)]);
       final before=await file.readAsBytes();
       final review=await source.prepareMigration(root,'${directory.path}/converted',targetVersion:target);
       addTearDown(review.close);expect(review.publishable,true,reason:'${review.result}');expect(review.exampleCopies.single.bytes,seen.single);expect(await file.readAsBytes(),before);
@@ -73,7 +73,7 @@ void main() {
       final body=await choice(plan);await send(plan,body);expect(seen[1],seen[0]);
       final draft=OperationRequestDraft(planIdentity:plan.identity,body:body);
       final changes=await cold.applyRefactoring(await plan.planCase('Migrated model',draft));
-      for(final changed in changes)await cold.save(cold.store.get(changed));
+      for(final changed in changes)await publishSources(cold, [cold.store.get(changed)]);
       final replay=await cold.prepareRequest(id,resource:id,pointer:'/paths/~1p/post');addTearDown(replay.close);
       await send(replay,(await ContractTestRunner.reopenCase(replay,'Migrated model',cold.access)).body);
       final cli=await Process.run('$testBundle/busyapi',['test',moved.path,'--case','Migrated model','--json'],

@@ -333,7 +333,7 @@ x-payload: {\u0024ref: literal payload}\r
             throwsA(isA<CoreFailure>()),
           );
           expect(buffer.text, applied);
-          await project.save(buffer);
+          await publishSources(project, [buffer]);
           expect(await file.readAsString(), applied);
           final reopened = await BusyProject.open(file.path, engine);
           projects.add(reopened);
@@ -363,7 +363,7 @@ x-payload: {\u0024ref: literal payload}\r
       beforePublish: (_) async {
         // Exercise the public store's object-ownership boundary independently of
         // path admission. A map key alone must never transfer this receipt.
-        project.store.buffers[owner.id] = replacement;
+        project.store.register(replacement);
       },
     );
     expect(result.complete, true);

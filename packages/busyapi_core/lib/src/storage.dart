@@ -50,6 +50,11 @@ final _chmod = _libc
       Int32 Function(Pointer<Utf8>, Uint32),
       int Function(Pointer<Utf8>, int)
     >('chmod');
+final _flock = _libc
+    .lookupFunction<Int32 Function(Int32, Int32), int Function(int, int)>(
+      'flock',
+    );
+
 Future<List<int>> _readBounded(
   File file,
   int initialLength, {
@@ -682,8 +687,12 @@ Object? _freezeRecovery(Object? value) {
 
 class RecoveryStore {
   RecoveryStore(this.directory, {this.onCheckpointPhase})
-    : owner = '$pid-${DateTime.now().microsecondsSinceEpoch}';
+    : owner = '$pid-${DateTime.now().microsecondsSinceEpoch}',
+      _processIdentity = processIdentity(pid);
   final String directory, owner;
+  final String? _processIdentity;
+  final Map<String, Set<DocumentBuffer>> _fileGroupMembers = {};
+  final Map<String, (int, List<Set<DocumentBuffer>>)> _fileGroupContexts = {};
 
   /// Optional local boundary observation for tests/development diagnostics.
   /// Labels contain no source values, paths, identities or secrets. No logging
@@ -723,70 +732,91 @@ class RecoveryStore {
 
   Future<void> _drain() async {
     await Future<void>.delayed(Duration.zero);
-    final superseded = <String>{};
     while (_pending.isNotEmpty) {
-      _phase('record:start');
-      final id = _pending.keys.first, payload = _pending.remove(id);
-      final retireGuard = _retireGuards.remove(id);
-      final destination = _path(id);
-      if (payload == null) {
-        _phase('retire:start');
-        final f = File(destination);
-        if (await f.exists() && (retireGuard?.call() ?? true)) await f.delete();
-        superseded.remove(id);
-        _phase('retire:end');
-        continue;
-      }
       _phase('directory:start');
       await Directory(directory).create(recursive: true);
       privatePermissions(directory, 448);
       _phase('directory:end');
-      _phase('inventory:start');
-      final existing = await Directory(directory)
-          .list(followLinks: false)
-          .where((f) => f is File && f.path.endsWith('.json'))
-          .toList();
-      if (existing.length >= 128 && !File(destination).existsSync()) {
-        throw CoreFailure(
-          'recovery.limit',
-          'Recovery document limit reached; buffers remain in memory',
-        );
+      final path = directory.toNativeUtf8();
+      // Hold the directory itself: no extra persistent lock record. flock is
+      // shared by recovery writers, including other instances/processes.
+      final descriptor = _openat(-100, path, 0x10000 | 0x20000 | 0x80000);
+      calloc.free(path);
+      if (descriptor < 0) {
+        throw FileSystemException('Cannot open recovery directory', directory);
       }
-      var total = 0;
-      for (final f in existing) {
-        if (f.path != destination) total += (await f.stat()).size;
+      try {
+        while (_flock(descriptor, 2 | 4) != 0) {
+          if (_errnoLocation().value != 11) {
+            throw FileSystemException(
+              'Cannot lock recovery directory',
+              directory,
+            );
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+        _phase('inventory:start');
+        final sizes = <String, int>{};
+        await for (final entry in Directory(
+          directory,
+        ).list(followLinks: false)) {
+          if (entry is File && entry.path.endsWith('.json')) {
+            sizes[entry.path] = (await entry.stat()).size;
+          }
+        }
+        var total = sizes.values.fold<int>(0, (a, b) => a + b);
+        _phase('inventory:end');
+        // Reconcile once per bounded batch, then maintain the inventory under
+        // the same lock. Sustained input yields ownership to another writer.
+        for (var count = 0; count < 16 && _pending.isNotEmpty; count++) {
+          _phase('record:start');
+          final id = _pending.keys.first, payload = _pending.remove(id);
+          final retireGuard = _retireGuards.remove(id);
+          final destination = _path(id);
+          if (payload == null) {
+            _phase('retire:start');
+            final f = File(destination);
+            if (await f.exists() && (retireGuard?.call() ?? true)) {
+              await f.delete();
+              total -= sizes.remove(destination) ?? 0;
+            }
+            _phase('retire:end');
+            continue;
+          }
+          if (!sizes.containsKey(destination) && sizes.length >= 128) {
+            throw CoreFailure(
+              'recovery.limit',
+              'Recovery document limit reached; buffers remain in memory',
+            );
+          }
+          _phase('encode:start');
+          final bytes = await Isolate.run(
+            () => utf8.encode(jsonEncode(payload)),
+          );
+          _phase('encode:end');
+          final nextTotal = total - (sizes[destination] ?? 0) + bytes.length;
+          if (bytes.length > 64 * 1024 * 1024 ||
+              nextTotal > 128 * 1024 * 1024) {
+            throw CoreFailure(
+              'recovery.limit',
+              'Recovery storage limit reached; buffers remain in memory',
+            );
+          }
+          final stage = '$destination.tmp';
+          _phase('write:start');
+          await File(stage).writeAsBytes(bytes, flush: true);
+          _phase('write:end');
+          privatePermissions(stage, 384);
+          _phase('rename:start');
+          await File(stage).rename(destination);
+          sizes[destination] = bytes.length;
+          total = nextTotal;
+          _phase('rename:end');
+        }
+      } finally {
+        _flock(descriptor, 8);
+        _close(descriptor);
       }
-      _phase('inventory:end');
-      // Directory inspection may outlast several captured input updates. Do
-      // not encode/flush an already superseded record merely to overwrite it
-      // immediately afterwards. Skip at most one per resource before publishing
-      // again: sustained input cannot indefinitely postpone recovery progress.
-      // Every caller still awaits the complete coalesced drain, not an enqueue.
-      if (_pending.containsKey(id) && superseded.add(id)) {
-        _phase('record:superseded');
-        continue;
-      }
-      // The queue owns a frozen record, not a live buffer. Encode only the
-      // coalesced record in a worker so a keystroke never serializes megabytes.
-      _phase('encode:start');
-      final bytes = await Isolate.run(() => utf8.encode(jsonEncode(payload)));
-      _phase('encode:end');
-      if (bytes.length > 64 * 1024 * 1024 ||
-          total + bytes.length > 128 * 1024 * 1024) {
-        throw CoreFailure(
-          'recovery.limit',
-          'Recovery storage limit reached; buffers remain in memory',
-        );
-      }
-      final stage = '$destination.tmp';
-      _phase('write:start');
-      await File(stage).writeAsBytes(bytes, flush: true);
-      _phase('write:end');
-      privatePermissions(stage, 384);
-      _phase('rename:start');
-      await File(stage).rename(destination);
-      superseded.remove(id);
-      _phase('rename:end');
     }
     _phase('drain:end');
   }
@@ -813,12 +843,13 @@ class RecoveryStore {
       'version': 1,
       'owner': owner,
       'pid': pid,
-      'processIdentity': processIdentity(pid),
+      'processIdentity': _processIdentity,
       'id': b.id,
       'path': b.path,
       if (b.hasPathIntent) 'publishedPath': b.publishedPath,
       'text': b.text,
       'baseline': b.baseline,
+      'baselineHasBom': b.baselineHasBom,
       'diskIdentity': b.diskIdentity,
       'hasBom': b.hasBom,
       'generation': b.generation,
@@ -840,13 +871,43 @@ class RecoveryStore {
     FileRecoveryOwner project, {
     PropertySession? draft,
     FormSession? form,
+    Set<DocumentBuffer>? affected,
   }) async {
     final id = _filesId(project.boundary);
+    final previous = _fileGroupContexts[id];
+    final known = _fileGroupMembers[id];
+    final reuse =
+        affected != null &&
+        previous != null &&
+        known != null &&
+        previous.$1 == project.store.publicationRevision &&
+        known.every(project.store.ownsFileBuffer) &&
+        affected.every(known.contains);
+    final groups = (reuse ? previous.$2 : project.store.publicationGroups)
+        .where(
+          (group) => group.any(
+            (buffer) => buffer.dirty || buffer.pendingFilePublication,
+          ),
+        )
+        .toList();
+    final coupled = groups.expand((group) => group).toSet();
+    final selected = (reuse ? known : project.store.fileBuffers)
+        .where(
+          (b) =>
+              b.hasFileIntent ||
+              b.pendingFilePublication ||
+              coupled.contains(b),
+        )
+        .toList();
+    final capturedRevision = project.store.publicationRevision;
     bool grouped() =>
-        project.store.fileBuffers.any(
-          (b) => b.hasFileIntent || b.pendingFilePublication,
-        ) ||
-        project.store.publicationGroups.isNotEmpty;
+        project.store.publicationRevision != capturedRevision ||
+        selected.any(
+          (b) =>
+              b.hasFileIntent ||
+              b.pendingFilePublication ||
+              coupled.contains(b) && b.dirty,
+        );
     if (!grouped()) {
       if (!_fileGroups.containsKey(id)) return false;
       final transition = Object();
@@ -854,7 +915,7 @@ class RecoveryStore {
       bool current() => identical(_fileGroups[id], transition) && !grouped();
       // Keep the group until every replacement record is durable. A failed
       // write or a newer transition leaves the preceding checkpoint intact.
-      for (final b in project.store.fileBuffers.toList()) {
+      for (final b in _fileGroupMembers[id] ?? <DocumentBuffer>{}) {
         if (!current()) return true;
         await persist(
           b,
@@ -863,20 +924,21 @@ class RecoveryStore {
         );
       }
       await retireIfCurrent(id, current);
-      if (current()) _fileGroups.remove(id);
+      if (current()) {
+        _fileGroups.remove(id);
+        _fileGroupMembers.remove(id);
+        _fileGroupContexts.remove(id);
+      }
       return false;
     }
-    final groups = project.store.publicationGroups;
-    final coupled = groups.expand((group) => group).toSet();
-    final selected = project.store.fileBuffers
-        .where((b) => b.dirty || coupled.contains(b))
-        .toList();
+    _fileGroupMembers[id] = selected.toSet();
+    _fileGroupContexts[id] = (project.store.publicationRevision, groups);
     final payload = <String, Object?>{
       'version': 2,
       'kind': 'file-workspace',
       'owner': owner,
       'pid': pid,
-      'processIdentity': processIdentity(pid),
+      'processIdentity': _processIdentity,
       'id': id,
       'path': project.location,
       'boundary': project.boundary,
@@ -894,6 +956,7 @@ class RecoveryStore {
             'present': b.present,
             'text': b.text,
             'baseline': b.baseline,
+            'baselineHasBom': b.baselineHasBom,
             'expected': b.diskIdentity,
             'hasBom': b.hasBom,
             'mode': b.mode,
@@ -927,6 +990,8 @@ class RecoveryStore {
   Future<void> retireFileMoves(FileRecoveryOwner project) {
     final id = _filesId(project.boundary);
     _fileGroups.remove(id);
+    _fileGroupMembers.remove(id);
+    _fileGroupContexts.remove(id);
     return retire(id);
   }
 
@@ -1029,6 +1094,7 @@ class RecoveryStore {
   Future<void> adopt(
     Map<String, dynamic> record,
     DocumentBuffer b, {
+    required BufferStore store,
     PropertySession? draft,
     FormSession? form,
     bool Function()? current,
@@ -1051,15 +1117,16 @@ class RecoveryStore {
         'Recovery input changed. New input and the recovery record are preserved; review them before retrying.',
       );
     }
-    b.update(record['text'] as String);
-    final recordedGeneration = record['generation'] as int? ?? 0;
-    if (b.generation <= recordedGeneration) {
-      b.generation = recordedGeneration + 1;
-    }
-    b.hasBom = record['hasBom'] as bool;
+    store.adopt(
+      b,
+      record['text'] as String,
+      hasBom: record['hasBom'] as bool,
+      minimumGeneration: record['generation'] as int? ?? 0,
+    );
     b.externalConflict =
         b.externalConflict || b.diskIdentity != record['diskIdentity'];
     b.baseline = record['baseline'] as String;
+    b.baselineHasBom = record['baselineHasBom'] as bool? ?? b.hasBom;
     b.diskIdentity = record['diskIdentity'] as String;
     onAdopted?.call();
     final adoptedGeneration = b.generation;

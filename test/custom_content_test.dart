@@ -87,7 +87,7 @@ class _ObservedCustomController extends WorkspaceController {
   }
 
   @override
-  Future<void> persist() => observe('recovery', super.persist);
+  Future<void> persist({bool all = true}) => observe('recovery', super.persist);
   @override
   Future<void> persistView() => observe('view', super.persistView);
   @override
@@ -359,7 +359,7 @@ void main() {
             await runWidgetIo(tester, c.redo);
             expect(c.buffer!.text, withEmpty);
             await tester.runAsync(() async {
-              await c.project!.save(c.buffer!);
+              await publishSources(c.project!, [c.buffer!]);
               await c.open(file.path);
             });
             expect(c.buffer!.text, withEmpty);

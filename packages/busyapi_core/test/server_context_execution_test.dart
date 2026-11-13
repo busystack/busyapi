@@ -165,10 +165,10 @@ void main() {
           expect(buffer.text, source.replaceFirst(invalid, future));
           expect((await project.check(root))['status'], 'incomplete');
           project.store.redo();
-          await project.save(buffer);
+          await publishSources(project, [buffer]);
           final saved = [0xef, 0xbb, 0xbf, ...utf8.encode(working)];
           expect(file.readAsBytesSync(), saved);
-          await project.save(buffer);
+          await publishSources(project, [buffer]);
           expect(file.readAsBytesSync(), saved);
           project.close();
           project = await BusyProject.open(temp.path, engine);

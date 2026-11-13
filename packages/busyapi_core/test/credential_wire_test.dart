@@ -341,7 +341,7 @@ void main() {
           expect(calls, hasLength(before + 1));
           expect(file.readAsBytesSync(), originalBytes);
           expect(manifest.readAsBytesSync(), originalManifest);
-          await project.save(await project.buffer(root));
+          await publishSources(project, [await project.buffer(root)]);
           expect(file.readAsBytesSync(), originalBytes);
         },
       );

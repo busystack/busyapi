@@ -151,7 +151,7 @@ void main() {
             expect(buffer.bytes(), original);
             project.store.redo();
             expect(buffer.bytes(), utf8.encode('\uFEFF$expectedText'));
-            await project.save(buffer);
+            await publishSources(project, [buffer]);
             expect(await part.readAsBytes(), buffer.bytes());
             project.close();
             project = await BusyProject.open(root.path, engine);

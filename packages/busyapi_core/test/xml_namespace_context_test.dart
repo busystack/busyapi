@@ -92,9 +92,9 @@ void main() {
           );
           project.store.redo();
           expect(buffer.text, changed);
-          await project.save(buffer);
+          await publishSources(project, [buffer]);
           final saved = await file.readAsBytes();
-          await project.save(buffer);
+          await publishSources(project, [buffer]);
           expect(await file.readAsBytes(), saved);
           project.close();
           project = await BusyProject.open(file.path, engine);

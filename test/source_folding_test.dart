@@ -460,7 +460,7 @@ void main() {
             await tester.pump();
             expect(controller().text, contains('Changed 299'));
             expect(remembered, isNot(contains('/components/schemas/Model')));
-            await tester.runAsync(() => project!.save(buffer));
+            await tester.runAsync(() => publishSources(project!, [buffer]));
             expect(
               await tester.runAsync(() => File(buffer.path).readAsBytes()),
               buffer.bytes(),

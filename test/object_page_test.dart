@@ -305,7 +305,7 @@ void main() {
             await tester.runAsync(c.undo);
             expect(c.buffer!.text, withEmpty);
             await tester.runAsync(() async {
-              await c.project!.save(c.buffer!);
+              await publishSources(c.project!, [c.buffer!]);
             });
             expect(file.readAsStringSync(), withEmpty);
             await tester.runAsync(() async {
@@ -809,7 +809,7 @@ void main() {
           );
           await settleAction();
           final tagsSaved = c.buffer!.bytes();
-          await tester.runAsync(() => c.project!.save(c.buffer!));
+          await tester.runAsync(() => publishSources(c.project!, [c.buffer!]));
           expect(File(c.buffer!.path).readAsBytesSync(), tagsSaved);
           const media =
               '/paths/~1suggest/post/requestBody/content/application~1json';

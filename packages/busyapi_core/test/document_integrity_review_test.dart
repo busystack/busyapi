@@ -36,6 +36,7 @@ void main() {
       '${temp.path}/root.yaml',
       utf8.encode('saved\n'),
     );
+    final buffers = BufferStore()..register(b);
     var armed = false, fail = false;
     Future<Object?>? newer;
     late RecoveryStore recovery;
@@ -44,7 +45,7 @@ void main() {
       onCheckpointPhase: (phase) {
         if (phase == 'retire:start' && armed) {
           armed = false;
-          b.update('newest unsaved\n');
+          buffers.replace(b.id, 'newest unsaved\n');
           newer = recovery
               .persist(b)
               .then<Object?>((_) => null, onError: (Object error) => error);
@@ -54,9 +55,9 @@ void main() {
         }
       },
     );
-    b.update('durable unsaved\n');
+    buffers.replace(b.id, 'durable unsaved\n');
     await recovery.persist(b);
-    b.update(b.baseline);
+    buffers.replace(b.id, b.baseline);
     armed = true;
     fail = true;
     await expectLater(recovery.persist(b), throwsA(isA<FileSystemException>()));
@@ -86,7 +87,7 @@ void main() {
       '${temp.path}/root.yaml',
       utf8.encode('saved\n'),
     );
-    final store = BufferStore()..buffers[b.id] = b;
+    final store = BufferStore()..register(b);
     final owner = FileRecoveryOwner(
       boundary: temp.path,
       location: temp.path,
@@ -207,7 +208,7 @@ void main() {
         addTearDown(project.close);
         final b = await project.buffer(project.roots.single.id);
         final source = File(b.path), before = await File(b.path).readAsBytes();
-        b.hasBom = bom;
+        project.store.setBom(b.id, bom);
         project.store.replace(
           b.id,
           '${b.text}description: ${'雪' * (6 * 1024 * 1024)}\n',

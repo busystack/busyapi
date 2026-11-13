@@ -317,8 +317,8 @@ void main() {
               ),
             ),
           );
-          await project.save(root);
-          await project.save(shared);
+          await publishSources(project, [root]);
+          await publishSources(project, [shared]);
           expect(await file.readAsBytes(), utf8.encode(original));
           expect(await sharedFile.readAsBytes(), utf8.encode(external));
         },

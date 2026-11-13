@@ -77,6 +77,7 @@ class PublicationStore {
             'generation': b.generation,
             'text': b.text,
             'baseline': b.baseline,
+            'baselineHasBom': b.baselineHasBom,
             'expected': b.diskIdentity,
             'hasBom': b.hasBom,
             'mode': b.mode,
@@ -220,6 +221,7 @@ class PublicationStore {
             b.publishedPath == path &&
             b.diskIdentity == entry['expected']) {
           b.baseline = text;
+          b.baselineHasBom = entry['hasBom'] as bool;
           b.diskIdentity = entry['identity'] as String;
           project.resourceFingerprints[b.id] = b.diskIdentity;
           b.externalConflict = false;
@@ -461,17 +463,20 @@ class PublicationStore {
     } on Object {
       /* Missing disk remains a conflict. */
     }
-    b.update(entry['text'] as String);
+    project.store.adopt(
+      b,
+      entry['text'] as String,
+      hasBom: entry['hasBom'] as bool,
+      minimumGeneration: entry['generation'] as int,
+    );
     b.baseline = entry['baseline'] as String;
+    b.baselineHasBom = entry['baselineHasBom'] as bool? ?? b.hasBom;
     b.diskIdentity = entry['expected'] as String;
-    b.hasBom = entry['hasBom'] as bool;
-    b.generation = b.generation > (entry['generation'] as int)
-        ? b.generation
-        : (entry['generation'] as int) + 1;
     b.externalConflict =
         current != entry['expected'] && current != entry['identity'];
     if (current == entry['identity']) {
       b.baseline = entry['text'] as String;
+      b.baselineHasBom = entry['hasBom'] as bool;
       b.diskIdentity = current!;
     }
     project.store.restorePublicationGroups(groups);

@@ -68,7 +68,7 @@ void main() {
 
   test('staged deletion retains its exact physical owner and text for undo and redo', () {
     final store = BufferStore(), b = buffer('/tmp/project/model.yaml');
-    store.buffers[b.id] = b;
+    store.register(b);
     final bytes = b.bytes(), identity = b.diskIdentity;
     store.apply(const [], presences: [presence(b, false)]);
     expect(store.buffers.containsKey(b.id), false);
@@ -93,7 +93,7 @@ void main() {
       final store = BufferStore(),
           source = buffer('/tmp/project/root.yaml'),
           addition = create('/tmp/project/new.yaml');
-      store.buffers[source.id] = source;
+      store.register(source);
       final move = SemanticTransition(
         source.id,
         '/inline',
@@ -118,7 +118,7 @@ void main() {
     final store = BufferStore(),
         old = buffer('/tmp/project/old.yaml'),
         entry = buffer('/tmp/project/root.yaml', 'ref: old.yaml\r\n');
-    store.buffers.addAll({old.id: old, entry.id: entry});
+    store.registerAll([old, entry]);
     final original = entry.bytes(),
         addition = create('/tmp/project/new.yaml', old.text);
     store.apply(
@@ -153,7 +153,7 @@ void main() {
     final store = BufferStore(),
         b = buffer('/tmp/project/old.yaml'),
         entry = buffer('/tmp/project/root.yaml', 'ref: old.yaml');
-    store.buffers.addAll({b.id: b, entry.id: entry});
+    store.registerAll([b, entry]);
     final captured = presence(b, false),
         addition = create('/tmp/project/new.yaml');
     store.replace(b.id, '${b.text}\n# later');
@@ -207,7 +207,7 @@ void main() {
 
   test('no-op presence edits do not create history or change generation', () {
     final store = BufferStore(), b = buffer('/tmp/project/old.yaml');
-    store.buffers[b.id] = b;
+    store.register(b);
     final generation = b.generation;
     store.apply(const [], presences: [presence(b, true)]);
     expect(store.canUndo, false);
@@ -221,7 +221,7 @@ void main() {
     final created = store.get(addition.id);
     store.undo();
     final foreign = buffer(addition.path, '# foreign\n{}');
-    store.buffers[foreign.id] = foreign;
+    store.register(foreign);
     expect(
       store.redo,
       throwsA(
@@ -285,7 +285,7 @@ void main() {
   );
   test('a virtual deletion invalidates captured analysis instead of masquerading as an unopened resource', () async {
     final store = BufferStore(), b = buffer('/tmp/project/model.yaml');
-    store.buffers[b.id] = b;
+    store.register(b);
     final snapshot = AnalysisSnapshot(root: b.id, resources: [b.snapshot()]);
     expect(snapshot.current(store), true);
     store.apply(const [], presences: [presence(b, false)]);
@@ -307,7 +307,7 @@ void main() {
     final store = BufferStore(),
         b = buffer('/tmp/project/old.yaml'),
         addition = create('/tmp/project/new.yaml');
-    store.buffers[b.id] = b;
+    store.register(b);
     final before = b.bytes();
     expect(
       () => store.apply(
@@ -341,7 +341,7 @@ void main() {
     store.clearHistory();
     expect(store.fileBuffers, isEmpty);
     final existing = buffer('/tmp/project/old.yaml');
-    store.buffers[existing.id] = existing;
+    store.register(existing);
     store.apply(const [], presences: [presence(existing, false)]);
     store.clearHistory();
     expect(store.fileBuffers, contains(same(existing)));

@@ -16,7 +16,8 @@ void main() {
       utf8.encode('\ufeff$original'),
     );
     final pending = b.snapshotAsync();
-    b.update('$original\nnewer');
+    final buffers = BufferStore()..register(b);
+    buffers.replace(b.id, '$original\nnewer');
     final captured = await pending;
     expect(captured['text'], original);
     expect(captured['generation'], 1);
@@ -135,7 +136,7 @@ void main() {
     for (final root in project.roots) {
       await project.check(root.id);
     }
-    expect(project.store.buffers, isEmpty);
+    expect(project.store.buffers.containsKey(shared.uri.toString()), false);
     File('${temp.path}/unrelated.yaml').writeAsStringSync('unrelated: true');
     expect((await project.refreshResources()).roots, isEmpty);
     shared.writeAsStringSync('type: boolean\n');
@@ -247,10 +248,10 @@ void main() {
         '${temp.path}/independent.yaml',
         utf8.encode('original'),
       );
-      project.store.buffers[independent.id] = independent;
+      project.store.register(independent);
       project.store.replace(independent.id, 'independent edit');
       project.store.replace(b.id, b.text.replaceFirst('"A"', '"B"'));
-      await project.save(b);
+      await publishSources(project, [b]);
       File(b.path).writeAsStringSync(b.text.replaceFirst('"B"', '"C"'));
       final generation = b.generation;
       await project.refreshDisk(b);
@@ -271,7 +272,7 @@ void main() {
       final store = BufferStore();
       final a = DocumentBuffer.decode('/tmp/a.yaml', utf8.encode('A'));
       final b = DocumentBuffer.decode('/tmp/b.yaml', utf8.encode('B'));
-      store.buffers.addAll({a.id: a, b.id: b});
+      store.registerAll([a, b]);
       store.apply([
         for (final item in [a, b])
           TextEdit(
@@ -283,8 +284,9 @@ void main() {
             replacement: 'edited',
           ),
       ]);
-      b.update('external');
-      expect(() => store.undo(), throwsA(isA<CoreFailure>()));
+      store.adopt(b, 'external');
+      expect(store.canUndo, false);
+      store.undo();
       expect(a.text, 'edited');
       expect(b.text, 'external');
     },
@@ -308,7 +310,7 @@ void main() {
       expect(result['status'], 'complete');
       expect(result['operations'], isEmpty);
       final buffer = await project.buffer(project.roots.single.id);
-      await project.save(buffer);
+      await publishSources(project, [buffer]);
       expect(contract.readAsStringSync(), source);
       expect(manifest.readAsStringSync(), configuration);
       expect(contract.statSync().modified, before.modified);
@@ -340,9 +342,9 @@ void main() {
     var project=await BusyProject.open(source.path,engine);addTearDown(()=>project.close());
     final buffer=await project.buffer(source.uri.toString());
     expect(buffer.text,text);expect(buffer.bytes(),bytes);expect(buffer.dirty,false);
-    final modified=(await source.stat()).modified;await project.save(buffer);
+    final modified=(await source.stat()).modified;await publishSources(project, [buffer]);
     expect((await source.stat()).modified,modified);expect(await source.readAsBytes(),bytes);
-    project.store.replace(buffer.id,text.replaceFirst('Original','Working'));await project.save(buffer);
+    project.store.replace(buffer.id,text.replaceFirst('Original','Working'));await publishSources(project, [buffer]);
     expect(buffer.baseline,buffer.text);expect(buffer.dirty,false);expect(buffer.text,startsWith('\ufeffopenapi'));
     project.store.replace(buffer.id,buffer.text.replaceFirst('Working','Published'));
     final result=await PublicationStore('${temp.path}/state').save(project,[buffer]);
@@ -357,7 +359,7 @@ void main() {
       final store = BufferStore();
       for (final name in ['a', 'b']) {
         final b = DocumentBuffer.decode('/tmp/$name.yaml', utf8.encode('same'));
-        store.buffers[b.id] = b;
+        store.register(b);
       }
       final a = store.buffers.values.first, b = store.buffers.values.last;
       expect(
@@ -417,7 +419,7 @@ void main() {
         final project = await BusyProject.open(temp.path, engine);
         addTearDown(project.close);
         final root = project.roots.single.id, b = await project.buffer(root);
-        await project.save(b);
+        await publishSources(project, [b]);
         expect(await File(path).readAsBytes(), original);
         final result = await project.check(root);
         expect(result['status'], 'complete');
@@ -446,7 +448,7 @@ void main() {
         expect(b.bytes(), original);
         project.store.redo();
         project.store.redo();
-        await project.save(b);
+        await publishSources(project, [b]);
         expect((await project.check(root, saved: true))['status'], 'complete');
         await expectLater(
           Initializer.create(
@@ -494,7 +496,11 @@ void main() {
     expect(b.text, contains('BBB'));
     project.store.replace(b.id, b.text.replaceFirst('BBB', 'CCC'));
     await File(path).writeAsString(original.replaceFirst('AAA', 'DDD'));
-    await expectLater(project.save(b), throwsA(isA<CoreFailure>()));
+    final receipt = await PublicationStore('${temp.path}/failed-publication').save(project, [b]);
+    expect(receipt.complete, false);
+    expect(receipt.failed, contains(b.id));
+    expect(receipt.published, isEmpty);
+    expect(receipt.notAttempted, isEmpty);
     expect(b.text, contains('CCC'));
     expect(await File(path).readAsString(), contains('DDD'));
   });
@@ -562,10 +568,14 @@ void main() {
       record['recordPath'] = recordFile.path;
       await File(path).writeAsString(b.baseline.replaceFirst('"A"', '"Disk"'));
       await project.reload(b);
-      await store.adopt(record, b);
+      await store.adopt(record, b, store: project.store);
       expect(b.text, contains('Draft'));
       expect(b.externalConflict, true);
-      await expectLater(project.save(b), throwsA(isA<CoreFailure>()));
+      final receipt = await PublicationStore('${temp.path}/failed-recovery-publication').save(project, [b]);
+      expect(receipt.complete, false);
+      expect(receipt.failed, contains(b.id));
+      expect(receipt.published, isEmpty);
+      expect(receipt.notAttempted, isEmpty);
       expect(await File(path).readAsString(), contains('Disk'));
     },
   );

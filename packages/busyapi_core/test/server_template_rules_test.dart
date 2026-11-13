@@ -359,9 +359,9 @@ void main() {
             expect(buffer.text, original);
             expect((await project.check(root))['status'], 'invalid');
             project.store.redo();
-            await project.save(buffer);
+            await publishSources(project, [buffer]);
             final saved = await file.readAsBytes();
-            await project.save(buffer);
+            await publishSources(project, [buffer]);
             expect(await file.readAsBytes(), saved);
             expect(await file.readAsString(), changed);
           },

@@ -170,7 +170,7 @@ void main() {
             }
             expect(await root.readAsBytes(), rootBytes);
             expect(await model.readAsBytes(), modelBytes);
-            await project.save(buffer);
+            await publishSources(project, [buffer]);
             // Saving identical working bytes does not make their frozen text
             // stale or rewrite its original unsaved-input provenance.
             expect(capture.outdated, false);

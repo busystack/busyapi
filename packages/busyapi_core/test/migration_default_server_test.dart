@@ -94,7 +94,7 @@ void main() {
           addTearDown(project.close);
           final root = project.roots.single.id,
               buffer = await project.buffer(project.roots.single.id);
-          await project.save(buffer);
+          await publishSources(project, [buffer]);
           expect(file.readAsBytesSync(), original);
           final working = buffer.text.replaceFirst(
             'Saved default',

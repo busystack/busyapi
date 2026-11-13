@@ -251,7 +251,7 @@ void main() {
           final saved = await _plan(fixture.project, fixture.file, saved: true);
           addTearDown(saved.close);
           expect(_example(saved)['raw'], _payload);
-          await fixture.project.save(rootBuffer);
+          await publishSources(fixture.project, [rootBuffer]);
           expect(await fixture.file.readAsBytes(), [
             239,
             187,

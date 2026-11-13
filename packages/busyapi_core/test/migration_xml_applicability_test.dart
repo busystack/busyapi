@@ -56,7 +56,7 @@ void main() {
       addTearDown(plan.close);
       final draft=OperationRequestDraft(planIdentity:plan.identity,body:RequestBodyDraft.modeled(mediaType:'application/xml',json:'["A","雪"]'));
       final changes=await cold.applyRefactoring(await plan.planCase('XML values',draft));
-      for(final id in changes)await cold.save(cold.store.get(id));
+      for(final id in changes)await publishSources(cold, [cold.store.get(id)]);
       final cli=await Process.run('$testBundle/busyapi',['test',moved.path,'--case','XML values','--json'],
         environment:const {'PATH':'','LANG':'C.UTF-8'},includeParentEnvironment:false);
       expect(cli.exitCode,0,reason:'${cli.stdout} ${cli.stderr}');expect(seen,hasLength(3));expect(seen[2],seen[0]);

@@ -146,7 +146,7 @@ void main() {
           expect(checked['findings'], isEmpty, reason: '$checked');
           for (final file in files)
             expect(await file.readAsBytes(), originals[file.path]);
-          await project.save(buffer);
+          await publishSources(project, [buffer]);
           expect(await selected.readAsBytes(), accepted);
           for (final file in files.where(
             (file) => file.path != selected.path,

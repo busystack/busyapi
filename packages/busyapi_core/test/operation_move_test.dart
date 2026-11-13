@@ -213,7 +213,7 @@ void main() {
             expect((await project.buffer(linkId)).bytes(), movedLinks);
             expect(await file.readAsBytes(), utf8.encode('\uFEFF$text'));
             for (final id in changed) {
-              await project.save(await project.buffer(id));
+              await publishSources(project, [await project.buffer(id)]);
             }
             expect(await file.readAsBytes(), moved);
             expect(await links.readAsBytes(), movedLinks);

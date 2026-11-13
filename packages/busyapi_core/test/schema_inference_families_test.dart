@@ -108,7 +108,7 @@ void main() {
         expect(buffer.bytes(), original);
         project.store.redo();
         expect(buffer.bytes(), accepted);
-        await project.save(buffer);
+        await publishSources(project, [buffer]);
         expect(file.readAsBytesSync(), accepted);
         project.store.undo();
         final stale = await plan();

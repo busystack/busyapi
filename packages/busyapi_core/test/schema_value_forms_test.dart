@@ -194,7 +194,7 @@ void main() {
           final initial = await project.check(root);
           expect(initial['status'], 'complete', reason: jsonEncode(initial));
           expect((initial['versions'] as Map)['authoringFieldRules'], '2');
-          await project.save(buffer);
+          await publishSources(project, [buffer]);
           expect(await file.readAsBytes(), original);
           final values = <String, String>{
             'items': version == '2.0'
@@ -295,10 +295,10 @@ void main() {
             expect(buffer.bytes(), changed);
             expect((await project.check(root))['status'], 'complete');
           }
-          await project.save(buffer);
+          await publishSources(project, [buffer]);
           final saved = await file.readAsBytes();
           expect(saved, buffer.bytes());
-          await project.save(buffer);
+          await publishSources(project, [buffer]);
           expect(await file.readAsBytes(), saved);
           final cli = await Process.run('$testBundle/busyapi', [
             'check',

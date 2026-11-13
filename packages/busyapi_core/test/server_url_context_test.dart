@@ -155,9 +155,9 @@ void main() {
             expect(buffer.text, source);
             expect((await project.check(root))['status'], before['status']);
             project.store.redo();
-            await project.save(buffer);
+            await publishSources(project, [buffer]);
             final saved = await file.readAsBytes();
-            await project.save(buffer);
+            await publishSources(project, [buffer]);
             expect(await file.readAsBytes(), saved);
             project.close();
             project = await BusyProject.open(file.path, engine);

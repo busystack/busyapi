@@ -17,7 +17,7 @@ void main() {
   );
   test('virtual paths retain the same physical buffer, bytes, line index and view state', () {
     final b = buffer('/tmp/project/old.yaml'), store = BufferStore();
-    store.buffers[b.id] = b;
+    store.register(b);
     final old = b.id, bytes = b.bytes(), lines = b.lines;
     b.selection = const SourceSelection(0, 4);
     b.scroll = 120;
@@ -46,7 +46,7 @@ void main() {
   });
   test('earlier text history remains attached to its physical owner across path undo and redo', () {
     final b = buffer('/tmp/project/old.yaml'), store = BufferStore();
-    store.buffers[b.id] = b;
+    store.register(b);
     final original = b.text;
     store.replace(b.id, '$original# changed\n');
     final edited = b.text;
@@ -65,7 +65,7 @@ void main() {
   test('a path and cross-buffer source repair are one all-input-verified history step', () {
     final a = buffer('/tmp/project/a.yaml'),
         b = buffer('/tmp/project/b.yaml', 'ref: a.yaml\n');
-    final store = BufferStore()..buffers.addAll({a.id: a, b.id: b});
+    final store = BufferStore()..registerAll([a, b]);
     final original = {a.id: a.bytes(), b.id: b.bytes()};
     final path = move(a, '/tmp/project/moved.yaml');
     final edit = TextEdit(
@@ -92,7 +92,7 @@ void main() {
     () {
       final a = buffer('/tmp/project/a.yaml'),
           b = buffer('/tmp/project/b.yaml');
-      final store = BufferStore()..buffers.addAll({a.id: a, b.id: b});
+      final store = BufferStore()..registerAll([a, b]);
       store.apply(const [], paths: [move(a, a.path)]);
       expect(store.canUndo, false);
       expect(
@@ -133,11 +133,11 @@ void main() {
     'undo refuses a foreign occupant and does not consume its history entry',
     () {
       final b = buffer('/tmp/project/old.yaml'), store = BufferStore();
-      store.buffers[b.id] = b;
+      store.register(b);
       final old = b.id;
       store.apply(const [], paths: [move(b, '/tmp/project/new.yaml')]);
       final foreign = buffer('/tmp/project/old.yaml', 'foreign\n');
-      store.buffers[old] = foreign;
+      store.register(foreign);
       expect(
         store.undo,
         throwsA(
@@ -152,7 +152,7 @@ void main() {
   );
   test('undo after publication stages the reverse path without rewriting disk ownership', () {
     final b = buffer('/tmp/project/old.yaml'), store = BufferStore();
-    store.buffers[b.id] = b;
+    store.register(b);
     store.apply(const [], paths: [move(b, '/tmp/project/new.yaml')]);
     // Simulate only the publication boundary's acknowledged ownership update.
     // Actual anchored file publication is tested separately by the project.
@@ -173,7 +173,7 @@ void main() {
     () async {
       final b = buffer('/tmp/project/old.yaml', 'x: "${'a' * 300000}"\n'),
           store = BufferStore();
-      store.buffers[b.id] = b;
+      store.register(b);
       final old = b.id, generation = b.generation;
       final snapshot = b.snapshotAsync();
       store.apply(const [], paths: [move(b, '/tmp/project/new.yaml')]);

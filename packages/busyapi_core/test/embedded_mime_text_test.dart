@@ -359,7 +359,7 @@ void main() {
             project.store.redo();
             final changed = original.replaceAll('iso-8859-1', 'utf-8');
             expect(buffer.text, changed);
-            await project.save(buffer);
+            await publishSources(project, [buffer]);
             expect(await file.readAsString(), changed);
           },
         );

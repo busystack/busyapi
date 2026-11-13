@@ -11,12 +11,14 @@ class HeldAssistance extends EngineProcess {
   HeldAssistance() : super(executable: runtimeNode, helper: runtimeHelper);
   Completer<void>? entered, release;
   String? priorProducer;
+  final List<String> methods = [];
   @override
   Future<Map<String, dynamic>> request(
     String method,
     Map<String, Object?> params, {
     String? requestId,
   }) async {
+    methods.add(method);
     if (['assistSource', 'sourceFolds'].contains(method) && release != null) {
       entered!.complete();
       await release!.future;
@@ -55,6 +57,15 @@ void main() {
     await engine.close();
     await temp.delete(recursive: true);
   });
+  test('folding an incomplete declaration sends only the selected syntax capture', () async {
+    project.store.replace(buffer.id, '{\n  "info": {\n    "title": "Draft",\n    "description": "incomplete declaration"\n  },\n  "paths": {}\n}\n');
+    engine.methods.clear();
+    final captured = await project.sourceAssistance(buffer.id, buffer.id, const SourceSelection(0, 0)).run('folds');
+    expect(engine.methods.where((method) => method != 'hello'), ['sourceFolds']);
+    expect((captured.result['folds'] as List).any((fold) => fold['pointer'] == '/info'), true);
+    expect(captured.current, true);
+  });
+
   Future<SourceAssistance> capture() => project.assistSource(
     project.roots.single.id,
     buffer.id,
@@ -73,16 +84,19 @@ void main() {
     expect(result.completions.any((choice)=>choice['target']?['resource']==File('${temp.path}/model.json').uri.toString()&&choice['target']?['pointer']==''),true);
     project.store.apply([result.completion(inline,buffer)],label:'Source captured schema reference');
     final accepted=buffer.text;project.store.undo();expect(buffer.text,text);project.store.redo();expect(buffer.text,accepted);
-    await project.save(buffer);
+    await publishSources(project, [buffer]);
     final cold=await BusyProject.open(buffer.path,engine);
     try {
       final root=cold.roots.single.id;expect((await cold.check(root))['status'],'complete');
       final page=await cold.referencePage(root,root,'$group/Use',contextKind:'schema');
       expect(page['references'][0]['target']['pointer'],'$group/Base/properties/child 雪');
     }finally{cold.close();}
-    final cli=await Process.run('$testBundle/busyapi',['check',buffer.path,'--json','--fail-on','error'],
+    final cli=await Process.run('$testBundle/busyapi',['check',buffer.path,'--json'],
       environment:const {'PATH':'','LANG':'C.UTF-8'},includeParentEnvironment:false);
-    expect(cli.exitCode,0,reason:'${cli.stdout} ${cli.stderr}');expect(buffer.text,accepted);
+    expect(cli.exitCode,0,reason:'${cli.stdout} ${cli.stderr}');
+    final report=jsonDecode(cli.stdout as String) as Map;
+    expect(report['status'],'complete');expect(report['complete'],true);
+    expect(buffer.text,accepted);
   });
   test('Source role selection owns descendant grammar and cannot navigate literal reference-looking data',() async {
     const owner='/components/schemas/Owner/properties/Shared';
@@ -272,7 +286,7 @@ void main() {
     expect(buffer.bytes(), before);
     project.store.redo();
     expect(buffer.bytes(), accepted);
-    await project.save(buffer);
+    await publishSources(project, [buffer]);
     expect(await File(buffer.path).readAsBytes(), accepted);
   });
   for (final version in ['2.0', '3.0.4', '3.1.2', '3.2.1']) {
@@ -324,7 +338,7 @@ void main() {
       project.store.redo();
       expect(buffer.text, changed);
       expect((await project.check(project.roots.single.id))['status'], 'complete');
-      await project.save(buffer);
+      await publishSources(project, [buffer]);
       final reopened = await BusyProject.open(buffer.path, engine);
       try {
         final saved = await reopened.buffer(reopened.roots.single.id);

@@ -185,7 +185,7 @@ void main() {
             expect(await badResult.response.bytes(), utf8.encode(_body));
             expect(buffer.text, broken);
             expect(await file.readAsBytes(), originalBytes);
-            await project.save(buffer);
+            await publishSources(project, [buffer]);
             expect(await file.readAsBytes(), [
               239,
               187,
@@ -219,8 +219,8 @@ void main() {
                   '${result.outgoing.findings}\n${result.received.findings}',
             );
             expect(await result.response.bytes(), utf8.encode(_body));
-            await project.save(buffer);
-            await project.save(buffer);
+            await publishSources(project, [buffer]);
+            await publishSources(project, [buffer]);
             expect(await file.readAsBytes(), originalBytes);
           }
           expect(seen, hasLength(4));

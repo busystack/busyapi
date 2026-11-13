@@ -130,7 +130,7 @@ void main() {
             expect(targetBuffer.bytes(), workingTarget);
             project.store.redo();
             expect(targetBuffer.bytes(), accepted);
-            await project.save(targetBuffer);
+            await publishSources(project, [targetBuffer]);
             expect(await destination.readAsBytes(), accepted);
             if (external) expect(await source.readAsBytes(), originalSource);
             final reopened = await BusyProject.open(destination.path, engine);
@@ -314,7 +314,7 @@ void main() {
               ),
               hasLength(1),
             );
-            await project.save(sourceBuffer);
+            await publishSources(project, [sourceBuffer]);
             final reopened = await BusyProject.open(temp.path, engine);
             addTearDown(reopened.close);
             expect(

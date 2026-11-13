@@ -300,7 +300,7 @@ void main() {
             project!.store.redo();expect(buffer.text, changed);
             staleSelect('schema');await tester.pump();
             expect(buffer.text, changed);expect(engine.calls, 2);
-            await tester.runAsync(() => project!.save(buffer));
+            await tester.runAsync(() => publishSources(project!, [buffer]));
             expect(File(buffer.path).readAsStringSync(), changed);
             return;
           }
@@ -328,7 +328,7 @@ void main() {
             expect(buffer.text, original);
             project!.store.redo();
             expect(buffer.text, changed);
-            await tester.runAsync(() => project!.save(buffer));
+            await tester.runAsync(() => publishSources(project!, [buffer]));
             expect(File(buffer.path).readAsStringSync(), changed);
             expect(tester.takeException(), isNull);
             return;
@@ -351,7 +351,7 @@ void main() {
             expect(buffer.text, original);
             project!.store.redo();
             expect(jsonDecode(buffer.text)['info']['summary'], '');
-            await tester.runAsync(() => project!.save(buffer));
+            await tester.runAsync(() => publishSources(project!, [buffer]));
             expect(File(buffer.path).readAsStringSync(), buffer.text);
           } else if (behavior == 'stale') {
             final row = find

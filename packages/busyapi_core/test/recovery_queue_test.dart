@@ -15,7 +15,8 @@ void main() {
       addTearDown(() => temp.delete(recursive: true));
       final store = RecoveryStore(temp.path);
       final b = DocumentBuffer.decode('/tmp/large.yaml', utf8.encode('saved'));
-      b.update('😀\r\n' * 300000);
+      final buffers = BufferStore()..register(b);
+      buffers.replace(b.id, '😀\r\n' * 300000);
       final capturedText = b.text;
       final draft = PropertySession(
         root: b.id,
@@ -27,13 +28,13 @@ void main() {
       )..values['title'] = 'captured';
       final saving = store.persist(b, draft: draft);
       draft.values['title'] = 'later';
-      b.update('later source');
+      buffers.replace(b.id, 'later source');
       await saving;
       final file = Directory(temp.path).listSync().whereType<File>().single;
       final record = jsonDecode(await file.readAsString()) as Map;
       expect(record['text'], capturedText);
       expect(record['draft']['values']['title'], 'captured');
-      b.update(capturedText);
+      buffers.replace(b.id, capturedText);
       final encoding = store.persist(b);
       // Run the worker before queuing retirement; the final record must be gone
       // even when an already-captured older generation is being encoded.
@@ -50,9 +51,10 @@ void main() {
     addTearDown(() => temp.delete(recursive: true));
     final store = RecoveryStore(temp.path);
     final b = DocumentBuffer.decode('/tmp/queue.yaml', utf8.encode('saved'));
+    final buffers = BufferStore()..register(b);
     final work = <Future<void>>[];
     for (var i = 0; i < 30; i++) {
-      b.update('draft $i');
+      buffers.replace(b.id, 'draft $i');
       work.add(store.persist(b));
     }
     await Future.wait(work);
@@ -65,7 +67,7 @@ void main() {
       'draft 29',
     );
     final retirement = store.retire(b.id);
-    b.update('newer draft');
+    buffers.replace(b.id, 'newer draft');
     final checkpoint = store.persist(b);
     await Future.wait([retirement, checkpoint]);
     final newer = Directory(temp.path)
@@ -96,7 +98,7 @@ void main() {
       source.path,
       await source.readAsBytes(),
     );
-    final buffers = BufferStore()..buffers[buffer.id] = buffer;
+    final buffers = BufferStore()..register(buffer);
     buffers.replace(buffer.id, 'first unsaved\n');
     Future<void>? later;
     var queued = false;
@@ -137,7 +139,9 @@ void main() {
     final b = DocumentBuffer.decode(
       '${temp.path}/root.yaml',
       utf8.encode('saved'),
-    )..update('first');
+    );
+    final buffers = BufferStore()..register(b);
+    buffers.replace(b.id, 'first');
     late RecoveryStore recovery;
     Future<void>? newer;
     var replaced = false, writes = 0;
@@ -146,7 +150,7 @@ void main() {
       onCheckpointPhase: (phase) {
         if (phase == 'inventory:end' && !replaced) {
           replaced = true;
-          b.update('newest captured 雪😀');
+          buffers.replace(b.id, 'newest captured 雪😀');
           newer = recovery.persist(b);
         }
         if (phase == 'write:start') writes++;
@@ -178,24 +182,26 @@ void main() {
       final b = DocumentBuffer.decode(
         '${temp.path}/root.yaml',
         utf8.encode('saved'),
-      )..update('initial');
+      );
+      final buffers = BufferStore()..register(b);
+      buffers.replace(b.id, 'initial');
       late RecoveryStore recovery;
       final pending = <Future<void>>[];
-      var replaced = 0, inventories = 0, maximum = 0, writes = 0;
+      var replaced = 0, pendingEncodes = 0, maximum = 0, writes = 0;
       recovery = RecoveryStore(
         '${temp.path}/recovery',
         onCheckpointPhase: (phase) {
-          if (phase == 'inventory:end') {
-            inventories++;
+          if (phase == 'encode:start') {
+            pendingEncodes++;
             if (replaced < 6) {
-              b.update('captured ${++replaced} 雪😀');
+              buffers.replace(b.id, 'captured ${++replaced} 雪😀');
               pending.add(recovery.persist(b));
             }
           }
           if (phase == 'rename:end') {
             writes++;
-            if (inventories > maximum) maximum = inventories;
-            inventories = 0;
+            if (pendingEncodes > maximum) maximum = pendingEncodes;
+            pendingEncodes = 0;
           }
         },
       );

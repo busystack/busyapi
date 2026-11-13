@@ -92,7 +92,7 @@ void main() {
         ),
         true,
       );
-      buffer.generation++;
+      (BufferStore()..register(buffer)).adopt(buffer, buffer.text);
       final stale = controller.buildTextSpan(
         context: context,
         withComposing: true,
@@ -151,7 +151,7 @@ void main() {
           diskIdentity: '',
           hasBom: false,
         );
-        final store = BufferStore()..buffers[buffer.id] = buffer;
+        final store = BufferStore()..register(buffer);
         final diagnostics = [
           for (var line = 1; line <= 900; line++)
             SourceDiagnostic(
@@ -216,7 +216,7 @@ void main() {
         expect(buffer.selection.base, 0);
         expect(buffer.selection.extent, text.length);
         expect(buffer.text, text);
-        buffer.generation++;
+        (BufferStore()..register(buffer)).adopt(buffer, buffer.text);
         await tester.pumpWidget(host());
         await tester.pump();
         expect(

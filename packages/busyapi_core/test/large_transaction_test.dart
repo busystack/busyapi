@@ -7,6 +7,69 @@ import 'package:test/test.dart';
 import 'test_support.dart';
 
 void main() {
+  test('undo restores logical state while old async captures remain stale', () {
+    final buffer = DocumentBuffer.decode(
+      '/tmp/history.yaml',
+      utf8.encode('original 雪😀'),
+    );
+    final store = BufferStore()..register(buffer);
+    final captured = buffer.generation;
+    store.replace(buffer.id, 'edited 雪😀');
+    store.undo();
+    expect(buffer.text, 'original 雪😀');
+    expect(buffer.generation, greaterThan(captured));
+    store.replace(buffer.id, 'branched');
+    expect(store.canRedo, false);
+    store.undo();
+    expect(buffer.text, 'original 雪😀');
+  });
+
+  test(
+    'BOM changes belong to history and the saved baseline independently',
+    () {
+      final buffer = DocumentBuffer.decode(
+        '/tmp/bom.yaml',
+        utf8.encode('source\r\n'),
+      );
+      final store = BufferStore()..register(buffer);
+      store.setBom(buffer.id, true);
+      expect(buffer.dirty, true);
+      expect(buffer.bytes().take(3), [239, 187, 191]);
+      buffer.baselineHasBom = true; // Receipt for the captured published bytes.
+      final savedRevision = buffer.generation;
+      store.undo();
+      expect(buffer.hasBom, false);
+      expect(buffer.dirty, true);
+      expect(buffer.generation, greaterThan(savedRevision));
+      store.redo();
+      expect(buffer.hasBom, true);
+      expect(buffer.dirty, false);
+    },
+  );
+
+  test(
+    'a replacement owner cannot revive a captured generation at a reused path',
+    () {
+      final first = DocumentBuffer.decode(
+        '/tmp/reused.yaml',
+        utf8.encode('same'),
+      );
+      final store = BufferStore()..register(first);
+      final snapshot = AnalysisSnapshot(
+        root: first.id,
+        resources: [first.snapshot()],
+      );
+      store.forget(first.id);
+      final replacement = DocumentBuffer.decode(
+        first.path,
+        utf8.encode('same'),
+      );
+      store.register(replacement);
+      expect(replacement.generation, greaterThan(first.generation));
+      expect(snapshot.current(store), false);
+    },
+  );
+
   test('large source splices preserve bytes and shared undo history', () {
     final original = '${'a' * 150000}\r\n😀 é 漢字\n${'z' * 150000}\r';
     final buffer = DocumentBuffer.decode('/tmp/large.yaml', [
@@ -15,7 +78,7 @@ void main() {
       191,
       ...utf8.encode(original),
     ]);
-    final store = BufferStore()..buffers[buffer.id] = buffer;
+    final store = BufferStore()..register(buffer);
     for (final offset in [0, 150002, original.length]) {
       final beforeGeneration = buffer.generation;
       store.apply([
@@ -88,7 +151,7 @@ void main() {
       ]);
     }
     expect(project.store.historyRetainedBytes, lessThan(256 * 1024));
-    await project.save(buffer);
+    await publishSources(project, [buffer]);
     final saved = original.replaceFirst('Original', title(99));
     expect(file.readAsStringSync(), saved);
     for (var index = 99; index >= 0; index--) {
@@ -121,8 +184,7 @@ void main() {
       '/tmp/second.json',
       utf8.encode('{"b":"y"}'),
     );
-    final store = BufferStore()
-      ..buffers.addAll({first.id: first, second.id: second});
+    final store = BufferStore()..registerAll([first, second]);
     final high = String.fromCharCode(0xd800), low = String.fromCharCode(0xdc00);
     store.apply([
       TextEdit(
@@ -143,24 +205,11 @@ void main() {
       ),
     ]);
     final accepted = first.text;
-    first.update(accepted.replaceFirst(high, low));
-    expect(
-      store.undo,
-      throwsA(
-        isA<CoreFailure>().having(
-          (failure) => failure.code,
-          'code',
-          'history.stale',
-        ),
-      ),
-    );
-    expect(second.text, '{"b":"changed"}');
-    first.update(accepted);
+    store.adopt(first, accepted.replaceFirst(high, low));
+    expect(store.canUndo, false);
     store.undo();
-    expect(first.text, '{"a":"x"}');
-    expect(second.text, '{"b":"y"}');
-    store.redo();
-    expect(first.text, accepted);
     expect(second.text, '{"b":"changed"}');
+    expect(first.text, accepted.replaceFirst(high, low));
+    expect(store.canRedo, false);
   });
 }

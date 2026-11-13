@@ -365,7 +365,7 @@ process.stdin.on('data',data=>{
       expect(form.values['example'], '{invalid unfinished example');
       expect(form.target.buffer, records.single['id']);
       final buffer = DocumentBuffer.decode(file.path, await file.readAsBytes());
-      await store.adopt(records.single, buffer, form: form);
+      await store.adopt(records.single, buffer, store: BufferStore()..register(buffer), form: form);
       expect(buffer.text, contains('draft'));
       expect(buffer.externalConflict, true);
       expect(await file.readAsString(), contains('newer'));

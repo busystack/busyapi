@@ -5,7 +5,8 @@ import 'package:busyapi_core/busyapi_core.dart';
 Future<void> main(List<String> args) async {
   final bytes = await File(args[0]).readAsBytes();
   final buffer = DocumentBuffer.decode(args[0], bytes);
-  buffer.update(buffer.text.replaceFirst('original', 'draft'));
+  final buffers = BufferStore()..register(buffer);
+  buffers.replace(buffer.id, buffer.text.replaceFirst('original', 'draft'));
   final form = FormSession(
     kind: 'example',
     contentIdentity: textIdentity(buffer.text),

@@ -101,7 +101,7 @@ void main() {
           b.baseline = b.text;
           b.diskIdentity = 'a concurrent save';
         case 'replacement':
-          project.store.buffers.remove(b.id);
+          project.store.forget(b.id);
           await project.buffer(b.id);
         case 'closed':
           project.close();
@@ -248,7 +248,7 @@ void main() {
           old.id,
           old.text.replaceFirst('Original', 'Saved'),
         );
-        await project.save(old);
+        await publishSources(project, [old]);
         final saved = old.text;
         await File(file).writeAsString(saved.replaceFirst('Saved', 'Disk'));
         final entered = Completer<void>(), release = Completer<void>();
@@ -262,7 +262,7 @@ void main() {
         await entered.future;
         DocumentBuffer? newer;
         if (replacement) {
-          project.store.buffers.remove(old.id);
+          project.store.forget(old.id);
           newer = await project.buffer(old.id);
           project.store.replace(
             newer.id,

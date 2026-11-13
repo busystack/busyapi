@@ -81,7 +81,7 @@ void main() {
           expect((await servers())['complete'], false);
           project.store.undo();
         }
-        await project.save(buffer);
+        await publishSources(project, [buffer]);
         expect(file.readAsBytesSync(), original);
       },
     );

@@ -52,7 +52,7 @@ class _ObservedDeletionController extends WorkspaceController {
   }
 
   @override
-  Future<void> persist() => observe('recovery', super.persist);
+  Future<void> persist({bool all = true}) => observe('recovery', super.persist);
   @override
   Future<void> persistView() => observe('view', super.persistView);
   @override
@@ -285,7 +285,7 @@ void main() {
             expect(source.bytes(), accepted);
             expect(c.selectedPointer, '/Model/properties');
             await tester.runAsync(() async {
-              await c.project!.save(source);
+              await publishSources(c.project!, [source]);
             });
             expect(part.readAsBytesSync(), accepted);
             expect(file.readAsStringSync(), original);

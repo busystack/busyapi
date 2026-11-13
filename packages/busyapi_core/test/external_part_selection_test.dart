@@ -67,7 +67,7 @@ void main() {
           throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'runtime.request.example.stale')));
         expect(seen, hasLength(1));await payload.writeAsBytes(bytes);
         final changed = await project.applyRefactoring(await plan.planCase('Approved part', draft));
-        for (final id in changed) await project.save(project.store.get(id));
+        for (final id in changed) await publishSources(project, [project.store.get(id)]);
         final config = jsonDecode(await File('${directory.path}/busyapi.yaml').readAsString());
         expect(config['tests'][0]['body']['files'][0]['capturedExample'], true);
         expect(config['tests'][0]['body']['files'][0]['path'], 'payload.bin');
@@ -127,7 +127,7 @@ void capturedHeaderJourneys() {
       try { expect(run.conforming, true, reason: '${run.outgoing.findings}');expect(String.fromCharCodes(seen.single), contains('X-Meta: $exact\r\n')); }
       finally { await run.close(); }
       final changed = await project.applyRefactoring(await plan.planCase('Header bytes', draft));
-      for (final id in changed) await project.save(project.store.get(id));
+      for (final id in changed) await publishSources(project, [project.store.get(id)]);
       final cold = await BusyProject.open(directory.path, engine);addTearDown(cold.close);
       final reopened = await cold.prepareRequest(root, resource: root, pointer: pointer);addTearDown(reopened.close);
       final loaded = await ContractTestRunner.reopenCase(reopened, 'Header bytes', cold.access);
