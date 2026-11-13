@@ -8,7 +8,6 @@ import type {SourcePlan,SourceLocation} from './source_plan';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import {migrationExactValueIdentity} from './migration_schema_proofs';
 import {documentUriBase,pointerFragment} from './reference_graph';
-import {logicalSourcePointers} from './source_yaml_ownership';
 import {relocateMarkdownLinks} from './markdown_relocation';
 import {capturedRuntimeMedia} from './runtime_media_owner';
 
@@ -41,19 +40,16 @@ export function retainMigrationParameterExampleOwners(graph:ReferenceGraph,conte
   const doc=graph.docs.get(layer.resource)!;
   for(const name of doc.dataNode(layer.pointer+'/examples')?.children.keys()??[]){
    const original={resource:layer.resource,pointer:layer.pointer+'/examples/'+escape(name)};
-   const material=owners.uniqueLocation(original),held=owners.reserve(original,'parameter_example',JSON.stringify(original),
-    {resource:graph.root,pointer:'/components/examples'});
-   if(held.source===material.source)material.source.move(material.location.pointer,held.location.pointer,true);
-   else{held.source.copy(material.source,material.location.pointer,held.location.pointer,true);material.source.remove(material.location.pointer);}
+   const scope=graph.scopeAs(original.resource,original.pointer,'example')!;
+   const material=owners.uniqueLocation(original),destination=owners.move(scope,material.source,material.location.pointer,'parameter_example',
+    {context:graph,container:{resource:graph.root,pointer:'/components/examples'}});
+   const held=owners.uniqueLocation(scope);
    const external=doc.dataNode(original.pointer+'/externalValue');
    if(external){
     const request=externalExampleRequest(graph,original.resource,original.pointer+'/externalValue');
     if(request.targetResource)held.source.set(held.location.pointer+'/externalValue',request.targetResource);
    }
-   material.source.set(material.location.pointer,{$ref:held.location.resource+pointerFragment(held.location.pointer)});
-   for(const pointer of logicalSourcePointers(held.source.doc))if((pointer===held.location.pointer||pointer.startsWith(held.location.pointer+'/'))&&!held.source.origins.has(pointer))
-    held.source.origins.set(pointer,new Set([pointer]));
-   held.source.presentationChanges.push(held.location.pointer);
+   material.source.set(material.location.pointer,{$ref:destination.resource+pointerFragment(destination.pointer)});
   }
  }
 }
@@ -205,11 +201,19 @@ export function installMigrationParameterExamples(graph:ReferenceGraph,projectio
   for(const metadata of value.metadata){
    const captured=materialExampleField(graph,metadata.location,owners);
    output.copy(captured.source,captured.pointer,at+'/'+metadata.name,true);
+   if(metadata.name==='description'){
+    const owner=graph.scopeAs(metadata.location.resource,metadata.location.pointer.slice(0,metadata.location.pointer.lastIndexOf('/')),'example')!;
+    owners.rememberFieldUse(graph.root,owner,metadata.location,{resource:captured.source.doc.id,pointer:captured.pointer});
+    owners.rememberFieldUse(graph.root,owner,metadata.location,{resource:output.doc.id,pointer:at+'/description'});
+   }
   }
   if(value.external){
    const captured=materialExampleField(graph,value.external.location,owners);
    output.copy(captured.source,captured.pointer,at+'/externalValue',true);
    output.set(at+'/externalValue',value.external.uri);
+   const owner=graph.scopeAs(value.external.location.resource,value.external.location.pointer.slice(0,value.external.location.pointer.lastIndexOf('/')),'example')!;
+   owners.rememberFieldUse(graph.root,owner,value.external.location,{resource:captured.source.doc.id,pointer:captured.pointer});
+   owners.rememberFieldUse(graph.root,owner,value.external.location,{resource:output.doc.id,pointer:at+'/externalValue'});
   }else output.exact(at+'/value',value.raw);
  }
 }

@@ -211,6 +211,7 @@ export class MigrationSchemaOwners {
     }
     rememberFieldUse(namespace:string,scope:GraphScope,field:SourceLocation,destination:SourceLocation):void {
         const source={...scope,...field},id=this.useKey(namespace,field,scope.kind);
+        if(this.entryUses.get(id)?.some(use=>use.location.resource===destination.resource&&use.location.pointer===destination.pointer))return;
         if(this.entryUses.has(id))this.rememberAdditionalUse(namespace,source,destination);
         else this.remember(this.entryUses,id,source,destination,scope);
         this.rememberMaterialCoordinates(this.sources.get(destination.resource)!,destination.pointer);
@@ -736,9 +737,9 @@ export class MigrationSchemaOwners {
     }
 
     move(origin:SourceLocation,source:SourcePlan,pointer:string,label:string,
-        options:Readonly<{layout?:'array-item'|'response-header';context?:ReferenceGraph}>={}):SourceLocation {
+        options:Readonly<{layout?:'array-item'|'response-header';context?:ReferenceGraph;container?:SourceLocation}>={}):SourceLocation {
         const context=options.context??this.graph;
-        const schemaOnly=options.layout==='array-item'||'kind' in origin&&origin.kind==='schema'||context.scopeAs(origin.resource,origin.pointer,'schema')!==undefined;
+        const schemaOnly=options.layout==='array-item'||('kind' in origin?origin.kind==='schema':context.scopeAs(origin.resource,origin.pointer,'schema')!==undefined);
         const directSchema=schemaOnly;
         // A Schema already allocated at its final anonymous slot needs no
         // second hoist. Reallocating it would shift its own array coordinates.
@@ -769,8 +770,8 @@ export class MigrationSchemaOwners {
         // A converter can retain the actual entry namespace when hoisting an
         // independently consumed fragment. The existing allocator and storage
         // layout still own its reservation and exact CST provenance.
-        const destination=options.context&&!directSchema?{resource:context.root,pointer:componentLocation(options.layout==='response-header'?'responses':'schemas',
-            this.graph.specifications.has(context.root)&&this.sources.get(context.root)!.doc.dataNode('/swagger')?.value==='2.0'?'2.0':context.family)!}:undefined;
+        const destination=options.container??(options.context&&!directSchema?{resource:context.root,pointer:componentLocation(options.layout==='response-header'?'responses':'schemas',
+            this.graph.specifications.has(context.root)&&this.sources.get(context.root)!.doc.dataNode('/swagger')?.value==='2.0'?'2.0':context.family)!}:undefined);
         const owner=this.materialOwner(this.reserve(origin,label,JSON.stringify([origin.resource,origin.pointer]),destination,schemaOnly),directSchema?undefined:options.layout);
         this.admit(source,8);
         if(owner.source!==source){

@@ -81,6 +81,7 @@ export async function planMigration(input:MigrationInput) {
     const targetDeclaration=specificationDeclaration(input.targetVersion==='2.0'?{swagger:input.targetVersion}:{openapi:input.targetVersion});
     if(targetDeclaration.status!=='supported')throw new SourceError('migration.target','Select an approved target specification version');
     const target=targetDeclaration.specification;
+    input={...input,resources:[...input.resources].sort((first,last)=>first.id.localeCompare(last.id))};
     const initial=createGraph(input),original=initial.docs,from=initial.graph.specifications.get(input.root)!;
     const configurationDoc=input.configuration?new SourceDocument(input.configuration.text,input.configuration.id):undefined;
     if(typeof input.destination!=='string'||!input.destination.endsWith('/')||!['file:','https:'].includes(new URL(input.destination).protocol))throw new SourceError('migration.destination','Choose an independent absolute output directory identity');
@@ -91,7 +92,7 @@ export async function planMigration(input:MigrationInput) {
     const exampleOwnership=(input.exampleResources??[]).map(resource=>({id:resource.id,identity:resource.identity,
         generation:resource.generation,aliases:resource.aliases,state:resource.state})).sort((a,b)=>a.id.localeCompare(b.id));
     const documentOwnership=input.resources.map(resource=>({id:resource.id,generation:resource.generation,
-        text:resource.text,aliases:resource.aliases})).sort((a,b)=>a.id.localeCompare(b.id));
+        text:resource.text,aliases:resource.aliases}));
     const decisionRevision=digest(JSON.stringify({producerVersion:migrationProducerVersion,snapshot:input.snapshot,
         targetVersion:input.targetVersion,resources:documentOwnership,examples:exampleOwnership,configuration:input.configuration}));
     const decisionChoices=new Map<string,string[]>();
@@ -343,6 +344,8 @@ export async function planMigration(input:MigrationInput) {
             const parameterExampleContexts=contexts.map(context=>context.graph);
             const parametersChanged=await migrateParameterSerialization(parameterExampleContexts,sources,stage.sources,after,owners,issue,input.exampleResources);
             if(parametersChanged){
+                repairMigrationOwnerReferences(contexts,sources,owners,issue,[],'static');
+                if(problems.length)break;
                 const parameterInput=preparationInput(),parameterGraph=createGraph(parameterInput);
                 contexts=migrationDocumentContexts(parameterInput,parameterGraph,issue);graph=parameterGraph.graph;
             }
@@ -440,7 +443,7 @@ export async function planMigration(input:MigrationInput) {
                 const original=sourceLocation(location.resource,location.pointer);
                 presentationChanges.push({resource:original.resource,pointer:original.pointer});
             },owners):undefined;
-            if(after==='2.0')for(const before of stage.sources)for(const [key,target]of downgradeSwagger(graph,sources,before,issue,owners,contexts.map(context=>context.graph),{
+            if(after==='2.0')for(const [key,target]of downgradeSwagger(graph,sources,stage.sources,issue,owners,contexts.map(context=>context.graph),{
                 read:(location,namespace)=>externalExamples!.inlineCapture(sourceLocation(location.resource,location.pointer),namespace),
                 materialized:(location,namespace,media)=>externalExamples!.materialized(sourceLocation(location.resource,location.pointer),namespace,media),
                 represented:(location,namespace)=>externalExamples!.hasMaterialization(sourceLocation(location.resource,location.pointer),namespace),

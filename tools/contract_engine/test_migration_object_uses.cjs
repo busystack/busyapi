@@ -4,6 +4,25 @@ const {createHash}=require('node:crypto');
 const YAML=require('yaml');
 const {planMigration}=require('./dist/migration.cjs');
 
+function nativeOwner(graph,resource,pointer,kind){
+ const seen=new Set();
+ for(let count=0;count<128;count++){
+  const id=JSON.stringify([resource,pointer]);assert(!seen.has(id),'A retained native binding must not acquire a forwarding cycle');seen.add(id);
+  const edge=graph.referenceAs(resource,pointer,'$ref',kind);if(!edge)return {resource,pointer};
+  assert.equal(edge.resolution,'resolved');resource=edge.targetResource;pointer=edge.targetPointer;
+ }
+ assert.fail('A retained native binding exceeds the captured reference bound');
+}
+function operationConnection(graph,resource,pointer){
+ const owner=nativeOwner(graph,resource,pointer,'link'),edge=graph.entryReferences().find(reference=>reference.connection==='operationRef'&&reference.resource===owner.resource&&reference.pointer===owner.pointer&&reference.keyword==='operationRef');
+ assert(edge,'The retained Link owns an operation connection');assert.equal(edge.resolution,'resolved');return edge;
+}
+function linkDestination(text){
+ const walker=new (require('commonmark').Parser)().parse(text).walker();let event;
+ while((event=walker.next()))if(event.entering&&event.node.type==='link')return event.node.destination;
+ assert.fail('The retained description owns a rendered Markdown link');
+}
+
 for(const format of ['yaml','json'])test(`R3c-3 ${format} independent Example references and distinct Parameter/media layers survive`,async()=>{
  const input=require('./migration_b05_r3c_fixture.cjs')('3.2.1',format),whole=input.value.components.parameters.Whole;
  whole.examples={ParameterChoice:{dataValue:{q:'%20'},summary:'Parameter metadata'}};
@@ -21,7 +40,7 @@ for(const format of ['yaml','json'])test(`R3c-3 ${format} independent Example re
  assert.equal(graph.docs.get(cold.root).dataNode('/x-literal-example/dataValue/q').value,'a+b');
  const {documentUriBase}=require('./dist/reference_graph.cjs');
  const at=graph.scopeAs(parameter.definition.resource,parameter.definition.pointer+'/examples/Plus','example');
- assert.equal(new URL(/\]\(([^)]+)\)/u.exec(graph.docs.get(at.resource).dataNode(at.pointer+'/description').value)[1],documentUriBase(graph,at)).href,
+ assert.equal(new URL(linkDestination(graph.docs.get(at.resource).dataNode(at.pointer+'/description').value),documentUriBase(graph,at)).href,
   new URL('./guide.md#part',input.root).href);
  assert.equal(input.resources[0].text,original);
  whole.examples={Plus:{dataValue:{q:'%20'}}};input.resources[0].text=input.encode(input.value);
@@ -126,7 +145,7 @@ test(`R3b ${version} ${format} reusable parents retain occurrences and independe
   const plan=requestOperation({...cold,resource:op.source.resource,pointer:op.source.pointer,occurrence:op.occurrence});
   assert.deepEqual(plan.requestBody.content.map(media=>[media.mediaType,media.examples[0].raw]),[['application/json','9007199254740993.00']]);
   assert.deepEqual(plan.responses[0].content.map(media=>[media.mediaType,media.examples[0].raw]),[['application/vnd.count+json','9007199254740993.00']]);
-  assert.equal(plan.responses[1].content.length,0);
+  assert.equal(plan.responses[1].bodyAllowed,false);
  }
  const library=review.changes.find(change=>change.resource===input.resources[1].id),path=review.outputs.find(output=>output.id===library.destination).path;
  const libraryRoot=new URL(path,'file:///cold/r3b/').href,packet={...cold,root:libraryRoot};
@@ -148,12 +167,12 @@ for(const format of ['yaml','json'])test(`B05-R1 ${format} a foreign Swagger ope
  const input={root,snapshot:'foreign-operation',targetVersion:'3.2.1',destination:'file:///reviewed/foreign/',resources:[modern,swagger].map((value,index)=>({id:[root,legacy][index],text:encode(value),generation:index+1}))};
  const before=input.resources.map(resource=>resource.text),review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
  const resources=review.outputs.map(output=>({id:output.id,text:output.text,generation:0})),packet={root:review.outputRoot,snapshot:'cold-foreign-operation',resources};
- const graph=createGraph(packet).graph,link=graph.referenceAs(packet.root,'/components/links/Use','operationRef','operation');
+ const graph=createGraph(packet).graph,link=operationConnection(graph,packet.root,'/components/links/Use');
  assert.equal(link.resolution,'resolved');assert.equal(graph.operations().length,0);
- const body=graph.referenceAs(link.targetResource,link.targetPointer+'/requestBody','$ref','request-body');assert.equal(body.resolution,'resolved');
- assert.deepEqual([...graph.docs.get(body.targetResource).dataNode(body.targetPointer+'/content').children.keys()],['*/*']);
- const inherited=graph.referenceAs(link.targetResource,link.targetPointer+'/parameters/0','$ref','parameter');assert.equal(inherited.resolution,'resolved');
- assert.equal(graph.docs.get(inherited.targetResource).dataNode(inherited.targetPointer+'/name').value,'n');
+ const body=nativeOwner(graph,link.targetResource,link.targetPointer+'/requestBody','request-body');
+ assert.deepEqual([...graph.docs.get(body.resource).dataNode(body.pointer+'/content').children.keys()],['*/*']);
+ const inherited=nativeOwner(graph,link.targetResource,link.targetPointer+'/parameters/0','parameter');
+ assert.equal(graph.docs.get(inherited.resource).dataNode(inherited.pointer+'/name').value,'n');
  const requirement=graph.entryReferences().find(reference=>reference.connection==='security'&&reference.resource===link.targetResource&&reference.pointer===link.targetPointer+'/security/0');
  assert.equal(requirement.resolution,'resolved');assert.equal(graph.docs.get(requirement.targetResource).dataNode(requirement.targetPointer+'/name').value,'X-modern');
  const legacyRoot=review.changes.find(change=>change.resource===legacy).destination,legacyPacket={...packet,root:legacyRoot};
@@ -195,7 +214,7 @@ function fixture(version,format){
   example:{description:'[Example](../example.md)',externalValue:'count.bin'},
   queryExample:{externalValue:'query.bin'},
   parameter:{name:'n',in:'query',required:true,schema:node(),examples:{External:ref('queryExample')}},
-  header:{description:'[Header](../header.md)',content:{'application/json':{schema:node()}},examples:{External:ref('example')}},
+  header:{description:'[Header](../header.md)',content:{'application/json':{schema:node(),examples:{External:ref('example')}}}},
   media:media(),
   body:{required:true,content:{'application/json':version.startsWith('3.2')?ref('media'):media()}},
   response:{description:'[Reply](../reply.md)',headers:{'X-Count':ref('header')},
@@ -258,7 +277,7 @@ test(`${version} ${format} native objects and literal values share one specializ
  const root=graph.docs.get(output.root);
  for(const pointer of ['/x-data','/x-alias'])assert.equal(root.dataJson(pointer),doc.dataJson(pointer));
  for(const kind of ['path-item','parameter','request-body','response','header','example','link','callback','operation',...(version.startsWith('3.2')?['media','security']:[])]){
-  const reference=graph.references.find(reference=>reference.kind===kind&&reference.resolution==='resolved'&&reference.targetPointer.includes('/_migrated_object_use_'));
+  const reference=graph.entryReferences().find(reference=>reference.kind===kind&&reference.resolution==='resolved'&&graph.literalContainer(reference.targetResource,reference.targetPointer)===undefined);
   assert(reference,kind+' retains its independently owned target');
   assert.equal(graph.literalContainer(reference.targetResource,reference.targetPointer),undefined);
  }
@@ -269,10 +288,10 @@ test(`${version} ${format} native objects and literal values share one specializ
   assert.deepEqual(bindings.map(binding=>graph.docs.get(binding.resource).dataNode(binding.pointer+'/'+binding.keyword.replaceAll('~','~0').replaceAll('/','~1')).value),[['reader'],['writer']]);
  }
  const native=graph.references.find(reference=>reference.kind==='header'&&reference.pointer.endsWith('/headers/X-Count'));
- const header=graph.docs.get(native.targetResource).dataNode(native.targetPointer).value;
+ const owner=nativeOwner(graph,native.targetResource,native.targetPointer,'header'),header=graph.docs.get(owner.resource).dataNode(owner.pointer).value;
  const sourceHeader=createGraph(input).graph.scopeAs(input.root,'/x-data/header','header');
- const descriptionTarget=header.description.match(/\]\(([^)]+)\)/)[1];
- assert.equal(resolveUri(descriptionTarget,graph.scopeAs(native.targetResource,native.targetPointer,'header').base).href,resolveUri('../header.md',sourceHeader.base).href);
+ const descriptionTarget=linkDestination(header.description);
+ assert.equal(resolveUri(descriptionTarget,graph.scopeAs(owner.resource,owner.pointer,'header').base).href,resolveUri('../header.md',sourceHeader.base).href);
  if(!version.startsWith('3.0')){
   const schema=graph.referenceAs(output.root,'/components/schemas/HeaderAsSchema','$ref','schema');
   assert.notEqual(schema.targetPointer,native.targetPointer);
@@ -290,9 +309,11 @@ test('anchored schemas inside native Header data retain the original resource th
  const input={root,snapshot:'anchored-header',resources:[{id:root,text,generation:0}],targetVersion:'3.2.1',destination:'file:///delivered/'};
  const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
  const output=delivered(review),{graph}=createGraph(output),header=graph.references.find(reference=>reference.kind==='header');
- assert.equal(header.targetResource,output.root);assert(header.targetPointer.startsWith('/components/headers/_migrated_object_use_'));
+ assert.equal(header.resolution,'resolved');assert(output.resources.some(resource=>resource.id===header.targetResource));
  const anchor=graph.referenceAs(output.root,'/components/schemas/Anchor','$ref','schema');
- assert.equal(anchor.targetPointer,header.targetPointer+'/schema');
+ assert.equal(anchor.resolution,'resolved');
+ const schema=nativeOwner(graph,header.targetResource,header.targetPointer+'/schema','schema');
+ assert.deepEqual([anchor.targetResource,anchor.targetPointer],[schema.resource,schema.pointer]);
  assert.equal(graph.docs.get(output.root).dataJson('/x-data'),new SourceDocument(text,root).dataJson('/x-data'));
  const evaluated=await evaluateSchemas({...output,runtimeInstances:['9007199254740993','9007199254740992'].map(text=>({subject:'response-header',location:text,text:'',
   header:{resource:output.root,pointer:'/paths/~1p/get/responses/204/headers/X-N',name:'X-N',values:[text]}}))});
@@ -346,10 +367,11 @@ test(`${version} ${format} shared Response/Request Body roles remain editable an
  await check(output,after);
  assert.equal(analyse(output).status,'complete',JSON.stringify(analyse(output).findings));
  const binding=owned.referenceAs(output.root,'/components/requestBodies/Body','$ref','request-body');
- assert(binding.targetPointer.startsWith('/components/requestBodies/_migrated_object_use_'));
- assert.notEqual(binding.targetPointer,pointer);
- assert.equal(owned.scopeAs(binding.targetResource,binding.targetPointer,'request-body').kind,'request-body');
- const page=inspect({...output,resource:binding.targetResource,pointer:binding.targetPointer,contextKind:'request-body'});
+ assert.equal(binding.resolution,'resolved');assert(output.resources.some(resource=>resource.id===binding.targetResource));
+ assert.notDeepEqual([binding.targetResource,binding.targetPointer],[output.root,pointer]);
+ const material=nativeOwner(owned,binding.targetResource,binding.targetPointer,'request-body');
+ assert.equal(owned.scopeAs(material.resource,material.pointer,'request-body').kind,'request-body');
+ const page=inspect({...output,resource:material.resource,pointer:material.pointer,contextKind:'request-body'});
  assert(page.fields.some(field=>field.name==='required'));
  const edit=propose({...output,target:page,actions:[{kind:'set',pointer:page.pointer+'/required',value:true}]});
  assert(edit.edits.length>0);assert.equal(input.resources[0].text,text);
@@ -395,7 +417,7 @@ for(const format of ['yaml','json'])test(`${format} anonymous Operation entry us
  for(const [source,name]of [[root,'First'],[other,'Second']]){
   const root=review.changes.find(change=>change.resource===source).destination,packet={root,resources,snapshot:'cold-anonymous-operations'};
   assert.equal(analyse(packet).status,'complete');const graph=createGraph(packet).graph;
-  const link=graph.referenceAs(root,'/components/links/Use','operationRef','operation');assert.equal(link.resolution,'resolved');
+  const link=operationConnection(graph,root,'/components/links/Use');
   owners.push([link.targetResource,link.targetPointer]);
   assert.equal(graph.specifications.has(link.targetResource),false,'The material Operation remains an anonymous fragment');
   const requirement=graph.entryReferences().find(reference=>reference.connection==='security'&&reference.resource===link.targetResource&&reference.pointer===link.targetPointer+'/security/0');
@@ -413,6 +435,10 @@ for(const format of ['yaml','json'])test(`B05-R2 ${format} mixed entry consumers
   parameters:[{$ref:'api.'+format+'#/components/parameters/Shared'}],requestBody:{$ref:'api.'+format+'#/components/requestBodies/Shared'},responses:{200:{$ref:'api.'+format+'#/components/responses/Alias'},304:{description:'Empty'}}
  }}},components:{parameters:{Second:{name:'second',in:'header',deprecated:false,schema:{type:'boolean'}}}}};
  input.resources[0].text=fixture.render(value,format);input.resources.push({id:other,text:fixture.render(secondary,format),generation:3});
+ const unsupported=JSON.stringify(input),refused=await planMigration(input);assert.equal(refused.complete,false);assert.deepEqual(refused.outputs,[]);
+ assert(refused.problems.some(problem=>problem.code==='migration.validation.reference.family.unsupported'&&problem.reason==='unavailable-proof'&&problem.resource===input.root&&problem.pointer==='/components/parameters/Second/$ref'&&problem.range[1]>problem.range[0]),JSON.stringify(refused.problems));
+ assert.equal(JSON.stringify(input),unsupported);
+ secondary.openapi='3.2.1';input.resources[1].text=fixture.render(secondary,format);
  const before=JSON.stringify(input),review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
  const cold=fixture.reopened(review),{requestOperation}=require('./dist/execution.cjs');
  for(const source of input.resources){
@@ -421,7 +447,7 @@ for(const format of ['yaml','json'])test(`B05-R2 ${format} mixed entry consumers
   const operation=graph.operations()[0],plan=requestOperation({...packet,resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
   assert.deepEqual(plan.parameters.map(p=>[p.name,p.in,p.required]),[['n','query',true]]);
   assert.equal(plan.requestBody.content[0].examples[0].raw,'9007199254740993.00');assert.equal(plan.responses[0].content[0].examples[0].raw,'9007199254740993.00');
-  assert.equal(plan.responses[0].headers[0].name,'X-Count');assert.equal(plan.responses[1].content.length,0);
+  assert.equal(plan.responses[0].headers[0].name,'X-Count');assert.equal(plan.responses[1].bodyAllowed,false);
   assert(graph.entryReferences().filter(edge=>edge.keyword==='$ref').every(edge=>edge.resolution==='resolved'));
  }
  const reversed=await planMigration({...input,resources:[...input.resources].reverse()});assert.equal(reversed.complete,true,JSON.stringify(reversed.problems));
@@ -517,7 +543,7 @@ test(`R3b ${format} independently referenced Operations retain parent parameters
  const result=await planMigration({...input,targetVersion});assert.equal(result.complete,true,JSON.stringify(result.problems));
  const cold=fixture.reopened(result),graph=createGraph(cold).graph;
  assert.equal(graph.operations().length,1);assert.equal(graph.operations()[0].path,'/first');
- const edge=graph.referenceAs(cold.root,'/components/links/Operation','operationRef','operation');assert.equal(edge.resolution,'resolved');
+ const edge=operationConnection(graph,cold.root,'/components/links/Operation');
  assert.equal(graph.docs.get(edge.targetResource).dataNode(edge.targetPointer+'/operationId').value,'write');
  assert(graph.scopeAs(edge.targetResource,edge.targetPointer,'operation'));
 });

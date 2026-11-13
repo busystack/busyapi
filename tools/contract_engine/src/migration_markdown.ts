@@ -53,7 +53,6 @@ function targets(captured:readonly CapturedMarkdown[],graph:ReferenceGraph,mappe
         values.push({graph:context,scope});owners.set(identity,values);
     }
     for(const source of captured){
-        const ownerLocations=mapped(source.owner,source.namespace,source.scope);
         let matched=false;
         for(const location of mapped(source.original,source.namespace,source.scope)){
             const field=graph.docs.get(location.resource)?.dataNode(location.pointer);
@@ -61,8 +60,7 @@ function targets(captured:readonly CapturedMarkdown[],graph:ReferenceGraph,mappe
             const namespace=namespaces.get(source.namespace)??source.namespace;
             const rendered=candidates.filter(({graph:context})=>context.root===namespace);
             const matching=rendered.filter(({scope})=>scope.kind===source.scope.kind);
-            const selected=(matching.length?matching:rendered).filter(({scope})=>
-                !ownerLocations.length||ownerLocations.some(owner=>owner.resource===scope.resource&&owner.pointer===scope.pointer));
+            const selected=matching.length?matching:rendered;
             if(!selected.length||typeof field?.value!=='string'){
                 continue;
             }

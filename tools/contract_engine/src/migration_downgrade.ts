@@ -66,10 +66,10 @@ function retainFormBodyHistory(source:SourcePlan,pointer:string,scope:GraphScope
 
 /** Evaluate actual target representation. A simple 3.x API can be faithfully
  * represented in Swagger; newer-only constructs receive located blockers. */
-export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,SourcePlan>,from:string,issue:MigrationIssue,
+export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,SourcePlan>,families:readonly string[],issue:MigrationIssue,
     owners:MigrationSchemaOwners,contexts:readonly ReferenceGraph[],external?:MigrationInlineExamples):Map<string,SourceLocation> {
     const scopes=[...migrationScopes(contexts)];
-    const serverRoutes=downgradeServers(graph,sources,from,issue,owners,contexts);
+    const converting=new Set(families),serverRoutes=families.flatMap(from=>downgradeServers(graph,sources,from,issue,owners,contexts));
     const headerTargets=new Set([...migrationReferences(contexts)].filter(edge=>edge.kind==='header'&&edge.resolution==='resolved')
         .map(edge=>JSON.stringify([edge.targetResource,edge.targetPointer])));
     const primary=graph;
@@ -85,7 +85,7 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,SourceP
     // it cannot survive as a reference to one misleading body Parameter.
     const formUses=new Map<string,{source:SourcePlan;pointer:string}[]>(),preparedOperations=new Set<string>();
     for(const context of contexts)for(const operation of migrationOperationUses(context)){
-        const scope=operation.source;if(scope.family!==from)continue;
+        const scope=operation.source;if(!converting.has(scope.family))continue;
         const id=scope.resource+'#'+scope.pointer;if(preparedOperations.has(id))continue;preparedOperations.add(id);
         const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer),body=source.current(scope.pointer+'/requestBody');
         if(pointer===undefined||body===undefined)continue;
@@ -112,7 +112,7 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,SourceP
     }
     const expandedForms=new Set<string>();
     for(const scope of scopes){
-        if(scope.family!==from)continue;
+        if(!converting.has(scope.family))continue;
         // Schema conversion owns schema occurrences and their containers.
         // Resolving their duplicated projection coordinates here would reject
         // sound branch expansions even though no object rewrite uses them.
@@ -298,8 +298,8 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,SourceP
     }
     // All occurrences of form reference chains now own flat parameters. Their
     // intermediate Request Body wrappers have no Swagger Parameter equivalent.
-    for(const scope of scopes)if(scope.family===from&&scope.kind==='request-body'){
-        const context=owners.contextOf(scope)??contexts.find(context=>context.scopeAs(scope.resource,scope.pointer,'request-body')?.family===from)??graph;
+    for(const scope of scopes)if(converting.has(scope.family)&&scope.kind==='request-body'){
+        const context=owners.contextOf(scope)??contexts.find(context=>context.scopeAs(scope.resource,scope.pointer,'request-body')?.family===scope.family)??graph;
         let target:GraphScope|undefined=scope;const seen=new Set<string>();
         while(target){
             const id=target.resource+'#'+target.pointer;if(seen.has(id)||seen.size>=128)break;seen.add(id);
@@ -315,7 +315,7 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,SourceP
     // Swagger reusable responses contain Response Objects, not Reference
     // Objects. Materialize their captured aliases after the concrete bodies
     // have converted, sharing the independently owned schema assertions.
-    for(const scope of scopes)if(scope.family===from&&scope.kind==='response'&&/^\/components\/responses\/[^/]+$/.test(scope.pointer)){
+    for(const scope of scopes)if(converting.has(scope.family)&&scope.kind==='response'&&/^\/components\/responses\/[^/]+$/.test(scope.pointer)){
         const context=owners.contextOf(scope)??primary,source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);
         if(pointer===undefined||typeof source.doc.dataNode(pointer)?.value?.$ref!=='string')continue;
         let target:GraphScope|undefined=scope;const seen=new Set<string>();
@@ -333,11 +333,14 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,SourceP
             material.source.set(schemaAt,{$ref:owners.reference(retained,'2.0')});
         }
         owners.materializeNativeUse(scope,source,pointer,material.source,material.location.pointer);
-        owners.rememberAdditionalUse(context.root,target,{resource:source.doc.id,pointer});
+        for(const entry of contexts){
+            const alias=entry.scopeAs(scope.resource,scope.pointer,'response'),definition=entry.scopeAs(target.resource,target.pointer,'response');
+            if(alias&&definition&&entry.isEntryUse(alias))owners.rememberAdditionalUse(entry.root,definition,{resource:source.doc.id,pointer});
+        }
     }
     // Swagger has no Header component map or Header Reference Object. Retain
     // independent native owners in unused, standard Response.headers slots.
-    for(const scope of scopes)if(scope.family===from&&scope.kind==='header'&&scope.pointer.startsWith('/components/headers/')&&
+    for(const scope of scopes)if(converting.has(scope.family)&&scope.kind==='header'&&scope.pointer.startsWith('/components/headers/')&&
         scope.pointer.slice('/components/headers/'.length).indexOf('/')<0){
         const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);if(pointer===undefined||!source.doc.dataNode(pointer))continue;
         owners.move(scope,source,pointer,'header_owner',{context:owners.contextOf(scope)??graph,layout:'response-header'});
@@ -360,9 +363,9 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,SourceP
         const parent=/^(\/components\/mediaTypes\/[^/]+)\//.exec(header.pointer)?.[1];if(!parent)continue;
         const id=JSON.stringify([header.resource,parent]),values=mediaHeaders.get(id)??[];values.push(header);mediaHeaders.set(id,values);
     }
-    for(const scope of scopes)if(scope.family===from&&scope.kind==='media'&&/^\/components\/mediaTypes\/[^/]+$/.test(scope.pointer)){
+    for(const scope of scopes)if(converting.has(scope.family)&&scope.kind==='media'&&/^\/components\/mediaTypes\/[^/]+$/.test(scope.pointer)){
         const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);if(pointer===undefined||!source.doc.dataNode(pointer))continue;
-        const context=owners.contextOf(scope)??contexts.find(context=>context.scopeAs(scope.resource,scope.pointer,'media')?.family===from)??graph;
+        const context=owners.contextOf(scope)??contexts.find(context=>context.scopeAs(scope.resource,scope.pointer,'media')?.family===scope.family)??graph;
         const schema=pointer+'/schema';
         if(source.doc.dataNode(schema))owners.move({...scope,pointer:scope.pointer+'/schema'},source,schema,'media_schema',{context,layout:'array-item'});
         for(const header of mediaHeaders.get(JSON.stringify([scope.resource,scope.pointer]))??[]){
@@ -377,14 +380,14 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,SourceP
     // Swagger Path Item references may address a native captured fragment.
     // The common allocator can retain a used reusable Path Item there without
     // adding a public route or a proprietary component category.
-    for(const scope of scopes)if(scope.family===from&&scope.kind==='path-item'&&/^\/components\/pathItems\/[^/]+$/.test(scope.pointer)){
+    for(const scope of scopes)if(converting.has(scope.family)&&scope.kind==='path-item'&&/^\/components\/pathItems\/[^/]+$/.test(scope.pointer)){
         const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);if(pointer===undefined||!source.doc.dataNode(pointer))continue;
         const incoming=[...migrationReferences(contexts)].some(edge=>edge.kind==='path-item'&&edge.resolution==='resolved'&&edge.targetResource===scope.resource&&edge.targetPointer===scope.pointer);
         if(incoming)owners.move(scope,source,pointer,'path_item');
         else issue(scope,'migration.path-item.unused-owner','Swagger has no standard inactive reusable Path Item container or captured typed entering reference for this definition','target-representation');
     }
     for(const [resource,specification]of graph.specifications){
-        if(specification.family!==from)continue;
+        if(!converting.has(specification.family))continue;
         const source=sources.get(resource)!;
         const headerMap=source.doc.dataNode('/components/headers');
         if(headerMap){
@@ -424,7 +427,7 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,SourceP
     // Swagger's Parameter Definitions map requires concrete Parameter Objects.
     // Resolve captured pure aliases once, then copy the already converted
     // terminal owner; ordinary use-site references retain their named target.
-    for(const scope of scopes)if(scope.family===from&&scope.kind==='parameter'&&/^\/components\/parameters\/[^/]+$/.test(scope.pointer)){
+    for(const scope of scopes)if(converting.has(scope.family)&&scope.kind==='parameter'&&/^\/components\/parameters\/[^/]+$/.test(scope.pointer)){
         const context=owners.contextOf(scope)??graph,value=context.docs.get(scope.resource)!.dataNode(scope.pointer)!.value;
         if(typeof value?.$ref!=='string'||Object.keys(value).length!==1)continue;
         const definition=new ParameterSemantics(context).occurrence(scope).definition;

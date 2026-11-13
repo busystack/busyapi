@@ -75,7 +75,6 @@ export function relocateMigrationServerRoutes(routes:readonly MigrationServerRou
    if(destinations.has(JSON.stringify([route.context.root,route.operation.path]))&&!changed.has(id)){changed.add(id);expanded=true;}
   }
  }
- const captured=new Map([...sources].map(([id,source])=>[id,source.fork()]));
  const groups=new Map<string,MigrationServerRoute[]>();
  for(const route of routes){
   const id=JSON.stringify([route.context.root,route.operation.pathItem.resource,route.operation.pathItem.pointer]);
@@ -91,6 +90,21 @@ export function relocateMigrationServerRoutes(routes:readonly MigrationServerRou
    owners.admit(output);output.rename(at,path);groups.delete(id);
   }
  }
+ // A reference to one Schema child does not retain an entire executable
+ // Path Item. Give that assertion its final owner before copying the routes,
+ // so the old operation cannot survive merely to hold a body schema.
+ for(const group of groups.values()){
+  const {context,operation}=group[0],item=operation.pathItem,source=sources.get(item.resource)!,pointer=source.current(item.pointer);
+  if(pointer===undefined)continue;
+  for(const entry of contexts)for(const edge of entry.entryReferences()){
+   if(edge.kind!=='schema'||edge.resolution!=='resolved'||edge.targetResource!==item.resource)continue;
+   const at=source.current(edge.targetPointer!);if(at===undefined||!at.startsWith(pointer+'/'))continue;
+   const schema=entry.scopeAs(edge.targetResource!,edge.targetPointer!,'schema');if(!schema)continue;
+   const owner=owners.move(schema,source,at,'server_route_schema',{context:entry,layout:'array-item'});
+   owners.referenceUse(source,at,owner);references.set(edge.resource+'#'+edge.pointer,owner);
+  }
+ }
+ const captured=new Map([...sources].map(([id,source])=>[id,source.fork()]));
  // Vacate source keys first, including keys another operation will acquire.
  for(const group of groups.values()){
   const {context,operation}=group[0],item=operation.pathItem;
