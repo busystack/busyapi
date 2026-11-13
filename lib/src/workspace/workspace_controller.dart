@@ -514,8 +514,9 @@ class WorkspaceController extends ChangeNotifier {
     _pendingRecovery.clear();
     _recoveryFieldVersions.clear();
     next.onDiskInvalidated = () {
-      if (identical(project, next) && !disposed)
+      if (identical(project, next) && !disposed) {
         unawaited(pollDisk(reconcile: false));
+      }
     };
     next.onBuffersChanged = (buffers) {
       if (identical(project, next)) _pendingRecovery.addAll(buffers);
