@@ -18,7 +18,9 @@ for(const version of ['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4'])for(const format 
  for(const schema of [{},{format:'binary'},{type:'string'},{type:'string',minLength:3,maxLength:3},{enum:['\u0000ÿ\u0080']},{allOf:[{minLength:3},{maxLength:3}]}])result(await check(version,format,schema),true);
  for(const schema of [{type:'integer'},{enum:[null]},{type:'string',minLength:4},{type:'string',maxLength:2},{not:{type:'string'}}])result(await check(version,format,schema),false);
  result(await check(version,format,{},'application/octet-stream',Buffer.alloc(0)),true);
- const unknown=await check(version,format,{},'application/xml');
+ const malformedXml=await check(version,format,{},'application/xml');
+ assert.equal(malformedXml.complete,true);assert(malformedXml.runtimeEvaluations.every(value=>value.complete&&!value.valid));assert(malformedXml.runtimeFindings.some(value=>value.detailCode==='runtime.xml.syntax'));
+ const unknown=await check(version,format,{},'application/cbor');
  assert.equal(unknown.complete,false);assert(unknown.runtimeFindings.some(value=>value.kind==='unsupported'));
 });
 for(const version of ['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])for(const format of ['yaml','json'])test(`${version} ${format} binary media retains the modern non-JSON model`,async()=>{

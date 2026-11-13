@@ -110,7 +110,8 @@ test('SSE UTF-8 replacement decoding is used before schema evaluation',async()=>
 test('sequence work limits and unimplemented media stay explicitly incomplete',async()=>{
  const source=packet('3.2.1',{type:'array'});
  const limited=await run(source,'application/jsonl','0\n'.repeat(2049));assert.equal(limited.result.complete,false);assert.equal(limited.valid,false);assert.ok(limited.findings.some(f=>f.code==='runtime.body.limit'));
- const unknown=await run(source,'application/xml','<item/>');assert.equal(unknown.result.complete,false);assert.ok(unknown.findings.some(f=>f.kind==='unsupported'&&f.reason==='unsupported-representation'));
+ const xml=await run(source,'application/xml','<item/>');assert.equal(xml.result.complete,true);assert.equal(xml.valid,false);assert(xml.findings.some(f=>f.severity==='error'));
+ const unknown=await run(source,'application/cbor','opaque');assert.equal(unknown.result.complete,false);assert.ok(unknown.findings.some(f=>f.kind==='unsupported'&&f.reason==='unsupported-representation'));
 });
 test('runtime media metadata comes from the production operation projection',()=>{
  const value={openapi:'3.2.1',info:{title:'Native',version:'1'},paths:{'/stream':{post:{requestBody:{content:{'application/jsonl':{itemSchema:true}}},responses:{200:{description:'ok',content:{'text/event-stream':{itemSchema:true},'image/*':{}}}}}}}};

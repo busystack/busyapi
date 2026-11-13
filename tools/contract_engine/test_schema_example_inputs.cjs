@@ -51,11 +51,17 @@ for(const version of versions)for(const format of ['yaml','json'])test(`${versio
 for(const version of versions.filter(v=>v!=='2.0'))for(const format of ['yaml','json'])test(`${version} ${format} explicit media and parameter choices suppress schema fallback`,()=>{
  for(const extra of [{example:false},{examples:{}},{examples:{External:{externalValue:'https://example.invalid/data'}}},{examples:{Missing:{$ref:'#/components/examples/Missing'}}}]){
   const packet=input(version,format,{example:'Schema',...modern(version)?{examples:['Array']} :{}},'application/json',extra),plan=requestOperation(packet),media=body(plan);
-  assert.equal(media.examples.length,Object.hasOwn(extra,'example')?1:0);
-  if(Object.hasOwn(extra,'example'))assert.equal(media.example.raw,'false');assert.equal(media.schemaExamples,undefined);
+  const explicit=Object.hasOwn(extra,'example'),external=Object.hasOwn(extra.examples??{},'External');
+  const choices=values=>{
+   assert.equal(values.length,explicit||external?1:0);
+   assert(values.every(value=>value.origin!=='schema'));
+   if(explicit)assert.equal(values[0].raw,'false');
+   if(external){assert.equal(values[0].name,'External');assert.equal(values[0].externalStatus,'unavailable');assert.equal(values[0].problem.code,'example.external-value.unavailable');assert(values[0].problem.message);assert.equal(values[0].raw,'');}
+  };
+  choices(media.examples);assert.equal(media.schemaExamples,undefined);
   const doc=document(version,{example:'Body'}),parameter={in:'query',name:'value',schema:{example:'Schema'},...extra};
   doc.paths['/data'].post.parameters=[parameter];packet.resources[0].text=render(doc,format);
-  const projected=requestOperation(packet).parameters[0];assert.equal(projected.examples.length,Object.hasOwn(extra,'example')?1:0);if(projected.example)assert.equal(projected.example.raw,'false');
+  const projected=requestOperation(packet).parameters[0];choices(projected.examples);assert.equal(projected.schemaExamples,undefined);
  }
 });
 for(const version of versions.filter(v=>v!=='2.0'))for(const format of ['yaml','json'])test(`${version} ${format} parameter style and content share schema example ownership`,()=>{

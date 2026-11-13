@@ -24,9 +24,9 @@ async function check(version,format,media,more={}){
  const text=render(document,format),input={root,snapshot:version+format,resources:[{id:root,text,generation:1}]};
  const result=await evaluateSchemas(input);assert.equal(input.resources[0].text,text);return result;
 }
-for(const version of versions)for(const format of ['yaml','json'])for(const kind of ['exact','rounded','malformed','paired','unsupported'])test(`${version} ${format} serialized media example ${kind}`,async()=>{
+for(const version of versions)for(const format of ['yaml','json'])for(const kind of ['exact','rounded','malformed','paired','xml-malformed','unsupported'])test(`${version} ${format} serialized media example ${kind}`,async()=>{
  const text=kind==='malformed'?'{"id":':wire(kind==='exact'?'9007199254740993.00':'9007199254740992');
- const mediaType=kind==='unsupported'?'application/xml':'application/json';
+ const mediaType=kind==='unsupported'?'application/cbor':kind==='xml-malformed'?'application/xml':'application/json';
  const result=await check(version,format,{[mediaType]:{schema,examples:{Case:{serializedValue:text,...(kind==='paired'?{dataValue:{id:'EXACT'}}:{})}}}});
  assert.equal(result.complete,kind!=='unsupported',JSON.stringify(result.findings));
  assert.equal(result.serializedEvaluations.length,1);const value=result.serializedEvaluations[0];
@@ -34,7 +34,7 @@ for(const version of versions)for(const format of ['yaml','json'])for(const kind
  assert.equal(value.mediaType,mediaType);assert.equal(value.pointer,'/paths/~1parts/post/requestBody/content/'+mediaType.replaceAll('/','~1')+'/examples/Case/serializedValue');
  assert(!result.skipped.some(value=>value.reason==='serialized-value-not-parsed'));
  assert.deepEqual(result.evaluations.map(value=>value.valid),kind==='paired'?[true]:[]);
- assert.equal(result.findings.filter(value=>value.code==='example.serialization.incompatible').length,['rounded','malformed','paired'].includes(kind)?1:0);
+ assert.equal(result.findings.filter(value=>value.code==='example.serialization.incompatible').length,['rounded','malformed','paired','xml-malformed'].includes(kind)?1:0);
  assert.equal(result.findings.filter(value=>value.code==='example.serialization.incomplete').length,kind==='unsupported'?1:0);
 });
 for(const version of versions)for(const format of ['yaml','json'])test(`${version} ${format} serialized false zero empty and null retain their kinds`,async()=>{

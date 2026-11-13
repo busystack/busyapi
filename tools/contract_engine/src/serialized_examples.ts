@@ -66,7 +66,7 @@ export async function evaluateSerializedExamples(graph:ReferenceGraph,evaluate:(
  };
  const captureExternal=(source:SourceDocument,pointer:string,owner:GraphScope,mediaType:string)=>{
   const node=source.dataNode(pointer);if(!node)return;
-  associate(attemptedExternalSerializations,JSON.stringify([source.id,node.pointer]),owner);
+  if(!associate(attemptedExternalSerializations,JSON.stringify([source.id,node.pointer]),owner))return;
   try{
    if(examples.length>=20000)throw new SourceError('limit.examples.serialized','Serialized examples exceed 20000 captured values',[0,0],'unsupported');
    const concrete=mediaTypes(mediaType,true);
@@ -142,13 +142,13 @@ export async function evaluateSerializedExamples(graph:ReferenceGraph,evaluate:(
      const node=source.dataNode(target.pointer+'/'+field);
      if(node&&associate(associated,JSON.stringify([source.id,node.pointer]),owner))associations++;
      if(node&&field==='externalValue'&&unboundMedia){
-      associate(attemptedExternalSerializations,JSON.stringify([source.id,node.pointer]),owner);
+      if(!associate(attemptedExternalSerializations,JSON.stringify([source.id,node.pointer]),owner))continue;
       fail(source,target.pointer+'/'+field,new SourceError('example.media.context',
        'This reusable Media Type external example needs a concrete content-type occurrence.',node.range,'unsupported'));
      }
      if(node&&field==='externalValue'&&['parameter','header'].includes(owner.kind)){
       if(parameterExamples.length>=20000)throw new SourceError('limit.examples.serialized','Serialized examples exceed 20000 captured values',[0,0],'unsupported');
-      associate(attemptedExternalSerializations,JSON.stringify([source.id,node.pointer]),owner);
+      if(!associate(attemptedExternalSerializations,JSON.stringify([source.id,node.pointer]),owner))continue;
       try{
        const captured=externalResources.read(graph,source.id,target.pointer+'/'+field);
        associate(capturedSerializations,JSON.stringify([source.id,node.pointer]),owner);

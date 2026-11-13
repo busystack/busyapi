@@ -42,7 +42,8 @@ for(const version of ['3.0.4','3.1.2','3.2.0','3.2.1'])test(`${version} native c
  assert.equal(prepared.producer,'busyapi-request-content-parameters');assert.equal(prepared.producerVersion,'2');
  assert.equal(prepared.values['query\0q'],'caf%E9');assert.equal(prepared.values['path\0p'],'caf%E9');
  assert.equal(prepared.values['query\0n'],'9007199254740993.00');
- assert(Buffer.from(prepared.bodies['header\0X-Json'],'base64').equals(Buffer.from('"雪"','utf8')));
+ const headerBytes=Buffer.from(prepared.bodies['header\0X-Json'],'base64');
+ assert(headerBytes.equals(Buffer.from('"\\u96ea"','ascii')));assert.equal(JSON.parse(headerBytes.toString('ascii')),'雪');
  const runtimeInstances=parameters.map((parameter,index)=>({subject:'request-parameter',location:String(index),
   text:(parameter.in==='query'?parameter.name+'=':'')+prepared.values[parameter.in+'\0'+parameter.name],
   parameter:{resource:root,pointer:input.pointer+'/parameters/'+index}}));
@@ -64,7 +65,7 @@ test('R3c-3 present empty exploded fields cannot witness omitted empty arrays',a
  const parameters=require('./dist/execution.cjs').requestOperation({...packet,resource:packet.root,pointer:'/paths/~1p/get'}).parameters;
  const selected=parameters.find(parameter=>parameter.name==='q');
  const source=await evaluateSchemas({...input,runtimeInstances:[{subject:'request-parameter',location:'source',text:'flag=false&q=',parameter:{resource:input.root,pointer:'/components/parameters/Whole'}}]});
- const target=await evaluateSchemas({...packet,runtimeInstances:[{subject:'request-parameter',location:'target',text:'flag=false&q=',parameter:selected.definition}]});
+ const target=await evaluateSchemas({...packet,runtimeInstances:[{subject:'request-parameter',location:'target',text:'flag=false&q=',parameter:{resource:selected.definition.resource,pointer:selected.definition.pointer}}]});
  assert.equal(source.complete,true);assert.equal(target.complete,true);
  assert.equal(source.runtimeEvaluations[0].valid,false);assert.equal(target.runtimeEvaluations[0].valid,false);
 });
@@ -161,7 +162,7 @@ for(const targetVersion of ['3.1.2','3.0.4','2.0'])test(`R3c-2 ${targetVersion} 
  const {requestOperation}=require('./dist/execution.cjs'),plan=requestOperation({...packet,resource:packet.root,pointer:'/paths/~1p/get'});
  for(const parameter of plan.parameters){
   const values=parameter.name==='q'?['q=','q=a%2Bb&q=a%2Bb','q=other']:parameter.name==='text'?['text=','text=%E9%9B%AA','text=other']:['flag=true','flag=false','flag=other'];
-  const result=await evaluateSchemas({...packet,runtimeInstances:values.map(text=>({subject:'request-parameter',location:text,text,parameter:parameter.definition}))});
+  const result=await evaluateSchemas({...packet,runtimeInstances:values.map(text=>({subject:'request-parameter',location:text,text,parameter:{resource:parameter.definition.resource,pointer:parameter.definition.pointer}}))});
   assert.equal(result.complete,true,JSON.stringify(result.findings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,true,false]);
  }
 });
