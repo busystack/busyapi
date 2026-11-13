@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from urllib.parse import unquote, urldefrag, urljoin
 
 from tools.native_migration_preflight import (
     preflight_migration, verify_migration_metadata,
@@ -432,8 +433,9 @@ class PreflightTests(unittest.TestCase):
                         destination = self.root / ('raw-' + version + '-' + format + '-' + target)
                         report = preflight_migration(bundle / 'busyapi', source, target, destination, originals)
                         projection = next(item for item in report['configurationProjections'] if item['pointer'] == '/tests/0/parameters')
-                        self.assertEqual(projection['rawQueries'][0]['destinations'], ['q', 'flag'])
-                        self.assertEqual(json.loads(projection['after'])['query']['q'], ['a+b', '%20'])
+                        query = json.loads(projection['after'])['query']
+                        self.assertEqual(list(query), ['q', 'flag'])
+                        self.assertEqual(query, {'q': ['a+b', '%20'], 'flag': False})
                         self.assertFalse(destination.exists())
                         for path, raw in originals.items():
                             self.assertEqual(path.read_bytes(), raw)
@@ -443,7 +445,7 @@ class PreflightTests(unittest.TestCase):
                         with self.assertRaisesRegex(RuntimeError, 'migration.parameter.saved-proof'):
                             preflight_migration(bundle / 'busyapi', source, target, destination, {**originals, configuration: rejected})
 
-    def test_actual_packaged_r3b_active_and_unused_definitions_reopen_independently(self):
+    def test_active_definitions_reopen_and_unrepresentable_inactive_definitions_refuse(self):
         bundle = Path(os.environ.get('BUSYAPI_TEST_BUNDLE') or
                       Path(__file__).resolve().parent.parent / 'build/linux/x64/release/bundle')
         binary = bundle / 'busyapi'
@@ -477,6 +479,30 @@ class PreflightTests(unittest.TestCase):
                     for path, raw in originals.items():
                         path.write_bytes(raw)
                     destination = self.root / ('r3b-preview-' + str(unused) + '-' + format)
+                    if unused is not None:
+                        # Swagger has no independent inactive Path Item or
+                        # Media Type envelope. Verify that real target-language
+                        # refusal without requiring an internal holder/code.
+                        result = subprocess.run(
+                            [str(binary), 'migrate', str(source), '--target', '2.0',
+                             '--output', str(destination), '--json'],
+                            env={'PATH': '', 'LANG': 'C.UTF-8'}, capture_output=True, text=True, timeout=30)
+                        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                        report = json.loads(result.stdout)
+                        self.assertEqual(report['status'], 'blocked')
+                        self.assertFalse(report['complete'])
+                        self.assertFalse(report['published'])
+                        self.assertEqual(report['outputs'], [])
+                        container = 'pathItems' if unused == 'path-item' else 'mediaTypes'
+                        self.assertTrue(any(
+                            problem['resource'] == library.as_uri()
+                            and problem['pointer'] == f'/components/{container}/Unused'
+                            and problem['reason'] == 'target-representation'
+                            for problem in report['problems']))
+                        self.assertFalse(destination.exists())
+                        for path, raw in originals.items():
+                            self.assertEqual(path.read_bytes(), raw)
+                        continue
                     report = preflight_migration(binary, source, '2.0', destination, originals)
                     self.assertFalse(report['published'])
                     self.assertFalse(destination.exists())
@@ -485,7 +511,9 @@ class PreflightTests(unittest.TestCase):
                          '--output', str(destination), '--json', '--apply', report['reviewIdentity']],
                         env={'PATH': '', 'LANG': 'C.UTF-8'}, capture_output=True, text=True, timeout=30)
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                    self.assertTrue(json.loads(result.stdout)['published'])
+                    published = json.loads(result.stdout)
+                    self.assertTrue(published['published'])
+                    delivered_entry = destination / published['entry']
                     for path, raw in originals.items():
                         self.assertEqual(path.read_bytes(), raw)
                     # The output must resolve without consulting the originals.
@@ -498,6 +526,45 @@ class PreflightTests(unittest.TestCase):
                             env={'PATH': '', 'LANG': 'C.UTF-8'}, capture_output=True, text=True, timeout=30)
                         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                         self.assertTrue(json.loads(result.stdout)['complete'])
+                        flattened = self.root / ('r3b-bundle-' + str(unused) + '-' + format)
+                        result = subprocess.run(
+                            [str(binary), 'bundle', str(delivered_entry), '--output', str(flattened), '--json'],
+                            env={'PATH': '', 'LANG': 'C.UTF-8'}, capture_output=True, text=True, timeout=30)
+                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                        bundled_entry = flattened / json.loads(result.stdout)['output']['entry']
+                        document = json.loads(bundled_entry.read_text())
+                        self.assertEqual(document['swagger'], '2.0')
+                        self.assertEqual(set(document['paths']), {'/first', '/second'})
+
+                        def resolve(value):
+                            for _ in range(16):
+                                if '$ref' not in value:
+                                    return value
+                                address, pointer = urldefrag(urljoin(bundled_entry.as_uri(), value['$ref']))
+                                self.assertEqual(address, bundled_entry.as_uri())
+                                self.assertTrue(pointer.startswith('/'), pointer)
+                                value = document
+                                for part in unquote(pointer[1:]).split('/'):
+                                    key = part.replace('~1', '/').replace('~0', '~')
+                                    value = value[int(key)] if isinstance(value, list) else value[key]
+                            self.fail('The bundled fixture reference chain did not terminate')
+
+                        for path in ['/first', '/second']:
+                            item = resolve(document['paths'][path])
+                            self.assertEqual(set(item) & {'get', 'post', 'put', 'patch', 'delete', 'head', 'options'}, {'post'})
+                            operation = item['post']
+                            parameters = {
+                                (value['name'], value['in']): value
+                                for value in map(resolve, [*item.get('parameters', []),
+                                                           *operation.get('parameters', [])])
+                            }
+                            body = next(value for value in parameters.values() if value['in'] == 'body')
+                            self.assertTrue(body['required'])
+                            self.assertIn('schema', body)
+                            response = resolve(operation['responses']['200'])
+                            self.assertIn('schema', response)
+                            self.assertEqual(operation.get('produces', document.get('produces')),
+                                             ['application/vnd.count+json'])
                     finally:
                         for path, moved in retired.items():
                             if moved.exists():
@@ -559,8 +626,8 @@ class PreflightTests(unittest.TestCase):
                         report = preflight_migration(bundle / 'busyapi', project, target, destination, {source: raw, manifest: configuration})
                         self.assertTrue(report['complete'])
                         self.assertFalse(report['published'])
-                        records = [record for record in report['configurationProjections'] if 'multipart' in record]
-                        self.assertEqual(records[0]['multipart'], {'names': ['a', 'b', '雪']})
+                        records = [record for record in report['configurationProjections'] if record['pointer'] == '/tests/0/body']
+                        self.assertEqual(len(records), 1)
                         self.assertEqual(json.loads(records[0]['after'])['value'], {'b': ['snow'], 'a': ['', '雪']})
                         self.assertFalse(destination.exists())
 
@@ -593,8 +660,9 @@ class PreflightTests(unittest.TestCase):
                         report = preflight_migration(bundle / 'busyapi', project, target, destination, {source: raw, manifest: configuration})
                         self.assertTrue(report['complete'])
                         self.assertFalse(report['published'])
-                        record = [record for record in report['configurationProjections'] if 'multipart' in record][0]
-                        self.assertEqual(record['multipart'], {'names': ['tag']})
+                        records = [record for record in report['configurationProjections'] if record['pointer'] == '/tests/0/body']
+                        self.assertEqual(len(records), 1)
+                        record = records[0]
                         self.assertIn('9007199254740993.00', record['after'])
                         self.assertEqual(json.loads(record['after'])['value']['tag'][1:], ['雪', True])
                         self.assertEqual(json.loads(record['after'])['partMediaTypes'], {'tag': 'application/json'})
@@ -637,9 +705,8 @@ class PreflightTests(unittest.TestCase):
                                                      {source: raw, library: child, manifest: configuration})
                         self.assertTrue(report['complete'])
                         self.assertFalse(report['published'])
-                        projections = [record for record in report['configurationProjections'] if 'multipart' in record]
+                        projections = [record for record in report['configurationProjections'] if record['pointer'] == '/tests/0/body']
                         self.assertEqual(len(projections), 1)
-                        self.assertEqual(projections[0]['pointer'], '/tests/0/body')
                         self.assertIn('9007199254740993.00', projections[0]['after'])
                         self.assertFalse(any(record['pointer'] == '/tests/1/body' for record in report['configurationProjections']))
                         self.assertFalse(destination.exists())
@@ -678,7 +745,9 @@ class PreflightTests(unittest.TestCase):
                                                      {source: raw, manifest: configuration})
                         self.assertTrue(report['complete'])
                         self.assertFalse(report['published'])
-                        self.assertEqual(len([record for record in report['configurationProjections'] if 'multipart' in record]), 1)
+                        records = [record for record in report['configurationProjections'] if record['pointer'] == '/tests/0/body']
+                        self.assertEqual(len(records), 1)
+                        self.assertEqual(json.loads(records[0]['after'])['value'], {'tag': ['snow', '']})
                         self.assertFalse(destination.exists())
                         self.assertEqual(source.read_bytes(), raw)
                         self.assertEqual(manifest.read_bytes(), configuration)
