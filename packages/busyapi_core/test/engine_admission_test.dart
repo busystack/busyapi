@@ -7,8 +7,8 @@ import 'package:test/test.dart';
 import 'test_support.dart';
 
 // A narrow IPC boundary: held requests only complete after cancellation. The
-// helper records receipt, so a queued/cancelled request cannot pass by merely
-// returning a plausible result without exercising actual admission.
+// helper records actual captures, so cancellation and immutable input checks
+// exercise transport rather than accepting a plausible synthetic result.
 Future<EngineProcess> heldEngine({Duration? timeout}) async {
   final temp = await Directory.systemTemp.createTemp('busyapi-admission-');
   addTearDown(() => temp.delete(recursive: true));
@@ -18,7 +18,7 @@ const hello={protocol:1,engineVersion:'0.1.0',nodeVersion:'24.15.0',range:'half-
 let bytes=Buffer.alloc(0),held=new Map(),received=[],cancelled=[];
 function send(id,value){const data=Buffer.from(JSON.stringify({protocol:1,id,...value})),header=Buffer.alloc(4);header.writeUInt32BE(data.length);process.stdout.write(header);process.stdout.write(data);}
 process.stdin.on('data',chunk=>{bytes=Buffer.concat([bytes,chunk]);while(bytes.length>=4&&bytes.length>=bytes.readUInt32BE(0)+4){const n=bytes.readUInt32BE(0),q=JSON.parse(bytes.subarray(4,4+n));bytes=bytes.subarray(4+n);
-if(q.method==='hello')send(q.id,{ok:true,result:{...hello,received,cancelled}});
+if(q.method==='hello')send(q.id,{ok:true,result:{...hello,received,cancelled,captures:[...held.values()].map(q=>({id:q.id,resources:q.params.resources}))}});
 else if(q.method==='cancel'){
  cancelled.push(q.params.id);const job=held.get(q.params.id);held.delete(q.params.id);
  setTimeout(()=>{if(job)send(job.id,{ok:false,error:{code:'cancelled',message:'Cancelled'}});send(q.id,{ok:true,result:{cancelled:q.params.id}});},30);
@@ -197,46 +197,7 @@ void main() {
     }
   });
 
-  test(
-    'large documentation display waits behind Source and bounded native pages',
-    () async {
-      final engine = await heldEngine();
-      final held = [
-        for (var i = 0; i < 4; i++)
-          expectLater(
-            engine.request('inspect', {'hold': true}, requestId: 'held-$i'),
-            throwsA(failure('cancelled')),
-          ),
-      ];
-      await received(engine, 4);
-      final display = engine.request('referenceDisplay', {
-        'snapshot': 'display',
-      }, requestId: 'display');
-      final page = engine.request('referencePage', {
-        'snapshot': 'page',
-      }, requestId: 'page');
-      final source = engine.request('analyse', {
-        'snapshot': 'source',
-      }, requestId: 'source');
-      await Future<void>.delayed(Duration.zero);
-      await engine.cancel('held-0');
-      expect((await source)['snapshot'], 'source');
-      expect((await page)['snapshot'], 'page');
-      expect((await display)['snapshot'], 'display');
-      expect((await engine.request('hello', const {}))['received'], [
-        'held-0',
-        'held-1',
-        'held-2',
-        'held-3',
-        'source',
-        'page',
-        'display',
-      ]);
-      await Future.wait([for (var i = 1; i < 4; i++) engine.cancel('held-$i')]);
-      await Future.wait(held);
-    },
-  );
-  test('bounded foreground waiting captures input, prioritizes work and reserves cancellation capacity', () async {
+  test('Source and native views remain responsive while unrelated work waits', () async {
     final engine = await heldEngine();
     final held = [
       for (var i = 0; i < 4; i++)
@@ -246,64 +207,52 @@ void main() {
         ),
     ];
     await received(engine, 4);
+    final views = await Future.wait([
+      engine.request('referenceDisplay', {'snapshot': 'display'}, requestId: 'display'),
+      engine.request('referencePage', {'snapshot': 'page'}, requestId: 'page'),
+      engine.request('analyse', {'snapshot': 'source'}, requestId: 'source'),
+    ]);
+    expect(views.map((view) => view['snapshot']), ['display', 'page', 'source']);
+    expect((await engine.request('hello', const {}))['received'], containsAll([
+      'held-0', 'held-1', 'held-2', 'held-3', 'display', 'page', 'source',
+    ]));
+    await engine.cancelPrefix('held-');
+    await Future.wait(held);
+  });
+  test('bounded transport freezes input and reserves cancellation capacity', () async {
+    final engine = await heldEngine();
     final resources = [
       {'text': 'captured 雪😀\r\n', 'generation': 7},
     ];
-    final view = engine.request('referencePage', {
-      'snapshot': 'view',
-      'resources': resources,
-    }, requestId: 'view');
-    final evaluation = engine.request('evaluateSchemas', {
-      'snapshot': 'evaluation',
-    }, requestId: 'evaluation');
-    final proposal = engine.request('propose', {
-      'snapshot': 'proposal',
-    }, requestId: 'proposal');
-    final bundle = engine.request('deriveBundle', {
-      'snapshot': 'bundle',
-    }, requestId: 'bundle');
-    // Let each public request cross its asynchronous start boundary. Mutating
-    // caller-owned containers afterwards must not alter the captured request.
-    await Future<void>.delayed(Duration.zero);
+    final ids = [for (var i = 0; i < 8; i++) 'capture-$i'];
+    final held = [
+      for (final id in ids)
+        expectLater(
+          engine.request('inspect', {'hold': true, if (id == ids.last) 'resources': resources}, requestId: id),
+          throwsA(failure('cancelled')),
+        ),
+    ];
+    await received(engine, 8);
     resources[0]['text'] = 'retargeted';
     resources.add({'text': 'extra', 'generation': 99});
-    expect((await engine.request('hello', const {}))['received'], [
-      'held-0',
-      'held-1',
-      'held-2',
-      'held-3',
+    final captures = (await engine.request('hello', const {}))['captures'] as List;
+    expect((captures.last as Map)['resources'], [
+      {'text': 'captured 雪😀\r\n', 'generation': 7},
     ]);
     await expectLater(
       engine.request('inspect', const {}, requestId: 'ninth'),
       throwsA(failure('engine.queue')),
     );
     await expectLater(
-      engine.request('inspect', const {}, requestId: 'view'),
+      engine.request('inspect', const {}, requestId: ids.last),
       throwsA(failure('engine.identity')),
     );
-    final firstCancel = engine.cancel('held-0');
-    await firstCancel;
-    expect((await proposal)['snapshot'], 'proposal');
-    expect((await bundle)['snapshot'], 'bundle');
-    expect((await view)['resources'], [
-      {'text': 'captured 雪😀\r\n', 'generation': 7},
-    ]);
-    expect((await evaluation)['snapshot'], 'evaluation');
-    expect((await engine.request('hello', const {}))['received'], [
-      'held-0',
-      'held-1',
-      'held-2',
-      'held-3',
-      'proposal',
-      'bundle',
-      'view',
-      'evaluation',
-    ]);
-    await Future.wait([for (var i = 1; i < 4; i++) engine.cancel('held-$i')]);
+    await engine.cancelPrefix('capture-');
     await Future.wait(held);
+    expect((await engine.request('hello', const {}))['cancelled'], containsAll(ids));
+    expect((await engine.request('inspect', {'snapshot': 'reusable'}))['snapshot'], 'reusable');
   });
-
-  test('cancelling queued ownership never dispatches it and prefix cancellation drains all owners', () async {
+  test('cancelling before transport never dispatches it and prefix cancellation drains all owners', () async {
     final engine = await heldEngine();
     final held = [
       for (var i = 0; i < 4; i++)
@@ -317,7 +266,6 @@ void main() {
       engine.request('inspect', {'hold': true}, requestId: 'scope-queued'),
       throwsA(failure('cancelled')),
     );
-    await Future<void>.delayed(Duration.zero);
     await engine.cancel('scope-queued');
     await queued;
     expect((await engine.request('hello', const {}))['received'], [
@@ -337,7 +285,7 @@ void main() {
     ]);
   });
 
-  test('prefix cancellation marks queued siblings before releasing running capacity', () async {
+  test('prefix cancellation drains every captured sibling', () async {
     final engine = await heldEngine();
     final requests = [
       for (var i = 0; i < 8; i++)
@@ -346,18 +294,15 @@ void main() {
           throwsA(failure('cancelled')),
         ),
     ];
-    await received(engine, 4);
+    await received(engine, 8);
     await engine.cancelPrefix('siblings-');
     await Future.wait(requests);
     expect((await engine.request('hello', const {}))['received'], [
-      'siblings-0',
-      'siblings-1',
-      'siblings-2',
-      'siblings-3',
+      for (var i = 0; i < 8; i++) 'siblings-$i',
     ]);
   });
 
-  test('crashed helper fails dispatched and waiting owners instead of returning empty success', () async {
+  test('crashed helper fails every captured owner instead of returning empty success', () async {
     final engine = await heldEngine();
     final requests = [
       for (var i = 0; i < 8; i++)
@@ -391,7 +336,7 @@ void main() {
   });
 
   test(
-    'waiting deadlines fail truthfully without dispatch and remain bounded',
+    'deadlines fail truthfully and cancel every captured request',
     () async {
       final engine = await heldEngine(
         timeout: const Duration(milliseconds: 250),
@@ -406,15 +351,12 @@ void main() {
       await Future.wait(requests);
       await Future<void>.delayed(const Duration(milliseconds: 60));
       expect((await engine.request('hello', const {}))['received'], [
-        'timeout-0',
-        'timeout-1',
-        'timeout-2',
-        'timeout-3',
+        for (var i = 0; i < 8; i++) 'timeout-$i',
       ]);
     },
   );
 
-  test('close fails every waiting request and rejects later reuse without helper restart', () async {
+  test('close fails every captured request and rejects later reuse without helper restart', () async {
     final engine = await heldEngine();
     final requests = [
       for (var i = 0; i < 8; i++)
@@ -423,7 +365,7 @@ void main() {
           throwsA(isA<CoreFailure>()),
         ),
     ];
-    await received(engine, 4);
+    await received(engine, 8);
     await engine.close();
     await Future.wait(requests);
     await expectLater(
@@ -432,7 +374,7 @@ void main() {
     );
   });
 
-  test('non-serializable input fails before dispatch without consuming waiting capacity', () async {
+  test('non-serializable input fails before dispatch without consuming transport capacity', () async {
     final engine = await heldEngine();
     await expectLater(
       engine.request('inspect', {'invalid': File('not read')}),

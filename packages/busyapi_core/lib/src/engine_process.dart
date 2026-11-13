@@ -27,31 +27,8 @@ class _EngineRequest {
   final result = Completer<Map<String, dynamic>>();
   final released = Completer<void>();
   Timer? deadline;
-  bool started = false, sent = false, cancelled = false;
+  bool sent = false, cancelled = false;
   bool get control => const ['hello', 'cancel', 'shutdown'].contains(method);
-  int get priority => control
-      ? -1
-      : const ['analyse', 'propose', 'assistSource'].contains(method)
-      ? 0
-      : const [
-          'evaluateSchemas',
-          'govern',
-          'inspectPolicyCode',
-          'resolvePolicyCode',
-          'reviewPolicyCode',
-          'referenceDisplay',
-        ].contains(method)
-      ? 3
-      : const [
-          'inspect',
-          'readDataValue',
-          'schemaTree',
-          'referenceChoices',
-          'referencePage',
-          'semanticSearch',
-        ].contains(method)
-      ? 2
-      : 1;
 }
 
 typedef EngineProcessStarter = Future<Process> Function(
@@ -93,14 +70,12 @@ class EngineProcess {
   int _serial = 0;
   String? assetIdentity;
   final _pending = <String, _EngineRequest>{};
-  final _waiting = <_EngineRequest>[];
   final _cancelling = <String, Future<void>>{};
   int _retainedRequestBytes = 0;
   final _header = <int>[];
   final _body = BytesBuilder(copy: false);
   int? _frameSize;
-  Future<void>? _decoding;
-  int _queuedFrames = 0, _processEpoch = 0;
+  int _processEpoch = 0;
   int logBytes = 0;
   final _cancelled = <String>{};
   Future<void> start() async {
@@ -184,27 +159,29 @@ class EngineProcess {
     );
     _processEpoch++;
     final epoch = _processEpoch;
-    _queuedFrames = 0;
-    _decoding = null;
     _header.clear();
     _body.clear();
     _frameSize = null;
-    process.stdout.listen(
-      (data) {
-        if (identical(_process, process)) _receive(data);
-      },
-      onError: (_) {
-        if (identical(_process, process)) {
-          _fail('engine.output', 'Cannot read helper output');
-        }
-      },
-      onDone: () {
-        if (identical(_process, process) &&
-            (_header.isNotEmpty || _frameSize != null)) {
-          _fail('engine.truncated', 'Helper output was truncated');
-        }
-      },
-    );
+    // Await decoding before accepting another stdout chunk. The stream pauses
+    // at that boundary, so a valid burst needs no second response queue.
+    process.stdout
+        .asyncMap((data) async {
+          if (identical(_process, process)) await _receive(data);
+        })
+        .listen(
+          (_) {},
+          onError: (_) {
+            if (identical(_process, process)) {
+              _fail('engine.output', 'Cannot read helper output');
+            }
+          },
+          onDone: () {
+            if (identical(_process, process) &&
+                (_header.isNotEmpty || _frameSize != null)) {
+              _fail('engine.truncated', 'Helper output was truncated');
+            }
+          },
+        );
     process.stderr.listen((data) {
       if (identical(_process, process))
         logBytes = (logBytes + data.length).clamp(0, 8192);
@@ -241,10 +218,12 @@ class EngineProcess {
     }
   }
 
-  void _receive(List<int> data) {
+  Future<void> _receive(List<int> data) async {
+    final epoch = _processEpoch;
     final bytes = data is Uint8List ? data : Uint8List.fromList(data);
     var offset = 0;
     while (offset < bytes.length) {
+      if (epoch != _processEpoch) return;
       if (_frameSize == null) {
         while (_header.length < 4 && offset < bytes.length) {
           _header.add(bytes[offset++]);
@@ -269,80 +248,67 @@ class EngineProcess {
       if (_body.length < _frameSize!) return;
       final frame = _body.takeBytes();
       _frameSize = null;
-      if (_queuedFrames >= 8) {
-        _fail('engine.queue', 'Helper exceeded the bounded response queue');
-        unawaited(_kill());
-        return;
-      }
-      _queuedFrames++;
-      final epoch = _processEpoch;
-      _decoding = (_decoding ?? Future<void>.value()).then(
-        (_) => _acceptFrame(frame, epoch),
-      );
+      await _acceptFrame(frame, epoch);
     }
   }
 
   Future<void> _acceptFrame(Uint8List frame, int epoch) async {
+    if (epoch != _processEpoch || _process == null) return;
     try {
+      final value = await _decodeFrame(frame);
       if (epoch != _processEpoch || _process == null) return;
-      try {
-        final value = await _decodeFrame(frame);
-        if (epoch != _processEpoch || _process == null) return;
-        if (value['protocol'] != 1 || value['id'] is! String) {
-          throw const FormatException();
-        }
-        final request = _pending[value['id']];
-        if (request == null) return;
-        if (!request.sent) throw const FormatException();
-        if (value['ok'] == true && value['result'] is Map) {
-          if (!request.result.isCompleted) {
-            request.result.complete(
-              Map<String, dynamic>.from(value['result'] as Map),
-            );
-          }
-        } else {
-          if (!request.result.isCompleted) {
-            final error = value['error'];
-            if (error is! Map) throw const FormatException();
-            final kind = CoreFailureKind.fromWire(error['kind']);
-            final source = error['source'];
-            CoreFailureSource? location;
-            if (source != null) {
-              if (source is! Map ||
-                  source['resource'] is! String ||
-                  source['pointer'] is! String ||
-                  source['range'] is! List)
-                throw const FormatException();
-              final range = source['range'] as List;
-              if (range.length != 2 ||
-                  range.any((value) => value is! int) ||
-                  (range[0] as int) < 0 ||
-                  (range[1] as int) < (range[0] as int))
-                throw const FormatException();
-              location = CoreFailureSource(
-                source['resource'] as String,
-                source['pointer'] as String,
-                SourceRange(range[0] as int, range[1] as int),
-              );
-            }
-            request.result.completeError(
-              CoreFailure(
-                (error['code'] as String?) ?? 'engine.error',
-                (error['message'] as String?) ?? 'Engine rejected the request',
-                kind: kind,
-                source: location,
-              ),
-            );
-          }
-        }
-        _release(request);
-      } on Object {
-        if (epoch != _processEpoch || _process == null) return;
-        _fail('engine.json', 'Malformed helper response');
-        unawaited(_kill(epoch: epoch));
+      if (value['protocol'] != 1 || value['id'] is! String) {
+        throw const FormatException();
       }
-    } finally {
-      if (epoch == _processEpoch) _queuedFrames--;
+      final request = _pending[value['id']];
+      if (request == null) return;
+      if (!request.sent) throw const FormatException();
+      if (value['ok'] == true && value['result'] is Map) {
+        if (!request.result.isCompleted) {
+          request.result.complete(
+            Map<String, dynamic>.from(value['result'] as Map),
+          );
+        }
+      } else {
+        if (!request.result.isCompleted) {
+          final error = value['error'];
+          if (error is! Map) throw const FormatException();
+          final kind = CoreFailureKind.fromWire(error['kind']);
+          final source = error['source'];
+          CoreFailureSource? location;
+          if (source != null) {
+            if (source is! Map ||
+                source['resource'] is! String ||
+                source['pointer'] is! String ||
+                source['range'] is! List)
+              throw const FormatException();
+            final range = source['range'] as List;
+            if (range.length != 2 ||
+                range.any((value) => value is! int) ||
+                (range[0] as int) < 0 ||
+                (range[1] as int) < (range[0] as int))
+              throw const FormatException();
+            location = CoreFailureSource(
+              source['resource'] as String,
+              source['pointer'] as String,
+              SourceRange(range[0] as int, range[1] as int),
+            );
+          }
+          request.result.completeError(
+            CoreFailure(
+              (error['code'] as String?) ?? 'engine.error',
+              (error['message'] as String?) ?? 'Engine rejected the request',
+              kind: kind,
+              source: location,
+            ),
+          );
+        }
+      }
+      _release(request);
+    } on Object {
+      if (epoch != _processEpoch || _process == null) return;
+      _fail('engine.json', 'Malformed helper response');
+      unawaited(_kill(epoch: epoch));
     }
   }
 
@@ -351,6 +317,10 @@ class EngineProcess {
     Map<String, Object?> params, {
     String? requestId,
   }) async {
+    final control = const ['hello', 'cancel', 'shutdown'].contains(method);
+    if (_closed && !control) {
+      throw CoreFailure('engine.closed', 'Engine has been shut down');
+    }
     if (_process == null) {
       throw CoreFailure('engine.stopped', 'Contract engine is not running');
     }
@@ -369,7 +339,6 @@ class EngineProcess {
     }
     // Capture mutable containers before waiting. Strings are immutable/shared;
     // callers cannot retarget a queued snapshot by changing a list or map.
-    final control = const ['hello', 'cancel', 'shutdown'].contains(method);
     var cost = 0, nodes = 0;
     Object? capture(Object? value, int depth) {
       if (++nodes > 400000 || depth > 256) {
@@ -409,14 +378,14 @@ class EngineProcess {
     if (_pending.values.where((r) => r.control == control).length >= 8) {
       throw CoreFailure(
         'engine.queue',
-        'Bounded request waiting queue is full',
+        'Bounded transport request capacity is full',
       );
     }
     final frozen = capture(params, 0) as Map<String, Object?>;
     final request = _EngineRequest(id, method, frozen, cost, _processEpoch);
     if (!control) _retainedRequestBytes += cost;
     _pending[id] = request;
-    // The deadline includes waiting and encoding, not just helper execution.
+    // Correlation owns the deadline through encoding, execution and reply.
     request.result.future.ignore();
     request.deadline = Timer(timeout, () {
       if (!_pending.containsKey(id)) return;
@@ -426,9 +395,7 @@ class EngineProcess {
           CoreFailure('engine.timeout', 'Analysis exceeded the time limit'),
         );
       }
-      if (!request.started) {
-        _release(request);
-      } else if (request.sent) {
+      if (request.sent) {
         if (request.control) {
           unawaited(_kill(epoch: request.epoch));
         } else {
@@ -437,40 +404,18 @@ class EngineProcess {
         }
       }
     });
-    _waiting.add(request);
-    _drainRequests();
+    // Node owns execution admission and ordering. Dart retains only bounded
+    // immutable transport captures until reply or acknowledged cancellation.
+    unawaited(_dispatch(request));
     return request.result.future;
-  }
-
-  void _drainRequests() {
-    if (_process == null) return;
-    while (true) {
-      _EngineRequest? next;
-      for (final request in _waiting) {
-        if (_closed && !request.control) continue;
-        if (_pending.values
-                .where((r) => r.started && r.control == request.control)
-                .length >=
-            4) {
-          continue;
-        }
-        if (next == null || request.priority < next.priority) next = request;
-      }
-      if (next == null) return;
-      _waiting.remove(next);
-      next.started = true;
-      unawaited(_dispatch(next));
-    }
   }
 
   void _release(_EngineRequest request) {
     if (!identical(_pending[request.id], request)) return;
     _pending.remove(request.id);
-    _waiting.remove(request);
     if (!request.control) _retainedRequestBytes -= request.cost;
     request.deadline?.cancel();
     if (!request.released.isCompleted) request.released.complete();
-    _drainRequests();
   }
 
   Future<void> _dispatch(_EngineRequest request) async {
@@ -498,7 +443,12 @@ class EngineProcess {
       _release(request);
       return;
     }
-    if (request.cancelled) {
+    if (request.cancelled || _closed && !request.control) {
+      if (!request.result.isCompleted) {
+        request.result.completeError(
+          CoreFailure('engine.closed', 'Engine has been shut down'),
+        );
+      }
       _release(request);
       return;
     }
@@ -544,8 +494,8 @@ class EngineProcess {
   }
 
   Future<void> cancelPrefix(String prefix) async {
-    // Mark every captured owner before any termination releases a slot. A
-    // queued sibling must not start while sequential cancellation awaits I/O.
+    // Mark every captured owner before awaiting termination. An encoding
+    // sibling must not be sent while cancellation waits for the worker.
     await Future.wait([
       for (final id
           in _pending.keys.where((id) => id.startsWith(prefix)).toList())
@@ -563,13 +513,12 @@ class EngineProcess {
       return Future.value();
     }
     request.cancelled = true;
-    if (!request.started || !request.sent) {
+    if (!request.sent) {
       if (!request.result.isCompleted) {
         request.result.completeError(
           CoreFailure('cancelled', 'Request cancelled before dispatch'),
         );
       }
-      if (!request.started) _release(request);
       return request.released.future;
     }
     final stopped = _cancelSent(request);
@@ -599,7 +548,6 @@ class EngineProcess {
   void _fail(String code, String message) {
     final all = _pending.values.toList();
     _pending.clear();
-    _waiting.clear();
     _retainedRequestBytes = 0;
     for (final request in all) {
       request.deadline?.cancel();

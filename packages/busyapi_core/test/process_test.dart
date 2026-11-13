@@ -74,7 +74,7 @@ void main() {
       expect(replies[i]['status'], 'complete');
     }
   });
-  test('cancellation has reserved control capacity when all four data slots are occupied', () async {
+  test('cancellation retains reserved control capacity when ordinary transport is full', () async {
     final temp = await Directory.systemTemp.createTemp(
       'busyapi-control-capacity-',
     );
@@ -95,7 +95,7 @@ else if(q.method==='shutdown'){send(q.id,{ok:true,result:{stopped:true}});proces
     addTearDown(engine.close);
     await engine.start();
     final futures = [
-      for (var i = 0; i < 4; i++)
+      for (var i = 0; i < 8; i++)
         engine.request('hold', {
           'snapshot': 'held-$i',
         }, requestId: i == 0 ? '2' : 'held-$i'),
@@ -110,9 +110,7 @@ else if(q.method==='shutdown'){send(q.id,{ok:true,result:{stopped:true}});proces
     await engine.cancel('2');
     await cancelled;
     expect((await retained).map((r) => r['snapshot']), [
-      'held-1',
-      'held-2',
-      'held-3',
+      for (var i = 1; i < 8; i++) 'held-$i',
     ]);
     await engine.cancel('4');
     expect((await engine.request('hello', const {}))['protocol'], 1);
