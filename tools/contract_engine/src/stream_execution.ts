@@ -18,8 +18,8 @@ class ResponseStream {
  busy?:Promise<any>;
  closed=false;
  readonly retained:number;
- constructor(readonly capture:any){
-  this.context=createGraph(capture);this.plan=requestOperation(capture,this.context);
+ constructor(readonly capture:any,context?:ReturnType<typeof createGraph>){
+  this.context=context??createGraph(capture);this.plan=requestOperation(capture,this.context);
   const declaration=this.plan.responses.find(item=>item.status===String(capture.status))??this.plan.responses.find(item=>item.status===String(capture.status)[0]+'XX')??this.plan.responses.find(item=>item.status==='default');
   this.media=declaration&&selectNativeMedia<any>(declaration.content,capture.mediaType);
   this.base={version:1,revision:streamRevision,stream:capture.stream,snapshot:capture.snapshot,identity:this.plan.identity,producer:schemaProducer.name,producerVersion:schemaProducer.version,configuration:schemaProducer.configuration};
@@ -77,13 +77,13 @@ function release(stream:string,owner:ResponseStream){
  if(streams.get(stream)!==owner)return;
  streams.delete(stream);retainedSources-=owner.retained;owner.closed=true;
 }
-export async function responseStreamOpen(input:any){
+export async function responseStreamOpen(input:any,context?:ReturnType<typeof createGraph>){
  const stream=streamIdentity(input);
  if(streams.has(stream))throw new SourceError('runtime.stream.capture','The stream identity is already owned');
  if(typeof input.mediaType!=='string'||!Number.isInteger(input.status)||input.runId!==undefined&&(typeof input.runId!=='string'||input.runId.length>256))throw new SourceError('runtime.stream.input','Expected captured response semantics');
  const retained=input.resources?.reduce((bytes:number,resource:any)=>bytes+(typeof resource.text==='string'?resource.text.length*2:Infinity),0);
  if(streams.size>=8||!Number.isFinite(retained)||retainedSources+retained>128*1024*1024)throw new SourceError('limit.stream.owners','Live stream captures exceed the bounded worker capacity');
- const owner=new ResponseStream({...input,resources:input.resources.map((resource:any)=>({...resource,aliases:resource.aliases?.slice()}))});
+ const owner=new ResponseStream({...input,resources:input.resources.map((resource:any)=>({...resource,aliases:resource.aliases?.slice()}))},context);
  const initial=await owner.chunk({text:'',end:false});
  if(initial.supported){streams.set(stream,owner);retainedSources+=owner.retained;}
  return initial;

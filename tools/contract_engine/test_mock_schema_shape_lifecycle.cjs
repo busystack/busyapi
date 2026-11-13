@@ -19,10 +19,10 @@ test(`${version} ${format} abort between authored and cached derived candidates 
  const capture={root,snapshot:identity,resources:[{id:root,text,identity,generation:1}]};
  const context=createGraph(capture);
  const plan=requestOperation({...capture,resource:root,pointer:'/paths/~1items/get'},context);
- const client=new EngineWorkerClient();t.after(()=>client.close());let calls=0;
+ const client=new EngineWorkerClient(capture);t.after(()=>client.close());let calls=0;
  const samples=new MockSchemaSamples(context.graph,async(instances,signal)=>{
   calls++;
-  const result=await client.request('evaluateSchemas',{...capture,runtimeInstances:instances},signal);
+  const result=await client.request('evaluateSchemas',{runtimeInstances:instances},signal);
   return {complete:result.complete,valid:result.runtimeEvaluations.every(value=>value.complete&&value.valid),
    findings:result.runtimeFindings,evaluations:result.runtimeEvaluations};
  },capture.snapshot);

@@ -52,7 +52,7 @@ export function mockCapture(value:unknown):MockCapture {
 /** Native request checks consume the original immutable graph. Prism receives
  * a derived document for its qualified routing/generation role only. */
 export class MockNativeValidation {
-    private readonly client=new EngineWorkerClient();
+    private readonly client:EngineWorkerClient;
     private readonly context:ReturnType<typeof createGraph>;
     private readonly operations=new Map<string,OperationOccurrence>();
     private readonly plans=new Map<string,{operation:OperationOccurrence;description:ReturnType<typeof requestOperation>;body:BodyDeclaration|undefined}>();
@@ -63,6 +63,7 @@ export class MockNativeValidation {
 
     constructor(private readonly capture:MockCapture) {
         this.context=createGraph(capture);
+        this.client=new EngineWorkerClient(capture);
         this.examples=new CapturedExampleResources(capture.exampleResources??[]);
         this.samples=new MockSchemaSamples(this.context.graph,(instances,signal)=>this.evaluateInstances(instances,signal),capture.snapshot);
         for(const operation of this.context.graph.operations())if(operation.role==='operation') {
@@ -80,7 +81,7 @@ export class MockNativeValidation {
             typeof output.identity!=='string'||!Array.isArray(derived.provenance)||
             createHash('sha256').update(output.text).digest('hex')!==output.identity)
             throw new SourceError('mock.capture.changed','The prepared mock artifact is malformed or belongs to another capture');
-        const checked=await this.client.request('evaluateSchemas',this.capture);
+        const checked=await this.client.request('evaluateSchemas',{});
         if(checked.snapshot!==this.capture.snapshot||typeof checked.complete!=='boolean'||!Array.isArray(checked.findings)||checked.findings.some(finding=>!record(finding)))
             throw new SourceError('mock.validation.protocol','Native validation returned an unrelated captured graph');
         if(!checked.complete||checked.findings.some(finding=>finding.severity==='error')){
@@ -236,7 +237,7 @@ export class MockNativeValidation {
     }
     async responseStreamOpen(path:string,method:string,status:number,mediaType:string,stream:string,signal:AbortSignal):Promise<any>{
         const source=this.plan(path,method).description.operation;
-        const result=await this.client.request('responseStreamOpen',{...this.capture,resource:source.source.resource,pointer:source.source.pointer,occurrence:source.occurrence,status,mediaType,stream},signal);
+        const result=await this.client.request('responseStreamOpen',{resource:source.source.resource,pointer:source.source.pointer,occurrence:source.occurrence,status,mediaType,stream},signal);
         return this.streamProof(path,method,stream,result);
     }
     async responseStreamChunk(path:string,method:string,stream:string,text:string,end:boolean,signal:AbortSignal):Promise<any>{
@@ -300,7 +301,7 @@ export class MockNativeValidation {
                 for(const key of Object.keys(output))if(key.toLowerCase()===header.name.toLowerCase())delete output[key];
                 output[header.name]=raw;continue;
             }
-            const result=await this.client.request('evaluateSchemas',{...this.capture,mediaPreparations:[{text:raw,mediaType:media.mediaType,schema:media.schema,header:true,direction:'response'}]},signal);
+            const result=await this.client.request('evaluateSchemas',{mediaPreparations:[{text:raw,mediaType:media.mediaType,schema:media.schema,header:true,direction:'response'}]},signal);
             if(result.snapshot!==this.capture.snapshot||result.producer!==this.producer?.name||result.producerVersion!==this.producer?.version||result.configuration!==this.producer?.configuration||!Array.isArray(result.mediaPreparations))throw new SourceError('mock.validation.protocol','Header materialization returned unrelated data');
             const prepared:unknown=result.mediaPreparations[0];
             if(!record(prepared)||typeof prepared.base64!=='string')throw new SourceError('mock.validation.protocol','Header materialization returned unrelated data');
@@ -320,7 +321,7 @@ export class MockNativeValidation {
     private async multipartResponse(path:string,method:string,status:string,actual:string,raw:string,signal?:AbortSignal):Promise<Buffer> {
         if(!signal)throw new SourceError('mock.multipart.cancel','Multipart response preparation requires its request cancellation owner');
         const operation=this.plan(path,method).description.operation,source=operation.source;
-        const input={...this.capture,resource:source.resource,pointer:source.pointer,occurrence:operation.occurrence,status,mediaType:actual,text:raw};
+        const input={resource:source.resource,pointer:source.pointer,occurrence:operation.occurrence,status,mediaType:actual,text:raw};
         const check=(result:any)=>{
             if(result.version!==1||result.snapshot!==this.capture.snapshot||result.identity!==this.plan(path,method).description.identity||result.producer!==this.producer?.name||result.producerVersion!==this.producer?.version||result.configuration!==this.producer?.configuration)throw new SourceError('mock.validation.protocol','Multipart response preparation returned unrelated producer data');
         };
@@ -404,13 +405,13 @@ export class MockNativeValidation {
     async responseBytes(path:string,method:string,status:string,actual:string,raw:string,signal?:AbortSignal):Promise<Buffer> {
         if(actual.split(';')[0].trim().toLowerCase()==='application/x-www-form-urlencoded'){
             const {operation}=this.plan(path,method).description;
-            const result=await this.client.request('mockFormBytes',{...this.capture,resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence,status,mediaType:actual,text:raw},signal);
+            const result=await this.client.request('mockFormBytes',{resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence,status,mediaType:actual,text:raw},signal);
             if(result.snapshot!==this.capture.snapshot||result.identity!==this.plan(path,method).description.identity||result.producer!==this.producer?.name||result.producerVersion!==this.producer?.version||result.configuration!==this.producer?.configuration||typeof result.base64!=='string'||!record(result.proof)||result.proof.complete!==true||result.proof.valid!==true)throw new SourceError('mock.validation.protocol','URL-form preparation returned unrelated data');
             const bytes=Buffer.from(result.base64,'base64');if(bytes.toString('base64')!==result.base64||bytes.length!==result.byteLength)throw new SourceError('mock.validation.protocol','URL-form byte identity is malformed');return bytes;
         }
         if(actual.split(';')[0].trim().toLowerCase().startsWith('multipart/'))return this.multipartResponse(path,method,status,actual,raw,signal);
         const media=capturedMockResponseMedia(this.plan(path,method).description,status,actual),schema=media&&schemaLocation(media.schema);
-        const result=await this.client.request('evaluateSchemas',{...this.capture,mediaPreparations:[{text:raw,mediaType:actual,schema,direction:'response'}]},signal);
+        const result=await this.client.request('evaluateSchemas',{mediaPreparations:[{text:raw,mediaType:actual,schema,direction:'response'}]},signal);
         if(result.producer!==this.producer?.name||result.producerVersion!==this.producer?.version||result.configuration!==this.producer?.configuration||result.snapshot!==this.capture.snapshot||!Array.isArray(result.mediaPreparations))throw new SourceError('mock.validation.protocol','Media preparation returned unrelated data');
         const prepared:unknown=result.mediaPreparations[0];
         if(!record(prepared)||typeof prepared.base64!=='string')throw new SourceError('mock.validation.protocol','Media preparation returned unrelated data');
@@ -468,7 +469,7 @@ export class MockNativeValidation {
     }
 
     private async evaluateInstances(runtimeInstances:NativeRuntimeInstance[],signal:AbortSignal):Promise<NativeRuntimeCheck> {
-        const result=await this.client.request('evaluateSchemas',{...this.capture,runtimeInstances},signal);
+        const result=await this.client.request('evaluateSchemas',{runtimeInstances},signal);
         if(result.snapshot!==this.capture.snapshot||result.producer!==this.producer?.name||result.producerVersion!==this.producer?.version||result.configuration!==this.producer?.configuration||typeof result.complete!=='boolean'||!Array.isArray(result.runtimeEvaluations)||!Array.isArray(result.runtimeFindings))
             throw new SourceError('mock.validation.protocol','Native validation returned an unrelated runtime result');
         const runtimeEvaluations=result.runtimeEvaluations;

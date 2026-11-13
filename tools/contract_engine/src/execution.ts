@@ -188,8 +188,8 @@ export async function requestFormBytes(input:any,captured=createGraph(input),pla
 }
 
 /** URL-form mock generation retains original typed/root and emitted schemas. */
-export async function mockFormBytes(input:any){
- const captured=createGraph(input),plan=requestOperation(input,captured),response=plan.responses.find(value=>value.status===String(input.status))??plan.responses.find(value=>value.status===String(input.status)[0]+'XX')??plan.responses.find(value=>value.status==='default');
+export async function mockFormBytes(input:any,captured:ReturnType<typeof createGraph>=createGraph(input)){
+ const plan=requestOperation(input,captured),response=plan.responses.find(value=>value.status===String(input.status))??plan.responses.find(value=>value.status===String(input.status)[0]+'XX')??plan.responses.find(value=>value.status==='default');
  const content=selectRequestMedia<Record<string,any>&{mediaType:string}>(response?.content??[],input.mediaType);
  if(!content?.schema||content.formBinding!=='urlencoded')throw new SourceError('mock.form.owner','Select a captured URL-form response');
  const doc=new SourceDocument(input.text,'urn:busyapi:mock-form',true,'json');if(doc.issues.length)throw doc.issues[0];
@@ -220,8 +220,8 @@ export async function mockFormBytes(input:any){
 
 /** Native mock multipart responses consume the same captured part preparation
  * and whole-data/actual-wire proof as the native request writer. */
-export async function mockMultipartBytes(input:any){
- const captured=createGraph(input),plan=requestOperation(input,captured);
+export async function mockMultipartBytes(input:any,captured:ReturnType<typeof createGraph>=createGraph(input)){
+ const plan=requestOperation(input,captured);
  const response=plan.responses.find(value=>value.status===String(input.status))??plan.responses.find(value=>value.status===String(input.status)[0]+'XX')??plan.responses.find(value=>value.status==='default');
  const content=selectRequestMedia<Record<string,any>&{mediaType:string}>(response?.content??[],input.mediaType);
  if(!content||!input.mediaType?.toLowerCase().startsWith('multipart/'))throw new SourceError('mock.multipart.owner','Select a captured multipart response');

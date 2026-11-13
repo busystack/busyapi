@@ -21,18 +21,26 @@ type Pending={resolve:(value:Record<string,unknown>)=>void;reject:(error:Error)=
 /** An adapter client of the packaged engine, using its existing bounded worker
  * dispatcher. No schema evaluator, URI loader or semantic cache lives here. */
 export class EngineWorkerClient {
+    private readonly capture:Record<string,unknown>;
+    private readonly captureBytes:number;
+    constructor(capture:Record<string,unknown>){
+        this.captureBytes=Buffer.byteLength(JSON.stringify(capture));
+        if(this.captureBytes>maximumFrame)throw new SourceError('limit.request','The native validation capture exceeds 64 MiB');
+        this.capture=structuredClone(capture);
+    }
     private serial=0n;
     private closed=false;
     private readonly pending=new Map<string,Pending>();
     private readonly dispatcher=new WorkerDispatcher(
-        request=>new Worker(join(__dirname,'engine.cjs'),{workerData:{streaming:request.method.startsWith('responseStream')},resourceLimits:{maxOldGenerationSizeMb:512,stackSizeMb:8}}),
+        request=>new Worker(join(__dirname,'engine.cjs'),{workerData:{streaming:request.method.startsWith('responseStream'),capture:this.capture},resourceLimits:{maxOldGenerationSizeMb:512,stackSizeMb:8}}),
         payload=>this.reply(payload),
         (id,code,message)=>this.finish(id,undefined,this.pending.get(id)?.stopped??new SourceError(code,message)),maximumFrame);
 
-    request(method:'deriveBundle'|'evaluateSchemas'|'responseStreamOpen'|'responseStreamChunk'|'responseStreamClose'|'mockFormBytes'|'mockMultipartBytes',params:Record<string,unknown>,signal?:AbortSignal):Promise<Record<string,unknown>> {
+    request(method:'evaluateSchemas'|'responseStreamOpen'|'responseStreamChunk'|'responseStreamClose'|'mockFormBytes'|'mockMultipartBytes',params:Record<string,unknown>,signal?:AbortSignal):Promise<Record<string,unknown>> {
         if(this.closed)return Promise.reject(new SourceError('worker.closed','The native validation owner is closed'));
         if(signal?.aborted)return Promise.reject(new SourceError('cancelled','The native validation request was cancelled'));
-        if(Buffer.byteLength(JSON.stringify(params))>maximumFrame)return Promise.reject(new SourceError('limit.request','The native validation input exceeds 64 MiB'));
+        if(Buffer.byteLength(JSON.stringify(params))+(method==='responseStreamChunk'||method==='responseStreamClose'?0:this.captureBytes)>maximumFrame)return Promise.reject(new SourceError('limit.request','The native validation input exceeds 64 MiB'));
+        if(['root','snapshot','resources','exampleResources','occurrences'].some(key=>Object.hasOwn(params,key)))return Promise.reject(new SourceError('mock.capture.changed','A native validation request cannot replace its owned capture'));
         const id='mock-native-'+(++this.serial).toString();
         return new Promise((resolve,reject)=>{
             const stop=(error:SourceError)=>{

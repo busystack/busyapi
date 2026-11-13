@@ -1,3 +1,4 @@
+import {createGraph} from './source_capture';
 import {requestInputPreparation} from './request_preparation';
 import {responseStreamOpen,responseStreamChunk,responseStreamClose,responseStreamOwned} from './stream_execution';
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
@@ -30,13 +31,18 @@ import {policyRuntime} from './policy_runtime';
 import {mockFormBytes,mockMultipartBytes,requestFormBytes,requestRawMediaBytes,planExecutionCase,requestContentParameters,requestMediaBytes,requestMultipartPlan,requestMultipartAppend} from './execution';
 import {MAX, encode} from './worker_response';
 if (!isMainThread) {
+    // Native mock workers own one source capture. General desktop workers
+    // continue to accept a distinct capture with each independent request.
+    const capture=workerData?.capture;
+    let context:ReturnType<typeof createGraph>|undefined;
+    const capturedContext=()=>context??=createGraph(capture);
     parentPort!.on('message', async (request: any) => {
         const reply = (message: any) => {
-            const payload = encode({ id: request.id, snapshot: request.params?.snapshot, ...message });
+            const payload = encode({ id: request.id, snapshot: capture?.snapshot??request.params?.snapshot, ...message });
             parentPort!.postMessage(workerData?.streaming?{id:request.id,payload,closed:!responseStreamOwned(request.params?.stream)}:payload, [payload.buffer as ArrayBuffer]);
         };
         try {
-            const methods: any = { analyse, evaluateSchemas, standardResource, deriveBundle, referenceDisplay:referenceDisplayPacket, referenceDocument, requestOperation, semanticDiffCoverage, planResponseExample, propose, discover, inspect, readDataValue, schemaTree, referenceChoices, planReference, referencePage, planRename, planPropertyRename, planResponseRename, planSchemaDefinitionRename, planDelete, planExtract, planInline, planMoveDefinition, planFileMove, planFileDeletion, planDiagnosticFix, assistSource, sourceFolds, semanticSearch, suggestSchema, planSchemaSuggestion,
+            const methods: any = { analyse, evaluateSchemas:capture?(params:any)=>evaluateSchemas({...params,...capture},undefined,capturedContext()):evaluateSchemas, standardResource, deriveBundle, referenceDisplay:referenceDisplayPacket, referenceDocument, requestOperation, semanticDiffCoverage, planResponseExample, propose, discover, inspect, readDataValue, schemaTree, referenceChoices, planReference, referencePage, planRename, planPropertyRename, planResponseRename, planSchemaDefinitionRename, planDelete, planExtract, planInline, planMoveDefinition, planFileMove, planFileDeletion, planDiagnosticFix, assistSource, sourceFolds, semanticSearch, suggestSchema, planSchemaSuggestion,
                 discoverPolicy,inspectPolicyCode,policyRuntime,
                 resolvePolicyCode:async(params:any)=>(await import('./policy_code_resolution')).resolvePolicyCode(params),
                 reviewPolicyCode:async(params:any)=>(await import('./policy_code_review')).reviewPolicyCode(params),
@@ -49,13 +55,13 @@ if (!isMainThread) {
             methods.requestMultipartEncoding = requestMultipartEncoding;
             methods.requestFormBytes = requestFormBytes;
             methods.requestInputPreparation = requestInputPreparation;
-            methods.mockFormBytes = mockFormBytes;
-            methods.mockMultipartBytes = mockMultipartBytes;
+            methods.mockFormBytes = capture?(params:any)=>mockFormBytes({...params,...capture},capturedContext()):mockFormBytes;
+            methods.mockMultipartBytes = capture?(params:any)=>mockMultipartBytes({...params,...capture},capturedContext()):mockMultipartBytes;
             methods.requestRawMediaBytes = requestRawMediaBytes;
             methods.planExecutionCase = planExecutionCase;
             methods.requestContentParameters = requestContentParameters;
             methods.requestMediaBytes = requestMediaBytes;
-            methods.responseStreamOpen = responseStreamOpen;
+            methods.responseStreamOpen = capture?(params:any)=>responseStreamOpen({...params,...capture},capturedContext()):responseStreamOpen;
             methods.responseStreamChunk = responseStreamChunk;
             methods.responseStreamClose = responseStreamClose;
             methods.requestMultipartPlan = requestMultipartPlan;

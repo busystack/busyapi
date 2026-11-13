@@ -1,4 +1,6 @@
 const {test}=require('node:test');
+const {Worker}=require('node:worker_threads');
+const {join}=require('node:path');
 const assert=require('node:assert/strict');
 const {createHash}=require('node:crypto');
 const {createGraph}=require('./dist/model.cjs');
@@ -21,17 +23,16 @@ function captured(version='3.0.4',generation=1){
  return {capture,context,plan};
 }
 
-function evaluator(client,capture){
+function evaluator(client){
  return async(instances,signal)=>{
-  const result=await client.request('evaluateSchemas',{...capture,runtimeInstances:instances},signal);
+  const result=await client.request('evaluateSchemas',{runtimeInstances:instances},signal);
   return {complete:result.complete,valid:result.runtimeEvaluations.every(value=>value.complete&&value.valid),
    findings:result.runtimeFindings,evaluations:result.runtimeEvaluations};
  };
 }
 
 test('cancelled and late-aborted sample proofs never enter the captured cache',{timeout:20000},async t=>{
- const client=new EngineWorkerClient();t.after(()=>client.close());
- const {capture,context,plan}=captured(),evaluate=evaluator(client,capture);
+ const {capture,context,plan}=captured(),client=new EngineWorkerClient(capture),evaluate=evaluator(client);t.after(()=>client.close());
  for(const late of [false,true]){
   const entered=Promise.withResolvers(),controller=new AbortController();let calls=0;
   const samples=new MockSchemaSamples(context.graph,async(instances,signal)=>{
@@ -51,8 +52,7 @@ test('cancelled and late-aborted sample proofs never enter the captured cache',{
 });
 
 for(const mutation of ['incomplete','missing','duplicate','foreign','missing-choice','out-of-range-choice','noninteger-choice'])test(`${mutation} sample proof cannot produce a successful selection`,{timeout:15000},async t=>{
- const client=new EngineWorkerClient();t.after(()=>client.close());
- const {capture,context,plan}=captured(),evaluate=evaluator(client,capture);let calls=0;
+ const {capture,context,plan}=captured(),client=new EngineWorkerClient(capture),evaluate=evaluator(client);t.after(()=>client.close());let calls=0;
  const samples=new MockSchemaSamples(context.graph,async(instances,signal)=>{
   calls++;const result=await evaluate(instances,signal);
   if(calls!==1)return result;
@@ -68,11 +68,20 @@ for(const mutation of ['incomplete','missing','duplicate','foreign','missing-cho
  assert.equal(calls,2,'A failed proof must not populate the sample cache');
 });
 
-test('one evaluator switches captured family, identity and source revisions without stale samples',{timeout:30000},async t=>{
- const client=new EngineWorkerClient();t.after(()=>client.close());let generation=0;
+test('general evaluator switches captured family, identity and source revisions without stale samples',{timeout:30000},async t=>{
+ const worker=new Worker(join(__dirname,'dist/engine.cjs'));t.after(()=>worker.terminate());let generation=0;
+ const request=params=>new Promise((resolve,reject)=>{
+  const id='revision-'+generation;
+  const response=payload=>{worker.off('error',failed);const message=JSON.parse(Buffer.from(payload).toString('utf8'));
+   if(message.ok)resolve(message.result);else reject(Object.assign(new Error(message.error.message),message.error));};
+  const failed=error=>{worker.off('message',response);reject(error);};
+  worker.once('message',response);worker.once('error',failed);
+  worker.postMessage({id,method:'evaluateSchemas',params});
+ });
  for(const version of ['3.0.4','2.0','3.1.2','3.2.1','3.0.4','3.2.1']){
   const {capture,context,plan}=captured(version,++generation);
-  const samples=new MockSchemaSamples(context.graph,evaluator(client,capture),capture.snapshot);
+  const client={request:(_method,params)=>request({...capture,...params})};
+  const samples=new MockSchemaSamples(context.graph,evaluator(client),capture.snapshot);
   assert.equal(await samples.response(plan,'200','application/json',false,new AbortController().signal),'9007199254740993.00');
   assert.equal(await samples.response(plan,'200','application/json',true,new AbortController().signal),'9007199254740993.00');
  }
