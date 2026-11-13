@@ -609,10 +609,7 @@ extension MockPlanning on BusyProject {
       this,
       captured.snapshot,
       captured.analysis,
-      ExecutionConfiguration.parse(
-        captured.snapshot.configuration.singleOrNull,
-        access.boundary,
-      ),
+      captured.configuration,
       saved,
       revision,
     );

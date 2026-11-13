@@ -406,7 +406,6 @@ class OperationRequestPlan {
   OperationRequestPlan._(
     this._owner,
     this._capture,
-    this.configuration,
     this.result,
   ) : responseStatusNamePolicy = MemberNamePolicy.fromJson(
         result['responseStatusNamePolicy'],
@@ -419,7 +418,7 @@ class OperationRequestPlan {
   AnalysisSnapshot get snapshot => _capture.snapshot;
   List<Map> get capturedOperations =>
       (_capture.analysis['projection']?['operations'] as List? ?? const []).whereType<Map>().toList();
-  final ExecutionConfiguration configuration;
+  ExecutionConfiguration get configuration => _capture.configuration;
   final Map<String, dynamic> result;
   final IgnoredRequestBody? ignoredRequestBody;
   final MemberNamePolicy responseStatusNamePolicy;
@@ -1808,9 +1807,7 @@ extension RequestPlanning on BusyProject {
       if (occurrence != null) 'occurrence': occurrence,
     }, requestId: requestId == null ? null : '$requestId-plan');
     ensureCurrent();
-    if (_closed ||
-        cancelled?.call() == true ||
-        result['snapshot'] != snapshot.identity ||
+    if (result['snapshot'] != snapshot.identity ||
         result['version'] != 1 ||
         result['identity'] is! String ||
         result['complete'] != true ||
@@ -1835,21 +1832,16 @@ extension RequestPlanning on BusyProject {
         'The contract worker returned an unrelated or malformed request plan',
       );
     }
-    final configuration = ExecutionConfiguration.parse(
-      snapshot.configuration.singleOrNull,
-      access.boundary,
-    );
     return OperationRequestPlan._(
       this,
       captured,
-      configuration,
       _freezeResult(result),
     );
   }
 }
 
 class CapturedContractSnapshot {
-  const CapturedContractSnapshot._({
+  CapturedContractSnapshot._({
     required BusyProject owner,
     required int revision,
     required this.snapshot,
@@ -1858,6 +1850,8 @@ class CapturedContractSnapshot {
   }) : _owner = owner, _revision = revision;
   final BusyProject _owner;
   final int _revision;
+  late final ExecutionConfiguration configuration = ExecutionConfiguration.parse(
+      snapshot.configuration.singleOrNull, _owner.access.boundary);
   final AnalysisSnapshot snapshot;
   final Map<String, dynamic> analysis;
   final bool saved;

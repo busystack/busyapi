@@ -129,10 +129,7 @@ class ContractTestRunner {
         'The contract or configuration changed after case selection; reopen the test selection before executing.',
       );
     }
-    final configuration = ExecutionConfiguration.parse(
-      captured.snapshot.configuration.singleOrNull,
-      project.access.boundary,
-    );
+    final configuration = captured.configuration;
     final definitions = <String, Map<String, Object?>>{};
     for (final item in configuration.tests) {
       final name = item['name'];

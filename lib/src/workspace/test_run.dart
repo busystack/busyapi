@@ -22,10 +22,7 @@ Future<void> showContractTests(
       root != workspace.root) {
     return;
   }
-  final configuration = ExecutionConfiguration.parse(
-    captured.snapshot.configuration.singleOrNull,
-    project.access.boundary,
-  );
+  final configuration = captured.configuration;
   await showBusyApiModalDialog<void>(
     context: context,
     builder: (_) => ContractTestsDialog(
