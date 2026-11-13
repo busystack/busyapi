@@ -236,11 +236,13 @@ export class SourcePlan {
         }else if(before.format===this.doc.format&&!block&&
             !(before.format==='yaml'&&owner.flow&&node.kind==='scalar'&&typeof node.value==='string'&&!node.style?.startsWith('QUOTE_'))){
             this.set(to,null);const slot=this.doc.node(to),raw=before.text.slice(...node.range);
-            const indent=before.indent(node.range[0]),depth=this.doc.indent(slot.range[0]);
-            // A comment copied after a flow delimiter needs leading separation
-            // too; placing '#' directly after '[' or ':' changes YAML syntax.
-            const prefix=this.doc.newline+' '.repeat(depth+2);
-            const adjusted=(leading.length?prefix+leading.join(prefix)+prefix:'')+raw.replace(/(?:\r\n|\r|\n)([ \t]*)/g,(_match,space)=>this.doc.newline+' '.repeat(depth)+space.slice(Math.min(indent,space.length)));
+            // JSON whitespace may be exact entity bytes. Only YAML requires
+            // indentation and comment separation at the destination.
+            let adjusted=raw;
+            if(this.doc.format==='yaml'){
+                const indent=before.indent(node.range[0]),depth=this.doc.indent(slot.range[0]),prefix=this.doc.newline+' '.repeat(depth+2);
+                adjusted=(leading.length?prefix+leading.join(prefix)+prefix:'')+raw.replace(/(?:\r\n|\r|\n)([ \t]*)/g,(_match,space)=>this.doc.newline+' '.repeat(depth)+space.slice(Math.min(indent,space.length)));
+            }
             this.update(this.doc.replace(...slot.range,adjusted));
         }else{
             this.exact(to,expected);this.presentationChanges.push(to);
