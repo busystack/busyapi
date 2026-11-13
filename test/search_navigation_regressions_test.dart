@@ -67,8 +67,7 @@ paths:
             await c.initialize();
             await c.open(root.path);
             await c.analyse();
-            c.project!.files.addAll([first.path, second.path]);
-            c.project!.files.sort();
+            await c.project!.populateFileBrowser();
             c.mode = 'Source';
             c.layoutState = {...c.layoutState, 'files': files};
           });

@@ -17,6 +17,20 @@ import '../packages/busyapi_core/test/test_support.dart';
 import 'widget_io.dart';
 
 void main() {
+  setUp(() {
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(const MethodChannel('yaru_window'),
+        (call) async => call.method == 'state'
+            ? {'active': true, 'visible': true, 'closable': true}
+            : null);
+    messenger.setMockMethodCallHandler(const MethodChannel('yaru_window/events'), (_) async => null);
+  });
+  tearDown(() {
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    for (final name in ['yaru_window', 'yaru_window/events']) {
+      messenger.setMockMethodCallHandler(MethodChannel(name), null);
+    }
+  });
   for (final brightness in Brightness.values) {
     for (final superseded in [false, true]) {
       testWidgets(

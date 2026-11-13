@@ -42,11 +42,13 @@ void main() {
       }
       Future<void> ready(bool Function() condition) async {
         final watch = Stopwatch()..start();
-        while (!condition() && errors.isEmpty && watch.elapsed < const Duration(seconds: 12)) {
+        while (errors.isEmpty && watch.elapsed < const Duration(seconds: 12)) {
+          await tester.pumpAndSettle();
+          if (condition()) break;
           await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
           await tester.pump(const Duration(milliseconds: 20));
         }
-        expect(errors, isEmpty);expect(condition(), true, reason: workspace.error);await tester.pumpAndSettle();
+        expect(errors, isEmpty);expect(condition(), true, reason: workspace.error);
       }
       try {
         await tester.runAsync(() async {await workspace.initialize();await workspace.open(file.path);await workspace.analyse();});
