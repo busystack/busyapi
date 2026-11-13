@@ -352,8 +352,10 @@ export class FormSemantics {
         const shapes:FormShape[]=[...inherited,...(Array.isArray(value.allOf)?value.allOf.map((_:unknown,index:number)=>this.shape(resource,pointer+'/allOf/'+index,seen,depth+1)):[])];
         let types=typeof value.type==='string'?[value.type]:Array.isArray(value.type)?value.type.filter((type:unknown)=>typeof type==='string'):undefined;
         if(scope.family==='3.0'&&value.nullable===true&&types&&!types.includes('null'))types=[...types,'null'];
-        const properties:Record<string,FormShape>=Object.assign(Object.create(null),...shapes.map(shape=>shape.properties??{}));
-        if(value.properties&&typeof value.properties==='object')for(const name of Object.keys(value.properties))properties[name]=this.shape(resource,pointer+'/properties/'+escape(name),seen,depth+1);
+        const properties:Record<string,FormShape>=Object.create(null),target={resource,pointer,kind:'schema'};
+        const mergeProperties=(values:Record<string,FormShape>)=>{for(const [name,shape]of Object.entries(values))properties[name]=this.selectedShape(properties[name]??{},shape,target);};
+        for(const shape of shapes)mergeProperties(shape.properties??{});
+        if(value.properties&&typeof value.properties==='object')mergeProperties(Object.fromEntries(Object.keys(value.properties).map(name=>[name,this.shape(resource,pointer+'/properties/'+escape(name),seen,depth+1)])));
         const shape:FormShape={
             types:types??shapes.find(shape=>shape.types)?.types,
             format:typeof value.format==='string'?value.format:shapes.find(shape=>shape.format)?.format,

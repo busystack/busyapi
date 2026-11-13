@@ -3,19 +3,21 @@ const assert=require('node:assert/strict');
 const YAML=require('yaml');
 const {analyse}=require('./dist/model.cjs');
 
-for(const version of ['3.0.4','3.1.2','3.2.1'])for(const format of ['json','yaml'])test(`${version} ${format} recursive object parts keep their JSON representation and full schema checks`,async()=>{
+for(const version of ['3.0.4','3.1.2','3.2.1'])for(const format of ['json','yaml'])for(const composition of [false,true])test(`${version} ${format} recursive object parts keep their JSON representation and full schema checks composition=${composition}`,async()=>{
  const {requestOperation,requestMultipartPlan}=require('./dist/execution.cjs');
  const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
  const root='file:///recursive-form/api.'+format,mediaType='multipart/form-data';
+ const node={type:'object',properties:{label:{type:'string'},next:{$ref:'#/components/schemas/Node'}}};
  const document={openapi:version,info:{title:'Recursive form',version:'1'},paths:{'/form':{post:{requestBody:{content:{[mediaType]:{schema:{$ref:'#/components/schemas/Node'}}}},responses:{204:{description:'Empty'}}}}},
-  components:{schemas:{Node:{type:'object',properties:{label:{type:'string'},next:{$ref:'#/components/schemas/Node'}}}}}};
+  components:{schemas:{Node:composition?{allOf:[node,{properties:{label:{minLength:2}}}]}:node}}};
  const input={root,resource:root,pointer:'/paths/~1form/post',snapshot:'recursive',mediaType,files:[],resources:[{id:root,generation:1,text:format==='json'?JSON.stringify(document):YAML.stringify(document)}]};
  const content=requestOperation(input).requestBody.content[0];
  assert.deepEqual(content.form.parts.next.contentTypes,['application/json']);
+ assert.deepEqual(content.form.parts.label.contentTypes,['text/plain']);
  const text='{"label":"outer","next":{"label":"inner"}}',plan=await requestMultipartPlan({...input,text});
  const part=plan.tree.parts.find(part=>part.name==='next');
  assert.equal(part.contentType,'application/json');assert.equal(Buffer.from(part.bytes,'base64').toString(),'{"label":"inner"}');
- for(const [nested,valid]of [['{"label":"inner"}',true],['{"label":7}',false]]){
+ for(const [nested,valid]of [['{"label":"inner"}',true],['{"label":7}',false],['{"label":"x"}',!composition]]){
   const wire='--Recursive\r\nContent-Disposition: form-data; name="label"\r\nContent-Type: text/plain\r\n\r\nouter\r\n--Recursive\r\nContent-Disposition: form-data; name="next"\r\nContent-Type: application/json\r\n\r\n'+nested+'\r\n--Recursive--\r\n';
   const checked=await evaluateSchemas({...input,runtimeInstances:[{subject:'request-body',location:mediaType,text:Buffer.from(wire).toString('base64'),mediaBase64:true,mediaType:mediaType+'; boundary=Recursive',form:content.definition??content.source,schema:content.schema,itemSchema:content.itemSchema}]});
   assert.equal(checked.complete,true,JSON.stringify(checked.findings));
