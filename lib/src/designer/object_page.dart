@@ -1399,9 +1399,12 @@ Future<void> _openObjectChild(
       },
     ]);
   }
+  final childKind = field['childKind'] ?? field['target']?['kind'];
   await c.selectObject({
-    ...item,
+    'root': item['root'],
+    'resource': item['resource'],
     'pointer': pointer,
+    if (childKind is String) 'kind': childKind,
     if (c.selectedOccurrence?.startsWith('definition:') == true)
       'occurrence': 'definition:${item['resource']}#$pointer',
     'range': field['target']?['range'] ?? item['range'],
