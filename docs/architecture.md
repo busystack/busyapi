@@ -347,6 +347,9 @@ association, including component children owned by an entry-specific map copy.
 Mixed modern families lower to Swagger in one object phase, before aliases copy
 their converted definitions. A route split retains an independently referenced
 Schema directly; that reference does not retain its old executable Path Item.
+Native Reference Object annotation overrides are `summary` and `description`.
+Unknown sibling fields keep their ignored native meaning while any independently
+referenced Schema interpretation retains its own captured data.
 
 Canonical schema evaluation shares one compiler AST across its captured roots,
 while resource addresses retain their separate dialect and role contexts. This

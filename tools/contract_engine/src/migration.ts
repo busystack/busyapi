@@ -412,7 +412,7 @@ export async function planMigration(input:MigrationInput) {
                         if(at!==undefined)owners.retainLiteralValue({...scope,pointer:scope.pointer+'/'+escape(name)},source,at,'ignored_reference_sibling',true);
                     }
                     if(siblings.length&&modernFamily(after)&&!modernFamily(before)&&issue(scope,'migration.reference.ignored-siblings','The target would activate ignored Reference Object siblings; explicitly discard those preserved values or revise the source','decision',['discard-ignored-siblings']))for(const name of siblings)source.remove(scope.pointer+'/'+escape(name));
-                    if(siblings.length&&!modernFamily(after)&&modernFamily(before)&&scope.kind!=='schema')issue(scope,'migration.reference.annotations','The target cannot retain these Reference Object annotation overrides','target-representation');
+                    if(siblings.some(name=>['summary','description'].includes(name))&&!modernFamily(after)&&modernFamily(before)&&scope.kind!=='schema')issue(scope,'migration.reference.annotations','The target cannot retain these Reference Object annotation overrides','target-representation');
                 }
                 const directionalUpgrade=before==='2.0'&&after!=='2.0'||before==='3.0'&&modernFamily(after);
                 if(scope.kind==='schema'&&!directionalUpgrade&&!access.preserves(scope,before,after))issue(scope,'migration.schema.direction','Access annotations need a direction-specific schema mapping to preserve their captured property and required-list semantics in the target family','implementation');

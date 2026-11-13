@@ -94,13 +94,18 @@ for(const version of ['2.0','3.0.4'])for(const format of ['yaml','json'])test(`$
  });
 });
 
-for(const version of versions)test(`aliased ${keyword} retains physical ownership ${version}`,()=>{
- const input=fixture(version,'yaml'),resource=input.resources[1],doc=YAML.parseDocument(resource.text);
- const value=doc.getIn(['Envelope',keyword,'Container',keyword,'Old'],true);
- value.anchor='shared';doc.set('x-shared',doc.createAlias(value));resource.text=doc.toString();
+for(const version of versions)test(`aliased ${keyword} rename retains independent literal data ${version}`,async()=>{
+ const input=fixture(version,'yaml'),resource=input.resources[1];
+ const keyEnd=createGraph(input).docs.get(resource.id).node(input.pointer).keyRange[1];
+ assert.equal(resource.text[keyEnd],':');
+ resource.text=resource.text.slice(0,keyEnd+1)+' &shared'+resource.text.slice(keyEnd+1)+'x-shared: *shared\r\n';
  const original=resource.text;
- assert.throws(()=>planSchemaDefinitionRename({...input,target:{...input.target,range:undefined,expected:undefined},name:'New'}),
-  error=>error.code==='refactor.definition');
+ const before=createGraph(input).docs.get(resource.id).dataJson('/x-shared');
+ const plan=planSchemaDefinitionRename({...input,target:{...input.target,range:undefined,expected:undefined},name:'New'}),resources=apply(input,plan),after={...input,resources};
+ const graph=createGraph(after).graph,changed=graph.docs.get(resource.id);
+ assert.deepEqual(graph.issues,[]);assert.equal(changed.dataJson('/x-shared'),before);
+ assert.equal(changed.dataNode(input.pointer),undefined);assert(changed.dataNode(input.pointer.slice(0,-3)+'New'));
+ await behavior(input);await behavior(after);
  assert.equal(resource.text,original);
 });
 

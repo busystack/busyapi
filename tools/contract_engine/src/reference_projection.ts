@@ -319,7 +319,7 @@ export function referenceDocument(input:any) {
             ...(reference.connection?{connection:reference.connection}:{}),dynamic:!!reference.dynamic,
         }));
         return {source:location(scope.resource,scope.pointer,scope),kind:scope.kind,base:scope.base,dialect:scope.dialect,
-            interpretations:graph.scopesAt(scope.resource,scope.pointer).map(({kind,family,base,dialect})=>({kind,family,base,dialect})),usages,...(scope.kind==='operation'?{contexts:operationContexts}:{}),
+            interpretations:graph.scopesAt(scope.resource,scope.pointer).map(({kind,family,dialect})=>({kind,family,dialect})),usages,...(scope.kind==='operation'?{contexts:operationContexts}:{}),
             retrieval:graph.retrievals.get(scope.resource),entries,references,effective,
             defaults:definitions.filter(field=>!node.children.has(field.name)&&Object.hasOwn(field,'effectiveDefault')).map(field=>({name:field.name,value:field.effectiveDefault})),
             ...(!['object','array'].includes(node.kind)?{text:retain(doc.dataJson(scope.pointer)),representation:'json'}:{}),

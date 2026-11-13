@@ -1,5 +1,7 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),YAML=require('yaml');
-const {createGraph,analyse,inspect}=require('./dist/model.cjs'),{evaluateSchemas}=require('./dist/schema_evaluation.cjs'),{planSchemaDefinitionRename}=require('./dist/refactoring.cjs'),{deriveBundle}=require('./dist/derived_bundle.cjs'),{planMigration}=require('./dist/migration.cjs');
+const {createGraph,analyse,inspect}=require('./dist/model.cjs'),{evaluateSchemas}=require('./dist/schema_evaluation.cjs'),{planRename,planSchemaDefinitionRename}=require('./dist/refactoring.cjs'),{deriveBundle}=require('./dist/derived_bundle.cjs'),{planMigration}=require('./dist/migration.cjs');
+const {requestOperation}=require('./dist/execution.cjs');
+const {Parser:MarkdownParser}=require('commonmark');
 const versions=['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'];
 function packet(version,format,keyword,mode){
  const root='file:///approved/api.'+format,map=mode==='not'?{not:{type:'integer'}}:mode==='properties'?{properties:{Leaf:{type:'integer'}}}:mode==='bad-type'?{type:{type:'integer'}}:{Leaf:{type:'integer'}},data={openapi:version,info:{title:'Schema interpretations 雪',version:'API-1'},paths:{},components:{schemas:{Model:{[keyword]:map},Use:{$ref:'#/components/schemas/Model/'+keyword}}}},text=format==='json'?JSON.stringify(data):'# Preserve shared roles\r\n'+YAML.stringify(data).replaceAll('\n','\r\n');return{root,snapshot:version+format+keyword+mode,resources:[{id:root,text,generation:1}]};
@@ -17,10 +19,16 @@ for(const version of versions)for(const keyword of ['$defs','definitions'])for(c
 for(const keyword of ['$defs','definitions'])test(`${keyword} shared map rename is refused before changing an independent schema keyword`,()=>{
  const input=packet('3.2.1','json',keyword,'plain'),original=input.resources[0].text,pointer='/components/schemas/Model/'+keyword+'/Leaf';input.contexts=[{root:input.root,resources:[input.root]}];assert.throws(()=>planSchemaDefinitionRename({...input,target:{root:input.root,resource:input.root,pointer,generation:1},name:'type'}),e=>e.code==='refactor.shared-role'&&e.source.pointer===pointer.slice(0,pointer.lastIndexOf('/')));assert.equal(input.resources[0].text,original);
 });
-for(const version of versions)for(const format of ['yaml','json'])test(`${version} ${format} one reference retains native and schema bases while rewriting refuses ambiguous ownership`,async()=>{
+for(const version of versions)for(const format of ['yaml','json'])test(`${version} ${format} one reference retains native and schema bases through explicit conversion`,async()=>{
  const root='file:///approved/api.'+format,fragment='#/components/schemas/Answer',api={openapi:version,info:{title:'Two reference contexts',version:'1'},paths:{'/x':{get:{responses:{200:{$ref:'#/components/responses/Shared'}}}}},components:{responses:{Shared:{$ref:'native.json'+fragment,$id:'https://schemas.invalid/base/'}},schemas:{Use:{$ref:'#/components/responses/Shared'}}}},native={openapi:version,info:{title:'Native',version:'1'},paths:{},components:{schemas:{Answer:{description:'Native response'}}}},schema={openapi:version,info:{title:'Schema target',version:'1'},paths:{},components:{schemas:{Answer:{type:'integer'}}}},text=format==='json'?JSON.stringify(api):YAML.stringify(api),input={root,snapshot:version+format,resources:[{id:root,text,generation:1},{id:'file:///approved/native.json',text:JSON.stringify(native),generation:1},{id:'https://schemas.invalid/base/native.json',text:JSON.stringify(schema),generation:1}]},before=input.resources.map(r=>r.text),g=createGraph(input).graph;
  assert.equal(analyse(input).status,'complete',JSON.stringify(analyse(input).findings));assert.deepEqual(g.issues,[]);const refs=g.references.filter(r=>r.resource===root&&r.pointer==='/components/responses/Shared');assert.equal(refs.length,2);assert.deepEqual(new Set(refs.map(r=>r.kind)),new Set(['response','schema']));assert.deepEqual(new Set(refs.map(r=>r.targetResource)),new Set(['file:///approved/native.json','https://schemas.invalid/base/native.json']));const r=await evaluateSchemas({...input,runtimeInstances:['0','null'].map(text=>({subject:'response-body',location:'application/json',text,schema:{resource:root,pointer:'/components/schemas/Use'}}))});assert.equal(r.complete,true,JSON.stringify(r.findings));assert.deepEqual(r.runtimeEvaluations.map(e=>e.valid),[true,false]);
- assert.throws(()=>deriveBundle({...input,outputId:'file:///derived/api.json'}),e=>e.code==='reference.edit.context'&&e.kind==='unsupported'&&e.source.pointer==='/components/responses/Shared/$ref');const migration=await planMigration({...input,targetVersion:'3.0.4',destination:'file:///output/roles/'});assert.equal(migration.complete,false);assert.deepEqual(migration.outputs,[]);assert.deepEqual(migration.changes,[]);assert(migration.problems.some(p=>p.code.includes('reference.edit.context')&&p.pointer==='/components/responses/Shared/$ref'),JSON.stringify(migration.problems));const {MockSchemaSamples}=require('./dist/mock_schema_samples.cjs'),{requestOperation}=require('./dist/execution.cjs');
+ assert.throws(()=>deriveBundle({...input,outputId:'file:///derived/api.json'}),e=>e.code==='reference.edit.context'&&e.kind==='unsupported'&&e.source.pointer==='/components/responses/Shared/$ref');const migration=await planMigration({...input,targetVersion:'3.0.4',destination:'file:///output/roles/'});assert.equal(migration.complete,true,JSON.stringify(migration.problems));
+ const cold={root:migration.outputRoot,snapshot:'cold-reference-roles',resources:migration.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
+ assert.equal(analyse(cold).status,'complete',JSON.stringify(analyse(cold).findings));
+ assert.equal(requestOperation({...cold,resource:cold.root,pointer:'/paths/~1x/get'}).responses[0].description,'Native response');
+ const converted=await evaluateSchemas({...cold,runtimeInstances:['0','null'].map(text=>({subject:'response-body',location:text,text,schema:{resource:cold.root,pointer:'/components/schemas/Use'}}))});
+ assert.equal(converted.complete,true,JSON.stringify(converted.findings));assert.deepEqual(converted.runtimeEvaluations.map(value=>value.valid),[true,false]);
+ const {MockSchemaSamples}=require('./dist/mock_schema_samples.cjs');
  const nativePlan=requestOperation({...input,resource:root,pointer:'/paths/~1x/get'});assert.equal(nativePlan.responses[0].description,'Native response');
  const {referencePage}=require('./dist/reference_projection.cjs'),page=referencePage({...input,resource:root,pointer:'/paths/~1x/get'});assert(page.previews.some(p=>p.text==='Native response'),JSON.stringify(page.previews));
  api.paths['/payload']={get:{responses:{200:{description:'Schema role response',content:{'application/json':{schema:{$ref:'#/components/schemas/Use'}}}}}}};
@@ -30,14 +38,18 @@ for(const version of versions)for(const format of ['yaml','json'])test(`${versio
  for(const [module,method,extra]of [['refactoring.cjs','planRename',{name:'Renamed'}],['refactoring_copy.cjs','planInline',{}],['refactoring_file.cjs','planFileMove',{destinationResource:'file:///derived/api.'+format}]])assert.throws(()=>require('./dist/'+module)[method]({...input,contexts,target,...extra}),e=>e.code==='reference.edit.context'&&e.source.pointer==='/components/responses/Shared/$ref');
  assert.deepEqual(input.resources.map(r=>r.text),before);
 });
-for(const version of versions)for(const format of ['yaml','json'])for(const relative of [false,true])test(`${version} ${format} overlapping contact annotations ${relative?'refuse changed':'retain exact'} URI data`,async()=>{
+for(const version of versions)for(const format of ['yaml','json'])for(const relative of [false,true])test(`${version} ${format} overlapping contact annotations retain ${relative?'relative':'absolute'} Schema data and native URI meaning`,async()=>{
  const root='file:///approved/api.'+format,data={openapi:version,info:{title:'Annotation and URI roles',version:'1',contact:{url:relative?'contact':'https://example.invalid/contact'}},paths:{},components:{schemas:{Use:{$ref:'#/info/contact'}}}},text=format==='json'?JSON.stringify(data):'# Contact annotation remains source-owned\n'+YAML.stringify(data),input={root,snapshot:version+format+relative,resources:[{id:root,text,generation:1}]};
  assert.equal(analyse(input).status,'complete',JSON.stringify(analyse(input).findings));const evaluated=await evaluateSchemas(input);assert(evaluated.complete,JSON.stringify(evaluated.findings));assert.deepEqual(evaluated.findings,[]);
  if(relative)assert.throws(()=>deriveBundle({...input,outputId:'file:///derived/api.json'}),e=>e.code==='schema.role.annotation'&&e.source.pointer==='/info/contact/url'&&e.kind==='unsupported');
  else{const bundle=deriveBundle({...input,outputId:'file:///derived/api.json'});assert(bundle.output.text.includes('https://example.invalid/contact'));}
  const migrated=await planMigration({...input,targetVersion:'3.2.1',destination:'file:///migrated/contact/'});
- if(relative){assert.equal(migrated.complete,false);assert.deepEqual(migrated.outputs,[]);assert(migrated.problems.some(p=>p.code==='schema.role.annotation'&&p.pointer==='/info/contact/url'),JSON.stringify(migrated.problems));}
- else{assert(migrated.complete,JSON.stringify(migrated.problems));assert(migrated.outputs.some(o=>o.text.includes('https://example.invalid/contact')));}
+ assert(migrated.complete,JSON.stringify(migrated.problems));
+ const cold={root:migrated.outputRoot,snapshot:'cold-contact-roles',resources:migrated.outputs.map(output=>({id:output.id,text:output.text,generation:0}))},graph=createGraph(cold).graph;
+ assert.equal(analyse(cold).status,'complete');
+ const use=graph.referenceAs(cold.root,'/components/schemas/Use','$ref','schema');assert.equal(use.resolution,'resolved');
+ assert.equal(graph.docs.get(use.targetResource).dataNode(use.targetPointer+'/url').value,data.info.contact.url);
+ assert.equal(new URL(graph.docs.get(cold.root).dataNode('/info/contact/url').value,cold.root).href,new URL(data.info.contact.url,root).href);
  const {planFileMove}=require('./dist/refactoring_file.cjs');
  const move={...input,contexts:[{root,resources:[root]}],target:{root,resource:root,generation:1,pointer:''},destinationResource:'file:///derived/api.'+format};
  if(relative)assert.throws(()=>planFileMove(move),e=>e.code==='schema.role.annotation'&&e.source.pointer==='/info/contact/url');
@@ -69,7 +81,8 @@ test(`${version} ${format} chain=${chain} restricted schema overlaps retain nati
  assert.equal(analyse(input).status,'complete',JSON.stringify(analyse(input).findings));
  const page=inspect({...input,resource:root,pointer,contextKind:'schema'});
  assert.equal(page.kind,'schema');assert.equal(page.customSchemaKeywords,false);
- assert(page.fields.some(field=>field.name==='type'&&field.schemaTypeChoices.scalarTypes.includes('integer')));
+ if(chain){assert(page.fields.some(field=>field.name==='$ref'));assert(!page.fields.some(field=>field.name==='type'));}
+ else assert(page.fields.some(field=>field.name==='type'&&field.schemaTypeChoices.scalarTypes.includes('integer')));
  const samples=['9007199254740993','9007199254740992','null','false','"雪"'];
  const evaluate=(packet,pointer)=>evaluateSchemas({...packet,runtimeInstances:samples.map(text=>({subject:'response-body',location:text,text,schema:{resource:packet.root,pointer}}))});
  const before=await evaluate(input,(swagger?'/definitions':'/components/schemas')+'/Use');
@@ -130,7 +143,7 @@ for(const version of ['3.1.2','3.2.1'])test(`${version} a native reference into 
  // before refactoring; the graph must not waive this guard because both roles
  // are now valid and individually inspectable.
  const target={root,resource:root,pointer,generation:1},contexts=[{root,resources:input.resources.map(resource=>resource.id)}];
- assert.throws(()=>planSchemaDefinitionRename({...input,target,contexts,name:'Renamed'}),error=>error.code==='reference.edit.context');
+ assert.throws(()=>planRename({...input,target,contexts,name:'Renamed'}),error=>error.code==='reference.edit.context');
 });
 
 for(const version of ['3.1.2','3.2.1'])test(`${version} native media under a schema resource uses document context and separate Markdown owners`,async()=>{
@@ -161,10 +174,11 @@ for(const version of ['3.1.2','3.2.1'])test(`${version} native media under a sch
  assert.equal(analyse(cold).status,'complete',JSON.stringify(analyse(cold).findings));
  await check(cold,requestOperation({...cold,resource:cold.root,pointer:'/paths/~1p/get'}));
  const after=createGraph(cold).graph,reference=after.referenceAs(cold.root,'/paths/~1p/get/responses/200','$ref','response');
- assert(reference.targetPointer.startsWith('/components/responses/_migrated_object_use_'));
+ assert.equal(reference.resolution,'resolved');assert(after.scopeAs(reference.targetResource,reference.targetPointer,'response'));
  const nativeDescription=after.docs.get(reference.targetResource).dataNode(reference.targetPointer+'/description').value;
  const schemaDescription=after.docs.get(cold.root).dataNode(pointer+'/description').value;
- assert.equal(resolveUri(nativeDescription.match(/\]\(([^)]+)\)/)[1],after.scopeAs(reference.targetResource,reference.targetPointer,'response').base).href,'file:///approved/guide.md');
+ const link=new MarkdownParser().parse(nativeDescription).firstChild.firstChild;assert.equal(link.type,'link');
+ assert.equal(resolveUri(link.destination,after.scopeAs(reference.targetResource,reference.targetPointer,'response').base).href,'file:///approved/guide.md');
  assert.equal(schemaDescription,'[Guide](guide.md)');
  assert.equal(after.docs.get(cold.root).dataJson(pointer+'/content'),graph.docs.get(root).dataJson(pointer+'/content'),'The schema annotation remains exact literal data');
  assert.deepEqual(input.resources.map(resource=>resource.text),original);

@@ -365,7 +365,9 @@ for(const version of ['3.1.2','3.2.1'])test(`an identified sibling keeps its imp
  document.components={schemas:{Use:{$ref:model+'#/components/schemas/A',examples:['good',123]}}};
  external.components={schemas:{A:{$schema:'https://json-schema.org/draft/2020-12/schema',type:'string'},B:{$id:'identified',type:'integer',examples:[1,'wrong']}}};
  const params=input(document,[resource(model,JSON.stringify(external))]),frozen=params.resources.map(value=>value.text),before=await evaluateSchemas(params);
- assert.equal(before.complete,true,JSON.stringify(before.findings));assert.deepEqual(before.evaluations.map(e=>e.valid),[true,false,true,false]);
+ assert.equal(before.complete,true,JSON.stringify(before.findings));assert.deepEqual(before.evaluations.map(e=>e.valid),[true,false]);
+ const sibling=await evaluateSchemas({...params,root:model});
+ assert.equal(sibling.complete,true,JSON.stringify(sibling.findings));assert.deepEqual(sibling.evaluations.map(e=>e.valid),[true,false]);
  const result=deriveBundle(params),original=createGraph(params).graph,derived=createGraph({root:outputId,resources:[resource(outputId,result.output.text)]}).graph;
  const mapped=result.provenance.find(p=>p.kind==='schema'&&p.source.resource===model&&p.source.pointer==='/components/schemas/B');
  assert.equal(derived.scope(outputId,mapped.derived.pointer).dialect,original.scope(model,'/components/schemas/B').dialect);

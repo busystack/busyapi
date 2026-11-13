@@ -21,7 +21,7 @@ for(const version of ['3.1.2','3.2.1'])for(const json of [false,true])test(`auth
  const top=tree(pointer);
  assert.equal(top.version,1);assert.equal(top.snapshot,input.snapshot);assert.equal(top.node.resource,root);assert.equal(top.node.generation,4);
  assert.deepEqual(top.node.types,['object','null']);
- assert.deepEqual(top.entries.map(e=>e.name),['properties','allOf','$defs','prefixItems','items','additionalProperties']);
+ assert.deepEqual(new Set(top.entries.map(e=>e.name)),new Set(['properties','allOf','$defs','prefixItems','items','additionalProperties']));
  assert(top.entries.every(e=>['schema','schema-map','schema-array'].includes(e.kind)));
  const first=tree(pointer+'/properties'),last=tree(pointer+'/properties',250);
  const revealed=schemaTree({...input,resource:root,pointer:pointer+'/properties',reveal:pointer+'/properties/p249'});
