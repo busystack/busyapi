@@ -67,7 +67,17 @@ void main() {
       expect(run.failure, isNull, reason: run.failureMessage);expect(seen, [bytes]);expect(await tester.runAsync(() => run.result!.response.bytes()), bytes);
       expect(targets, ['/echo?q=%00%FF%80%00']);
       await runWidgetIo(tester, () async { await payload.writeAsBytes([1, 2]);await HttpOverrides.runWithHttpOverrides(run.send, _NativeHttp()); });
-      await tester.pumpAndSettle();expect(run.failure, isNotNull);expect(seen, hasLength(1));
+      await tester.pumpAndSettle();expect(seen, hasLength(1));
+      if (run.outdated) {
+        expect(run.canSend, isFalse);
+        final l = AppLocalizations.of(tester.element(find.byType(RequestRunPanel)))!;
+        expect(find.text(l.requestReconcile), findsWidgets);
+        final send = find.byWidgetPredicate((widget) => widget is ButtonStyleButton &&
+          widget.child is Text && (widget.child as Text).data == l.requestSend);
+        expect(tester.widget<ButtonStyleButton>(send).onPressed, isNull);
+      } else {
+        expect(run.failure, endsWith('.stale'), reason: run.failureMessage);
+      }
       final text = find.byWidgetPredicate((widget) => widget is BusyApiActionRow && widget.title == 'Use text instead of the selected file');
       await tester.ensureVisible(text);await tester.tap(text);await tester.pumpAndSettle();expect(run.bodyExample, isNull);
       expect(run.draft().body.capturedExample, isNull);expect(file.readAsStringSync(), source);expect(workspace.buffer!.text, source);
