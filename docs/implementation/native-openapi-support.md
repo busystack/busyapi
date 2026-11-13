@@ -45,6 +45,17 @@ Earlier v7 evidence remains in `conversion-v7/`. Complete Core/CLI journeys must
 also use a refreshed candidate: an updated private conversion worker cannot
 qualify the saved-source CLI inside an older candidate.
 
+The refreshed v10 release candidate passes all twelve complete B02 Core/CLI
+journeys, including actual HTTP, reviewed publication and cold reopen. Candidate,
+fixtures and source inputs remained unchanged across that run. The complete
+tooling population had 182 passes and one font-fixture failure; after correcting
+the fixture's declared producer, all eleven related asset checks pass, including
+clean reinstallation in Debug, Profile and Release. This is full-plus-focused
+coverage, not a second complete tooling invocation. Current-invocation automated
+qualification remains pending: ordinary assembly exposed a test fixture writing
+an older runtime descriptor into the production resource-package output. The
+build correction must isolate that writer before the broad gates run.
+
 Conversion reuses an unchanged native component Schema as its material owner;
 copied containers reference it through the same occurrence mapping. Resource
 variation is decided per captured resource, rather than by unrelated differences
@@ -184,22 +195,22 @@ corresponding runtime work records.
 Actual source-save, body, scheduler, ownership, and conversion mechanisms are the
 deletions being audited. Historical prose, vendored inputs, generated files and
 lockfile removals are excluded from production-reduction credit. Against `7cc6ab6`,
-the committed production paths at `eda617c` have these textual changes:
+the committed production paths at `d800820` have these textual changes:
 
 | Production responsibility | Added lines | Deleted lines | Net lines |
 | - | -: | -: | -: |
-| Desktop `lib/` | 433 | 511 | −78 |
-| Dart core `packages/busyapi_core/lib/` | 2,419 | 2,254 | +165 |
-| TypeScript `tools/contract_engine/src/` | 2,567 | 2,442 | +125 |
-| Total | 5,419 | 5,207 | +212 |
+| Desktop `lib/` | 437 | 518 | −81 |
+| Dart core `packages/busyapi_core/lib/` | 2,669 | 2,393 | +276 |
+| TypeScript `tools/contract_engine/src/` | 2,642 | 2,453 | +189 |
+| Total | 5,748 | 5,364 | +384 |
 
-Production text therefore grows by 212 lines overall. The reductions are in
+Production text therefore grows by 384 lines overall. The reductions are in
 owners and executed work: the alternate source saver, Dart conversion semantic
 mirror, Dart execution scheduler, history hashing, per-edit recovery sweep,
 superseded conversion retirement/repair, preliminary mock form proofs, repeated
 stream continuations and uncompressed response copy are absent. The conversion
-subset across Dart and TypeScript has a net reduction of 464 lines before the
-final SourcePlan parse deletion. Added code includes retained-context fixes and
+subset (`migration.dart` and `migration*.ts`) has a net reduction of 408 lines
+across 41 changed files. Added code includes retained-context fixes and
 explicit captured-input ownership; gross deleted lines alone do not establish
 the structural result. The work counts above and the removed mechanisms provide
 that evidence. Full integrated and native qualification remain separate gates.
@@ -289,3 +300,14 @@ Linux text-input/keyboard handlers, text-input service and focus manager unchang
 the EditableText difference concerns context-menu action names. No later SDK was
 installed or run, and this comparison identifies no qualified upstream fix.
 The comparison is recorded in `native/sdk-source-comparison.json`.
+
+The fresh v10 candidate repeats the unchanged native 3.0.4 YAML journey after
+the final source-observation fixes. It requests `edited 3.0.4` and Tab; Title
+retains `edited 3.0`. The 430-byte API remains unchanged, and the exact-input
+assertion stops the journey before save, Source/history and reopen. Its desktop
+AOT SHA-256 is
+`e16447fb6b05653f0334843cb4052fa6958c530f099876d9689fd78df424878e`.
+Peak RSS is 428,596 KiB. Controls, screenshots, source bytes, invocation and
+identities are retained in `native-v10/`. This untraced run does not by itself
+establish the cause observed in the separate official-SDK traces. It confirms
+that the final first-party ownership changes have not qualified native input.
