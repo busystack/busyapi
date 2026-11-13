@@ -45,7 +45,7 @@ test(`R3 ${format} captured secondary binary entry ${crossFamily?'rejects unsupp
   assert.equal(native.complete,false);
   assert(native.findings.some(finding=>finding.code==='reference.family.unsupported'&&finding.range[1]>finding.range[0]));
   assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);assert.deepEqual(result.changes,[]);
-  assert(result.problems.some(problem=>problem.reason==='source-incomplete'&&problem.resource===input.root&&problem.range[1]>problem.range[0]));
+  assert(result.problems.some(problem=>problem.code==='migration.validation.reference.family.unsupported'&&problem.reason==='unavailable-proof'&&problem.resource===input.root&&problem.range[1]>problem.range[0]));
   assert.deepEqual(input.resources.map(resource=>resource.text),original);return;
  }
  assert.equal(result.complete,true,JSON.stringify(result.problems));assert.deepEqual(await planMigration(input),result);

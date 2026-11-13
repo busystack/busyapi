@@ -178,7 +178,8 @@ test(`${from} ${format} an inline request-only Swagger variant retains its origi
  assert.equal(review.complete,true,JSON.stringify(review.problems));
  const converted={root:review.outputRoot,snapshot:'inline-cold',resources:review.outputs.map(output=>({...output,generation:0}))};
  assert.deepEqual(await values(converted,payloads,['request-body']),expected);
- const neutral=review.outputs.flatMap(output=>Object.values(new SourceDocument(output.text,output.id).node('').value))
+ const neutral=review.outputs.flatMap(output=>[...new SourceDocument(output.text,output.id).nodes.values()]
+  .filter(node=>node.kind==='object').map(node=>node.value))
   .find(value=>value?.properties?.value?.readOnly===true);
  assert(neutral,'Request specialization must retain an authored annotation even without another consumer');
  assert.deepEqual(neutral.required,['value']);assert.equal(neutral.properties.value.minimum,7);assert.equal(neutral.properties.value.maximum,9);
