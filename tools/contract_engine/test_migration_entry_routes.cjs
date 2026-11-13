@@ -287,9 +287,16 @@ for(const format of ['yaml','json'])test(`R3b ${format} a chain among unused Pat
 
 
 for(const format of ['yaml','json'])for(const version of ['3.0.0','3.0.4','3.1.0','3.1.2'])
-test(`R3b ${format} ${version} Paths and 3.2 reusable definitions retain one coordinated Swagger route`,async()=>{
+test(`R3b ${format} ${version} Paths and 3.2 reusable definitions ${version.startsWith('3.0')?'retain the native legacy cross-family refusal':'retain one coordinated Swagger route'}`,async()=>{
  const fixture=require('./migration_b05_r3b_fixture.cjs'),{input,entry}=fixture.capture(format);
  entry.openapi=version;input.resources[0].text=fixture.render(entry,format);
+ if(version.startsWith('3.0')){
+  const original=input.resources.map(resource=>resource.text),checked=analyse(input),refused=await planMigration(input);
+  assert.equal(checked.complete,false);assert(checked.findings.some(finding=>finding.code==='reference.family.unsupported'&&finding.resource===input.root&&finding.pointer==='/paths/~1first/$ref'));
+  assert.equal(refused.complete,false);assert.deepEqual(refused.outputs,[]);
+  assert(refused.problems.some(problem=>problem.code==='migration.validation.reference.family.unsupported'&&problem.reason==='unavailable-proof'&&problem.resource===input.root&&problem.pointer==='/paths/~1first/$ref'&&problem.range[1]>problem.range[0]),JSON.stringify(refused.problems));
+  assert.deepEqual(input.resources.map(resource=>resource.text),original);return;
+ }
  const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
  const cold=fixture.reopened(review),{createGraph}=require('./dist/model.cjs');
  const {migrationRequestSignatures}=require('./dist/migration_invariants.cjs');

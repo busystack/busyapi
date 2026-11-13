@@ -117,10 +117,7 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,SourceP
         // Resolving their duplicated projection coordinates here would reject
         // sound branch expansions even though no object rewrite uses them.
         if(!['parameter','header','request-body','operation','response','security','path-item'].includes(scope.kind))continue;
-        const context=contexts.find(context=>{
-            const captured=context.scopeAs(scope.resource,scope.pointer,scope.kind);
-            return captured?.family===from&&captured.base===scope.base&&captured.schemaParent===scope.schemaParent;
-        })??owners.contextOf(scope)??primary;
+        const context=owners.contextOf(scope)??primary;
         const graph=context;
         const annotations=forContext(context);
         const materials=owners.materialLocations(scope).filter(material=>material.source.doc.dataNode(material.location.pointer)&&!owners.retainedValue(material.location));

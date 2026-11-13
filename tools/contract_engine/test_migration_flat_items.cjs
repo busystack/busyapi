@@ -97,7 +97,7 @@ for(const mode of ['object','null','annotation','recursive','order'])test(`flat 
 
 for(const format of ['yaml','json'])for(const firstVersion of ['3.0.4','3.2.1'])
 test(`${format} ${firstVersion} mixed native entries retain shared flat Header owners after either root is downgraded`,async()=>{
- const root='file:///mixed-flat/a.'+format,other='file:///mixed-flat/b.'+format;
+ const root='file:///mixed-flat/a.'+format,other='file:///mixed-flat/b.'+format,shared='file:///mixed-flat/header.'+format;
  const secondVersion=firstVersion==='3.0.4'?'3.2.1':'3.0.4';
  const api=(version,foreign)=>({openapi:version,info:{title:foreign?'First':'Second',version:'1'},paths:{'/value':{get:{responses:{200:{description:'Values',headers:{
   X:{$ref:foreign?'./b.'+format+'#/components/headers/Alias':'#/components/headers/Alias'},
@@ -105,7 +105,14 @@ test(`${format} ${firstVersion} mixed native entries retain shared flat Header o
   schemas:foreign?{}:{Tuple:{type:'array',items:{$ref:'#/components/schemas/Item'},maxItems:2},Item:{type:'integer',minimum:0,format:'int64'}}},
   'x-history':{n:'EXACT',literal:{$ref:'never-load.json'}}});
  const encode=value=>(format==='yaml'?YAML.stringify(value):JSON.stringify(value)).replace(/"?EXACT"?/g,'9007199254740993.00');
- const resources=[{id:root,generation:1,text:encode(api(firstVersion,true))},{id:other,generation:2,text:encode(api(secondVersion,false))}];
+ const first=api(firstVersion,true),second=api(secondVersion,false);
+ const unsupported={root,snapshot:'declared-cross-family-header',resources:[{id:root,generation:1,text:encode(first)},{id:other,generation:2,text:encode(second)}],targetVersion:'2.0',destination:'file:///mixed-flat-refused/'};
+ const refused=await planMigration(unsupported);assert.equal(refused.complete,false);assert.deepEqual(refused.outputs,[]);
+ assert(refused.problems.some(problem=>problem.code==='migration.validation.reference.family.unsupported'&&problem.reason==='unavailable-proof'&&problem.resource===root&&problem.pointer==='/paths/~1value/get/responses/200/headers/X/$ref'&&problem.range[1]>problem.range[0]),JSON.stringify(refused.problems));
+ assert.deepEqual(unsupported.resources.map(value=>value.text),[encode(first),encode(second)]);
+ for(const entry of [first,second])entry.paths['/value'].get.responses[200].headers.X={$ref:'./header.'+format+'#/Alias'};
+ const fragment={Alias:{$ref:'#/Actual'},Actual:{schema:{$ref:'#/Tuple'}},Tuple:{type:'array',items:{$ref:'#/Item'},maxItems:2},Item:{type:'integer',minimum:0,format:'int64'}};
+ const resources=[{id:root,generation:1,text:encode(first)},{id:other,generation:2,text:encode(second)},{id:shared,generation:3,text:encode(fragment)}];
  const originals=resources.map(value=>value.text),input={root,snapshot:'mixed-flat',resources,targetVersion:'2.0',destination:'file:///mixed-flat-output/'};
  const inspect=async(packet,entry)=>{
   const header=concrete({...packet,root:entry},'/paths/~1value/get/responses/200/headers/X','header');

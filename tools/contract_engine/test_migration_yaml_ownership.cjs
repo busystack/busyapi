@@ -144,8 +144,11 @@ test(`migration retains ownership of an empty anchored destination ${pointer}`,a
  assert.equal(result.complete,true,JSON.stringify(result.problems));
  const output=new SourceDocument(result.outputs.find(value=>value.id===result.outputRoot).text,result.outputRoot);
  assert.equal(output.dataJson('/x-copy'),new SourceDocument(text,root).dataJson('/x-copy'));
- assert.equal(output.dataNode('/components/schemas').children.size,1);
+ assert(output.text.includes(components),'Untouched anchored declarations retain their authored bytes');
+ const definitions=result.outputs.flatMap(value=>[...new SourceDocument(value.text,value.id).nodes.values()].filter(node=>node.pointer.endsWith('/type')&&node.value==='string'));
+ assert.equal(definitions.length,1,'The unused string definition remains in the published source');
  assert.equal(analyse(delivered(result)).status,'complete');
- assert(result.presentationChanges.some(value=>value.resource===root&&value.pointer===pointer));
+ const body='/paths/~1x/get/responses/200/content/application~1json/schema';
+ assert.deepEqual(await schemaValues(delivered(result),result.outputRoot,body),await schemaValues(input,root,body));
  assert.equal(input.resources[0].text,text);
 });

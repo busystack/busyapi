@@ -326,6 +326,8 @@ references are emitted as one batch before contextual dynamic/security edges;
 there are no repeated entry/role separation passes or superseded-copy retirement
 registries. Real schema resource identities and dynamic scope remain obligations
 of that mapping. Request-profile checks reuse its acquired operation plans.
+Family conversion helpers select the allocator's actual entry capture, so an
+indexed foreign object cannot choose an unversioned fragment's interpretation.
 Identical captured interpretations share their final owner and genuine resource
 frame. Native Schema slots use the common reference emitter; they do not create
 anchorless resource shells or a second reference-repair list. Resource metadata
