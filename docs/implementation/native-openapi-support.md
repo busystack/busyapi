@@ -40,6 +40,9 @@ elsewhere in an entry. Anchor capture retains unused declarations belonging to a
 entered resource, and excludes dormant alternate interpretations of literal data.
 Exact-number registration follows active Schema uses; conflicting active source
 locations still fail instead of falling back to JavaScript number projections.
+The same mapping separates a whole document used as a Schema before its API
+declaration is converted, preserving the Schema's original annotation bytes.
+The former early shared-document identity refusal is removed.
 
 Generated mock form bodies retain immutable typed input and normalized projection
 with their output bytes until the final native response check. That check validates

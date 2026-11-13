@@ -260,7 +260,7 @@ export async function planMigration(input:MigrationInput) {
             // copying. Otherwise the first parsed entry could choose another
             // use's family or overwrite a shared incoming locator.
             const securityComponentNames=after!=='3.2'&&stage.sources.includes('3.2');
-            const identities=stage.sources.includes('3.2')?migrateDocumentIdentities(graph,sources,after,issue):new Map<string,readonly string[]>();
+            const identities=stage.sources.includes('3.2')?migrateDocumentIdentities(graph,sources,after):new Map<string,readonly string[]>();
             for(const [origin,locations]of separateMigrationEntryUses(contexts,sources,issue,captureContext,owners,securityComponentNames,target.family))
                 specialized.set(origin,locations);
             if(problems.length)break;

@@ -2,24 +2,18 @@ import {escape} from './document';
 import {documentUriOccurrences} from './document_uris';
 import {documentUriBase,implicitNameReference,resolveUri,type ReferenceGraph} from './reference_graph';
 import type {SourcePlan,SourceLocation} from './source_plan';
-import type {MigrationIssue} from './migration_schema';
 
 /** OAS 3.2 §§4.1.1–4.1.2: lower a document identity only after capturing the
  * URI meaning of every affected occurrence. API URLs retain their retrieval/
  * Server context. Temporary graph aliases are not a new acquisition authority;
  * normal relocation and cold proofs must remove dependency on those aliases. */
 export function migrateDocumentIdentities(graph:ReferenceGraph,sources:ReadonlyMap<string,SourcePlan>,
-    target:string,issue:MigrationIssue):ReadonlyMap<string,readonly string[]> {
+    target:string):ReadonlyMap<string,readonly string[]> {
     const identities=new Map<string,readonly string[]>();
     if(target==='3.2')return identities;
     for(const [resource,specification]of graph.specifications){
         const doc=graph.docs.get(resource)!;
         if(specification.family!=='3.2'||typeof doc.dataNode('/$self')?.value!=='string')continue;
-        if(graph.hasOverlappingScope(resource,'')){
-            issue({resource,pointer:'/$self'},'migration.identity.shared-owner',
-                'This document also has an independent schema interpretation; lowering its identity needs separate source ownership','implementation');
-            continue;
-        }
         identities.set(resource,[graph.retrievals.get(resource)!,graph.scope(resource,'').base]);
     }
     if(!identities.size)return identities;
