@@ -120,8 +120,8 @@ void main() {
                 'resource': c.root,
                 'pointer': '/info',
               });
-              await c.analyse();
               await c.saveAll();
+              await c.analyse();
             });
             expectExample(true);
             expect(file.readAsStringSync(), source);
@@ -208,8 +208,8 @@ void main() {
             expectExample(false);
             await runWidgetIo(tester, () async {
               await c.undo();
-              await c.analyse();
               await c.saveAll();
+              await c.analyse();
             });
             await tester.pumpAndSettle();
             expectExample(true);

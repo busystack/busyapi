@@ -194,8 +194,8 @@ void main() {
             expect(controller.buffer!.text, source);
             await runWidgetIo(tester, () async {
               await controller.redo();
-              await controller.analyse();
               await controller.saveAll();
+              await controller.analyse();
             });
             expect(file.readAsStringSync(), accepted);
             await ready(

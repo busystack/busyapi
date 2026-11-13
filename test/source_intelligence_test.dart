@@ -290,6 +290,17 @@ void main() {
             if(behavior=='roles-nested')expect(find.text('boolean'),findsNothing);
             tester.widget<BusyApiComboRow<String>>(selector).onSelected('header');
             final label=behavior=='roles-nested'?'boolean':'required = true';
+            if (behavior == 'roles-nested') {
+              await waitFor(() => find.text('object').evaluate().isNotEmpty);
+              await tester.scrollUntilVisible(
+                find.text(label),
+                40,
+                scrollable: find.descendant(
+                  of: find.byKey(const ValueKey('source-assistance-popup')),
+                  matching: find.byType(Scrollable),
+                ),
+              );
+            }
             await waitFor(() => find.text(label).evaluate().isNotEmpty);
             final staleSelect = tester.widget<BusyApiComboRow<String>>(selector).onSelected;
             await tester.runAsync(() => tester.tap(find.text(label)));
