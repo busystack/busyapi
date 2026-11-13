@@ -1409,13 +1409,13 @@ void main() {
       () async {
         final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
         addTearDown(() => server.close(force: true));
-        final sizes = <int>[];
+        final receivedBodies = <List<int>>[];
         server.listen((request) async {
-          sizes.add(
+          receivedBodies.add(
             (await request.fold<List<int>>(
               [],
               (all, chunk) => all..addAll(chunk),
-            )).length,
+            )),
           );
           request.response.statusCode = 204;
           await request.response.close();
@@ -1496,19 +1496,26 @@ void main() {
                 resolveSecret: (_) async => null,
               );
           addTearDown(result.close);
-          expect(result.request.body!.formInstance, '{"a":"1"}');
-          expect(result.outgoing.complete, true);
-          expect(result.conforming, true);
+          final complete = body.kind == RequestBodyKind.form;
+          expect(result.outgoing.complete, complete);
+          expect(result.conforming, complete);
+          final actual = utf8.decode(receivedBodies.last);
+          if (complete) {
+            expect(actual, 'a=1');
+          } else {
+            expect(actual, contains('name="a"\r\n'));
+            expect(actual, contains('\r\n\r\n1\r\n--'));
+          }
           expect(
             ContractRequestRecord.fromResult(
               result,
               recordedAt: DateTime.utc(2026),
             ).conformanceComplete,
-            true,
+            complete,
           );
         }
-        expect(sizes, hasLength(6));
-        expect(sizes, everyElement(greaterThan(0)));
+        expect(receivedBodies, hasLength(6));
+        expect(receivedBodies, everyElement(isNotEmpty));
       },
     );
     for (final schema in [
@@ -1691,6 +1698,13 @@ void main() {
                 true,
               ),
               (
+                'unknown-array',
+                {'schema': {'type': 'array', 'items': {'type': 'integer'}}},
+                ['1', '2'],
+                false,
+                true,
+              ),
+              (
                 'object',
                 {
                   'schema': {
@@ -1793,7 +1807,7 @@ void main() {
                 'responses': {
                   '204': {
                     'description': 'ok',
-                    'headers': {'X-Value': item.$2},
+                    'headers': {item.$1 == 'array' ? 'Vary' : 'X-Value': item.$2},
                   },
                 },
               },
@@ -1848,7 +1862,7 @@ void main() {
             true,
           ),
         ]) {
-          name = sample.$1 == 'cookies' ? 'Set-Cookie' : 'X-Value';
+          name = sample.$1 == 'cookies' ? 'Set-Cookie' : sample.$1 == 'array' ? 'Vary' : 'X-Value';
           values = sample.$3;
           final operation = operations.singleWhere(
             (o) => o['path'] == '/${sample.$1}',
@@ -1866,7 +1880,7 @@ void main() {
             resolveSecret: (_) async => null,
           );
           addTearDown(result.close);
-          expect(result.received.complete, sample.$4, reason: sample.$1);
+          expect(result.received.complete, sample.$4, reason: '${sample.$1}: ${result.received.findings}');
           expect(
             result.received.valid,
             sample.$5,

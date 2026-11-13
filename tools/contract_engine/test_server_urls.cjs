@@ -38,7 +38,12 @@ for(const [entryVersion,otherVersion]of [['3.0.4','3.1.2'],['3.1.2','3.0.4'],['3
  const input=capture(entryVersion,'json','https://entry.example.invalid/'),other='file:///servers/other.json',entry=JSON.parse(input.resources[0].text);
  entry.components={schemas:{Use:{$ref:'other.json#/components/schemas/Model'}}};input.resources[0].text=JSON.stringify(entry);
  input.resources.push({id:other,generation:2,identity:'other',text:JSON.stringify({openapi:otherVersion,info:{title:'Other',version:'1'},paths:{},servers:[{url:'https://other.example.invalid/?selected=1'}],components:{schemas:{Model:{type:'string'}}}})});
- const result=analyse(input),finding=result.findings.find(f=>f.code==='server.url.query-fragment');assert.equal(result.status,'incomplete',JSON.stringify(result.findings));assert(result.findings.some(f=>f.code==='reference.family.unsupported'));assert.equal(Boolean(finding),otherVersion!=='3.0.4');if(finding){assert.equal(finding.resource,other);assert.equal(finding.pointer,'/servers/0/url');}
+ const result=analyse(input);assert.equal(result.status,'incomplete',JSON.stringify(result.findings));assert(result.findings.some(f=>f.code==='reference.family.unsupported'));
+ // The unsupported Schema dependency does not activate the other entry's
+ // Server declarations. Select that native entry explicitly for its policy.
+ assert(!result.findings.some(f=>f.code==='server.url.query-fragment'));
+ const owned=analyse({...input,root:other}),finding=owned.findings.find(f=>f.code==='server.url.query-fragment');
+ assert.equal(Boolean(finding),otherVersion!=='3.0.4');if(finding){assert.equal(finding.resource,other);assert.equal(finding.pointer,'/servers/0/url');}
 });
 for(const version of ['3.0.4','3.1.2','3.2.1'])for(const format of ['yaml','json'])test(`${version} ${format} unsupported Server migration retains the precise evaluator blocker`,async()=>{
  const input={...capture(version,format,'https://[v1.future]/api'),targetVersion:version,destination:'file:///output/review/'},original=input.resources[0].text,result=await planMigration(input),problem=result.problems.find(p=>p.code==='migration.validation.server.url.unsupported');

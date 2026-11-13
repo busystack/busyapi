@@ -62,7 +62,15 @@ for (const version of ['3.1.2', '3.2.1'])
             r.text = apply(r, [{ kind: 'remove', pointer: op + '/parameters/0' }], op);
             assert.equal(new SourceDocument(r.text, r.id).node(op + '/parameters').value.length, 0);
         });
-test('third identical occurrence and UTF16 ranges', () => { let r = resource('openapi: 3.2.1\ninfo: {title: "😀", version: "1"}\npaths:\n  /a:\n    get: {summary: same}\n  /b:\n    get: {summary: same}\n  /c:\n    query: {summary: same}\n'); const original = r.text; r.text = apply(r, [{ kind: 'set', pointer: '/paths/~1c/query/summary', value: 'third' }], '/paths/~1c/query'); assert.equal(r.text, original.replace('query: {summary: same}', 'query: {summary: third}')); });
+test('third identical occurrence and UTF16 ranges', () => {
+ const r=resource('openapi: 3.2.1\ninfo: {title: "😀", version: "1"}\npaths:\n  /a:\n    get: {summary: same}\n  /b:\n    get: {summary: same}\n  /c:\n    query: {summary: same}\n'),original=r.text,pointer='/paths/~1c/query/summary';
+ const before=new SourceDocument(original,r.id).node(pointer);
+ r.text=apply(r,[{kind:'set',pointer,value:'third'}],'/paths/~1c/query');
+ const after=new SourceDocument(r.text,r.id).node(pointer);
+ assert.equal(after.value,'third');
+ assert.equal(r.text.slice(0,after.range[0]),original.slice(0,before.range[0]));
+ assert.equal(r.text.slice(after.range[1]),original.slice(before.range[1]));
+});
 test('strict duplicates and trailing comma', () => {
     for (const text of ['{"a":1,"a":2}', '{"a":1,}', '// no\n{}'])
         assert.throws(() => new SourceDocument(text, 'x.json'));
@@ -185,7 +193,7 @@ test('current CST scope outside a malformed sibling remains surgically editable'
  assert.equal(result.info.syntaxSafe,true);assert.equal(result.status,'invalid');assert.equal(result.complete,false);
  assert(result.findings.some(d=>d.category==='syntax'));
  const changed=apply(r,[{kind:'set',pointer:'/info/title',value:'Corrected'}],'/info');
- assert(changed.includes('title: Corrected')); assert(changed.endsWith('Broken: [unclosed\n'));
+ assert.equal(new SourceDocument(changed,r.id,true).node('/info/title').value,'Corrected'); assert(changed.endsWith('Broken: [unclosed\n'));
  assert.throws(()=>apply(r,[{kind:'set',pointer:'/components/schemas/Broken',value:{type:'string'}}],'/components'),/scope|syntax/i);
 });
 test('3.2 media type components and streaming item schemas retain reference ownership',()=>{

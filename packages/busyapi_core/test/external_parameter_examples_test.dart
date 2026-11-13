@@ -20,9 +20,15 @@ void main() {
           seen.add(request.uri.toString());
           seenHeaders.add((request.headers.value('X-Json') ?? '').codeUnits);
           await request.drain<void>();
-          request.response.statusCode = 204;
-          request.response.headers.set('X-Cafe', 'café');
-          await request.response.close();
+          // Exercise inbound Latin1 fields directly; the SDK's response writer
+          // shares the ASCII-only outbound Header boundary checked below.
+          final socket = await request.response.detachSocket(writeHeaders: false);
+          socket.add([
+            ...ascii.encode('HTTP/1.1 204 No Content\r\nConnection: close\r\nX-Cafe: '),
+            99, 97, 102, 233,
+            ...ascii.encode('\r\nContent-Length: 0\r\n\r\n'),
+          ]);
+          await socket.close();
         });
         final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);
         addTearDown(engine.close);
@@ -64,22 +70,34 @@ void main() {
             headerExample = (headerParameter['examples'] as List).single as Map;
         expect(example['raw'], 'q=%E9%9B%AA');
         expect(example['conversionError'], isNull);
-        final result = await const ContractRequestExecutor().execute(plan,
+        expect((headerExample['raw'] as String).codeUnits, utf8.encode('"雪"'));
+        await expectLater(const ContractRequestExecutor().execute(plan,
             OperationRequestDraft(planIdentity: plan.identity, parameters: {
               OperationRequestDraft.parameterKey('query', 'q'): RequestValue.serialized(example['raw'] as String),
               OperationRequestDraft.parameterKey('header', 'X-Json'): RequestValue.serialized(headerExample['raw'] as String),
+            }), resolveSecret: (_) async => null), throwsA(isA<CoreFailure>()
+              .having((failure) => failure.code, 'code', 'request.header.octets.unsupported')
+              .having((failure) => failure.kind, 'kind', CoreFailureKind.unsupported)));
+        expect(seen, isEmpty);
+        final result = await const ContractRequestExecutor().execute(plan,
+            OperationRequestDraft(planIdentity: plan.identity, parameters: {
+              OperationRequestDraft.parameterKey('query', 'q'): RequestValue.serialized(example['raw'] as String),
+              OperationRequestDraft.parameterKey('header', 'X-Json'): RequestValue.json(utf8.decode(await jsonHeader.readAsBytes())),
             }), resolveSecret: (_) async => null);
         try {
           expect(result.response.status, 204);
           expect(result.conforming, true, reason: '${result.outgoing.toJson()} ${result.received.toJson()}');
+          expect(result.response.headers.singleWhere((field) => field.$1.toLowerCase() == 'x-cafe').$2.codeUnits, [99, 97, 102, 233]);
           expect(await result.response.bytes(), isEmpty);
         } finally {
           await result.close();
         }
         expect(seen, ['/p?q=%E9%9B%AA']);
-        expect(seenHeaders, [utf8.encode('"雪"')]);
+        expect(seenHeaders, [ascii.encode(r'"\u96ea"')]);
+        expect(jsonDecode(ascii.decode(seenHeaders.single)), '雪');
         expect(await query.readAsString(), 'q=%E9%9B%AA');
         expect(await header.readAsBytes(), [99, 97, 102, 233]);
+        expect(await jsonHeader.readAsBytes(), utf8.encode('"雪"'));
         expect(await file.readAsString(), original);
         expect(buffer.dirty, true);
       });
