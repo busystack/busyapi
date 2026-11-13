@@ -160,6 +160,13 @@ export async function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Sou
             }
             source.set(pointer+'/anyOf',branches);
         };
+        // An external implicit Schema resource uses the containing API family's
+        // default, independently of that API's jsonSchemaDialect override.
+        // Keep its captured dialect explicit when changing modern API families;
+        // its anchors and dynamic-resource proof then retain the same context.
+        if(modernFamily(from)&&modernFamily(to)&&from!==to&&scope.pointer===scope.resourcePointer&&
+            !context.specifications.has(scope.resource)&&scope.dialect&&!Object.hasOwn(value,'$schema'))
+            source.set(pointer+'/$schema',scope.dialect);
         if(!modernFamily(to)&&Object.hasOwn(value,'$schema'))source.remove(pointer+'/$schema');
         if(!modernFamily(to)&&Array.isArray(value.required)&&value.required.length===0)source.remove(pointer+'/required');
         if(modernFamily(from)&&!modernFamily(to)){

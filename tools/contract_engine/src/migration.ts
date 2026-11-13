@@ -231,28 +231,37 @@ export async function planMigration(input:MigrationInput) {
             // copying. Otherwise the first parsed entry could choose another
             // use's family or overwrite a shared incoming locator.
             const securityComponentNames=after!=='3.2'&&stage.sources.includes('3.2');
-            retainCopies(separateMigrationEntryUses(contexts,sources,issue,createSchemaResource,captureContext,owners,securityComponentNames,target.family));
+            const entryCopies=separateMigrationEntryUses(contexts,sources,issue,createSchemaResource,captureContext,owners,securityComponentNames,target.family);
+            retainCopies(entryCopies);
             if(problems.length)break;
-            const roleInput=preparationInput(),roleContext=createGraph(roleInput);
-            const roleContexts=migrationDocumentContexts(roleInput,roleContext,issue,true);
-            retainCopies(separateMigrationRoles(roleContexts,sources,issue,createSchemaResource,captureContext,owners,target.family));
+            let roleContexts=contexts;
+            if(entryCopies.size){
+                const roleInput=preparationInput();
+                roleContexts=migrationDocumentContexts(roleInput,createGraph(roleInput),issue,true);
+            }
+            const roleCopies=separateMigrationRoles(roleContexts,sources,issue,createSchemaResource,captureContext,owners,target.family);
+            retainCopies(roleCopies);
             if(problems.length)break;
-            // A new anonymous owner can itself need entry specialization.
-            // Reuse the same reservations and compose its source relation;
-            // this is one bounded preparation pass, never an expansion loop.
-            const entryInput=preparationInput(),entryContext=createGraph(entryInput);
-            const entryContexts=migrationDocumentContexts(entryInput,entryContext,issue,true);
-            retainCopies(separateMigrationEntryUses(entryContexts,sources,issue,createSchemaResource,captureContext,owners,securityComponentNames,target.family));
+            // Only newly materialized roles can introduce an entry refinement.
+            // Reusing unchanged captures avoids another full preparation pass.
+            if(roleCopies.size){
+                const entryInput=preparationInput();
+                const entryContexts=migrationDocumentContexts(entryInput,createGraph(entryInput),issue,true);
+                retainCopies(separateMigrationEntryUses(entryContexts,sources,issue,createSchemaResource,captureContext,owners,securityComponentNames,target.family));
+            }
             if(problems.length)break;
-            const repairInput=preparationInput();
-            const repairContexts=migrationDocumentContexts(repairInput,createGraph(repairInput),issue,true);
-            repairMigrationOwnerReferences(sourceContexts,sources,owners,issue,repairContexts.map(context=>context.graph));
-            if(problems.length)break;
-            owners.repairResourceReferences();
-            const materializedConnections=materializeMigrationOperationConnections(sourceContexts,sources,owners,issue);
-            if(problems.length)break;
-            const retirementInput=preparationInput();
-            owners.retireSuperseded(sourceContexts.map(context=>createGraph({...retirementInput,root:context.graph.root}).graph));
+            let materializedConnections=false;
+            if(specialized.size){
+                const repairInput=preparationInput();
+                const repairContexts=migrationDocumentContexts(repairInput,createGraph(repairInput),issue,true);
+                repairMigrationOwnerReferences(sourceContexts,sources,owners,issue,repairContexts.map(context=>context.graph));
+                if(problems.length)break;
+                owners.repairResourceReferences();
+                materializedConnections=materializeMigrationOperationConnections(sourceContexts,sources,owners,issue);
+                if(problems.length)break;
+                const retirementInput=preparationInput();
+                owners.retireSuperseded(sourceContexts.map(context=>createGraph({...retirementInput,root:context.graph.root}).graph));
+            }
             if(specialized.size||materializedConnections){
                 for(const [origin,copies]of specialized){
                     const [resource,pointer]=JSON.parse(origin) as [string,string];
@@ -595,31 +604,6 @@ export async function planMigration(input:MigrationInput) {
             if(scope.kind==='server'&&typeof value?.url==='string')source.set(scope.pointer+'/url',serverTemplate(value.url,documentUriBase(context.graph,scope),value.variables,{resource:scope.resource,pointer:scope.pointer+'/url',range:context.docs.get(scope.resource)!.dataNode(scope.pointer+'/url')!.range}));
         }
         for(const occurrence of documentUriOccurrences(context.graph))if(finalOwners.has(useKey(occurrence.scope))&&occurrence.scope.kind!=='server')sources.get(occurrence.scope.resource)!.set(occurrence.pointer,resolveUri(occurrence.value,documentUriBase(context.graph,occurrence.scope)).href);
-        const securityNames=new Map<string,Set<string>>();
-        const securitySpelling=migrationSecurityUriSpellings(sourceOwnerGraphs,securityConfigurationNames(input.configuration));
-        for(const {graph,reference}of migrationReferenceUses(sourceOwnerGraphs)){
-            if(reference.resolution!=='resolved')continue;
-            const source=sources.get(reference.resource)!;
-            if(reference.connection==='security'&&reference.targetUri!==undefined){
-                const identity=key(reference.resource,reference.pointer);
-                const names=securityNames.get(identity)??new Set(source.doc.dataNode(reference.pointer)!.children.keys());
-                securityNames.set(identity,names);
-                const value=securitySpelling(graph,reference,names,true);
-                if(value===undefined){issue(reference,'migration.security.uri','This captured URI binding has no proved absolute spelling before publication','implementation');continue;}
-                if(value!==reference.value){
-                    source.rename(reference.pointer+'/'+escape(reference.keyword),value);names.delete(reference.value);names.add(value);
-                }
-            }else if(referenceLocator(reference)||reference.connection==='discriminator'&&reference.targetUri!==undefined)
-                source.set(reference.pointer+'/'+escape(reference.keyword),resolveUri(reference.value,reference.base).href);
-        }
-        const normalized=sourceLocations(sources);
-        semanticOrigins?.projectLocations(location=>normalized.get(key(location.resource,location.pointer))??[]);
-        for(const [origin,locations]of origins)origins.set(origin,locations.flatMap(location=>normalized.get(key(location.resource,location.pointer))??[]));
-        for(const scope of migrationScopes(sourceOwnerGraphs))if(scope.kind==='schema')assertRoleAnnotations(context.graph,scope,sources.get(scope.resource)!.doc,scope.pointer);
-        for(const [resource,source]of sources)for(const pointer of source.presentationChanges){
-            const original=sourceLocation(resource,pointer);
-            presentationChanges.push({resource:original.resource,pointer:original.pointer});
-        }
     }catch(error){refused(error,{resource:input.root,pointer:''});}
     if(problems.length)return {...common(),changes:[],outputs:[]};
     // Each declared API must reopen with its containing directory as the
@@ -634,8 +618,74 @@ export async function planMigration(input:MigrationInput) {
     // an optional project mapping must not be needed for a local self-reference.
     const outputResources=resources.map(resource=>({...resource,id:identifiers.get(resource.id)!,text:sources.get(resource.id)!.doc.text,aliases:[identifiers.get(resource.id)!,resource.id,...resource.aliases??[]],generation:0}));
     const outputRoot=identifiers.get(input.root)!;
+    // One captured occurrence-to-output projection owns publication addresses.
+    // Seed captured roles only while emitting references; final and cold graphs
+    // are unseeded and must rediscover every retained connection normally.
+    const finalLocation=(at:SourceLocation):SourceLocation=>{
+        const resource=identifiers.get(at.resource),pointer=sources.get(at.resource)?.current(at.pointer);
+        if(resource===undefined||pointer===undefined)throw new SourceError('migration.reference.owner','A captured occurrence has no final output owner');
+        return {resource,pointer};
+    };
+    try{
+        const publicationContexts=new Map(sourceOwnerGraphs.map(graph=>[graph.root,createGraph({
+            ...input,root:identifiers.get(graph.root)!,resources:outputResources.map(resource=>({...resource,aliases:[resource.id]})),
+            occurrences:[...graph.entryScopes()].map(scope=>({...finalLocation(scope),kind:scope.kind})),
+        }).graph]));
+        const spellSecurity=migrationSecurityUriSpellings([...publicationContexts.values()],securityConfigurationNames(input.configuration));
+        const occupied=new Map<string,Set<string>>();
+        const emitted=new Map<string,{value:string;target:SourceLocation}>();
+        for(const {graph:captured,reference}of migrationReferenceUses(sourceOwnerGraphs)){
+            const security=reference.connection==='security'&&reference.targetUri!==undefined;
+            if(reference.resolution!=='resolved'||!referenceLocator(reference)&&reference.connection!=='discriminator'&&!security)continue;
+            const graph=publicationContexts.get(captured.root)!,owner=captured.referenceOwner(reference)??reference;
+            const from=finalLocation(owner),to=finalLocation({resource:reference.targetResource!,pointer:reference.targetPointer!});
+            const scope=graph.scopeAs(from.resource,from.pointer,owner.kind)??graph.scope(from.resource,from.pointer);
+            const target=graph.scopeAs(to.resource,to.pointer,reference.kind);
+            const field={resource:reference.resource,pointer:reference.pointer+'/'+escape(reference.keyword)},id=key(field.resource,field.pointer);
+            const mappedReference={...reference,...scope,resource:from.resource,pointer:from.pointer,targetResource:to.resource,targetPointer:to.pointer};
+            const proves=(value:string)=>{
+                const rebound=reference.connection==='discriminator'||security?
+                    graph.resolveConnection({...mappedReference,keyword:security?value:reference.keyword,value}):
+                    graph.resolveReference(value,scope,reference.keyword);
+                return rebound.resolution==='resolved'&&rebound.targetResource===to.resource&&rebound.targetPointer===to.pointer&&
+                    (reference.connection!==undefined||reference.keyword!=='$dynamicRef'||Boolean(rebound.dynamic)===Boolean(reference.dynamic));
+            };
+            const previous=emitted.get(id);
+            if(previous){
+                if(previous.target.resource!==to.resource||previous.target.pointer!==to.pointer||!proves(previous.value))
+                    issue(field,'migration.reference.binding','The final reference field still has conflicting captured entry targets','implementation');
+                continue;
+            }
+            let names:Set<string>|undefined;
+            if(security){
+                const group=key(from.resource,from.pointer);
+                names=occupied.get(group)??new Set(graph.docs.get(from.resource)!.dataNode(from.pointer)!.children.keys());
+                occupied.set(group,names);
+            }
+            const keyword=security?'security':reference.connection==='discriminator'||reference.keyword==='$dynamicRef'&&!reference.dynamic?'$ref':reference.keyword;
+            const value=proves(reference.value)?reference.value:security?spellSecurity(graph,mappedReference,names!):
+                target&&referenceValue(graph,scope,target,keyword,undefined,reference.connection==='discriminator'?{connection:'discriminator'}:{});
+            if(value===undefined||!proves(value)){
+                issue(field,'migration.reference.relocation','A captured reference has no proved final output spelling','implementation');continue;
+            }
+            emitted.set(id,{value,target:to});
+            if(value===reference.value)continue;
+            const source=sources.get(field.resource)!,pointer=source.current(field.pointer)!;
+            if(security){source.rename(pointer,value);names!.delete(reference.value);names!.add(value);}
+            else source.set(pointer,value);
+        }
+        const current=sourceLocations(sources);
+        semanticOrigins?.projectLocations(location=>current.get(key(location.resource,location.pointer))??[]);
+        for(const [origin,locations]of origins)origins.set(origin,locations.flatMap(location=>current.get(key(location.resource,location.pointer))??[]));
+        for(const [resource,source]of sources)for(const pointer of source.presentationChanges){
+            const original=sourceLocation(resource,pointer);presentationChanges.push({resource:original.resource,pointer:original.pointer});
+        }
+        for(const resource of outputResources)resource.text=sources.get(relocatedResources.get(resource.id)!)!.doc.text;
+    }catch(error){refused(error,{resource:input.root,pointer:''});}
+    if(problems.length)return {...common(),changes:[],outputs:[]};
     let relocated=createGraph({...input,root:outputRoot,resources:outputResources});
-    const markdownOwnerContexts=migrationDocumentContexts({...input,root:outputRoot,resources:outputResources},relocated,issue).map(context=>context.graph);
+    let relocatedContexts=migrationDocumentContexts({...input,root:outputRoot,resources:outputResources},relocated,issue);
+    const markdownOwnerContexts=relocatedContexts.map(context=>context.graph);
     const retainedMarkdown=markdownContexts.filter(context=>!omittedMarkdownOwners.has(key(context.owner.resource,context.owner.pointer)));
     const mappedSemanticOutputLocations=(location:SourceLocation,namespace:string,scope:GraphScope)=>(semanticOrigins?.locations(namespace,location,scope)??[])
         .map(location=>({resource:identifiers.get(location.resource)!,pointer:location.pointer}));
@@ -654,8 +704,11 @@ export async function planMigration(input:MigrationInput) {
         const changed=rewrittenMarkdown.get(resource.id);
         if(changed)resource.text=changed.text;
     }
-    relocated=createGraph({...input,root:outputRoot,resources:outputResources});
-    const relocatedOwnerContexts=migrationDocumentContexts({...input,root:outputRoot,resources:outputResources},relocated,issue).map(context=>context.graph);
+    if(rewrittenMarkdown.size){
+        relocated=createGraph({...input,root:outputRoot,resources:outputResources});
+        relocatedContexts=migrationDocumentContexts({...input,root:outputRoot,resources:outputResources},relocated,issue);
+    }
+    const relocatedOwnerContexts=relocatedContexts.map(context=>context.graph);
     proveMigrationMarkdown(retainedMarkdown,relocated.graph,mappedSemanticOutputLocations,issue,relocatedOwnerContexts,identifiers);
     if(problems.length)return {...common(),changes:[],outputs:[]};
     const mappings=new Map([...paths].map(([id,path])=>[identifiers.get(id)!,path]));
@@ -675,81 +728,10 @@ export async function planMigration(input:MigrationInput) {
     if(mappings.size>256)issue({resource:input.root,pointer:''},'limit.migration.mappings','The migrated identity map exceeds the configured 256 URI mappings','source-incomplete');
     if(problems.length)return {...common(),changes:[],outputs:[]};
     const coldResources=()=>outputResources.map(resource=>({...resource,aliases:[...mappings].filter(([,path])=>new URL(path,input.destination).href===resource.id).map(([uri])=>uri).sort()}));
-    // Prove retained static spellings without transient source-file aliases.
-    // The final cold proof below still checks every repaired connection.
-    const portable=coldGraph(outputRoot,coldResources());
-    const portableReferences=new Set(portable.references.filter(reference=>reference.resolution==='resolved'&&(!referenceLocator(reference)||reference.keyword!=='$dynamicRef')).map(reference=>
-        JSON.stringify([reference.resource,reference.pointer,reference.keyword,reference.value,reference.targetResource,reference.targetPointer])));
-    const securityNames=new Map<string,Set<string>>();
-    const securitySpelling=migrationSecurityUriSpellings(relocatedOwnerContexts,securityConfigurationNames(input.configuration));
-    const portableOwners=new Map<string,SourcePlan>();
-    for(const {graph,reference}of migrationReferenceUses(relocatedOwnerContexts)){
-        const security=reference.connection==='security'&&reference.targetUri!==undefined;
-        const relocatable=referenceLocator(reference)||reference.connection==='discriminator'||security;
-        if(!relocatable||reference.resolution!=='resolved')continue;
-        if(portableReferences.has(JSON.stringify([reference.resource,reference.pointer,reference.keyword,reference.value,reference.targetResource,reference.targetPointer])))continue;
-        const scope=graph.referenceOwner(reference)??reference,
-            destination=graph.scopeAs(reference.targetResource!,reference.targetPointer!,reference.kind);
-        const addressKeyword=security?'security':reference.connection==='discriminator'||reference.keyword==='$dynamicRef'&&!reference.dynamic?'$ref':reference.keyword;
-        let names:Set<string>|undefined;
-        if(security){
-            const identity=key(reference.resource,reference.pointer);
-            names=securityNames.get(identity)??new Set(relocated.docs.get(reference.resource)!.dataNode(reference.pointer)!.children.keys());
-            securityNames.set(identity,names);
-        }
-        const value=security?securitySpelling(graph,reference,names!):destination&&referenceValue(graph,scope,destination,addressKeyword,undefined,
-            reference.connection==='discriminator'?{connection:'discriminator'}:{});
-        const location={resource:reference.resource,pointer:reference.pointer+'/'+escape(reference.keyword)};
-        if(value===undefined){issue(location,'migration.reference.relocation','A captured reference has no proved portable target spelling','implementation');continue;}
-        if(reference.connection==='discriminator'||security){
-            const rebound=graph.resolveConnection({...reference,...scope,kind:reference.kind,keyword:security?value:reference.keyword,value});
-            if(rebound.resolution!=='resolved'||rebound.targetResource!==reference.targetResource||rebound.targetPointer!==reference.targetPointer){
-                issue(location,'migration.reference.binding','The proposed native connection does not preserve its captured target','implementation');continue;
-            }
-        }
-        if(!reference.connection&&reference.keyword==='$dynamicRef'){
-            const rebound=graph.resolveReference(value,scope,'$dynamicRef');
-            if(rebound.resolution!=='resolved'||rebound.targetResource!==reference.targetResource||rebound.targetPointer!==reference.targetPointer||Boolean(rebound.dynamic)!==Boolean(reference.dynamic)){
-                issue(location,'migration.reference.binding','The proposed spelling changes the captured dynamic reference binding','implementation');continue;
-            }
-        }
-        if(value===reference.value)continue;
-        const source=outputResources.find(resource=>resource.id===reference.resource)!;
-        try{
-            let owner=portableOwners.get(source.id);
-            if(!owner){owner=new SourcePlan(new SourceDocument(source.text,source.id));portableOwners.set(source.id,owner);}
-            const prior=owner.presentationChanges.length;
-            if(security){
-                owner.rename(location.pointer,value);
-                names!.delete(reference.value);names!.add(value);
-            }else owner.set(location.pointer,value);
-            source.text=owner.doc.text;
-            for(const pointer of owner.presentationChanges.slice(prior)){
-                const original=sourceLocation(source.id,pointer);
-                presentationChanges.push({resource:original.resource,pointer:original.pointer});
-            }
-        }
-        catch(error){refused(error,location);}
-    }
-    try{
-        const portable=sourceLocations(portableOwners);
-        const project=(location:SourceLocation):readonly SourceLocation[]=>{
-            const resource=identifiers.get(location.resource)!;
-            if(!portableOwners.has(resource))return [location];
-            return (portable.get(key(resource,location.pointer))??[]).map(location=>({
-                resource:relocatedResources.get(location.resource)!,pointer:location.pointer}));
-        };
-        semanticOrigins?.projectLocations(project);
-        for(const [origin,locations]of origins)origins.set(origin,locations.flatMap(location=>{
-            return project(location);
-        }));
-    }catch(error){refused(error,{resource:input.root,pointer:''});}
-    if(problems.length)return {...common(),changes:[],outputs:[]};
     let exampleOutputs:readonly MigrationExampleCopy[]=[],outputExampleResources:readonly ExternalExampleResourcePacket[]=[];
-    let inlineExampleProofs:readonly MigrationInlineExampleProof[]=[];
+    let inlineExampleProofs:readonly MigrationInlineExampleProof[]=[],examplesChanged=false;
     try{
-        const capture={...input,root:outputRoot,resources:outputResources},primary=createGraph(capture),graph=primary.graph;
-        const ownerContexts=migrationDocumentContexts(capture,primary,issue).map(context=>context.graph);
+        const graph=relocated.graph,ownerContexts=relocatedOwnerContexts;
         const copied=externalExamples!.relocate(graph,mappedSemanticOutputLocations,input.destination,paths.values(),ownerContexts,retiredExampleLocators);
         for(const scope of graph.scopesFor('schema')){
             const changed=copied.sources.get(scope.resource);
@@ -760,13 +742,13 @@ export async function planMigration(input:MigrationInput) {
             mappings.set(uri,path);
         }
         if(mappings.size>256)throw new SourceError('limit.migration.mappings','The migrated identity map exceeds the configured 256 URI mappings');
-        for(const resource of outputResources){const changed=copied.sources.get(resource.id);if(changed)resource.text=changed.doc.text;}
+        for(const resource of outputResources){const changed=copied.sources.get(resource.id);if(changed&&changed.doc.text!==resource.text){resource.text=changed.doc.text;examplesChanged=true;}}
         exampleOutputs=copied.outputs;outputExampleResources=copied.resources;inlineExampleProofs=copied.inlined;
     }catch(error){refused(error,{resource:input.root,pointer:''});}
     if(problems.length)return {...common(),changes:[],outputs:[]};
     await validate(outputResources,outputRoot,'target',outputExampleResources);
-    const finalContext=createGraph({...input,root:outputRoot,resources:outputResources});
-    const finalOwnerContexts=migrationDocumentContexts({...input,root:outputRoot,resources:outputResources},finalContext,issue);
+    const finalContext=examplesChanged?createGraph({...input,root:outputRoot,resources:outputResources}):relocated;
+    const finalOwnerContexts=examplesChanged?migrationDocumentContexts({...input,root:outputRoot,resources:outputResources},finalContext,issue):relocatedContexts;
     const ownerKey=(at:{resource:string;pointer:string;kind:string})=>JSON.stringify([at.resource,at.pointer,at.kind]);
     const deliveredOwners=new Set([...migrationScopes(finalOwnerContexts.map(context=>context.graph))].map(ownerKey));
     const securityBindings:SecurityBindingChange[]=[];
@@ -776,7 +758,7 @@ export async function planMigration(input:MigrationInput) {
     const alternativeChoices=new Map<number,ReadonlySet<number>>(),alternativeBounds:{before:number;after:number}[]=[];
     try {
         for(const context of initialContexts){
-            const root=context.graph.root,output=identifiers.get(root)!,targetGraph=root===input.root?finalContext.graph:createGraph({...input,root:output,resources:outputResources}).graph;
+            const root=context.graph.root,output=identifiers.get(root)!,targetGraph=finalOwnerContexts.find(context=>context.graph.root===output)!.graph;
             const mapped=(location:SourceLocation,scope:GraphScope|undefined)=>(semanticOrigins?.locations(root,location,scope)??[])
                 .map(location=>({resource:identifiers.get(location.resource)!,pointer:location.pointer}));
             // A library's Path Item or media child can now live in an owner entered only

@@ -78,6 +78,10 @@ const routes=modern.flatMap(from=>modern.filter(target=>target.slice(0,3)!==from
 for(const [from,target]of routes)for(const format of ['yaml','json'])for(const kind of ['dynamic-pointer','static-anchor','one-anchor','external-dynamic'])test(`${from} ${format} ${kind} migration to ${target} retains native reference and required semantics`,async()=>{
  const input=packet(from,format,kind),before=input.resources.map(resource=>resource.text),result=await planMigration({...input,targetVersion:target,destination:'file:///output/migrated/'});
  assert.equal(result.status,'faithfully-convertible',JSON.stringify(result.problems));assert.equal(result.complete,true);assert.equal(result.validation.family,target.slice(0,3));const entry=result.outputs.find(output=>output.id===result.outputRoot),value=YAML.parse(entry.text);assert.equal(value.openapi,target);assert.equal(value.info.version,'unrelated-api-version');assert(entry.text.includes('$dynamicRef'));assert(entry.text.includes('9007199254740993.00'));
+ if(kind==='external-dynamic'){
+  const copied=result.outputs.find(output=>output.id===result.changes.find(change=>change.resource===input.resources[1].id).destination);
+  assert.equal(YAML.parse(copied.text).$schema,'https://spec.openapis.org/oas/'+from.slice(0,3)+'/dialect/base');
+ }
  const output={root:result.outputRoot,resources:result.outputs.map(output=>({id:output.id,text:output.text,generation:0})),snapshot:'migrated-'+input.snapshot+'-'+target};const checkedOutput=await evaluateSchemas(output);assert.equal(checkedOutput.complete,true,JSON.stringify(checkedOutput.findings));assert(!checkedOutput.findings.some(finding=>finding.severity==='error'),JSON.stringify(checkedOutput.findings));assert.deepEqual(input.resources.map(resource=>resource.text),before);
 });
 for(const version of modern)for(const format of ['yaml','json'])test(`${version} ${format} migration preserves actual dynamic anchors and all captured candidate owners`,async()=>{
