@@ -15,8 +15,7 @@ import {capturedRuntimeMedia} from './runtime_media_owner';
 type Metadata=Readonly<{name:string;location:SourceLocation}>;
 type Choice=Readonly<{name?:string;authoredName:boolean;data:string;wire:string;metadata:readonly Metadata[];external?:Readonly<{location:SourceLocation;base64:string;uri:string}>}>;
 export type ProjectedParameterExample=Readonly<{name?:string;raw:string;metadata:readonly Metadata[];external?:Choice['external']}>;
-export type ParameterExampleProjection=Readonly<{fields:readonly (readonly ProjectedParameterExample[])[];explicit:boolean;
- retainedExternal:readonly NonNullable<Choice['external']>[];order:readonly number[]} >;
+export type ParameterExampleProjection=Readonly<{fields:readonly (readonly ProjectedParameterExample[])[];explicit:boolean;order:readonly number[]} >;
 type Context=Readonly<{parameter:GraphScope;schema:GraphScope;media?:SourceLocation;mediaType?:string}>;
 type Codec=Readonly<{decode:(text:string)=>Promise<string|undefined>;encode:(raw:string)=>string|undefined;
  project:(raw:string)=>readonly string[]|undefined;target:(index:number,raw:string)=>string|undefined;delimiter?:string;
@@ -180,7 +179,7 @@ export async function migrationParameterExampleProjection(graph:ReferenceGraph,c
  const relation=new Set(tuples.map(tuple=>JSON.stringify(tuple)));
  if(products.some(tuple=>!relation.has(JSON.stringify(tuple))))
   throw new SourceError('migration.parameter.example-target','Independent field examples would imply combinations absent from the authored correlated examples');
- return {fields,explicit,retainedExternal:fieldCount>1?choices.flatMap(choice=>choice.external?[choice.external]:[]):[],order:order??fields.map((_,index)=>index)};
+ return {fields,explicit,order:order??fields.map((_,index)=>index)};
 }
 
 /** Original literals and native external/resource owners remain with the
@@ -189,14 +188,6 @@ export async function migrationParameterExampleProjection(graph:ReferenceGraph,c
 export function installMigrationParameterExamples(graph:ReferenceGraph,projection:ParameterExampleProjection,index:number,
  output:SourcePlan,pointer:string,owners:MigrationSchemaOwners):void {
  const values=projection.fields[index];
- if(index===0)for(const external of projection.retainedExternal){
-  const held=owners.reserve(external.location,'whole_query_external_example',JSON.stringify(external.location),
-   {resource:graph.root,pointer:'/components/examples'});
-  held.source.set(held.location.pointer,{});
-  const captured=materialExampleField(graph,external.location,owners);
-  held.source.copy(captured.source,captured.pointer,held.location.pointer+'/externalValue',true);
-  held.source.set(held.location.pointer+'/externalValue',external.uri);
- }
  for(const field of ['example','examples'])if(output.doc.dataNode(pointer+'/'+field))
   owners.retainNativeHistory({resource:output.doc.id,pointer:pointer+'/'+field},output,pointer+'/'+field,'parameter_examples',graph);
  // A content Parameter delegates examples to its one selected Media Type.

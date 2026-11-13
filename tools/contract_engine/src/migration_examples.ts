@@ -90,10 +90,8 @@ function nativeExampleLocators(graphs:readonly ReferenceGraph[]) {
  * Migration publishes exact independent copies, never another payload loader. */
 export class MigrationExamples {
     private readonly bindings=new Map<string,Capture>();
-    private readonly inlined=new Map<string,Set<string>>();
-    private readonly namespaces:readonly string[];
+    private readonly inlined=new Map<string,Map<string,Set<string>>>();
     constructor(graphs:readonly ReferenceGraph[],packets:readonly ExternalExampleResourcePacket[]=[]) {
-        this.namespaces=[...new Set(graphs.map(graph=>graph.root))];
         const captured=new CapturedExampleResources(packets);
         for(const graph of graphs)for(const request of externalExampleRequests(graph)) {
             const source={resource:request.resource,pointer:request.pointer,
@@ -121,24 +119,25 @@ export class MigrationExamples {
         return binding?.state==='available'?{base64:binding.bytes.base64}:undefined;
     }
     materialized(location:PlannedLocation,namespace:string,media:string):void {
-        const capture=this.inlineCapture(location,namespace);if(!capture)return;
-        for(const namespace of this.namespaces){
-            const key=JSON.stringify([namespace,location.resource,location.pointer]),binding=this.bindings.get(key);
-            if(binding?.state!=='available'||binding.bytes.base64!==capture.base64)continue;
-            const types=this.inlined.get(key)??new Set<string>();types.add(media);this.inlined.set(key,types);
-        }
+        const binding=this.bindings.get(JSON.stringify([namespace,location.resource,location.pointer]));if(binding?.state!=='available')return;
+        const key=this.materializationKey(binding),contexts=this.inlined.get(key)??new Map<string,Set<string>>();
+        const types=contexts.get(namespace)??new Set<string>();types.add(media);contexts.set(namespace,types);this.inlined.set(key,contexts);
     }
-    hasMaterialization(location:PlannedLocation,namespace:string):boolean {return this.inlined.has(JSON.stringify([namespace,location.resource,location.pointer]));}
+    private materializationKey(binding:Capture):string {return JSON.stringify([binding.source.resource,binding.source.pointer,captureIdentity(binding)]);}
+    hasMaterialization(location:PlannedLocation,namespace:string):boolean {
+        const binding=this.bindings.get(JSON.stringify([namespace,location.resource,location.pointer]));
+        return binding!==undefined&&this.inlined.has(this.materializationKey(binding));
+    }
 
     relocate(graph:ReferenceGraph,mapped:(source:PlannedLocation,namespace:string,scope:GraphScope)=>readonly PlannedLocation[],
         destination:string,documentPaths:Iterable<string>,contexts:readonly ReferenceGraph[]=[graph],retired:ReadonlySet<string>=new Set()):Relocation {
         const expected=new Map<string,Binding>(),inlined:MigrationInlineExampleProof[]=[];
         const locators=nativeExampleLocators(contexts),nativeLocators=new Set(locators.keys());
+        const bindings=[...this.bindings.values()].map(binding=>({binding,locations:mapped(binding.source,binding.namespace,binding.scope)}));
         let inlineWork=0;
-        for(const binding of this.bindings.values()){
-          const locations=mapped(binding.source,binding.namespace,binding.scope),surviving=locations.filter(location=>nativeLocators.has(key(location)));
-          const materialized=this.hasMaterialization(binding.source,binding.namespace);
-          if(materialized){
+        for(const {binding,locations}of bindings){
+          const mediaTypes=this.inlined.get(this.materializationKey(binding))?.get(binding.namespace);
+          if(mediaTypes){
             if(binding.state!=='available')throw new SourceError('migration.example.capture',binding.message,binding.source.range,'unsupported',binding.source);
             const proofs:MigrationInlineExampleProof[]=[];
             for(const location of locations){
@@ -147,7 +146,7 @@ export class MigrationExamples {
                 const response=parent.slice(0,parent.lastIndexOf('/'));
                 const schema=graph.scopeAs(location.resource,parent,'schema');
                 const media=location.pointer.endsWith('/example')&&schema?
-                    [...this.inlined.get(JSON.stringify([binding.namespace,binding.source.resource,binding.source.pointer]))??[]].find(media=>{
+                    [...mediaTypes].find(media=>{
                         const doc=graph.docs.get(location.resource)!,node=doc.dataNode(location.pointer)!;
                         const raw=runtimeMediaKind(media)==='json'?doc.dataJson(location.pointer):node.value;
                         try{return typeof raw==='string'&&migrationExampleBytes(raw,media).toString('base64')===binding.bytes.base64;}catch(error){if(!(error instanceof SourceError))throw error;return false;}
@@ -159,6 +158,12 @@ export class MigrationExamples {
             if(!proofs.length)throw new SourceError('migration.example.inline-owner','The captured bytes lost their materialized standard example owner',binding.source.range,'unsupported',binding.source);
             proveInlinedMigrationExamples(graph,proofs);inlined.push(...proofs);
           }
+        }
+        // A shared source occurrence can be reached from several entries. Its
+        // exact approved capture needs one real materialization, not invented
+        // payload owners in entries which never serialized it.
+        for(const {binding,locations}of bindings){
+          const surviving=locations.filter(location=>nativeLocators.has(key(location))),materialized=this.hasMaterialization(binding.source,binding.namespace);
           if(!surviving.length&&retired.has(key(binding.source)))continue;
           if(locations.length&&!surviving.length&&!materialized)throw new SourceError('migration.example.context',
               'A surviving external example lost its native Example Object context',binding.source.range,'unsupported',binding.source);

@@ -80,6 +80,17 @@ export async function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Sou
     for(const scope of migrationScopes(contexts))if(scope.kind==='schema'&&scope.family===from)
         captured.set(JSON.stringify([scope.resource,scope.pointer]),scope);
     const scopes=[...captured.values()].sort((a,b)=>b.pointer.length-a.pointer.length);
+    // A referenced definition can inherit a modern resource's declarations
+    // without applying that resource's root assertions. Its old $defs path
+    // becomes ordinary data in legacy families; place the selected schema at
+    // its final slot before lowering its keywords or directional uses.
+    if(modernFamily(from)&&!modernFamily(to))for(const scope of [...scopes].reverse()){
+        const context=owners.contextOf(scope),parent=scope.schemaParent===undefined?undefined:
+            context?.scopeAs(scope.resource,scope.schemaParent,'schema');
+        if(!context||!parent||context.isEntryUse(parent))continue;
+        const {source,location}=owners.uniqueLocation(scope);
+        owners.move(scope,source,location.pointer,'definition',{context,layout:'array-item'});
+    }
     if(modernFamily(from)&&!modernFamily(to))for(const scope of scopes){
         const context=owners.contextOf(scope);if(!context)continue;
         const name=context.docs.get(scope.resource)!.dataNode(scope.pointer+'/propertyNames');

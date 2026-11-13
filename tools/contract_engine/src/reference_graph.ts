@@ -406,11 +406,16 @@ export class ReferenceGraph {
             // A native interpretation can establish schema roots inside data
             // that an enclosing schema treats as an opaque annotation. Admit
             // that proved owner before retrying direct schema pointers.
-            for(const [id,target]of graph.nativeAdmissions)seeds.set(id,target);
-            for(const {target,root:entry} of graph.schemaAdmissions.values()) {
-                if(!entry||!graph.isEntryUse(target))continue;
-                seeds.set(key(target.resource,target.pointer)+':schema',target);
-            }
+            const admit=(target:GraphTarget)=>{
+                const id=key(target.resource,target.pointer)+':'+target.kind;
+                seeds.set(id,target);
+                if(!graph.isEntryUse(target)&&!contexts.has(id)){
+                    const scope=graph.scopeAs(target.resource,target.pointer,target.kind)!;
+                    contexts.set(id,Object.freeze({...target,family:scope.family,dialect:scope.dialect,metadataOnly:true}));
+                }
+            };
+            for(const target of graph.nativeAdmissions.values())admit(target);
+            for(const {target,root:entry} of graph.schemaAdmissions.values())if(entry)admit(target);
             if(seeds.size===before)break;
         }
         const range=docs.get(root)!.root.range;

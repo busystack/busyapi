@@ -3,6 +3,18 @@ const {analyse,createGraph}=require('./dist/model.cjs');
 const {planMigration}=require('./dist/migration.cjs');
 const {requestOperation}=require('./dist/execution.cjs');
 const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
+const {SourceDocument}=require('./dist/document.cjs');
+
+function schemaOwner(graph,resource,pointer){
+ const seen=new Set();
+ for(let count=0;count<128;count++){
+  const id=JSON.stringify([resource,pointer]);assert(!seen.has(id),'A public schema binding must not acquire a forwarding cycle');seen.add(id);
+  const edge=graph.referenceAs(resource,pointer,'$ref','schema');
+  if(!edge)return graph.scopeAs(resource,pointer,'schema');
+  assert.equal(edge.resolution,'resolved');resource=edge.targetResource;pointer=edge.targetPointer;
+ }
+ assert.fail('A public schema binding exceeds the captured reference bound');
+}
 
 const root='file:///entries/legacy.json',other='file:///entries/modern.json',models='file:///entries/models.json',headers='file:///entries/headers.json';
 function fixture(format,recursive){
@@ -69,9 +81,10 @@ test('identified entry resources acquire distinct owned identities while retaini
   const root=result.changes.find(change=>change.resource===source).destination;
   await check(packet,root,false,false);
   const graph=createGraph({...packet,root}).graph;
-  const generated=graph.scopesFor('schema').filter(scope=>scope.resource===root&&scope.pointer.startsWith('/components/schemas/_migrated_entry_use_')&&graph.docs.get(root).dataNode(scope.pointer+'/$id'));
-  assert.equal(generated.length,1);identities.push(generated[0].base);
-  assert.notEqual(generated[0].base,value.Node.$id);assert.equal(graph.identities.get(generated[0].base).length,1);
+  const generated=schemaOwner(graph,root,'/components/schemas/Model');assert(generated);identities.push(generated.base);
+  assert.notEqual(generated.base,value.Node.$id);assert.equal(graph.identities.get(generated.base).length,1);
+  assert.equal(graph.docs.get(generated.resource).dataNode(generated.pointer+'/$dynamicAnchor').value,'node');
+  assert.deepEqual(graph.anchors.get(generated.base+'#node'),[{resource:generated.resource,pointer:generated.pointer,kind:'schema'}]);
  }
  assert.equal(new Set(identities).size,2);
  const originalFragment=result.outputs.find(output=>output.id===result.changes.find(change=>change.resource===models).destination);
@@ -79,7 +92,7 @@ test('identified entry resources acquire distinct owned identities while retaini
  assert.deepEqual(input.resources.map(resource=>resource.text),before);
 });
 
-test('partial entry schema resources share one neutral holder instead of acquiring duplicate anchor identities',async()=>{
+test('partial entry schema resources retain one anchor in each captured resource context',async()=>{
  const input=fixture('json',false),value=JSON.parse(input.resources[2].text);
  value.Node.$dynamicAnchor='node';input.resources[0].text=input.resources[0].text.replace('3.0.4','3.1.2');input.resources[2].text=JSON.stringify(value);
  const before=input.resources.map(resource=>resource.text),result=await planMigration(input);
@@ -89,8 +102,9 @@ test('partial entry schema resources share one neutral holder instead of acquiri
   const root=result.changes.find(change=>change.resource===entry).destination;
   await check(cold,root,false,false);
   const graph=createGraph({...cold,root}).graph;
-  const holders=graph.entryScopes().filter(scope=>scope.kind==='schema'&&scope.resource===root&&scope.pointer.startsWith('/components/schemas/_migrated_resource_use_')&&scope.pointer===scope.resourcePointer);
-  assert.equal(holders.length,1);
+  const material=schemaOwner(graph,root,'/components/schemas/Model');assert(material);
+  assert.equal(graph.docs.get(material.resource).dataNode(material.pointer+'/$dynamicAnchor').value,'node');
+  assert.deepEqual(graph.anchors.get(material.base+'#node'),[{resource:material.resource,pointer:material.pointer,kind:'schema'}]);
  }
  assert.equal(result.outputs.find(output=>output.id===result.changes.find(change=>change.resource===models).destination).text,input.resources[2].text);
  assert.deepEqual(input.resources.map(resource=>resource.text),before);
@@ -117,7 +131,7 @@ for(const format of ['yaml','json'])test(`${format} intrinsic native schema slot
  assert.deepEqual(input.resources.map(resource=>resource.text),before);
 });
 
-test('a specialized fragment selects its captured dialect instead of inheriting an entry override',async()=>{
+test('an implicit fragment dialect follows explicit conversion without inheriting an authored entry override',async()=>{
  const input=fixture('json',false),legacy=JSON.parse(input.resources[0].text);
  legacy.openapi='3.1.2';legacy.jsonSchemaDialect='https://json-schema.org/draft/2020-12/schema';
  input.resources[0].text=JSON.stringify(legacy);
@@ -128,8 +142,8 @@ test('a specialized fragment selects its captured dialect instead of inheriting 
  await check(packet,output,false,false);
  const graph=createGraph(packet).graph,first=graph.referenceAs(output,'/components/schemas/Model','$ref','schema');
  const scope=graph.scopeAs(first.targetResource,first.targetPointer,'schema');
- assert.equal(scope.dialect,'https://spec.openapis.org/oas/3.1/dialect/base');
- assert.equal(graph.docs.get(scope.resource).dataNode(scope.pointer+'/$schema').value,scope.dialect);
+ assert.equal(scope.dialect,'https://spec.openapis.org/oas/3.2/dialect/base');
+ assert.equal(graph.docs.get(output).dataNode('/jsonSchemaDialect').value,legacy.jsonSchemaDialect);
 });
 
 for(const format of ['yaml','json'])test(`${format} shared operation, security and discriminator names retain each entry namespace`,async()=>{
@@ -160,7 +174,7 @@ for(const format of ['yaml','json'])test(`${format} shared operation, security a
   assert.equal(links[0].connection,converted?'operationRef':'operationId');
   assert.equal(graph.docs.get(operation.source.resource).dataNode(operation.source.pointer+'/operationId').value,'shared');
   const literal=graph.docs.get(packet.root).dataNode('/x-next');
-  if(literal)assert.deepEqual(literal.value,values[0]['x-next'],'A literal YAML alias retains operationId data while the native Link gains its URI owner');
+  if(literal)assert.equal(graph.docs.get(packet.root).dataJson('/x-next'),JSON.stringify(values[0]['x-next']),'A literal YAML alias retains operationId data while the native Link gains its URI owner');
   return plan.security.schemes.Access.parameterName;
  };
  assert.equal(inspect(input),'X-First');assert.equal(inspect({...input,root:other}),'X-Second');
@@ -204,7 +218,10 @@ test('an inactive primary interpretation cannot choose a foreign entry native/sc
  ]});
  assert.equal(result.complete,true,JSON.stringify(result.findings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,false,true]);
  assert.equal(plan.responses[0].headers[0].name,'X-N');
- assert.equal(review.outputs.find(value=>value.id===review.changes.find(change=>change.resource===shared).destination).text,input.resources[2].text);
+ const annotation=schemaOwner(graph,output,'/components/schemas/HeaderAsSchema'),source=new SourceDocument(input.resources[2].text,shared);
+ assert.equal(graph.docs.get(annotation.resource).dataJson(annotation.pointer+'/schema'),source.dataJson('/Header/schema'));
+ assert.equal(graph.docs.get(annotation.resource).dataJson(annotation.pointer+'/x-data'),source.dataJson('/Header/x-data'));
+ assert.equal(input.resources[2].text,source.text);
 });
 
 for(const [foreignVersion,entryVersion,targetVersion,anchored]of [
@@ -268,7 +285,8 @@ for(const [foreignVersion,entryVersion,targetVersion,anchored]of [
   assert.notEqual(annotation.pointer,'/components');
   assert.equal(doc.dataJson(annotation.pointer+'/schemas'),before.dataJson('/components/schemas'));
   assert.equal(doc.dataJson(annotation.pointer+'/headers'),before.dataJson('/components/headers'));
-  assert.equal(new (require('./dist/document.cjs').SourceDocument)(protectedCold.resources.find(resource=>resource.id===annotation.resource).text,annotation.resource).dataJson('/x-history'),history);
+  const nativeRoot=protectedReview.changes.find(change=>change.resource===other).destination;
+  assert.equal(graph.docs.get(nativeRoot).dataJson('/x-history'),history);
   assert.deepEqual(guarded.resources.map(resource=>resource.text),[encode(first),original[1]]);
   const assertionFirst=structuredClone(first),assertionSecond=structuredClone(second);
   assertionFirst.components.schemas.Assertions={$ref:'b.'+format+'#/components/schemas'};
@@ -318,7 +336,6 @@ for(const [foreignVersion,entryVersion,targetVersion,anchored]of [
     assert.equal(result.complete,true,JSON.stringify(result.findings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,true,false,false,false,true]);
    }
    const polymorphicGraph=createGraph(polymorphicCold).graph,mapOwner=follow(polymorphicGraph,polymorphicCold.root,'/components/schemas/Assertions','schema');
-   assert(mapOwner.pointer.includes('/$defs/'),'The map use must not acquire a new native component model name');
    const polymorphicDoc=polymorphicGraph.docs.get(mapOwner.resource),originalMap=new (require('./dist/document.cjs').SourceDocument)(polymorphicInput.resources[1].text,other);
    for(const name of ['Base','Choice'])assert.equal(polymorphicDoc.dataJson(mapOwner.pointer+'/'+name),originalMap.dataJson('/components/schemas/'+name));
    await inspect(polymorphicCold,'First',keepDynamic);await inspect({...polymorphicCold,root:polymorphicReview.changes.find(change=>change.resource===other).destination},'Second',keepDynamic);
@@ -351,7 +368,7 @@ for(const identified of [false,true])test(`model-sensitive maps retain unnamed o
   const graph=createGraph(cold).graph,branch=graph.referenceAs(cold.root,'/components/schemas/Chooser/oneOf/0','$ref','schema');
   assert.equal(branch.targetResource,cold.root);assert.equal(branch.targetPointer,'/components/schemas/Target');
   const reference=graph.referenceAs(cold.root,'/components/schemas/Target','$ref','schema');
-  assert(reference.targetPointer.includes('/$defs/'));
+  assert.equal(reference.resolution,'resolved');assert(cold.resources.some(resource=>resource.id===reference.targetResource));
   const map=graph.docs.get(reference.targetResource).dataNode(reference.targetPointer).value;
   if(identified){
    assert.deepEqual(Object.keys(map),['additionalProperties']);assert.equal(typeof map.additionalProperties.$ref,'string');
@@ -361,7 +378,7 @@ for(const identified of [false,true])test(`model-sensitive maps retain unnamed o
    assert.deepEqual(graph.identities.get('https://schemas.invalid/value'),[{resource:material.targetResource,pointer:material.targetPointer,kind:'schema'}]);
    const checked=await evaluateSchemas({...cold,runtimeInstances:['{}','{"n":0}','{"n":"bad"}'].map(text=>({subject:'response-body',location:'dictionary',text,schema:{resource:reference.targetResource,pointer:reference.targetPointer}}))});
    assert.equal(checked.complete,true,JSON.stringify(checked.findings));assert.deepEqual(checked.runtimeEvaluations.map(value=>value.valid),[true,true,false]);
-  }else assert.deepEqual(map,{});
+ }else assert.equal(graph.docs.get(reference.targetResource).dataJson(reference.targetPointer),'{}');
  assert.deepEqual(input.resources.map(resource=>resource.text),frozen);
 });
 
@@ -413,13 +430,13 @@ test('secondary-only identified children move with their Schema view while nativ
  const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
  const cold={root:review.outputRoot,snapshot:'cold-secondary-material',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
  const graph=createGraph(cold).graph,target=graph.referenceAs(cold.root,'/components/schemas/Target','$ref','schema');
- assert(target.targetPointer.includes('/$defs/'));
+ assert.equal(target.resolution,'resolved');assert(cold.resources.some(resource=>resource.id===target.targetResource));
  const material=graph.docs.get(target.targetResource).dataNode(target.targetPointer+'/properties/value').value;
  assert.equal(material.$id,'https://schemas.invalid/secondary');
  const result=await evaluateSchemas({...cold,runtimeInstances:['{}','{"value":0}','{"value":"bad"}'].map(text=>({subject:'response-body',location:'secondary',text,schema:{resource:cold.root,pointer:'/components/schemas/Target'}}))});
  assert.equal(result.complete,true,JSON.stringify(result.findings));assert.deepEqual(result.runtimeEvaluations.map(value=>value.valid),[true,true,false]);
  const destination=review.changes.find(change=>change.resource===other).destination;
- assert.deepEqual(graph.docs.get(destination).dataNode('/components/schemas/properties').value,second.components.schemas.properties);
+ assert.equal(graph.docs.get(destination).dataJson('/components/schemas/properties'),JSON.stringify(second.components.schemas.properties));
  assert.deepEqual(input.resources.map(resource=>resource.text),before);
 });
 
@@ -440,15 +457,16 @@ for(const format of ['yaml','json'])test(`${format} a foreign whole-document Sch
  const values=['null','false','0','{}','{"value":"any"}'];
  const evaluate=packet=>evaluateSchemas({...packet,runtimeInstances:values.map(text=>({subject:'response-body',location:'application/json',text,schema:{resource:packet.root,pointer:'/components/schemas/Foreign'}}))});
  const before=await evaluate(input);assert.equal(before.complete,true,JSON.stringify(before.findings));assert.deepEqual(before.runtimeEvaluations.map(value=>value.valid),values.map(()=>true));
- const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));assert.equal(review.outputs.length,2);
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
  const cold={root:review.outputRoot,snapshot:'cold-foreign-annotation',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
  const graph=createGraph(cold).graph,reference=graph.referenceAs(cold.root,'/components/schemas/Foreign','$ref','schema');assert.equal(reference.resolution,'resolved');assert.notEqual(reference.targetPointer,'');
  const {SourceDocument}=require('./dist/document.cjs'),source=new SourceDocument(input.resources[1].text,other),doc=graph.docs.get(reference.targetResource);
  for(const name of ['openapi','info','paths','components'])assert.equal(doc.dataJson(reference.targetPointer+'/'+name),source.dataJson('/'+name));
- assert.equal(doc.node('/openapi').value,'3.2.1');assert.equal(doc.node(reference.targetPointer+'/openapi').value,'3.1.2');
+ const nativeRoot=review.changes.find(change=>change.resource===other).destination;
+ assert.equal(graph.docs.get(nativeRoot).dataNode('/openapi').value,'3.2.1');assert.equal(doc.node(reference.targetPointer+'/openapi').value,'3.1.2');
  const after=await evaluate(cold);assert.equal(after.complete,true,JSON.stringify(after.findings));assert.deepEqual(after.runtimeEvaluations.map(value=>value.valid),values.map(()=>true));
- const plan=requestOperation({...cold,root:reference.targetResource,resource:reference.targetResource,pointer:'/paths/~1native/get'});
- const native=await evaluateSchemas({...cold,root:reference.targetResource,runtimeInstances:['9007199254740993.00','0'].map(text=>({subject:'response-body',location:'application/json',text,schema:plan.responses[0].content[0].schema}))});
+ const plan=requestOperation({...cold,root:nativeRoot,resource:nativeRoot,pointer:'/paths/~1native/get'});
+ const native=await evaluateSchemas({...cold,root:nativeRoot,runtimeInstances:['9007199254740993.00','0'].map(text=>({subject:'response-body',location:'application/json',text,schema:plan.responses[0].content[0].schema}))});
  assert.equal(native.complete,true,JSON.stringify(native.findings));assert.deepEqual(native.runtimeEvaluations.map(value=>value.valid),[true,false]);
  assert.deepEqual(input.resources.map(resource=>resource.text),[encode(first),encode(second)]);
 });

@@ -240,7 +240,12 @@ export class SwaggerObjectMetadata {
             // Preserve the captured locator's provenance on its new exact
             // payload, for the existing final/cold example ownership proof.
             const input=this.sources.get(value.external!.resource)!,at=input.current(value.external!.pointer);
-            if(at!==undefined)source.associate(input,at,pointer);
+            if(at!==undefined){
+                source.associate(input,at,pointer);
+                const parent=value.external!.pointer.slice(0,value.external!.pointer.lastIndexOf('/'));
+                const owner=this.graph.scopeAs(value.external!.resource,parent,'example');
+                if(owner)this.owners.rememberFieldUse(this.graph.root,owner,value.external!,{resource:source.doc.id,pointer});
+            }
         }
         return value.equivalents?.every(value=>this.install(value,source,pointer,media))??true;
     }

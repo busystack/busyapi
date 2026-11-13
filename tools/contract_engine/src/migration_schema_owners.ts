@@ -166,6 +166,11 @@ export class MigrationSchemaOwners {
     entryLocations(namespace:string,location:SourceLocation,scope:GraphScope|undefined,
         current:ReadonlyMap<string,readonly SourceLocation[]>):readonly SourceLocation[] {
         this.inspectUse();
+        // A representation change can place a captured field outside its old
+        // native object, such as an external locator becoming inline bytes.
+        // Its explicit final endpoint takes precedence over owner suffixes.
+        if(scope&&location.pointer!==scope.pointer&&this.entryUses.has(this.useKey(namespace,location,scope.kind)))
+            scope={...scope,...location};
         const uses:SourceLocation[]=[],suffix=scope?location.pointer.slice(scope.pointer.length):'';
         if(scope){
             if(location.resource!==scope.resource||location.pointer!==scope.pointer&&!location.pointer.startsWith(scope.pointer+'/'))
@@ -203,6 +208,12 @@ export class MigrationSchemaOwners {
         if(!uses.some(use=>use.location.resource===destination.resource&&use.location.pointer===destination.pointer&&
             JSON.stringify([...use.excludedFields].sort())===JSON.stringify([...excludedFields].sort())))uses.push({location:destination,excludedFields});
         this.additionalUses.set(id,uses);
+    }
+    rememberFieldUse(namespace:string,scope:GraphScope,field:SourceLocation,destination:SourceLocation):void {
+        const source={...scope,...field},id=this.useKey(namespace,field,scope.kind);
+        if(this.entryUses.has(id))this.rememberAdditionalUse(namespace,source,destination);
+        else this.remember(this.entryUses,id,source,destination,scope);
+        this.rememberMaterialCoordinates(this.sources.get(destination.resource)!,destination.pointer);
     }
     private roleKey(scope:GraphScope):string {
         return this.useKey('native-role:'+JSON.stringify([schemaResourceContextIdentity(scope),scope.schemaParent]),scope,scope.kind);
@@ -433,7 +444,7 @@ export class MigrationSchemaOwners {
             this.admit(source,4);this.admit(effect.source,4);
             const destination=effect.location.pointer+'/'+escape(field);
             if(source===effect.source)source.move(at,destination,true);
-            else {effect.source.copy(source,at,destination,true);source.remove(at);}
+            else {effect.source.copy(source,at,destination,true);source.remove(at,true,false);}
         }
         this.admit(source,2);const collection=pointer+'/allOf';
         if(!source.doc.dataNode(collection))source.set(collection,[]);
@@ -569,12 +580,14 @@ export class MigrationSchemaOwners {
             const id=JSON.stringify([context.root,scope.resource,scope.pointer]);if(descriptions.has(id))continue;descriptions.add(id);
             const from=pointer+scope.pointer.slice(origin.pointer.length)+'/description';
             if(!captured.doc.dataNode(from))continue;
-            const owner=this.reserveSchema(scope,label+'_documentation');
+            const family=this.sources.get(context.root)!.doc.dataNode('/swagger')?.value==='2.0'?'2.0':context.family;
+            const owner=this.reserve(scope,label+'_documentation',id,{resource:context.root,pointer:componentLocation('schemas',family)!},true);
             this.admit(owner.source,4);
             owner.source.set(owner.location.pointer,{});
             owner.source.copy(captured,from,owner.location.pointer+'/description',true);
             const root=pointer+scope.pointer.slice(origin.pointer.length);
             captured.own(root,false);owner.source.associate(captured,root,owner.location.pointer);
+            this.rememberMaterialCoordinates(owner.source,owner.location.pointer);
         }
         return retained;
     }
@@ -789,7 +802,7 @@ export class MigrationSchemaOwners {
             source.move(pointer,owner.location.pointer,true,directSchema&&this.reserved.has(JSON.stringify([owner.location.resource,owner.location.pointer])));
             this.rememberMaterialCoordinates(source,owner.location.pointer);
         }
-        else {this.copyInto(source,pointer,owner.location,true);source.remove(pointer);}
+        else {this.copyInto(source,pointer,owner.location,true);source.remove(pointer,true,false);}
         owner.source.presentationChanges.push(owner.location.pointer);
         if(captured)for(const namespace of namespaces){
             this.rememberEntry(namespace,captured,owner.location);
