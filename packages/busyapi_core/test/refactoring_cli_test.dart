@@ -52,9 +52,12 @@ void main() {
         final id = moved.uri.toString();
         expect((await reopened.check(id))['complete'], true);
         final literal = await reopened.inspectObject(id, id, '$group/Holder'), contract = await reopened.inspectObject(id, id, '$group/Independent');
-        expect(literal['value']['default']['description'], '[Guide](guide.md)');
+        final retained = await reopened.readDataValue(literal);
+        expect(retained, contains('9007199254740993.00'));
+        final literalData = jsonDecode(retained) as Map;
+        expect(literalData['default']['description'], '[Guide](guide.md)');
         expect(contract['value']['description'], '[Guide](<${root.uri.resolve('guide.md')}>)');
-        expect(literal['value']['default']['x-data'][r'$ref'], 'literal');
+        expect(literalData['default']['x-data'][r'$ref'], 'literal');
         if (sharedRoles) {
           final response = await reopened.inspectObject(id, id, '/paths/~1value/get/responses/200');
           expect(response['value']['description'], '[Reply](<${root.uri.resolve('reply.md')}>)');

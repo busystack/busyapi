@@ -420,7 +420,7 @@ void main() {
             'content': {
               'application/json;profile="': {'schema': {}},
               'application/json': {'schema': {}},
-              'multipart/form-data': {'schema': {}},
+              'multipart/form-data': {'schema': {'type': 'object', 'properties': {'part': {'type': 'string'}}}},
             },
           },
           'responses': {
