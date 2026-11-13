@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const { SourceDocument } = require('./dist/document.cjs');
-const { analyse, propose } = require('./dist/model.cjs');
+const { analyse, propose, createGraph } = require('./dist/model.cjs');
 const { planOperationMove } = require('./dist/refactoring_copy.cjs');
 const resource = (text, format = 'yaml') => ({ id: 'file:///tmp/contract.' + format, text, generation: 1, identity: 'x' });
 const apply = (r, actions, target = '/info') => {
@@ -34,6 +34,17 @@ function test(name, fn) {
         process.exitCode = 1;
     }
 }
+test('derived text with inherited metadata never reuses the old syntax', () => {
+    const captured = resource('openapi: 3.2.1\ninfo: {title: Original, version: "1"}\npaths: {}\n');
+    const first = createGraph({root: captured.id, resources: [captured]});
+    const derived = {...captured, text: captured.text.replace('Original', 'Derived')};
+    const second = createGraph({root: derived.id, resources: [derived]});
+    assert.equal(second.docs.get(derived.id).node('/info/title').value, 'Derived');
+    assert.equal(first.docs.get(captured.id).node('/info/title').value, 'Original');
+    const other = {...derived, id: 'file:///tmp/another.yaml'};
+    const third = createGraph({root: other.id, resources: [other]});
+    assert.equal(third.docs.get(other.id).id, other.id);
+});
 for (const version of ['3.1.2', '3.2.1'])
     for (const format of ['yaml', 'json'])
         test('authoring ' + version + ' ' + format, () => {

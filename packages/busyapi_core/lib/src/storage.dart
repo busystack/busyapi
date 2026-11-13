@@ -987,6 +987,14 @@ class RecoveryStore {
     return true;
   }
 
+  /// A retired workspace leaves durable records, not live buffer references.
+  void releaseProject(FileRecoveryOwner project) {
+    final id = _filesId(project.boundary);
+    _fileGroups.remove(id);
+    _fileGroupMembers.remove(id);
+    _fileGroupContexts.remove(id);
+  }
+
   Future<void> retireFileMoves(FileRecoveryOwner project) {
     final id = _filesId(project.boundary);
     _fileGroups.remove(id);

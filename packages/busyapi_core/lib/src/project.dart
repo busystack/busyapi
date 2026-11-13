@@ -57,6 +57,15 @@ Future<void> _resourceBatch<T>(
   }
 }
 
+class _SourceCapture {
+  _SourceCapture(this.snapshot, this.revision, Map<String, dynamic> structural,
+      this.saved) : structural = _freezeResult(structural);
+  final AnalysisSnapshot snapshot;
+  final int revision;
+  final Map<String, dynamic> structural;
+  final bool saved;
+}
+
 class ProjectRoot {
   const ProjectRoot(this.name, this.id);
   final String name, id;
@@ -96,7 +105,9 @@ class AnalysisSnapshot {
     String? engineIdentity,
     List<Map<String, Object?>> configuration = const [],
     List<CapturedExternalExample> exampleResources = const [],
-  }) : exampleResources = List.unmodifiable(exampleResources),
+    Map<String, int> resourceVersions = const {},
+  }) : _resourceVersions = Map.unmodifiable(resourceVersions),
+       exampleResources = List.unmodifiable(exampleResources),
        resources = List.unmodifiable(
          resources.map(
            (r) => Map<String, Object?>.unmodifiable({
@@ -127,6 +138,9 @@ class AnalysisSnapshot {
          exampleResources,
        );
   final String root, identity, sourceIdentity;
+  final Map<String, int> _resourceVersions;
+  bool _diskInputsCurrent(BufferStore store) => _resourceVersions.entries.every(
+      (entry) => store.resourceVersion(entry.key) == entry.value);
   static String _snapshotIdentity(
     String root,
     List<Map<String, Object?>> resources,
@@ -196,7 +210,7 @@ class AnalysisSnapshot {
       ],
   };
   bool current(BufferStore store) =>
-      allInputs.every((input) => _inputCurrent(store, input));
+      _diskInputsCurrent(store) && allInputs.every((input) => _inputCurrent(store, input));
 
   bool _examplesCurrent(BufferStore store) => exampleResources.every(
     (resource) => _inputCurrent(store, resource.ownership),
@@ -975,6 +989,7 @@ class BusyProject {
   /// authority at reload application and recovery retirement, not only capture.
   bool Function(DocumentBuffer)? acceptsBufferReload;
   void Function(Set<DocumentBuffer>)? onBuffersChanged;
+  void Function()? onDiskInvalidated;
   final List<ProjectRoot> roots;
   final List<String> files;
   String location;
@@ -1108,6 +1123,57 @@ class BusyProject {
   final Map<String, (DocumentBuffer, int, String, String)> _fileRecoveries = {};
   int _resourceRevision = 0;
   AnalysisSnapshot? _workingSnapshot;
+  final Map<String, _SourceCapture> _sourceCaptures = {};
+  final Map<String, StreamSubscription<FileSystemEvent>> _diskWatches = {};
+  final Map<String, String> _watchedResourcePaths = {};
+  final Set<String> _changedDiskResources = {};
+  bool _diskNotificationQueued = false;
+  int _reconcileOffset = 0;
+
+  void _watchSources(Iterable<String> resources) {
+    for (final id in resources) {
+      final uri = Uri.tryParse(id);
+      if (uri?.scheme != 'file') continue;
+      final path = p.normalize(uri!.toFilePath()), directory = p.dirname(path);
+      _watchedResourcePaths[path] = id;
+      if (_diskWatches.containsKey(directory)) continue;
+      try {
+        _diskWatches[directory] = Directory(directory).watch().listen((event) {
+          final paths = [event.path,
+            if (event is FileSystemMoveEvent && event.destination != null) event.destination!];
+          final affected = <String>{};
+          for (final changed in paths) {
+            final exact = _watchedResourcePaths[p.normalize(changed)];
+            if (exact != null) affected.add(exact);
+            if (event.isDirectory) {
+              affected.addAll(_watchedResourcePaths.entries
+                  .where((entry) => p.isWithin(changed, entry.key)).map((entry) => entry.value));
+            }
+          }
+          for (final resource in affected) {
+            store.invalidateResource(resource);
+          }
+          _changedDiskResources.addAll(affected);
+          if (affected.isNotEmpty && !_diskNotificationQueued) {
+            _diskNotificationQueued = true;
+            scheduleMicrotask(() {
+              _diskNotificationQueued = false;
+              if (!_closed) onDiskInvalidated?.call();
+            });
+          }
+        }, onError: (Object _) {
+          // The bounded reconciliation path retries missed/unavailable watches.
+          _diskWatches.remove(directory)?.cancel();
+        });
+      } on FileSystemException {
+        // Missing directories remain in the bounded reconciliation inventory.
+      }
+    }
+  }
+
+  Map<String, int> _captureDiskVersions(Iterable<String> ids) =>
+      {for (final id in ids) id: store.resourceVersion(id)};
+
   int _workingSnapshotRevision = -1;
   Map<String, String> get approvedResources =>
       Map.unmodifiable(_resourceMappings);
@@ -1484,6 +1550,7 @@ class BusyProject {
       );
     }
     store.register(b);
+    _watchSources([b.id]);
     return b;
   }
 
@@ -1497,6 +1564,125 @@ class BusyProject {
     bool Function()? cancelled,
     void Function(String resource)? onResourceRefreshed,
     void Function(Map<String, dynamic> result)? onProgress,
+    void Function(AnalysisSnapshot snapshot)? onSnapshot,
+  }) async {
+    for (var attempt = 0; attempt < 3; attempt++) {
+      final capture = await _acquireSource(root, saved: saved,
+          captureEntries: captureEntries, requestId: requestId, measure: measure,
+          cancelled: cancelled, onResourceRefreshed: onResourceRefreshed,
+          onSnapshot: onSnapshot);
+      if (!schemaEvaluation) return capture.structural;
+      try {
+        return await _analyseCapture(capture, requestId: requestId,
+            cancelled: cancelled, onProgress: onProgress);
+      } on CoreFailure catch (error) {
+        if (error.code != 'snapshot.changed' || attempt == 2) rethrow;
+      }
+    }
+    throw StateError('Unreachable capture retry');
+  }
+
+  Future<Map<String, dynamic>> _analyseCapture(
+    _SourceCapture capture, {
+    String? requestId,
+    bool Function()? cancelled,
+    void Function(Map<String, dynamic> result)? onProgress,
+  }) async {
+    void ensureActive() {
+      if (_closed) throw CoreFailure('access.closed', 'The analysis owner is closed');
+      if (cancelled?.call() ?? false) throw CoreFailure('cancelled', 'Snapshot analysis was cancelled');
+    }
+    ensureActive();
+    final snapshot = capture.snapshot, saved = capture.saved,
+        resourceRevision = capture.revision;
+    final clock = Stopwatch()..start();
+    var coherent = true;
+    const attempt = 0;
+        final structural = capture.structural;
+        final structuralCategory = {
+          'complete': structural['complete'] == true,
+          'producer': 'busyapi',
+          'producerVersion': '0.1.0',
+          'snapshot': snapshot.sourceIdentity,
+          'coverage': structural['coverage']?['openapi'],
+        };
+        if (structural['specification'] is! Map) {
+          return {
+            ...structural,
+            'categories': {
+              ...Map<String, dynamic>.from(
+                structural['categories'] as Map? ?? {},
+              ),
+              'openapi': {
+                ...structuralCategory,
+                'complete': false,
+                'status': 'not-run',
+              },
+            },
+          };
+        }
+        final progress = <String, dynamic>{
+          ...structural,
+          'projection': structural,
+          'projectionComplete': structural['complete'],
+          'complete': false,
+          'status': 'checking',
+          'categories': {
+            ...Map<String, dynamic>.from(
+              structural['categories'] as Map? ?? {},
+            ),
+            'openapi': {
+              ...structuralCategory,
+              'complete': false,
+              'status': 'checking',
+            },
+          },
+        };
+        ensureActive();
+        onProgress?.call(progress);
+        Map<String, dynamic>? evaluated;
+        String? executionFailure;
+        final schemaStart = clock.elapsedMicroseconds;
+        try {
+          evaluated = await engine.request(
+            'evaluateSchemas',
+            snapshot.toJson(),
+            requestId: requestId == null ? null : '$requestId-schema-$attempt',
+          );
+          ensureActive();
+          _verifySchemaEvaluation(evaluated, snapshot);
+        } on Object catch (e) {
+          ensureActive();
+          executionFailure = e is CoreFailure ? e.code : 'schema.execution';
+          evaluated = null;
+        }
+        // Read-only evaluation uses its acquired bytes. Version invalidation
+        // detects changes without acquiring and analysing the same closure again.
+        coherent = (saved
+            ? snapshot._diskInputsCurrent(store)
+            : snapshot.current(store)) && resourceRevision == _resourceRevision && !_closed;
+        ensureActive();
+        if (!coherent) {
+          throw CoreFailure('snapshot.changed', 'The captured source changed during analysis');
+        }
+        lastTimings['schemaUs'] = clock.elapsedMicroseconds - schemaStart;
+        lastTimings['totalUs'] = clock.elapsedMicroseconds;
+        return _mergeSchemaEvaluation(
+          snapshot,
+          structural,
+          evaluated,
+          executionFailure,
+        );
+  }
+
+  Future<_SourceCapture> _acquireSource(
+    String root, {
+    bool saved = false,
+    bool captureEntries = false,
+    String? requestId,
+    bool measure = false,
+    bool Function()? cancelled,
+    void Function(String resource)? onResourceRefreshed,
     void Function(AnalysisSnapshot snapshot)? onSnapshot,
   }) async {
     void ensureActive() {
@@ -1627,7 +1813,9 @@ class BusyProject {
       final unavailable = <String>{};
       for (var depth = 0; depth < 129; depth++) {
         ensureActive();
+        _watchSources(resources.keys);
         snapshot = AnalysisSnapshot(
+          resourceVersions: _captureDiskVersions([...resources.keys, ...exampleResources.keys, if (configuration != null) configuration['id'] as String]),
           root: root,
           resources: resources.values.toList()
             ..sort((a, b) => (a['id'] as String).compareTo(b['id'] as String)),
@@ -1888,6 +2076,13 @@ class BusyProject {
           for (final policy in _policyDependencies.values) ...policy,
         };
         resourceFingerprints.removeWhere((id, _) => !monitored.contains(id));
+        _watchSources(monitored);
+        _watchedResourcePaths.removeWhere((_, id) => !monitored.contains(id));
+        for (final directory in _diskWatches.keys.toList()) {
+          if (!_watchedResourcePaths.keys.any((path) => p.dirname(path) == directory)) {
+            unawaited(_diskWatches.remove(directory)!.cancel());
+          }
+        }
         for (final id in {
           ...reachable,
           if (configuration != null) configuration['id'] as String,
@@ -1931,103 +2126,13 @@ class BusyProject {
               snapshot.allInputs.any(
                 (input) => store.buffers[input['id']]?.dirty ?? false,
               );
-        if (!schemaEvaluation) return result;
-        final structural = result;
-        final structuralCategory = {
-          'complete': structural['complete'] == true,
-          'producer': 'busyapi',
-          'producerVersion': '0.1.0',
-          'snapshot': snapshot.sourceIdentity,
-          'coverage': structural['coverage']?['openapi'],
-        };
-        if (structural['specification'] is! Map) {
-          return {
-            ...structural,
-            'categories': {
-              ...Map<String, dynamic>.from(
-                structural['categories'] as Map? ?? {},
-              ),
-              'openapi': {
-                ...structuralCategory,
-                'complete': false,
-                'status': 'not-run',
-              },
-            },
-          };
+        final capture = _SourceCapture(snapshot, resourceRevision, result, saved);
+        if (!saved && !captureEntries) {
+          _sourceCaptures.remove(root);
+          _sourceCaptures[root] = capture;
+          while (_sourceCaptures.length > 16) _sourceCaptures.remove(_sourceCaptures.keys.first);
         }
-        final progress = <String, dynamic>{
-          ...structural,
-          'projection': structural,
-          'projectionComplete': structural['complete'],
-          'complete': false,
-          'status': 'checking',
-          'categories': {
-            ...Map<String, dynamic>.from(
-              structural['categories'] as Map? ?? {},
-            ),
-            'openapi': {
-              ...structuralCategory,
-              'complete': false,
-              'status': 'checking',
-            },
-          },
-        };
-        ensureActive();
-        onProgress?.call(progress);
-        Map<String, dynamic>? evaluated;
-        String? executionFailure;
-        final schemaStart = clock.elapsedMicroseconds;
-        try {
-          evaluated = await engine.request(
-            'evaluateSchemas',
-            snapshot.toJson(),
-            requestId: requestId == null ? null : '$requestId-schema-$attempt',
-          );
-          ensureActive();
-          _verifySchemaEvaluation(evaluated, snapshot);
-        } on Object catch (e) {
-          ensureActive();
-          executionFailure = e is CoreFailure ? e.code : 'schema.execution';
-          evaluated = null;
-        }
-        // Evaluation is derived from the frozen input. Its completion cannot
-        // accept a changed buffer, new approval, or changed on-disk fragment.
-        coherent =
-            (saved || snapshot.current(store)) &&
-            resourceRevision == _resourceRevision &&
-            !_closed;
-        await _resourceBatch(disk.entries, (entry) async {
-          try {
-            final access = accessFor(Uri.parse(entry.key).toFilePath());
-            if (await contentIdentityAsync(
-                  await access.read(Uri.parse(entry.key).toFilePath()),
-                ) !=
-                entry.value)
-              coherent = false;
-          } on Object {
-            coherent = false;
-          }
-        });
-        final examplesCurrent = await _externalExampleInputsCurrent(
-          snapshot,
-          saved: saved,
-          rejectConflicts: false,
-          cancelled: cancelled,
-        );
-        ensureActive();
-        if (!coherent ||
-            !examplesCurrent ||
-            (!saved && !snapshot.current(store)) ||
-            resourceRevision != _resourceRevision)
-          continue;
-        lastTimings['schemaUs'] = clock.elapsedMicroseconds - schemaStart;
-        lastTimings['totalUs'] = clock.elapsedMicroseconds;
-        return _mergeSchemaEvaluation(
-          snapshot,
-          structural,
-          evaluated,
-          executionFailure,
-        );
+        return capture;
       }
     }
     throw CoreFailure(
@@ -2946,22 +3051,15 @@ class BusyProject {
       throw CoreFailure('access.closed', 'The source workspace is closed');
     if (cancelled?.call() ?? false)
       throw CoreFailure('cancelled', 'Source assistance was cancelled');
-    var snapshot = _workingSnapshot;
-    if (snapshot == null ||
-        snapshot.root != root ||
-        !snapshot.current(store) ||
-        _workingSnapshotRevision != _resourceRevision) {
-      await check(
-        root,
-        requestId: requestId,
-        cancelled: cancelled,
-        schemaEvaluation: false,
-        onResourceRefreshed: onResourceRefreshed,
-      );
-      snapshot = _workingSnapshot;
+    var capture = _sourceCaptures[root];
+    if (capture == null || !capture.snapshot.current(store) || capture.revision != _resourceRevision) {
+      capture = await _acquireSource(root, requestId: requestId,
+          cancelled: cancelled, onResourceRefreshed: onResourceRefreshed);
     }
-    if (snapshot == null ||
-        !snapshot.resources.any((r) => r['id'] == resource)) {
+    final snapshot = capture.snapshot;
+    _workingSnapshot = snapshot;
+    _workingSnapshotRevision = capture.revision;
+    if (!snapshot.resources.any((r) => r['id'] == resource)) {
       throw CoreFailure(
         'inspect.resource',
         'The object is not in this root’s approved snapshot',
@@ -3688,9 +3786,19 @@ class BusyProject {
   }
 
   /// Monitor reachable resources even when they have no editor tab.
-  Future<ResourceRefresh> refreshResources() async {
+  bool get hasPendingDiskChanges => _changedDiskResources.isNotEmpty;
+
+  Future<ResourceRefresh> refreshResources({bool reconcile = true}) async {
     final changed = <String>{};
-    final reachable = {...resourceFingerprints.keys, ...store.buffers.keys};
+    final known = {...resourceFingerprints.keys, ...store.buffers.keys}.toList();
+    final reachable = reconcile ? known.toSet() : <String>{
+      ..._changedDiskResources,
+      for (var count = 0; count < 16 && count < known.length; count++)
+        known[(_reconcileOffset + count) % known.length],
+    };
+    _changedDiskResources.removeAll(reachable);
+    if (known.isNotEmpty) _reconcileOffset = (_reconcileOffset + 16) % known.length;
+    _watchSources(reachable);
     await _resourceBatch(reachable, (id) async {
       if (_standardResources.containsKey(id)) return;
       final b = store.buffers[id];
@@ -3714,6 +3822,7 @@ class BusyProject {
       // Content changes (including format-only changes) and conflict changes
       // identify this monitor's actual work without replaying that notification.
       if (before != actual || b != null && b.externalConflict != conflict) {
+        store.invalidateResource(id);
         changed.add(id);
       }
       resourceFingerprints[id] = actual;
@@ -4020,6 +4129,13 @@ class BusyProject {
   void close() {
     if (_closed) return;
     _closed = true;
+    onDiskInvalidated = null;
+    onBuffersChanged = null;
+    for (final watcher in _diskWatches.values) {
+      unawaited(watcher.cancel());
+    }
+    _diskWatches.clear();
+    _sourceCaptures.clear();
     access.close();
     for (final context in _approvedContexts.values) {
       context.close();

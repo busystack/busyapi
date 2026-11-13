@@ -23,7 +23,7 @@ const identity=(scope:GraphScope)=>JSON.stringify([scope.resource,scope.pointer]
  * asserts discriminator metadata as JSON Schema validation constraints. */
 export class DiscriminatorAlternativeSelection {
     private work=0;
-    private readonly references=new Map<string,ReferenceGraph['references']>();
+    private readonly references=new Map<string,Array<ReferenceGraph['references'][number]>>();
     constructor(private readonly graph:ReferenceGraph){
         for(const reference of graph.references){
             if(reference.kind!=='schema'||reference.connection)continue;

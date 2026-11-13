@@ -1,5 +1,5 @@
 import {posix} from 'node:path';
-import {createGraph,Resource} from './engine';
+import {createGraph,type Resource} from './source_capture';
 import {componentLocation,fieldsForScope} from './authoring';
 import {escape,segments,SourceError} from './document';
 import {GraphReference,GraphScope,ReferenceGraph,implicitNameReference,resolveUri,supportedSchemaDialect,pointerFragment as fragment} from './reference_graph';

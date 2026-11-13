@@ -263,6 +263,21 @@ a save does not discard undo. Draft maps advance an input revision instead of
 serializing themselves to detect changes. The existing windowed editor reuses
 line heights outside an accepted edit and adjusts cumulative positions.
 
+BusyProject acquires a coherent immutable source capture separately from full
+schema analysis. It reuses current captures per root while preserving root,
+configuration and alias interpretation. Relevant disk events invalidate captured
+resource versions; missed events are reconciled in bounded batches rather than a
+two-second full-content sweep. Explicit checks and consequential save/publication
+boundaries retain exact byte checks. Read-only schema feedback does not reread its
+entire input merely to compare freshness. Captures contain sendable data, with
+current versions queried from the source owner rather than process closures.
+
+The shared syntax cache keys resource identity and actual immutable text. Derived
+text cannot inherit its input's parse by retaining old generation/identity fields,
+and parser lookup no longer computes another whole-text SHA digest. Graph maps
+and syntax metadata expose read-only interfaces; root-specific interpretation and
+private lazy indexes remain separate from shared parsing.
+
 Folding captures and parses only the selected physical resource, including an
 incomplete declaration or an approved unopened fragment. It does not acquire a
 project graph; other assistance retains its captured semantic context. SourcePlan

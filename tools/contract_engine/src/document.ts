@@ -78,23 +78,26 @@ function capturedYaml(text:string) {
     return {document,source};
 }
 export class SourceDocument {
-    nodes = new Map<string, Node>();
-    issues: SourceError[] = [];
-    unsafe: Range[] = [];
-    root: Node;
-    format: string;
-    newline: string;
+    private readonly _nodes = new Map<string, Node>();
+    readonly nodes:ReadonlyMap<string,Node> = this._nodes;
+    private readonly _issues: SourceError[] = [];
+    readonly issues:readonly SourceError[] = this._issues;
+    private readonly _unsafe: Range[] = [];
+    readonly unsafe:readonly Range[] = this._unsafe;
+    readonly root: Node;
+    readonly format: string;
+    readonly newline: string;
     private syntaxTokens = new Map<string, any>();
     private readonly yamlAnchors:SourceAnchor[]=[];
     sourceAnchors():readonly SourceAnchor[]{return this.yamlAnchors;}
-    constructor(public text: string, public id: string, public tolerant = false, syntax?:'json'|'yaml') {
+    constructor(readonly text: string, readonly id: string, readonly tolerant = false, syntax?:'json'|'yaml') {
         if (Buffer.byteLength(text) > limits.bytes)
             throw new SourceError('limit.bytes', 'Document exceeds the 16 MiB analysis limit');
         this.format = syntax??(id.toLowerCase().endsWith('.json') ? 'json' : 'yaml');
         this.newline = text.match(/\r\n|\n|\r/)?.[0] ?? '\n';
         let count = 0;
         const remember = (n: Node) => {
-            this.nodes.set(n.pointer, n);
+            this._nodes.set(n.pointer, n);
             if (++count > 400000)
                 throw new SourceError('limit.nodes', 'Document has too many nodes');
             return n;
@@ -103,7 +106,7 @@ export class SourceDocument {
             const errors: any[] = [];
             const tree = parseTree(text, errors, { allowTrailingComma: false, disallowComments: true, allowEmptyContent: false });
             for (const e of errors)
-                this.issues.push(new SourceError('json.syntax', `Strict JSON: ${printParseErrorCode(e.error)}`, [e.offset, e.offset + e.length]));
+                this._issues.push(new SourceError('json.syntax', `Strict JSON: ${printParseErrorCode(e.error)}`, [e.offset, e.offset + e.length]));
             if (!tree || (!tolerant && this.issues.length))
                 throw this.issues[0] ?? new SourceError('json.syntax', 'Expected a JSON value');
             const walk = (t: any, p: string, depth: number, semantic: any): Node => {
@@ -117,7 +120,7 @@ export class SourceDocument {
                             const issue = new SourceError('duplicate.key', `Duplicate mapping key: ${key}`, n.range);
                             if (!tolerant)
                                 throw issue;
-                            this.issues.push(issue);
+                            this._issues.push(issue);
                         }
                         if (!prop.children[1])
                             continue;
@@ -141,7 +144,7 @@ export class SourceDocument {
         else {
             const captured=capturedYaml(text),doc=captured.document;
             for (const e of [...doc.errors, ...doc.warnings])
-                this.issues.push(new SourceError('yaml.' + e.code, e.message, [e.pos[0], e.pos[1]]));
+                this._issues.push(new SourceError('yaml.' + e.code, e.message, [e.pos[0], e.pos[1]]));
             if (!tolerant && this.issues.length)
                 throw this.issues[0];
             let value: any;
@@ -199,7 +202,7 @@ export class SourceDocument {
                             throw new SourceError('yaml.key', 'Only scalar string mapping keys are supported', n.range);
                         const key = String(pair.key.value);
                         if (n.children.has(key))
-                            this.unsafe.push(n.range);
+                            this._unsafe.push(n.range);
                         const pointer = p + '/' + escape(key);
                         // A key anchor precedes its value and can rebind a
                         // previous value anchor. Keep the key's own provenance;
@@ -254,7 +257,7 @@ export class SourceDocument {
         for (const issue of this.issues) {
             const a = Math.min(text.length, issue.range[0]), b = Math.min(text.length, issue.range[1]);
             const owners = [...this.nodes.values()].filter(n => n.range[0] <= a && n.range[1] >= b).sort((x, y) => (x.range[1] - x.range[0]) - (y.range[1] - y.range[0]));
-            this.unsafe.push(owners[0]?.range ?? this.root.range);
+            this._unsafe.push(owners[0]?.range ?? this.root.range);
         }
     }
     syntaxSafe(pointer: string): boolean {

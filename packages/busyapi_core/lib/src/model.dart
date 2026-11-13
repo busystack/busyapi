@@ -683,6 +683,10 @@ class _History {
 class BufferStore {
   final Map<String, DocumentBuffer> _buffers = {};
   final Map<String, int> _retiredGenerations = {};
+  final Map<String, int> _resourceVersions = {};
+  int resourceVersion(String id) => _resourceVersions[id] ?? 0;
+  void invalidateResource(String id) =>
+      _resourceVersions[id] = resourceVersion(id) + 1;
   late final Map<String, DocumentBuffer> buffers = UnmodifiableMapView(
     _buffers,
   );
@@ -1651,13 +1655,22 @@ class PropertySession {
   final int generation;
   final List<int> range;
   final _PropertyInput _input;
-  final Map<String, Object?> committed = {};
+  final _DraftValues committed = _DraftValues();
+  int _pendingInput = -1, _pendingCommitted = -1;
+  bool _pending = false;
   Map<String, Object?> get values => _input.values;
   Map<String, String> get errors => _input.errors;
   bool get composing => _input.composing;
   set composing(bool value) => _input.composing = value;
   int get inputRevision => _input.values.revision;
-  bool get pending => !_sameDraftValue(values, committed);
+  bool get pending {
+    if (_pendingInput != inputRevision || _pendingCommitted != committed.revision) {
+      _pending = !_sameDraftValue(values, committed);
+      _pendingInput = inputRevision;
+      _pendingCommitted = committed.revision;
+    }
+    return _pending;
+  }
   void bind(String field, Object? value) {
     if (!values.containsKey(field)) {
       values[field] = value;
@@ -1720,7 +1733,15 @@ class FormSession {
   final Set<String> composing = {};
   String? error;
   int get inputRevision => values.revision;
-  bool get pending => !_sameDraftValue(values, initial);
+  int _pendingInput = -1;
+  bool _pending = false;
+  bool get pending {
+    if (_pendingInput != inputRevision) {
+      _pending = !_sameDraftValue(values, initial);
+      _pendingInput = inputRevision;
+    }
+    return _pending;
+  }
   void edit(String field, Object? value, {bool isComposing = false}) {
     values[field] = value;
     if (isComposing) {

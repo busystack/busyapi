@@ -261,7 +261,7 @@ export function referenceDocument(input:any) {
         return {resource,pointer,...(viewKind?{viewKind}:{}),markdownBase:referenceMarkdownContext(graph,resource,pointer,owner),generation:generations.get(resource),range:physical.range,
             ...(physical.pointer!==pointer?{physicalPointer:physical.pointer,occurrenceRange:doc.nodes.get(occurrence)!.range}:{})};
     };
-    const incoming=new Map<string,typeof graph.references>();
+    const incoming=new Map<string,Array<typeof graph.references[number]>>();
     for(const reference of graph.references) {
         const target=JSON.stringify([reference.targetResource,reference.targetPointer,reference.kind]),usages=incoming.get(target)??[];
         usages.push(reference);incoming.set(target,usages);

@@ -66,6 +66,43 @@ void main() {
     expect(captured.current, true);
   });
 
+  test('unchanged root captures are reused and another root invalidates independently', () async {
+    final other = File('${temp.path}/other.yaml');
+    await other.writeAsString('openapi: 3.2.1\ninfo: {title: Other, version: "1"}\npaths: {}\n');
+    await File('${temp.path}/busyapi.yaml').writeAsString(
+      'version: 1\nroots:\n  - {name: first, path: root.json}\n  - {name: second, path: other.yaml}\n');
+    final multi = await BusyProject.open(temp.path, engine);
+    addTearDown(multi.close);
+    await multi.inspectObject(buffer.id, buffer.id, '/info');
+    await multi.inspectObject(other.uri.toString(), other.uri.toString(), '/info');
+    engine.methods.clear();
+    final first = await multi.inspectObject(buffer.id, buffer.id, '/info');
+    expect(first['value']['title'], 'Kept');
+    expect(engine.methods, ['inspect']);
+    final changed = Completer<void>();
+    multi.onDiskInvalidated = () { if (!changed.isCompleted) changed.complete(); };
+    await other.writeAsString('openapi: 3.2.1\ninfo: {title: Changed, version: "1"}\npaths: {}\n');
+    await changed.future.timeout(const Duration(seconds: 5));
+    engine.methods.clear();
+    await multi.inspectObject(buffer.id, buffer.id, '/info');
+    expect(engine.methods, ['inspect']);
+    final second = await multi.inspectObject(other.uri.toString(), other.uri.toString(), '/info');
+    expect(second['value']['title'], 'Changed');
+    expect(engine.methods.where((method) => method == 'analyse'), hasLength(1));
+  });
+
+  test('disk events mark captured feedback outdated before reconciliation', () async {
+    final captured = await project.assistSource(buffer.id, buffer.id, buffer.selection);
+    final changed = Completer<void>();
+    project.onDiskInvalidated = () { if (!changed.isCompleted) changed.complete(); };
+    await File(buffer.path).writeAsString(buffer.text.replaceFirst('Kept', 'External'));
+    await changed.future.timeout(const Duration(seconds: 5));
+    expect(captured.current, false);
+    await project.refreshResources(reconcile: false);
+    expect(buffer.text, contains('External'));
+    expect(buffer.dirty, false);
+  });
+
   Future<SourceAssistance> capture() => project.assistSource(
     project.roots.single.id,
     buffer.id,

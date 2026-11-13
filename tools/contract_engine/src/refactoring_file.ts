@@ -53,7 +53,7 @@ export function planRootRemoval(input:any) {
   throw new SourceError('edit.stale','API and configuration snapshots disagree about the manifest');
  const locators=new Set([manifest.id,...input.manifestAliases,...(included?.aliases??[])]);
  const usages=new Map<string,any>(),blockers=new Map<string,any>();
- let activeDocs:Map<string,SourceDocument>|undefined;
+ let activeDocs:ReadonlyMap<string,SourceDocument>|undefined;
  const add=(root:string,resource:string,pointer:string,code:string,connection?:string,target?:any)=>{
   const key=JSON.stringify([resource,pointer,code]),previous=blockers.get(key);
   const original=resources.find(value=>value.id===resource),doc=activeDocs?.get(resource);
@@ -85,7 +85,7 @@ export function planRootRemoval(input:any) {
   // cannot change an API graph that does not contain that physical input.
   if(!context.resources.includes(manifest.id))continue;
   const next=createGraph({root:context.root,resources:selected.map(resource=>resource.id===manifest.id?{...resource,text:after}:resource)}).graph;
-  const nextReferences=new Map<string,typeof next.references>();
+  const nextReferences=new Map<string,Array<typeof next.references[number]>>();
   const referenceKey=(resource:string,pointer:string,keyword:string)=>JSON.stringify([resource,pointer,keyword]);
   for(const reference of next.references){const key=referenceKey(reference.resource,reference.pointer,reference.keyword),previous=nextReferences.get(key)??[];previous.push(reference);nextReferences.set(key,previous);}
   for(const ref of graph.references){

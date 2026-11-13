@@ -4,7 +4,6 @@ import {schemaTypeChoices,sameSchemaTypeChoices,allowedSchemaType} from './schem
 import {swaggerSchemaRulesRevision} from './swagger_schema_artifact';
 import {discriminatorContextRevision} from './discriminator_semantics';
 import {multipartProjectionRevision} from './schema_reference_projection';
-import { createHash } from 'node:crypto';
 import { children, referenceKinds, standardOperationMethods, hasSchemaReferenceSiblings } from './contexts';
 import { ReferenceGraph, supportedSchemaDialect, referenceMarkdownContext, schemaRoleContextRevision,type GraphReference } from './reference_graph';
 import { fieldsFor, fieldsForScope, removableField, allowsExtensions, componentFamily, componentLocation, authoringFieldRevision } from './authoring';
@@ -30,50 +29,8 @@ import {collectionMemberNamePolicy,componentNamePolicy,reusableDefinitionPointer
 export const engineVersion = '0.1.0';
 export const protocol = 1;
 const versions = { engine: engineVersion, yaml: '2.9.0', ajv: '8.20.0', node: process.versions.node, openapiSchemas: structuralRevisions, entryDiscoveryRules:'1',externalExampleRules:externalExampleRevision, authoringFieldRules:authoringFieldRevision, swaggerSchemaRules:swaggerSchemaRulesRevision, markdownContextRules: '2', refactoringOwnershipRules: '1', xmlContextRules:xmlContextRevision, documentUriRules:documentUriRevision, dialectUriRules:dialectUriRevision, restrictedSchemaRules:restrictedSchemaRevision, serverRules:serverContextRevision, swaggerServerRules:swaggerServerContextRevision, multipartRules:multipartProjectionRevision, discriminatorRules:discriminatorContextRevision, schemaRoleRules:schemaRoleContextRevision };
-export type Resource = {
-    id: string;
-    text: string;
-    generation: number;
-    identity: string;
-    aliases?: string[];
-    hasBom?: boolean;
-};
-const parsed = new Map<string, {
-    doc: SourceDocument;
-    cost: number;
-}>();
-let parsedCost = 0;
-export function parseResource(r: Resource): SourceDocument {
-    const key = r.id + ':' + createHash('sha256').update(r.text).digest('hex');
-    const previous = parsed.get(key);
-    if (previous && previous.doc.text === r.text) {
-        parsed.delete(key);
-        parsed.set(key, previous);
-        return previous.doc;
-    }
-    if (previous) { parsedCost-=previous.cost;parsed.delete(key); }
-    const doc = new SourceDocument(r.text, r.id, true);
-    const cost = r.text.length * 6 + doc.nodes.size * 768;
-    if (cost <= 128 * 1024 * 1024) {
-        while (parsed.size && (parsed.size >= limits.resources || parsedCost + cost > 128 * 1024 * 1024)) {
-            const old = parsed.keys().next().value!;
-            parsedCost -= parsed.get(old)!.cost;
-            parsed.delete(old);
-        }
-        parsed.set(key, { doc, cost });
-        parsedCost += cost;
-    }
-    return doc;
-}
-export function createGraph(input: any) {
-    const docs = new Map<string, SourceDocument>((input.resources as Resource[]).map(r => [r.id, parseResource(r)]));
-    const root = docs.get(input.root);
-    if (!root) throw new SourceError('inspect.root', 'The selected root is absent');
-    const declaration = specificationDeclaration(root.root.value);
-    if (declaration.status !== 'supported') throw new SourceError(declaration.code, declaration.message, root.dataNode(declaration.pointer)?.range);
-    const family = declaration.specification.family;
-    return {docs, family, exampleResources:new CapturedExampleResources(input.exampleResources), graph: ReferenceGraph.capture(docs, input.root, family, new Map(input.resources.map((r: Resource) => [r.id, r.aliases ?? []])), input.occurrences)};
-}
+export {createGraph,parseResource,type Resource} from './source_capture';
+import {createGraph,parseResource,type Resource} from './source_capture';
 
 /** Read-only capability for an explicit source ownership review. Logical alias
  * children remain non-editable until the captured review is applied. */

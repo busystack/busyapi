@@ -507,11 +507,15 @@ class WorkspaceController extends ChangeNotifier {
     checkingSemantics = false;
     if (project case final previous?) {
       publications.releaseProject(previous);
+      recovery.releaseProject(previous.recoveryOwner);
       previous.close();
     }
     project = next;
     _pendingRecovery.clear();
     _recoveryFieldVersions.clear();
+    next.onDiskInvalidated = () {
+      if (identical(project, next) && !disposed) unawaited(pollDisk(reconcile: false));
+    };
     next.onBuffersChanged = (buffers) {
       if (identical(project, next)) _pendingRecovery.addAll(buffers);
     };
@@ -574,7 +578,7 @@ class WorkspaceController extends ChangeNotifier {
     }
     if (!current()) return;
     _monitor?.cancel();
-    _monitor = Timer.periodic(const Duration(seconds: 2), (_) => _pollDisk());
+    _monitor = Timer.periodic(const Duration(seconds: 30), (_) => _pollDisk());
     unawaited(
       next
           .populateFileBrowser(cancelled: () => !current())
@@ -592,13 +596,13 @@ class WorkspaceController extends ChangeNotifier {
   }
 
   bool _polling = false;
-  Future<void> pollDisk() async {
+  Future<void> pollDisk({bool reconcile = true}) async {
     if (disposed || _polling) return;
     final captured = project;
     if (captured == null) return;
     _polling = true;
     try {
-      final refreshed = await captured.refreshResources();
+      final refreshed = await captured.refreshResources(reconcile: reconcile);
       if (disposed || !identical(project, captured)) return;
       for (final id in refreshed.roots) {
         cached.remove(id);
@@ -607,10 +611,13 @@ class WorkspaceController extends ChangeNotifier {
       if (refreshed.resources.isNotEmpty) notifyListeners();
     } finally {
       _polling = false;
+      if (!disposed && identical(project, captured) && captured.hasPendingDiskChanges) {
+        scheduleMicrotask(() => pollDisk(reconcile: false));
+      }
     }
   }
 
-  Future<void> _pollDisk() => pollDisk();
+  Future<void> _pollDisk() => pollDisk(reconcile: false);
 
   Future<bool> selectRoot(String id, {String? resource}) async {
     final captured = project, navigation = _opening, selection = ++_selection;
@@ -2828,7 +2835,7 @@ class WorkspaceController extends ChangeNotifier {
       _shuttingDown = false;
       if (!_disposed && project != null) {
         _monitor = Timer.periodic(
-          const Duration(seconds: 2),
+          const Duration(seconds: 30),
           (_) => _pollDisk(),
         );
         schedule(immediate: true);
@@ -2840,6 +2847,7 @@ class WorkspaceController extends ChangeNotifier {
     checkingSemantics = false;
     if (project case final previous?) {
       publications.releaseProject(previous);
+      recovery.releaseProject(previous.recoveryOwner);
       previous.close();
     }
     await engine.close();

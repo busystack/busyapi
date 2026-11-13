@@ -133,8 +133,10 @@ const same = (a: GraphTarget, b: GraphTarget) => a.resource === b.resource && a.
  * Evaluation must supply its dynamic call stack; navigation cannot choose it.
  */
 export class ReferenceGraph {
-    readonly specifications = new Map<string, Specification>();
-    readonly scopes = new Map<string, GraphScope>();
+    private readonly _specifications = new Map<string, Specification>();
+    readonly specifications:ReadonlyMap<string,Specification> = this._specifications;
+    private readonly _scopes = new Map<string, GraphScope>();
+    readonly scopes:ReadonlyMap<string,GraphScope> = this._scopes;
     private readonly documentScopes = new Map<string, GraphScope>();
     private readonly roleScopes = new Map<string, GraphScope>();
     private readonly roleKinds = new Map<string, Set<string>>();
@@ -156,7 +158,7 @@ export class ReferenceGraph {
             (reference.connection==='discriminator'?this.scopeAs(reference.resource,reference.pointer,'discriminator-map'):undefined);
     }
     entryReferences():readonly GraphReference[] {
-        return this.references.filter(reference=>{
+        return this._references.filter(reference=>{
             const owner=this.referenceOwner(reference);
             return owner!==undefined&&this.isEntryUse(owner);
         });
@@ -169,7 +171,7 @@ export class ReferenceGraph {
         const connect=(source:GraphTarget,target:GraphScope)=>{
             admit();const id=this.useIdentity(source),values=edges.get(id)??[];values.push(target);edges.set(id,values);
         };
-        for(const reference of this.references){
+        for(const reference of this._references){
             admit();if(reference.resolution!=='resolved')continue;
             const owner=this.referenceOwner(reference);
             const target=this.scopeAs(reference.targetResource!,reference.targetPointer!,reference.kind);
@@ -226,7 +228,7 @@ export class ReferenceGraph {
         for (const reference of this.entryReferences()) {
             if (reference.targetResource !== undefined) referencedDescriptions.add(reference.targetResource);
         }
-        const retained=this.issues.filter(issue=>{
+        const retained=this._issues.filter(issue=>{
             // A containing declaration governs every referenced occurrence.
             // Invalid descriptions cannot acquire a typed entry scope, but
             // that must not hide their declaration error from active users.
@@ -245,7 +247,7 @@ export class ReferenceGraph {
                 pointer=pointer.slice(0,pointer.lastIndexOf('/'));
             }
         });
-        this.issues.length=0;for(const issue of retained)this.issues.push(issue);
+        this._issues.length=0;for(const issue of retained)this._issues.push(issue);
     }
     private fileTypeChoices:ReadonlySet<string>|undefined;
     /** Reference discovery finishes in the constructor. Reuse one transitive
@@ -258,7 +260,7 @@ export class ReferenceGraph {
      * Each role is validated independently; shared bytes do not imply shared
      * object semantics (OAS 3.0/3.1 Structural Interoperability). */
     scopeAs(resource:string,pointer:string,kind:string):GraphScope|undefined {
-        const scope=this.scopes.get(key(resource,pointer));
+        const scope=this._scopes.get(key(resource,pointer));
         return scope?.kind===kind?scope:this.roleScopes.get(key(resource,pointer)+':'+kind);
     }
     /** All intrinsic schema uses, including a child that is independently a
@@ -269,13 +271,13 @@ export class ReferenceGraph {
             .flatMap(pointer=>{const parent=this.scopeAs(scope.resource,pointer,'schema');return parent?[parent]:[];});
     }
     scopesAt(resource:string,pointer:string):readonly GraphScope[] {
-        const primary=this.scopes.get(key(resource,pointer));
+        const primary=this._scopes.get(key(resource,pointer));
         return [...(primary?[primary]:[]),...[...(this.roleKinds.get(key(resource,pointer))??[])].map(kind=>this.roleScopes.get(key(resource,pointer)+':'+kind)!)];
     }
     /** An optional authoring/documentation choice must name a captured role.
      * It cannot turn data or an unavailable interpretation into a contract. */
     selectedScope(resource:string,pointer:string,kind?:unknown):GraphScope|undefined {
-        if(kind===undefined)return this.scopes.get(key(resource,pointer));
+        if(kind===undefined)return this._scopes.get(key(resource,pointer));
         const scope=typeof kind==='string'?this.scopeAs(resource,pointer,kind):undefined;
         if(!scope){
             const range:Range=this.docs.get(resource)?.dataNode(pointer)?.range??[0,0];
@@ -284,7 +286,7 @@ export class ReferenceGraph {
         return scope;
     }
     referencesAt(resource:string,pointer:string,kind:string):readonly GraphReference[] {
-        return this.references.filter(reference=>reference.resource===resource&&reference.pointer===pointer&&
+        return this._references.filter(reference=>reference.resource===resource&&reference.pointer===pointer&&
             (reference.connection==='security'?kind==='security-requirement':
                 reference.connection==='discriminator'?['discriminator','discriminator-map'].includes(kind):
                 reference.connection?kind==='link':reference.kind===kind));
@@ -294,7 +296,7 @@ export class ReferenceGraph {
      * split/repair plan rather than choosing one physical-field interpretation. */
     assertReferenceEditsSupported():void {
         const meanings=new Map<string,GraphReference>();
-        for(const reference of this.references){
+        for(const reference of this._references){
             if(reference.resolution!=='resolved')continue;
             const id=key(reference.resource,reference.pointer)+'/'+escape(reference.keyword),previous=meanings.get(id);
             if(previous&&(previous.kind!==reference.kind||previous.connection!==reference.connection)){
@@ -313,7 +315,7 @@ export class ReferenceGraph {
     /** Every established interpretation, retaining the physical authoring
      * owner and additional explicitly referenced roles as separate uses. */
     *interpretedScopes():IterableIterator<GraphScope> {
-        yield* this.scopes.values();yield* this.roleScopes.values();
+        yield* this._scopes.values();yield* this.roleScopes.values();
     }
     /** Captured structural ownership of one interpretation, without following
      * reference edges or adopting independently referenced roles in its data.
@@ -333,24 +335,30 @@ export class ReferenceGraph {
         }
         return [...selected.values()];
     }
-    readonly references: GraphReference[] = [];
+    private readonly _references: GraphReference[] = [];
+    readonly references:readonly GraphReference[] = this._references;
     private referenceRoles?:Map<string,GraphReference>;
     /** Select an established applicator by its object interpretation. A native
      * Reference Object and a Schema reference can share text but have distinct
      * URI bases; insertion order cannot choose their meaning. */
     referenceAs(resource:string,pointer:string,keyword:string,kind:string):GraphReference|undefined {
-        if(!this.referenceRoles)this.referenceRoles=new Map(this.references.filter(reference=>!reference.connection).map(reference=>[JSON.stringify([reference.resource,reference.pointer,reference.keyword,reference.kind]),reference]));
+        if(!this.referenceRoles)this.referenceRoles=new Map(this._references.filter(reference=>!reference.connection).map(reference=>[JSON.stringify([reference.resource,reference.pointer,reference.keyword,reference.kind]),reference]));
         return this.referenceRoles.get(JSON.stringify([resource,pointer,keyword,kind]));
     }
 
-    readonly issues: GraphIssue[] = [];
-    readonly identities = new Map<string, GraphTarget[]>();
-    readonly anchors = new Map<string, GraphTarget[]>();
-    readonly dynamicAnchors = new Map<string, GraphTarget[]>();
+    private readonly _issues: GraphIssue[] = [];
+    readonly issues:readonly GraphIssue[] = this._issues;
+    private readonly _identities = new Map<string, GraphTarget[]>();
+    readonly identities:ReadonlyMap<string,GraphTarget[]> = this._identities;
+    private readonly _anchors = new Map<string, GraphTarget[]>();
+    readonly anchors:ReadonlyMap<string,GraphTarget[]> = this._anchors;
+    private readonly _dynamicAnchors = new Map<string, GraphTarget[]>();
+    readonly dynamicAnchors:ReadonlyMap<string,GraphTarget[]> = this._dynamicAnchors;
     // Retrieval/display/API URL context is distinct from declared $self/$id.
     // The first approved mapping supplies the original expected location; a
     // local cache path is not the document's remote retrieval identity.
-    readonly retrievals = new Map<string, string>();
+    private readonly _retrievals = new Map<string, string>();
+    readonly retrievals:ReadonlyMap<string,string> = this._retrievals;
     private indexed = new Set<string>();
     private pending: GraphReference[] = [];
     private issueKeys = new Set<string>();
@@ -370,7 +378,7 @@ export class ReferenceGraph {
      * enclosing schema resource. OAS 3.1.2 §4.3.1 requires complete context
      * discovery before a reference is deemed missing. Rebuild this same graph
      * from proven enclosing occurrences; never guess schema keywords in data. */
-    static capture(docs:Map<string,SourceDocument>,root:string,family:string,aliases:Map<string,string[]>=new Map(),occurrences:GraphTarget[]=[]):ReferenceGraph {
+    static capture(docs:ReadonlyMap<string,SourceDocument>,root:string,family:string,aliases:Map<string,string[]>=new Map(),occurrences:GraphTarget[]=[]):ReferenceGraph {
         const seeds=new Map(occurrences.map(target=>[key(target.resource,target.pointer)+':'+target.kind,target]));
         let work=0;
         for(let pass=0;pass<=limits.depth;pass++) {
@@ -393,7 +401,7 @@ export class ReferenceGraph {
         throw new SourceError('limit.graph.context','The captured schema contexts could not stabilize within the bounded graph budget',range,'unsupported',{resource:root,pointer:'',range});
     }
 
-    constructor(readonly docs: Map<string, SourceDocument>, readonly root: string, readonly family: string, aliases: Map<string, string[]> = new Map(), occurrences: GraphTarget[] = []) {
+    constructor(readonly docs: ReadonlyMap<string, SourceDocument>, readonly root: string, readonly family: string, aliases: Map<string, string[]> = new Map(), occurrences: GraphTarget[] = []) {
         // Register identities before resolving any edge, so ordering cannot
         // make duplicate identifiers pick an arbitrary physical document.
         for (const doc of docs.values()) {
@@ -404,7 +412,7 @@ export class ReferenceGraph {
             // authored version. Unversioned fragments use the entry context.
             const declaration = specificationDeclaration(data);
             const specification = declaration.status === 'supported' ? declaration.specification : undefined;
-            if (specification) this.specifications.set(doc.id, specification);
+            if (specification) this._specifications.set(doc.id, specification);
             const declared = specification?.family ?? (Object.hasOwn(data ?? {}, 'openapi')
                 ? declaration.status === 'unsupported' && typeof data.openapi === 'string' && /^(\d+\.\d+)\.\d+$/.test(data.openapi) ? data.openapi.slice(0, data.openapi.lastIndexOf('.')) : 'unknown'
                 : Object.hasOwn(data ?? {}, 'swagger') ? 'unknown' : undefined);
@@ -417,7 +425,7 @@ export class ReferenceGraph {
             const defaultDialect = defaultSchemaDialect(documentFamily);
             const approvedIdentity = aliases.get(doc.id)?.[0];
             let base = resolveUri(approvedIdentity??doc.id, doc.id).href;
-            this.retrievals.set(doc.id, base);
+            this._retrievals.set(doc.id, base);
             if (String(data?.openapi).startsWith('3.2.') && typeof data?.$self === 'string') {
                 try {
                     const uri = resolveUri(data.$self, base);
@@ -428,14 +436,14 @@ export class ReferenceGraph {
                 }
             }
             const target = { resource: doc.id, pointer: '', kind: 'root' };
-            this.register(this.identities, doc.id, target);
-            this.register(this.identities, base, target);
-            for (const alias of aliases.get(doc.id) ?? []) this.register(this.identities, resolveUri(alias, doc.id).href, target);
+            this.register(this._identities, doc.id, target);
+            this.register(this._identities, base, target);
+            for (const alias of aliases.get(doc.id) ?? []) this.register(this._identities, resolveUri(alias, doc.id).href, target);
             const scope = { ...target, base, resourcePointer: '', dialect: specification ? specification.schemaDialect : defaultDialect, family: documentFamily };
             this.documentScopes.set(doc.id,scope);
             if(specification&&modernFamily(documentFamily)&&specification.schemaDialect===null)
                 this.issue({...target,pointer:'/jsonSchemaDialect'},'schema.dialect.malformed','A schema dialect declaration must be a URI string; no default dialect was selected',true,'error');
-            this.scopes.set(key(doc.id, ''), scope);
+            this._scopes.set(key(doc.id, ''), scope);
             if (doc.id === root || specification)
                 this.index(doc.id, '', 'root', scope);
             else if (data && typeof data === 'object' && ['$id', '$schema', '$anchor', '$dynamicAnchor'].some(k => Object.hasOwn(data, k)))
@@ -467,7 +475,7 @@ export class ReferenceGraph {
         }
         // A later reached fragment may declare an identifier/anchor needed by
         // an earlier edge. Re-resolve all edges against the complete index.
-        for (const ref of this.references) {
+        for (const ref of this._references) {
             delete ref.targetResource; delete ref.targetPointer; delete ref.targetFamily; delete ref.dynamic;
             Object.assign(ref, this.resolveConnection(ref));
             if(ref.resolution==='resolved'&&ref.kind==='schema'&&!modernFamily(ref.family)){
@@ -493,7 +501,7 @@ export class ReferenceGraph {
             }
         }
         this.checkReferenceChains();
-        for(const scope of this.scopes.values())if(scope.kind==='path-item')this.pathItem(scope);
+        for(const scope of this._scopes.values())if(scope.kind==='path-item')this.pathItem(scope);
         this.operations();
         this.captureEntryUses(occurrences);
     }
@@ -505,7 +513,7 @@ export class ReferenceGraph {
     pathItem(source:GraphTarget):PathItemView {
         const identity=key(source.resource,source.pointer),cached=this.pathItems.get(identity);
         if(cached)return cached;
-        this.pathReferences??=new Map(this.references.filter(ref=>ref.kind==='path-item'&&ref.keyword==='$ref'&&!ref.connection).map(ref=>[key(ref.resource,ref.pointer),ref]));
+        this.pathReferences??=new Map(this._references.filter(ref=>ref.kind==='path-item'&&ref.keyword==='$ref'&&!ref.connection).map(ref=>[key(ref.resource,ref.pointer),ref]));
         const chain:GraphTarget[]=[],fields=new Map<string,GraphTarget>(),seen=new Set<string>(),conflicts=new Set<string>();
         let current:GraphTarget={resource:source.resource,pointer:source.pointer,kind:'path-item'},complete=true,chainComplete=true,cyclic=false;
         for(let depth=0;depth<=limits.depth;depth++) {
@@ -545,10 +553,10 @@ export class ReferenceGraph {
      * this never copies or merges authored Operation Objects. */
     operations():readonly OperationOccurrence[] {
         if(this.operationIndex)return this.operationIndex;
-        const result:OperationOccurrence[]=[],callbacks=new Map(this.references.filter(ref=>ref.kind==='callback'&&ref.keyword==='$ref'&&!ref.connection).map(ref=>[key(ref.resource,ref.pointer),ref]));
+        const result:OperationOccurrence[]=[],callbacks=new Map(this._references.filter(ref=>ref.kind==='callback'&&ref.keyword==='$ref'&&!ref.connection).map(ref=>[key(ref.resource,ref.pointer),ref]));
         const collect=(pathItem:GraphTarget,path:string,occurrence:string,role:string,ancestors:ReadonlySet<string>,forceShared=false)=>{
             const owner=key(pathItem.resource,pathItem.pointer);
-            if(this.scopes.get(owner)?.kind!=='path-item')return;
+            if(this._scopes.get(owner)?.kind!=='path-item')return;
             if(ancestors.has(owner))return;
             if(ancestors.size>=32){this.issue(pathItem,'limit.callback.depth','Callback navigation exceeds the bounded depth',true,'warning');return;}
             const nested=new Set(ancestors);nested.add(owner);
@@ -609,9 +617,9 @@ export class ReferenceGraph {
     literalContainers(resource: string): ReadonlySet<string> {
         if (!this.literalIndex) {
             this.literalIndex = new Map();
-            for (const scope of this.scopes.values()) {
+            for (const scope of this._scopes.values()) {
                 const doc = this.docs.get(scope.resource)!;
-                if (scope.kind === 'root' && !this.specifications.has(doc.id)) continue;
+                if (scope.kind === 'root' && !this._specifications.has(doc.id)) continue;
                 const node = doc.dataNode(scope.pointer)!;
                 const typed = new Set(this.referenceObject(node.value, scope) ? [] : children(node.value, scope.kind, scope.family).map(([name]) => name));
                 for (const [name, authored] of node.children) {
@@ -641,8 +649,8 @@ export class ReferenceGraph {
     }
     scope(resource: string, pointer: string): GraphScope {
         let at = pointer;
-        while (!this.scopes.has(key(resource, at)) && at) at = at.slice(0, at.lastIndexOf('/'));
-        return this.scopes.get(key(resource, at))!;
+        while (!this._scopes.has(key(resource, at)) && at) at = at.slice(0, at.lastIndexOf('/'));
+        return this._scopes.get(key(resource, at))!;
     }
 
     /** Prove a proposed connection using the same namespace/URI rules as
@@ -675,7 +683,7 @@ export class ReferenceGraph {
      * the same key spelling without becoming an OpenAPI definitions namespace.
      * Schema references and usage-site references retain their own rules. */
     private referencePositionAllowed(scope: GraphScope): boolean {
-        return !(scope.family === '2.0' && this.specifications.has(scope.resource) &&
+        return !(scope.family === '2.0' && this._specifications.has(scope.resource) &&
             (scope.kind === 'parameter' && /^\/parameters\/[^/]+$/.test(scope.pointer) ||
              scope.kind === 'response' && /^\/responses\/[^/]+$/.test(scope.pointer)));
     }
@@ -721,7 +729,7 @@ export class ReferenceGraph {
             uri.hash = '';
         } catch { return { resolution: 'invalid' }; }
         const targetUri = uri.href;
-        const identities = this.identities.get(targetUri);
+        const identities = this._identities.get(targetUri);
         if (!identities?.length) return { targetUri, targetResource: targetUri, resolution: 'unavailable' };
         if (identities.length !== 1) return { targetUri, candidateResources: [...new Set(identities.map(t => t.resource))], resolution: 'ambiguous' };
         let target = identities[0];
@@ -732,7 +740,7 @@ export class ReferenceGraph {
             // resources. Conflicting identifiers/anchors remain ambiguous.
             const canonical=this.scope(target.resource,target.pointer);
             const anchorBase=canonical.resourcePointer===target.pointer?canonical.base:targetUri;
-            const anchors = this.anchors.get(anchorBase + '#' + fragment);
+            const anchors = this._anchors.get(anchorBase + '#' + fragment);
             if (!anchors?.length) return { targetUri, targetResource: target.resource, resolution: 'missing' };
             if (anchors.length !== 1) return { targetUri, candidateResources: [...new Set(anchors.map(t => t.resource))], resolution: 'ambiguous' };
             target = anchors[0];
@@ -743,8 +751,8 @@ export class ReferenceGraph {
         if (!doc?.dataNode(target.pointer)) return { targetUri, targetResource: target.resource, targetPointer: target.pointer, resolution: 'missing' };
         const result: Partial<GraphReference> = { targetUri, targetResource: target.resource, targetPointer: target.pointer, resolution: 'resolved' };
         if (dynamic && fragment && !fragment.startsWith('/') &&
-            this.dynamicAnchors.get(fragment)?.some(t => same(t, target))){
-            const candidates=this.dynamicAnchors.get(fragment)!;
+            this._dynamicAnchors.get(fragment)?.some(t => same(t, target))){
+            const candidates=this._dynamicAnchors.get(fragment)!;
             if((this.dynamicCandidateWork+=candidates.length)>2000000){
                 const range:Range=this.docs.get(scope.resource)?.dataNode(scope.pointer)?.range??[0,0];
                 throw new SourceError('limit.graph.dynamic-candidates','Dynamic reference capture exceeds 2000000 candidate steps',range,'unsupported',{resource:scope.resource,pointer:scope.pointer,range});
@@ -766,7 +774,7 @@ export class ReferenceGraph {
     private issue(target: GraphTarget&{connection?:GraphReference['connection']}, code: string, message: string, incomplete = false,severity?:'warning'|'error') {
         const id = JSON.stringify([target.resource,target.pointer,target.kind,target.connection??'',code]);
         if (this.issueKeys.has(id)) return;
-        this.issueKeys.add(id); this.issues.push({ ...target, code, message, incomplete,...(severity?{severity}:{}) });
+        this.issueKeys.add(id); this._issues.push({ ...target, code, message, incomplete,...(severity?{severity}:{}) });
     }
 
     /** Schema maps in Components are roots; maps/arrays reached through an
@@ -837,10 +845,10 @@ export class ReferenceGraph {
         const target = { resource, pointer, kind };
         if(kind==='schema')this.schemaAdmissions.set(id,{target,inherited,root:!intrinsic});
         else if(depth===0&&kind!=='root')this.nativeAdmissions.set(id,target);
-        const established=this.scopes.get(key(resource,pointer));
+        const established=this._scopes.get(key(resource,pointer));
         const differentRole=established&&established.kind!==kind&&this.indexed.has(key(resource,pointer)+':'+established.kind);
         const separateRole=differentRole&&
-            (established.kind!=='root'||this.specifications.has(resource));
+            (established.kind!=='root'||this._specifications.has(resource));
         // A whole OpenAPI document can also be a JSON Schema: its OpenAPI
         // members are extension keywords in that use. Other typed positions
         // retain the context declared by their containing specification object.
@@ -870,9 +878,9 @@ export class ReferenceGraph {
                     uri.hash = '';
                     scope = { ...scope, base: uri.href, resourcePointer: pointer };
                     // The retrieval URI and an explicit root $id are aliases.
-                    if (!pointer && this.identities.get(uri.href)?.every(t => same(t, target)))
-                        this.identities.set(uri.href, [target]);
-                    else this.register(this.identities, uri.href, target);
+                    if (!pointer && this._identities.get(uri.href)?.every(t => same(t, target)))
+                        this._identities.set(uri.href, [target]);
+                    else this.register(this._identities, uri.href, target);
                 } catch { this.issue({ ...target, pointer: pointer + '/$id' }, 'reference.uri', 'Invalid schema resource identity'); }
             }
             if (Object.hasOwn(value,'$schema')) {
@@ -890,11 +898,11 @@ export class ReferenceGraph {
                 if (!/^[A-Za-z_][-A-Za-z0-9._]*$/u.test(anchor)) {
                     this.issue({ ...target, pointer: pointer + '/' + keyword }, 'schema.anchor', 'Invalid JSON Schema anchor name'); continue;
                 }
-                this.register(this.anchors, scope.base + '#' + anchor, target);
+                this.register(this._anchors, scope.base + '#' + anchor, target);
                 if (keyword === '$dynamicAnchor') {
-                    const candidates = this.dynamicAnchors.get(anchor) ?? [];
+                    const candidates = this._dynamicAnchors.get(anchor) ?? [];
                     if (!candidates.some(t => same(t, target))) candidates.push(target);
-                    this.dynamicAnchors.set(anchor, candidates);
+                    this._dynamicAnchors.set(anchor, candidates);
                 }
             }
             if (!supportedSchemaDialect(scope))
@@ -907,23 +915,23 @@ export class ReferenceGraph {
             if(primarySchema){
                 this.roleScopes.set(key(resource,pointer)+':schema',{...established,sourceKind:kind});
                 roles.add('schema');
-                this.scopes.set(key(resource,pointer),scope);
+                this._scopes.set(key(resource,pointer),scope);
             }else {this.roleScopes.set(id,{...scope,sourceKind:established.kind});roles.add(kind);}
             this.roleKinds.set(key(resource,pointer),roles);
-        }else this.scopes.set(key(resource, pointer), scope);
+        }else this._scopes.set(key(resource, pointer), scope);
         if (!value || typeof value !== 'object') return;
         const refKind = this.allowsReference(scope);
         for (const keyword of kind === 'schema' && modernFamily(scope.family) ? ['$ref', '$dynamicRef'] : ['$ref']) {
             if (!refKind || typeof value[keyword] !== 'string') continue;
             const ref: GraphReference = { ...scope, keyword, value: value[keyword], resolution: 'pending' };
-            this.references.push(ref); this.pending.push(ref);
+            this._references.push(ref); this.pending.push(ref);
         }
         // Reference Object siblings are summary/description, never object
         // definitions. Schema $ref is an applicator with ordinary siblings.
         if (this.referenceObject(value,scope)) return;
         const connection = (pointer: string, keyword: string, name: string, targetKind: string, type: GraphReference['connection']) => {
             const ref: GraphReference = {...scope, pointer, kind: targetKind, keyword, value: name, resolution: 'pending', connection: type};
-            this.references.push(ref); this.pending.push(ref);
+            this._references.push(ref); this.pending.push(ref);
         };
         if (kind === 'security-requirement')
             for (const name of Object.keys(value)) connection(pointer, name, name, 'security', 'security');
@@ -944,7 +952,7 @@ export class ReferenceGraph {
      * and Path Item inheritance have separate semantics and remain eligible. */
     private checkReferenceChains() {
         const id=(ref:GraphTarget)=>key(ref.resource,ref.pointer)+':'+ref.kind;
-        const edges=new Map(this.references.filter(ref=>ref.keyword==='$ref'&&!ref.connection&&ref.kind!=='path-item'&&(ref.kind!=='schema'||!modernFamily(ref.family))).map(ref=>[id(ref),ref]));
+        const edges=new Map(this._references.filter(ref=>ref.keyword==='$ref'&&!ref.connection&&ref.kind!=='path-item'&&(ref.kind!=='schema'||!modernFamily(ref.family))).map(ref=>[id(ref),ref]));
         const cyclic=new Map<string,boolean>();
         for(const [start,first] of edges) {
             if(cyclic.has(start))continue;
