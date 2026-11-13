@@ -156,6 +156,10 @@
     {
       "source": "src/policy_expression.ts",
       "target": "policy_expression.cjs"
+    },
+    {
+      "source": "src/policy_runtime.ts",
+      "target": "policy_runtime.cjs"
     }
   ],
   "suites": [
@@ -1031,6 +1035,10 @@
     },
     {
       "path": "tools/contract_engine/test_policy_builtin_numbers.cjs",
+      "nodeArgs": []
+    },
+    {
+      "path": "tools/contract_engine/test_policy_runtime.cjs",
       "nodeArgs": []
     }
   ]
