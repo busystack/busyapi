@@ -112,6 +112,20 @@ The paired process memory observations and complete inputs are in `editing/`.
 | One generated mock URL-form response, twelve values | Body evaluations 2 → 1; parsed data documents 57 → 28; parser input 1,126 → 510 bytes; the 80-byte response remains identical |
 | Eight renderer opens, two installed presets | Admissions 8 → 2; file reads 48 → 12; bytes read 34,215,944 → 8,553,986 |
 | Representative conversion captures | Graphs 21 → 14 / 28 → 17 / 19 → 12; parses 56 → 13 / 60 → 17 / 51 → 8 before the remaining holder work |
+| Same conversion captures, final-owner slice | Parses 13 → 9 / 17 → 10 / 8 → 4; all three captures complete at both checkpoints |
+| Same conversion captures, allocator constructions | 2 → 1 / 5 → 2 / 1 → 1; one allocator per genuine family stage |
+| Same conversion captures, provenance inspections | 358 → 306 / 527 → 449 / 358 → 306 |
+| Same conversion captures, graph API calls in final-owner slice | 14 → 14 / 17 → 17 / 12 → 12; this later slice claims no additional graph reduction |
+
+The final-owner conversion pair compares committed `c4b40de` with `88bcc46`,
+after the earlier capture reduction. Each complete JSON input has one integer
+Base schema and twenty references; rows list 3.2.1 → 3.1.2, 3.0.4 → 3.2.1 and
+3.2.1 → 3.2.1 in that order. Copied-source instrumentation counts SourceDocument
+and MigrationSchemaOwners constructions, MigrationSemanticOrigins inspections,
+and createGraph calls. Exact inputs, counts and source-archive SHA-256 are retained
+in `conversion-owners/after-88bcc46.jsonl` and `final-88bcc46.json`. The additional
+shared dynamic fixture was blocked before and completes after; its counts are
+excluded from the performance comparison.
 
 The unfinished-stream pair feeds 257 × 64 KiB into the same record bound. Both
 accurately stop at `limit.stream.record`. Copied framing bytes fall from
