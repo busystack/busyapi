@@ -56,7 +56,7 @@ test('native mock violations retain external schema sources, Unicode and escaped
 });
 
 test('a stale derived identity cannot start the native mock',{timeout:20000},async t=>{
- const input=mockStart(contract('3.0.4',{zero:{type:'integer'}}));input.derived.identity='f'.repeat(64);
+ const input=mockStart(contract('3.0.4',{zero:{type:'integer'}}));input.derived.output.identity='f'.repeat(64);
  const event=await start(t,input,{failure:true});assert.equal(event.event,'failed');assert.equal(event.failure.code,'mock.capture.changed');
 });
 

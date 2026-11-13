@@ -15,7 +15,7 @@ function mockStart(document,options={},root='file:///mock-fixture/api.json') {
 function capturedMockStart(capture,options={}) {
  const derived=deriveBundle({...capture,outputId:'file:///mock-fixture/busyapi-mock.json'});
  if(derived.complete!==true)throw Error('The synthetic mock fixture did not form one complete bundle');
- return {version:1,snapshot:capture.snapshot,capture,derived:{id:derived.output.id,identity:derived.output.identity},...options};
+ return {version:1,snapshot:capture.snapshot,capture,derived,...options};
 }
 async function startMock(t,input,{failure=false,helper=path.join(__dirname,'dist/mock-server.cjs'),onEvent=()=>{},onProcess=()=>{}}={}) {
  const child=spawn(process.execPath,[helper],{stdio:['pipe','pipe','pipe']});

@@ -35,7 +35,7 @@ interface StartInput {
   version: 1;
   snapshot: string;
   capture: MockCapture;
-  derived: {id:string;identity:string};
+  derived: Record<string,unknown>;
   port?: number;
   tunnels?: TunnelPolicy;
   errors?: boolean;
@@ -71,7 +71,7 @@ async function readInput(): Promise<StartInput> {
     input.version !== 1 ||
     typeof input.snapshot !== 'string' ||
     !/^[0-9a-f]{64}$/.test(input.snapshot) ||
-    !record(input.derived) || typeof input.derived.id!=='string' || typeof input.derived.identity!=='string' || !/^[a-f0-9]{64}$/.test(input.derived.identity) ||
+    !record(input.derived) ||
     input.errors!==undefined&&typeof input.errors!=='boolean' ||
     input.upstream!==undefined&&typeof input.upstream!=='string' ||
     (input.port !== undefined &&
@@ -89,7 +89,7 @@ async function readInput(): Promise<StartInput> {
       upstream.username || upstream.password || upstream.search || upstream.hash)
       throw new Error('validation proxy target must be an HTTP(S) base URL without credentials, query or fragment');
   }
-  return {version:1,snapshot:input.snapshot,capture,tunnels:tunnelPolicy(input.tunnels),derived:{id:input.derived.id,identity:input.derived.identity},
+  return {version:1,snapshot:input.snapshot,capture,tunnels:tunnelPolicy(input.tunnels),derived:input.derived,
     ...(typeof input.port==='number'?{port:input.port}:{}),...(typeof input.errors==='boolean'?{errors:input.errors}:{}),...(typeof input.upstream==='string'?{upstream:input.upstream}:{})};
 }
 

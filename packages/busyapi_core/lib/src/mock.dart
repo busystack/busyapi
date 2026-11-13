@@ -98,6 +98,7 @@ class MockPlan {
         result['complete'] != true ||
         result['producer'] != 'busyapi-graph-bundle' ||
         result['producerVersion'] != '4' ||
+        result['provenance'] is! List ||
         output is! Map ||
         output['id'] != outputId ||
         output['text'] is! String ||
@@ -124,8 +125,7 @@ class MockPlan {
       plan: this,
       node: node,
       helper: script,
-      outputId: outputId,
-      outputIdentity: output['identity'] as String,
+      derived: _freezeResult({for (final key in ['version', 'snapshot', 'producer', 'producerVersion', 'complete', 'output', 'provenance']) key: result[key]}),
       port: port,
       errors: errors,
       proxyTarget: proxyTarget,
@@ -338,8 +338,7 @@ class MockRun {
     required MockPlan plan,
     required String node,
     required String helper,
-    required String outputId,
-    required String outputIdentity,
+    required Map<String, dynamic> derived,
     required int port,
     required bool errors,
     required Uri? proxyTarget,
@@ -402,7 +401,7 @@ class MockRun {
           'version': 1,
           'snapshot': plan.snapshot.identity,
           'capture': plan.snapshot.toJson(),
-          'derived': {'id': outputId, 'identity': outputIdentity},
+          'derived': derived,
           'port': port,
           'errors': errors,
           if (proxyTarget != null) 'upstream': proxyTarget.toString(),

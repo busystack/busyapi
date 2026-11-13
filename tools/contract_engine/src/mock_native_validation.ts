@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 import {runtimeBinaryMedia} from './runtime_binary';
 import {encodePlainText} from './text_encoding';
 import {MultipartEncoding} from './multipart_encoding';
@@ -71,7 +72,14 @@ export class MockNativeValidation {
         }
     }
 
-    async prepare(output:{id:string;identity:string}):Promise<string> {
+    async prepare(derived:Record<string,unknown>):Promise<string> {
+        const output=derived.output;
+        if(derived.version!==1||derived.snapshot!==this.capture.snapshot||derived.complete!==true||
+            derived.producer!=='busyapi-graph-bundle'||derived.producerVersion!=='4'||
+            !record(output)||typeof output.id!=='string'||typeof output.text!=='string'||
+            typeof output.identity!=='string'||!Array.isArray(derived.provenance)||
+            createHash('sha256').update(output.text).digest('hex')!==output.identity)
+            throw new SourceError('mock.capture.changed','The prepared mock artifact is malformed or belongs to another capture');
         const checked=await this.client.request('evaluateSchemas',this.capture);
         if(checked.snapshot!==this.capture.snapshot||typeof checked.complete!=='boolean'||!Array.isArray(checked.findings)||checked.findings.some(finding=>!record(finding)))
             throw new SourceError('mock.validation.protocol','Native validation returned an unrelated captured graph');
@@ -84,11 +92,8 @@ export class MockNativeValidation {
         if(checked.producer!==schemaProducer.name||checked.producerVersion!==schemaProducer.version||checked.configuration!==schemaProducer.configuration)
             throw new SourceError('mock.validation.revision','The native evaluator revision differs from the captured mock implementation');
         this.producer={name:checked.producer,version:checked.producerVersion,configuration:checked.configuration};
-        const result=await this.client.request('deriveBundle',{...this.capture,outputId:output.id});
-        if(result.snapshot!==this.capture.snapshot||result.complete!==true||!record(result.output)||result.output.id!==output.id||result.output.identity!==output.identity||typeof result.output.text!=='string')
-            throw new SourceError('mock.capture.changed','The child derived document differs from the reviewed captured graph');
-        this.operationProjection=new MockOperationProjection(this.context.graph,output.id,result.provenance);
-        return result.output.text;
+        this.operationProjection=new MockOperationProjection(this.context.graph,output.id,derived.provenance);
+        return output.text;
     }
 
     get identity(){return this.producer;}
