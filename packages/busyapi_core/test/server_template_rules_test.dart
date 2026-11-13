@@ -293,21 +293,26 @@ void main() {
               contains(isA<Map>().having((f) => f['code'], 'code', code)),
             );
             final destination = '${temp.path}/refused-migration';
-            await expectLater(
-              project.prepareMigration(
-                root,
-                destination,
-                targetVersion: '3.2.1',
-              ),
-              throwsA(
-                isA<OutputAnalysisFailure>().having(
-                  (e) => e.code,
-                  'code',
-                  'migration.contract',
-                ),
-              ),
+            final review = await project.prepareMigration(
+              root,
+              destination,
+              targetVersion: '3.2.1',
             );
+            addTearDown(review.close);
+            expect(review.publishable, false);
+            expect(review.result['outputs'], isEmpty);
+            expect(review.result['changes'], isEmpty);
+            final problems = (review.result['problems'] as List).where(
+              (problem) => problem['code'] == 'migration.validation.$code' &&
+                  problem['resource'] == root && problem['pointer'] == '/servers/0/url',
+            );
+            expect(problems, hasLength(1));
+            final problemRange = problems.single['range'] as List;
+            expect(problemRange[1] as int, greaterThan(problemRange[0] as int));
+            await expectLater(review.publish(),
+                throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'migration.blocked')));
             expect(await Directory(destination).exists(), false);
+            expect(await file.readAsString(), original);
             final refused = await Process.run(
               '$testBundle/busyapi',
               [
@@ -327,11 +332,14 @@ void main() {
               1,
               reason: '${refused.stdout} ${refused.stderr}',
             );
-            expect(
-              (jsonDecode(refused.stdout as String) as Map)['status'],
-              'invalid',
-            );
+            final report = jsonDecode(refused.stdout as String) as Map;
+            expect(report['status'], 'blocked');
+            expect(report['complete'], false);
+            expect((report['problems'] as List).where((problem) =>
+                problem['code'] == 'migration.validation.$code' &&
+                problem['resource'] == root && problem['pointer'] == '/servers/0/url'), hasLength(1));
             expect(await Directory(destination).exists(), false);
+            expect(await file.readAsString(), original);
             final page = await project.inspectObject(root, root, '/servers/0'),
                 range = List<int>.from(page['range'] as List);
             const repaired = 'https://api.example.invalid/ready';

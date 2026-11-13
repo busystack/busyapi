@@ -59,6 +59,7 @@ void main() {
       await File('${directory.path}/payload.bin').writeAsBytes(seen.single);
       final examples=(value['components'] as Map)['examples'] as Map;
       (examples['Choice'] as Map)['externalValue']='payload.bin';
+      await source.buffer(root);
       source.store.replace(root,render());await publishSources(source, [source.store.get(root)]);
       final before=await file.readAsBytes();
       final review=await source.prepareMigration(root,'${directory.path}/converted',targetVersion:target);
