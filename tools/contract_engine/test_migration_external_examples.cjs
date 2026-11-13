@@ -13,6 +13,22 @@ const versions = ['3.0.0', '3.0.1', '3.0.2', '3.0.3', '3.0.4', '3.1.0', '3.1.1',
 const formats = ['yaml', 'json'];
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const render = (value, format) => (format === 'yaml' ? '# Keep Unicode 雪\r\n' + YAML.stringify(value).replaceAll('\n', '\r\n') : JSON.stringify(value)) + '\r\n';
+for(const style of ['|+','>+'])for(const newline of ['\n','\r\n'])test(`YAML ${style} ${JSON.stringify(newline)} preserves serialized entity termination`,async()=>{
+ const root='file:///block-entity/api.yaml',text=[
+  'openapi: 3.2.1','info: {title: Block entity, version: "1"}','paths:','  /echo:','    post:',
+  '      requestBody:','        content:','          text/event-stream:','            schema: {type: array}',
+  '            examples:','              Entity: {$ref: "#/components/examples/Entity"}',
+  '      responses: {"204": {description: Empty}}','components:','  examples:','    Entity:',
+  '      serializedValue: '+style,'        data: first 雪','        data: second','','','      summary: Retained','x-literal: retained','',
+ ].join(newline),input={root,snapshot:'block-entity',resources:[{id:root,text,generation:1}],targetVersion:'3.1.2',destination:'file:///block-entity-output/'};
+ const bytes=packet=>Buffer.from(requestOperation({...packet,resource:packet.root,pointer:'/paths/~1echo/post'}).requestBody.content[0].examples[0].raw,'utf8').toString('base64');
+ const expected=bytes(input),review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const cold={root:review.outputRoot,snapshot:'block-entity-cold',resources:review.outputs.map(output=>({...output,generation:0}))};
+ assert.equal(analyse(cold).status,'complete');assert.equal(bytes(cold),expected);
+ const output=new SourceDocument(cold.resources.find(resource=>resource.id===cold.root).text,cold.root);
+ assert.equal(output.dataNode('/components/examples/Entity/summary').value,'Retained');assert.equal(output.dataNode('/x-literal').value,'retained');
+ assert.equal(input.resources[0].text,text);
+});
 for(const version of ['3.0.4','3.1.2','3.2.1'])test(`${version} pretty JSON request and response examples retain actual entity bytes in Swagger`,async()=>{
  const root='file:///pretty-entities/api.json',media={schema:{type:'object'},example:{n:9007199254740993,nested:{text:'snow 雪'}}},
   value={openapi:version,info:{title:'Pretty entities',version:'1'},servers:[{url:'https://api.invalid'}],paths:{'/echo':{post:{requestBody:{content:{'application/json':media}},responses:{200:{description:'Echo',content:{'application/json':media}}}}}}},
