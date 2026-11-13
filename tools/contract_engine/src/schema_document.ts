@@ -25,6 +25,12 @@ export function embeddedSchemaDocument(document:any,uri:string) {
 export function typedSchemaDocument(value: any, id: string, graph: any, dialect: string|null): any {
   const scopes=schemaEvaluationScopes(graph).filter(scope=>scope.resource===id);
   const schemaPointers = new Set(scopes.filter(s=>supportedSchemaDialect(s)).map(s=>s.pointer));
+  // A referenced fragment still inherits its resource's declarations. Retain
+  // those boundaries without treating their unrelated assertions as entry uses.
+  for(const scope of scopes){
+    const boundary=graph.scopeAs(id,scope.resourcePointer,'schema');
+    if(boundary&&supportedSchemaDialect(boundary))schemaPointers.add(boundary.pointer);
+  }
   const flatParameters=new Set(scopes.filter(scope=>scope.family==='2.0'&&scope.objectKind==='parameter').map(scope=>scope.pointer));
   const applicators=new Map<string,string>();
   for(const reference of graph.references)if(reference.resource===id&&reference.kind==='schema'&&!reference.connection&&reference.resolution==='resolved'){

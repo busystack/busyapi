@@ -23,6 +23,11 @@ restricted OAS evaluator and exact Draft 4 boolean-bound handlers, alongside its
 dated structural artifact and normative relationship checks. Its Schema Object
 references ignore siblings; modern schema references retain applicator semantics.
 Ordinary declaration edits invalidate captured semantics and never migrate files.
+Referencing a Schema fragment enters that fragment's assertions. Its containing
+resource still supplies URI, dialect and anchor declarations; it does not apply
+unrelated sibling assertions or native model names. Executable documents retain
+the resource boundary, and conversion checks its complete anchor table separately
+from the entry's actual semantic uses.
 The [implementation record](implementation/native-openapi-support.md) tracks
 family-specific coverage and qualification, including work still incomplete.
 

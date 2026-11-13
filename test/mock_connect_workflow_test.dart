@@ -10,6 +10,8 @@ import 'package:flutter_test/flutter_test.dart';
 import '../packages/busyapi_core/test/mock_connect_support.dart';
 import '../packages/busyapi_core/test/test_support.dart';
 
+class _NativeHttp extends HttpOverrides {}
+
 void main(){
   testWidgets('native mock review uses captured approved CONNECT and generated responses, reports lifecycle and stops peers',(tester) async {
     final fixture=(await tester.runAsync(createConnectMockFixture))!;
@@ -26,7 +28,7 @@ void main(){
       await tester.runAsync(() async {
         final event=run.tunnelEvents.firstWhere((value)=>value['event']=='tunnel-established');
         tunnel=await ControlledTunnel.open(run.port,fixture.authority,head:[0,255,128]);expect(tunnel!.status,200);expect(await tunnel!.read(3),[0,255,128]);expect((await event)['responseBody'],'not-applicable');
-        final client=HttpClient();try{final response=await (await client.getUrl(run.baseUri.resolve('/sample'))).close();expect(response.statusCode,200);expect(jsonDecode(await utf8.decoder.bind(response).join()),matches(r'^AB[0-9]{3}$'));}finally{client.close(force:true);}
+        final client=HttpOverrides.runWithHttpOverrides(HttpClient.new,_NativeHttp());try{final response=await (await client.getUrl(run.baseUri.resolve('/sample'))).close();expect(response.statusCode,200);expect(jsonDecode(await utf8.decoder.bind(response).join()),matches(r'^AB[0-9]{3}$'));}finally{client.close(force:true);}
       });
       await tester.pumpAndSettle();expect(find.textContaining('CONNECT · Established'),findsOneWidget);
       await tester.runAsync(() async {await controller.stop();await tunnel!.closed.future;});await tester.pumpAndSettle();expect(controller.phase,'stopped');expect(controller.run,isNull);expect(find.textContaining('CONNECT · Ended'),findsOneWidget);

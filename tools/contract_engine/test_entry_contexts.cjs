@@ -4,6 +4,31 @@ const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
 const {requestOperation}=require('./dist/execution.cjs');
 const {planMigration}=require('./dist/migration.cjs');
 const a='file:///entries/a.json',b='file:///entries/b.json',model='file:///entries/model.json';
+for(const defect of ['none','id','dialect'])test(`a referenced Schema fragment inherits resource declarations without entering unrelated assertions: ${defect}`,async()=>{
+ const resource={$id:'https://schemas.invalid/fragment',$schema:'https://json-schema.org/draft/2020-12/schema',
+  allOf:[{type:'integer',enum:[7]},{$ref:'missing.json'}]};
+ if(defect==='id')resource.$id='http://[';
+ if(defect==='dialect')resource.$schema=7;
+ const input={root:a,snapshot:'fragment-boundary-'+defect,resources:[
+  {id:a,generation:1,text:JSON.stringify({openapi:'3.2.1',info:{title:'Fragment',version:'1'},paths:{},components:{schemas:{Use:{$ref:'model.json#/allOf/0'}}}})},
+  {id:model,generation:1,text:JSON.stringify(resource)},
+ ]};
+ const before=input.resources.map(resource=>resource.text),graph=createGraph(input).graph;
+ assert.equal(graph.isEntryUse(graph.scopeAs(model,'/allOf/0','schema')),true);
+ assert.equal(graph.isEntryUse(graph.scopeAs(model,'','schema')),false);
+ assert.equal(graph.isEntryUse(graph.scopeAs(model,'/allOf/1','schema')),false);
+ const analysis=analyse(input),evaluated=await evaluateSchemas({...input,runtimeInstances:['7','0'].map(text=>({subject:'response-body',location:text,text,schema:{resource:a,pointer:'/components/schemas/Use'}}))});
+ if(defect==='none'){
+  assert.equal(analysis.complete,true,JSON.stringify(analysis.findings));
+  assert.equal(evaluated.complete,true,JSON.stringify(evaluated.findings));
+  assert.deepEqual(evaluated.runtimeEvaluations.map(value=>[value.complete,value.valid]),[[true,true],[true,false]]);
+ }else{
+  const code=defect==='id'?'reference.uri':'schema.dialect.malformed',pointer=defect==='id'?'/$id':'/$schema';
+  for(const result of [analysis,evaluated])assert(result.findings.some(finding=>finding.resource===model&&finding.pointer===pointer&&finding.code===code&&finding.range[1]>finding.range[0]),JSON.stringify(result.findings));
+  assert.deepEqual(evaluated.runtimeEvaluations.map(value=>[value.complete,value.valid]),[[false,false],[false,false]]);
+ }
+ assert.deepEqual(input.resources.map(resource=>resource.text),before);
+});
 test('reusing a capture retains late located Path Item family diagnostics',()=>{
  const entry=(version,paths)=>({openapi:version,info:{title:'Captured Path Item',version:'1'},paths});
  const input={root:a,snapshot:'late-family-issue',resources:[

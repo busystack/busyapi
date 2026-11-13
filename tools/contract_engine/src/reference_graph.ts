@@ -205,10 +205,6 @@ export class ReferenceGraph {
                 else {const values=waiting.get(resource)??[];values.push(schema);waiting.set(resource,values);}
             }
             const value=this.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
-            if(scope.kind==='schema'&&scope.pointer!==scope.resourcePointer){
-                const resource=this.scopeAs(scope.resource,scope.resourcePointer,'schema');
-                if(resource&&schemaResourceContextIdentity(resource)===schemaResourceContextIdentity(scope))pending.push(resource);
-            }
             if(this.referenceObject(value,scope)&&scope.kind!=='path-item')continue;
             for(const [name,,kind]of children(value,scope.kind,scope.family)){
                 admit();const child=this.scopeAs(scope.resource,scope.pointer+'/'+escape(name),kind);
@@ -233,6 +229,8 @@ export class ReferenceGraph {
             if (reference.targetResource !== undefined) referencedDescriptions.add(reference.targetResource);
         }
         const retained=this._issues.filter(issue=>{
+            const frameIssue=['reference.uri','schema.dialect.malformed','schema.dialect.location','dialect.unsupported','schema.anchor'].includes(issue.code);
+            const relevant=(scope:GraphScope)=>this.isEntryUse(scope)||frameIssue&&scope.kind==='schema'&&enteredResources.has(schemaResourceContextIdentity(scope));
             // A containing declaration governs every referenced occurrence.
             // Invalid descriptions cannot acquire a typed entry scope, but
             // that must not hide their declaration error from active users.
@@ -244,9 +242,9 @@ export class ReferenceGraph {
             let pointer=issue.pointer;
             for(;;){
                 const exact=this.scopeAs(issue.resource,pointer,issue.kind);
-                if(exact)return this.isEntryUse(exact);
+                if(exact)return relevant(exact);
                 const scopes=this.scopesAt(issue.resource,pointer);
-                if(scopes.length)return scopes.some(scope=>this.isEntryUse(scope));
+                if(scopes.length)return scopes.some(relevant);
                 if(!pointer)return issue.resource===this.root;
                 pointer=pointer.slice(0,pointer.lastIndexOf('/'));
             }

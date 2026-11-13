@@ -266,7 +266,8 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
   const states=new Map<string,number>(),dependents=new Map<string,Set<string>>(),queue:string[]=[];
   const scopeId=(scope:GraphScope)=>scope.resource+'#'+scope.pointer;
   const invalidOwners=new Set(invalid.map(scope=>JSON.stringify([schemaResourceContextIdentity(scope),scope.pointer])));
-  const invalidOwner=(scope:GraphScope)=>invalidOwners.has(JSON.stringify([schemaResourceContextIdentity(scope),scope.pointer]));
+  const invalidOwner=(scope:GraphScope)=>invalidOwners.has(JSON.stringify([schemaResourceContextIdentity(scope),scope.pointer]))||
+   invalidOwners.has(JSON.stringify([schemaResourceContextIdentity(scope),scope.resourcePointer]));
   const mark=(id:string,state:number)=>{if(state>(states.get(id)??0)){states.set(id,state);queue.push(id);}};
   let edgeCount=0;
   const depends=(owner:string,target:string)=>{
