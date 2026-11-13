@@ -29,6 +29,7 @@ import {projectMigrationMultipartConfiguration} from './migration_multipart_conf
 import {migrateBinarySchemas} from './migration_binary';
 import {specializeBinarySchemaUses} from './migration_binary_uses';
 import {checkOperationTarget,checkRequestBodyTarget,migrateOperationBodies} from './migration_operation';
+import {migrationBodyApplicability} from './migration_operation_contexts';
 import {checkSecurityRequirementTarget,migrateSecurityBindings,migrationSecurityUriSpellings} from './migration_security';
 import {migrationDocumentContexts,migrationScopes,migrationReferences,migrationReferenceUses,proveMigrationConnections} from './migration_documents';
 import {migrationBatches,entryMigrationRoutes,type MigrationBatch} from './migration_routes';
@@ -236,7 +237,7 @@ export async function planMigration(input:MigrationInput) {
                     const captured=sourceGraphs.get(namespace),authored=captured?.docs.get(scope.resource);
                     const declared=authored?.dataNode(scope.resourcePointer+'/$schema')||authored?.dataNode('/jsonSchemaDialect')||
                         sources.get(location.resource)!.doc.dataNode(location.pointer+'/$schema');
-                    const inferred=converted&&schemaRegistryIds.has(location.resource)&&!declared;
+                    const inferred=converted&&!declared;
                     const dialect=converted&&(!modernFamily(scope.family)||!modernFamily(after)||inferred)?defaultSchemaDialect(after as typeof target.family):scope.dialect;
                     const occurrence:PlanningOccurrence={...location,kind,family,dialect,
                         ...(base!==undefined&&(!converted||modernFamily(after))?{expectedBase:base}:{})};
@@ -256,7 +257,7 @@ export async function planMigration(input:MigrationInput) {
             // copying. Otherwise the first parsed entry could choose another
             // use's family or overwrite a shared incoming locator.
             const securityComponentNames=after!=='3.2'&&stage.sources.includes('3.2');
-            for(const [origin,locations]of separateMigrationEntryUses(contexts,sources,issue,createSchemaResource,captureContext,owners,securityComponentNames,target.family))
+            for(const [origin,locations]of separateMigrationEntryUses(contexts,sources,issue,captureContext,owners,securityComponentNames,target.family))
                 specialized.set(origin,locations);
             if(problems.length)break;
             let materializedConnections=false;
@@ -343,13 +344,15 @@ export async function planMigration(input:MigrationInput) {
             retainNativeCopies(await specializeBinarySchemaUses(contexts.map(context=>context.graph),sources,stage.sources,after,owners));
             if(problems.length)break;
             for(const context of contexts)context.graph.assertReferenceEditsSupported();
+            owners.useCapture(graph,contexts.map(context=>context.graph));
             const terms=new Map<string,string>();
             for(const context of contexts)migrateTerms(context.graph,sources,stage.sources,terms,issue);
             if(problems.length)break;
             const priorOmissions=ignoredBodyOmissions.length;
             for(const before of stage.sources)for(const context of contexts)ignoredBodyOmissions.push(...migrateOperationBodies(context.graph,sources,before,after,scope=>{
                 const origin=sourceLocation(scope.resource,scope.pointer),entry=initialContexts.find(entry=>entry.graph.root===context.graph.root)!.graph;
-                return (entry.scopeAs(origin.resource,origin.pointer,scope.kind)??entry.scope(origin.resource,origin.pointer)).family;
+                const captured=entry.scopeAs(origin.resource,origin.pointer,scope.kind)??entry.scope(origin.resource,origin.pointer);
+                return {family:captured.family,applicability:migrationBodyApplicability(entry,captured)};
             },issue));
             // An omitted use can detach a fragment. Only surviving graph
             // occurrences retain a dialect and participate in conversion;
@@ -389,6 +392,10 @@ export async function planMigration(input:MigrationInput) {
                         if(at!==undefined)owners.retainNativeHistory(scope,source,at,'ignored_header_reference',ownerContext);
                         continue;
                     }
+                    if(siblings.length&&before==='3.0'&&after==='2.0'&&scope.kind==='schema')for(const name of siblings){
+                        const at=source.current(scope.pointer+'/'+escape(name));
+                        if(at!==undefined)owners.retainLiteralValue({...scope,pointer:scope.pointer+'/'+escape(name)},source,at,'ignored_reference_sibling',true);
+                    }
                     if(siblings.length&&modernFamily(after)&&!modernFamily(before)&&issue(scope,'migration.reference.ignored-siblings','The target would activate ignored Reference Object siblings; explicitly discard those preserved values or revise the source','decision',['discard-ignored-siblings']))for(const name of siblings)source.remove(scope.pointer+'/'+escape(name));
                     if(siblings.length&&!modernFamily(after)&&modernFamily(before)&&scope.kind!=='schema')issue(scope,'migration.reference.annotations','The target cannot retain these Reference Object annotation overrides','target-representation');
                 }
@@ -406,7 +413,7 @@ export async function planMigration(input:MigrationInput) {
             if(problems.length)break;
             for(const before of stage.sources)for(const context of contexts)migrateServerVariableDefaults(context.graph,sources,before,after,issue);
             const rawBinaryScopes=new Set<string>();
-            for(const before of stage.sources)for(const id of await migrateBinarySchemas(graph,sources,before,after,issue,contexts.map(context=>context.graph)))rawBinaryScopes.add(id);
+            for(const before of stage.sources)for(const id of await migrateBinarySchemas(graph,sources,before,after,issue,owners,contexts.map(context=>context.graph)))rawBinaryScopes.add(id);
             if(problems.length)break;
             if(rawBinaryScopes.size){
                 // Binary ownership has projected selected occurrences into the
@@ -415,8 +422,9 @@ export async function planMigration(input:MigrationInput) {
                 // modern type predicates (which reject every raw instance).
                 const binaryInput=preparationInput(),binaryGraph=createGraph(binaryInput);
                 contexts=migrationDocumentContexts(binaryInput,binaryGraph,issue);graph=binaryGraph.graph;
+                owners.useCapture(graph,contexts.map(context=>context.graph));
             }
-            for(const before of stage.sources)await migrateSchemas(graph,sources,before,after,issue,contexts.map(context=>context.graph),input.exampleResources);
+            for(const before of stage.sources)await migrateSchemas(graph,sources,before,after,issue,owners,contexts.map(context=>context.graph),input.exampleResources);
             for(const before of stage.sources)migrateEncodings(graph,sources,before,after,issue,contexts.map(context=>context.graph),owners);
             if(stage.sources.includes('3.2'))await prepareNamedMultipart(contexts.map(context=>context.graph),after,input.exampleResources,target.family);
             if(stage.sources.includes('3.2'))migrateNamedMultipart(contexts.map(context=>context.graph),sources,after,owners,issue);
@@ -425,7 +433,7 @@ export async function planMigration(input:MigrationInput) {
             const discriminator=stage.sources.includes('2.0')?migrateSwaggerDiscriminators(graph,sources,issue,contexts.map(context=>context.graph),location=>{
                 const original=sourceLocation(location.resource,location.pointer);
                 presentationChanges.push({resource:original.resource,pointer:original.pointer});
-            }):undefined;
+            },owners):undefined;
             if(after==='2.0')for(const before of stage.sources)for(const [key,target]of downgradeSwagger(graph,sources,before,issue,owners,contexts.map(context=>context.graph),{
                 read:(location,namespace)=>externalExamples!.inlineCapture(sourceLocation(location.resource,location.pointer),namespace),
                 materialized:(location,namespace,media)=>externalExamples!.materialized(sourceLocation(location.resource,location.pointer),namespace,media),
@@ -460,8 +468,6 @@ export async function planMigration(input:MigrationInput) {
                 const source=sources.get(id)!;
                 if(!modernFamily(after))source.remove('/jsonSchemaDialect');
                 if(after!=='2.0')source.set('/openapi',after===target.family?target.declaredVersion:patch[after]);
-                if(modernFamily(specification.family)&&modernFamily(after)&&!source.doc.nodes.has('/jsonSchemaDialect'))
-                    source.set('/jsonSchemaDialect',specification.schemaDialect);
             }
             convertedScopes=true;
             // Repair only established contract references at their mapped CST
@@ -653,7 +659,12 @@ export async function planMigration(input:MigrationInput) {
             const embedded=scope.kind==='schema'&&scope.base!==graph.scope(scope.resource,'').base;
             const canonical=embedded&&target?.kind==='schema'?target.base+(reference.keyword==='$dynamicRef'&&reference.dynamic?
                 '#'+encodeURIComponent(reference.dynamic.anchor):fragment(target.pointer.slice(target.resourcePointer.length))):undefined;
-            const value=canonical&&proves(canonical)?canonical:proves(reference.value)?reference.value:security?spellSecurity(graph,mappedReference,names!):
+            // Enter a generated schema file through its delivered retrieval
+            // address. Embedded identities become available only after that
+            // file is acquired; they are not extra file-retrieval aliases.
+            const generated=from.resource!==to.resource&&schemaRegistryIds.has(relocatedResources.get(to.resource)!)&&
+                !(reference.keyword==='$dynamicRef'&&reference.dynamic)?to.resource+fragment(to.pointer):undefined;
+            const value=generated&&proves(generated)?generated:canonical&&proves(canonical)?canonical:proves(reference.value)?reference.value:security?spellSecurity(graph,mappedReference,names!):
                 target&&referenceValue(graph,scope,target,keyword,undefined,reference.connection==='discriminator'?{connection:'discriminator'}:{});
             if(value===undefined||!proves(value)){
                 issue(field,'migration.reference.relocation','A captured reference has no proved final output spelling','implementation');continue;

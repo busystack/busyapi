@@ -48,12 +48,14 @@ export function checkRequestBodyTarget(context:ReturnType<typeof createGraph>,_r
 
 /** A source 3.0 ignored body must not become active in another family.
  * A composed Swagger upgrade retains its originally active body instead. */
-export function migrateOperationBodies(graph:ReferenceGraph,sources:Map<string,SourcePlan>,from:string,to:string,original:(scope:GraphScope)=>string,issue:MigrationIssue):SourceLocation[] {
+export function migrateOperationBodies(graph:ReferenceGraph,sources:Map<string,SourcePlan>,from:string,to:string,
+    original:(scope:GraphScope)=>Readonly<{family:string;applicability:readonly boolean[]}>,issue:MigrationIssue):SourceLocation[] {
     const omitted:SourceLocation[]=[];
     if(from!=='3.0'||to==='3.0')return omitted;
     for(const scope of graph.entryScopes()) {
-        if(scope.kind!=='operation'||scope.family!==from||original(scope)!=='3.0'||!graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.children.has('requestBody'))continue;
-        const applicability=migrationBodyApplicability(graph,scope);
+        if(scope.kind!=='operation'||scope.family!==from||!graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.children.has('requestBody'))continue;
+        const captured=original(scope);if(captured.family!=='3.0')continue;
+        const applicability=captured.applicability;
         const location={resource:scope.resource,pointer:scope.pointer+'/requestBody'};
         if(!applicability.length){
             issue(location,'migration.body.method-context','This referenced operation has no captured HTTP method with which to prove whether the source request body is applicable','unavailable-proof');continue;

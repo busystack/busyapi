@@ -40,11 +40,19 @@ for(const format of ['yaml','json'])test(`Swagger ${format} schema-less examples
  assert(plan.problems.some(p=>p.code==='migration.response.examples-without-schema'&&p.pointer==='/paths/~1items/get/responses/200/examples'&&p.reason==='target-representation'));
  assert.equal(resources[0].text,text);
 });
-for(const format of ['yaml','json'])for(const targetVersion of ['3.0.4','3.1.2','3.2.1'])test(`B05-R2 ${format} empty example maps keep reusable response chains bodyless in ${targetVersion}`,async()=>{
+for(const format of ['yaml','json'])for(const targetVersion of ['3.0.4','3.1.2','3.2.1'])test(`B05-R2 ${format} empty example maps keep reusable responses bodyless in ${targetVersion}`,async()=>{
  const root='file:///approved/empty.'+format,document={swagger:'2.0',info:{title:'Empty examples',version:'1'},host:'api.invalid',schemes:['https'],produces:['application/json'],
-  paths:{'/empty':{get:{responses:Object.fromEntries(['200','204','304','default'].map(status=>[status,{$ref:'#/responses/Alias'}]))}}},responses:{Alias:{$ref:'#/responses/Empty'},Empty:{description:'Empty',examples:{}}}};
+  paths:{'/empty':{get:{responses:Object.fromEntries(['200','204','304','default'].map(status=>[status,{$ref:'#/responses/Empty'}]))}}},responses:{Empty:{description:'Empty',examples:{}}}};
  const text=format==='json'?JSON.stringify(document):YAML.stringify(document),input={root,resources:[{id:root,text,generation:0}],snapshot:'empty-map',targetVersion,destination:'file:///review/empty/'};
  const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));
  const resources=result.outputs.map(output=>({id:output.id,text:output.text,generation:0})),plan=requestOperation({root:result.outputRoot,resources,snapshot:'cold-empty',resource:result.outputRoot,pointer:'/paths/~1empty/get'});
  assert.deepEqual(plan.responses.map(response=>response.status),['200','204','304','default']);assert(plan.responses.every(response=>response.content.length===0));assert.equal(input.resources[0].text,text);
+});
+for(const format of ['yaml','json'])test(`Swagger ${format} reusable response maps require actual Response Objects`,async()=>{
+ const root='file:///approved/invalid-response.'+format,document={swagger:'2.0',info:{title:'Invalid response definition',version:'1'},paths:{},
+  responses:{Alias:{$ref:'#/responses/Empty'},Empty:{description:'Empty',examples:{}}}};
+ const text=format==='json'?JSON.stringify(document):YAML.stringify(document),input={root,resources:[{id:root,text,generation:0}],snapshot:'invalid-response-map',targetVersion:'3.2.1',destination:'file:///review/empty/'};
+ const result=await planMigration(input);assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);
+ assert(result.problems.some(problem=>problem.code==='migration.validation.structure.required'&&problem.resource===root&&problem.pointer==='/responses/Alias'&&problem.reason==='source-incomplete'));
+ assert.equal(input.resources[0].text,text);
 });

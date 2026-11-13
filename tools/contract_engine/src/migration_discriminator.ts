@@ -20,7 +20,7 @@ type Mapping=Readonly<{
  * restart it. Separate target variants model the finite active-dispatcher
  * states, retaining composition instead of flattening accepted instances. */
 export function migrateSwaggerDiscriminators(graph:ReferenceGraph,sources:Map<string,SourcePlan>,issue:MigrationIssue,
-    contexts:readonly ReferenceGraph[],presentation:(original:SourceLocation)=>void):Mapping {
+    contexts:readonly ReferenceGraph[],presentation:(original:SourceLocation)=>void,owners:MigrationSchemaOwners):Mapping {
     const scopes=[...migrationScopes(contexts)].filter(scope=>scope.kind==='schema');
     const bases=scopes.filter(scope=>scope.family==='2.0'&&
         typeof graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value?.discriminator==='string'&&
@@ -67,7 +67,7 @@ export function migrateSwaggerDiscriminators(graph:ReferenceGraph,sources:Map<st
         tables.set(key(base),table);
     }
     const references=[...migrationReferences(contexts)].filter(edge=>edge.kind==='schema'&&!edge.connection&&edge.keyword==='$ref'&&edge.resolution==='resolved');
-    const uris=[...documentUriOccurrences(graph)],owners=new MigrationSchemaOwners(graph,sources);
+    const uris=[...documentUriOccurrences(graph)];
     const variants=new Map<string,SourceLocation>(),choicesByName=new Map<string,SourceLocation>(),processed=new Set<string>();
     let edits=0,cost=0,cloneBytes=0,generated=0,inspected=0;
     let nonObject:SourceLocation|undefined;

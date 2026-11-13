@@ -13,6 +13,21 @@ const versions = ['3.0.0', '3.0.1', '3.0.2', '3.0.3', '3.0.4', '3.1.0', '3.1.1',
 const formats = ['yaml', 'json'];
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const render = (value, format) => (format === 'yaml' ? '# Keep Unicode 雪\r\n' + YAML.stringify(value).replaceAll('\n', '\r\n') : JSON.stringify(value)) + '\r\n';
+for(const version of ['3.0.4','3.1.2','3.2.1'])test(`${version} pretty JSON request and response examples retain actual entity bytes in Swagger`,async()=>{
+ const root='file:///pretty-entities/api.json',media={schema:{type:'object'},example:{n:9007199254740993,nested:{text:'snow 雪'}}},
+  value={openapi:version,info:{title:'Pretty entities',version:'1'},servers:[{url:'https://api.invalid'}],paths:{'/echo':{post:{requestBody:{content:{'application/json':media}},responses:{200:{description:'Echo',content:{'application/json':media}}}}}}},
+  text=JSON.stringify(value,null,2).replaceAll('9007199254740992','9007199254740993.00'),input={root,snapshot:'pretty-entities',resources:[{id:root,text,generation:0}],targetVersion:'2.0',destination:'file:///reviewed/pretty/'};
+ const examples=packet=>{
+  const operation=requestOperation({...packet,resource:packet.root,pointer:'/paths/~1echo/post'});
+  return [operation.requestBody,operation.responses.find(response=>response.status==='200')].map(body=>{
+   const example=body.content.find(media=>media.mediaType==='application/json').examples[0];assert(example);
+   return Buffer.from(example.raw,'utf8').toString('base64');
+  });
+ };
+ const before=examples(input),review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const cold={root:review.outputRoot,snapshot:'cold-pretty-entities',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
+ assert.equal(analyse(cold).status,'complete');assert.deepEqual(examples(cold),before);assert.equal(input.resources[0].text,text);
+});
 const packet = (id, bytes, aliases = []) => ({version: 1, id, generation: 3, aliases, state: 'available', identity: hash(bytes), base64: bytes.toString('base64'), byteLength: bytes.length});
 for(const format of ['yaml','json'])test(`R3c-3 ${format} whole-query external bytes retain identity after multi-field projection`,async()=>{
  const input=require('./migration_b05_r3c3_fixture.cjs')('3.2.1',format),bytes=Buffer.from('count=9007199254740993.00&q=a%2Bb&flag=false');

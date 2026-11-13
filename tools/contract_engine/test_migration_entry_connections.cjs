@@ -31,7 +31,7 @@ for(const format of ['json','yaml'])test(`entry-owned map connections preserve n
    assert.equal(reference.resolution,'resolved');at={resource:reference.targetResource,pointer:reference.targetPointer};
    if(count===63)assert.fail('The map forwarding chain must remain finite');
   }
-  const discriminator=graph.referenceAs(at.resource,at.pointer+'/discriminator','defaultMapping','schema');
+  const discriminator=graph.entryReferences().find(reference=>reference.resource===at.resource&&reference.pointer===at.pointer+'/discriminator'&&reference.keyword==='defaultMapping'&&reference.connection==='discriminator');
   assert.equal(discriminator.resolution,'resolved');
   const model=graph.docs.get(discriminator.targetResource).dataNode(discriminator.targetPointer).value;
   assert.equal(model['x-entry'],name);
@@ -48,8 +48,9 @@ for(const format of ['json','yaml'])test(`entry-owned map connections preserve n
  const secondOwner=await inspect(cold,secondRoot,'Second');
  assert.notDeepEqual(firstOwner.at,secondOwner.at);
  const document=secondOwner.graph.docs.get(secondRoot);
- assert.deepEqual(document.dataNode('/components/schemas/discriminator').value,second.components.schemas.discriminator);
- assert.deepEqual(document.dataNode('/x-history').value,second['x-history']);
+ const original=new (require('./dist/document.cjs').SourceDocument)(before[1],other);
+ assert.equal(document.dataJson('/components/schemas/discriminator'),original.dataJson('/components/schemas/discriminator'));
+ assert.equal(document.dataJson('/x-history'),original.dataJson('/x-history'));
  for(const id of [cold.root,secondRoot])assert(review.outputs.find(output=>output.id===id).text.includes('9007199254740993.00'));
  assert.deepEqual(input.resources.map(resource=>resource.text),before);
 });

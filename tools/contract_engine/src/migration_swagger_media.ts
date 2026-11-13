@@ -16,7 +16,7 @@ const mediaKey=(media:readonly string[])=>JSON.stringify([...new Set(media)].sor
  * Parameter/Response definition. OAS 3.0 §§4.7.13/4.7.17 instead put content on
  * that definition. Preserve one schema owner and specialize the media wrapper.
  * All copies are CST planning copies, with original payload provenance. */
-export function swaggerMediaMigration(graph:ReferenceGraph,sources:Map<string,SourcePlan>,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph],owners=new MigrationSchemaOwners(graph,sources,undefined,[],contexts)) {
+export function swaggerMediaMigration(graph:ReferenceGraph,sources:Map<string,SourcePlan>,issue:MigrationIssue,contexts:readonly ReferenceGraph[],owners:MigrationSchemaOwners) {
     const entry=sources.get(graph.root)!;
     const scopes=[...migrationScopes(contexts)].sort((a,b)=>a.resource.localeCompare(b.resource)||a.pointer.localeCompare(b.pointer));
     const parameterArrays=new Set(scopes.filter(scope=>scope.kind==='parameter-array').map(key));

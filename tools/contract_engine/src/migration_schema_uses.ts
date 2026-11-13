@@ -120,12 +120,11 @@ function dynamicSchemaDependencies(graph:ReferenceGraph,references:readonly Grap
  * captured references, never reference-looking payload keys. Cycles retain one
  * owner per occurrence; the ordinary allocator repairs the resulting graph. */
 export function separateMigrationEntryUses(contexts:readonly DocumentContext[],sources:ReadonlyMap<string,SourcePlan>,
-    issue:MigrationIssue,createSchemaResource:()=>SourcePlan,
+    issue:MigrationIssue,
     preserveContext:(scope:GraphScope,destination:SourceLocation,preserveBase:boolean,expectedBase?:string,namespace?:string)=>void,
-    allocator?:MigrationSchemaOwners,securityComponentNames=false,targetFamily?:SpecificationFamily):ReadonlyMap<string,readonly SourceLocation[]> {
+    owners:MigrationSchemaOwners,securityComponentNames=false,targetFamily?:SpecificationFamily):ReadonlyMap<string,readonly SourceLocation[]> {
     const differences=migrationContextDifferences(contexts),provenance=new Map<string,SourceLocation[]>();
     if(!contexts.length)return provenance;
-    const owners=allocator??new MigrationSchemaOwners(contexts[0].graph,sources,createSchemaResource);
     let work=0;
     const admit=()=>{if(++work>2000000)throw new SourceError('limit.migration.owners','Entry specialization exceeds its bounded graph work');};
     const ordered=[...contexts].sort((a,b)=>a.graph.root.localeCompare(b.graph.root));

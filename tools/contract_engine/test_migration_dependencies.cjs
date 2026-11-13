@@ -45,8 +45,12 @@ for(const version of modern)for(const format of ['yaml','json'])test(`${version}
 });
 for(const mode of ['ordinary','tautology','alias'])test(`YAML ${mode} dependency comments and shared syntax retain safe ownership`,async()=>{
  const input=capture('3.2.1','yaml'),r=input.resources[0];r.text=`# Original\r\nopenapi: 3.2.1\r\ninfo: {title: Comments, version: API-1}\r\npaths: {}\r\ncomponents:\r\n  schemas:\r\n    Model:\r\n      type: object\r\n      dependentRequired: # Dependency map\r\n        # Trigger entry\r\n        trigger: ${mode==='alias'?'&names ':''}\r\n          # Required name\r\n          - '${mode==='tautology'?'trigger':'value'}' # Inline name\r\n      properties: {trigger: {}, value: {}}\r\n${mode==='alias'?'x-shared: *names\r\n':''}`;const original=r.text,result=await planMigration({...input,targetVersion:'3.0.4'});
- if(mode==='alias'){assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);assert(result.problems.some(p=>p.code.includes('shared')||p.code.includes('alias')),JSON.stringify(result.problems));}
- else{assert.equal(result.complete,true,JSON.stringify(result.problems));const text=result.outputs[0].text;for(const comment of ['# Original','# Dependency map','# Trigger entry','# Required name','# Inline name'])assert.equal(text.split(comment).length-1,1,comment+'\n'+text);assert(text.includes('      properties: {trigger: {}, value: {}}\r\n'));}
+ assert.equal(result.complete,true,JSON.stringify(result.problems));const text=result.outputs[0].text;
+ for(const comment of ['# Original','# Dependency map','# Trigger entry','# Required name','# Inline name'])assert.equal(text.split(comment).length-1,1,comment+'\n'+text);
+ assert(text.includes('      properties: {trigger: {}, value: {}}\r\n'));
+ const output=after(result);assert.equal(analyse(output).status,'complete');
+ assert.deepEqual(await outcomes(output,'/components/schemas/Model',samples),await outcomes(input,'/components/schemas/Model',samples));
+ if(mode==='alias')assert.equal(new SourceDocument(text,result.outputRoot).dataJson('/x-shared'),new SourceDocument(original,r.id).dataJson('/x-shared'));
  assert.equal(r.text,original);
 });
 

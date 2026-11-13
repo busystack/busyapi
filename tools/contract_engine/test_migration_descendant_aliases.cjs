@@ -25,7 +25,7 @@ const outside=[
     'x-empty-copy: *empty',
 ].join('\r\n')+'\r\n';
 const suffix='x-later-type: &kind integer # keep reused name\r\nx-later-copy: *kind\r\nx-spelling: "*kind &kind $ref are literal text"\r\n';
-function render(text,id,format){return format==='yaml'?text:new SourceDocument(text,id).dataJson('')+'\n';}
+function render(text,id,format){return format==='yaml'?text:new SourceDocument(text,id,false,'yaml').dataJson('')+'\n';}
 function entry(version,schemas){return `openapi: "${version}"\r\ninfo: {title: Descendant aliases, version: "business"}\r\n`+
     'servers: [{url: "https://api.invalid"}]\r\npaths: {}\r\n'+schemas;}
 function capture(version,format,external=false){
@@ -91,7 +91,7 @@ test(`${version} ${format} descendant aliases with outside definitions survive n
     outsidePreserved(before,doc,format);
     assert.equal(doc.dataNode('/components'),undefined);assert.equal(doc.dataNode('/definitions/Scalar/type').value,'string');
     assert.equal(doc.dataJson('/definitions/Scalar/x-captured'),before.dataJson('/components/schemas/Scalar/x-captured'));
-    assert.deepEqual(doc.dataNode('/definitions/Object/properties/value').value,{type:'string',enum:['','café','東京']});
+    assert.equal(doc.dataJson('/definitions/Object/properties/value'),before.dataJson('/x-shape'));
     const {graph}=createGraph(output),alias=graph.referenceAs(output.root,'/definitions/Alias','$ref','schema');
     assert.equal(alias.resolution,'resolved');assert.equal(alias.targetPointer,'/definitions/Scalar');
     if(format==='yaml'){

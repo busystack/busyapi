@@ -35,13 +35,21 @@ export class MigrationSchemaOwners {
     private readonly documentUris=new WeakMap<ReferenceGraph,readonly DocumentUriOccurrence[]>();
     private identityConsumers?:readonly SourceLocation[];
     private useWork=0;
-    constructor(private readonly graph:ReferenceGraph,
+    constructor(private graph:ReferenceGraph,
         private readonly sources:ReadonlyMap<string,SourcePlan>,
-        private readonly generatedResource?:(format?:SourceDocument['format'],schemaOnly?:boolean)=>SourcePlan,reservedIdentities:Iterable<string>=[],
-        private readonly contexts:readonly ReferenceGraph[]=[graph],
+        private readonly generatedResource:(format?:SourceDocument['format'],schemaOnly?:boolean)=>SourcePlan,reservedIdentities:Iterable<string>=[],
+        private contexts:readonly ReferenceGraph[]=[graph],
         private readonly connectionNames:ReadonlySet<string>=new Set()){
         this.contexts=[...contexts].sort((a,b)=>a.root.localeCompare(b.root));
         this.externalIdentities=new Set([...reservedIdentities].map(uri=>new URL(uri).href));
+    }
+
+    /** Structural edits acquire a new immutable interpretation, while final
+     * reservations and occurrence associations retain their one owner. */
+    useCapture(graph:ReferenceGraph,contexts:readonly ReferenceGraph[]):void {
+        if(this.graph===graph)return;
+        this.graph=graph;this.contexts=[...contexts].sort((a,b)=>a.root.localeCompare(b.root));
+        this.identityConsumers=undefined;
     }
 
     private inspectUse():void {
@@ -159,11 +167,11 @@ export class MigrationSchemaOwners {
     entryLocations(namespace:string,location:SourceLocation,scope:GraphScope|undefined,
         current:ReadonlyMap<string,readonly SourceLocation[]>):readonly SourceLocation[] {
         this.inspectUse();
-        const uses:SourceLocation[]=[];
+        const uses:SourceLocation[]=[],suffix=scope?location.pointer.slice(scope.pointer.length):'';
         if(scope){
             if(location.resource!==scope.resource||location.pointer!==scope.pointer&&!location.pointer.startsWith(scope.pointer+'/'))
                 throw new SourceError('migration.owners.field-context','A connection field is outside its captured semantic owner');
-            const suffix=location.pointer.slice(scope.pointer.length),pending:SourceLocation[]=[scope],seen=new Set<string>();
+            const pending:SourceLocation[]=[scope],seen=new Set<string>();
             // Multiple independently named consumers can need the same native
             // definition. They are additional material occurrences, rather
             // than competing refinements of its canonical owner. Fields keep
@@ -171,7 +179,7 @@ export class MigrationSchemaOwners {
             for(let index=0;index<pending.length;index++){
                 this.inspectUse();const owner=this.entryOwner(namespace,pending[index],scope.kind),id=this.useKey(namespace,owner,scope.kind);
                 if(seen.has(id))continue;seen.add(id);
-                uses.push({resource:owner.resource,pointer:owner.pointer+suffix});
+                uses.push(owner);
                 for(const copy of this.additionalUses.get(id)??[]){
                     this.inspectUse();
                     if(suffix&&copy.excludedFields.has(segments(suffix)[0]))continue;
@@ -179,7 +187,16 @@ export class MigrationSchemaOwners {
                 }
             }
         }else uses.push(location);
-        return uses.flatMap(at=>current.get(JSON.stringify([at.resource,at.pointer]))??[]);
+        return uses.flatMap(owner=>{
+            const material=current.get(JSON.stringify([owner.resource,owner.pointer]))??[];
+            if(!suffix)return material;
+            // A later structural mapping can move/rename a field within its
+            // final owner. The captured field's CST relation owns that new
+            // coordinate; the owner's original suffix is no longer its path.
+            const fields=(current.get(JSON.stringify([location.resource,location.pointer]))??[]).filter(field=>material.some(at=>
+                field.resource===at.resource&&(field.pointer===at.pointer||field.pointer.startsWith(at.pointer+'/'))));
+            return fields.length?fields:current.get(JSON.stringify([owner.resource,owner.pointer+suffix]))??[];
+        });
     }
     rememberAdditionalUse(namespace:string,origin:GraphScope,destination:SourceLocation,excludedFields:ReadonlySet<string>=new Set()):void {
         this.inspectUse();const owner=this.entryOwner(namespace,origin,origin.kind),id=this.useKey(namespace,owner,origin.kind);
@@ -280,8 +297,7 @@ export class MigrationSchemaOwners {
         const parts=segments(location.pointer);
         for(let index=0;index<parts.length;index++)if(parts[index]==='x-busyapi-retained-value'){
             const owner='/'+parts.slice(0,index).map(escape).join('/');
-            if(this.reserved.has(JSON.stringify([location.resource,owner]))||owner.endsWith('/items')&&
-                this.reserved.has(JSON.stringify([location.resource,owner.slice(0,-6)])))return true;
+            if(this.reserved.has(JSON.stringify([location.resource,owner])))return true;
         }
         return false;
     }
@@ -291,19 +307,12 @@ export class MigrationSchemaOwners {
             const source=this.sources.get(destination.resource)!;
             return {source,location:this.allocate(source,destination.pointer,label,identity)};
         }
-        const entry=this.generatedResource?.(this.sources.get(origin.resource)?.doc.format,schemaOnly)??this.sources.get(this.graph.root)!;
-        const container=this.generatedResource?(schemaOnly?'/allOf':''):componentLocation('schemas',this.graph.specifications.has(entry.doc.id)&&entry.doc.dataNode('/swagger')?.value==='2.0'?'2.0':this.graph.family)!;
+        const entry=this.generatedResource(this.sources.get(origin.resource)?.doc.format,schemaOnly);
+        const container=schemaOnly?'/allOf':'';
         return {source:entry,location:this.allocate(entry,container,label,identity)};
     }
     reserveSchema(origin:SourceLocation,label:string):{source:SourcePlan;location:SourceLocation}{
-        const reservation=this.reserve(origin,label,undefined,undefined,true);
-        return this.generatedResource?reservation:this.materialOwner(reservation,'array-item');
-    }
-    reserveDocumentation(origin:SourceLocation,context:ReferenceGraph,label:string):{source:SourcePlan;location:SourceLocation}{
-        if(this.generatedResource)return this.reserveSchema(origin,label);
-        const entry=this.sources.get(context.root)!,family=entry.doc.dataNode('/swagger')?.value==='2.0'?'2.0':context.family;
-        return this.materialOwner(this.reserve(origin,label,JSON.stringify([context.root,origin.resource,origin.pointer]),
-            {resource:context.root,pointer:componentLocation('schemas',family)!}),'array-item');
+        return this.reserve(origin,label,undefined,undefined,true);
     }
     markProjectionSource(scope:GraphScope):void {
         this.rememberEntry('guard-source',scope,{resource:scope.resource,pointer:scope.pointer},scope,'capture');
@@ -385,7 +394,10 @@ export class MigrationSchemaOwners {
         // A coherent capture can immediately analyse any child of this new
         // final slot. Register those concrete coordinates once alongside the
         // foreign source provenance, without rescanning the whole document.
-        const pending=[location.pointer];
+        this.rememberMaterialCoordinates(output,location.pointer);
+    }
+    private rememberMaterialCoordinates(output:SourcePlan,pointer:string):void {
+        const pending=[pointer];
         while(pending.length){
             this.inspectUse();const at=pending.pop()!;
             if(!output.origins.has(at))output.origins.set(at,new Set([at]));
@@ -525,7 +537,7 @@ export class MigrationSchemaOwners {
      * Schema use. YAML aliases keep their values through SourcePlan ownership. */
     retireNativeField(origin:SourceLocation,source:SourcePlan,pointer:string,context:ReferenceGraph):void {
         const schema=context.scopeAs(origin.resource,origin.pointer,'schema');
-        if(schema&&context.isEntryUse(schema))this.move(schema,source,pointer,'native_field',this.generatedResource?{}:{context,layout:'array-item'});
+        if(schema&&context.isEntryUse(schema))this.move(schema,source,pointer,'native_field',{context});
         else source.remove(pointer);
     }
 
@@ -556,7 +568,7 @@ export class MigrationSchemaOwners {
             const id=JSON.stringify([context.root,scope.resource,scope.pointer]);if(descriptions.has(id))continue;descriptions.add(id);
             const from=pointer+scope.pointer.slice(origin.pointer.length)+'/description';
             if(!captured.doc.dataNode(from))continue;
-            const owner=this.reserveDocumentation(scope,context,label+'_documentation');
+            const owner=this.reserveSchema(scope,label+'_documentation');
             this.admit(owner.source,4);
             owner.source.set(owner.location.pointer,{});
             owner.source.copy(captured,from,owner.location.pointer+'/description',true);
@@ -572,12 +584,8 @@ export class MigrationSchemaOwners {
      * All fixed references use captured targets and current CST coordinates. */
     assertionVariant(context:ReferenceGraph,scope:GraphScope,source:SourcePlan,pointer:string,label:string,targetFamily:string,
         removed:readonly string[]=[]):SourceLocation {
-        const captured=source.fork(),entry=this.sources.get(context.root)!;
-        const family=entry.doc.dataNode('/swagger')?.value==='2.0'?'2.0':context.family;
-        const container=componentLocation('schemas',family);
-        if(!container)throw new SourceError('migration.owners.variant-container','This assertion variant has no native Schema Object container');
-        const variant=this.separate({...scope,pointer},label,{captured,layout:this.generatedResource?undefined:'array-item',
-            container:this.generatedResource?undefined:{resource:context.root,pointer:container},identity:JSON.stringify([scope.resource,scope.pointer,label])}).location;
+        const captured=source.fork();
+        const variant=this.separate({...scope,pointer},label,{captured,identity:JSON.stringify([scope.resource,scope.pointer,label])}).location;
         const output=this.sources.get(variant.resource)!;
         for(const field of logicalSourcePointers(captured.doc))if(field===pointer||field.startsWith(pointer+'/')){
             this.inspectUse();output.associate(captured,field,variant.pointer+field.slice(pointer.length));
@@ -704,10 +712,10 @@ export class MigrationSchemaOwners {
     private materialOwner(reservation:{source:SourcePlan;location:SourceLocation},layout:MigrationOwnerLayout|undefined):{
         source:SourcePlan;location:SourceLocation;
     } {
-        const suffix=layout==='array-item'?'/items':layout==='response-header'?'/headers/Header':'';
-        if(layout){
+        const suffix=layout==='response-header'?'/headers/Header':'';
+        if(layout==='response-header'){
             this.admit(reservation.source,8);reservation.source.set(reservation.location.pointer,
-                layout==='array-item'?{type:'array',items:{}}:{description:'',headers:{Header:{}}});
+                {description:'',headers:{Header:{}}});
         }
         return {...reservation,
             location:{...reservation.location,pointer:reservation.location.pointer+suffix}};
@@ -717,10 +725,10 @@ export class MigrationSchemaOwners {
         options:Readonly<{layout?:'array-item'|'response-header';context?:ReferenceGraph}>={}):SourceLocation {
         const context=options.context??this.graph;
         const schemaOnly=options.layout==='array-item'||'kind' in origin&&origin.kind==='schema'||context.scopeAs(origin.resource,origin.pointer,'schema')!==undefined;
-        const directSchema=this.generatedResource!==undefined&&schemaOnly;
+        const directSchema=schemaOnly;
         // A Schema already allocated at its final anonymous slot needs no
         // second hoist. Reallocating it would shift its own array coordinates.
-        if(directSchema&&this.generatedResource!(source.doc.format,true)===source&&/^\/allOf\/\d+$/.test(pointer))
+        if(directSchema&&this.generatedResource(source.doc.format,true)===source&&/^\/allOf\/\d+$/.test(pointer))
             return {resource:source.doc.id,pointer};
         const kind=options.layout==='response-header'?'header':'kind' in origin&&typeof origin.kind==='string'?origin.kind:'schema';
         const captured=context.scopeAs(origin.resource,origin.pointer,kind);
@@ -776,7 +784,10 @@ export class MigrationSchemaOwners {
         if(options.layout&&!directSchema&&owner.source.doc.dataNode(owner.location.pointer)){
             this.admit(owner.source);owner.source.remove(owner.location.pointer);
         }
-        if(owner.source===source)source.move(pointer,owner.location.pointer,true,directSchema&&this.reserved.has(JSON.stringify([owner.location.resource,owner.location.pointer])));
+        if(owner.source===source){
+            source.move(pointer,owner.location.pointer,true,directSchema&&this.reserved.has(JSON.stringify([owner.location.resource,owner.location.pointer])));
+            this.rememberMaterialCoordinates(source,owner.location.pointer);
+        }
         else {this.copyInto(source,pointer,owner.location,true);source.remove(pointer);}
         owner.source.presentationChanges.push(owner.location.pointer);
         if(captured)for(const namespace of namespaces){
@@ -871,7 +882,7 @@ export class MigrationSchemaOwners {
         // item is an anonymous Schema Object without becoming a property or an
         // allOf model. Consumers address the item directly, never the wrapper.
         // The shared reservation and exact CST copy own these native layouts.
-        const owner=this.materialOwner(reservation,!container&&origin.kind==='schema'&&this.generatedResource?undefined:layout);
+        const owner=this.materialOwner(reservation,!container&&origin.kind==='schema'?undefined:layout);
         this.admit(input,8);if(owner.source!==input)this.admit(owner.source,8);
         if(layout&&container&&owner.source.doc.dataNode(owner.location.pointer)){
             this.admit(owner.source);owner.source.remove(owner.location.pointer);

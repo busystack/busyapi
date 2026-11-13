@@ -36,10 +36,9 @@ export type MigrationChoose=(scope:MigrationIssueLocation,code:string,message:st
 
 /** Normative schema mappings. No schema is evaluated under another family's
  * dialect to make a migration pass. These edits affect planning copies only. */
-export async function migrateSchemas(graph:ReferenceGraph,sources:Map<string,SourcePlan>,from:string,to:string,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph],
+export async function migrateSchemas(graph:ReferenceGraph,sources:Map<string,SourcePlan>,from:string,to:string,issue:MigrationIssue,owners:MigrationSchemaOwners,contexts:readonly ReferenceGraph[],
     exampleResources:readonly ExternalExampleResourcePacket[]=[]):Promise<void> {
     const references=new MigrationSchemaReferences(graph,contexts);
-    const owners=new MigrationSchemaOwners(graph,sources,undefined,[],contexts);
     const capturedReferences=[...migrationReferences(contexts)];
     const nameDomains=new Map<ReferenceGraph,MigrationPropertyDomains>(),patternMappings=new Map<ReferenceGraph,MigrationPatternProperties>();
     const nameProofs=new Map<string,MigrationNameRestriction>();
@@ -56,7 +55,7 @@ export async function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Sou
         let mapping=patternMappings.get(context);
         if(!mapping){mapping=new MigrationPatternProperties(context,owners,capturedReferences,issue,namesFor(context));patternMappings.set(context,mapping);}return mapping;
     };
-    const booleans=new BooleanSchemaMigration(graph,sources,to,owners,contexts);
+    const booleans=new BooleanSchemaMigration(graph,to,owners,contexts);
     const requirements=new Map<ReferenceGraph,MigrationPropertyPresence>(),bounds=new Map<ReferenceGraph,MigrationArrayBounds>();
     const projections:(()=>void)[]=[];
     const guardedBodies=new Set<string>();

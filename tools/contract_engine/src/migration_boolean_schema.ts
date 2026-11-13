@@ -10,11 +10,8 @@ import {MigrationSchemaOwners} from './migration_schema_owners';
  * value remain with its original object. No references are searched in data. */
 export class BooleanSchemaMigration {
     private readonly referenced=new Set<string>();
-    private readonly owners:MigrationSchemaOwners;
-
     constructor(private readonly graph:ReferenceGraph,
-        sources:ReadonlyMap<string,SourcePlan>,private readonly target:string,owners=new MigrationSchemaOwners(graph,sources),contexts:readonly ReferenceGraph[]=[graph]){
-        this.owners=owners;
+        private readonly target:string,private readonly owners:MigrationSchemaOwners,contexts:readonly ReferenceGraph[]){
         for(const reference of contexts.flatMap(context=>context.entryReferences())){
             if(reference.kind==='schema'&&!reference.connection&&reference.resolution==='resolved')
                 this.referenced.add(JSON.stringify([reference.targetResource,reference.targetPointer]));

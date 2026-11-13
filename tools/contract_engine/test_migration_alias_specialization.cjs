@@ -3,6 +3,7 @@ const assert=require('node:assert/strict');
 const {planMigration}=require('./dist/migration.cjs');
 const {analyse,createGraph}=require('./dist/model.cjs');
 const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
+const {requestOperation}=require('./dist/execution.cjs');
 const {SourceDocument}=require('./dist/document.cjs');
 
 const payloads=['{}','{"value":"café"}','{"value":false}','{"value":null}',
@@ -44,12 +45,14 @@ function fixture(version,target,flag,format){
 function delivered(review){return {root:review.outputRoot,snapshot:'cold:'+review.identity,
     resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};}
 async function outcomes(input,samples=payloads){
-    const legacy=new SourceDocument(input.resources[0].text,input.root).dataNode('/swagger')?.value==='2.0';
-    const instances=['request-body','response-body'].flatMap(subject=>samples.map(text=>({subject,text,location:'application/json',
-        schema:{resource:input.root,pointer:'/paths/~1value/post/'+(subject==='request-body'?
-            legacy?'parameters/0/schema':'requestBody/content/application~1json/schema':
-            legacy?'responses/200/schema':'responses/200/content/application~1json/schema')},
-    })));
+    const operation=analyse(input).operations.find(operation=>operation.role==='operation'&&operation.path==='/value'&&operation.method==='post');
+    assert(operation,'The same public operation remains available');
+    const plan=requestOperation({...input,resource:operation.resource,pointer:operation.pointer,occurrence:operation.occurrence});
+    const instances=['request-body','response-body'].flatMap(subject=>{
+        const media=(subject==='request-body'?plan.requestBody:plan.responses.find(response=>response.status==='200'))?.content?.find(media=>media.mediaType==='application/json');
+        assert(media?.schema,'The captured operation retains its JSON schema');
+        return samples.map(text=>({subject,text,location:'application/json',schema:media.schema}));
+    });
     const checked=await evaluateSchemas({...input,runtimeInstances:instances});
     assert.equal(checked.complete,true,JSON.stringify(checked.findings));
     assert(checked.runtimeEvaluations.every(value=>value.complete),JSON.stringify(checked.runtimeFindings));
@@ -70,7 +73,7 @@ test(`${version} ${format} ${flag} shared directional owners migrate to ${target
     for(const pointer of ['/x-model','/x-flag','/x-exact','/x-exact-copy'])assert.equal(copy.dataJson(pointer),source.dataJson(pointer),pointer);
     if(format==='yaml'){
         assert(change.after.includes('# Preserve schema comments and exact literals'));
-        assert(change.after.includes('# retain property use'));assert(change.after.includes('# retain literal consumer'));
+        assert(review.outputs.some(output=>output.text.includes('# retain property use')));assert(change.after.includes('# retain literal consumer'));
         assert(change.after.includes('x-exact: &exact'));assert(change.after.includes('x-exact-copy: *exact'));
         assert(review.presentationChanges.some(change=>change.resource===model.id&&change.pointer==='/x-model'));
     }

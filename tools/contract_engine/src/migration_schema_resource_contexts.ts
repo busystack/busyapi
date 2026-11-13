@@ -2,7 +2,7 @@ import {schemaResourceContextIdentity,sameSchemaDialect,type GraphScope,type Ref
 import {SourceError} from './document';
 import type {MigrationIssue} from './migration_schema';
 import type {SourceLocation} from './source_plan';
-import {modernFamily} from './specification';
+import {defaultSchemaDialect,modernFamily} from './specification';
 
 export type CapturedSchemaResource=Readonly<{
     identity:string;members:readonly GraphScope[];roots:readonly GraphScope[];
@@ -79,6 +79,13 @@ export function proveMigrationSchemaResources(source:ReferenceGraph,target:Refer
     const destinationOwners=new Map<string,string>();
     for(const identity of new Set([...critical,...dynamic])){
         const group=captured.get(identity);if(!group)continue;
+        const original=group.members[0],document=source.docs.get(original.resource)!;
+        let authoredDialect=source.docs.get(source.root)!.dataNode('/jsonSchemaDialect')!==undefined||document.dataNode('/jsonSchemaDialect')!==undefined;
+        for(let pointer=original.pointer;;pointer=pointer.slice(0,pointer.lastIndexOf('/'))){
+            inspect();
+            if(source.scopeAs(original.resource,pointer,'schema')&&document.dataNode(pointer+'/$schema'))authoredDialect=true;
+            if(!pointer)break;
+        }
         const destinations=new Map<string,Map<string,GraphScope>>();
         for(const member of group.members){
             inspect();const locations=mapped(member,member).flatMap(at=>{
@@ -88,7 +95,13 @@ export function proveMigrationSchemaResources(source:ReferenceGraph,target:Refer
             if(!preserveFamily&&locations.length&&locations.every(scope=>!modernFamily(scope.family)))continue;
             if(!locations.length){issue(member,'migration.invariant.resource-owner','A captured schema resource member has no retained semantic owner','implementation');continue;}
             for(const scope of locations){
-                inspect();if(!sameSchemaDialect(scope.dialect,member.dialect)||preserveFamily&&scope.family!==member.family)
+                // An explicit family conversion owns its native annotation
+                // mappings. Its un-authored known default follows that family;
+                // authored dialects remain a separate, exact resource contract.
+                const defaultTransition=!preserveFamily&&!authoredDialect&&modernFamily(member.family)&&modernFamily(scope.family)&&
+                    member.family!==scope.family&&sameSchemaDialect(member.dialect,defaultSchemaDialect(member.family))&&
+                    sameSchemaDialect(scope.dialect,defaultSchemaDialect(scope.family));
+                inspect();if(!sameSchemaDialect(scope.dialect,member.dialect)&&!defaultTransition||preserveFamily&&scope.family!==member.family)
                     issue(member,'migration.invariant.resource-dialect','The retained schema resource changes its captured effective dialect or family','implementation');
                 const id=schemaResourceContextIdentity(scope),members=destinations.get(id)??new Map<string,GraphScope>();
                 members.set(member.pointer,scope);destinations.set(id,members);

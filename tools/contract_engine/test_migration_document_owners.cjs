@@ -58,7 +58,9 @@ for(const format of ['yaml','json'])test(`${format} planning retains entry, dire
 for(const version of versions)for(const targetVersion of versions)for(const format of ['yaml','json'])for(const independent of [false,true])
 test(`${version} -> ${targetVersion} ${format} migrates captured ${independent?'API and schema':'schema'} documents together`,async()=>{
  const input={...fixture(version,format,independent),targetVersion},before=input.resources.map(r=>r.text);
- const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(result.status,'faithfully-convertible');assert.equal(result.outputs.length,input.resources.length);
+ const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(result.status,'faithfully-convertible');
+ for(const source of input.resources){const change=result.changes.find(change=>change.resource===source.id);assert(change,'Every captured source has a reviewed delivered copy');
+  assert.equal(result.outputs.find(output=>output.id===change.destination)?.text,change.after);}
  const descriptions=input.resources.filter(r=>Object.hasOwn(YAML.parse(r.text),'openapi')||Object.hasOwn(YAML.parse(r.text),'swagger'));
  assert.equal(result.manifest.roots.length,descriptions.length);
  assert(result.manifest.roots.every(root=>!root.path.includes('/')),'Every complete API must reopen within the output directory boundary');

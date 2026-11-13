@@ -67,7 +67,7 @@ function retainFormBodyHistory(source:SourcePlan,pointer:string,scope:GraphScope
 /** Evaluate actual target representation. A simple 3.x API can be faithfully
  * represented in Swagger; newer-only constructs receive located blockers. */
 export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,SourcePlan>,from:string,issue:MigrationIssue,
-    owners=new MigrationSchemaOwners(graph,sources),contexts:readonly ReferenceGraph[]=[graph],external?:MigrationInlineExamples):Map<string,SourceLocation> {
+    owners:MigrationSchemaOwners,contexts:readonly ReferenceGraph[],external?:MigrationInlineExamples):Map<string,SourceLocation> {
     const scopes=[...migrationScopes(contexts)];
     const serverRoutes=downgradeServers(graph,sources,from,issue,owners,contexts);
     const headerTargets=new Set([...migrationReferences(contexts)].filter(edge=>edge.kind==='header'&&edge.resolution==='resolved')
@@ -291,7 +291,7 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,SourceP
             if(value.type==='apiKey'&&!['query','header'].includes(value.in))issue(scope,'migration.security.location','Swagger API keys must be query or header parameters','target-representation');
         }
         if(scope.kind==='path-item'&&['summary','description'].some(name=>source.doc.dataNode(pointer+'/'+name))){
-            const documentation=owners.reserveDocumentation(scope,context,'path_item_documentation');
+            const documentation=owners.reserveSchema(scope,'path_item_documentation');
             owners.admit(documentation.source,4);documentation.source.set(documentation.location.pointer,{});
             for(const [name,field]of [['summary','title'],['description','description']])if(source.doc.dataNode(pointer+'/'+name)){
                 documentation.source.copy(source,pointer+'/'+name,documentation.location.pointer+'/'+field,true);

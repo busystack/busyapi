@@ -57,8 +57,8 @@ function discriminatorBindings(graph:ReferenceGraph,scope:GraphScope,selection:D
  * All copies and replacements belong to the existing CST/provenance owner. */
 export function migrateDirectionalSchemas(original:ReferenceGraph,graph:ReferenceGraph,
     sources:Map<string,SourcePlan>,families:readonly string[],target:string,issue:MigrationIssue,
-    createSchemaResource:()=>SourcePlan,contexts:readonly ReferenceGraph[],sourceContexts:readonly ReferenceGraph[]=[original],
-    owners=new MigrationSchemaOwners(graph,sources,createSchemaResource,[],contexts)):void {
+    createSchemaResource:()=>SourcePlan,contexts:readonly ReferenceGraph[],sourceContexts:readonly ReferenceGraph[],
+    owners:MigrationSchemaOwners):void {
     const converting=new Set(families.filter(family=>family==='2.0'&&target!=='2.0'||
         family==='3.0'&&(modernFamily(target)||target==='2.0')||modernFamily(family)&&target==='2.0'));
     if(!converting.size)return;

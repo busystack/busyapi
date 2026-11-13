@@ -254,10 +254,10 @@ const annotation=(name:string)=>name.startsWith('x-')||['title','description','e
  * their type and base64 spelling. Raw leaves are outside JSON types in modern
  * OAS; only proved raw occurrences can lose the legacy octet-string type.
  * Assertions with no established raw-instance mapping remain located blockers. */
-export async function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<string,SourcePlan>,from:string,to:string,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph]):Promise<ReadonlySet<string>> {
+export async function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<string,SourcePlan>,from:string,to:string,issue:MigrationIssue,owners:MigrationSchemaOwners,contexts:readonly ReferenceGraph[]):Promise<ReadonlySet<string>> {
     const rawScopes=new Set<string>();
     if(!((from==='2.0'||from==='3.0')&&modernFamily(to)||from==='2.0'&&to==='3.0'||modernFamily(from)&&(to==='3.0'||to==='2.0')))return rawScopes;
-    const uses=new BinaryUses(graph,contexts),owners=new MigrationSchemaOwners(graph,sources,undefined,[],contexts);
+    const uses=new BinaryUses(graph,contexts);
     if(modernFamily(from)!==modernFamily(to)){
         await uses.prepare();
         uses.constraints.projectGuards(sources,from);

@@ -42,7 +42,8 @@ export function repairMigrationOwnerReferences(contexts:readonly DocumentContext
     const inspect=()=>{if(++work>2000000)throw new SourceError('limit.migration.owners','Owner reference repair exceeds 2000000 captured states');};
     const same=(a:SourceLocation,b:SourceLocation)=>a.resource===b.resource&&a.pointer===b.pointer;
     for(const {graph}of contexts)for(const reference of graph.entryReferences()){
-        const contextual=reference.keyword==='$dynamicRef'||reference.connection==='security';
+        const dynamic=!reference.connection&&reference.keyword==='$dynamicRef';
+        const contextual=dynamic||reference.connection==='security';
         if(phase==='static'&&contextual||phase==='contextual'&&!contextual)continue;
         inspect();if(reference.resolution!=='resolved'||
             reference.connection&&!['discriminator','operationRef'].includes(reference.connection)&&!(reference.connection==='security'&&reference.targetUri!==undefined))continue;
@@ -60,7 +61,7 @@ export function repairMigrationOwnerReferences(contexts:readonly DocumentContext
             issue(field,'migration.owners.reference-target','This typed connection has no unique retained material target','implementation');continue;
         }
         let value=targets[0].resource+pointerFragment(targets[0].pointer);
-        if(reference.keyword==='$dynamicRef'&&reference.dynamic){
+        if(dynamic&&reference.dynamic){
             const preparedGraph=graphs.get(graph.root);
             const targetScope=preparedGraph?.scopeAs(targets[0].resource,targets[0].pointer,'schema');
             if(!targetScope||preparedGraph!.docs.get(targetScope.resource)!.dataNode(targetScope.pointer+'/$dynamicAnchor')?.value!==reference.dynamic.anchor){
@@ -78,7 +79,7 @@ export function repairMigrationOwnerReferences(contexts:readonly DocumentContext
                 if(selected===undefined){issue(field,'migration.owners.security-binding','The captured security URI has no distinct proved terminal spelling','implementation');continue;}
                 value=selected;names.delete(segments(at.pointer).at(-1)!);names.add(value);
             }
-            if(reference.keyword==='$dynamicRef'){
+            if(dynamic){
                 const preparedGraph=graphs.get(graph.root),ownerScope=preparedGraph?.scopeAs(at.resource,at.pointer.slice(0,at.pointer.lastIndexOf('/')),'schema');
                 const rebound=ownerScope&&preparedGraph!.resolveReference(value,ownerScope,'$dynamicRef');
                 if(rebound?.resolution!=='resolved'||rebound.targetResource!==targets[0].resource||rebound.targetPointer!==targets[0].pointer||

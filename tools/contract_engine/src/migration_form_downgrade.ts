@@ -33,7 +33,7 @@ export function downgradeFormBody(graph:ReferenceGraph,source:SourcePlan,scope:G
     }
     const annotations=[...body.children.keys()].filter(name=>name==='description'||name.startsWith('x-'));
     if(annotations.length){
-        const retained=owners.reserveDocumentation(scope,graph,'form_body_metadata');owners.admit(retained.source,4);
+        const retained=owners.reserveSchema(scope,'form_body_metadata');owners.admit(retained.source,4);
         retained.source.set(retained.location.pointer,{});
         retained.source.associate(source,pointer,retained.location.pointer);
         for(const name of annotations){

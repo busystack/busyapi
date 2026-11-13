@@ -180,24 +180,29 @@ for(const format of ['yaml','json'])for(const value of [false,[],{trigger:0},{tr
 });
 test('independent map schema interpretation is a located blocker instead of a guessed context split',async()=>{
  const input=capture('3.1.2','json'),resource=input.resources[0];resource.text=new SourceDocument(resource.text,resource.id).set('/components/schemas/Map',{$ref:'#/components/schemas/Model/dependentSchemas'});const original=resource.text,result=await planMigration({...input,targetVersion:'3.0.4'});
- assert.equal(result.status,'blocked');assert.deepEqual(result.outputs,[]);assert(result.problems.some(problem=>problem.pointer==='/components/schemas/Model/dependentSchemas'));assert.equal(resource.text,original);
+ assert.equal(result.status,'blocked');assert.deepEqual(result.outputs,[]);
+ assert(result.problems.some(problem=>problem.resource===resource.id&&problem.pointer==='/components/schemas/Model/dependentSchemas/trigger'&&problem.code==='migration.validation.schema.keyword.invalid'&&problem.reason==='target-representation'&&problem.range[1]>problem.range[0]));assert.equal(resource.text,original);
 });
 for(const flow of [false,true])test(`YAML flow=${flow} conditional schema retains repeated comments once per authored occurrence`,async()=>{
  const input=capture('3.2.1','yaml'),resource=input.resources[0];
  resource.text='openapi: 3.2.1\r\ninfo: {title: Comments, version: API-1}\r\npaths: {}\r\nx-literal: {dependentSchemas: {trigger: false}, exact: 9007199254740993.00}\r\ncomponents:\r\n  schemas:\r\n    Model:\r\n      dependentSchemas: '+(flow?'{\r\n        # Repeated conditional comment\r\n        # Repeated conditional comment\r\n        trigger: {required: [value]}}\r\n':'\r\n        # Repeated conditional comment\r\n        # Repeated conditional comment\r\n        trigger: {required: [value]}\r\n');
- const {result}=await faithful(input,'3.0.4');assert.equal(result.outputs[0].text.split('# Repeated conditional comment').length-1,2,result.outputs[0].text);
+ const {result}=await faithful(input,'3.0.4');assert.equal(result.outputs.reduce((count,output)=>count+output.text.split('# Repeated conditional comment').length-1,0),2);
 });
 for(const placement of ['key','value'])test(`YAML ${placement} comments move once and comment-looking strings remain values`,async()=>{
  const input=capture('3.1.2','yaml'),resource=input.resources[0],literal='# Repeated conditional comment';
  const child='{required: [value], description: "'+literal+'"}';
  resource.text='openapi: 3.1.2\r\ninfo: {title: Comments, version: API-1}\r\npaths: {}\r\nx-literal: {dependentSchemas: {trigger: false}, exact: 9007199254740993.00}\r\ncomponents:\r\n  schemas:\r\n    Model:\r\n      dependentSchemas:\r\n'+(placement==='key'?'        trigger: # Repeated conditional comment\r\n          # Repeated conditional comment\r\n          '+child+'\r\n':'        trigger: '+child+' # Repeated conditional comment\r\n        # Repeated conditional comment\r\n');
- const {result}=await faithful(input,'3.0.4'),text=result.outputs[0].text,doc=new SourceDocument(text,result.outputRoot);
- assert.equal(doc.comments('',true).filter(range=>text.slice(...range)===literal).length,2,text);
- assert.equal([...doc.nodes.values()].filter(node=>node.pointer.endsWith('/description')&&node.value===literal).length,1,text);
+ const {result}=await faithful(input,'3.0.4'),docs=result.outputs.map(output=>new SourceDocument(output.text,output.id));
+ assert.equal(docs.reduce((count,doc)=>count+doc.comments('',true).filter(range=>doc.text.slice(...range)===literal).length,0),2);
+ assert.equal(docs.reduce((count,doc)=>count+[...doc.nodes.values()].filter(node=>node.pointer.endsWith('/description')&&node.value===literal).length,0),1);
 });
-test('YAML shared conditional schema cannot be rewritten through an ambiguous alias',async()=>{
+test('YAML shared conditional schema retains its independent alias value and conditional semantics',async()=>{
  const input=capture('3.1.2','yaml'),resource=input.resources[0];resource.text='openapi: 3.1.2\ninfo: {title: Shared, version: API-1}\npaths: {}\ncomponents:\n  schemas:\n    Model:\n      dependentSchemas:\n        trigger: &held {required: [value]}\n    Independent: *held\n';
- const original=resource.text,result=await planMigration({...input,targetVersion:'3.0.4'});assert.equal(result.status,'blocked');assert.deepEqual(result.outputs,[]);assert(result.problems.some(problem=>problem.range[1]>problem.range[0]&&problem.resource===resource.id));assert.equal(resource.text,original);
+ const original=resource.text,result=await planMigration({...input,targetVersion:'3.0.4'});assert.equal(result.complete,true,JSON.stringify(result.problems));
+ const output=after(result);assert.equal(analyse(output).status,'complete');
+ assert.deepEqual(await outcomes(output,'/components/schemas/Model'),await outcomes(input,'/components/schemas/Model'));
+ assert.deepEqual(await outcomes(output,'/components/schemas/Independent'),await outcomes(input,'/components/schemas/Independent'));
+ assert.equal(resource.text,original);
 });
 
 for(const format of ['yaml','json'])for(const mode of ['false','true'])

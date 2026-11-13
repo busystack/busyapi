@@ -6,6 +6,7 @@ const {requestOperation}=require('./dist/execution.cjs');
 const {planMigration}=require('./dist/migration.cjs');
 const {SourceDocument}=require('./dist/document.cjs');
 const {createHash}=require('node:crypto');
+const {Parser}=require('commonmark');
 
 function capture(version,method,format,referenced=false) {
  const root='file:///ignored-body/api.'+format,bodyId='file:///ignored-body/body.'+format;
@@ -28,9 +29,12 @@ for(const format of ['yaml','json'])test(`B05-R1 ${format} referenced literal op
  const packet={root:result.outputRoot,snapshot:'cold-referenced-bodies',resources:outputs(result)},{graph}=require('./dist/model.cjs').createGraph(packet);
  assert.equal(graph.operations().length,0);
  for(const [name,active]of [['Ignored',false],['Active',true]]){
-  const link=graph.referenceAs(packet.root,'/components/links/'+name,'operationRef','operation');assert.equal(link.resolution,'resolved');
+  let resource=packet.root,pointer='/components/links/'+name;const seen=new Set();
+  while(true){const ref=graph.referenceAs(resource,pointer,'$ref','link');if(!ref)break;
+   assert.equal(ref.resolution,'resolved');assert(!seen.has(resource+'#'+pointer));seen.add(resource+'#'+pointer);resource=ref.targetResource;pointer=ref.targetPointer;
+  }
+  const link=graph.entryReferences().find(reference=>reference.resource===resource&&reference.pointer===pointer&&reference.connection==='operationRef');assert.equal(link.resolution,'resolved');
   assert.equal(!!graph.docs.get(link.targetResource).dataNode(link.targetPointer+'/requestBody'),active);
-  assert.equal(link.targetPointer.split('/').at(-1),active?'post':'get');
  }
  const original=new SourceDocument(text,root),target=new SourceDocument(result.outputs.find(output=>output.id===packet.root).text,packet.root);
  assert.equal(target.dataJson('/x-data'),original.dataJson('/x-data'));assert.equal(input.resources[0].text,text);
@@ -108,7 +112,8 @@ for(const version of ['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4'])for(const format 
  const resources=outputs(result),target={root:result.outputRoot,snapshot:'cold-swagger',resources};assert.equal(analyse(target).status,'complete');
  const doc=new SourceDocument(resources.find(r=>r.id===target.root).text,target.root),source=new SourceDocument(before[0],input.root);assert.equal(doc.node('/swagger').value,'2.0');assert.equal(doc.node('/info/version').value,'api-version');assert.equal(doc.dataNode(pointer),undefined);assert.equal(doc.dataJson('/x-kept'),source.dataJson('/x-kept'));
  const plan=operation(target);assert.equal(plan.operation.method,method.toUpperCase());assert.equal(plan.requestBody,undefined);assert.equal(plan.ignoredRequestBody,undefined);
- if(referenced)assert.equal(result.outputs.find(o=>o.id!==result.outputRoot).text,before[1]);
+ if(referenced){const copied=result.changes.find(change=>change.resource===input.resources[1].id);assert(copied);
+  assert.equal(result.outputs.find(output=>output.id===copied.destination).text,before[1]);}
  if(format==='yaml')assert(doc.text.startsWith('# Preserve comments 雪\r\n'));
  assert.deepEqual(input.resources.map(r=>r.text),before);
  const changed={...input,resources:input.resources.map((r,i)=>i? r:{...r,generation:r.generation+1,text:r.text.replace('Ignored body 雪','Changed 雪')})};
@@ -152,7 +157,16 @@ for(const format of ['yaml','json'])for(const metadata of ['schema','example','r
   assert.equal(result.complete,true,JSON.stringify(result.problems));const resources=outputs(result),analysis=analyse({root:result.outputRoot,snapshot:'shared-swagger',resources});assert.equal(analysis.status,'complete');
   for(const op of analysis.operations){const plan=requestOperation({root:result.outputRoot,snapshot:'shared-swagger',resources,resource:op.resource,pointer:op.pointer,occurrence:op.occurrence});assert.equal(!!plan.requestBody,op.method==='post');if(metadata==='example'&&plan.requestBody)assert.equal(plan.requestBody.content[0].examples[0].raw,'"snow 雪"');}
  }else{
-  assert.equal(result.status,'blocked');assert.deepEqual(result.outputs,[]);assert(result.problems.some(p=>p.code==='migration.description.relative-links'),JSON.stringify(result.problems));
+  assert.equal(result.complete,true,JSON.stringify(result.problems));const packet={root:result.outputRoot,snapshot:'cold-body-documentation',resources:outputs(result)},analysis=analyse(packet);
+  const op=analysis.operations.find(operation=>operation.method==='post');assert(op);
+  const body=requestOperation({...packet,resource:op.resource,pointer:op.pointer,occurrence:op.occurrence}).requestBody;assert(body);
+  const graph=require('./dist/model.cjs').createGraph(packet).graph,destinations=[];
+  for(const scope of graph.entryScopes())if(['schema','parameter'].includes(scope.kind)){
+   const description=graph.docs.get(scope.resource).dataNode(scope.pointer+'/description')?.value;if(typeof description!=='string')continue;
+   const walker=new Parser().parse(description).walker();let event;
+   while(event=walker.next())if(event.entering&&event.node.type==='link')destinations.push(event.node.destination);
+  }
+  assert(destinations.includes('file:///ignored-body/guide.md'),'The active body retains a rendered documentation owner with the same link target');
  }
  assert.deepEqual(input.resources.map(r=>r.text),before);
 });

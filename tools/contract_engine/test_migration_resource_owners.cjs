@@ -2,6 +2,7 @@ const {test}=require('node:test'),assert=require('node:assert/strict'),{readFile
 const {planMigration}=require('./dist/migration.cjs'),{analyse,createGraph}=require('./dist/model.cjs');
 const {evaluateSchemas}=require('./dist/schema_evaluation.cjs'),{SourceDocument}=require('./dist/document.cjs');
 const {resolveUri}=require('./dist/reference_graph.cjs');
+const {Parser}=require('commonmark');
 const first='file:///owners/a.json',second='file:///owners/b.json',model='file:///owners/model.json';
 const corpus=JSON.parse(readFileSync(join(__dirname,'../../fixtures/json_schema_2020_12/dynamicRef.json'),'utf8'));
 const descriptions=[
@@ -60,7 +61,9 @@ for(const format of ['yaml','json'])test(`${format} resource specialization reta
   const graph=createGraph({...cold,root}).graph,owner=graph.referenceAs(root,'/components/schemas/Model','$ref','schema');
   const scope=graph.scopeAs(owner.targetResource,owner.targetPointer,'schema'),doc=graph.docs.get(scope.resource);
   assert.notEqual(scope.base,schema.$id);assert.equal(doc.dataJson(scope.pointer+'/x-literal'),source.dataJson('/x-literal'));
-  assert.equal(resolveUri(doc.dataNode(scope.pointer+'/description').value.match(/\]\(([^)]+)\)/)[1],scope.base).href,'https://schemas.invalid/base/guide.md');
+  const walker=new Parser().parse(doc.dataNode(scope.pointer+'/description').value).walker();let link,event;
+  while(event=walker.next())if(event.entering&&event.node.type==='link')link=event.node.destination;
+  assert.equal(resolveUri(link,scope.base).href,'https://schemas.invalid/base/guide.md');
   assert.equal(doc.dataNode(scope.pointer+'/externalDocs/url').value,'https://schemas.invalid/base/guide.md');
  }
  assert.equal(review.outputs.find(value=>value.id===review.changes.find(value=>value.resource===id).destination).text,input.resources[2].text);
@@ -96,6 +99,10 @@ for(const format of ['yaml','json'])test(`${format} partial resource owners pres
   value.components.schemas.Strict={$ref:'model.json#/Strict'};resource.text=JSON.stringify(value);
  }
  input.resources[2].text=(format==='yaml'?'# Keep partial resource 雪\r\n'+YAML.stringify(schema).replaceAll('\n','\r\n'):JSON.stringify(schema)).replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ if(format==='yaml'){
+  input.resources[2].id=model.replace('.json','.yaml');
+  for(const resource of input.resources)resource.text=resource.text.replaceAll('model.json','model.yaml');
+ }
  const texts=['{"n":9007199254740993}','{"n":9007199254740993,"strict":true}',
   '{"n":9007199254740993,"strict":true,"next":{"n":9007199254740993}}',
   '{"n":9007199254740993,"strict":true,"next":{"n":9007199254740993,"strict":true}}',
@@ -114,7 +121,7 @@ for(const format of ['yaml','json'])test(`${format} partial resource owners pres
   assert.deepEqual(await outcomes(cold,root,samples),[true,true,true,true,false]);
   assert.deepEqual(await strict(cold,root),[false,true,false,true,false]);
  }
- assert.equal(review.outputs.find(output=>output.id===review.changes.find(change=>change.resource===model).destination).text,input.resources[2].text);
+ assert.equal(review.outputs.find(output=>output.id===review.changes.find(change=>change.resource===input.resources[2].id).destination).text,input.resources[2].text);
 });
 
 for(const targetVersion of ['2.0','3.0.4'])test(`partial resource owners lower fixed recursive dynamic binding to ${targetVersion}`,async()=>{
@@ -137,17 +144,19 @@ for(const targetVersion of ['2.0','3.0.4'])test(`partial resource owners lower f
 for(const owner of ['document-alias','example-alias'])test(`generated schema identities avoid captured ${owner} collisions`,async()=>{
  const input={...packet({$id:'https://schemas.invalid/model',type:'string'}),targetVersion:'3.2.1'};
  const initial=await planMigration(input);assert.equal(initial.complete,true,JSON.stringify(initial.problems));
- const output=initial.outputs.find(value=>value.id===initial.outputRoot),value=JSON.parse(output.text);
- const generated=Object.values(value.components.schemas).find(value=>typeof value.$id==='string');assert(generated);
- const reserved=generated.$id;
+ const identityOf=review=>{
+  const graph=createGraph({root:review.outputRoot,snapshot:'cold-identity',resources:review.outputs.map(value=>({id:value.id,text:value.text,generation:0}))}).graph;
+  const reference=graph.referenceAs(review.outputRoot,'/components/schemas/Model','$ref','schema');assert.equal(reference.resolution,'resolved');
+  const scope=graph.scopeAs(reference.targetResource,reference.targetPointer,'schema');assert(scope);return scope.base;
+ };
+ const reserved=identityOf(initial);
  if(owner==='document-alias')input.resources.push({id:'file:///owners/reserved.json',text:'{"literal":true}',generation:0,aliases:[reserved]});
  else{
   const bytes=Buffer.from('null');input.exampleResources=[{version:1,id:'file:///owners/reserved-example.json',aliases:[reserved],generation:0,
    state:'available',base64:bytes.toString('base64'),byteLength:bytes.length,identity:createHash('sha256').update(bytes).digest('hex')}];
  }
  const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
- const result=JSON.parse(review.outputs.find(value=>value.id===review.outputRoot).text);
- const identity=Object.values(result.components.schemas).find(value=>typeof value.$id==='string').$id;
+ const identity=identityOf(review);
  assert.notEqual(identity,reserved);
  const cold={snapshot:'collision-cold',resources:review.outputs.map(value=>({id:value.id,text:value.text,generation:0}))};
  assert.deepEqual(await outcomes(cold,review.outputRoot,[{text:'"雪"',description:'valid'},{text:'null',description:'invalid'}]),[true,false]);

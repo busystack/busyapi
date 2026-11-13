@@ -63,11 +63,18 @@ for(const name of ['id/~雪','__proto__'])for(const flag of ['readOnly','writeOn
  assert.equal(source.text,before);
 });
 
-for(const flag of ['readOnly','writeOnly'])for(const required of [false,true])test(`YAML aliased ${flag} required=${required} retains logical owners and shared syntax`,async()=>{
+for(const flag of ['readOnly','writeOnly'])for(const required of [false,true])test(`YAML aliased ${flag} required=${required} retains neutral public values`,async()=>{
  const input=capture('3.0.4','3.1.2',flag,'yaml','optional'),source=input.resources[0];source.text=`# Keep shared source\r\nopenapi: 3.0.4\r\ninfo: {title: Shared, version: "1"}\r\npaths: {}\r\ncomponents:\r\n  schemas:\r\n    Model:\r\n      type: object\r\n${required?'      required: [second]\r\n':''}      properties:\r\n        first: &value {type: string, ${flag}: true}\r\n        second: *value\r\n`;const before=source.text,result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));
  const output=result.outputs.find(value=>value.id===result.outputRoot).text;
- assert(output.includes('&value {type: string, '+flag+': true}'));assert(output.includes('second: *value\r\n'));assert(output.startsWith('# Keep shared source\r\n'));
- assert.deepEqual(new SourceDocument(output,result.outputRoot).node('/components/schemas/Model').value,
+ const docs=new Map(result.outputs.map(value=>[value.id,new SourceDocument(value.text,value.id)]));
+ let resource=result.outputRoot,pointer='/components/schemas/Model';const seen=new Set();
+ while(typeof docs.get(resource).dataNode(pointer)?.value?.$ref==='string'){
+  assert(!seen.has(resource+'#'+pointer));seen.add(resource+'#'+pointer);
+  const target=new URL(docs.get(resource).dataNode(pointer).value.$ref,resource);pointer=decodeURIComponent(target.hash.slice(1));target.hash='';resource=target.href;
+  assert(docs.has(resource),'A public neutral alias must select delivered bytes');
+ }
+ assert(output.startsWith('# Keep shared source\r\n'));
+ assert.deepEqual(docs.get(resource).node(pointer).value,
   new SourceDocument(before,input.root).node('/components/schemas/Model').value,'A neutral definition has no directional required rewrite');
  assert.equal(source.text,before);
 });
@@ -87,6 +94,8 @@ for(const format of ['yaml','json'])test(`${format} an ignored 3.0 writeOnly ref
  const converted={root:review.outputRoot,snapshot:'ignored-swagger-cold',resources:review.outputs.map(output=>({...output,generation:0}))};
  assert.deepEqual(await evaluations(converted),expected);
  const output=new SourceDocument(converted.resources.find(resource=>resource.id===converted.root).text,converted.root);
- assert.equal(output.node('/definitions/Model/properties/value/writeOnly').value,true);
+ assert.equal(output.dataNode('/definitions/Model/properties/value/writeOnly'),undefined);
+ assert(review.outputs.some(file=>[...new SourceDocument(file.text,file.id).nodes.values()].some(node=>
+  node.pointer.endsWith('/x-busyapi-retained-value')&&node.value===true)),'The ignored annotation value remains in reviewed output');
  assert.equal(source.text,before);
 });

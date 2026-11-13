@@ -17,7 +17,7 @@ const schemaFields=['type','format','items','default','maximum','exclusiveMaximu
 
 /** Structural mappings use native graph occurrences and effective parameters,
  * including inherited body/form parameters. No guessed traversal of payloads. */
-export function upgradeSwagger(graph:ReferenceGraph,sources:Map<string,SourcePlan>,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph],targetFamily='3.0',owners=new MigrationSchemaOwners(graph,sources,undefined,[],contexts)) {
+export function upgradeSwagger(graph:ReferenceGraph,sources:Map<string,SourcePlan>,issue:MigrationIssue,contexts:readonly ReferenceGraph[],targetFamily:string,owners:MigrationSchemaOwners) {
     const scopes=[...migrationScopes(contexts)].sort((a,b)=>a.resource.localeCompare(b.resource)||a.pointer.localeCompare(b.pointer));
     // Swagger Info text becomes a URL in 3.0 (§4.7.2). A URI-looking
     // string does not itself establish the author's intent to activate a link.

@@ -34,6 +34,12 @@ function fixture(version,format,policy,targetVersion,external=false){
 }
 function delivered(review){return {root:review.outputRoot,snapshot:'cold:'+review.identity,
     resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};}
+function concrete(graph,resource,pointer){
+ const seen=new Set();
+ while(true){const edge=graph.referenceAs(resource,pointer,'$ref','schema');if(!edge)return {doc:graph.docs.get(resource),pointer};
+  assert.equal(edge.resolution,'resolved');assert(!seen.has(resource+'#'+pointer));seen.add(resource+'#'+pointer);resource=edge.targetResource;pointer=edge.targetPointer;
+ }
+}
 async function outcomes(input,policy){
     const swagger=new SourceDocument(input.resources.find(resource=>resource.id===input.root).text,input.root).dataNode('/swagger')?.value==='2.0';
     const prefix=swagger?'/definitions':'/components/schemas';
@@ -63,10 +69,12 @@ test(`${version} ${format} additionalProperties ${policy} retains field and stan
     assert.deepEqual(await outcomes(output,policy),before);
     const {graph}=createGraph(output),prefix=targetVersion==='2.0'?'/definitions':'/components/schemas';
     const detached=graph.referenceAs(output.root,prefix+'/Detached','$ref','schema');
-    assert.equal(detached.resolution,'resolved');assert.equal(detached.targetResource,output.root);
-    assert.equal(detached.targetPointer,prefix+'/'+input.reserved+'_1');
+    assert.equal(detached.resolution,'resolved');
+    assert(detached.targetResource!==output.root||detached.targetPointer!==prefix+'/'+input.reserved,'An existing numeric definition must retain its independent owner');
+    assert.equal(graph.docs.get(detached.targetResource).dataNode(detached.targetPointer).kind,'object');
     const doc=graph.docs.get(output.root);
-    assert.equal(doc.dataNode(prefix+'/Model/additionalProperties').value,policy);
+    const model=concrete(graph,output.root,prefix+'/Model');
+    assert.equal(model.doc.dataNode(model.pointer+'/additionalProperties').value,policy);
     assert.equal(doc.dataNode(prefix+'/'+input.reserved+'/type').value,'number');
     assert.equal(doc.dataNode(prefix+'/additionalProperties').kind,'object');
     assert.equal(doc.dataNode(prefix+'/NamedField/properties/additionalProperties').kind,'object');
@@ -87,11 +95,14 @@ test(`${format} a referenced external boolean field has a target-owned definitio
     const output=delivered(review);assert.deepEqual(await outcomes(output,policy),before);
     const {graph}=createGraph(output),prefix=targetVersion==='2.0'?'/definitions':'/components/schemas';
     const model=graph.referenceAs(output.root,prefix+'/Model','$ref','schema');assert.equal(model.resolution,'resolved');
-    const doc=graph.docs.get(model.targetResource);
-    assert.equal(doc.dataNode(model.targetPointer+'/additionalProperties').value,policy);
+    const selected=concrete(graph,model.targetResource,model.targetPointer);
+    assert.equal(selected.doc.dataNode(selected.pointer+'/additionalProperties').value,policy);
     const detached=graph.referenceAs(output.root,prefix+'/Detached','$ref','schema');
-    assert.equal(detached.targetResource,output.root);assert.equal(detached.targetPointer,prefix+'/'+input.reserved+'_1');
-    if(format==='yaml')assert.equal(doc.dataJson('/x-literal'),new SourceDocument(original[1],input.owner).dataJson('/x-literal'));
+    assert.equal(detached.resolution,'resolved');assert(detached.targetResource!==output.root||detached.targetPointer!==prefix+'/'+input.reserved);
+    if(format==='yaml'){
+        const copy=review.changes.find(change=>change.resource===input.owner),doc=new SourceDocument(review.outputs.find(output=>output.id===copy.destination).text,copy.destination);
+        assert.equal(doc.dataJson('/x-literal'),new SourceDocument(original[1],input.owner).dataJson('/x-literal'));
+    }
     assert.deepEqual(input.resources.map(resource=>resource.text),original);
 });
 

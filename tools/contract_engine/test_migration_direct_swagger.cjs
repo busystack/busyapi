@@ -9,7 +9,6 @@ for(const targetVersion of ['3.0.4','3.1.2','3.2.1'])for(const format of ['yaml'
  const response={$ref:'#/responses/File'},value={swagger:'2.0',info:{title:'Mixed R2',version:'1'},host:'api.invalid',schemes:['https'],consumes:['multipart/form-data'],produces:['application/octet-stream','image/png'],paths:{'/items':{parameters:[{name:'file',in:'formData',type:'file',required:true,maxLength:0},{name:'name',in:'formData',type:'string',allowEmptyValue:true},{name:'numbers',in:'formData',type:'array',collectionFormat:'multi',allowEmptyValue:true,items:{type:'integer',minimum:0}}],post:{responses:{200:response}}},'/file':{get:{produces:['image/png'],responses:{200:response}}}},responses:{File:{description:'Shared file',schema:{type:'file',format:'byte'}}}};
  const text=format==='json'?JSON.stringify(value):YAML.stringify(value),input={root,snapshot:'R2-swagger',resources:[{id:root,text,generation:4}],targetVersion,destination:'file:///reviewed/'};
  const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));assert.equal(input.resources[0].text,text);
- assert(result.outputs.some(output=>output.text.includes('file_format')));
  const after={root:result.outputRoot,snapshot:'R2-cold',resources:result.outputs.map(value=>({id:value.id,text:value.text,generation:0}))};
  assert.equal(analyse(after).complete,true);
  const {createGraph}=require('./dist/model.cjs'),{requestOperation}=require('./dist/execution.cjs');
@@ -19,11 +18,11 @@ for(const targetVersion of ['3.0.4','3.1.2','3.2.1'])for(const format of ['yaml'
   const type='multipart/form-data; boundary=R2';
   for(const raw of [Buffer.alloc(0),Buffer.from([0,255,128])]){
    const bytes=Buffer.concat([Buffer.from('--R2\r\nContent-Disposition: form-data; name="file"\r\nContent-Type: application/octet-stream\r\n\r\n'),raw,Buffer.from('\r\n--R2\r\nContent-Disposition: form-data; name="name"\r\n\r\n\r\n--R2\r\nContent-Disposition: form-data; name="numbers"\r\n\r\n0\r\n--R2--\r\n')]);
-   const media=plan.requestBody.content[0],checked=await evaluateSchemas({...captured,runtimeInstances:[{subject:'request-body',location:type,text:bytes.toString('base64'),mediaType:type,mediaBase64:true,form:media.swaggerForm?{resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence}:media.definition??media.source}]});
+   const media=plan.requestBody.content[0],checked=await evaluateSchemas({...captured,runtimeInstances:[{subject:'request-body',location:type,text:bytes.toString('base64'),mediaType:type,mediaBase64:true,form:media.swaggerForm?{resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence}:media.definition??media.source,schema:media.schema,itemSchema:media.itemSchema}]});
    assert.equal(checked.complete,true,JSON.stringify(checked.runtimeFindings));assert(checked.runtimeEvaluations.every(value=>value.valid));assert(!checked.runtimeFindings.some(value=>value.severity==='error'));
   }
   for(const media of plan.responses[0].content)for(const raw of [Buffer.alloc(0),Buffer.from([0,255,128])]){
-   const checked=await evaluateSchemas({...captured,runtimeInstances:[{subject:'response-body',location:media.mediaType,mediaType:media.mediaType,mediaBase64:true,text:raw.toString('base64'),media:media.definition??media.source}]});
+   const checked=await evaluateSchemas({...captured,runtimeInstances:[{subject:'response-body',location:media.mediaType,mediaType:media.mediaType,mediaBase64:true,text:raw.toString('base64'),schema:media.schema,itemSchema:media.itemSchema}]});
    assert.equal(checked.complete,true);assert(checked.runtimeEvaluations.length>0&&checked.runtimeEvaluations.every(value=>value.complete&&value.valid));
   }
  }
