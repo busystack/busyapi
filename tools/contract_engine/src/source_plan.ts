@@ -226,7 +226,10 @@ export class SourcePlan {
                 this.set(to,null);const slot=this.doc.node(to),depth=this.doc.indent(slot.range[0]);
                 this.update(this.doc.replace(...slot.range,this.doc.newline+' '.repeat(depth+2)+local.replaceAll(this.doc.newline,this.doc.newline+' '.repeat(depth+2))));
             }
-        }else if(before.format===this.doc.format&&!block){
+        // A block/plain scalar token may be invalid inside a flow collection.
+        // The existing exact-value branch supplies the required quoted form.
+        }else if(before.format===this.doc.format&&!block&&
+            !(before.format==='yaml'&&owner.flow&&node.kind==='scalar'&&typeof node.value==='string'&&!node.style?.startsWith('QUOTE_'))){
             this.set(to,null);const slot=this.doc.node(to),raw=before.text.slice(...node.range);
             const indent=before.indent(node.range[0]),depth=this.doc.indent(slot.range[0]);
             // A comment copied after a flow delimiter needs leading separation

@@ -23,7 +23,7 @@ test(`R3 ${format} ${variant} refuses the complete binary transaction without pa
  const result=await planMigration(input);assert.equal(result.complete,false);assert.equal(result.status,'blocked');
  assert.deepEqual(result.outputs,[]);assert.deepEqual(result.changes,[]);assert.equal(input.resources[0].text,text);
  assert(result.problems.some(problem=>problem.resource===root&&problem.range[1]>problem.range[0]),JSON.stringify(result.problems));
- if(variant==='budget')assert(result.problems.some(problem=>problem.code.startsWith('limit.migration.binary')&&problem.reason==='unavailable-proof'),JSON.stringify(result.problems));
+ if(variant==='budget')assert(result.problems.some(problem=>problem.code.startsWith('limit.')&&problem.reason==='unavailable-proof'&&problem.pointer.includes('/schema/')),JSON.stringify(result.problems));
  if(variant==='invalid')assert(result.problems.some(problem=>problem.code.startsWith('migration.validation.')&&problem.reason==='source-incomplete'),JSON.stringify(result.problems));
 });
 function capture(version,format,type,schema,targetVersion){
@@ -48,11 +48,11 @@ for(const format of ['yaml','json'])test(`R3 ${format} mixed entries prepare pri
  }
  assert.deepEqual(input.resources.map(resource=>resource.text),original);
 });
-async function bodyWire(input,type,bytes,path='/bytes'){
+async function bodyWire(input,type,bytes,path='/bytes',form=false){
  const {graph}=createGraph(input),operation=graph.operations().find(value=>value.path===path);
  const plan=requestOperation({...input,resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
  const content=[plan.requestBody.content.find(value=>value.mediaType===type),plan.responses.find(value=>value.status==='200').content.find(value=>value.mediaType===type)];
- const checked=await evaluateSchemas({...input,runtimeInstances:content.map((value,index)=>({subject:index?'response-body':'request-body',location:type,text:bytes.toString('base64'),mediaBase64:true,mediaType:type,media:value.definition??value.source}))});
+ const checked=await evaluateSchemas({...input,runtimeInstances:content.map((value,index)=>({subject:index?'response-body':'request-body',location:type,text:bytes.toString('base64'),mediaBase64:true,mediaType:type,...(form?{form:value.definition??value.source,schema:value.schema,itemSchema:value.itemSchema}:{media:value.definition??value.source})}))});
  assert.equal(checked.complete,true,JSON.stringify(checked.runtimeFindings));assert.equal(checked.runtimeEvaluations.length,2);
  return checked.runtimeEvaluations.map(value=>({complete:value.complete,valid:value.valid}));
 }
@@ -124,16 +124,15 @@ for(const targetVersion of ['3.0.4','3.1.2','3.2.1'])for(const format of ['yaml'
  assert.equal(input.resources[0].text,text);
 });
 function schema(input,type){return createGraph(input).graph.docs.get(input.root).dataNode('/paths/~1bytes/post/requestBody/content/'+escape(type)+'/schema').value;}
+// Resolve actual native media owners, including referenced request bodies and
+// Swagger parameters. Form and whole-media captures are exclusive IPC forms.
 async function wire(input,type,bytes,form=false){
- const request='/paths/~1bytes/post/requestBody/content/'+escape(type),response='/paths/~1bytes/post/responses/200/content/'+escape(type);
- const checked=await evaluateSchemas({...input,runtimeInstances:['request-body','response-body'].map((subject,index)=>({subject,location:type,text:bytes.toString('base64'),mediaBase64:true,mediaType:type,media:{resource:input.root,pointer:index?response:request},...(form?{form:{resource:input.root,pointer:index?response:request}}:{})}))});
- assert.equal(checked.complete,true,JSON.stringify(checked.runtimeFindings));
- return checked.runtimeEvaluations.map(value=>({complete:value.complete,valid:value.valid}));
+ return bodyWire(input,type,bytes,'/bytes',form);
 }
 for(const from of legacy)for(const target of ['3.1.2','3.2.1'])for(const format of ['yaml','json'])
 test(`${from} -> ${target} ${format} raw body mapping retains exact non-Unicode and empty bytes`,async()=>{
  const type='application/octet-stream',input=capture(from,format,type,{type:'string',format:'binary',description:'Keep leaf'},target),before=input.resources[0].text;
- const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));const output=cold(plan);assert.deepEqual(schema(output,type),{description:'Keep leaf'});
+ const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));const output=cold(plan);assert.deepEqual({...schema(output,type)},{description:'Keep leaf'});
  for(const bytes of [Buffer.from([0,255,128,195,169]),Buffer.alloc(0)]){
   assert.deepEqual(await wire(output,type,bytes),await wire(input,type,bytes));assert((await wire(output,type,bytes)).every(value=>value.valid));
  }
@@ -262,7 +261,7 @@ test(`${format} ${target} data references to an inline raw ${multipart?'part':'b
  for(const [content,pointer]of [
   [doc.paths['/bytes'].post.requestBody.content,'/paths/~1bytes/post/requestBody/content/'],
   [doc.paths['/bytes'].post.responses[200].content,'/paths/~1bytes/post/responses/200/content/']]){
-  content['application/json']={schema:{$ref:'#'+pointer+escape(type)+'/schema'+(multipart?'/properties/payload':'')}};
+  content['application/json']={schema:{$ref:'#'+encodeURI(pointer+escape(type)+'/schema'+(multipart?'/properties/payload':''))}};
   if(multipart)content[type].encoding={payload:{contentType:'application/octet-stream'}};
  }
  input.resources[0].text=render(doc,format);const original=input.resources[0].text;
@@ -363,7 +362,7 @@ test(`${format} ${target} composed JSON consumers target an inline raw ${descend
  for(const [content,pointer]of [
   [doc.paths['/bytes'].post.requestBody.content,'/paths/~1bytes/post/requestBody/content/'],
   [doc.paths['/bytes'].post.responses[200].content,'/paths/~1bytes/post/responses/200/content/']]){
-  content['application/json']={schema:{allOf:[{$ref:'#'+pointer+escape(type)+'/schema'+(descendant?'/properties/payload':'')}]}};
+  content['application/json']={schema:{allOf:[{$ref:'#'+encodeURI(pointer+escape(type)+'/schema'+(descendant?'/properties/payload':''))}]}};
   if(descendant)content[type].encoding={payload:{contentType:'application/octet-stream'}};
  }
  input.resources[0].text=render(doc,format);const original=input.resources[0].text,review=await planMigration(input);
