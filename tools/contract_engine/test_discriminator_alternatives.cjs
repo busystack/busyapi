@@ -114,7 +114,8 @@ for(const version of ['3.0.4','3.1.2'])for(const format of ['yaml','json'])
 test(`${version} ${format} does not acquire 3.2 fallback semantics`,async()=>{
     const input=capture(version,format,'unrelated'),result=analyse(input);
     assert.deepEqual(fallbackFindings(result),[]);
-    assert.equal(result.status,'invalid','The newer field remains invalid under this specification family');
+    assert.equal(result.status,version.startsWith('3.0.')?'invalid':'complete');
+    assert(!result.references.some(reference=>reference.keyword==='defaultMapping'),'A 3.1 Schema annotation does not become a 3.2 fallback connection');
 });
 
 for(const version of ['3.2.0','3.2.1'])for(const format of ['yaml','json'])

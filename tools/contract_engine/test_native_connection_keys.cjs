@@ -78,7 +78,7 @@ for(const sourceVersion of ['2.0','3.0.4','3.1.2','3.2.1'])test(`${sourceVersion
   const review=await planMigration({...input,targetVersion,destination:'file:///named-security-output/'});assert.equal(review.complete,true,JSON.stringify(review.problems));
   const output={root:review.outputRoot,snapshot:'cold-named-security',resources:review.outputs.map(resource=>({...resource,generation:0}))};
   assert.equal(analyse(output).status,'complete');const graph=createGraph(output).graph;
-  assert.deepEqual(graph.docs.get(output.root).dataNode('/security/0').value,{operationRef:[]});
+  assert.deepEqual(Object.entries(graph.docs.get(output.root).dataNode('/security/0').value),[['operationRef',[]]]);
   assert.equal(graph.entryReferences().find(reference=>reference.connection==='security').resolution,'resolved');
  }
  assert.equal(input.resources[0].text,text);

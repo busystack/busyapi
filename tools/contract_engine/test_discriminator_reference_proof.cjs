@@ -80,9 +80,16 @@ for(const [from,target]of routes)for(const format of ['yaml','json'])for(const k
  assert.equal(result.status,'faithfully-convertible',JSON.stringify(result.problems));assert.equal(result.complete,true);assert.equal(result.validation.family,target.slice(0,3));const entry=result.outputs.find(output=>output.id===result.outputRoot),value=YAML.parse(entry.text);assert.equal(value.openapi,target);assert.equal(value.info.version,'unrelated-api-version');assert(entry.text.includes('$dynamicRef'));assert(entry.text.includes('9007199254740993.00'));
  if(kind==='external-dynamic'){
   const copied=result.outputs.find(output=>output.id===result.changes.find(change=>change.resource===input.resources[1].id).destination);
-  assert.equal(YAML.parse(copied.text).$schema,'https://spec.openapis.org/oas/'+from.slice(0,3)+'/dialect/base');
+  const schema=YAML.parse(copied.text);assert.equal(schema.$dynamicAnchor,'base');assert.deepEqual(schema.required,['kind']);
  }
  const output={root:result.outputRoot,resources:result.outputs.map(output=>({id:output.id,text:output.text,generation:0})),snapshot:'migrated-'+input.snapshot+'-'+target};const checkedOutput=await evaluateSchemas(output);assert.equal(checkedOutput.complete,true,JSON.stringify(checkedOutput.findings));assert(!checkedOutput.findings.some(finding=>finding.severity==='error'),JSON.stringify(checkedOutput.findings));assert.deepEqual(input.resources.map(resource=>resource.text),before);
+ const runtimeInstances=['{"kind":"cat"}','{}','{"kind":0}'].map(text=>({subject:'response-body',location:'native-dynamic-reference',text}));
+ const results=[];
+ for(const capture of [input,output]){
+  const actual=await evaluateSchemas({...capture,runtimeInstances:runtimeInstances.map(instance=>({...instance,schema:{resource:capture.root,pointer:'/components/schemas/Subject'}}))});
+  assert.equal(actual.complete,true,JSON.stringify(actual.runtimeFindings));results.push(actual.runtimeEvaluations.map(value=>value.valid));
+ }
+ assert.deepEqual(results,[[true,false,false],[true,false,false]]);
 });
 for(const version of modern)for(const format of ['yaml','json'])test(`${version} ${format} migration preserves actual dynamic anchors and all captured candidate owners`,async()=>{
  const input=edit(packet(version,format,'one-anchor'),value=>{delete value.components.schemas.Subject.discriminator;value.components.schemas.Peer={$id:'other',$dynamicAnchor:'base',type:'object'};}),target=version.startsWith('3.1.')?'3.2.1':'3.1.2',before=input.resources.map(resource=>resource.text),result=await planMigration({...input,targetVersion:target,destination:'file:///output/dynamic/'});
