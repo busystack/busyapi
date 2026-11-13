@@ -22,6 +22,7 @@ Map<String, String> mixedHolderDocuments(String foreignVersion, String server, {
       'entry': {'type': 'string'}, 'n': {'type': 'integer', 'enum': ['EXACT']},
       if (foreignVersion != '3.0.4') 'child': {r'$dynamicRef': '#node'},
     },
+    'oneOf': [{r'$ref': '#/components/schemas/Choice'}],
     'discriminator': {'propertyName': 'entry', 'mapping': {'chosen': 'Choice'}},
     'description': '[Guide](guide.md)',
   };
