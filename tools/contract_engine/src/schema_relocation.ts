@@ -16,7 +16,7 @@ export function establishedSchemaResource(graph:ReferenceGraph,scope:GraphScope)
 }
 
 /** A sufficient dynamic-scope proof, using the captured graph's intrinsic
- * schema parents and reference edges. Navigation candidates alone say nothing
+ * entry-owned schema parents and reference edges. Navigation candidates alone say nothing
  * about the order in which resource bindings enter evaluation scope.
  *
  * Relocation must preserve every evaluation edge and relevant resource binding,
@@ -33,7 +33,7 @@ export function establishedSchemaResource(graph:ReferenceGraph,scope:GraphScope)
  */
 export function assertDynamicRelocation(before:ReferenceGraph,after:ReferenceGraph,relocate:SchemaRelocation,
  bridges:readonly SchemaLocation[]=[]):void {
- const dynamic=before.references.filter(reference=>reference.dynamic);
+ const dynamic=before.entryReferences().filter(reference=>reference.dynamic);
  if(!dynamic.length)return;
  const witness=dynamic[0],pointer=witness.pointer+'/'+witness.keyword;
  const range:Range=before.docs.get(witness.resource)!.dataNode(pointer)?.range??[0,0];
@@ -41,7 +41,7 @@ export function assertDynamicRelocation(before:ReferenceGraph,after:ReferenceGra
   'Dynamic evaluation-scope equivalence is not established: retain the resource boundary or choose a relocation with identical schema evaluation edges and anchor bindings',
   range,'unsupported',{resource:witness.resource,pointer,range});};
  const names=new Set(dynamic.map(reference=>reference.dynamic!.anchor));
- const beforeScopes=before.scopesFor('schema'),afterScopes=after.scopesFor('schema');
+ const beforeScopes=[...before.entryScopes()].filter(scope=>scope.kind==='schema'),afterScopes=[...after.entryScopes()].filter(scope=>scope.kind==='schema');
  const bindings=(graph:ReferenceGraph,scopes:GraphScope[],map:SchemaRelocation)=>{
   const result=new Map<string,Set<string>>();
   for(const scope of scopes){
@@ -87,8 +87,8 @@ export function assertDynamicRelocation(before:ReferenceGraph,after:ReferenceGra
    const source=map(from),target=map(forward?normalize(to):to);
    if(known.has(key(source)))result.add(JSON.stringify([key(source),kind,key(target)]));
   };
-  for(const scope of graph.scopesFor('schema'))for(const parent of graph.schemaParentsOf(scope))add(parent,scope,'applicator');
-  for(const reference of graph.references)if(reference.kind==='schema'&&!reference.connection)
+  for(const scope of graph.entryScopes())if(scope.kind==='schema')for(const parent of graph.schemaParentsOf(scope))if(graph.isEntryUse(parent))add(parent,scope,'applicator');
+  for(const reference of graph.entryReferences())if(reference.kind==='schema'&&!reference.connection)
    add(reference,{resource:reference.targetResource!,pointer:reference.targetPointer!},reference.keyword+':'+(reference.dynamic?.anchor??'static'));
   return signature(result);
  };

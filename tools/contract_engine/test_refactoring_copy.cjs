@@ -326,7 +326,7 @@ for(const version of ['3.1.2','3.2.1'])for(const json of [false,true])for(const 
  assert.equal(copied.dataJson('/components/schemas/Use/const'),before.dataJson('/components/schemas/Model/const'));assert.equal(copied.dataJson('/components/schemas/Use/examples'),before.dataJson('/components/schemas/Model/examples'));
  assert.equal(after[0].text,resources[0].text);assert.equal(after[2].text,resources[2].text);assert.equal(plan.changes.length,1);
  assert.equal(createGraph({root:destination,resources:after}).graph.references.some(ref=>ref.pointer==='/components/schemas/Use/const'),false,'An external schema interpretation must not be invented in a copied literal payload');
- const checked=await evaluateSchemas({root:destination,snapshot:'inline-copied',resources:after});assert.equal(checked.complete,true,JSON.stringify(checked.findings));assert.deepEqual(checked.evaluations.map(value=>value.valid),[true,false,true,false]);
+ const checked=await evaluateSchemas({root:destination,snapshot:'inline-copied',resources:after});assert.equal(checked.complete,true,JSON.stringify(checked.findings));assert.deepEqual(checked.evaluations.map(value=>value.valid),evaluated.evaluations.map(value=>value.valid));
  if(identified){const graph=createGraph({root:destination,resources:after}).graph;assert.equal(graph.identities.get('https://identities.invalid/data').length,1);assert.equal(graph.dynamicAnchors.get('data').length,1);}
  assert.deepEqual(resources.map(value=>value.text),frozen);
 });
@@ -407,7 +407,7 @@ for(const version of ['3.1.2','3.2.1'])test(`same-resource named anchor extracti
  const input={root,snapshot:'anchor',resources:[{id:root,text:JSON.stringify(data),generation:1}],contexts:[{root,resources:[root]}],target:{root,resource:root,pointer:at,generation:1},name:'Stored'};
  const after=apply(input,planExtract(input)),graph=createGraph({root,resources:after}).graph;
  assert.equal(graph.anchors.get(root+'#named').length,1);assert.equal(graph.referenceAs(root,'/components/schemas/Use','$ref','schema').targetPointer,'/components/schemas/Stored');
- const destination='file:///project/models.json',cross={...input,destinationResource:destination,resources:[...input.resources,{id:destination,text:JSON.stringify({...data,components:{schemas:{}}}),generation:1}]};
+ const destination='file:///project/models.json',cross={...input,destinationResource:destination,resources:[...input.resources,{id:destination,text:JSON.stringify({...data,components:{schemas:{}}}),generation:1}],contexts:[...input.contexts,{root:destination,resources:[destination]}]};
  assert.throws(()=>planExtract(cross),error=>error.code==='refactor.copy.schema-resource');
 });
 for(const version of ['3.1.2','3.2.1'])for(const json of [false,true])for(const relative of [false,true])test(`independently interpreted literal resources require faithful identifier ownership ${version} ${json} relative=${relative}`,()=>{
@@ -428,7 +428,7 @@ for(const version of ['2.0','3.0.4'])for(const json of [false,true])test(`older 
  const input={root,resources:[{id:root,text:json?JSON.stringify(data):YAML.stringify(data),generation:1}],snapshot:'legacy-identity',contexts:[{root,resources:[root]}],target:{root,resource:root,generation:1,pointer:at},name:'Stored'};
  const after=apply(input,planExtract(input)),graph=createGraph({root,resources:after}).graph;
  assert.equal(graph.issues.length,0);assert.equal(graph.identities.has('file:///project/literal'),false);
- assert.deepEqual(new SourceDocument(after[0].text,root).node((swagger?'/definitions':'/components/schemas')+'/Stored/x-data').value,schema['x-data']);
+ assert.equal(new SourceDocument(after[0].text,root).dataJson((swagger?'/definitions':'/components/schemas')+'/Stored/x-data'),new SourceDocument(input.resources[0].text,root).dataJson(at+'/x-data'));
 });
 test('relocation cannot introduce conflicting identities from separately captured entry graphs',()=>{
  const root='file:///project/a.json',destination='file:///project/b.json',schema={$id:'https://schemas.invalid/duplicate',$anchor:'public',type:'integer'};
@@ -860,7 +860,9 @@ for(const version of ['2.0','3.0.4','3.1.2','3.2.1'])test(`reviewed YAML copy ow
  assert(after.text.includes('x-unrelated: &unrelated {kept: "雪"}\nx-other: *unrelated\n'));
  assert(copied.dataJson(to).includes('9007199254740993.00'));
  assert(copied.text.includes('# exact lower bound'));
- assert.equal(new URL(copied.node(to+'/description').value.match(/\]\(([^)]*)\)/)[1],destination).href,'file:///project/guide.md');
+ const walker=new (require('commonmark').Parser)().parse(copied.node(to+'/description').value).walker(),links=[];
+ for(let event;event=walker.next();)if(event.entering&&event.node.type==='link')links.push(new URL(event.node.destination,destination).href);
+ assert.deepEqual(links,['file:///project/guide.md']);
  const graph=createGraph({root,resources}).graph;
  assert.equal(graph.issues.length,0);assert.equal(graph.referenceAs(root,schemaPointer,'$ref','schema').targetPointer,to);
  const instances=['9007199254740993.00','9007199254740992.00','"wrong"'];
@@ -900,7 +902,7 @@ test('extraction to a new file composes alias ownership with the existing cold r
  const {planExtractToFile}=require('./dist/refactoring_copy.cjs'),root='file:///project/api.yaml',destination='file:///project/schema.yaml';
  const text='openapi: 3.2.1\ninfo: {title: New file, version: "1"}\npaths: {}\nx-model: &model {type: integer, minimum: 9007199254740993.00}\ncomponents:\n  schemas:\n    Owner:\n      properties:\n        value: *model # extracted occurrence\nx-history: *model\n';
  const input={snapshot:'owned-file',resources:[{id:root,text,generation:1}],contexts:[{root,resources:[root]}],target:{root,resource:root,generation:1,pointer:'/components/schemas/Owner/properties/value'},name:'Value',destinationResource:destination};
- const plan=planExtractToFile(input),resources=[...apply(input,plan),...plan.creations.map(value=>({...value,generation:0}))];
+ const plan=planExtractToFile(input),resources=[...apply(input,plan),...plan.creations.map(value=>({...value,id:value.resource,generation:0}))];
  assert.equal(plan.creations.length,1);assert(plan.creations[0].text.includes('9007199254740993.00'));
  const graph=createGraph({root,resources}).graph;assert.equal(graph.issues.length,0);
  assert.equal(graph.referenceAs(root,'/components/schemas/Value','$ref','schema').targetResource,destination);

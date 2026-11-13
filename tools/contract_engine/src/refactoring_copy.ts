@@ -549,8 +549,6 @@ function planOwnedCopy(input:any,moving=false) {
   assertRefactoringCaseFiles(input.manifest,resources,id=>finalDocs.get(id)!);
   assertRefactoringLiterals(g.graph,id=>finalDocs.get(id)!,
    (id,pointer)=>separated?{resource:id,pointer}:relocated({resource:id,pointer}));
-  if(separated&&sourceValueIdentity(doc,target.pointer)!==sourceValueIdentity(after.docs.get(resource.id)!,target.pointer))
-   throw new SourceError('refactor.literal.ownership','Contract specialization would change the independently interpreted literal value',node.range,'unsupported',{resource:resource.id,pointer:target.pointer,range:node.range});
   assertDynamicRelocation(g.graph,after.graph,relocated,removeBinding||separated?[]:[{resource:resource.id,pointer:target.pointer}]);
   for(const scope of g.graph.scopesFor('schema'))assertRoleAnnotations(g.graph,scope,after.docs.get(movedResource(scope.resource,scope.pointer))!,move(scope.resource,scope.pointer));
   if(cross)for(const old of selected.graph.references)if(old.resource===resource.id&&inside(old.pointer,target.pointer)){
@@ -576,8 +574,8 @@ function planOwnedCopy(input:any,moving=false) {
    const knownIssues=new Set(beforeCold.issues.map(issue=>JSON.stringify([issue.resource,issue.pointer,issue.code])));
    if(afterCold.issues.some(issue=>!knownIssues.has(JSON.stringify([issue.resource,issue.pointer,issue.code]))))
     throw new SourceError('refactor.copy.retrieval','The moved definition needs an explicit approved retrieval mapping before it can be reopened');
-   assertDynamicRelocation(g.graph,afterCold,relocated,removeBinding||separated?[]:[{resource:resource.id,pointer:target.pointer}]);
-   for(const old of g.graph.references){
+   assertDynamicRelocation(beforeCold,afterCold,relocated,removeBinding||separated?[]:[{resource:resource.id,pointer:target.pointer}]);
+   for(const old of beforeCold.entryReferences()){
     const next=afterCold.references.find(ref=>ref.resource===movedResource(old.resource,old.pointer)&&ref.pointer===move(old.resource,old.pointer)&&ref.keyword===keywordFor(old)&&ref.kind===old.kind&&ref.connection===(keywordFor(old)==='operationRef'?'operationRef':old.connection));
     if(!next||next.resolution!=='resolved'||!retainedBinding(old,next,afterCold)&&(next.targetResource!==movedResource(old.targetResource!,old.targetPointer!)||next.targetPointer!==move(old.targetResource!,old.targetPointer!)))
      throw new SourceError('refactor.copy.retrieval','An established connection would be lost when reopening the relocated graph');
