@@ -9,13 +9,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import '../packages/busyapi_core/test/test_support.dart';
 class _NativeHttp extends HttpOverrides {}
+class _PreparationEngine extends EngineProcess {
+  _PreparationEngine() : super(executable: runtimeNode, helper: runtimeHelper);
+  int preparations = 0;
+  @override
+  Future<Map<String,dynamic>> request(String method, Map<String,Object?> params, {String? requestId}) {
+    if (method == 'requestInputPreparation') ++preparations;
+    return super.request(method, params, requestId: requestId);
+  }
+}
 void main() {
   for (final media in ['application/xml', 'application/linkset', 'application/linkset+json']) {
     testWidgets('native $media preview, wire inspection, saved case and stale draft', (tester) async {
       tester.view.physicalSize = const Size(1500, 1100);tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);addTearDown(tester.view.resetDevicePixelRatio);
       final directory = Directory.systemTemp.createTempSync('busyapi-modeled-controls-');
-      final workspace = WorkspaceController(EngineProcess(executable: runtimeNode, helper: runtimeHelper),
+      final engine = _PreparationEngine();
+      final workspace = WorkspaceController(engine,
         StateLocations(config: '${directory.path}/config', state: '${directory.path}/state', cache: '${directory.path}/cache'));
       final run = RequestRunController(workspace);HttpServer? server;
       final seen = <List<int>>[];final file = File('${directory.path}/api.yaml');
@@ -57,7 +67,10 @@ void main() {
         await tester.runAsync(() async {await Future<void>.delayed(const Duration(milliseconds:500));});await tester.pump();
         expect(run.previewFailure,isNull);expect(run.serializedContent,isNotNull);
         expect(run.serializedContent, xml ? contains('9007199254740993') : contains('/p'));
+        final preparations = engine.preparations;
+        expect(preparations, greaterThan(0));
         await tester.runAsync(() => HttpOverrides.runWithHttpOverrides(run.send,_NativeHttp()));await tester.pump();
+        expect(engine.preparations, preparations);
         expect(run.failure,isNull,reason:run.failureMessage);expect(run.result!.conforming,true);
         expect(run.result!.received.modeledData,isNotNull);expect(run.result!.outgoing.modeledData,isNotNull);expect(seen,hasLength(1));
         expect(run.result!.request.body!.inspectionBytes,seen.single);expect(run.effectiveHeaders,isNotNull);

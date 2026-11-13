@@ -368,6 +368,7 @@ final class CapturedRequestPartExample {
 }
 
 int _responseStreamSerial = 0;
+int _requestPreparationSerial = 0;
 
 /// An engine-owned framer and semantic capture for one response lifetime.
 /// Only new bytes cross IPC after opening; EOF/failure/close retire that owner.
@@ -386,7 +387,7 @@ class OperationResponseStream {
     }
     final result = await _owner._streamRequest('responseStreamChunk', {
       'stream': id, 'text': base64Encode(bytes), 'end': end, 'maximumRecords': maximumRecords,
-    }, 'stream-$id-${_owner._contentPreparationSerial++}', cancellation);
+    }, 'stream-$id-${_requestPreparationSerial++}', cancellation);
     _owner._verifyStreamResponse(result, id, _bytes + bytes.length, maximumRecords);
     _bytes += bytes.length;
     return result;
@@ -425,7 +426,6 @@ class OperationRequestPlan {
   bool get saved => _capture.saved;
   int get _revision => _capture._revision;
   bool _closed = false;
-  int _contentPreparationSerial = 0;
   final Set<OperationResponseStream> _responseStreams = {};
   bool get closed => _closed;
   bool get outdated =>
@@ -726,13 +726,12 @@ class OperationRequestPlan {
     Map<String, MultipartFileShape> fileShapes = const {},
     List<Map<String, String>> literalFields = const [],
     List<RequestPartHeaderValue> headers = const [],
-    String? wire,
-    String? wireType,
     bool inspect = false,
     required String requestId,
     RunCancellation? cancellation,
+    Map<String, dynamic>? prepared,
   }) async {
-    final projected = await _formProjection('requestMultipartPlan', {
+    final projected = prepared ?? await _formProjection('requestMultipartPlan', {
       ...snapshot.toJson(),
       'resource': (operation['source'] as Map)['resource'],
       'pointer': (operation['source'] as Map)['pointer'],
@@ -750,8 +749,6 @@ class OperationRequestPlan {
           part: [for (final header in headers.where((header) => header.part == part))
             header.wireInput],
       },
-      if (wire != null) 'wire': wire,
-      if (wireType != null) 'wireType': wireType,
       if (inspect) 'inspect': true,
     }, requestId, cancellation);
     if (projected['version'] != 1 || projected['identity'] != identity ||
@@ -760,36 +757,12 @@ class OperationRequestPlan {
         jsonEncode(projected['representationRevisions']) != jsonEncode(result['representationRevisions']) ||
         projected['tree'] is! Map || projected['controls'] is! List ||
         projected['partSchemas'] is! Map || projected['fileShapes'] is! Map ||
-        projected['input'] != textIdentity(text) ||
-        wire != null && (projected['proof'] is! Map || projected['proof']['complete'] != true || projected['proof']['valid'] != true)) {
+        projected['original'] is! String || projected['files'] is! List ||
+        (projected['files'] as List).any((file) => file is! Map || file['name'] is! String) ||
+        projected['input'] != textIdentity(text)) {
       throw CoreFailure('request.multipart.protocol', 'The worker returned an unrelated multipart preparation.');
     }
     return projected;
-  }
-
-  Future<void> proveNamedMultipart(String mediaType, String wireType, String wire, {
-    String? expected,
-    bool partialFiles = false,
-    List<Map<String, Object?>> files = const [],
-    Map<String, MultipartFileShape> fileShapes = const {},
-    required String requestId,
-    RunCancellation? cancellation,
-  }) async {
-    final projected = await _formProjection('requestMultipartNamedProof', {
-      ...snapshot.toJson(),
-      'resource': (operation['source'] as Map)['resource'],
-      'pointer': (operation['source'] as Map)['pointer'],
-      'occurrence': operation['occurrence'],
-      'mediaType': mediaType, 'wireType': wireType, 'wire': wire,
-      'requireConformance': false,
-      'expected': expected, 'partialFiles': partialFiles, 'files': files,
-      'fileShapes': {for (final entry in fileShapes.entries) entry.key: entry.value.name},
-    }, requestId, cancellation);
-    if (projected['version'] != 1 || projected['snapshot'] != snapshot.identity ||
-        projected['identity'] != identity || projected['proof'] is! Map ||
-        projected['proof']['complete'] != true || projected['proof']['valid'] != true) {
-      throw CoreFailure('request.multipart.protocol', 'Named multipart byte identity could not be established.');
-    }
   }
 
   Future<Uint8List> readProjectFile(String relative) async {
@@ -873,6 +846,7 @@ class OperationRequestPlan {
     Map<String, MultipartFileShape> fileShapes = const {},
     required String requestId,
     RunCancellation? cancellation,
+    Map<String, dynamic>? prepared,
   }) async {
     if (fileShapes.length > 2048) {
       throw CoreFailure(
@@ -885,7 +859,7 @@ class OperationRequestPlan {
     final capturedShapes = Map<String, MultipartFileShape>.unmodifiable(
       fileShapes,
     );
-    final result = await _formProjection(
+    final result = prepared ?? await _formProjection(
       'requestFormMediaTypes',
       {
         ...snapshot.toJson(),
@@ -947,6 +921,7 @@ class OperationRequestPlan {
     Map<String, MultipartFileShape> fileShapes = const {},
     required String requestId,
     RunCancellation? cancellation,
+    Map<String, dynamic>? prepared,
   }) async {
     if (headers.length > 2048)
       throw CoreFailure(
@@ -962,7 +937,7 @@ class OperationRequestPlan {
     final capturedShapes = Map<String, MultipartFileShape>.unmodifiable(
       fileShapes,
     );
-    final result = await _formProjection(
+    final result = prepared ?? await _formProjection(
       'requestMultipartEncoding',
       {
         ...snapshot.toJson(),
@@ -1126,13 +1101,28 @@ class OperationRequestPlan {
     }
   }
 
-  Future<Map<String, (String, bool, String)>> contentParameterValues(Map<String, String> values, {Map<String, String> rawValues = const {}, RunCancellation? cancellation}) async {
+  Future<Map<String, dynamic>> prepareInputProjection(Map<String, String> values, Map<String, String> rawValues, Map<String, Object?> body, {RunCancellation? cancellation}) async {
+    final projected = await _formProjection('requestInputPreparation', {
+      ...snapshot.toJson(), 'resource': (operation['source'] as Map)['resource'],
+      'pointer': (operation['source'] as Map)['pointer'], 'occurrence': operation['occurrence'],
+      'values': values, 'rawValues': rawValues, 'body': body, 'requireConformance': false,
+    }, 'request-inputs-$identity-${_requestPreparationSerial++}', cancellation);
+    if (projected['version'] != 1 || projected['identity'] != identity || projected['snapshot'] != snapshot.identity ||
+        projected['structured'] is! Map || (projected['structured'] as Map).length != values.length ||
+        !(projected['structured'] as Map).keys.every(values.containsKey) || projected['parameters'] is! Map ||
+        projected['body'] != null && projected['body'] is! Map) {
+      throw CoreFailure('request.preparation.protocol', 'The prepared inputs differ from their operation capture.');
+    }
+    return projected;
+  }
+
+  Future<Map<String, (String, bool, String)>> contentParameterValues(Map<String, String> values, {Map<String, String> rawValues = const {}, RunCancellation? cancellation, Map<String, dynamic>? prepared}) async {
     if (values.isEmpty && rawValues.isEmpty) return const {};
     final inputs = {...values, ...rawValues};
-    final projected = await _formProjection('requestContentParameters', {
+    final projected = prepared ?? await _formProjection('requestContentParameters', {
       ...snapshot.toJson(), 'resource': (operation['source'] as Map)['resource'],
       'pointer': (operation['source'] as Map)['pointer'], 'occurrence': operation['occurrence'], 'values': values, 'rawValues': rawValues,
-    }, 'content-${identity}-${DateTime.now().microsecondsSinceEpoch}-${_contentPreparationSerial++}', cancellation);
+    }, 'content-${identity}-${DateTime.now().microsecondsSinceEpoch}-${_requestPreparationSerial++}', cancellation);
     if (projected['version'] != 1 || projected['producer'] != 'busyapi-request-content-parameters' ||
         projected['producerVersion'] != '2' || projected['snapshot'] != snapshot.identity || projected['identity'] != identity || projected['values'] is! Map ||
         (projected['values'] as Map).entries.any((entry) => !inputs.containsKey(entry.key) || entry.value is! String)) {
@@ -1169,8 +1159,9 @@ class OperationRequestPlan {
     String? text,
     Map<String, String> choices = const {},
     RunCancellation? cancellation,
+    Map<String, dynamic>? prepared,
   }) async {
-    final projected = await _formProjection(
+    final projected = prepared ?? await _formProjection(
       'requestFormBytes',
       {
         ...snapshot.toJson(),
@@ -1182,7 +1173,7 @@ class OperationRequestPlan {
         if (text != null) 'text': text,
         'choices': choices,
       },
-      'form-bytes-$identity-${_contentPreparationSerial++}',
+      'form-bytes-$identity-${_requestPreparationSerial++}',
       cancellation,
     );
     if (projected['version'] != 1 ||
@@ -1217,9 +1208,9 @@ class OperationRequestPlan {
   }
 
   Future<Uint8List> mediaBytes(String text, String mediaType, {
-    required String requestId, RunCancellation? cancellation,
+    required String requestId, RunCancellation? cancellation, Map<String, dynamic>? prepared,
   }) async {
-    final result = await _formProjection('requestMediaBytes', {
+    final result = prepared ?? await _formProjection('requestMediaBytes', {
       ...snapshot.toJson(), 'resource': (operation['source'] as Map)['resource'],
       'pointer': (operation['source'] as Map)['pointer'],
       'occurrence': operation['occurrence'], 'text': text, 'mediaType': mediaType,
@@ -1681,6 +1672,8 @@ class RuntimeSchemaInstance {
     this.itemSchemaPointer,
     this.mediaType,
     this.mediaBase64 = false,
+    this.originalData,
+    this.originalFiles = const [],
     this.form,
     this.media,
     this.alternatives = const [],
@@ -1692,6 +1685,8 @@ class RuntimeSchemaInstance {
   final String? schemaResource, schemaPointer;
   final String? itemSchemaResource, itemSchemaPointer, mediaType;
   final bool mediaBase64;
+  final String? originalData;
+  final List<String> originalFiles;
   final RuntimeFormTarget? form;
   final RuntimeMediaTarget? media;
   final List<String> alternatives;
@@ -1711,6 +1706,8 @@ class RuntimeSchemaInstance {
       },
     if (mediaType != null) 'mediaType': mediaType,
     if (mediaBase64) 'mediaBase64': true,
+    if (originalData != null) 'originalData': originalData,
+    if (originalFiles.isNotEmpty) 'originalFiles': originalFiles,
     if (form != null) 'form': form!.toJson(),
     if (media != null) 'media': media!.toJson(),
     if (alternatives.isNotEmpty)

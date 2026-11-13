@@ -146,9 +146,11 @@ export class FormSemantics {
     }
 
     namedEncoding(raw:unknown,schemas:{schema:GraphTarget;path:PartStep[]}[]):Record<string,any> {
-        if(!raw||typeof raw!=='object'||Array.isArray(raw))return {};
+        const encoding:Record<string,any>=Object.create(null);
+        if(!raw||typeof raw!=='object'||Array.isArray(raw))return encoding;
         const names=new Set(schemas.flatMap(value=>this.propertyNames(value.schema,value.path)));
-        return Object.fromEntries(Object.entries(raw).filter(([name])=>names.has(name)));
+        for(const [name,rule]of Object.entries(raw))if(names.has(name))encoding[name]=rule;
+        return encoding;
     }
 
     partSchemaId(media:{resource:string;pointer:string},schema:{resource:string;pointer:string}):string {

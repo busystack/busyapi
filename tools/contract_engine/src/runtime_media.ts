@@ -171,6 +171,7 @@ export function decodeRuntimeMedia(text:string,id:string,contentType?:string,bas
 export function encodeRuntimeMedia(document:SourceDocument,contentType:string,header=false,xmlBinding?:XmlBinding):Buffer {
  if(document.issues.length)throw document.issues[0];
  const kind=runtimeMediaKind(contentType);
+ const json=()=>header?document.dataJson('',()=>undefined).replace(/[^\x00-\x7f]/g,character=>'\\u'+character.charCodeAt(0).toString(16).padStart(4,'0')):document.dataJson('');
  if(kind==='linkset'||kind==='linkset-json')validateLinksetProfile(mediaTypes(contentType,false)[0].parameters.get('profile'));
  if(kind==='xml'){
   if(!xmlBinding)throw new SourceError('runtime.xml.model.unsupported','XML requires its captured schema binding',[0,0],'unsupported');
@@ -179,7 +180,7 @@ export function encodeRuntimeMedia(document:SourceDocument,contentType:string,he
  }
  if(kind==='linkset')return runtimeMediaBytes(encodeLinkset(document,header),false);
  if(kind==='linkset-json'){
-  validateLinkset(document);return runtimeMediaBytes(header?document.dataJson('').replace(/[^\x00-\x7f]/g,character=>'\\u'+character.charCodeAt(0).toString(16).padStart(4,'0')):document.dataJson(''),false);
+  validateLinkset(document);return runtimeMediaBytes(json(),false);
  }
  if(['json-lines','json-sequence','event-stream'].includes(kind)){
   if(header||document.root.kind!=='array')throw new SourceError('runtime.media.encoder.sequence','A typed sequence requires array data in an ordinary body');
@@ -200,7 +201,7 @@ export function encodeRuntimeMedia(document:SourceDocument,contentType:string,he
    if(Buffer.byteLength(text)>16*1024*1024)throw new SourceError('limit.runtime.bytes','Generated finite sequence exceeds 16 MiB');
   }const bytes=runtimeMediaBytes(text,false);if(bytes.length>16*1024*1024)throw new SourceError('limit.runtime.bytes','Generated finite sequence exceeds 16 MiB');return bytes;
  }
- if(kind==='json')return runtimeMediaBytes(header?document.dataJson('').replace(/[^\x00-\x7f]/g,character=>'\\u'+character.charCodeAt(0).toString(16).padStart(4,'0')):document.dataJson(''),false);
+ if(kind==='json')return runtimeMediaBytes(json(),false);
  throw new SourceError('runtime.media.encoder.unsupported','This media has no shared typed encoder',[0,0],'unsupported');
 }
 

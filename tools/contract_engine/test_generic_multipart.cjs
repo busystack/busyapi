@@ -104,17 +104,17 @@ for(const version of ['3.2.0','3.2.1'])test(`${version} explicit union represent
 });
 
 for(const version of versions)test(`${version} generated named bytes cannot substitute a rounded intended number`,async()=>{
- const {requestMultipartNamedProof}=require('./dist/execution.cjs');
+ const {requestMultipartPlan}=require('./dist/execution.cjs');
  const input=capture(version,'json');
- const proof={...input,mediaType:'multipart/mixed',wireType:'multipart/mixed; boundary=Fixture',wire:Buffer.from(wire()).toString('base64'),files:[],expected:'{"flag":false,"metadata":{"id":9007199254740993.00}}'};
- assert.equal((await requestMultipartNamedProof(proof)).proof.valid,true);
- await assert.rejects(requestMultipartNamedProof({...proof,wire:Buffer.from(wire('false','retained','9007199254740992')).toString('base64')}),error=>error.code==='request.multipart.roundtrip'&&error.source.resource===input.root);
- await assert.rejects(requestMultipartNamedProof({...proof,wire:Buffer.from(wire('false','retained','9007199254740993')).toString('base64')}),error=>error.code==='request.multipart.roundtrip');
- await assert.rejects(requestMultipartNamedProof({...proof,wire:Buffer.from(wire('false','retained','9007199254740992')).toString('base64'),expected:'{"flag":false,"metadata":{"id":9007199254740992}}'}),error=>error.code==='request.multipart.conformance'&&error.source.range[1]>0);
+ const proof={...input,mediaType:'multipart/mixed',wireType:'multipart/mixed; boundary=Fixture',wire:Buffer.from(wire()).toString('base64'),files:[],headers:{'/flag':[{name:'X-Tag',value:'retained'}]},text:'{"flag":false,"metadata":{"id":9007199254740993.00}}'};
+ assert.equal((await requestMultipartPlan(proof)).proof.valid,true);
+ await assert.rejects(requestMultipartPlan({...proof,wire:Buffer.from(wire('false','retained','9007199254740992')).toString('base64')}),error=>error.code==='request.multipart.identity'&&error.source.resource===input.root);
+ await assert.rejects(requestMultipartPlan({...proof,wire:Buffer.from(wire('false','retained','9007199254740993')).toString('base64')}),error=>error.code==='request.multipart.identity');
+ await assert.rejects(requestMultipartPlan({...proof,wire:Buffer.from(wire('false','retained','9007199254740992')).toString('base64'),text:'{"flag":false,"metadata":{"id":9007199254740992}}'}),error=>error.code==='request.multipart.conformance'&&error.source.range[1]>0);
  const invalid = {...proof, requireConformance:false,
   wire:Buffer.from(wire('false','retained','9007199254740992')).toString('base64'),
-  expected:'{"flag":false,"metadata":{"id":9007199254740992}}'};
- assert.equal((await requestMultipartNamedProof(invalid)).proof.valid, true);
- await assert.rejects(requestMultipartNamedProof({...invalid, expected:proof.expected}), error => error.code === 'request.multipart.roundtrip');
- await assert.rejects(requestMultipartNamedProof({...proof, requireConformance:'false'}), error => error.code === 'request.multipart.protocol');
+  text:'{"flag":false,"metadata":{"id":9007199254740992}}'};
+ assert.equal((await requestMultipartPlan(invalid)).proof.valid, true);
+ await assert.rejects(requestMultipartPlan({...invalid, text:proof.text}), error => error.code === 'request.multipart.identity');
+ await assert.rejects(requestMultipartPlan({...proof, requireConformance:'false'}), error => error.code === 'request.multipart.protocol');
 });

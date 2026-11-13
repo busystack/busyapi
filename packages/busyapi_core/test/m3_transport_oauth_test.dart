@@ -38,7 +38,7 @@ void main() {
     temp = await Directory.systemTemp.createTemp('busyapi-m3-transport-');
     engine = EngineProcess(
       executable: runtimeNode,
-      helper: '$repositoryRoot/tools/contract_engine/dist/engine.cjs',
+      helper: runtimeHelper,
     );
   });
 
@@ -2153,7 +2153,7 @@ servers: [{url: 'http://127.0.0.1:${server.port}'}]
 paths:
   /items/{id}/details:
     get:
-      parameters: [{name: id, in: path, required: true, content: {text/plain: {schema: {type: string}}}}]
+      parameters: [{name: id, in: path, required: true, content: {'text/plain; charset=utf-8': {schema: {type: string}}}}]
       responses: {'204': {description: ok}}
 ''');
       project = await BusyProject.open(temp.path, engine);
@@ -2349,33 +2349,44 @@ paths:
     final original = root.readAsStringSync();
     await project!.buffer(root.uri.toString());
     for (final rule in [
-      ('charset=iso-8859-1', 'request.charset.unsupported'),
-      ('charset=us-ascii', 'request.charset'),
+      'charset=iso-8859-1',
+      'charset=us-ascii',
     ]) {
       project!.store.replace(
         root.uri.toString(),
         original.replaceFirst(
           'contentType: application/json',
-          "contentType: 'application/json; ${rule.$1}'",
+          "contentType: 'application/json; $rule'",
         ),
       );
       final constrained = await planFor('/upload');
       addTearDown(constrained.close);
-      await expectLater(
-        const ContractRequestBuilder().build(
-          constrained,
-          OperationRequestDraft(
-            planIdentity: constrained.identity,
-            body: const RequestBodyDraft.multipart(
-              [RequestFormField('metadata', '{"id":"雪"}')],
-              [],
-              mediaType: 'multipart/form-data; charset=utf-8',
-            ),
-          ),
-          resolveSecret: (_) async => null,
+      final literal = OperationRequestDraft(
+        planIdentity: constrained.identity,
+        body: const RequestBodyDraft.multipart(
+          [RequestFormField('metadata', '{"id":"雪"}')],
+          [],
+          mediaType: 'multipart/form-data; charset=utf-8',
         ),
-        throwsA(isA<CoreFailure>().having((e) => e.code, 'code', rule.$2)),
       );
+      final prepared = await const ContractRequestBuilder().build(
+        constrained, literal, resolveSecret: (_) async => null);
+      try {
+        final bytes = await prepared.body!.open().fold<List<int>>(
+          [], (all, chunk) => all..addAll(chunk));
+        // Literal input remains available for deliberately invalid requests.
+        expect(utf8.decode(bytes), contains('{"id":"雪"}'));
+        final outgoing = await const ContractRequestExecutor().validateOutgoing(
+          constrained, literal, prepared.runId, preparedBody: prepared.body,
+          preparedHeaders: prepared.headers,
+          preparedMediaParameters: prepared.mediaParameters);
+        expect(outgoing.complete && outgoing.valid, isFalse,
+          reason: '${outgoing.findings}');
+        expect(outgoing.findings, isNotEmpty);
+        expect(outgoing.valid, isFalse, reason: '${outgoing.findings}');
+      } finally {
+        await prepared.body?.close();
+      }
     }
     project!.store.replace(
       root.uri.toString(),
@@ -2946,6 +2957,7 @@ class _DeferredRequestBuilder extends ContractRequestBuilder {
     required SecretResolver resolveSecret,
     bool previewOnly = false,
     RunCancellation? cancellation,
+    PreparedRequestInputs? preparation,
   }) => prepared;
 }
 

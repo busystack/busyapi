@@ -418,3 +418,30 @@ test('literal form rows retain interleaving and invalid serialized JSON without 
  const prepared=await requestFormBytes({root,snapshot:'literal',resource:root,pointer:'/paths/~1/post',resources:[{id:root,text:JSON.stringify(value),generation:0}],mediaType:'application/x-www-form-urlencoded',choices:{},fields:[{name:'a',value:'first'},{name:'b',value:'a+b &雪'},{name:'a',value:'last'},{name:'opaque',value:'not a number'}]});
  assert.equal(Buffer.from(prepared.base64,'base64').toString(),'a=first&b=a%2Bb+%26%E9%9B%AA&a=last&opaque=not+a+number');assert.equal(prepared.instance,null);
 });
+
+test('typed JSON Header content reuses ASCII encoding while retaining exact numbers and literal wire bytes',async()=>{
+ const {requestContentParameters}=require('./dist/execution.cjs'),root='file:///execution/json-header.json';
+ const value={openapi:'3.2.1',info:{title:'Header',version:'1'},paths:{'/':{get:{parameters:[{in:'header',name:'X-Json',content:{'application/json':{schema:{type:'object'}}}}],responses:{204:{description:'Empty'}}}}}};
+ const input={root,snapshot:'header',resource:root,pointer:'/paths/~1/get',resources:[{id:root,text:JSON.stringify(value),generation:0}]};
+ const text='{ "n":9007199254740993.00, "s":"雪" }',typed=await requestContentParameters({...input,values:{'header\0X-Json':text}});
+ assert.equal(typed.values['header\0X-Json'],'{"n":9007199254740993.00,"s":"\\u96ea"}');assert.equal(JSON.parse(typed.values['header\0X-Json']).s,'雪');
+ const literal='{"s":"雪"}',raw=await requestContentParameters({...input,values:{},rawValues:{'header\0X-Json':literal}});
+ assert.deepEqual(Buffer.from(raw.bodies['header\0X-Json'],'base64'),Buffer.from(literal));
+});
+
+test('native and mock URL-form text fields use the same declared charset bytes',async()=>{
+ const {requestFormBytes,mockFormBytes}=require('./dist/execution.cjs'),root='file:///execution/form-charset.json';
+ const media={schema:{type:'object',required:['word'],properties:{word:{type:'string',const:'café'}}},encoding:{word:{contentType:'text/plain; charset=iso-8859-1'}}};
+ const value={openapi:'3.2.1',info:{title:'Charset',version:'1'},paths:{'/':{post:{requestBody:{content:{'application/x-www-form-urlencoded':media}},responses:{200:{description:'ok',content:{'application/x-www-form-urlencoded':media}}}}}}};
+ const input={root,snapshot:'charset',resource:root,pointer:'/paths/~1/post',resources:[{id:root,text:JSON.stringify(value),generation:0}],mediaType:'application/x-www-form-urlencoded',text:'{"word":"café"}',fields:[]};
+ const request=await requestFormBytes(input),literal=await requestFormBytes({...input,text:undefined,fields:[{name:'word',value:'café'}]}),mock=await mockFormBytes({...input,status:'200'});
+ assert.equal(Buffer.from(request.base64,'base64').toString(),'word=caf%E9');assert.equal(literal.base64,request.base64);assert.equal(mock.base64,request.base64);assert.equal(mock.proof.valid,true);
+});
+
+test('ordinary form data keys keep their values without object-prototype interpretation',async()=>{
+ const {requestFormBytes}=require('./dist/execution.cjs'),root='file:///execution/form-keys.json';
+ const media={schema:{type:'object',properties:JSON.parse('{"__proto__":{"type":"string"},"constructor":{"type":"string"}}')}};
+ const value={openapi:'3.2.1',info:{title:'Data keys',version:'1'},paths:{'/':{post:{requestBody:{content:{'application/x-www-form-urlencoded':media}},responses:{204:{description:'ok'}}}}}};
+ const input={root,snapshot:'keys',resource:root,pointer:'/paths/~1/post',resources:[{id:root,text:JSON.stringify(value),generation:0}],mediaType:'application/x-www-form-urlencoded',fields:[],text:'{"__proto__":"ordinary","constructor":"data"}'};
+ const result=await requestFormBytes(input);assert.equal(Buffer.from(result.base64,'base64').toString(),'__proto__=ordinary&constructor=data');
+});

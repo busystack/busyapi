@@ -151,7 +151,7 @@ class _DelayedFormEngine extends EngineProcess {
     String? requestId,
   }) async {
     final result = await super.request(method, params, requestId: requestId);
-    if (method == this.method) {
+    if (method == 'requestInputPreparation' && (params['body'] as Map?)?['kind'] == this.method) {
       entered.complete();
       await release.future;
     }
@@ -358,7 +358,7 @@ void main() {
       );
     }
 
-  for (final method in ['requestFormBytes', 'requestMultipartPlan'])
+  for (final method in ['form', 'multipart'])
     for (final outcome in ['cancelled', 'closed', 'version-changed']) {
       test(
         'structured form $method preparation cannot send after $outcome',
@@ -370,7 +370,7 @@ void main() {
           final engine = _DelayedFormEngine(method);
           addTearDown(engine.close);
           final file = File('${temp.path}/api.yaml');
-          final tree = method == 'requestMultipartPlan';
+          final tree = method == 'multipart';
           const named = false;
           final original = tree || named ? '''openapi: 3.2.1
 info: {title: Multipart cancellation, version: '1'}

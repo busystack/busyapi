@@ -82,11 +82,14 @@ export class MultipartEncoding {
             const key=JSON.stringify([target.resource,target.pointer,path]);
             if(active.has(key))return;
             active=new Set(active).add(key);
-            const node=this.graph.docs.get(target.resource)?.dataNode(target.pointer),scope=schemaContext(this.graph,target.resource,target.pointer);
-            if(!scope||!supportedSchemaDialect(scope))this.failure('request.multipart.dialect.unsupported','The part schema has no supported captured dialect',target);
-            const value=node?.value;
-            if(shapes&&!shapes.allows(target,path,'string'))return;
+            const value=this.graph.docs.get(target.resource)?.dataNode(target.pointer)?.value;
+            // Boolean additionalProperties in OAS 3.0 is a constraint, not a
+            // Schema Object carrying content annotations. The whole evaluator
+            // still owns that constraint; there are no annotations to inspect.
             if(typeof value==='boolean')return;
+            const scope=schemaContext(this.graph,target.resource,target.pointer);
+            if(!scope||!supportedSchemaDialect(scope))this.failure('request.multipart.dialect.unsupported','The part schema has no supported captured dialect',target);
+            if(shapes&&!shapes.allows(target,path,'string'))return;
             if(!value||typeof value!=='object'||Array.isArray(value))this.failure('request.multipart.schema','The part schema is unavailable',target);
             for(const keyword of modernFamily(scope.family)?['$ref','$dynamicRef']:['$ref'])if(typeof value[keyword]==='string'){
                 const edge=this.graph.referenceAs(target.resource,target.pointer,keyword,'schema');

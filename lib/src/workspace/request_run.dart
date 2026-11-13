@@ -136,6 +136,41 @@ class RequestRunController extends ChangeNotifier {
   String? effectiveRequest, effectiveHeaders, serializedContent, previewFailure, failureMessage;
   Timer? _previewTimer;
   RunCancellation? _previewCancellation;
+  ({OperationRequestPlan plan, int revision, RunCancellation token, Future<PreparedRequestInputs> future})? _preparedInput;
+
+  void _dropPreparedInputs() {
+    final previous = _preparedInput;
+    _preparedInput = null;
+    if (previous == null) return;
+    previous.token.cancel();
+    unawaited(previous.future.then<void>((inputs) => inputs.close(), onError: (Object _, StackTrace _) {}));
+  }
+
+  Future<PreparedRequestInputs> _requestInputs(OperationRequestPlan captured, {bool materializeBody = false}) async {
+    var current = _preparedInput;
+    if (current == null || !identical(captured, current.plan) || current.revision != _draftRevision) {
+      _dropPreparedInputs();
+      final revision = _draftRevision, token = RunCancellation();
+      late Future<PreparedRequestInputs> pending;
+      pending = const ContractRequestBuilder().prepareInputs(captured, draft(), cancellation: token).then((inputs) async {
+        if (_disposed || !identical(captured, plan) || revision != _draftRevision || !identical(pending, _preparedInput?.future)) {
+          await inputs.close();
+          throw CoreFailure('cancelled', 'The request input capture was replaced.');
+        }
+        return inputs;
+      });
+      _preparedInput = current = (plan: captured, revision: revision, token: token, future: pending);
+    }
+    try {
+      final inputs = await current.future;
+      if (materializeBody) await inputs.materializeBody();
+      return inputs;
+    } on Object {
+      if (identical(_preparedInput, current)) _dropPreparedInputs();
+      rethrow;
+    }
+  }
+
   int _previewEpoch = 0;
   bool get timeoutsValid =>
       [connectTimeout, overallTimeout, inactivityTimeout].every(
@@ -233,7 +268,7 @@ class RequestRunController extends ChangeNotifier {
       phase = 'ready';
       failure = failureMessage = null;
     }
-    if (draftChanged) { ++_draftRevision; multipartPrepared = null; }
+    if (draftChanged) { ++_draftRevision; multipartPrepared = null; _dropPreparedInputs(); }
     _previewTimer?.cancel();
     _previewCancellation?.cancel();
     final epoch = ++_previewEpoch;
@@ -249,18 +284,19 @@ class RequestRunController extends ChangeNotifier {
       try {
         final token = RunCancellation();
         _previewCancellation = token;
+        final inputs = await _requestInputs(captured);
         final prepared = await const ContractRequestBuilder().build(
           captured,
-          draft(),
+          inputs.draft,
           resolveSecret: (_) async => '[REDACTED]',
-          previewOnly: true, cancellation: token,
+          previewOnly: true, cancellation: token, preparation: inputs,
         );
         try {
         if (_disposed || epoch != _previewEpoch || !identical(captured, plan)) {
           return;
         }
         String? content;
-        if (draft().body.materializePreview && prepared.body != null) {
+        if (inputs.draft.body.materializePreview && prepared.body != null) {
           final bytes = <int>[];
           await for (final chunk in prepared.body!.open()) {
             if (_disposed || epoch != _previewEpoch || !identical(captured, plan)) return;
@@ -514,8 +550,10 @@ class RequestRunController extends ChangeNotifier {
     phase = 'preparing';
     _notify();
     try {
+      final inputs = await _requestInputs(captured, materializeBody: true);
       final prepared = await const ContractRequestBuilder().build(captured,
-        draft(), resolveSecret: (_) async => '[REDACTED]', cancellation: cancellation);
+        inputs.draft, resolveSecret: (_) async => '[REDACTED]', cancellation: cancellation,
+        previewOnly: true, preparation: inputs);
       try {
         final preview = <int>[];
         await for (final chunk in prepared.body!.open()) {
@@ -737,6 +775,7 @@ class RequestRunController extends ChangeNotifier {
   }
 
   void _resetValues() {
+    _dropPreparedInputs();
     values.clear();
     structuredValues.clear();
     omittedValues.clear();
@@ -1301,9 +1340,12 @@ class RequestRunController extends ChangeNotifier {
           }
         }
       }
+      final inputs = await _requestInputs(captured);
+      token.throwIfCancelled();
       final completed = await const ContractRequestExecutor().execute(
         captured,
-        draft(),
+        inputs.draft,
+        preparation: inputs,
         resolveSecret: (reference) async {
           try {
             final value = await secrets.read(reference);
@@ -1376,6 +1418,7 @@ class RequestRunController extends ChangeNotifier {
   void stopStream() {streamControl?.stop();}
 
   void cancel() {
+    _dropPreparedInputs();
     cancellation?.cancel();
     oauthDevicePrompt = null;
     if (phase == 'preparing') {
@@ -1635,6 +1678,7 @@ class RequestRunController extends ChangeNotifier {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    _dropPreparedInputs();
     _setupDrafts.clear();
     _caseDrafts.clear();_bodyDrafts.clear();
     _previewTimer?.cancel();

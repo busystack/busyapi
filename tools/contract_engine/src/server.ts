@@ -1,3 +1,4 @@
+import {requestInputPreparation} from './request_preparation';
 import {responseStreamOpen,responseStreamChunk,responseStreamClose,responseStreamOwned} from './stream_execution';
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
 import {SourceError} from './document';
@@ -26,7 +27,7 @@ import {inspectPolicyCode} from './policy_code';
 import {PolicyProcessWorker} from './policy_process_worker';
 import {join} from 'node:path';
 import {policyRuntime} from './policy_runtime';
-import {mockFormBytes,mockMultipartBytes,requestFormBytes,requestRawMediaBytes,planExecutionCase,requestContentParameters,requestMediaBytes,requestMultipartPlan,requestMultipartAppend,requestMultipartNamedProof} from './execution';
+import {mockFormBytes,mockMultipartBytes,requestFormBytes,requestRawMediaBytes,planExecutionCase,requestContentParameters,requestMediaBytes,requestMultipartPlan,requestMultipartAppend} from './execution';
 import {MAX, encode} from './worker_response';
 if (!isMainThread) {
     parentPort!.on('message', async (request: any) => {
@@ -47,6 +48,7 @@ if (!isMainThread) {
             methods.requestFormMediaTypes = requestFormMediaTypes;
             methods.requestMultipartEncoding = requestMultipartEncoding;
             methods.requestFormBytes = requestFormBytes;
+            methods.requestInputPreparation = requestInputPreparation;
             methods.mockFormBytes = mockFormBytes;
             methods.mockMultipartBytes = mockMultipartBytes;
             methods.requestRawMediaBytes = requestRawMediaBytes;
@@ -58,7 +60,6 @@ if (!isMainThread) {
             methods.responseStreamClose = responseStreamClose;
             methods.requestMultipartPlan = requestMultipartPlan;
             methods.requestMultipartAppend = requestMultipartAppend;
-            methods.requestMultipartNamedProof = requestMultipartNamedProof;
             methods.executionCaseValues = executionCaseValues;
             methods.inspectExecutionJson = inspectExecutionJson;
             methods.planExecutionEnvironment = planExecutionEnvironment;

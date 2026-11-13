@@ -311,6 +311,18 @@ class RequestBodyDraft {
       fileShapes = const {},
       fields = const [],
       files = const [];
+  RequestBodyDraft._capture(RequestBodyDraft value)
+    : kind = value.kind,
+      capturedExample = value.capturedExample,
+      mediaType = value.mediaType,
+      text = value.text,
+      file = value.file,
+      fields = List.unmodifiable(value.fields),
+      files = List.unmodifiable(value.files),
+      partMediaTypes = Map.unmodifiable(value.partMediaTypes),
+      partHeaders = List.unmodifiable(value.partHeaders),
+      partSchemas = Map.unmodifiable(value.partSchemas),
+      fileShapes = Map.unmodifiable(value.fileShapes);
   final CapturedRequestBodyExample? capturedExample;
   final RequestBodyKind kind;
   final String? mediaType, text, file;
@@ -320,6 +332,17 @@ class RequestBodyDraft {
   final List<RequestPartHeaderValue> partHeaders;
   final Map<String, String> partSchemas;
   final Map<String, MultipartFileShape> fileShapes;
+}
+
+class _CapturedRequestBody extends RequestBodyDraft {
+  _CapturedRequestBody(RequestBodyDraft value)
+    : modeled = value.modeled,
+      fileAccess = value.fileAccess,
+      super._capture(value);
+  @override
+  final bool modeled;
+  @override
+  final ProjectAccess? fileAccess;
 }
 
 class _ModeledRequestBody extends RequestBodyDraft {
@@ -370,6 +393,22 @@ class OperationRequestDraft {
   final Map<String, String> tlsFiles;
   final Duration connectTimeout, overallTimeout, inactivityTimeout;
 
+  OperationRequestDraft capture() => OperationRequestDraft(
+    planIdentity: planIdentity,
+    environment: environment,
+    server: selectedServer,
+    securityAlternative: securityAlternative,
+    parameters: Map.unmodifiable(parameters),
+    headers: List.unmodifiable(headers),
+    variables: Map.unmodifiable(variables),
+    body: _CapturedRequestBody(body),
+    tlsFiles: Map.unmodifiable(tlsFiles),
+    connectTimeout: connectTimeout,
+    overallTimeout: overallTimeout,
+    inactivityTimeout: inactivityTimeout,
+    streamStopAfterRecords: streamStopAfterRecords,
+  );
+
   static String parameterKey(String location, String name) =>
       requestParameterKey(location, name);
 }
@@ -377,16 +416,21 @@ class OperationRequestDraft {
 class PreparedRequestBody {
   PreparedRequestBody(
     this.length,
-    this.open, {
+    Stream<List<int>> Function() open, {
     this.mediaType,
     this.release,
+    this.inputsCurrent,
     this.formInstance,
+    this.formOriginalData,
+    List<String> formOriginalFiles = const [],
     this.formParameters,
     this.mimeTextProblem,
     Map<String, String> partSchemas = const {},
     Map<String, String> partMediaTypes = const {},
     Map<String, MultipartFileShape> fileShapes = const {},
-  }) : fileShapes = Map.unmodifiable(fileShapes),
+  }) : _open = open,
+       formOriginalFiles = List.unmodifiable(formOriginalFiles),
+       fileShapes = Map.unmodifiable(fileShapes),
        partSchemas = Map.unmodifiable(partSchemas),
        partMediaTypes = Map.unmodifiable(partMediaTypes);
   final int length;
@@ -401,18 +445,148 @@ class PreparedRequestBody {
     }
   }
 
-  final Stream<List<int>> Function() open;
+  final Stream<List<int>> Function() _open;
+  Stream<List<int>> open() => _open().map(
+    (bytes) => bytes is Uint8List
+        ? bytes.asUnmodifiableView()
+        : List<int>.unmodifiable(bytes),
+  );
   final String? mediaType;
-  final String? formInstance;
+  final String? formInstance, formOriginalData;
+  final List<String> formOriginalFiles;
   final List<RuntimeSchemaInstance>? formParameters;
   final MimeTextPreparationProblem? mimeTextProblem;
   final Map<String, String> partSchemas, partMediaTypes;
   final Map<String, MultipartFileShape> fileShapes;
   final Future<void> Function()? release;
+  final Future<bool> Function(RunCancellation? cancellation)? inputsCurrent;
+  int _references = 1;
+  PreparedRequestBody retain() {
+    if (_closing != null)
+      throw CoreFailure(
+        'request.preparation.closed',
+        'The prepared body is closed.',
+      );
+    ++_references;
+    return PreparedRequestBody(
+      length,
+      _open,
+      mediaType: mediaType,
+      release: _releaseReference,
+      inputsCurrent: inputsCurrent,
+      formInstance: formInstance,
+      formOriginalData: formOriginalData,
+      formOriginalFiles: formOriginalFiles,
+      formParameters: formParameters,
+      mimeTextProblem: mimeTextProblem,
+      partSchemas: partSchemas,
+      partMediaTypes: partMediaTypes,
+      fileShapes: fileShapes,
+    );
+  }
+
+  Future<void> _releaseReference() async {
+    if (--_references == 0) await release?.call();
+  }
+
   Future<void>? _closing;
   Future<void> close() => _closing ??= _releaseOwned();
   Future<void> _releaseOwned() async {
-    await release?.call();
+    await _releaseReference();
+  }
+}
+
+/// Secret-free interpretation for one immutable draft and operation capture.
+/// Each request borrows a body lease; credentials/TLS/run authority stay at Send.
+class PreparedRequestInputs {
+  PreparedRequestInputs._(
+    this.plan,
+    this.draft,
+    this._structured,
+    this._contentParameters,
+    this._bodyProjection,
+    this._cancellation,
+    this._unlinkCancellation,
+  );
+  final OperationRequestPlan plan;
+  final OperationRequestDraft draft;
+  final Map<String, dynamic> _structured;
+  final Map<String, (String, bool, String)> _contentParameters;
+  final RunCancellation _cancellation;
+  final void Function()? _unlinkCancellation;
+  final Map<String, dynamic>? _bodyProjection;
+  PreparedRequestBody? _body;
+  bool _bodyPrepared = false, _closed = false;
+  Future<PreparedRequestBody?>? _bodyWork;
+
+  Future<PreparedRequestBody?> _leaseBody(
+    ContractRequestBuilder builder, {
+    required bool reconcile,
+  }) async {
+    if (_closed)
+      throw CoreFailure(
+        'request.preparation.closed',
+        'The prepared inputs are closed.',
+      );
+    plan.ensureCurrentPreparation();
+    Future<PreparedRequestBody?> acquire() async {
+      if (!_bodyPrepared ||
+          reconcile &&
+              _body?.inputsCurrent != null &&
+              !await _body!.inputsCurrent!(_cancellation)) {
+        final previous = _body;
+        _body = null;
+        _bodyPrepared = false;
+        await previous?.close();
+        final declaration = plan.result['requestBody'];
+        final media = declaration is Map
+            ? _selectedRequestMedia(
+                (declaration['content'] as List).whereType<Map>(),
+                draft.body.mediaType,
+              )
+            : null;
+        final body = await builder._body(
+          plan,
+          draft.body,
+          media,
+          _cancellation,
+          plan.ensureCurrentPreparation,
+          prepared: _bodyProjection,
+        );
+        if (_closed) {
+          await body?.close();
+          throw CoreFailure(
+            'request.preparation.closed',
+            'The prepared inputs were closed.',
+          );
+        }
+        _body = body;
+        _bodyPrepared = true;
+      }
+      return _body;
+    }
+
+    final work = _bodyWork ??= acquire();
+    try {
+      return (await work)?.retain();
+    } finally {
+      if (identical(_bodyWork, work)) _bodyWork = null;
+    }
+  }
+
+  Future<void> materializeBody({
+    ContractRequestBuilder builder = const ContractRequestBuilder(),
+  }) async {
+    final lease = await _leaseBody(builder, reconcile: true);
+    await lease?.close();
+  }
+
+  Future<void> close() async {
+    if (_closed) return;
+    _closed = true;
+    _unlinkCancellation?.call();
+    _cancellation.cancel();
+    await _body?.close();
   }
 }
 
@@ -609,26 +783,165 @@ class ContractRequestBuilder {
     return (base, substitute);
   }
 
+  Future<PreparedRequestInputs> prepareInputs(
+    OperationRequestPlan plan,
+    OperationRequestDraft input, {
+    RunCancellation? cancellation,
+    bool materializeBody = false,
+  }) async {
+    plan.ensureCurrentPreparation();
+    final draft = input.capture(), token = RunCancellation();
+    final unlink = cancellation?.listen(token.cancel);
+    PreparedRequestInputs? prepared;
+    try {
+      token.throwIfCancelled();
+      if (draft.planIdentity != plan.identity)
+        throw CoreFailure(
+          'request.draft.stale',
+          'Reconcile this draft with the changed operation.',
+        );
+      final values = {
+        for (final entry in draft.parameters.entries)
+          if (entry.value.present && entry.value.json)
+            entry.key: entry.value.text,
+      };
+      final raw = {
+        for (final entry in draft.parameters.entries)
+          if (entry.value.present &&
+              !entry.value.json &&
+              entry.value.representation !=
+                  RequestValueRepresentation.serializedParameter)
+            entry.key: entry.value.text,
+      };
+      final body = draft.body;
+      final needsProjection =
+          values.isNotEmpty ||
+          raw.isNotEmpty ||
+          body.modeled ||
+          body.kind == RequestBodyKind.form ||
+          body.kind == RequestBodyKind.multipart;
+      final projection = needsProjection
+          ? await plan.prepareInputProjection(values, raw, {
+              'kind': body.kind.name,
+              if (body.mediaType != null) 'mediaType': body.mediaType,
+              if (body.text != null) 'text': body.text,
+              'modeled': body.modeled,
+              'fields': [
+                for (final field in body.fields)
+                  {'name': field.name, 'value': field.value},
+              ],
+              'files': [
+                for (final file in body.files)
+                  {
+                    'name': file.name,
+                    'fallback': file.mediaType,
+                    'filename': file.filename ?? p.basename(file.path),
+                    if (file.selectedMediaType != null)
+                      'selected': file.selectedMediaType,
+                  },
+              ],
+              'choices': body.partMediaTypes,
+              'partSchemas': body.partSchemas,
+              'fileShapes': {
+                for (final entry in body.fileShapes.entries)
+                  entry.key: entry.value.name,
+              },
+              'headers': {
+                for (final part
+                    in body.partHeaders.map((header) => header.part).toSet())
+                  part: [
+                    for (final header in body.partHeaders.where(
+                      (header) => header.part == part,
+                    ))
+                      header.wireInput,
+                  ],
+              },
+            }, cancellation: token)
+          : null;
+      final structured = projection == null
+          ? <String, dynamic>{}
+          : Map<String, dynamic>.from(projection['structured'] as Map);
+      final content = projection == null
+          ? <String, (String, bool, String)>{}
+          : await plan.contentParameterValues(
+              values,
+              rawValues: raw,
+              cancellation: token,
+              prepared: Map<String, dynamic>.from(
+                projection['parameters'] as Map,
+              ),
+            );
+      prepared = PreparedRequestInputs._(
+        plan,
+        draft,
+        structured,
+        content,
+        projection?['body'] == null
+            ? null
+            : Map<String, dynamic>.from(projection!['body'] as Map),
+        token,
+        unlink,
+      );
+      if (draft.body.materializePreview || materializeBody) {
+        final lease = await prepared._leaseBody(this, reconcile: false);
+        await lease?.close();
+      }
+      token.throwIfCancelled();
+      plan.ensureCurrentPreparation();
+      return prepared;
+    } on Object {
+      if (prepared != null) {
+        await prepared.close();
+      } else {
+        unlink?.call();
+        token.cancel();
+      }
+      rethrow;
+    }
+  }
+
   Future<PreparedContractRequest> build(
     OperationRequestPlan plan,
     OperationRequestDraft draft, {
     required SecretResolver resolveSecret,
     bool previewOnly = false,
     RunCancellation? cancellation,
+    PreparedRequestInputs? preparation,
   }) async {
+    if (preparation == null) {
+      final owned = await prepareInputs(
+        plan,
+        draft,
+        cancellation: cancellation,
+      );
+      try {
+        return await build(
+          plan,
+          owned.draft,
+          resolveSecret: resolveSecret,
+          previewOnly: previewOnly,
+          cancellation: cancellation,
+          preparation: owned,
+        );
+      } finally {
+        await owned.close();
+      }
+    }
     plan.ensureCurrentPreparation();
+    if (!identical(preparation.plan, plan) ||
+        !identical(preparation.draft, draft) ||
+        preparation._closed) {
+      throw CoreFailure(
+        'request.preparation.stale',
+        'Use the immutable draft owned by this preparation.',
+      );
+    }
     if (draft.planIdentity != plan.identity) {
       throw CoreFailure(
         'request.draft.stale',
         'Reconcile this draft with the changed operation before sending it',
       );
     }
-    await plan.ensureParameterExampleInputs(
-      draft.parameters.values
-          .where((value) => value.present && value.capturedExample != null)
-          .map((value) => value.capturedExample!),
-      cancellation: cancellation,
-    );
     final trace = TraceRequestPolicy.capture(
       plan.operation['method'] as String,
       plan.operation['source'],
@@ -651,27 +964,8 @@ class ContractRequestBuilder {
     final cookies = <(String, String)>[];
     final cookieOwners = <String>{};
     final headers = <(String, String)>[];
-    final structured = await plan.parameterValues({
-      for (final entry in draft.parameters.entries)
-        if (entry.value.present && entry.value.json)
-          entry.key: entry.value.text,
-    });
-    final contentParameters = await plan.contentParameterValues(
-      {
-        for (final entry in draft.parameters.entries)
-          if (entry.value.present && entry.value.json)
-            entry.key: entry.value.text,
-      },
-      rawValues: {
-        for (final entry in draft.parameters.entries)
-          if (entry.value.present &&
-              !entry.value.json &&
-              entry.value.representation !=
-                  RequestValueRepresentation.serializedParameter)
-            entry.key: entry.value.text,
-      },
-      cancellation: cancellation,
-    );
+    final structured = preparation._structured;
+    final contentParameters = preparation._contentParameters;
     plan.ensureCurrentPreparation();
     for (final value
         in environment?.headers.entries ??
@@ -986,7 +1280,10 @@ class ContractRequestBuilder {
             ((draft.body.text ?? '').isEmpty ? 0 : 1),
       );
     }
-    final body = previewOnly && !draft.body.materializePreview
+    final body =
+        previewOnly &&
+            !draft.body.materializePreview &&
+            !preparation._bodyPrepared
         ? (draft.body.kind == RequestBodyKind.none
               ? null
               : PreparedRequestBody(
@@ -1001,13 +1298,7 @@ class ContractRequestBuilder {
                         )
                       : draft.body.mediaType,
                 ))
-        : await _body(
-            plan,
-            draft.body,
-            selectedBodyMedia,
-            cancellation,
-            plan.ensureCurrentPreparation,
-          );
+        : await preparation._leaseBody(this, reconcile: !previewOnly);
     try {
       if (!previewOnly) trace?.content(body?.length ?? 0);
       final bodyDeclaration = plan.result['requestBody'];
@@ -1145,6 +1436,14 @@ class ContractRequestBuilder {
       throw CoreFailure(
         'request.header.injection',
         'Header names and values must not contain control characters',
+      );
+    }
+    if (RegExp(r'[\x80-\x9f]').hasMatch(value) ||
+        value.codeUnits.any((unit) => unit > 255)) {
+      throw CoreFailure(
+        'request.header.octets.unsupported',
+        'The native HTTP SDK cannot emit these authored Header octets. Keep the literal input or choose a modeled representation.',
+        kind: CoreFailureKind.unsupported,
       );
     }
     final lower = name.toLowerCase();
@@ -1450,8 +1749,12 @@ class ContractRequestBuilder {
     RequestBodyDraft body,
     Map? declaration,
     RunCancellation? cancellation,
-    void Function() checkOwner,
-  ) async {
+    void Function() checkOwner, {
+    Map<String, dynamic>? prepared,
+  }) async {
+    Map<String, dynamic>? packet(String key) => prepared?[key] is Map
+        ? Map<String, dynamic>.from(prepared![key] as Map)
+        : null;
     checkOwner();
     if (body.fields.length > 2048) {
       throw CoreFailure(
@@ -1468,7 +1771,13 @@ class ContractRequestBuilder {
     }
     if (body.kind == RequestBodyKind.multipart &&
         declaration?['swaggerForm'] is! List) {
-      return _multipartTreeBody(plan, body, cancellation, checkOwner);
+      return _multipartTreeBody(
+        plan,
+        body,
+        cancellation,
+        checkOwner,
+        prepared: packet('multipart'),
+      );
     }
     if (body.kind == RequestBodyKind.multipart &&
         plan.formBindingForMedia(body.mediaType)?.multipart != true) {
@@ -1489,6 +1798,7 @@ class ContractRequestBuilder {
         text: body.text,
         choices: Map<String, String>.unmodifiable(body.partMediaTypes),
         cancellation: cancellation,
+        prepared: packet('form'),
       );
       checkOwner();
       cancellation?.throwIfCancelled();
@@ -1516,11 +1826,13 @@ class ContractRequestBuilder {
         body.text != null &&
             (body.kind == RequestBodyKind.form ||
                 body.kind == RequestBodyKind.multipart)
-        ? await plan.formData(
-            body.text!,
-            requestId: 'form-${_runIdentity()}',
-            cancellation: cancellation,
-          )
+        ? packet('data') != null
+              ? RequestFormData.fromJson(packet('data')!, body.text!)
+              : await plan.formData(
+                  body.text!,
+                  requestId: 'form-${_runIdentity()}',
+                  cancellation: cancellation,
+                )
         : null;
     checkOwner();
     cancellation?.throwIfCancelled();
@@ -1551,6 +1863,7 @@ class ContractRequestBuilder {
                     'selected': file.selectedMediaType!,
                 },
             ],
+            prepared: packet('media'),
             requestId: 'form-media-${_runIdentity()}',
             cancellation: cancellation,
           )
@@ -1581,6 +1894,7 @@ class ContractRequestBuilder {
             [for (final file in files) file.name],
             headers: headers,
             fileShapes: shapes,
+            prepared: packet('transfers'),
             requestId: 'multipart-${_runIdentity()}',
             cancellation: cancellation,
           )
@@ -1641,6 +1955,7 @@ class ContractRequestBuilder {
           final bytes = await plan.mediaBytes(
             body.text ?? '',
             body.mediaType!,
+            prepared: packet('media'),
             requestId: 'modeled-media-${_runIdentity()}',
             cancellation: cancellation,
           );
@@ -1775,32 +2090,11 @@ class ContractRequestBuilder {
           ];
           final prepared = await _emitMultipart(
             MultipartEntityPlan(body.mediaType!, parts),
-            plan,
             files,
             fileBodies,
             captures,
             cancellation,
             checkOwner,
-          );
-          final wire = await _multipartWire(prepared, cancellation, checkOwner);
-          final identities = <Map<String, Object?>>[];
-          for (final (index, file) in files.indexed) {
-            final identity = await sha256.bind(fileBodies[index].open()).first;
-            identities.add({
-              'name': file.name,
-              'position': fields.length + index,
-              'identity': identity.toString(),
-              'filename': file.filename ?? p.basename(file.path),
-            });
-          }
-          await plan.proveNamedMultipart(
-            body.mediaType!,
-            prepared.mediaType!,
-            base64Encode(wire),
-            files: identities,
-            partialFiles: true,
-            requestId: 'multipart-named-proof-${_runIdentity()}',
-            cancellation: cancellation,
           );
           checkOwner();
           cancellation?.throwIfCancelled();
@@ -1809,6 +2103,8 @@ class ContractRequestBuilder {
             prepared.open,
             mediaType: prepared.mediaType,
             formParameters: formParameters,
+            inputsCurrent: (token) =>
+                _multipartInputsCurrent(fileBodies, token),
             release: () => _releaseMultipart(captures),
           );
         } on Object {
@@ -1867,8 +2163,9 @@ class ContractRequestBuilder {
     OperationRequestPlan plan,
     RequestBodyDraft body,
     RunCancellation? cancellation,
-    void Function() checkOwner,
-  ) async {
+    void Function() checkOwner, {
+    Map<String, dynamic>? prepared,
+  }) async {
     final text = body.text ?? '{}';
     final literalFields = [
       for (final field in body.fields)
@@ -1899,6 +2196,7 @@ class ContractRequestBuilder {
       headers: headers,
       literalFields: literalFields,
       fileShapes: shapes,
+      prepared: prepared,
       requestId: 'multipart-tree-${_runIdentity()}',
       cancellation: cancellation,
     );
@@ -1938,33 +2236,13 @@ class ContractRequestBuilder {
           checkOwner,
         ),
       );
-      for (final (index, captured) in fileBodies.indexed) {
-        metadata[index]['identity'] = (await sha256.bind(captured.open()).first)
-            .toString();
-      }
       final prepared = await _emitMultipart(
         tree,
-        plan,
         files,
         fileBodies,
         captures,
         cancellation,
         checkOwner,
-      );
-      final wire = await _multipartWire(prepared, cancellation, checkOwner);
-      final proof = await plan.multipartPlan(
-        body.mediaType!,
-        text,
-        files: metadata,
-        choices: choices,
-        partSchemas: schemas,
-        headers: headers,
-        literalFields: literalFields,
-        fileShapes: shapes,
-        wire: base64Encode(wire),
-        wireType: prepared.mediaType,
-        requestId: 'multipart-proof-${_runIdentity()}',
-        cancellation: cancellation,
       );
       checkOwner();
       cancellation?.throwIfCancelled();
@@ -1972,7 +2250,12 @@ class ContractRequestBuilder {
         prepared.length,
         prepared.open,
         mediaType: prepared.mediaType,
-        formInstance: (proof['proof'] as Map)['instance'] as String?,
+        inputsCurrent: (token) => _multipartInputsCurrent(fileBodies, token),
+        formOriginalData: body.text == null ? null : projected['original'] as String,
+        formOriginalFiles: body.text == null ? const [] : [
+          for (final file in projected['files'] as List)
+            (file as Map)['name'] as String,
+        ],
         partSchemas: (projected['partSchemas'] as Map).cast<String, String>(),
         partMediaTypes: choices,
         fileShapes: {
@@ -2020,29 +2303,24 @@ class ContractRequestBuilder {
     return files;
   }
 
+  Future<bool> _multipartInputsCurrent(
+    List<PreparedRequestBody> files,
+    RunCancellation? token,
+  ) async {
+    for (final file in files) {
+      if (file.inputsCurrent != null && !await file.inputsCurrent!(token))
+        return false;
+    }
+    return true;
+  }
+
   Future<void> _releaseMultipart(List<PreparedRequestBody> captures) async {
     // A failed close must not strand other owned files.
     await Future.wait(captures.map((capture) => capture.close()));
   }
 
-  Future<Uint8List> _multipartWire(
-    PreparedRequestBody body,
-    RunCancellation? cancellation,
-    void Function() checkOwner,
-  ) async {
-    final wire = BytesBuilder(copy: false);
-    await for (final chunk in body.open()) {
-      checkOwner();
-      cancellation?.throwIfCancelled();
-      wire.add(chunk);
-      _uploadLimit(wire.length);
-    }
-    return wire.takeBytes();
-  }
-
   Future<PreparedRequestBody> _emitMultipart(
     MultipartEntityPlan tree,
-    OperationRequestPlan plan,
     List<MultipartFileValue> files,
     List<PreparedRequestBody> fileBodies,
     List<PreparedRequestBody> captures,
@@ -2101,17 +2379,24 @@ class ContractRequestBuilder {
           _partName(filename);
           payload = fileBodies[index];
         } else if (part.bytes != null && part.text != null) {
-          literal = transfer.schemaEncoded
-              ? await multipartTextBytes(
-                  part.text!,
-                  transfer,
-                  textual: ContentType.parse(type).primaryType == 'text',
-                )
-              : await _multipartEncodedBytes(
-                  part.bytes!,
-                  transfer,
-                  textual: ContentType.parse(type).primaryType == 'text',
-                );
+          try {
+            literal = transfer.schemaEncoded
+                ? await multipartTextBytes(
+                    part.text!,
+                    transfer,
+                    textual: ContentType.parse(type).primaryType == 'text',
+                  )
+                : await _multipartEncodedBytes(
+                    part.bytes!,
+                    transfer,
+                    textual: ContentType.parse(type).primaryType == 'text',
+                  );
+          } on CoreFailure catch (error) {
+            if (error.source != null) rethrow;
+            throw CoreFailure(error.code, 'Part ${part.name ?? 'body'}: ${error.message}',
+                kind: error.kind, source: transfer.instanceSource ?? (transfer.resource == null ? null :
+                    CoreFailureSource(transfer.resource!, transfer.pointer!, transfer.range!)));
+          }
         } else {
           throw CoreFailure(
             'request.multipart.protocol',
@@ -2151,8 +2436,6 @@ class ContractRequestBuilder {
         length,
         () async* {
           for (final chunk in chunks) {
-            cancellation?.throwIfCancelled();
-            checkOwner();
             if (chunk is Uint8List) {
               yield chunk;
             } else {
@@ -2292,6 +2575,7 @@ class ContractRequestBuilder {
     ProjectAccess? access;
     try {
       access = projectAccess ?? await ProjectAccess.open(p.dirname(path));
+      late String capturedIdentity;
       final length = await access.captureUpload(
         path,
         captured,
@@ -2299,6 +2583,7 @@ class ContractRequestBuilder {
           maximumUploadBytes,
           remainingBytes ?? maximumUploadBytes,
         ),
+        capturedIdentity: (value) => capturedIdentity = value,
         checkCurrent: () {
           checkOwner?.call();
           cancellation?.throwIfCancelled();
@@ -2309,6 +2594,33 @@ class ContractRequestBuilder {
         length,
         captured.openRead,
         mediaType: mediaType,
+        inputsCurrent: (token) async {
+          ProjectAccess? current;
+          try {
+            token?.throwIfCancelled();
+            current =
+                projectAccess ?? await ProjectAccess.open(p.dirname(path));
+            return await current.matchesUpload(
+              path,
+              length,
+              capturedIdentity,
+              checkCurrent: () {
+                checkOwner?.call();
+                token?.throwIfCancelled();
+              },
+            );
+          } on CoreFailure catch (error) {
+            if (error.code == 'cancelled' ||
+                error.code == 'request.closed' ||
+                error.code == 'request.draft.stale')
+              rethrow;
+            return false;
+          } on FileSystemException {
+            return false;
+          } finally {
+            if (projectAccess == null) current?.close();
+          }
+        },
         release: () async {
           try {
             if (await temp.exists()) await temp.delete(recursive: true);
@@ -2896,6 +3208,8 @@ class ContractHttpTransport {
                 upload.moveNext(),
                 limit: input.inactivityTimeout,
               )) {
+                input.plan.ensureCurrentOwner();
+                cancellation?.throwIfCancelled();
                 input.body!._recordInspection(upload.current);
                 request.add(upload.current);
                 await deadline.wait(
@@ -3110,7 +3424,8 @@ class ContractHttpTransport {
               final liveStream = live;
               if (liveStream != null) {
                 await liveStream.add(retained, receivedCount);
-                if (liveStream.failure != null || streamControl?.stopped == true) {
+                if (liveStream.failure != null ||
+                    streamControl?.stopped == true) {
                   complete = false;
                   reason = streamControl?.stopped == true
                       ? 'stopped'
@@ -3744,10 +4059,12 @@ class ContractRequestExecutor {
     OperationRequestDraft draft, {
     required SecretResolver resolveSecret,
     RunCancellation? cancellation,
+    PreparedRequestInputs? preparation,
     void Function()? onRequestDispatched,
     ContractStreamControl? streamControl,
     FutureOr<void> Function(ContractStreamSnapshot)? onStream,
   }) async {
+    draft = preparation?.draft ?? draft.capture();
     final secretValues = <String>{};
     Future<String?> ownedSecret(String reference) async {
       cancellation?.throwIfCancelled();
@@ -3764,6 +4081,7 @@ class ContractRequestExecutor {
       draft,
       resolveSecret: ownedSecret,
       cancellation: cancellation,
+      preparation: preparation,
     );
     final PreparedContractRequest request;
     try {
@@ -4282,6 +4600,8 @@ class ContractRequestExecutor {
               formOccurrence: plan.operation['occurrence'] as String?,
               rootSchemaAssertions:
                   !dataChecked || draft.body.kind == RequestBodyKind.form,
+              originalData: preparedBody.formOriginalData,
+              originalFiles: preparedBody.formOriginalFiles,
               fileShapes: preparedBody.fileShapes,
               partSchemas: preparedBody.partSchemas,
               partMediaTypes: preparedBody.partMediaTypes,
@@ -4746,6 +5066,8 @@ class ContractRequestExecutor {
     String? mediaType,
     bool mediaBase64 = false,
     String? formOccurrence,
+    String? originalData,
+    List<String> originalFiles = const [],
     bool rootSchemaAssertions = true,
     Map<String, MultipartFileShape> fileShapes = const {},
     Map<String, String> partSchemas = const {},
@@ -4805,6 +5127,8 @@ class ContractRequestExecutor {
       mediaType: mediaType,
       mediaBase64: mediaBase64,
       form: form,
+      originalData: originalData,
+      originalFiles: originalFiles,
       media: capturedMedia,
       schemaResource: rootSchemaAssertions
           ? (schema?['resource'] as String?)

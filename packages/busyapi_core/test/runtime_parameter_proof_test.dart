@@ -20,9 +20,10 @@ class _RuntimeProofEngine extends EngineProcess {
     String? requestId,
   }) async {
     final result = await super.request(method, params, requestId: requestId);
-    if (method == 'requestContentParameters') {
-      if (contentFault == 'old-producer') result['producerVersion'] = '1';
-      if (contentFault == 'missing-bytes') result['bodies'] = <String, Object?>{};
+    if (method == 'requestInputPreparation') {
+      final content = result['parameters'] as Map;
+      if (contentFault == 'old-producer') content['producerVersion'] = '1';
+      if (contentFault == 'missing-bytes') content['bodies'] = <String, Object?>{};
     }
     if (method != 'evaluateSchemas' || params['runtimeInstances'] == null || fault == null) {
       return result;
@@ -69,7 +70,8 @@ void main() {
         expect(request.uri.toString(), contains('/p/caf%E9'));
         expect(request.uri.query, contains('q=caf%E9'));
         expect(request.uri.query, contains('n=9007199254740993.00'));
-        expect(request.headers.value('x-json')!.codeUnits, utf8.encode('"雪"'));
+        expect(request.headers.value('x-json'), '"\\u96ea"');
+        expect(jsonDecode(request.headers.value('x-json')!), '雪');
         request.response.statusCode = 204;await request.response.close();
       });
       const latin = 'text/plain; charset=iso-8859-1';
@@ -101,6 +103,14 @@ void main() {
             throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'request.parameter.protocol')));
       }
       engine.contentFault = null;expect(seen, isEmpty);
+      final literal = RequestValue.serialized('"雪"', mediaLevel: true);
+      await expectLater(const ContractRequestBuilder().build(plan, OperationRequestDraft(
+          planIdentity: plan.identity, parameters: {...draft.parameters,
+            OperationRequestDraft.parameterKey('header', 'X-Json'): literal}), resolveSecret: (_) async => null),
+          throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'request.header.octets.unsupported')
+            .having((error) => error.kind, 'kind', CoreFailureKind.unsupported)));
+      expect(literal.text, '"雪"');
+
       final result = await const ContractRequestExecutor().execute(plan,draft,resolveSecret: (_) async => null);
       try {expect(result.conforming,true,reason:'${result.outgoing.findings}');} finally {await result.close();}
       final changed = await project.applyRefactoring(await plan.planCase('Declared bytes',draft));

@@ -20,7 +20,7 @@ export function urlEncodedWire(model:any):Buffer {
  const fail=(message:string):never=>{throw new SourceError('request.form.style',message);};
  const scalar=(node:any):string=>{if(['object','array'].includes(node.kind))return fail('Nested RFC6570 values have no defined serialization');return node.kind==='string'?node.value:doc.dataJson(node.pointer);};
  for(const [name,physical]of doc.root.children){
-  const node=doc.dataNode(physical.pointer)!,rule=model.declaration.encoding?.[name]??{},isStyled=['style','explode','allowReserved'].some(key=>Object.hasOwn(rule,key));
+  const node=doc.dataNode(physical.pointer)!,rule=Object.hasOwn(model.declaration.encoding??{},name)?model.declaration.encoding[name]:{},isStyled=['style','explode','allowReserved'].some(key=>Object.hasOwn(rule,key));
   if(formFieldOmitted(node,rule))continue;
   if(isStyled){
    const style=rule.style??'form',explode=rule.explode??(style==='form');

@@ -179,10 +179,10 @@ for(const mediaType of ['application/xml','application/linkset','application/lin
  else if(mediaType==='application/linkset')assert.equal(response.text,'</p>; rel="next"');
  else assert.deepEqual(JSON.parse(response.text),value);
 });
-for(const authored of [false,true])test(`mock multipart XML/Linkset response uses shared captured generation (${authored?'authored data':'schema sample'})`,{timeout:20000},async t=>{
- const value={xml:{n:'__exact__'},links:{linkset:[{next:[{href:'../p',title:'a,b','title*':[{value:'雪',language:'ja'}]}]}]}};
- const link={type:'object',required:['linkset']},schema={type:'object',required:['xml','links'],properties:{xml:{type:'object',xml:{name:'Part'},required:['n'],properties:{n:{type:'number',enum:['__exact__']}}},links:link},...(!authored?{const:value}:{})};
- const media={schema,...(authored?{examples:{authored:{dataValue:value}}}:{}),encoding:{xml:{contentType:'application/xml; charset=utf-16be',headers:{'Content-Type':{required:true,schema:false},Link:{required:true,content:{'application/linkset':{schema:link}},examples:{link:{dataValue:value.links}}}}},links:{contentType:'application/linkset'}}};
+for(const authored of [false,true])test(`mock ordered multipart XML/Linkset response uses shared captured generation (${authored?'authored data':'schema sample'})`,{timeout:20000},async t=>{
+ const links={linkset:[{next:[{href:'../p',title:'a,b','title*':[{value:'雪',language:'ja'}]}]}]},value=[{n:'__exact__'},links];
+ const link={type:'object',required:['linkset']},schema={type:'array',minItems:2,maxItems:2,items:false,prefixItems:[{type:'object',xml:{name:'Part'},required:['n'],properties:{n:{type:'number',enum:['__exact__']}}},link],...(!authored?{const:value}:{})};
+ const media={schema,...(authored?{examples:{authored:{dataValue:value}}}:{}),prefixEncoding:[{contentType:'application/xml; charset=utf-16be',headers:{'Content-Type':{required:true,schema:false},Link:{required:true,content:{'application/linkset':{schema:link}},examples:{link:{dataValue:links}}}}},{contentType:'application/linkset'}]};
  const document={openapi:'3.2.1',info:{title:'Mock parts',version:'1'},paths:{'/parts':{get:{responses:{200:{description:'OK',content:{'multipart/mixed':media}}}}}}};
  const input=mockStart(JSON.stringify(document).replaceAll('"__exact__"','9007199254740993')),original=JSON.stringify(input.capture),{port}=await start(t,input);
  const response=await new Promise((resolve,reject)=>{const call=http.get({hostname:'127.0.0.1',port,path:'/parts'},res=>{const chunks=[];res.on('data',chunk=>chunks.push(chunk));res.on('end',()=>resolve({status:res.statusCode,headers:res.headers,bytes:Buffer.concat(chunks)}));});call.on('error',reject);});

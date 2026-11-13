@@ -303,6 +303,7 @@ class ProjectAccess {
     File destination, {
     required int maximumBytes,
     void Function()? checkCurrent,
+    void Function(String identity)? capturedIdentity,
   }) => _anchored(
     path,
     (target) => _regular(target, (file, initial) async {
@@ -351,11 +352,38 @@ class ProjectAccess {
             'The upload file changed during capture. Select it again.',
           );
         await output.flush();
+        capturedIdentity?.call(captured.single.toString());
         return count;
       } finally {
         await output.close();
       }
     }, maxBytes: maximumBytes),
+  );
+
+  /// A prepared upload owns immutable bytes. Reconcile its selected pathname
+  /// at Send without assembling another complete in-memory body.
+  Future<bool> matchesUpload(
+    String path,
+    int length,
+    String identity, {
+    void Function()? checkCurrent,
+  }) => _anchored(
+    path,
+    (target) => _regular(target, (file, stat) async {
+      if (stat.size != length) return false;
+      var count = 0;
+      final observed = <Digest>[];
+      final hash = sha256.startChunkedConversion(_UploadDigestSink(observed));
+      await for (final chunk in file.openRead()) {
+        checkCurrent?.call();
+        count += chunk.length;
+        if (count > length) return false;
+        hash.add(chunk);
+      }
+      hash.close();
+      checkCurrent?.call();
+      return count == length && observed.single.toString() == identity;
+    }, maxBytes: 128 * 1024 * 1024),
   );
 
   Future<List<int>> read(String path) => _anchored(

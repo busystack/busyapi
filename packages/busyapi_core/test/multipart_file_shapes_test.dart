@@ -210,7 +210,7 @@ void main() {
                   isA<CoreFailure>().having(
                     (failure) => failure.code,
                     'code',
-                    'request.multipart.encoding.unsupported',
+                    'request.multipart.file-shape',
                   ),
                 ),
               );
@@ -238,15 +238,8 @@ void main() {
                       ? MultipartFileShape.array
                       : MultipartFileShape.single;
                   if (legacy) {
-                    final instance =
-                        jsonDecode(prepared.body!.formInstance!) as Map;
-                    final expected = latin1.decode(bytes);
-                    expect(
-                      instance['asset'],
-                      shape == MultipartFileShape.single
-                          ? expected
-                          : List.filled(count, expected),
-                    );
+                    final wire = await prepared.body!.open().fold<List<int>>([], (all, chunk) => all..addAll(chunk));
+                    expect(latin1.decode(wire).split(latin1.decode(bytes)).length - 1, count);
                   }
                   final conformance = await const ContractRequestExecutor()
                       .validateOutgoing(

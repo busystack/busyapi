@@ -34,7 +34,7 @@ import {ignoresRequestBody} from './operation_semantics';
 import {requestExampleProjection} from './request_examples';
 import {serverContextProblem,serverContextError,serverVariableValues,serverHttpFragmentPolicy} from './server_semantics';
 import {formFieldOmitted,formPercent,urlEncodedWire} from './url_form_serialization';
-import {multipartStructure,multipartGeneration,proveMultipartGeneration,proveNamedMultipart} from './multipart_generation';
+import {multipartStructure,multipartGeneration,proveMultipartGeneration} from './multipart_generation';
 
 /** Captured ordinary-body generation. Encoding never substitutes a schema;
  * both the input data and resulting wire inversion must pass original assertions. */
@@ -44,11 +44,11 @@ export function requestRawMediaBytes(input:any){
  return {version:1,snapshot:input.snapshot,mediaType:input.mediaType,input:createHash('sha256').update(input.text).digest('hex'),base64:bytes.toString('base64'),byteLength:bytes.length};
 }
 
-export async function requestContentParameters(input:any){
+export async function requestContentParameters(input:any,capture=createGraph(input),plan=requestOperation(input,capture)){
  if(!input.values||typeof input.values!=='object'||Array.isArray(input.values)||Object.keys(input.values).length>2048)throw new SourceError('request.parameter.input','Expected bounded typed parameter values');
  const rawValues=input.rawValues??{};
  if(!rawValues||typeof rawValues!=='object'||Array.isArray(rawValues)||Object.keys(rawValues).length>2048||Object.values(rawValues).some(value=>typeof value!=='string')||Object.keys(rawValues).some(key=>Object.hasOwn(input.values,key)))throw new SourceError('request.parameter.input','Expected disjoint bounded literal media values');
- const capture=createGraph(input),plan=requestOperation(input,capture),values:Record<string,string>={},percentEncoded:Record<string,boolean>={},inputs:Record<string,string>={},bodies:Record<string,string>={};
+ const values:Record<string,string>={},percentEncoded:Record<string,boolean>={},inputs:Record<string,string>={},bodies:Record<string,string>={};
  const {prepareModeledMedia}=await import('./modeled_media');
  for(const parameter of plan.parameters){
   const key=parameter.in+'\u0000'+parameter.name,literal=Object.hasOwn(rawValues,key),text=literal?rawValues[key]:input.values[key];
@@ -66,6 +66,7 @@ export async function requestContentParameters(input:any){
   let bytes:Buffer;
   if(['xml','linkset','linkset-json'].includes(kind)&&!literal)
    bytes=(await prepareModeledMedia(input,text,media.mediaType,media.schema,header,'request',capture)).bytes;
+  else if(header&&kind==='json'&&!literal)bytes=encodeRuntimeMedia(new SourceDocument(text,'urn:busyapi:parameter-input',true,'json'),media.mediaType,true);
   else if(kind==='xml')bytes=rawXmlBytes(text,mediaTypes(media.mediaType,false)[0].parameters.get('charset'));
   else if(kind==='text'){
    let scalar=text;
@@ -110,9 +111,8 @@ export async function requestFormContentValue(input:any,captured=createGraph(inp
  return {version:1,snapshot:input.snapshot,identity:plan.identity,name:input.name,index:input.index,mediaType:input.mediaType,input:createHash('sha256').update(input.text).digest('hex'),value,...(prepared?{modeledData:prepared.text}:{})};
 }
 
-export async function requestMediaBytes(input:any){
+export async function requestMediaBytes(input:any,captured=createGraph(input),plan=requestOperation(input,captured)){
  if(typeof input.text!=='string'||typeof input.mediaType!=='string')throw new SourceError('request.media.input','Expected typed JSON and a concrete media selection');
- const captured=createGraph(input),plan=requestOperation(input,captured);
  const content=selectRequestMedia<Record<string,any>&{mediaType:string}>(plan.requestBody?.content??[],input.mediaType);
  if(!content)throw new SourceError('request.media.owner','Select a captured request media declaration');
  const document=new SourceDocument(input.text,'urn:busyapi:typed-body',true,'json');
@@ -122,23 +122,8 @@ export async function requestMediaBytes(input:any){
  return {version:1,snapshot:input.snapshot,identity:plan.identity,input:createHash('sha256').update(input.text).digest('hex'),...prepared};
 }
 
-export async function requestMultipartNamedProof(input:any){
-  const captured=createGraph(input),plan=requestOperation(input,captured);
-  const content=selectRequestMedia<Record<string,any>&{mediaType:string}>(plan.requestBody?.content??[],input.mediaType);
-  if(!content||content.formBinding!=='multipart-named')throw new SourceError('request.multipart.owner','Select a captured named multipart binding');
-  try{
-    const proof=await proveNamedMultipart(captured.graph,content,input);
-    return {version:1,snapshot:input.snapshot,identity:plan.identity,proof};
-  }catch(error){
-    if(!(error instanceof SourceError)||error.source)throw error;
-    const source=content.definition??content.source;
-    throw new SourceError(error.code,error.message,source.range,error.kind,source);
-  }
-}
-
-export async function requestMultipartPlan(input:any){
-  const captured=createGraph(input),plan=requestOperation(input,captured);
-  let content=selectRequestMedia<Record<string,any>&{mediaType:string}>(plan.requestBody?.content??[],input.mediaType);
+export async function requestMultipartPlan(input:any,captured=createGraph(input),plan=requestOperation(input,captured)){
+   let content=selectRequestMedia<Record<string,any>&{mediaType:string}>(plan.requestBody?.content??[],input.mediaType);
   if(!content?.multipart?.typedTree)throw new SourceError('request.multipart.owner','Select a captured structured multipart declaration');
   if(content.mediaType!==input.mediaType){
     const forms=new FormSemantics(captured.graph);
@@ -158,16 +143,16 @@ export async function requestMultipartPlan(input:any){
 
 /** Prepare one immutable form input with one captured operation. Literal rows
  * keep their authored order and text; typed JSON keeps exact numeric lexemes. */
-export async function requestFormBytes(input:any){
+export async function requestFormBytes(input:any,captured=createGraph(input),plan=requestOperation(input,captured)){
  if(!Array.isArray(input.fields)||input.fields.length>2048||input.fields.some((value:any)=>!value||typeof value.name!=='string'||typeof value.value!=='string')||input.text!==undefined&&typeof input.text!=='string')throw new SourceError('request.form.input','Expected bounded literal rows or typed form JSON');
- const captured=createGraph(input),plan=requestOperation(input,captured),content=selectRequestMedia<Record<string,any>&{mediaType:string}>(plan.requestBody?.content??[],input.mediaType);
+ const content=selectRequestMedia<Record<string,any>&{mediaType:string}>(plan.requestBody?.content??[],input.mediaType);
  if(!content?.form||content.swaggerForm||content.formBinding!=='urlencoded')throw new SourceError('request.form.owner','Select a captured native URL-form declaration');
  const typed=input.text===undefined?undefined:new SourceDocument(input.text,'urn:busyapi:typed-form',true,'json');
  if(typed?.issues.length)throw typed.issues[0];if(typed&&typed.root.kind!=='object')throw new SourceError('request.form.shape','Typed form data must be an object');
  const groups=new Map<string,string[]>(),order:{name:string;index:number}[]=[];
  for(const field of input.fields){const values=groups.get(field.name)??[];order.push({name:field.name,index:values.length});values.push(field.value);groups.set(field.name,values);}
  if(typed)for(const [name,physical]of typed.root.children){const node=typed.dataNode(physical.pointer)!;groups.set(name,(node.kind==='array'?[...node.children.values()].map(child=>typed.dataNode(child.pointer)!):[node]).map(node=>typed.dataJson(node.pointer)));}
- const resolved=requestFormMediaTypes({...input,parts:[...groups.keys()],files:[],choices:input.choices??{}},captured,plan),mediaValues:Record<string,string[]>={},members:string[]=[];
+ const resolved=requestFormMediaTypes({...input,parts:[...groups.keys()],files:[],choices:input.choices??{}},captured,plan),mediaValues:Record<string,string[]>=Object.create(null),members:string[]=[];
  let complete=true;
  const parse=(text:string)=>{const doc=new SourceDocument(text,'urn:busyapi:form-value',true,'json');if(doc.issues.length)throw doc.issues[0];return doc;};
  for(const [name,values]of groups){
@@ -191,7 +176,7 @@ export async function requestFormBytes(input:any){
    if(actual&&!modeled&&kind!=='json'&&!['text/plain','application/octet-stream'].includes(type!.split(';')[0].trim().toLowerCase())&&['object','array'].includes(actual.kind))throw new SourceError('request.form.media.unsupported','This form media has no structured data serializer; use a literal serialized field',[0,0],'unsupported');
    const value=actual?(kind==='json'||modeled?exact:actual.kind==='string'?actual.value:exact):text;
    if(modeled)wire.push((await requestFormContentValue({...input,formType:input.mediaType,bodyText:input.text,name,index,text:value,mediaType:type,structured:actual!==undefined},captured,plan)).value);
-   else {const charset=mediaTypes(type!,false)[0].parameters.get('charset');if(charset)declaredPlainTextBytes(value,charset);wire.push(formPercent(Buffer.from(value)));}
+   else {const charset=mediaTypes(type!,false)[0].parameters.get('charset');wire.push(formPercent(kind==='text'?declaredPlainTextBytes(value,charset??'utf-8'):Buffer.from(value)));}
   }
   if(!raw.length||styled&&!array&&parse(raw[0]).root.kind==='object'&&parse(raw[0]).root.children.size===0)continue;
   members.push(JSON.stringify(name)+':'+(array?'['+raw.join(',')+']':raw[0]));mediaValues[name]=wire;
@@ -208,9 +193,9 @@ export async function mockFormBytes(input:any){
  if(!content?.schema||content.formBinding!=='urlencoded')throw new SourceError('mock.form.owner','Select a captured URL-form response');
  const doc=new SourceDocument(input.text,'urn:busyapi:mock-form',true,'json');if(doc.issues.length)throw doc.issues[0];
  if(doc.root.kind!=='object')throw new SourceError('mock.form.shape','URL-form response data must be an object');
- const forms=new FormSemantics(captured.graph),shape=forms.shape(content.schema.resource,content.schema.pointer),encoding=content.family==='3.2'?content.encoding??{}:{},mediaTypesByName:Record<string,string>={},mediaValues:Record<string,string[]>={},normalizations:{pointer:string;text:string}[]=[];
+ const forms=new FormSemantics(captured.graph),shape=forms.shape(content.schema.resource,content.schema.pointer),encoding=content.family==='3.2'?content.encoding??{}:{},mediaTypesByName:Record<string,string>=Object.create(null),mediaValues:Record<string,string[]>=Object.create(null),normalizations:{pointer:string;text:string}[]=[];
  for(const [name,physical]of doc.root.children){
-  const field=doc.dataNode(physical.pointer)!,rule=encoding[name]??{},property=shape.properties?.[name],item=property?.types?.includes('array')?property.items:property;
+  const field=doc.dataNode(physical.pointer)!,rule=Object.hasOwn(encoding,name)?encoding[name]:{},property=shape.properties?.[name],item=property?.types?.includes('array')?property.items:property;
   const type=mediaTypeChoice(rule.contentType??item?.defaultContentType??'text/plain');mediaTypesByName[name]=type;
   if(['style','explode','allowReserved'].some(key=>Object.hasOwn(rule,key))||!['xml','linkset','linkset-json'].includes(runtimeMediaKind(type)))continue;
   const values=field.kind==='array'?[...field.children.values()].map(node=>doc.dataNode(node.pointer)!):[field];
@@ -530,11 +515,11 @@ export function requestFormMediaTypes(input:any,captured=createGraph(input),plan
 
 /** Resolve MIME transfer headers under their own captured Schema Objects. The
  * family evaluator checks candidate tokens; transport only implements codecs. */
-export async function requestMultipartEncoding(input:any){
+export async function requestMultipartEncoding(input:any,captured=createGraph(input),plan=requestOperation(input,captured)){
   if(!Array.isArray(input.parts)||input.parts.length>maximumItems||input.parts.some((part:any)=>!part||typeof part.name!=='string'||!['literal','string','other','item-string','item-other'].includes(part.kind))||
      !Array.isArray(input.files)||input.files.length>maximumItems||input.files.some((name:unknown)=>typeof name!=='string'))
     throw new SourceError('request.multipart.encoding','Expected bounded captured multipart field kinds');
-  const captured=createGraph(input),plan=requestOperation(input,captured),content=selectRequestMedia<Record<string,any>&{mediaType:string}>(plan.requestBody?.content??[],input.mediaType);
+  const content=selectRequestMedia<Record<string,any>&{mediaType:string}>(plan.requestBody?.content??[],input.mediaType);
   if(!content||content.formBinding!=='multipart-named')
     throw new SourceError('request.multipart.encoding','Select a captured named multipart declaration');
   const projection=new MultipartEncoding(captured.graph),media={...content.definition,kind:'media'},schema={...content.schema,kind:'schema'};

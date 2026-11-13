@@ -1,3 +1,4 @@
+import {rawXmlBytes} from './xml_wire';
 import type {createGraph} from './source_capture';
 import {urlEncodedWire} from './url_form_serialization';
 import {prepareModeledMedia} from './modeled_media';
@@ -12,7 +13,6 @@ import {declaredPlainTextBytes,encodePlainText} from './text_encoding';
 import {encodeRuntimeMedia,runtimeMediaKind,runtimeMediaBytes} from './runtime_media';
 import {mimeParts,mimeSingleton} from './mime_parts';
 import {decodeMultipartTransfer} from './multipart_transfer';
-import {decodeRuntimeForm} from './runtime_form';
 import {decimal} from './exact_numbers';
 import {evaluateSchemas} from './schema_evaluation';
 import {capturedMimeHeaderContent} from './mime_header_content';
@@ -81,53 +81,6 @@ const mediaMatches=(raw:unknown,predicate:(type:ReturnType<typeof mediaTypes>[nu
     if(typeof raw!=='string')return false;
     try{return mediaTypes(raw).some(predicate);}catch(error){if(error instanceof SourceError)return false;throw error;}
 };
-
-export async function proveNamedMultipart(graph:ReferenceGraph,content:Content,input:any){
-    const transfers=new MultipartEncoding(graph),at:GraphTarget={...(content.definition??content.source),kind:content.swaggerForm?'operation':'media'};
-    const fail=(code:string,message:string)=>transfers.failure(code,message,at);
-    mediaTypeChoice(input.mediaType,input.wireType);
-    const bytes=runtimeMediaBytes(input.wire,true),parts=mimeParts(bytes,input.wireType);
-    if(!Array.isArray(input.files)||input.files.length>2048)fail('request.multipart.files','Expected captured named file identities');
-    for(const file of input.files){
-        if(!object(file)||!Number.isSafeInteger(file.position)||typeof file.name!=='string'||typeof file.identity!=='string')fail('request.multipart.files','Expected bounded named file identities');
-        const part=parts[file.position];
-        if(!part)fail('request.multipart.file.identity','An emitted file position is absent');
-        const disposition=mimeSingleton(part.headers,'content-disposition');
-        if(disposition===undefined||mediaTypes('x/'+disposition,false)[0].parameters.get('name')!==file.name)fail('request.multipart.file.identity','The emitted file name differs from its captured binding');
-        if(file.filename!==undefined&&mediaTypes('x/'+disposition,false)[0].parameters.get('filename')!==file.filename)fail('request.multipart.file.identity','The emitted filename differs from the captured file input');
-        const payload=decodeMultipartTransfer(part.bytes,mimeSingleton(part.headers,'content-transfer-encoding')??'binary');
-        if(hash(payload.bytes)!==file.identity)fail('request.multipart.file.identity','The emitted file bytes differ from the approved capture');
-    }
-    const result=await evaluateSchemas({...input,runtimeInstances:[{subject:'request-body',location:input.mediaType,
-        text:input.wire,captureData:true,mediaBase64:true,mediaType:input.wireType,
-        form:{...at,
-            ...(input.occurrence !== undefined ? {occurrence:input.occurrence} : {}),
-            ...(input.fileShapes !== undefined ? {fileShapes:input.fileShapes} : {}),
-        },
-        schema:content.schema,itemSchema:content.itemSchema}]});
-    const projection = multipartProjection(result, 'request-body', transfers, at);
-    const decoded={document:new SourceDocument(projection.projectionData,'urn:busyapi:proved-named',true,'json')};
-    const actualBinary=new Set<string>(projection.projectionBinary??[]);
-    if(typeof input.expected==='string'){
-        const intended=new SourceDocument(input.expected,'file:///busyapi-intended-named',true,'json');
-        if(intended.issues.length)throw intended.issues[0];
-        const skipped=new Set<string>(input.partialFiles?input.files.map(file=>'/'+escape(file.name)):[]);
-        const equal=(pointer:string):boolean=>{
-            if(skipped.has(pointer))return true;
-            const left=intended.dataNode(pointer),right=decoded.document.dataNode(pointer);
-            if(!left||!right||left.kind!==right.kind||actualBinary?.has(pointer))return false;
-            if(left.kind==='number')return intended.dataJson(pointer)===decoded.document.dataJson(pointer);
-            if(left.kind==='object'||left.kind==='array'){
-                if(pointer===''&&input.partialFiles)return [...left.children.values()].every(child=>equal(child.pointer))&&[...right.children].every(([name])=>left.children.has(name)||skipped.has('/'+escape(name)));
-                return left.children.size===right.children.size&&[...left.children.values()].every(child=>equal(child.pointer));
-            }
-            return left.value===right.value;
-        };
-        if(!equal(''))fail('request.multipart.roundtrip','The generated named body does not decode to its intended typed values');
-    }
-    requireMultipartConformance(result, input.requireConformance, false, transfers, at);
-    return {complete:true,valid:true};
-}
 
 /** One captured structure for presentation, typed generation and runtime
  * interpretation. No wire encoder or file acquisition lives in this owner. */
@@ -235,7 +188,7 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
             const candidates=shapes.choices({...content.schema,kind:'schema'},name),selected=input.fileShapes?.[name];
             if(selected!==undefined&&!candidates.includes(selected))fail('request.multipart.file-shape','The selected named file shape is absent from this captured declaration');
             if(selected===undefined&&candidates.length>1)fail('request.multipart.file-shape','Choose the single or array shape for this named file group');
-            const array=(selected??candidates[0])==='array'||rootShape.properties?.[name]?.types?.includes('array')===true;
+            const array=(selected??candidates[0]??(rootShape.properties?.[name]?.types?.includes('array')?'array':'single'))==='array';
             const node=doc.dataNode('/'+escape(name)),values=node?.kind==='array'?[...node.children.values()].map(child=>doc.dataJson(child.pointer)):node?[doc.dataJson(node.pointer)]:[];
             const indexes=files.flatMap((file,index)=>file.name===name?[index]:[]);
             if(!array&&values.length+indexes.length!==1)fail('request.multipart.file-shape','A single file value cannot contain repeated inputs');
@@ -297,7 +250,7 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
             }
             // Named arrays repeat the Encoding once per item; an array-valued
             // item itself can be a nested multipart entity.
-            if(!ordered&&childHints[0]?.shape.types?.includes('array')&&child.kind==='array'){
+            if(!ordered&&child.kind==='array'&&(childHints[0]?.shape.types?.includes('array')||literalOrder.has(child.pointer+'/0'))){
                 const alternatives=[...new Map(values.map(hint=>descend(hint,{property:name!})).flatMap(hint=>forms.partRepresentations(at,hint.schema,hint.path)).map(choice=>[choice.id,choice])).values()];
                 controls.push({name:child.pointer,styled:true,emitted:false,formData:form,source:{...ruleAt,pointer},selected:selections[child.pointer],
                     schemas:alternatives.map(choice=>({...choice.schema,id:choice.id,type:choice.type}))});
@@ -442,7 +395,7 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
                 if(entry.node.kind!=='object'||file!==undefined)fail('request.multipart.form.shape','A typed nested URL-encoded form requires a named JSON object',entry.at);
                 if(Object.entries(headers).some(([name,fields])=>name.startsWith(pointer+'/')&&(fields as any[]).length))
                     fail('request.multipart.form.headers','URL-encoded values do not have MIME part headers',entry.at);
-                const types:Record<string,string>={},mediaValues:Record<string,string[]>={},encoding=content.family==='3.2'?forms.namedEncoding(entry.rule.encoding,partHints):{};
+                const types:Record<string,string>=Object.create(null),mediaValues:Record<string,string[]>=Object.create(null),encoding=content.family==='3.2'?forms.namedEncoding(entry.rule.encoding,partHints):{};
                 const fieldShapes:Record<string,FormShape>={...shape.properties};
                 for(const [name,physical]of entry.node.children){
                     const field=doc.dataNode(physical.pointer)!,pointer=field.pointer;used.add(pointer);
@@ -504,17 +457,18 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
                 if(entry.node.kind!=='null')fail('request.multipart.file.placeholder','A selected file replaces an explicit null at its instance pointer',entry.at);
                 part.file=file;usedFiles.add(file);
             }else{
+                const literalIndex=literalOrder.get(pointer),literalText=literalIndex===undefined||literals[literalIndex].modeled===true?undefined:literals[literalIndex].value;
                 const kind=runtimeMediaKind(selectedType!);
-                if(!['xml','json','linkset','linkset-json','text'].includes(kind)&&!transfer.schemaEncoded&&transfer.instanceEncoding!=='octets')fail('request.multipart.codec.unsupported','This typed part media has no native data encoder; select a declared JSON/text representation or a file',entry.at,true);
-                if(!styled&&kind==='text'&&['array','object'].includes(entry.node.kind))fail('request.multipart.text.shape','Structured values require a declared structured media codec',entry.at);
-                if(!styled&&!transfer.schemaEncoded&&transfer.instanceEncoding!=='octets'&&['xml','linkset','linkset-json'].includes(kind)){
+                if(literalText===undefined&&!['xml','json','linkset','linkset-json','text'].includes(kind)&&!transfer.schemaEncoded&&transfer.instanceEncoding!=='octets')fail('request.multipart.codec.unsupported','This typed part media has no native data encoder; select a declared JSON/text representation or a file',entry.at,true);
+                if(literalText===undefined&&!styled&&kind==='text'&&['array','object'].includes(entry.node.kind))fail('request.multipart.text.shape','Structured values require a declared structured media codec',entry.at);
+                if(literalText===undefined&&!styled&&!transfer.schemaEncoded&&transfer.instanceEncoding!=='octets'&&['xml','linkset','linkset-json'].includes(kind)){
                     const schema=selected??(candidates.length===1?candidates[0]:undefined);
                     if(kind==='xml'&&!schema)fail('request.multipart.schema','XML part requires its own unique captured schema',entry.at,true);
                     const prepared=await prepareModeledMedia(input,doc.dataJson(pointer),selectedType!,schema,false,input.direction==='response'?'response':'request',context);
                     part.bytes=prepared.bytes.toString('base64');normalizations.set(pointer,prepared.text);parts.push(part);continue;
                 }
                 let text:string;
-                try{text=styled&&!entry.expanded?multipartStyleText(doc,entry.node,entry.rule):kind==='json'?doc.dataJson(pointer):entry.node.kind==='string'?entry.node.value:doc.dataJson(pointer);}
+                try{text=literalText!==undefined?literalText:styled&&!entry.expanded?multipartStyleText(doc,entry.node,entry.rule):kind==='json'?doc.dataJson(pointer):entry.node.kind==='string'?entry.node.value:doc.dataJson(pointer);}
                 catch(error){if(!(error instanceof SourceError))throw error;fail(error.code,error.message,entry.at,error.kind==='unsupported');}
                 part.text=text;
                 try{
@@ -523,6 +477,8 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
                         // binary-string model counts those octets; files keep
                         // their independently captured raw representation.
                         part.bytes=Buffer.from(text,'utf8').toString('base64');
+                    }else if(literalText!==undefined&&kind==='xml'&&!transfer.schemaEncoded){
+                        part.bytes=rawXmlBytes(text,media.parameters.get('charset')).toString('base64');
                     }else if(kind==='text'&&!transfer.schemaEncoded&&!form){
                         const encoded=encodePlainText(text,selectedType!,media.parameters.get('charset'));
                         part.contentType=encoded.contentType;part.bytes=encoded.bytes.toString('base64');

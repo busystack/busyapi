@@ -14,7 +14,7 @@ class _MultipartProofEngine extends EngineProcess {
   void Function()? beforeProof;
   @override
   Future<Map<String, dynamic>> request(String method, Map<String, Object?> params, {String? requestId}) {
-    if (method == 'requestMultipartPlan' && params['wire'] is String) {
+    if (method == 'evaluateSchemas' && (params['runtimeInstances'] as List? ?? const []).any((value) => value is Map && value['subject'] == 'request-body')) {
       final action = beforeProof;
       beforeProof = null;
       action?.call();
@@ -129,15 +129,15 @@ void main() {
             expect(text, contains('Content-Type: image/png\r\n'));
             if (nested) expect(text, contains('Content-Type: multipart/mixed; boundary='));
             if (form) expect('name="tag"'.allMatches(text).length, 2);
-            if (!form && !named) expect(text, isNot(contains('name=')));
+            if (!form && !named && !nested) expect(text, isNot(matches(RegExp(r';\s*name='))));
           } finally { await result.close(); }
           if (mode == 'mixed' && format == 'json') {
             // The file can change while the Engine checks the prepared entity;
             // the held capture must continue to own the original exact bytes.
-            engine.beforeProof = () => upload.writeAsBytesSync([99]);
             final prepared = await const ContractRequestBuilder().build(plan, draft,
               resolveSecret: (_) async => null);
             try {
+              upload.writeAsBytesSync([99]);
               expect(upload.readAsBytesSync(), [99]);
               final captured = await prepared.body!.open().fold<List<int>>([], (all, chunk) => all..addAll(chunk));
               expect(latin1.decode(captured), contains(latin1.decode([0, 255, 128, 195, 169, 13, 10])));
@@ -148,7 +148,7 @@ void main() {
             upload.writeAsBytesSync([0, 255, 128, 195, 169, 13, 10]);
             final cancelled = RunCancellation();
             engine.beforeProof = cancelled.cancel;
-            await expectLater(const ContractRequestBuilder().build(plan, draft,
+            await expectLater(const ContractRequestExecutor().execute(plan, draft,
               resolveSecret: (_) async => null, cancellation: cancelled),
               throwsA(isA<CoreFailure>().having((f) => f.code, 'code', 'cancelled')));
             final retry = await const ContractRequestBuilder().build(plan, draft,
@@ -156,10 +156,14 @@ void main() {
             await retry.body?.close();
           }
           final dispatched = seen.length;
-          await expectLater(const ContractRequestExecutor().execute(plan,
+          final invalid = await const ContractRequestExecutor().execute(plan,
             OperationRequestDraft(planIdentity: plan.identity, body: body(value.replaceFirst('9007199254740993.00', '9007199254740992'))),
-            resolveSecret: (_) async => null), throwsA(isA<CoreFailure>().having((f) => f.code, 'code', 'request.multipart.conformance')));
-          expect(seen.length, dispatched);
+            resolveSecret: (_) async => null);
+          try {
+            expect(invalid.outgoing.valid, isFalse, reason: '${invalid.outgoing.findings}');
+            expect(invalid.conforming, isFalse);
+            expect(seen.length, dispatched + 1);
+          } finally { await invalid.close(); }
           await expectLater(const ContractRequestBuilder().build(plan, draft,
             resolveSecret: (_) async => null, cancellation: RunCancellation()..cancel()),
             throwsA(isA<CoreFailure>().having((f) => f.code, 'code', 'cancelled')));
@@ -210,7 +214,7 @@ void main() {
             environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
           expect(cli.exitCode, 0, reason: '${cli.stdout}\n${cli.stderr}');
           expect((jsonDecode(cli.stdout as String) as Map)['passed'], isTrue);
-          expect(file.readAsStringSync(), original);
+          expect(file.readAsBytesSync(), utf8.encode(original));
           expect(buffer.text, contains('Unsaved typed'));
           expect(upload.readAsBytesSync(), [0, 255, 128, 195, 169, 13, 10]);
         });

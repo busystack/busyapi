@@ -18,7 +18,7 @@ Future<(BusyProject, OperationRequestPlan, File)> _fixture(
   int port, {
   String codec = 'base64',
   String? encodedEnum,
-  bool nested = false,
+  bool unsupportedMedia = false,
   String? encodedContentType,
   String binding = 'reference',
 }) async {
@@ -86,12 +86,9 @@ Future<(BusyProject, OperationRequestPlan, File)> _fixture(
       },
     },
   };
-  if (nested)
+  if (unsupportedMedia)
     encoding['data'] = {
-      'contentType': 'multipart/mixed',
-      'encoding': {
-        'v': {'contentType': 'text/plain'},
-      },
+      'contentType': 'application/unavailable',
     };
   if (encodedContentType != null) {
     encoding['encoded'] = {
@@ -184,7 +181,7 @@ void main() {
       '3.2.1',
       'json',
       server.port,
-      nested: true,
+      unsupportedMedia: true,
     );
     addTearDown(project.close);
     addTearDown(plan.close);
@@ -204,7 +201,7 @@ void main() {
             .having(
               (failure) => failure.code,
               'code',
-              'request.multipart.encoding',
+              'request.multipart.codec.unsupported',
             )
             .having(
               (failure) => failure.kind,
@@ -252,11 +249,11 @@ void main() {
     expect(report.cases.single.dispatched, isFalse);
     expect(report.executedOperations, isEmpty);
     final finding = report.cases.single.findings.single;
-    expect(finding['code'], 'request.multipart.encoding');
+    expect(finding['code'], 'request.multipart.codec.unsupported');
     expect(finding['resource'], root.uri.toString());
     expect(finding['pointer'], endsWith('/encoding/data'));
     final range = (finding['range'] as List).cast<int>();
-    expect(source.substring(range[0], range[1]), contains('multipart/mixed'));
+    expect(source.substring(range[0], range[1]), contains('application/unavailable'));
     final cli = await Process.run(
       '$testBundle/busyapi',
       ['test', temp.path, '--case', 'nested', '--json'],
@@ -523,7 +520,7 @@ void main() {
                 part('blank', '') +
                 part('values', 'Zm9v') +
                 part('values', 'YmFy') +
-                part('nullable', 'null', transfer: false) +
+                part('nullable', 'null', type: 'text/plain', transfer: false) +
                 part(
                   'data',
                   base64.encode(utf8.encode('{"v":$_large}')),
@@ -538,8 +535,8 @@ void main() {
                 '--$boundary--\r\n';
             expect(request.$1, 'POST');
             expect(request.$2, '/api/upload');
-            expect(request.$4, utf8.encode(expected));
-            expect(result.request.body!.formInstance, contains('"v":$_large'));
+            expect(request.$4, utf8.encode(expected), reason: utf8.decode(request.$4));
+            expect(result.request.body!.formOriginalData, contains('"v":$_large'));
             await result.close();
             final manifest = File('${temp.path}/busyapi.yaml');
             final configuration =
@@ -579,11 +576,9 @@ void main() {
               ),
               resolveSecret: (_) async => null,
             );
-            expect(
-              prepared.body!.formInstance,
-              contains(base64.encode(fileBytes)),
-            );
-            expect(prepared.body!.formInstance, contains('"v":$_large'));
+            final capturedWire = await prepared.body!.open().fold<List<int>>([], (all, chunk) => all..addAll(chunk));
+            expect(utf8.decode(capturedWire), contains(_fold64(base64.encode(fileBytes))));
+            expect(prepared.body!.formOriginalData, contains('"v":$_large'));
             await upload.writeAsBytes([99, 98, 97]);
             final outgoing = await const ContractRequestExecutor()
                 .validateOutgoing(
@@ -831,8 +826,9 @@ void main() {
               .having(
                 (failure) => failure.source?.resource,
                 'source',
-                root.uri.toString(),
+                File('${temp.path}/shared.yaml').uri.toString(),
               )
+              .having((failure) => failure.source?.pointer, 'pointer', endsWith('/encoded/contentEncoding'))
               .having(
                 (failure) => failure.message,
                 'message',
