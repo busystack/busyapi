@@ -54,7 +54,7 @@ String r3cConfiguration(String format) => jsonEncode({
   'version': 1, 'roots': [{'name': 'api', 'path': 'api.$format'}],
   'environments': {'manual': {'authentication': {'schemes': {'Access': {'secretRef': r3cSecret}}}, 'variables': {'held': 'unchanged'}}},
   'tests': [{
-    'name': 'saved', 'operation': {'method': 'get', 'path': '/p'}, 'environment': 'manual',
+    'name': 'saved', 'operation': {'method': 'get', 'path': '/p'}, 'environment': 'manual', 'securityAlternative': 0,
     'parameters': {'querystring': {'descriptionOnly': {'q': 'a+b', 'count': 'EXACT', 'flag': false}},
       'cookie': {'literal': 'a%20b', 'one': ['safe'], 'object': {'right': true}}},
     'expect': {'status': 204},

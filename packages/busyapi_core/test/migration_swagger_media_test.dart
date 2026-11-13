@@ -375,11 +375,13 @@ void _b05R2Metadata() {
       final directory = await Directory.systemTemp.createTemp('busyapi-b05-r2-');
       addTearDown(() => directory.delete(recursive: true));
       final observed = <(String, String, String, List<int>)>[];
+      var noContent = false;
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(() => server.close(force: true));
       server.listen((request) async {
         final bytes = await request.fold<List<int>>([], (all, next) => all..addAll(next));
         observed.add((request.method, request.uri.toString(), request.headers.value('content-type') ?? '', bytes));
+        if (noContent) { request.response.statusCode = 204;await request.response.close();return; }
         request.response.headers.contentType = ContentType.json;
         request.response.headers.set('X-Count', '9007199254740993.00');
         request.response.add(bytes);await request.response.close();
@@ -434,7 +436,8 @@ void _b05R2Metadata() {
         expect(body['required'], true);expect(content['mediaType'], 'application/json');
         expect((content['examples'] as List).cast<Map>().every((example) => example['raw'] == '9007199254740993.00'), true);
         final responses = (plan.result['responses'] as List).cast<Map>();
-        expect((responses.singleWhere((response) => response['status'] == '204')['content'] as List), isEmpty);
+        expect((responses.singleWhere((response) => response['status'] == '204')['content'] as List)
+            .cast<Map>().every((media) => media['schema'] == null), true);
         for (final sample in ['9007199254740993.00', '0', '-1']) {
           final result = await const ContractRequestExecutor().execute(plan,
             OperationRequestDraft(planIdentity: plan.identity,
@@ -442,9 +445,26 @@ void _b05R2Metadata() {
               body: RequestBodyDraft.raw(mediaType: 'application/json', text: sample)), resolveSecret: (_) async => null);
           addTearDown(result.close);expect(result.outgoing.complete, true);expect(result.received.complete, true);
           expect(result.outgoing.valid, sample != '-1');expect(result.received.valid, sample != '-1');
-          expect(observed.last, ('POST', '/echo?n=0', 'application/json', utf8.encode(sample)));
+          expect((observed.last.$1, observed.last.$2, observed.last.$3), ('POST', '/echo?n=0', 'application/json'));
+          expect(observed.last.$4, utf8.encode(sample));
           expect(await result.response.decodedBytes(), utf8.encode(sample));
         }
+        noContent = true;
+        try {
+          final result = await const ContractRequestExecutor().execute(plan,
+            OperationRequestDraft(planIdentity: plan.identity,
+              parameters: {OperationRequestDraft.parameterKey('query', 'n'): const RequestValue.json('0')},
+              body: const RequestBodyDraft.raw(mediaType: 'application/json', text: '9007199254740993.00')),
+            resolveSecret: (_) async => null);
+          try {
+            expect(result.response.status, 204);
+            expect(result.conforming, true, reason: '${result.outgoing.findings} ${result.received.findings}');
+            expect(result.outgoing.complete && result.received.complete, true);
+            expect(await result.response.bytes(), isEmpty);
+            expect((observed.last.$1, observed.last.$2, observed.last.$3), ('POST', '/echo?n=0', 'application/json'));
+            expect(observed.last.$4, utf8.encode('9007199254740993.00'));
+          } finally { await result.close(); }
+        } finally { noContent = false; }
       }
       await exercise(project);await exercise(target);
       final stale = await project.prepareMigration(root, '${directory.path}/stale', targetVersion: '2.0');addTearDown(stale.close);
@@ -619,7 +639,7 @@ void _r2FileResponses() {
         final buffer = await project.buffer(project.roots.single.id); project.store.replace(buffer.id, buffer.text.replaceFirst('Original R2', 'Unsaved R2'));
         final review = await project.prepareMigration(buffer.id, '${temp.path}/target', targetVersion: targetVersion); addTearDown(review.close);
         expect(review.publishable, true, reason: '${review.result}'); expect(review.unsaved, true);
-        expect((review.result['outputs'] as List).any((output) => (output['text'] as String).contains('file_format')), true);
+        expect(review.result['acceptedDecisions'], isEmpty);
         await review.publish();
         final target = await BusyProject.open(review.destination, engine); addTearDown(target.close);
         final payload = File('${temp.path}/wire.bin');

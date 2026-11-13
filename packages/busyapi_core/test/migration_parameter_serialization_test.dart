@@ -198,7 +198,7 @@ void main() {
             final plan = await owner.prepareRequest(entry, resource: entry, pointer: '/paths/~1p/get');
             try {
               await expectLater(const ContractRequestBuilder().build(plan,
-                OperationRequestDraft(planIdentity: plan.identity, environment: 'manual', parameters: {
+                OperationRequestDraft(planIdentity: plan.identity, environment: 'manual', securityAlternative: 0, parameters: {
                   OperationRequestDraft.parameterKey(location, 'descriptionOnly'): const RequestValue.json('{"q":"%20"}'),
                   OperationRequestDraft.parameterKey('cookie', 'auth'): const RequestValue.text('explicit'),
                 }), resolveSecret: (_) async => throw StateError('An explicit cookie cannot acquire credentials')),
