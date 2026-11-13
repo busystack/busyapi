@@ -240,13 +240,14 @@ function materializeMigrationOwners(graph:ReferenceGraph,sources:ReadonlyMap<str
     const resourceVariants=new Map<string,string>();
     const resourceHolders=new Map<string,ResourceHolder>();
     const nativeSlots=new Set<string>();
-    const retainedNative=(scope:GraphScope)=>{
+    const nativeSchemaSlot=(scope:GraphScope)=>{
         const container=componentLocation('schemas',scope.family),prefix=container+'/';
         return scope.kind==='schema'&&graph.specifications.get(scope.resource)?.family===scope.family&&
-            container!==undefined&&scope.pointer.startsWith(prefix)&&!scope.pointer.slice(prefix.length).includes('/')&&
-            !entry.varyingResources.has(schemaResourceContextIdentity(scope))&&
-            !entry.documentResources.has(schemaResourceContextIdentity(scope));
+            container!==undefined&&scope.pointer.startsWith(prefix)&&!scope.pointer.slice(prefix.length).includes('/');
     };
+    const retainedNative=(scope:GraphScope)=>nativeSchemaSlot(scope)&&
+        !entry.varyingResources.has(schemaResourceContextIdentity(scope))&&
+        !entry.documentResources.has(schemaResourceContextIdentity(scope));
     let work=0;
     const inspect=()=>{if(++work>2000000)throw new SourceError('limit.migration.owners','Independent semantic ownership exceeds its bounded graph work');};
     const dynamicSchemas=dynamicSchemaDependencies(graph,references,inspect);
@@ -601,6 +602,14 @@ function materializeMigrationOwners(graph:ReferenceGraph,sources:ReadonlyMap<str
     }
     for(const placement of placements)if(nativeSlots.has(key(placement.scope))&&entry.documentResources.has(schemaResourceContextIdentity(placement.scope)))
         owners.referenceUse(sources.get(placement.scope.resource)!,placement.scope.pointer,placement.location);
+    // Each API owns its public component bindings. A child of a copied map
+    // can already have its final owner without another physical placement.
+    for(const scope of schemaScopes){
+        if(scope.resource!==graph.root||!nativeSchemaSlot(scope))continue;
+        const target=owners.entryOwner(entry.entryNamespace,scope,'schema');
+        if(target.resource!==scope.resource||target.pointer!==scope.pointer)
+            owners.referenceUse(sources.get(scope.resource)!,scope.pointer,target);
+    }
     return provenance;
 }
 

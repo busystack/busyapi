@@ -49,7 +49,16 @@ for(const format of ['json','yaml'])test(`entry-owned map connections preserve n
  assert.notDeepEqual(firstOwner.at,secondOwner.at);
  const document=secondOwner.graph.docs.get(secondRoot);
  const original=new (require('./dist/document.cjs').SourceDocument)(before[1],other);
- assert.equal(document.dataJson('/components/schemas/discriminator'),original.dataJson('/components/schemas/discriminator'));
+ for(const name of ['properties','discriminator']){
+  let owner={resource:secondRoot,pointer:'/components/schemas/'+name};const seen=new Set();
+  for(let count=0;count<128;count++){
+   const id=JSON.stringify(owner);assert(!seen.has(id),'A public Schema binding must remain acyclic');seen.add(id);
+   const reference=secondOwner.graph.referenceAs(owner.resource,owner.pointer,'$ref','schema');if(!reference)break;
+   assert.equal(reference.resolution,'resolved');owner={resource:reference.targetResource,pointer:reference.targetPointer};
+   if(count===127)assert.fail('A public Schema binding exceeds its captured reference bound');
+  }
+  assert.equal(secondOwner.graph.docs.get(owner.resource).dataJson(owner.pointer),original.dataJson('/components/schemas/'+name));
+ }
  assert.equal(document.dataJson('/x-history'),original.dataJson('/x-history'));
  for(const id of [cold.root,secondRoot])assert(review.outputs.find(output=>output.id===id).text.includes('9007199254740993.00'));
  assert.deepEqual(input.resources.map(resource=>resource.text),before);

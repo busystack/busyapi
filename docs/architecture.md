@@ -342,6 +342,11 @@ record their final endpoints in the same occurrence association. Original
 Example objects retain their separate targets. Shared captured bytes are proved
 at their actual materialized uses, rather than creating payload owners in every
 entry. Parameter projection retains each original external Example once.
+Each API retains its public Schema bindings through that same final-owner
+association, including component children owned by an entry-specific map copy.
+Mixed modern families lower to Swagger in one object phase, before aliases copy
+their converted definitions. A route split retains an independently referenced
+Schema directly; that reference does not retain its old executable Path Item.
 
 Canonical schema evaluation shares one compiler AST across its captured roots,
 while resource addresses retain their separate dialect and role contexts. This
