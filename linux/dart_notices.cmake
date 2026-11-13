@@ -9,15 +9,23 @@ if(NOT EXISTS "${BUSYAPI_NOTICE_DART}" OR
 endif()
 set(BUSYAPI_DART_NOTICES "${BUSYAPI_SOURCE_DIR}/build/dart-notices" CACHE PATH
   "Build-time generated BusyAPI Dart notices")
-add_custom_target(busyapi_dart_notices ALL
+file(GLOB BUSYAPI_NOTICE_TOOLS CONFIGURE_DEPENDS "${BUSYAPI_SOURCE_DIR}/packages/busyapi_core/tool/*.dart")
+file(GLOB BUSYAPI_NOTICE_REVIEWS CONFIGURE_DEPENDS "${BUSYAPI_SOURCE_DIR}/tools/*review.json")
+set(BUSYAPI_NOTICE_INPUTS ${BUSYAPI_NOTICE_TOOLS} ${BUSYAPI_NOTICE_REVIEWS}
+  "${BUSYAPI_SOURCE_DIR}/pubspec.lock"
+  "${BUSYAPI_SOURCE_DIR}/packages/busyapi_core/pubspec.lock"
+  "${BUSYAPI_SOURCE_DIR}/.dart_tool/package_config.json"
+  "${BUSYAPI_SOURCE_DIR}/LICENSE" "${BUSYAPI_SOURCE_DIR}/NOTICE")
+# Declare the directory itself: Ninja creates its parent, while the atomic
+# publisher retains ownership of creating/replacing the notice directory.
+add_custom_command(OUTPUT "${BUSYAPI_DART_NOTICES}"
   COMMAND "${BUSYAPI_NOTICE_DART}"
     "--packages=${BUSYAPI_SOURCE_DIR}/.dart_tool/package_config.json"
     "${BUSYAPI_SOURCE_DIR}/packages/busyapi_core/tool/prepare_notices.dart"
     "--output=${BUSYAPI_DART_NOTICES}"
+  DEPENDS ${BUSYAPI_NOTICE_INPUTS}
   VERBATIM)
-# Do not declare nested byproducts: Ninja would precreate an unowned output
-# directory before the core's atomic writer can create its receipt. The ALL
-# target deliberately revalidates the exact notices on every build.
+add_custom_target(busyapi_dart_notices ALL DEPENDS "${BUSYAPI_DART_NOTICES}")
 add_dependencies(${BINARY_NAME} busyapi_dart_notices)
 install(DIRECTORY "${BUSYAPI_DART_NOTICES}/"
   DESTINATION "share/licenses/busyapi-dart"

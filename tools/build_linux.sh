@@ -8,8 +8,6 @@ case "$build_profile" in
   *) echo 'Usage: tools/build_linux.sh [release|editor]' >&2; exit 2;;
 esac
 export BUSYAPI_BUILD_PROFILE="$build_profile"
-flutter_mode=release
-if [[ "$build_profile" == editor ]]; then flutter_mode=debug; fi
 case "${BUSYAPI_DISTRIBUTION:-standalone}" in
   standalone|snap) ;;
   *) echo 'Choose BUSYAPI_DISTRIBUTION=standalone or snap.' >&2; exit 1;;
@@ -18,10 +16,6 @@ if [[ "${BUSYAPI_DISTRIBUTION:-standalone}" == snap && -n "${BUSYAPI_NATIVE_SOUR
   echo 'The standalone copied-library source companion is not a Snap platform inventory.' >&2
   exit 1
 fi
-case "${BUSYAPI_WIDGET_RUNNER:-standard}" in
-  standard|local|both) ;;
-  *) echo 'Choose BUSYAPI_WIDGET_RUNNER=standard, local or both.' >&2; exit 1;;
-esac
 if [[ -n "${BUSYAPI_NATIVE_SOURCE_CACHE:-}${BUSYAPI_NATIVE_SOURCE_INDEX:-}${BUSYAPI_NATIVE_SOURCE_OUTPUT:-}" ]]; then
   [[ -n "${BUSYAPI_NATIVE_SOURCE_CACHE:-}" && -n "${BUSYAPI_NATIVE_SOURCE_INDEX:-}" && -n "${BUSYAPI_NATIVE_SOURCE_OUTPUT:-}" ]] || {
     echo 'Set all three BUSYAPI_NATIVE_SOURCE_CACHE, BUSYAPI_NATIVE_SOURCE_INDEX and BUSYAPI_NATIVE_SOURCE_OUTPUT to assemble native source materials.' >&2
@@ -30,49 +24,23 @@ if [[ -n "${BUSYAPI_NATIVE_SOURCE_CACHE:-}${BUSYAPI_NATIVE_SOURCE_INDEX:-}${BUSY
 fi
 source tools/node_toolchain.sh
 busyapi_select_node
-sdk_root="$(dirname "$(dirname "$(readlink -f "$(command -v "$flutter_bin")")")")"
-# Pass the same existing evidence to SDK, CMake and installed/package checks.
-python3 tools/verify_flutter_sdk.py --sdk "$sdk_root" --mode "$flutter_mode"
+dart_bin="$(dirname "$(readlink -f "$(command -v "$flutter_bin")")")/cache/dart-sdk/bin/dart"
+# CMake admits the selected official SDK and captures its installed library.
 busyapi_sdk_metadata
 pub_args=(--enforce-lockfile)
 if [[ "${BUSYAPI_BUILD_OFFLINE:-0}" == 1 ]]; then pub_args+=(--offline); fi
 "$flutter_bin" pub get "${pub_args[@]}"
 if [[ "$build_profile" == editor ]]; then
-  python3 tools/prepare_contract_assets.py --profile editor --node "$node_bin" --output build/editor-contract-runtime
   "$flutter_bin" gen-l10n
   "$flutter_bin" build linux --debug --no-pub
   exit 0
 fi
-tools/build_engine.sh prepare
-tools/build_engine.sh compile
-tools/build_engine.sh prepare-tests
-tools/build_engine.sh test-all
-tools/build_documentation_assets.sh
-dart_bin="$(dirname "$(dirname "$(readlink -f "$(command -v "$flutter_bin")")")")/bin/cache/dart-sdk/bin/dart"
-BUSYAPI_DART="$dart_bin" tools/prepare_test_runtime.sh
 "$flutter_bin" gen-l10n
-"$flutter_bin" analyze --no-pub
-case "${BUSYAPI_WIDGET_RUNNER:-standard}" in
-  local) BUSYAPI_FLUTTER="$flutter_bin" tools/test_widgets_local.sh;;
-  both)
-    "$flutter_bin" test --no-pub --concurrency=1
-    BUSYAPI_FLUTTER="$flutter_bin" tools/test_widgets_local.sh;;
-  # The widget integration files each own a real helper process and an
-  # eight-second fail-closed IO guard. Running them concurrently can starve a
-  # correct reply behind other process-heavy fixtures; keep the release gate
-  # deterministic rather than treating a loaded parallel run as a product
-  # failure.
-  standard) "$flutter_bin" test --no-pub --concurrency=1;;
-esac
-# Resource-package cases copy and independently execute complete runtimes under
-# their unchanged watchdogs. Keep unrelated process-heavy suites serial here;
-# the actual IPC/process concurrency contracts have their own explicit tests.
-"$dart_bin" test packages/busyapi_core/test --concurrency=1
+# CMake owns asset preparation; assembly never runs behavioral suites or
+# reinstalls already provisioned dependencies.
 "$flutter_bin" build linux --release --no-pub
 bundle=build/linux/x64/release/bundle
 "$dart_bin" compile exe packages/busyapi_core/bin/busyapi.dart -o "$bundle/busyapi"
-# A focused, failed, skipped or stale Engine run cannot qualify this assembly.
-tools/build_engine.sh check-all
 package_args=("$bundle")
 if [[ "${BUSYAPI_DISTRIBUTION:-standalone}" == snap ]]; then package_args+=(--platform-runtime); fi
 python3 tools/package_linux.py "${package_args[@]}"

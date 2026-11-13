@@ -36,6 +36,7 @@ class _Build {
       '${repository.path}/build/${mode == 'Debug' ? 'kernel_blob.bin' : 'libapp.so'}',
     );
     artifact.parent.createSync(recursive: true);
+    File('${repository.path}/build/.last_build_id').writeAsStringSync('a' * 32);
     File('${receipt.path}/${mode == 'Debug' ? 'app.dill' : 'app.so'}')
         .copySync(artifact.path);
     stamp = File('${receipt.path}/kernel_snapshot_program.stamp');
@@ -185,7 +186,7 @@ void main() {
     await Link(build.stamp.path).create(other.path);
     await expectLater(build.collect(), throwsStateError);
   });
-  test('development entry provenance stays distinct and conflicting matching receipts remain ambiguous', () async {
+  test('development entry uses the selected compiler manifest despite historical matching artifacts', () async {
     final temp = await Directory.systemTemp.createTemp(
       'busyapi-build-inputs-development-',
     );
@@ -208,6 +209,10 @@ void main() {
         'outputs': ['${other.path}/app.dill'],
       }),
     );
+    final selected = await build.collect(entry: 'tools/native_test.dart');
+    expect(selected.packages, result.packages);
+    File('${build.repository.path}/build/.last_build_id')
+        .writeAsStringSync('../outside');
     await expectLater(
       build.collect(entry: 'tools/native_test.dart'),
       throwsStateError,

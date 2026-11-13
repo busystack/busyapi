@@ -11,16 +11,37 @@ if(NOT BUSYAPI_EDITOR_DEVELOPMENT)
   set(BUSYAPI_CONTRACT_ASSETS "${BUSYAPI_SOURCE_DIR}/build/contract-runtime")
 endif()
 set(BUSYAPI_M3_TOOL_ASSETS "${BUSYAPI_SOURCE_DIR}/build/m3-tools")
-add_custom_target(busyapi_contract_assets ALL
+file(GLOB_RECURSE BUSYAPI_CONTRACT_INPUTS CONFIGURE_DEPENDS
+  "${BUSYAPI_SOURCE_DIR}/tools/contract_engine/src/*.ts"
+  "${BUSYAPI_SOURCE_DIR}/tools/contract_engine/schemas/*.json"
+  "${BUSYAPI_SOURCE_DIR}/tools/contract_engine/licenses/*"
+  "${BUSYAPI_SOURCE_DIR}/tools/contract_engine/native/*")
+file(GLOB BUSYAPI_CONTRACT_METADATA CONFIGURE_DEPENDS "${BUSYAPI_SOURCE_DIR}/tools/contract_engine/*.json")
+set(BUSYAPI_SELECTED_NODE "$ENV{BUSYAPI_NODE}")
+if(NOT BUSYAPI_SELECTED_NODE)
+  unset(BUSYAPI_SELECTED_NODE)
+  find_program(BUSYAPI_SELECTED_NODE NAMES node)
+  if(NOT BUSYAPI_SELECTED_NODE)
+    message(FATAL_ERROR "Select the pinned Node build input with BUSYAPI_NODE")
+  endif()
+endif()
+set(BUSYAPI_CONTRACT_STAMP "${BUSYAPI_SOURCE_DIR}/build/${BUSYAPI_ASSET_PROFILE}-contract-runtime.prepared")
+add_custom_command(OUTPUT "${BUSYAPI_CONTRACT_STAMP}"
   COMMAND "${Python3_EXECUTABLE}"
     "${BUSYAPI_SOURCE_DIR}/tools/prepare_contract_assets.py"
-    --output "${BUSYAPI_CONTRACT_ASSETS}" --profile "${BUSYAPI_ASSET_PROFILE}"
-  BYPRODUCTS "${BUSYAPI_CONTRACT_ASSETS}/node"
+    --node "${BUSYAPI_SELECTED_NODE}" --output "${BUSYAPI_CONTRACT_ASSETS}" --profile "${BUSYAPI_ASSET_PROFILE}"
+  COMMAND "${CMAKE_COMMAND}" -E touch "${BUSYAPI_CONTRACT_STAMP}"
+  DEPENDS "${BUSYAPI_SELECTED_NODE}" ${BUSYAPI_CONTRACT_INPUTS} ${BUSYAPI_CONTRACT_METADATA}
+    "${BUSYAPI_SOURCE_DIR}/tools/prepare_contract_assets.py"
+    "${BUSYAPI_SOURCE_DIR}/tools/prepare_policy_isolation.py"
+    "${BUSYAPI_SOURCE_DIR}/LICENSE" "${BUSYAPI_SOURCE_DIR}/NOTICE"
+  BYPRODUCTS "${BUSYAPI_CONTRACT_ASSETS}/build.json" "${BUSYAPI_CONTRACT_ASSETS}/node"
     "${BUSYAPI_CONTRACT_ASSETS}/engine.cjs"
     "${BUSYAPI_CONTRACT_ASSETS}/conversion-worker.cjs"
     "${BUSYAPI_CONTRACT_ASSETS}/mock-server.cjs"
     "${BUSYAPI_CONTRACT_ASSETS}/policy-worker.cjs"
   VERBATIM)
+add_custom_target(busyapi_contract_assets ALL DEPENDS "${BUSYAPI_CONTRACT_STAMP}")
 add_dependencies(${BINARY_NAME} busyapi_contract_assets)
 
 install(PROGRAMS "${BUSYAPI_CONTRACT_ASSETS}/node"
@@ -40,13 +61,14 @@ if(NOT BUSYAPI_EDITOR_DEVELOPMENT)
     DESTINATION "${CMAKE_INSTALL_PREFIX}/libexec/busyapi" COMPONENT Runtime)
   install(FILES "${BUSYAPI_CONTRACT_ASSETS}/policy-isolation.node" "${BUSYAPI_CONTRACT_ASSETS}/policy-build.json"
     DESTINATION "${CMAKE_INSTALL_PREFIX}/libexec/busyapi" COMPONENT Runtime)
-  add_custom_target(busyapi_m3_tool_assets ALL
+  add_custom_command(OUTPUT "${BUSYAPI_M3_TOOL_ASSETS}/tools.json"
     COMMAND "${Python3_EXECUTABLE}"
       "${BUSYAPI_SOURCE_DIR}/tools/prepare_m3_tools.py"
       --output "${BUSYAPI_M3_TOOL_ASSETS}"
+    DEPENDS "${BUSYAPI_SOURCE_DIR}/tools/prepare_m3_tools.py" "${BUSYAPI_SOURCE_DIR}/LICENSE"
     BYPRODUCTS "${BUSYAPI_M3_TOOL_ASSETS}/oasdiff"
-      "${BUSYAPI_M3_TOOL_ASSETS}/tools.json"
     VERBATIM)
+  add_custom_target(busyapi_m3_tool_assets ALL DEPENDS "${BUSYAPI_M3_TOOL_ASSETS}/tools.json")
   add_dependencies(${BINARY_NAME} busyapi_m3_tool_assets)
   install(PROGRAMS "${BUSYAPI_M3_TOOL_ASSETS}/oasdiff"
     DESTINATION "${CMAKE_INSTALL_PREFIX}/libexec/busyapi" COMPONENT Runtime)
@@ -59,10 +81,13 @@ if(NOT BUSYAPI_EDITOR_DEVELOPMENT)
 
   # Explicitly prepared official JAR/JRE; no application-time provisioning.
   set(BUSYAPI_GENERATOR_ASSETS "${BUSYAPI_SOURCE_DIR}/build/generator")
-  add_custom_target(busyapi_generator_assets ALL
+  file(GLOB BUSYAPI_GENERATOR_INPUTS CONFIGURE_DEPENDS "${BUSYAPI_SOURCE_DIR}/tools/generator/*")
+  add_custom_command(OUTPUT "${BUSYAPI_GENERATOR_ASSETS}/assets.json"
     COMMAND "${Python3_EXECUTABLE}" "${BUSYAPI_SOURCE_DIR}/tools/prepare_generator.py"
       --output "${BUSYAPI_GENERATOR_ASSETS}"
+    DEPENDS "${BUSYAPI_SOURCE_DIR}/tools/prepare_generator.py" ${BUSYAPI_GENERATOR_INPUTS}
     VERBATIM)
+  add_custom_target(busyapi_generator_assets ALL DEPENDS "${BUSYAPI_GENERATOR_ASSETS}/assets.json")
   add_dependencies(${BINARY_NAME} busyapi_generator_assets)
   install(DIRECTORY "${BUSYAPI_GENERATOR_ASSETS}/"
     DESTINATION "${CMAKE_INSTALL_PREFIX}/libexec/busyapi/generator"

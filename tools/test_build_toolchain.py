@@ -60,9 +60,9 @@ class BuildToolchain(unittest.TestCase):
         self.assertEqual(package['scripts']['typecheck'], 'bash ../build_engine.sh typecheck')
         self.assertEqual(package['scripts']['build'], 'bash ../build_engine.sh compile')
         self.assertEqual(package['scripts']['test'], 'bash ../build_engine.sh test-all')
-        self.assertIn('tools/build_engine.sh test-all', (ROOT/'tools/build_linux.sh').read_text())
+        self.assertIn("run('tools/build_engine.sh', 'test-all')", (ROOT/'tools/qualify_linux.py').read_text())
         self.assertIn('prepare_contract_assets.py', (ROOT/'linux/contract_assets.cmake').read_text())
-        self.assertIn('tools/build_linux.sh', (ROOT/'.github/workflows/flutter-linux.yml').read_text())
+        self.assertIn('tools/qualify_linux.py', (ROOT/'.github/workflows/flutter-linux.yml').read_text())
 
     def test_recording_boundaries_execute_both_production_scripts_with_selected_node(self):
         selected = self.root/'distribution/bin'
@@ -116,8 +116,7 @@ class BuildToolchain(unittest.TestCase):
         self.assertTrue(all(call[0] == str(selected/'node') for call in calls), calls)
         self.assertTrue(any(call[1] == 'npm-child' for call in calls))
         self.assertTrue(any(call[1].endswith('/typescript/bin/tsc') for call in calls))
-        for entry in ['tools/documentation_renderers/test_assets.mjs',
-                      'tools/prepare_documentation_assets.mjs']:
+        for entry in ['tools/prepare_documentation_assets.mjs']:
             self.assertTrue(any(call[1] == str(self.root / entry) for call in calls), entry)
         # A failed explicit type check propagates its actual status.
         checker = tools/'contract_engine/node_modules/typescript/bin/tsc'

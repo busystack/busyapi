@@ -18,16 +18,25 @@ else()
   set(BUSYAPI_NOTICE_APPLICATION "${AOT_LIBRARY}")
 endif()
 get_filename_component(BUSYAPI_NOTICE_APPLICATION "${BUSYAPI_NOTICE_APPLICATION}" ABSOLUTE)
-add_custom_target(busyapi_application_notices ALL
+# Flutter produces these files behind its aggregate target. Expose their real
+# paths to Ninja; restat prevents unchanged outputs from restaging notices.
+add_custom_command(OUTPUT "${BUSYAPI_NOTICE_APPLICATION}" "${PROJECT_BUILD_DIR}/.last_build_id"
+  COMMAND "${CMAKE_COMMAND}" -E true
+  DEPENDS flutter_assemble
+  VERBATIM)
+add_custom_command(OUTPUT "${BUSYAPI_APPLICATION_NOTICES}"
   COMMAND "${BUSYAPI_NOTICE_DART}"
     "--packages=${BUSYAPI_SOURCE_DIR}/.dart_tool/package_config.json"
     "${BUSYAPI_SOURCE_DIR}/packages/busyapi_core/tool/prepare_notices.dart"
     "--application=${BUSYAPI_NOTICE_APPLICATION}"
+    "--build-id-file=${PROJECT_BUILD_DIR}/.last_build_id"
     "--mode=${CMAKE_BUILD_TYPE}" "--entry=${BUSYAPI_NOTICE_ENTRY}"
     "--output=${BUSYAPI_APPLICATION_NOTICES}"
+  DEPENDS ${BUSYAPI_NOTICE_INPUTS} "${BUSYAPI_NOTICE_APPLICATION}"
+    "${PROJECT_BUILD_DIR}/.last_build_id"
+    "${BUSYAPI_SOURCE_DIR}/.flutter-plugins-dependencies"
   VERBATIM)
-# As with other atomic notice targets, do not declare nested byproducts: Ninja
-# must not precreate an unowned publication directory. Verify on every build.
+add_custom_target(busyapi_application_notices ALL DEPENDS "${BUSYAPI_APPLICATION_NOTICES}")
 add_dependencies(busyapi_application_notices flutter_assemble)
 add_dependencies(${BINARY_NAME} busyapi_application_notices)
 install(DIRECTORY "${BUSYAPI_APPLICATION_NOTICES}/"

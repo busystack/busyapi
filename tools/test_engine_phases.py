@@ -1,4 +1,4 @@
-"""Phase ordering/admission controls, prepared under the execution hold."""
+"""Production/test asset admission and current-candidate qualification."""
 import json
 from pathlib import Path
 import shutil
@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 import engine_tests as runner
 import prepare_contract_assets as builder
+import qualify_linux as qualification
 
 
 class EnginePhases(unittest.TestCase):
@@ -22,8 +23,7 @@ class EnginePhases(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.dist = self.root / 'dist'
         self.dist.mkdir()
-        for name, value in [('DIST', self.dist), ('PREPARED', self.dist / 'test-build.json'),
-                            ('PASSED', self.dist / 'test-all.json')]:
+        for name, value in [('DIST', self.dist), ('PREPARED', self.dist / 'test-build.json')]:
             control = patch.object(runner, name, value)
             control.start()
             self.addCleanup(control.stop)
@@ -88,47 +88,50 @@ class EnginePhases(unittest.TestCase):
         with patch.object(runner, 'admitted', return_value=self.state), \
                 patch.object(runner.subprocess, 'run') as run:
             runner.execute(Path('/selected/node'), self.value)
-            runner.check(Path('/selected/node'), self.value)
         self.assertEqual([call.args[0] for call in run.call_args_list], [
             ['/selected/node', '--disable-proto=throw', 'first.cjs'],
             ['/selected/node', 'second.cjs']])
-        runner.PASSED.unlink()
         with patch.object(runner, 'admitted', return_value=self.state), \
                 patch.object(runner.subprocess, 'run', side_effect=subprocess.CalledProcessError(9, 'first')) as run:
             with self.assertRaises(subprocess.CalledProcessError):
                 runner.execute(Path('/selected/node'), self.value)
         self.assertEqual(run.call_count, 1)
-        self.assertFalse(runner.PASSED.exists())
 
-    def test_release_orders_mandatory_engine_phases_before_assembly(self):
-        script = (ROOT / 'tools/build_linux.sh').read_text()
-        steps = ['tools/build_engine.sh prepare\n', 'tools/build_engine.sh compile\n',
-                 'tools/build_engine.sh prepare-tests\n', 'tools/build_engine.sh test-all\n',
-                 'test packages/busyapi_core/test', 'build linux --release',
-                 'tools/build_engine.sh check-all\n', 'python3 tools/package_linux.py']
-        positions = [script.index(step) for step in steps]
-        self.assertEqual(positions, sorted(positions))
-        self.assertIn('set -euo pipefail', script)
+    def test_candidate_qualification_stops_at_a_retained_behavior_failure(self):
+        failure = subprocess.CalledProcessError(9, 'retained behavior')
+        with patch.object(qualification.shutil, 'which', return_value='/sdk/bin/flutter'), \
+                patch.object(qualification, 'capture', return_value={'candidate': 'fixed'}), \
+                patch.object(qualification.subprocess, 'run', side_effect=[None, None, failure]) as run:
+            with self.assertRaises(subprocess.CalledProcessError) as caught:
+                qualification.qualify('/sdk/bin/flutter')
+        self.assertEqual(caught.exception.returncode, 9)
+        self.assertFalse(any('artifact_smoke.py' in str(call) for call in run.call_args_list))
 
-    def test_focused_failed_and_skipped_attempts_cannot_reuse_full_evidence(self):
-        for arguments in [['focused', '--node', '/selected/node', 'first.cjs'],
-                          ['all', '--node', '/selected/node']]:
-            runner.PASSED.write_text('old success')
-            with patch.object(sys, 'argv', ['engine_tests.py', *arguments]), \
-                    patch.object(runner, 'registry', return_value=self.value), \
-                    patch.object(runner, 'admitted', side_effect=RuntimeError('stale')):
-                with self.assertRaises(SystemExit) as caught:
-                    runner.main()
-            self.assertEqual(caught.exception.code, 1)
-            self.assertFalse(runner.PASSED.exists())
-        with self.assertRaises(FileNotFoundError):
-            runner.check(Path('/selected/node'), self.value)
-        with patch.object(runner, 'admitted', return_value=self.state), \
-                patch.object(runner.subprocess, 'run'):
-            runner.execute(Path('/selected/node'), self.value, ['first.cjs'])
-        self.assertFalse(runner.PASSED.exists())
+    def test_qualification_uses_installed_candidate_and_one_official_widget_harness(self):
+        with patch.object(qualification.shutil, 'which', return_value='/sdk/bin/flutter'), \
+                patch.object(qualification, 'capture', return_value={'candidate': 'fixed'}), \
+                patch.object(qualification.subprocess, 'run') as run:
+            qualification.qualify('/sdk/bin/flutter')
+        commands = [call.args[0] for call in run.call_args_list]
+        self.assertEqual(sum(command[1:3] == ['test', '--no-pub'] for command in commands), 1)
+        self.assertTrue(any(command[-1] == '--helpers-only' for command in commands))
+        self.assertTrue(all(call.kwargs['env']['BUSYAPI_TEST_BUNDLE'] == str(qualification.BUNDLE)
+                            for call in run.call_args_list))
 
-    def test_changed_inputs_or_helpers_reject_admission_and_aggregate(self):
+    def test_changed_candidate_or_source_rejects_qualification(self):
+        for captures in [
+            [{'source': 'before'}, {'source': 'changed'}],
+            [{'source': 'same'}, {'source': 'same'}, {'candidate': 'before'},
+             {'source': 'same'}, {'candidate': 'changed'}],
+        ]:
+            with self.subTest(captures=captures), \
+                    patch.object(qualification.shutil, 'which', return_value='/sdk/bin/flutter'), \
+                    patch.object(qualification, 'capture', side_effect=captures), \
+                    patch.object(qualification.subprocess, 'run'):
+                with self.assertRaisesRegex(RuntimeError, 'changed'):
+                    qualification.qualify('/sdk/bin/flutter')
+
+    def test_changed_inputs_or_helpers_reject_admission(self):
         files = {target: 'hash' for _, target in runner.RUNTIME_ENTRYPOINTS}
         files['model.cjs'] = 'hash'
         runner.PREPARED.write_text(json.dumps({'inputs': 'before', 'files': files}))
@@ -140,18 +143,16 @@ class EnginePhases(unittest.TestCase):
                 patch.object(runner, 'digest', return_value='tampered'):
             with self.assertRaises((FileNotFoundError, RuntimeError)):
                 runner.admitted(Path('/selected/node'), self.value)
-        runner.PASSED.write_text(json.dumps({'prepared': self.state, 'suites': self.value['suites'], 'exitStatus': 0}))
-        with patch.object(runner, 'admitted', return_value={'inputs': 'changed'}):
-            with self.assertRaisesRegex(RuntimeError, 'stale'):
-                runner.check(Path('/selected/node'), self.value)
-
-    def test_nested_renderer_fixture_bytes_names_and_membership_change_identity(self):
+    def test_directly_executed_fixtures_do_not_rebuild_test_helpers(self):
         engine = self.root / 'tools/contract_engine'
         runtime = self.root / 'runtime'
         engine.mkdir(parents=True)
         runtime.mkdir()
         node = self.root / 'node'
         node.write_bytes(b'controlled runtime')
+        (engine / 'src').mkdir()
+        helper = engine / 'src/model.ts'
+        helper.write_text('controlled helper source')
         (engine / 'runtime.lock.json').write_text(json.dumps({'binarySha256': builder.digest(node)}))
         receipt = {'inputs': 'production', 'profile': 'release', 'runtimeEntrypoints': [target for _, target in runner.RUNTIME_ENTRYPOINTS]}
         for target, field in [('engine.cjs', 'helperSha256'), ('conversion-worker.cjs', 'conversionHelperSha256'), ('policy-worker.cjs', 'policyHelperSha256'),
@@ -174,17 +175,19 @@ class EnginePhases(unittest.TestCase):
             original = runner.inputs(node)
             fixture.write_text('{"version":"changed"}')
             changed = runner.inputs(node)
-            self.assertNotEqual(original, changed)
+            self.assertEqual(original, changed)
             renamed = fixture.with_name('renamed.json')
             fixture.rename(renamed)
             moved = runner.inputs(node)
-            self.assertNotEqual(changed, moved)
+            self.assertEqual(changed, moved)
             added = fixture.with_name('additional.mjs')
             added.write_text('export default "nested fixture";')
-            self.assertNotEqual(moved, runner.inputs(node))
+            self.assertEqual(moved, runner.inputs(node))
             added.unlink()
             self.assertEqual(moved, runner.inputs(node))
             renamed.unlink()
+            self.assertEqual(moved, runner.inputs(node))
+            helper.write_text('changed compiled helper source')
             self.assertNotEqual(moved, runner.inputs(node))
 
     def test_registry_retains_ordinary_suite_discovery_and_required_security_flags(self):

@@ -31,6 +31,7 @@ Future<ApplicationInputs> applicationInputs({
   required String artifact,
   required String mode,
   required String entry,
+  String? buildIdFile,
 }) async {
   repository = Directory(p.normalize(p.absolute(repository.path)));
   if (!{'Debug', 'Profile', 'Release'}.contains(mode)) {
@@ -87,62 +88,60 @@ Future<ApplicationInputs> applicationInputs({
   }
 
   final captured = await identity(artifact), kernel = mode == 'Debug';
-  final builds = Directory(p.join(repository.path, '.dart_tool/flutter_build'));
-  final candidates = <List<String>>[];
-  var count = 0;
-  await for (final directory in builds.list(followLinks: false)) {
-    if (!RegExp(r'^[a-f0-9]{32}$').hasMatch(p.basename(directory.path)))
-      continue;
-    if (++count > 128)
-      throw StateError(
-        'The Flutter build-input inspection exceeds its bounded directory limit',
-      );
-    if (directory is! Directory ||
-        await FileSystemEntity.type(directory.path, followLinks: false) !=
-            FileSystemEntityType.directory)
-      continue;
-    final compiled = p.join(directory.path, kernel ? 'app.dill' : 'app.so');
-    if (!await File(compiled).exists() || await identity(compiled) != captured)
-      continue;
-    final stamp = jsonDecode(
+  // The upstream build system records the selected completed build. Use that
+  // manifest directly instead of hashing artifacts from historical builds.
+  final buildId = utf8
+      .decode(
+        await metadata(
+          buildIdFile ?? p.join(repository.path, 'build/.last_build_id'),
+        ),
+      )
+      .trim();
+  if (!RegExp(r'^[a-f0-9]{32}$').hasMatch(buildId))
+    throw StateError('Invalid selected Flutter compiler build identity');
+  final directory = p.join(
+    repository.path,
+    '.dart_tool/flutter_build',
+    buildId,
+  );
+  if (await FileSystemEntity.type(directory, followLinks: false) !=
+      FileSystemEntityType.directory)
+    throw StateError('Missing/non-ordinary selected Flutter compiler build');
+  final compiled = p.join(directory, kernel ? 'app.dill' : 'app.so');
+  if (await identity(compiled) != captured)
+    throw StateError(
+      'The selected compiler output differs from the application',
+    );
+  List<String> paths(Object? raw) {
+    if (raw is! List ||
+        raw.length > 20000 ||
+        raw.any((value) => value is! String || !p.isAbsolute(value)))
+      throw StateError('Unrecognized Flutter compiler input/output manifest');
+    return raw.cast<String>().map(p.normalize).toSet().toList()..sort();
+  }
+
+  final stamp = jsonDecode(
+    utf8.decode(
+      await metadata(p.join(directory, 'kernel_snapshot_program.stamp')),
+    ),
+  ) as Map;
+  final inputs = paths(stamp['inputs']), dill = p.join(directory, 'app.dill');
+  if (!paths(stamp['outputs']).contains(dill) || !inputs.contains(entryPath))
+    throw StateError('The compiler manifest differs from the selected entry');
+  if (!kernel) {
+    final aot = jsonDecode(
       utf8.decode(
-        await metadata(p.join(directory.path, 'kernel_snapshot_program.stamp')),
+        await metadata(
+          p.join(directory, 'aot_elf_${mode.toLowerCase()}.stamp'),
+        ),
       ),
     ) as Map;
-    List<String> paths(Object? raw) {
-      if (raw is! List ||
-          raw.length > 20000 ||
-          raw.any((value) => value is! String || !p.isAbsolute(value))) {
-        throw StateError('Unrecognized Flutter compiler input/output manifest');
-      }
-      return raw.cast<String>().map(p.normalize).toSet().toList()..sort();
-    }
-
-    final inputs = paths(stamp['inputs']);
-    final dill = p.join(directory.path, 'app.dill');
-    if (!paths(stamp['outputs']).contains(dill) || !inputs.contains(entryPath))
-      continue;
-    if (!kernel) {
-      final aot = jsonDecode(
-        utf8.decode(
-          await metadata(
-            p.join(directory.path, 'aot_elf_${mode.toLowerCase()}.stamp'),
-          ),
-        ),
-      ) as Map;
-      if (!paths(aot['outputs']).contains(compiled) ||
-          !paths(aot['inputs']).contains(dill))
-        continue;
-    }
-    if (!candidates.any(
-      (previous) => jsonEncode(previous) == jsonEncode(inputs),
-    ))
-      candidates.add(inputs);
+    if (!paths(aot['outputs']).contains(compiled) ||
+        !paths(aot['inputs']).contains(dill))
+      throw StateError(
+        'The AOT manifest differs from the selected compiler output',
+      );
   }
-  if (candidates.length != 1)
-    throw StateError(
-      'The application output has no unique matching Flutter compiler-input receipt; build the selected entry/mode before staging notices',
-    );
   final sdk = packages['flutter']?.parent.parent;
   if (sdk == null)
     throw StateError('Prepare the selected Flutter package configuration');
@@ -151,7 +150,7 @@ Future<ApplicationInputs> applicationInputs({
       (name: item.key, path: p.normalize(p.absolute(item.value.path))),
   ]..sort((a, b) => b.path.length.compareTo(a.path.length));
   final selected = <String, List<String>>{};
-  for (final file in candidates.single) {
+  for (final file in inputs) {
     final owners = roots.where((root) => p.isWithin(root.path, file)).toList();
     final owner = owners.firstOrNull;
     if (owner != null) {

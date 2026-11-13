@@ -127,35 +127,22 @@ Use the official Flutter 3.47.5 SDK with Dart 3.13.4 from the
 existing SDK, check its origin and verify the selected inputs without executing it:
 
 ```sh
-python3 tools/verify_flutter_sdk.py --sdk /path/to/flutter --mode release \
-  --upstream-artifacts /path/to/existing/upstream-archives
+python3 tools/verify_flutter_sdk.py --sdk /path/to/flutter --mode release
 ```
 
 This checks the pinned source revision, unchanged tracked source and selected
-engine/runtime bytes against independent upstream identities. A local SDK hash or
-receipt alone is insufficient. Original engine and Dart ZIPs can be supplied in
-`BUSYAPI_FLUTTER_UPSTREAM_ARTIFACTS`; the verifier authenticates their pinned
-SHA-256 identities before reading members. Independently established member pins
-also support verification without retaining archives. Missing provenance blocks
-qualification. The verifier does not download, install, repair or replace an SDK.
-Native runtime acceptance remains a separate check.
+engine/runtime bytes against independent official file identities. No retained
+SDK archives or network access are needed. The verifier does not download,
+install, repair or replace an SDK. CMake performs SDK admission once per build;
+installation and packaging verify the actual distributed engine bytes. Native
+runtime acceptance remains a separate check.
 
-Builds pass the selected existing archive directory explicitly through SDK and
-CMake verification and export `BUSYAPI_FLUTTER_UPSTREAM_ARTIFACTS` for installed
-checks. Packaging and artifact qualification also accept
-`--flutter-upstream-artifacts /path/to/existing/upstream-archives`; an installed
-layout cannot discover an SDK cache. Set the environment variable when invoking
-other package verification tools directly. CI takes the same existing directory
-from its configured variable or the installed SDK's original download cache.
-Missing evidence stops qualification; it does not establish modified SDK bytes.
-
-The recovery execution hold is active; the commands below describe the prepared
-workflow and are not authorization to execute it. After authorization, prepare
-locked dependencies explicitly:
+Prepare locked dependencies explicitly:
 
 ```sh
 flutter pub get --enforce-lockfile
 tools/build_engine.sh prepare
+tools/build_documentation_assets.sh prepare
 ```
 
 A full-featured build also requires the pinned diff, client-generator, and native governance inputs to be provisioned once or supplied from already verified local assets:
@@ -181,14 +168,13 @@ tools/build_documentation_assets.sh
 CMake and test-runtime staging. Its `RUNTIME_ENTRYPOINTS` is the production
 inventory. `tools/contract_engine/test-suites.json` registers test-only helpers,
 all ordinary Engine suites, renderer checks and their original Node flags.
-The separate kernel isolation harness remains a required CI gate. The documentation
-asset script retains its existing asset checks. Ordinary application builds reuse
+The separate kernel isolation harness remains a required CI gate. Registered renderer checks retain exact dependency, notice and output checks. Ordinary application builds reuse
 prepared assets without downloading them. The governance isolation path requires **Landlock ABI 3** and **libseccomp 2.5.5+**; missing required isolation is not treated as a successful policy run. See [Architecture](docs/architecture.md) and [Third-party distribution](docs/third-party.md) for platform and dependency boundaries.
 
 ### Build and launch
 
 ```sh
-BUSYAPI_WIDGET_RUNNER=both tools/build_linux.sh
+tools/build_linux.sh release
 build/linux/x64/release/bundle/busyapi-desktop
 ```
 
@@ -201,7 +187,8 @@ profile builds authoring/validation and conversion helpers without the JRE,
 oasdiff, supplementary renderer or executable governance isolation inputs.
 Unavailable tool actions report their missing assets; governance never runs
 without isolation. It is not a release or acceptance build. The default
-`tools/build_linux.sh` path still assembles and verifies every approved capability.
+`tools/build_linux.sh` path assembles every approved capability and verifies
+installed assets. Assembly does not run behavioral suites or qualify a release.
 
 The Snap recipe requires `BUSYAPI_NODE_INCLUDE` and `BUSYAPI_SECCOMP_INCLUDE`
 pointing to explicitly supplied official declaration headers. The existing policy
@@ -217,6 +204,8 @@ tools/build_engine.sh test-all
 tools/build_engine.sh test-focused tools/contract_engine/test_native_families.cjs
 tools/prepare_test_runtime.sh
 (cd packages/busyapi_core && dart test)
+# Small core suites can prepare without Java, renderers, oasdiff or policy isolation:
+tools/prepare_test_runtime.sh --core
 flutter analyze
 flutter test --no-pub
 tools/build_engine.sh typecheck
@@ -226,14 +215,23 @@ python3 tools/artifact_smoke.py build/linux/x64/release/bundle
 
 Run `compile` before `prepare-tests`; running tests refuses missing or stale
 production/test artifacts. The Engine package's `build`, `prepare:tests`, `test`
-and `test:focused` scripts delegate to these phases. `test` runs the full registered
-set; focused checks identify themselves and cannot satisfy `check-all`. A new
-preparation or test attempt retires previous aggregate evidence. Source, registry,
-runtime or helper changes invalidate that evidence. `build_linux.sh` runs the
-ordered Engine phases, existing Core/CLI and widget gates, then assembles the
-release; failures stop assembly and it checks full Engine evidence before packaging.
-CI retains its additional tooling, kernel, SDK and native-lifetime gates. Assembly
-alone is not final application acceptance.
+and `test:focused` scripts delegate to these phases. Test-helper signatures track
+compiled inputs; semantic suites run against those helpers without a persistent
+full-suite acceptance receipt.
+
+To assemble and automatically qualify one candidate in the same invocation:
+
+```sh
+python3 tools/qualify_linux.py
+```
+
+This runs the registered Engine/renderer suites, analysis, the official Flutter
+widget harness once, Core/CLI tests against the installed candidate, and installed
+artifact smoke checks. A retained behavior failure, changed candidate input or
+changed installed file rejects qualification. Process-test helpers are prepared
+separately without rebuilding production assets. CI retains additional tooling,
+kernel, SDK and native-lifetime gates. No earlier successful test run qualifies a
+later candidate.
 
 Native interaction, WebKit integration, strict-Snap packaging, and paint/input performance need separate platform qualification. Headless tests and CLI smoke checks do not establish those results.
 

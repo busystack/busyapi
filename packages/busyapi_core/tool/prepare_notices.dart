@@ -34,6 +34,7 @@ Future<void> main(List<String> arguments) async {
       .singleOrNull
       ?.substring(prefix.length);
   final mode = option('--mode='), entry = option('--entry=');
+  final buildIdFile = option('--build-id-file=');
   if (arguments.any(
     (argument) =>
         argument != '--inspect' &&
@@ -41,7 +42,8 @@ Future<void> main(List<String> arguments) async {
         !argument.startsWith('--font-assets=') &&
         !argument.startsWith('--application=') &&
         !argument.startsWith('--mode=') &&
-        !argument.startsWith('--entry='),
+        !argument.startsWith('--entry=') &&
+        !argument.startsWith('--build-id-file='),
   ))
     throw ArgumentError(
       'Use --inspect, --output=PATH, --font-assets=PATH, or --application=PATH --mode=Debug|Profile|Release --entry=PATH',
@@ -70,6 +72,7 @@ Future<void> main(List<String> arguments) async {
       artifact: applicationArgument.substring('--application='.length),
       mode: mode!,
       entry: entry!,
+      buildIdFile: buildIdFile,
     );
     final inputs = await inspectApplicationNotices(
       repository: repository,

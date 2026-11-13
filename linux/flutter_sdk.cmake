@@ -11,14 +11,16 @@ add_custom_target(busyapi_verify_flutter_sdk ALL
   VERBATIM)
 add_dependencies(busyapi_verify_flutter_sdk flutter_assemble)
 add_dependencies(${BINARY_NAME} busyapi_verify_flutter_sdk)
-install(CODE "
-  execute_process(COMMAND \"${Python3_EXECUTABLE}\" \"${BUSYAPI_SDK_VERIFY}\"
-    --sdk \"${BUSYAPI_FLUTTER_SDK}\" --mode \"${BUSYAPI_FLUTTER_SDK_MODE}\"
-    --library \"${FLUTTER_LIBRARY}\" --receipt \"${BUSYAPI_SDK_RECEIPT}\" --check-receipt
-    RESULT_VARIABLE result)
-  if(NOT result EQUAL 0)
-    message(FATAL_ERROR \"Upstream Flutter SDK inputs changed before installation\")
-  endif()
-" COMPONENT Runtime)
 install(FILES "${BUSYAPI_SDK_RECEIPT}" DESTINATION "share/busyapi"
   RENAME "flutter-sdk.json" COMPONENT Runtime)
+
+# Distribution checks inspect installed bytes against independent official pins;
+# installation does not repeat the admitted SDK's full source traversal.
+install(CODE "
+  execute_process(COMMAND \"${Python3_EXECUTABLE}\" \"${BUSYAPI_SDK_VERIFY}\"
+    --bundle \"${CMAKE_INSTALL_PREFIX}\"
+    RESULT_VARIABLE result)
+  if(NOT result EQUAL 0)
+    message(FATAL_ERROR \"Installed Flutter bytes differ from the admitted SDK\")
+  endif()
+" COMPONENT Runtime)

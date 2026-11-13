@@ -275,28 +275,23 @@ class BuildOwnership(unittest.TestCase):
         cmake = (ROOT / 'linux/flutter_sdk.cmake').read_text()
         self.assertIn('add_dependencies(busyapi_verify_flutter_sdk flutter_assemble)', cmake)
         self.assertIn('--library "${FLUTTER_LIBRARY}"', cmake)
-        self.assertIn('--check-receipt', cmake)
+        self.assertIn('--bundle', cmake)
+        self.assertNotIn('--check-receipt', cmake)
         self.assertNotIn('--upstream-artifacts', cmake)
         self.assertNotIn('BUSYAPI_FLUTTER_UPSTREAM_ARTIFACTS', cmake)
         self.assertNotIn('install(FILES "${BUSYAPI_FLUTTER', cmake)
         self.assertIn('include(flutter_sdk.cmake)', (ROOT / 'linux/CMakeLists.txt').read_text())
         build = (ROOT / 'tools/build_linux.sh').read_text()
-        self.assertLess(build.index('tools/verify_flutter_sdk.py'), build.index('busyapi_sdk_metadata'))
+        self.assertNotIn('tools/verify_flutter_sdk.py', build)
         self.assertNotIn('BUSYAPI_FLUTTER_UPSTREAM_ARTIFACTS', build)
         workflow = (ROOT / '.github/workflows/flutter-linux.yml').read_text()
-        self.assertIn('tools/verify_flutter_sdk.py', workflow)
+        self.assertIn('tools/qualify_linux.py', workflow)
         self.assertIn('tools.test_flutter_sdk', workflow)
         for name in ('build_flutter_engine.py', 'prepare_flutter_engine.py', 'verify_flutter_engine.py'):
             self.assertNotIn(name, workflow)
             self.assertFalse((ROOT / 'tools' / name).exists())
         self.assertFalse((ROOT / 'tools/flutter_engine').exists())
 
-    def test_installed_sdk_check_is_shared_by_both_distribution_routes(self):
-        for name in ('package_linux.py', 'check_snap_package.py'):
-            self.assertIn('verify_flutter_sdk', (ROOT / 'tools' / name).read_text())
-        bundle = Path(os.environ.get('BUSYAPI_TEST_BUNDLE') or ROOT / 'build/linux/x64/release/bundle')
-        record = sdk_check.verify_installed(bundle)
-        self.assertEqual(record['mode'], 'release')
 
 
 if __name__ == '__main__':
