@@ -1,4 +1,5 @@
 import {escape,segments,SourceError} from './document';
+import {componentLocation} from './authoring';
 import {pointerFragment,type GraphReference,type ReferenceGraph} from './reference_graph';
 import type {DocumentContext} from './migration_documents';
 import type {MigrationIssue} from './migration_schema';
@@ -49,9 +50,12 @@ export function repairMigrationOwnerReferences(contexts:readonly DocumentContext
             reference.connection&&!['discriminator','operationRef'].includes(reference.connection)&&!(reference.connection==='security'&&reference.targetUri!==undefined))continue;
         const scope=graph.referenceOwner(reference);if(!scope)continue;
         const owner=owners.entryOwner(graph.root,scope,scope.kind);
+        const container=componentLocation('schemas',scope.family),prefix=container+'/';
+        const nativeSchema=scope.kind==='schema'&&graph.specifications.get(scope.resource)?.family===scope.family&&
+            container!==undefined&&scope.pointer.startsWith(prefix)&&!scope.pointer.slice(prefix.length).includes('/');
         // An unchanged data occurrence cannot acquire the copied role's
         // semantic edits, even when its scalar resembles a reference.
-        if(same(owner,scope)&&(graph.literalContainer(scope.resource,scope.pointer)!==undefined||
+        if(same(owner,scope)&&!nativeSchema&&(graph.literalContainer(scope.resource,scope.pointer)!==undefined||
             graph.scopes.get(scope.resource+'#'+scope.pointer)?.kind!==scope.kind))continue;
         const origin={resource:reference.targetResource!,pointer:reference.targetPointer!};
         const target=owners.entryOwner(graph.root,origin,reference.kind);

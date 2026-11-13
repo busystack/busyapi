@@ -94,6 +94,7 @@ function addExactSource(doc: SourceDocument,graph: any,projected=false) {
  for(const node of doc.nodes.values()) {
   if(typeof node.value!=='number'&&!/\/(?:const|enum)$/.test(node.pointer))continue;
   const scope=graph.scope(doc.id,node.pointer);
+  if(scope.kind==='schema'&&!graph.isEntryUse(scope))continue;
   const uri=scope.base+'#'+encodeURI(node.pointer.slice(scope.resourcePointer.length));
   const previous=sourceLocations.get(uri);
   if(previous&&(previous.doc.id!==doc.id||previous.node.pointer!==node.pointer))throw new SourceError('schema.numeric.provenance','Ambiguous exact-number provenance');

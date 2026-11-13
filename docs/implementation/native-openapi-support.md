@@ -33,6 +33,20 @@ behavior and actual process/filesystem boundaries remain gates. Private conversi
 layout, historical revision literals and build-script order are not independent
 product requirements. Migration compatibility is tested separately at revision 107.
 
+Conversion reuses an unchanged native component Schema as its material owner;
+copied containers reference it through the same occurrence mapping. Resource
+variation is decided per captured resource, rather than by unrelated differences
+elsewhere in an entry. Anchor capture retains unused declarations belonging to an
+entered resource, and excludes dormant alternate interpretations of literal data.
+Exact-number registration follows active Schema uses; conflicting active source
+locations still fail instead of falling back to JavaScript number projections.
+
+Generated mock form bodies retain immutable typed input and normalized projection
+with their output bytes until the final native response check. That check validates
+original data, actual decoded bytes, Header/status semantics and exact correspondence,
+including legitimate empty-collection omissions. Separate preliminary form and
+multipart body checks have been deleted.
+
 ## Remaining qualification gates
 
 - Resolve or obtain an approved official-upstream resolution for the reproduced
@@ -85,6 +99,8 @@ The paired process memory observations and complete inputs are in `editing/`.
 | Twelve modeled XML multipart fields | Parsed data documents 194 → 14; parser input 891,483 → 150,579 bytes; wire inversions 24 → 12; prepared output remains identical |
 | Twenty related schemas, forty runtime values | Canonical compiler ASTs 21 → 1; node compilations 122 → 82; complete results remain identical |
 | Twenty-one mock checks over a 131,388-byte source | Graphs and source-bearing worker packets 21 → 1; JSON-sized worker input 2,771,890 → 137,523 bytes, including initial worker data |
+| One generated mock multipart response, twelve exact numeric parts | Body evaluations 2 → 1; MIME decodes 3 → 1; parsed data documents 92 → 52; parser input 617 → 324 bytes; the 1,069-byte response remains identical |
+| One generated mock URL-form response, twelve values | Body evaluations 2 → 1; parsed data documents 57 → 28; parser input 1,126 → 510 bytes; the 80-byte response remains identical |
 | Eight renderer opens, two installed presets | Admissions 8 → 2; file reads 48 → 12; bytes read 34,215,944 → 8,553,986 |
 | Representative conversion captures | Graphs 21 → 14 / 28 → 17 / 19 → 12; parses 56 → 13 / 60 → 17 / 51 → 8 before the remaining holder work |
 

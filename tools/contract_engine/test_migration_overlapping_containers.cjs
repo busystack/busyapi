@@ -24,12 +24,12 @@ test(`${format} ${restrictedVersion}/3.1 entries independently own overlapping n
  const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));const output=cold(review),root=review.changes.find(change=>change.resource===modern).destination;
  for(const entry of [output.root,root])assert.equal(analyse({...output,root:entry}).status,'complete');
  const example=roleTarget(output,root,'/components/examples/Dictionary','example');
- assert(example.pointer.startsWith('/components/examples/_migrated_object_use_'));
+ assert(example.graph.scopeAs(example.resource,example.pointer,'example'));
  assert.equal(example.graph.docs.get(example.resource).dataJson(example.pointer+'/value'),original.dataJson('/components/pathItems/value'));
  const mapTargets=[];
  for(const name of ['SchemaMap','ExampleMap']){
   const target=roleTarget(output,root,'/components/schemas/'+name,'schema');mapTargets.push(target.pointer);
-  assert(target.pointer.startsWith('/components/schemas/_migrated_schema_use_'));
+  assert(target.graph.scopeAs(target.resource,target.pointer,'schema'));
   assert.equal(target.graph.docs.get(target.resource).dataJson(target.pointer),original.dataJson(name==='SchemaMap'?'/components/schemas':'/components/examples'),name+' reads immutable capture');
   const samples=['null','false','0','[]','{}','{"n":9007199254740993}'];
   assert.deepEqual(await values(output,root,'/components/schemas/'+name,samples),await values(input,modern,'/components/schemas/'+name,samples));
@@ -41,12 +41,13 @@ test(`${format} ${restrictedVersion}/3.1 entries independently own overlapping n
  assert.equal(doc.dataJson('/components/pathItems/value'),original.dataJson('/components/pathItems/value'));
  assert.equal(new SourceDocument(before[2],input.resources[2].id).dataJson('/Literal'),
   new SourceDocument(review.outputs.find(output=>output.id===review.changes.find(change=>change.resource===input.resources[2].id).destination).text,'file:///shared.yaml').dataJson('/Literal'));
- const allocations=packet=>[...createGraph({...packet,root}).graph.docs.get(root).dataNode('/components/schemas').children.keys()].filter(name=>name.startsWith('_migrated_')).sort();
  assert.deepEqual((await planMigration({...input,resources:[...input.resources].reverse()})).outputs,review.outputs);
  const reordered=await planMigration(fixture(format,restrictedVersion,true));assert.equal(reordered.complete,true,JSON.stringify(reordered.problems));
  const reorderedRoot=reordered.changes.find(change=>change.resource===modern).destination;
  const reorderedPacket=cold(reordered);
- assert.equal(reorderedRoot,root);assert.deepEqual(allocations(reorderedPacket),allocations(output));
+ assert.equal(reorderedRoot,root);
+ const reorderedExample=roleTarget(reorderedPacket,root,'/components/examples/Dictionary','example');
+ assert.deepEqual([reorderedExample.resource,reorderedExample.pointer],[example.resource,example.pointer]);
  assert.deepEqual(mapTargets,['SchemaMap','ExampleMap'].map(name=>roleTarget(reorderedPacket,root,'/components/schemas/'+name,'schema').pointer));
  assert.deepEqual(input.resources.map(resource=>resource.text),before);
 });
@@ -58,7 +59,9 @@ test('container ownership reserves authored collisions without overwriting liter
  const source=JSON.parse(input.resources[1].text.replaceAll('9007199254740993.00','"EXACT"'));source.components.examples[name]={value:{kept:'authored',n:'EXACT'}};
  input.resources[1].text=JSON.stringify(source).replaceAll('"EXACT"','9007199254740993.00');
  const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
- const next=roleTarget(cold(review),root,'/components/examples/Dictionary','example');assert.equal(next.pointer,target.pointer+'_1');
+ const next=roleTarget(cold(review),root,'/components/examples/Dictionary','example');
+ assert.notDeepEqual([next.resource,next.pointer],[root,'/components/examples/'+name]);
+ assert.equal(next.graph.docs.get(next.resource).dataJson(next.pointer+'/value'),new SourceDocument(input.resources[1].text,input.resources[1].id).dataJson('/components/pathItems/value'));
  assert.equal(next.graph.docs.get(root).dataNode('/components/examples/'+name+'/value/kept').value,'authored');
  assert.equal(next.graph.docs.get(root).dataJson('/components/examples/'+name+'/value/n'),'9007199254740993.00');
 });
@@ -84,7 +87,7 @@ for(const reverse of [false,true])test(`copied Header fields follow later Schema
  const before=input.resources.map(resource=>resource.text),review=await planMigration(input);
  assert.equal(review.complete,true,JSON.stringify(review.problems));const output=cold(review),targetRoot=review.changes.find(change=>change.resource===other).destination;
  const header=roleTarget(output,targetRoot,'/paths/~1p/get/responses/200/headers/X-N','header');
- assert(header.pointer.startsWith('/components/headers/_migrated_object_use_'));
+ assert(header.graph.scopeAs(header.resource,header.pointer,'header'));
  const edge=header.graph.referenceAs(header.resource,header.pointer+'/schema','$ref','schema');
  assert.equal(edge.resolution,'resolved');assert.notEqual(edge.targetPointer,'/x-model');
  const numbers=['9007199254740993.00','9007199254740992','null'];

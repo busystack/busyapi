@@ -30,6 +30,18 @@ export function authoredSchemaDialect(graph:ReferenceGraph,scope:GraphScope):str
 export function capturedSchemaResources(graph:ReferenceGraph):ReadonlyMap<string,CapturedSchemaResource> {
     const resources=new Map<string,{identity:string;members:GraphScope[];roots:GraphScope[];boundary?:GraphScope;anchors:Map<string,GraphScope>;dynamicAnchors:Map<string,GraphScope>}>();let work=0;
     const inspect=()=>{if(++work>2000000)throw new SourceError('limit.migration.resources','Schema resource capture exceeds 2000000 typed states');};
+    const ownsAnchors=(scope:GraphScope):boolean=>{
+        const identity=schemaResourceContextIdentity(scope),pending=[scope],seen=new Set<string>();
+        for(let index=0;index<pending.length;index++){
+            inspect();const current=pending[index];if(seen.has(current.pointer))continue;seen.add(current.pointer);
+            if(graph.isEntryUse(current)||current.pointer===current.resourcePointer)return true;
+            const primary=graph.scopes.get(current.resource+'#'+current.pointer);
+            if(current.schemaParent===undefined&&graph.specifications.has(current.resource)&&primary?.kind==='schema'&&
+                schemaResourceContextIdentity(primary)===identity&&graph.literalContainer(current.resource,current.pointer)===undefined)return true;
+            pending.push(...graph.schemaParentsOf(current).filter(parent=>schemaResourceContextIdentity(parent)===identity));
+        }
+        return false;
+    };
     for(const scope of graph.entryScopes()){
         inspect();if(scope.kind!=='schema')continue;
         const identity=schemaResourceContextIdentity(scope);
@@ -45,7 +57,7 @@ export function capturedSchemaResources(graph:ReferenceGraph):ReadonlyMap<string
         if(scope.pointer===scope.resourcePointer)resource.boundary=scope;
         const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
         for(const [keyword,index]of [['$anchor',resource.anchors],['$dynamicAnchor',resource.dynamicAnchors]] as const)
-            if(typeof value?.[keyword]==='string')index.set(value[keyword],scope);
+            if(typeof value?.[keyword]==='string'&&ownsAnchors(scope))index.set(value[keyword],scope);
     }
     for(const resource of resources.values()){
         resource.members.sort((a,b)=>a.pointer.length-b.pointer.length||a.pointer.localeCompare(b.pointer));
