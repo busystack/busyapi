@@ -11,6 +11,21 @@ const official=(file,description)=>{
 const cases=[official('dynamicRef','A $dynamicRef to a $dynamicAnchor in the same schema resource behaves like a normal $ref to an $anchor'),
  official('dynamicRef','A $dynamicRef resolves to the first $dynamicAnchor still in scope that is encountered when the schema is evaluated'),
  official('unevaluatedProperties','unevaluatedProperties with $ref')];
+for(const version of ['3.1.2','3.2.1'])for(const format of ['json','yaml'])
+test(`${version} ${format} forwarding fragments retain resource-wide dynamic anchors without entering sibling resources`,async()=>{
+ const root='file:///approved/forwarding.'+format,document={openapi:version,info:{title:'Dynamic forwarding',version:'1'},paths:{},components:{schemas:{
+  Model:{$id:'https://schemas.invalid/model',$defs:{node:{$dynamicAnchor:'node',type:'string'}},default:{$ref:'https://schemas.invalid/list'}},
+  Value:{$ref:'#/components/schemas/Model/default'},
+  List:{$id:'https://schemas.invalid/list',type:'array',items:{$dynamicRef:'#node'},$defs:{node:{$dynamicAnchor:'node'}}},
+  Unentered:{$id:'https://schemas.invalid/unentered',$dynamicAnchor:'node',type:'boolean'}
+ }}};
+ const text=format==='json'?JSON.stringify(document):YAML.stringify(document),input={root,snapshot:'dynamic-forwarding',resources:[{id:root,text,generation:1}]};
+ const samples=['[]','["雪"]','[false]','null'];
+ const checked=await evaluateSchemas({...input,runtimeInstances:['Value','List'].flatMap(name=>samples.map(text=>({subject:'response-body',location:name,text,schema:{resource:root,pointer:'/components/schemas/'+name}})))});
+ assert.equal(checked.complete,true,JSON.stringify(checked.findings));
+ assert.deepEqual(checked.runtimeEvaluations.map(value=>value.valid),[true,true,false,false,true,true,true,false]);
+ assert.equal(input.resources[0].text,text);
+});
 for(const version of ['3.1.2','3.2.1'])for(const format of ['json','yaml'])for(const keyword of ['dependentRequired','dependentSchemas'])
 test(`${version} ${format} dependency dictionaries retain parent and independent Schema validation ${keyword}`,async()=>{
  const root='file:///approved/dependency-roles.'+format,pointer='/components/schemas/Model/'+keyword;

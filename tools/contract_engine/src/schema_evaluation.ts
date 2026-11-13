@@ -13,7 +13,7 @@ import {registerSchema,unregisterSchema,getAllRegisteredSchemaUris,setShouldVali
 import '@hyperjump/json-schema/openapi-3-1';
 import '@hyperjump/json-schema/openapi-3-2';
 import '@hyperjump/json-schema/openapi-3-0';
-import {compile,interpret,getSchema,toSchema,loadDialect,unloadDialect,getKeywordId,BASIC} from '@hyperjump/json-schema/experimental';
+import {compile,interpret,getSchema,toSchema,loadDialect,unloadDialect,getKeywordId,Validation,BASIC,type CompiledSchema} from '@hyperjump/json-schema/experimental';
 import dialect31 from '../schemas/oas31-dialect.json';
 import vocabulary31 from '../schemas/oas31-vocabulary.json';
 import dialect32 from '../schemas/oas32-dialect.json';
@@ -129,7 +129,7 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
  const exact=createExactNumericAdapter(standardIds),schemes=new Set<string>(),ownedIds=new Set<string>(),documents=new Map<string,any>();
  let open=true,complete=true,limited=false;
  let releaseXml=()=>{};
- const findings:any[]=[],evaluations:any[]=[],runtimeEvaluations:any[]=[],runtimeFindings:any[]=[],skipped:any[]=[],invalid:any[]=[],compiled=new Map<string,any>(),metas=new Map<string,any>();
+ const findings:any[]=[],evaluations:any[]=[],runtimeEvaluations:any[]=[],runtimeFindings:any[]=[],skipped:any[]=[],invalid:any[]=[],metas=new Map<string,any>();
  let schemas=0,instances=0;
  const add=(doc:SourceDocument,pointer:string,code:string,message:string,severity='error',details:any={})=>{
   if(findings.length>=200&&!code.startsWith('limit.')){limited=true;complete=false;return;}
@@ -304,10 +304,24 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
   }
   for(let i=0;i<queue.length;i++)for(const parent of dependents.get(queue[i])??[])mark(parent,states.get(queue[i])!);
   views.schemaReady(scope=>!states.get(scopeId(scope)));
+  let schemaAst={metaData:{},plugins:new Set()} as CompiledSchema['ast'];
+  const xmlAsts=new Map<string,CompiledSchema>();
   const getCompiled=async(scope:GraphScope)=>{
    if(states.get(scopeId(scope))||evaluationScopes.get(scopeId(scope))?.file)return;
-   const uri=views.active?views.address(scope):schemaAddress(scope);if(!compiled.has(uri))compiled.set(uri,await compile(await getSchema(uri)));
-   return compiled.get(uri);
+   const uri=views.active?views.address(scope):schemaAddress(scope);
+   try{
+    // One canonical AST owns this evaluation's captured resources. A fragment
+    // can enter a resource whose dynamic anchor lives in another member;
+    // independently compiled root ASTs omit those already captured siblings.
+    return {ast:schemaAst,schemaUri:await Validation.compile(await getSchema(uri),schemaAst,undefined)};
+   }catch(error){
+    // The upstream compiler reserves entries while descending. Discard its
+    // unfinished AST and retain the existing located dependency failure.
+    schemaAst={metaData:{},plugins:new Set()} as CompiledSchema['ast'];xmlAsts.clear();
+    mark(scopeId(scope),2);
+    for(let i=0;i<queue.length;i++)for(const parent of dependents.get(queue[i])??[])mark(parent,states.get(queue[i])!);
+    throw error;
+   }
   };
   // Compile every independently rooted authored schema, even when it has no
   // examples. Missing references/vocabularies cannot masquerade as success.
@@ -317,7 +331,6 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
   }
   // The XML codec consumes compiled canonical assertions, never implements
   // branch validation itself. Precompile captured scopes once for this lifetime.
-  const xmlAsts=new Map<string,any>(),xmlMerged=new Map<string,any>();
   const needsXml=(Array.isArray(input.mediaPreparations)&&input.mediaPreparations.some(item=>typeof item?.mediaType==='string'&&/(?:\/xml|\+xml)(?:;|$)/i.test(item.mediaType)))||(Array.isArray(input.runtimeInstances)&&input.runtimeInstances.some(item=>item?.form!==undefined||typeof item?.mediaType==='string'&&/(?:\/xml|\+xml)(?:;|$)/i.test(item.mediaType)))||[...graph.entryScopes()].some(scope=>scope.kind==='xml'||scope.kind==='media'&&/xml/i.test(scope.pointer));
   if(needsXml)for(const scope of all){
    try{const ast=await getCompiled(scope);if(ast)xmlAsts.set(scopeId(scope),ast);}catch(error){observeFailure?.(error);}
@@ -345,9 +358,6 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
    const rootScope=graph.scopeAs(stack[0].resource,stack[0].pointer,'schema');
    const root=rootScope&&xmlAsts.get(scopeId(rootScope));
    if(!root)return;
-   const key=root.schemaUri+'\0'+ast.schemaUri;
-   let shared:any=xmlMerged.get(key);
-   if(!shared){shared={...root.ast,...ast.ast,metaData:{...root.ast.metaData,...ast.ast.metaData},plugins:new Set([...root.ast.plugins,...ast.ast.plugins])};if(xmlMerged.size>=16)xmlMerged.delete(xmlMerged.keys().next().value);xmlMerged.set(key,shared);}
    const anchors:Record<string,string>=Object.create(null);
    for(const owner of stack){
     const ownerScope=graph.scopeAs(owner.resource,owner.pointer,'schema');
@@ -355,7 +365,7 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
     for(const [name,uri]of Object.entries(compiled.ast.metaData[compiled.schemaUri.split('#')[0]]?.dynamicAnchors??{}))if(!Object.hasOwn(anchors,name))anchors[name]=uri as string;
    }
    let seeded=false;
-   return interpret({...ast,ast:shared},exact.exactInstance(document,pointer),{outputFormat:BASIC,plugins:[bounded,{
+   return interpret(ast,exact.exactInstance(document,pointer),{outputFormat:BASIC,plugins:[bounded,{
     beforeSchema(_url,_instance,context:any){if(!seeded){context.dynamicAnchors={...context.dynamicAnchors,...anchors};seeded=true;}}
    }]}).valid;
   };

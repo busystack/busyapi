@@ -20,7 +20,7 @@ implementation instructions. No older passing run qualifies the changed product.
 | Recovery | Source input, field commits, undo/redo and selected publication checkpoint affected owners and changed draft revisions. Awaiting persistence also awaits earlier captured writes. File-intent updates and retirement avoid workspace-buffer enumeration and exclude unrelated dirty sources. Complete drains remain at workspace replacement/close. Focused interruption/race and targeted-resource cases pass. |
 | Capture and assistance | Root-local immutable captures are separate from full schema analysis. Disk events invalidate relevant versions with bounded reconciliation. Folding uses selected-resource syntax without a graph. Derived text cannot reuse an old parse through inherited metadata. Focused root/cache/folding tests pass. |
 | Source saving | Desktop and CLI use PublicationStore. Alternate BusyProject.save is removed. Partial publication, conflicts, permissions, interrupted records, grouped ordering and undo across save remain. Focused publication cases pass. |
-| Conversion | TypeScript owns language/configuration transformation; Dart owns bounded review, immutable reviewed bytes and publication. Final-output reference mapping removes duplicate repair phases. Further owner/holder simplification and broad behavioral adjudication are still in progress; no complete conversion qualification is claimed. |
+| Conversion | TypeScript owns language/configuration transformation; Dart owns bounded review, immutable reviewed bytes and publication. One captured traversal allocates final typed owners and emits common static/contextual edges. Repeated entry/role passes, temporary owner wrappers and superseded-copy retirement are deleted. Broad behavioral adjudication is still in progress; no complete conversion qualification is claimed. |
 | Requests, mock and streams | One parameter-value map owns active request input. Captured operations and immutable body inputs share secret-free aggregate preparation across Preview/Send, with fresh dispatch credentials/TLS and exact selected-file reconciliation. Shared serializers replace equivalent form/multipart reproof. Streams retain bounded framing/context in one engine owner, with thin continuation IPC and independent close/cancellation. Broad runtime qualification remains in progress. |
 | Outputs and governance | Prepared immutable files use the common output publisher. Generator selection and execution share a runtime. Verified renderer bytes are reused until installed files change; packaging inventory policy has left documentation-open actions. Governance reuses one immutable review and checks exact dispatch authority once. Focused output, approval and installed-input change cases pass. |
 | Build and distribution | Assembly is separate from current-invocation qualification. Editor assembly passed with optional tools unavailable; renderer rebuilds are skipped when unchanged. Official widget acceptance runs once; no persistent full-suite receipt is required. Full release assembly and distributed-artifact verification pass. Full behavioral/native qualification remains outstanding. |
@@ -37,8 +37,8 @@ product requirements. Migration compatibility is tested separately at revision 1
 
 - Resolve or obtain an approved official-upstream resolution for the reproduced
   native stale-client input loss below. Core/widget results cannot qualify it.
-- Finish remaining conversion holder/owner deletions and resolve retained
-  conversion failures while preserving advanced semantic obligations.
+- Resolve retained conversion failures and complete broad qualification of the
+  final-owner mapping while preserving advanced semantic obligations.
 - Resolve retained runtime failures and verify all actual wire, file-change,
   credentials/TLS, mock, stream and cancellation boundaries together.
 - Run full current-candidate Engine, Core/CLI, official widget, native/platform and
@@ -82,6 +82,9 @@ The paired process memory observations and complete inputs are in `editing/`.
 | Same three actual requests | Input IPC 13,150 → 7,185 bytes; exact received queries remain `x=1`, `x=2`, `x=3` |
 | Twelve XML URL-form fields | Graphs 25 → 1; source transfers 13 → 1; input IPC 37,993 → 2,947 bytes |
 | Three operation profiles over an acquired capture | Extra graph acquisitions 6 → 0; resulting profiles remain identical |
+| Twelve modeled XML multipart fields | Parsed data documents 194 → 14; parser input 891,483 → 150,579 bytes; wire inversions 24 → 12; prepared output remains identical |
+| Twenty related schemas, forty runtime values | Canonical compiler ASTs 21 → 1; node compilations 122 → 82; complete results remain identical |
+| Twenty-one mock checks over a 131,388-byte source | Graphs and source-bearing worker packets 21 → 1; JSON-sized worker input 2,771,890 → 137,523 bytes, including initial worker data |
 | Eight renderer opens, two installed presets | Admissions 8 → 2; file reads 48 → 12; bytes read 34,215,944 → 8,553,986 |
 | Representative conversion captures | Graphs 21 → 14 / 28 → 17 / 19 → 12; parses 56 → 13 / 60 → 17 / 51 → 8 before the remaining holder work |
 
@@ -94,6 +97,11 @@ For a 100,521-byte captured source packet, opening the new stream constructs one
 graph/parse; all 257 chunks construct zero graphs/parses. The chunks transfer
 22,467,968 input bytes and 536,308 output bytes without source/unfinished-record
 continuations. Scripts and results are retained in `streaming/`.
+
+The XML, compiler and mock measurements count parser input, canonical compiler work,
+and JSON-sized messages respectively; they do not claim V8 transport framing or
+native UI latency. Their evidence is retained in `schema-compiler/` and the
+corresponding runtime work records.
 
 Actual source-save, body, scheduler, ownership, and conversion mechanisms are the
 deletions being audited. Historical prose, vendored inputs, generated files and

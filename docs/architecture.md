@@ -302,6 +302,18 @@ owns conversion language/configuration semantics. Dart bounds the review packet,
 freezes reviewed file bytes once and checks captured authority, freshness and safe
 publication paths.
 
+Conversion assigns final typed owners in one captured-source traversal. Static
+references are emitted as one batch before contextual dynamic/security edges;
+there are no repeated entry/role separation passes or superseded-copy retirement
+registries. Real schema resource identities and dynamic scope remain obligations
+of that mapping. Request-profile checks reuse its acquired operation plans.
+
+Canonical schema evaluation shares one compiler AST across its captured roots,
+while resource addresses retain their separate dialect and role contexts. This
+also makes resource-wide dynamic anchors available when execution enters through
+a forwarding fragment. Runtime evaluation creates its own dynamic call stack;
+merely compiling a sibling resource cannot enter it. XML encoding and wire
+inversion reuse captured data documents and the canonical schema evaluator.
 
 Client generation is a focused core extension (`generation.dart`) and packaged-process adapter (`generator_runtime.dart`). Its native action reuses the compact `BundleRunController` output review; widgets neither launch processes nor publish files. The official catalog/options determine choices. `prepareClient` captures the ordinary immutable graph, including unsaved resources, uses its semantics-preserving single-file derivation, and runs the pinned JAR in a private stage. Conversion metadata checks original operation occurrences before publication; this is not a compatibility engine or a claim of complete generator schema support.
 
