@@ -81,6 +81,7 @@ The paired process memory observations and complete inputs are in `editing/`.
 | Three saved cases for one operation | Full captures 4 → 1; configuration decodes 4 → 1; exact-input requests 3 → 1; operation plans 3 → 1 |
 | Same three actual requests | Input IPC 13,150 → 7,185 bytes; exact received queries remain `x=1`, `x=2`, `x=3` |
 | Twelve XML URL-form fields | Graphs 25 → 1; source transfers 13 → 1; input IPC 37,993 → 2,947 bytes |
+| Three operation profiles over an acquired capture | Extra graph acquisitions 6 → 0; resulting profiles remain identical |
 | Eight renderer opens, two installed presets | Admissions 8 → 2; file reads 48 → 12; bytes read 34,215,944 → 8,553,986 |
 | Representative conversion captures | Graphs 21 → 14 / 28 → 17 / 19 → 12; parses 56 → 13 / 60 → 17 / 51 → 8 before the remaining holder work |
 

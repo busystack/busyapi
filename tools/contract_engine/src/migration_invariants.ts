@@ -22,7 +22,7 @@ import {inactiveReservedExpansion} from './migration_object_metadata';
 import {MigrationSchemaProofs} from './migration_schema_proofs';
 import {isNativeFamily} from './specification';
 import {migrationExampleBytes,migrationModeledExampleBytes} from './migration_examples';
-import type {ExternalExampleResourcePacket} from './external_examples';
+import {CapturedExampleResources,type ExternalExampleResourcePacket} from './external_examples';
 import {runtimeMediaKind} from './runtime_media';
 import {inactiveMigrationHeader} from './migration_media_schema';
 import type {ParameterWireProfiles} from './migration_parameter_serialization';
@@ -276,14 +276,25 @@ function effectiveUrl(value:string,path:string):string {
 const mediaExampleKey=(media:any,example:any)=>JSON.stringify([media.mediaType,media.schema?.resource,media.schema?.pointer,media.itemSchema?.resource,media.itemSchema?.pointer,
     example.source?.resource,example.source?.pointer,example.representation,example.raw]);
 
+type OperationPlans=ReadonlyMap<string,ReturnType<typeof requestOperation>>;
+function capturedOperationPlans(graph:ReferenceGraph,resources:Resource[],exampleResources:readonly ExternalExampleResourcePacket[]):OperationPlans {
+    const operations=graph.operations().filter(operation=>operation.role==='operation');
+    if(!operations.length)return new Map();
+    const captured={graph,docs:graph.docs,family:graph.specifications.get(graph.root)!.family,
+        exampleResources:new CapturedExampleResources(exampleResources)};
+    return new Map(operations.map(operation=>[operation.occurrence,requestOperation({root:graph.root,resources,
+        exampleResources,snapshot:'migration-invariant',resource:operation.source.resource,
+        pointer:operation.source.pointer,occurrence:operation.occurrence},captured)]));
+}
+
 export async function prepareMigrationRequestProfiles(graph:ReferenceGraph,resources:Resource[],wire?:ParameterWireProfiles,
     namedTarget?:string,exampleResources:readonly ExternalExampleResourcePacket[]=[]):Promise<ReadonlyMap<string,string>> {
     const bytes=new Map<string,string>();
+    const plans=capturedOperationPlans(graph,resources,exampleResources);
     // Codec preparations share one canonical evaluator lifetime, so keep them
     // sequential. This is a byte projection of actual choices, not a sample
     // witness for equivalence of the surrounding schemas.
-    for(const operation of graph.operations().filter(operation=>operation.role==='operation')){
-        const plan=requestOperation({root:graph.root,resources,exampleResources,snapshot:'migration-invariant',resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
+    for(const plan of plans.values()){
         const media=[...(plan.requestBody?.content??[]),...plan.responses.filter((response:any)=>response.bodyAllowed!==false).flatMap((response:any)=>response.content)];
         for(const value of media)if(['xml','linkset','linkset-json','json-lines','json-sequence','event-stream'].includes(runtimeMediaKind(value.mediaType)))for(const example of value.examples??[]){
             if(example.representation!=='json'||example.wireBase64!==undefined)continue;
@@ -300,15 +311,17 @@ export async function prepareMigrationRequestProfiles(graph:ReferenceGraph,resou
             }
         }
     }
-    return migrationRequestProfiles(graph,resources,wire,namedTarget,bytes,exampleResources);
+    return migrationRequestProfiles(graph,resources,wire,namedTarget,bytes,exampleResources,plans);
 }
 
 export function migrationRequestProfiles(graph:ReferenceGraph,resources:Resource[],wire?:ParameterWireProfiles,namedTarget?:string,
-    exampleBytes?:ReadonlyMap<string,string>,exampleResources:readonly ExternalExampleResourcePacket[]=[]):ReadonlyMap<string,string> {
+    exampleBytes?:ReadonlyMap<string,string>,exampleResources:readonly ExternalExampleResourcePacket[]=[],
+    prepared?:OperationPlans):ReadonlyMap<string,string> {
+    const plans=prepared??capturedOperationPlans(graph,resources,exampleResources);
     const securityBindings=new Map(graph.references.filter(reference=>reference.connection==='security').map(reference=>[
         JSON.stringify([reference.resource,reference.pointer,reference.keyword]),reference]));
     return new Map(graph.operations().filter(operation=>operation.role==='operation').map(operation=>{
-        const plan=requestOperation({root:graph.root,resources,exampleResources,snapshot:'migration-invariant',resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
+        const plan=plans.get(operation.occurrence)!;
         const normalize=(value:any):any=>Array.isArray(value)?value.map(normalize):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).filter(name=>!['source','definition','base','origin','sources'].includes(name)).sort().map(name=>[name,normalize(value[name])])):value;
         const groups=new Map<string,Set<string>>();
         const parameters:any[]=plan.parameters.flatMap((parameter:any):any[]=>{
