@@ -34,9 +34,10 @@ test(`${version} ${format} dataValue and externalValue remain separate native ch
 });
 for(const version of versions)for(const format of ['yaml','json'])test(`${version} ${format} external Parameter/Header examples use occurrence bytes and enter native request selection`,async()=>{
  const root='file:///approved/api.'+format,query='file:///approved/query.bin',header='file:///approved/header.bin';
- const value={openapi:version,info:{title:'External fields',version:'business'},paths:{'/p':{get:{
-  parameters:[{name:'q',in:'query',schema:{type:'string',enum:['雪']},examples:{Captured:{externalValue:'query.bin'}}}],
-  responses:{204:{description:'No body',headers:{'X-Cafe':{content:{'text/plain; charset=iso-8859-1':{schema:{type:'string',enum:['café']}}},examples:{Captured:{externalValue:'header.bin'}}}}}}}}};
+ const field={schema:{type:'string',enum:['café']},examples:{Captured:{externalValue:'header.bin'}}};
+ const operation={parameters:[{name:'q',in:'query',schema:{type:'string',enum:['雪']},examples:{Captured:{externalValue:'query.bin'}}}],
+  responses:{204:{description:'No body',headers:{'X-Cafe':field}}}};
+ const value={openapi:version,info:{title:'External fields',version:'business'},paths:{'/p':{get:operation}}};
  const text=render(value,format),bytes=Buffer.from([99,97,102,233]);
  const input={root,snapshot:'external-fields',resources:[{id:root,text,generation:4}],exampleResources:[resource(query,Buffer.from('q=%E9%9B%AA')),resource(header,bytes)]};
  assert.equal(analyse(input).status,'complete');
@@ -112,10 +113,11 @@ test('a malformed captured byte identity is a protocol failure, never validation
  await assert.rejects(()=>evaluateSchemas({...f.input,exampleResources:[packet]}),error=>error.code==='example.resource.protocol');
 });
 test('available source bytes remove false migration incompleteness without bypassing target validation',async()=>{
- const f=fixture('3.0.4','json','text/plain',{type:'string',enum:['café']});
+ const f=fixture('3.0.4','json','text/plain; charset=utf-8',{type:'string',enum:['café']});
  const input={...f.input,exampleResources:[resource(f.payload,Buffer.from('café'))],targetVersion:'3.1.2',destination:'file:///approved/output/'};
  const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));assert.equal(plan.status,'faithfully-convertible');
- const absent=await planMigration({...input,exampleResources:[]});assert.equal(absent.complete,false);assert(absent.problems.some(value=>value.code==='migration.validation.incomplete'));
+ const absent=await planMigration({...input,exampleResources:[]});assert.equal(absent.complete,false);
+ assert(absent.problems.some(value=>value.code==='migration.validation.example.serialization.incomplete'&&value.reason==='unavailable-proof'&&value.resource===f.root&&value.pointer.endsWith('/externalValue')&&value.range[1]>value.range[0]),JSON.stringify(absent.problems));
  assert.equal(f.input.resources[0].text,f.source);
 });
 test('external byte semantics invalidate old evaluator proofs',()=>{assert.equal(schemaProducer.version,'1.18.0+69');assert(schemaProducer.configuration.includes('external-example-bytes-v2'));});
