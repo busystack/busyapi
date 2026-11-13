@@ -41,6 +41,8 @@ from contextlib import ExitStack
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+BUNDLE = Path(os.environ.get('BUSYAPI_TEST_BUNDLE', ROOT / 'build/linux/x64/release/bundle')).resolve()
+_process_memory = {}
 sys.path.insert(0, str(ROOT / 'tools'))
 from native_application_process import launch_application
 from test_file_controls import NativeInput, Gdk, Atspi
@@ -194,6 +196,13 @@ def fixture_sources(version, format, mock_samples=False, mock_methods=False, moc
 
 
 def tree(pid, details=False, *, text_limit=1024):
+    # Fixture-only observation of the explicitly owned process. Kernel HWM
+    # remains separate from driver/worker memory and native paint timing.
+    try:
+        fields = dict(line.split(':', 1) for line in Path(f'/proc/{pid}/status').read_text().splitlines() if ':' in line)
+        _process_memory[pid] = {key: int(fields[key].split()[0]) for key in ('VmRSS', 'VmHWM')}
+    except FileNotFoundError:
+        pass
     if not 1 <= text_limit <= 4096:
         raise ValueError('Owned text inspection must stay within 4096 characters')
     desktop = Atspi.get_desktop(0)
@@ -818,7 +827,7 @@ def main():
         authored_examples = None
         problem_count = 0
         if args.multipart in ['ordered', 'nested']:
-            cli = subprocess.run([str(ROOT / 'build/linux/x64/release/bundle/busyapi'),
+            cli = subprocess.run([str(BUNDLE / 'busyapi'),
                                   'check', str(file), '--json'],
                                  env={'PATH': '', 'LANG': 'C.UTF-8'},
                                  capture_output=True, text=True, timeout=30)
@@ -849,12 +858,15 @@ def main():
         if args.migrate_target:
             from native_migration_preflight import preflight_migration
             preflight = preflight_migration(
-                ROOT / 'build/linux/x64/release/bundle/busyapi', startup,
+                BUNDLE / 'busyapi', startup,
                 args.migrate_target, directory / 'migration-preflight', original,
             )
             (evidence / (case + '-preflight.json')).write_text(
                 json.dumps(preflight, indent=2, ensure_ascii=False) + '\n')
-        binary = ROOT / 'build/linux/x64/release/bundle/busyapi-desktop'
+        binary = BUNDLE / 'busyapi-desktop'
+        compiled_artifacts = {name: hashlib.sha256((BUNDLE / name).read_bytes()).hexdigest()
+                              for name in ['busyapi-desktop', 'data/flutter_assets/kernel_blob.bin', 'lib/libapp.so']
+                              if (BUNDLE / name).is_file()}
         log = evidence / (case + '.log')
         backtrace = evidence if args.quit_backtrace else None
         with log.open('w') as stream:
@@ -1013,6 +1025,9 @@ def main():
                         if args.edit else 'production-main-open-design-inspection-quit'
                     ),
                     'complete': True, 'nodes': nodes,
+                    'binary': str(binary),
+                    'compiledArtifacts': compiled_artifacts,
+                    'processMemoryKiB': dict(_process_memory),
                     'nativeMockSamples': args.mock_samples,
                     'nativeMockMethods': args.mock_methods,
                     'nativeMockNested': args.mock_nested,
@@ -1045,6 +1060,8 @@ def main():
                     'sourceUnchanged': not args.edit, 'untouchedSourcePreserved': True,
                 }), flush=True)
             except Exception:
+                (evidence / (case + '-failure-memory.json')).write_text(json.dumps(_process_memory, indent=2) + '\n')
+                (evidence / (case + '-failure-artifacts.json')).write_text(json.dumps(compiled_artifacts, indent=2) + '\n')
                 for label, path in [('api', file), ('model', fragment)]:
                     (evidence / (case + '-failure-' + label + '.txt')).write_bytes(path.read_bytes())
                 (evidence / (case + '-failure-original.txt')).write_bytes(original[str(file)])

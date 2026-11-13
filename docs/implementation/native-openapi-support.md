@@ -57,6 +57,57 @@ Original failures, command outputs and source/artifact identities are retained i
 `build/diagnostics/recovery-d8f165ce-20261112/`. Historical evidence below remains
 historical and does not qualify the changed implementation.
 
+
+### Fresh native input reproduction — 2026-11-13
+
+The simplified editor builds successfully with optional generator/oasdiff inputs
+unavailable, but native editing acceptance still fails. The unchanged owned-window
+journey typed `edited 3.0.4` then Tab into Title; the field retained `edited 3.0`.
+Disk source remained byte-identical. The full editing/save/reopen journey stopped
+at that assertion; it is not qualified. The debug process's kernel-recorded peak
+RSS was 706720 KiB, sampled RSS 651912 KiB; these are not release performance
+measurements.
+
+The independent ordinary two-field fixture in `tools/repro_two_fields.dart`,
+driven by `tools/repro_two_fields.py`, reproduces without BufferStore, recovery, Design or project analysis. Its original
+single native burst, Ctrl+A followed by `edited 3.2.1` and Tab, retained
+`edited 3.`. The passive GTK/IBus-observed run retained `edited 3`. All 30 native
+IBus requests/replies and all 12 one-byte GTK commit callbacks were observed.
+The existing Flutter channel tracer then showed the exact final-character race:
+hardware `1` down/up preceded Tab down/up; client 2 reached `edited 3.2.`;
+`TextInput.clearClient` and `setClient(3)` changed focus to API version; afterward
+`TextInputClient.updateEditingState` delivered the complete 12-character value
+for retired client 2. This evidence locates the loss before BusyAPI source/draft
+ownership. It does not establish a particular upstream patch or a qualified fix.
+
+The official unchanged SDK is Flutter 3.47.5, framework
+`6a19cca56475dbfba1478ee68d7bd0c2ef891da1`, engine
+`af7e796e161ae0bb1ff0758c71a7105418bd9ded`, Dart 3.13.4. The debug engine hash is
+`7a5698608a3c79ad3f123a74bce8074339ffa1a83c896d73ae853c9f92a43cc3`.
+Host: GNOME X11, Linux 7.0.0-42-generic, GTK 3.24.41,
+IBus 1.5.29-rc2 (Ubuntu package 1.5.29-2), `xkb:us::eng`.
+`GTK_IM_MODULE`, `IBUS_ADDRESS` and `IBUS_ENABLE_SYNC_MODE` were unset;
+`XMODIFIERS=@im=ibus`. App-only diagnostic synchronization modes also failed:
+mode 1 retained `edited 3.2`; mode 2 reordered Title to `deeti.3 d` and wrote
+`1.` into API version. Neither setting was applied to the user session or product.
+No key timing, assertion, SDK, provider or vendor source was changed.
+
+Evidence, original fixture/driver copies, screenshots, raw channel/IM logs,
+process memory, host identities and source-byte comparisons are retained under
+`build/diagnostics/simplification-20261113/native/`. Debug native executable
+hashes alone do not identify the Dart entry point. The retained kernel hashes are:
+
+| Candidate | SHA-256 of `data/flutter_assets/kernel_blob.bin` |
+| - | - |
+| Simplified editor | `8a96e9133f16ce41d2a82a40c3a6d65c04b18403dc5efddfd8871143865c34be` |
+| Pure two-field fixture | `664a1bcc03819cc79cd6fee00bd39a417c7f09e0912ff1d484ce67d331932e68` |
+| Channel-traced fixture | `a18631ab92c91b2fa9edb4da9407f5382d2e28f3371ff0dbf6e80db834802bee` |
+
+The editor and pure fixture bundles are preserved in
+`/tmp/busyapi-simplification-native-bundles-q8bo59qk/`. Rebuild the ordinary
+application entry before any later native qualification. Earlier dated failures
+above remain historical evidence; the observations here are fresh executions.
+
 ## Historical corrective recovery state — 2026-11-11
 
 **Implemented, unverified; native and packaged acceptance has not passed.** This
