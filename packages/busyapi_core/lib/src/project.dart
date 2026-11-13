@@ -2146,6 +2146,7 @@ class BusyProject {
                 const [
                   'example',
                   'value',
+                  'externalValue',
                   'serializedValue',
                   'swagger-response',
                 ].contains(value['field'])

@@ -79,6 +79,14 @@ void main() {
           final root = file.uri.toString();
           final checked = await project.check(root);
           expect(checked['complete'], true, reason: '${checked['findings']}');
+          final serialized =
+              (checked['categories']['openapi']['schema']['serializedExamples'] as List)
+                  .cast<Map>()
+                  .where((value) => value['field'] == 'externalValue');
+          expect(serialized, hasLength(2));
+          expect(serialized.every((value) => value['complete'] == true &&
+              value['valid'] == true && value['resource'] == root &&
+              (value['pointer'] as String).endsWith('/externalValue')), true);
           expect((checked['references'] as List).whereType<Map>().any((v) => v['value'] == 'never-read.json'), false);
           final plan = await project.prepareRequest(root, resource: root,
               pointer: '/paths/~1example/post');
