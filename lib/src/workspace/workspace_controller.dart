@@ -2833,8 +2833,9 @@ class WorkspaceController extends ChangeNotifier {
     _shutdown = current;
     try {
       await current;
-    } finally {
+    } on Object {
       if (identical(_shutdown, current)) _shutdown = null;
+      rethrow;
     }
   }
 

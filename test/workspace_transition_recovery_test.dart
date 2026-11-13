@@ -179,6 +179,11 @@ void main() {
         remaining.map((entry) => jsonDecode(entry.readAsStringSync())['id']),
         isNot(contains(buffer.id)),
       );
+        await c.shutdown();
+        recovery.captured.clear();
+        await c.shutdown();
+        expect(recovery.captured, isEmpty,
+            reason: 'Completed shutdown cannot recapture the retired workspace');
     } finally {
       c.dispose();
       c.project?.close();
