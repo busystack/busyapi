@@ -18,12 +18,8 @@ else()
   set(BUSYAPI_NOTICE_APPLICATION "${AOT_LIBRARY}")
 endif()
 get_filename_component(BUSYAPI_NOTICE_APPLICATION "${BUSYAPI_NOTICE_APPLICATION}" ABSOLUTE)
-# Flutter produces these files behind its aggregate target. Expose their real
-# paths to Ninja; restat prevents unchanged outputs from restaging notices.
-add_custom_command(OUTPUT "${BUSYAPI_NOTICE_APPLICATION}" "${PROJECT_BUILD_DIR}/.last_build_id"
-  COMMAND "${CMAKE_COMMAND}" -E true
-  DEPENDS flutter_assemble
-  VERBATIM)
+# The Flutter backend declares these actual outputs. Ninja observes their
+# post-build changes before deciding whether to restage matching notices.
 add_custom_command(OUTPUT "${BUSYAPI_APPLICATION_NOTICES}"
   COMMAND "${BUSYAPI_NOTICE_DART}"
     "--packages=${BUSYAPI_SOURCE_DIR}/.dart_tool/package_config.json"

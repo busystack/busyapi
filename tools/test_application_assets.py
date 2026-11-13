@@ -112,6 +112,72 @@ class ApplicationAssets(unittest.TestCase):
             self.assertIn('are separate', result.stderr)
             self.assertFalse((Path(temporary)/'not-created').exists())
 
+    def test_ninja_tracks_outputs_changed_inside_the_flutter_backend(self):
+        with tempfile.TemporaryDirectory(prefix='busyapi-compiler-output-') as temporary:
+            root = Path(temporary)
+            source, build = root/'source', root/'cmake'
+            managed = source/'flutter'
+            ephemeral = managed/'ephemeral'
+            ephemeral.mkdir(parents=True)
+            shutil.copy2(ROOT/'linux/flutter/CMakeLists.txt', managed/'CMakeLists.txt')
+            shutil.copy2(ROOT/'linux/flutter_assets.cmake', source/'flutter_assets.cmake')
+            backend = root/'sdk/packages/flutter_tools/bin/tool_backend.sh'
+            backend.parent.mkdir(parents=True)
+            program = root/'backend.py'
+            program.write_text('''from pathlib import Path
+root=Path(__file__).parent
+def output(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists() or path.read_bytes()!=value: path.write_bytes(value)
+output(root/'source/build/lib/libapp.so', (root/'selected').read_bytes())
+output(root/'source/build/.last_build_id', b'fixed compiler configuration')
+output(root/'source/build/flutter_assets/FontManifest.json', b'[]')
+output(root/'source/flutter/ephemeral/libflutter_linux_gtk.so', b'fixed engine')
+''')
+            backend.write_text('#!/bin/sh\nexec /usr/bin/python3 '+str(program)+'\n')
+            backend.chmod(0o755)
+            recorder = root/'notice-recorder'
+            recorder.write_text('''#!/usr/bin/python3
+import sys
+from pathlib import Path
+def option(prefix): return next(value[len(prefix):] for value in sys.argv[1:] if value.startswith(prefix))
+out=Path(option('--output=')); out.mkdir(parents=True, exist_ok=True)
+(out/'seen').write_bytes(Path(option('--application=')).read_bytes())
+with (out/'calls').open('a') as log: log.write('prepared\\n')
+''')
+            recorder.chmod(0o755)
+            (ephemeral/'generated_config.cmake').write_text(f'''
+set(PROJECT_DIR "{source}")
+set(FLUTTER_ROOT "{root}/sdk")
+set(FLUTTER_TARGET_PLATFORM linux-x64)
+set(FLUTTER_TOOL_ENVIRONMENT "FLUTTER_TARGET=lib/main.dart")
+''')
+            notices = root/'notices'
+            (source/'CMakeLists.txt').write_text(f'''cmake_minimum_required(VERSION 3.16)
+project(compiler_output_test LANGUAGES NONE)
+set(BINARY_NAME busyapi-desktop)
+add_custom_target(busyapi-desktop ALL)
+set(BUSYAPI_SOURCE_DIR "{ROOT}")
+set(BUSYAPI_NOTICE_DART "{recorder}")
+set(FLUTTER_MANAGED_DIR "{managed}")
+set(BUSYAPI_APPLICATION_NOTICES "{notices}" CACHE PATH "" FORCE)
+set(FLUTTER_ASSET_DIR_NAME flutter_assets)
+add_subdirectory(flutter)
+include("{ROOT}/linux/application_notices.cmake")
+''')
+            selected = root/'selected'
+            selected.write_bytes(b'first application')
+            result = subprocess.run(['cmake', '-G', 'Ninja', '-S', str(source), '-B', str(build),
+                                     '-DCMAKE_BUILD_TYPE=Release'], capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
+            for artifact, preparations in [(b'first application', 1), (b'later application', 2),
+                                           (b'later application', 2)]:
+                selected.write_bytes(artifact)
+                result = subprocess.run(['cmake', '--build', str(build)], capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
+                self.assertEqual((notices/'seen').read_bytes(), artifact)
+                self.assertEqual((notices/'calls').read_text().splitlines(), ['prepared']*preparations)
+
     def test_ninja_all_mode_command_wiring_and_selected_notice_installation(self):
         with tempfile.TemporaryDirectory(prefix='busyapi-application-cmake-') as temporary:
             root = Path(temporary)

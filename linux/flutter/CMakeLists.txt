@@ -74,9 +74,17 @@ add_dependencies(flutter flutter_assemble)
 # _phony_ is a non-existent file to force this command to run every time,
 # since currently there's no way to get a full input/output list from the
 # flutter tool.
+if(CMAKE_BUILD_TYPE MATCHES "Debug")
+  set(BUSYAPI_FLUTTER_APPLICATION_OUTPUT "${PROJECT_DIR}/build/flutter_assets/kernel_blob.bin")
+else()
+  set(BUSYAPI_FLUTTER_APPLICATION_OUTPUT "${PROJECT_DIR}/build/lib/libapp.so")
+endif()
 add_custom_command(
   OUTPUT ${FLUTTER_LIBRARY} ${FLUTTER_LIBRARY_HEADERS}
     ${CMAKE_CURRENT_BINARY_DIR}/_phony_
+  BYPRODUCTS "${BUSYAPI_FLUTTER_APPLICATION_OUTPUT}"
+    "${PROJECT_DIR}/build/.last_build_id"
+    "${PROJECT_DIR}/build/flutter_assets/FontManifest.json"
   COMMAND ${CMAKE_COMMAND} -E env
     ${FLUTTER_TOOL_ENVIRONMENT}
     "${FLUTTER_ROOT}/packages/flutter_tools/bin/tool_backend.sh"
