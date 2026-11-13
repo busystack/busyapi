@@ -67,7 +67,8 @@ test(`${version} ${format} an independently referenced false annotation retains 
     const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
     const output=delivered(review),{graph}=createGraph(output);
     const reference=graph.referenceAs(output.root,'/definitions/False','$ref','schema');
-    assert.equal(reference.resolution,'resolved');assert.equal(reference.targetPointer,'/definitions/'+input.reserved+'_1');
+    assert.equal(reference.resolution,'resolved');assert(graph.scopeAs(reference.targetResource,reference.targetPointer,'schema'));
+    assert.notEqual(reference.targetPointer,'/definitions/'+input.reserved,'The captured false owner cannot reuse the authored numeric schema');
     const doc=new SourceDocument(output.resources[0].text,output.root);
     assert.equal(doc.dataNode('/definitions/'+input.reserved+'/type').value,'number');
     assert.equal(doc.dataNode('/definitions/Model/properties/'+escape(input.name)+'/writeOnly'),undefined);

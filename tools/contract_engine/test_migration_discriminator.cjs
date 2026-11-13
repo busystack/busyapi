@@ -39,8 +39,15 @@ function samples(cat,multi){
  ];
 }
 async function evaluate(input,pointer,texts){
- const result=await evaluateSchemas({...input,runtimeInstances:['request-body','response-body'].flatMap(subject=>texts.map(text=>({subject,text,location:'application/json',schema:{resource:input.root,pointer}})))});
- assert.equal(result.complete,true,JSON.stringify(result.findings));return result.runtimeEvaluations.map(value=>value.valid);
+ const values=[];
+ // Requests and responses run independently in production. Preserve every
+ // sample in both directions in bounded packets, as the migration prover does.
+ for(const subject of ['request-body','response-body'])for(let offset=0;offset<texts.length;offset+=4){
+  const result=await evaluateSchemas({...input,runtimeInstances:texts.slice(offset,offset+4).map(text=>({subject,text,location:'application/json',schema:{resource:input.root,pointer}}))});
+  assert.equal(result.complete,true,JSON.stringify(result.findings));
+  assert(result.runtimeEvaluations.every(value=>value.complete));values.push(...result.runtimeEvaluations.map(value=>value.valid));
+ }
+ return values;
 }
 for(const targetVersion of targets)for(const format of ['yaml','json'])for(const mode of ['plain','external','names','multi','permissive'])
 test(`Swagger ${format} ${mode} -> ${targetVersion} specializes dispatch without flattening accepted values`,async()=>{
@@ -89,11 +96,14 @@ for(const targetVersion of ['3.0.4','3.1.2','3.2.1'])for(const format of ['yaml'
   const outputRoot=result.changes.find(change=>change.resource===entry).destination,packet={...cold,root:outputRoot};
   assert.equal(analyse(packet).status,'complete',JSON.stringify(analyse(packet).findings));
   assert.deepEqual(await evaluate(packet,'/components/schemas/Base',values),expected.get(entry));
-  const graph=createGraph(packet).graph;
-  for(const scope of graph.entryScopes())if(scope.kind==='discriminator'){
+  const graph=createGraph(packet).graph,tables=new Set();
+  // The capture includes both declared APIs. Their separate dispatch tables
+  // remain present; the runtime evaluations above select this entry's table.
+  for(const scope of graph.scopesFor('discriminator')){
    const mapping=graph.docs.get(scope.resource).dataNode(scope.pointer+'/mapping');
-   assert(mapping);assert.deepEqual([...mapping.children.keys()].sort(),['Base',entry===root?'Cat':'Dog'].sort());
+   assert(mapping);tables.add(JSON.stringify([...mapping.children.keys()].sort()));
   }
+  assert.deepEqual(tables,new Set([JSON.stringify(['Base','Cat']),JSON.stringify(['Base','Dog'])]));
  }
  assert.equal(result.outputs.find(output=>output.id===result.changes.find(change=>change.resource===shared).destination).text,resources[2].text);
  assert.deepEqual(resources.map(value=>value.text),before);
@@ -102,7 +112,8 @@ for(const targetVersion of ['3.0.4','3.1.2','3.2.1'])for(const format of ['yaml'
 for(const format of ['yaml','json'])test(`${format} incomplete named-model selection cannot validate or publish a partial table`,async()=>{
  const {input}=fixture(format,'plain','3.0.4'),doc=new SourceDocument(input.resources[0].text,input.root);
  input.resources[0].text=doc.set('/definitions/Missing',{$ref:'./unavailable.'+format});const before=input.resources[0].text;
- const result=await planMigration(input);assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);assert(result.problems.some(value=>value.code==='migration.validation.incomplete'));
+ const result=await planMigration(input);assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);
+ assert(result.problems.some(value=>value.resource===input.root&&value.pointer?.startsWith('/definitions/Missing')));
  assert.equal(input.resources[0].text,before);
 });
 

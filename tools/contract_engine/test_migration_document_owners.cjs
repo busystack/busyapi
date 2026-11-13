@@ -169,8 +169,14 @@ for(const targetVersion of ['3.0.4','3.1.2','3.2.1'])for(const format of ['yaml'
 });
 
 for(const format of ['yaml','json'])test(`${format} incomplete secondary resources cannot produce a migrated copy`,async()=>{
- const input={...fixture('3.0.4',format),targetVersion:'3.2.1'};input.resources.pop();const before=input.resources.map(r=>r.text),result=await planMigration(input);
- assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);assert(result.problems.some(p=>p.code==='migration.validation.incomplete'));assert.deepEqual(input.resources.map(r=>r.text),before);
+ const input={...fixture('3.0.4',format),targetVersion:'3.2.1'},missing=input.resources.pop();
+ const secondary=input.resources[1],pointer='/components/schemas/Forward/$ref',reference=new SourceDocument(secondary.text,secondary.id).dataNode(pointer);
+ assert.equal(new URL(reference.value,secondary.id).href,missing.id+'#/Node~1~0');
+ const before=input.resources.map(r=>r.text),result=await planMigration(input);
+ assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);
+ const problem=result.problems.find(p=>p.code==='migration.validation.reference.unavailable'&&p.resource===secondary.id&&p.pointer===pointer);
+ assert(problem,JSON.stringify(result.problems));assert.deepEqual(problem.range,reference.range);
+ assert.deepEqual(input.resources.map(r=>r.text),before);
 });
 
 for(const targetVersion of ['3.0.4','3.1.2','3.2.1'])for(const format of ['yaml','json'])for(const bodyMode of ['inline','reusable','fragment'])

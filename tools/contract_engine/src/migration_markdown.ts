@@ -100,7 +100,7 @@ export function rewriteMigrationMarkdown(captured:readonly CapturedMarkdown[],gr
             desired.set(key(location),{target,value});
         }catch(error){
             if(!(error instanceof SourceError))throw error;
-            issue(finding,error.code,error.message,error.code.startsWith('limit.')?'source-incomplete':'implementation');
+            issue(finding,error.code,error.message,error.code.startsWith('limit.')||error.code==='migration.description.uri'?'source-incomplete':'implementation');
         }
     }
     const grouped=new Map<string,Map<string,string>>();

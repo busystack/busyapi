@@ -20,8 +20,12 @@ function capture(version,format,flag,mode){
   ...(mode==='chain'||mode==='sibling'?[{id:fields,text:render({Alias:{$ref:'#/Flag'},Flag:scalar,Plain:{type:'integer',minimum:'EXACT'}}),generation:5}]:[])]};
 }
 async function outcomes(input,texts){
- const checked=await evaluateSchemas({...input,runtimeInstances:['request-body','response-body'].flatMap(subject=>texts.map(text=>({subject,location:'application/json',text,mediaType:'application/json',media:{resource:input.root,pointer:'/paths/~1value/post/'+(subject==='request-body'?'requestBody':'responses/200')+'/content/application~1json'}})))});
- assert.equal(checked.complete,true,JSON.stringify(checked.runtimeFindings));return checked.runtimeEvaluations.map(value=>value.valid);
+ const values=[];
+ for(const subject of ['request-body','response-body'])for(let offset=0;offset<texts.length;offset+=4){
+  const checked=await evaluateSchemas({...input,runtimeInstances:texts.slice(offset,offset+4).map(text=>({subject,location:'application/json',text,mediaType:'application/json',media:{resource:input.root,pointer:'/paths/~1value/post/'+(subject==='request-body'?'requestBody':'responses/200')+'/content/application~1json'}}))});
+  assert.equal(checked.complete,true,JSON.stringify(checked.runtimeFindings));assert(checked.runtimeEvaluations.every(value=>value.complete));values.push(...checked.runtimeEvaluations.map(value=>value.valid));
+ }
+ return values;
 }
 const values=[
  '{}',
@@ -33,15 +37,16 @@ const values=[
 ];
 for(const version of versions)for(const format of ['yaml','json'])for(const flag of ['readOnly','writeOnly'])for(const mode of ['direct','chain','composition','sibling'])
 test(`${version} ${format} ${flag} ${mode} lowering keeps shared request/response presence without weakening values`,async()=>{
- const input=capture(version,format,flag,mode),before=input.resources.map(value=>value.text),source=await outcomes(input,values),plan=await planMigration(input);
+ const complete=Object.fromEntries(names.map(name=>[name,'EXACT']));
+ const presence=names.flatMap(name=>{
+  const absent={...complete};delete absent[name];return [absent,{...complete,[name]:false}].map(value=>JSON.stringify(value).replaceAll('"EXACT"','9007199254740993.00'));
+ });
+ const texts=[...values,...presence],input=capture(version,format,flag,mode),before=input.resources.map(value=>value.text),source=await outcomes(input,texts),plan=await planMigration(input);
  assert.equal(plan.complete,true,JSON.stringify(plan.problems));const output={root:plan.outputRoot,snapshot:'cold-presence',resources:plan.outputs.map(value=>({id:value.id,text:value.text,generation:0}))};
- assert.deepEqual(await outcomes(output,values),source);
+ assert.deepEqual(await outcomes(output,texts),source);
  const graph=createGraph(output).graph,doc=graph.docs.get(output.root),model=doc.dataNode('/components/schemas/Model').value;
- assert.deepEqual(model.required,names);assert.equal(model.allOf.length,names.length);
- for(const name of names){
-  const guards=model.allOf.filter(value=>value.not?.properties&&Object.hasOwn(value.not.properties,name));assert.equal(guards.length,1);
-  assert.deepEqual(guards[0],{not:{type:'object',properties:{[name]:{not:{}}}}});
- }
+ assert.deepEqual(model.required,names);
+ assert(source.slice(values.length,texts.length).every(value=>value===false),'Each property retains required presence and its own value constraint');
  assert.equal(source[0],false);assert.equal(source[1],true);assert.equal(source[2],false);assert.equal(source[3],false);assert.equal(source[4],false);
  assert.equal(source[5],mode==='composition');
  assert(plan.outputs[0].text.includes('9007199254740993.00'));
@@ -55,16 +60,16 @@ test(`${version} ${format} an unrelated required schema keeps its exact source o
  input.resources[0].text=new SourceDocument(text,input.root).set('/components/schemas/Unrelated',unrelated);
  const plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));
  const output={root:plan.outputRoot,resources:plan.outputs.map(value=>({...value,generation:0}))},node=createGraph(output).graph.docs.get(output.root).dataNode('/components/schemas/Unrelated');
- assert.deepEqual(node.value,unrelated);assert.equal(node.value.allOf,undefined);
+ assert.equal(createGraph(output).graph.docs.get(output.root).dataJson('/components/schemas/Unrelated'),new SourceDocument(input.resources[0].text,input.root).dataJson('/components/schemas/Unrelated'));
+ assert.equal(node.value.allOf,undefined);
 });
 
 for(const version of ['3.1.2','3.2.1'])for(const format of ['yaml','json'])
 test(`${version} ${format} coexisting modern access annotations retain presence and value assertions in 3.0`,async()=>{
  const input=capture(version,format,'readOnly','direct');
- for(const name of names){
-  const document=new SourceDocument(input.resources[0].text,input.root);
-  input.resources[0].text=document.set('/components/schemas/Model/properties/'+escape(name)+'/writeOnly',true);
- }
+ const authored=YAML.parse(input.resources[0].text.replaceAll('9007199254740993.00','EXACT'));
+ for(const name of names)authored.components.schemas.Model.properties[name].writeOnly=true;
+ input.resources[0].text=(format==='json'?JSON.stringify(authored):YAML.stringify(authored)).replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
  const before=await outcomes(input,values),plan=await planMigration(input);
  assert.equal(plan.complete,true,JSON.stringify(plan.problems));
  const output={root:plan.outputRoot,snapshot:'both-access-cold',resources:plan.outputs.map(value=>({...value,generation:0}))};
@@ -80,7 +85,9 @@ test(`${version} ${format} coexisting modern access annotations retain presence 
 
 for(const format of ['yaml','json'])test(`${format} property access annotations survive static dynamic-reference lowering`,async()=>{
  const input=capture('3.1.2',format,'writeOnly','chain');
- for(const name of names)input.resources[0].text=new SourceDocument(input.resources[0].text,input.root).set('/components/schemas/Model/properties/'+escape(name),{$dynamicRef:'fields.'+format+'#/Flag'});
+ const authored=YAML.parse(input.resources[0].text.replaceAll('9007199254740993.00','EXACT'));
+ for(const name of names)authored.components.schemas.Model.properties[name]={$dynamicRef:'fields.'+format+'#/Flag'};
+ input.resources[0].text=(format==='json'?JSON.stringify(authored):YAML.stringify(authored)).replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
  const before=await outcomes(input,values),plan=await planMigration(input);assert.equal(plan.complete,true,JSON.stringify(plan.problems));
  assert.deepEqual(await outcomes({root:plan.outputRoot,snapshot:'cold-static',resources:plan.outputs.map(value=>({...value,generation:0}))},values),before);
 });
