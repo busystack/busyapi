@@ -234,7 +234,8 @@ python3 tools/qualify_linux.py
 
 This runs the registered Engine/renderer suites, analysis, the official Flutter
 widget harness once, Core/CLI tests against the installed candidate, and installed
-artifact smoke checks. A retained behavior failure, changed candidate input or
+artifact smoke checks. Flutter and Dart use their standard test concurrency.
+A retained behavior failure, changed candidate input or
 changed installed file rejects qualification. Process-test helpers are prepared
 separately without rebuilding production assets. `BUSYAPI_TEST_BUNDLE` selects
 the installed product; `BUSYAPI_TEST_FIXTURE_DIRECTORY` selects only development

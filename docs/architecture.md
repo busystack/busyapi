@@ -339,7 +339,7 @@ stdout decoding applies stream backpressure; retired-process continuations canno
 consume replacement-session state. Prefix cancellation marks every captured owner
 before awaiting termination, and sent requests retain capacity until actual
 cancellation acknowledgement. Crashes and closure fail captured owners rather
-than returning empty successes. Two reusable workers retain compiled validators and bounded CST caches; cancellation terminates an active worker and a later job creates its replacement. Cache identity uses actual source hashes. Parsing runs with memory limits. Runtime loading environment variables are removed. Logs are not retained as text. The packaged helper is launched with an executable and argument array.
+than returning empty successes. Two reusable workers retain compiled validators and bounded CST caches; cancellation terminates an active worker and a later job creates its replacement. Parse cache identity uses the resource URI and actual captured text; generation metadata alone cannot alias derived text. Parsing runs with memory limits. Runtime loading environment variables are removed. Logs are not retained as text. The packaged helper is launched with an executable and argument array.
 
 Full schema/governance execution has background-worker affinity within the same two-worker bound. One background job runs at a time; foreground requests may still use two workers when available. A cancelled evaluator cannot consume and then destroy the sole idle foreground parser/cache owner. Retiring workers retain capacity until termination completes. This preserves progressive feedback during overlapping edits without acknowledging unfinished evaluation or changing the parser/input implementation.
 

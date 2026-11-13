@@ -68,8 +68,8 @@ def qualify(flutter):
         'tools/documentation_renderers/test_assets.mjs')
     run('tools/prepare_test_runtime.sh', '--helpers-only')
     run(flutter, 'analyze', '--no-pub')
-    run(flutter, 'test', '--no-pub', '--concurrency=1')
-    run(dart, 'test', 'packages/busyapi_core/test', '--concurrency=1')
+    run(flutter, 'test', '--no-pub')
+    run(dart, 'test', 'packages/busyapi_core/test')
     run('python3', 'tools/artifact_smoke.py', BUNDLE)
     if source != capture(ROOT, source=True) or candidate != capture(BUNDLE):
         raise RuntimeError('Candidate inputs or installed files changed during qualification')
