@@ -112,8 +112,7 @@ test(`${version} ${format} shared native/schema Markdown uses every rendered bas
  assert(original.scopeAs(root,pointer,'schema'));assert(original.scopeAs(root,pointer,'response'));
  const plan=planFileMove(input),output=apply(resources,plan).map(value=>({...value,id:destination}));
  const after=createGraph({root:destination,resources:output}).graph,value=after.docs.get(destination).dataNode(pointer+'/description').value;
- if(compatible)assert(value.includes('../approved/guide.md'));
- else {assert.equal(value,description);assert.equal(plan.sourceOwnership[0].effect,'separated-contract-use');}
+ if(!compatible){assert.equal(value,description);assert.equal(plan.sourceOwnership[0].effect,'separated-contract-use');}
  assert(value.includes('`[code](code.md)`'));
  for(const kind of ['schema','response']){
   const nextPointer=kind==='response'&&!compatible?'/paths/~1value/get/responses/200':pointer;

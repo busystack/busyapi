@@ -59,20 +59,27 @@ test('an oversized Server template returns incomplete analysis, not a truncated 
  const result=analyse({root,snapshot:'bounded-template',resources:[{id:root,text:JSON.stringify(value),generation:1}]});
  assert.equal(result.complete,false);assert.equal(result.status,'incomplete');assert(result.findings.some(f=>f.code==='limit.authoring.template'&&f.pointer==='/servers/0/url'));
 });
-for(const entryVersion of ['3.1.2','3.2.1'])test(`resource-owned Server versions and entry-owned Tag names stay distinct in a multi-file API ${entryVersion}`,()=>{
+for(const entryVersion of ['3.1.2','3.2.1'])test(`reached Server versions and selected-entry Tag names stay distinct in a multi-file API ${entryVersion}`,()=>{
  const root='file:///approved/root.json',other='file:///approved/other.json',otherVersion=entryVersion.startsWith('3.1')?'3.2.1':'3.1.2';
  const entry={openapi:entryVersion,info:{title:'Entry',version:'1'},paths:{},tags:[{name:'EntryParent'}],components:{schemas:{Use:{$ref:'other.json#/components/schemas/Model'}}}};
  const external={openapi:otherVersion,info:{title:'Other',version:'1'},paths:{},servers:[{url:'https://example.test/plain'}],tags:otherVersion.startsWith('3.2')?[{name:'child',parent:'EntryParent'}]:[{name:'entry-independent'}],components:{schemas:{Model:{type:'string'}}}};
- const run=()=>analyse({root,snapshot:'multi-context',resources:[{id:root,text:JSON.stringify(entry),generation:1},{id:other,text:JSON.stringify(external),generation:2}]});
+ const run=(selected=root)=>analyse({root:selected,snapshot:'multi-context',resources:[{id:root,text:JSON.stringify(entry),generation:1},{id:other,text:JSON.stringify(external),generation:2}]});
  assert.equal(run().status,'complete',JSON.stringify(run().findings));
  external.servers[0].url+='?forbidden=1';
- const invalid=run(),urlFinding=invalid.findings.find(f=>f.code==='server.url.query-fragment');
+ assert.equal(run().status,'complete'); // A schema fragment does not enter its document's Server or Tag siblings.
+ const invalid=run(other),urlFinding=invalid.findings.find(f=>f.code==='server.url.query-fragment');
  assert.equal(invalid.status,'invalid');assert.equal(urlFinding.resource,other);assert.equal(urlFinding.pointer,'/servers/0/url');
  external.servers[0].url='https://example.test/plain';
+ entry.paths['/active']={$ref:'other.json#/paths/~1active'};
+ external.paths['/active']={servers:[{url:'https://example.test/active?forbidden=1'}],get:{responses:{204:{description:'No content'}}}};
+ const reached=run(),finding=reached.findings.find(f=>f.code==='server.url.query-fragment');
+ assert.equal(reached.status,'invalid');assert.equal(finding.resource,other);assert.equal(finding.pointer,'/paths/~1active/servers/0/url');
+ external.paths['/active'].servers[0].url='https://example.test/active';
  if(otherVersion.startsWith('3.2')) {
-  external.tags.push({name:'own-only'});external.tags[0].parent='own-only';
-  const result=run(),finding=result.findings.find(f=>f.code==='tag.parent.missing');
-  assert.equal(finding.resource,other);assert.equal(finding.pointer,'/tags/0/parent');assert.equal(finding.root,root);
-  entry.tags.push({name:'own-only'});assert.equal(run().status,'complete');
+  assert.equal(run().status,'complete');
+  const result=run(other),finding=result.findings.find(f=>f.code==='tag.parent.missing');
+  assert.equal(finding.resource,other);assert.equal(finding.pointer,'/tags/0/parent');assert.equal(finding.root,other);
+  external.tags.push({name:'EntryParent'});assert.equal(run(other).status,'complete');
  }
+ assert.equal(run().status,'complete');
 });

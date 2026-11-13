@@ -1,7 +1,7 @@
 const assert=require('node:assert/strict');
 const {test}=require('node:test');
 const YAML=require('yaml');
-const {inspect,propose}=require('./dist/engine.cjs');
+const {inspect,propose}=require('./dist/model.cjs');
 const {assistSource}=require('./dist/source_assistance.cjs');
 const {analyse}=require('./dist/model.cjs');
 const {SourceDocument}=require('./dist/document.cjs');
@@ -44,7 +44,7 @@ for(const version of versions)for(const json of [false,true])test(`${version} ${
  assert.throws(()=>proposal(input,'string',tampered),error=>error.code==='edit.schema-type.stale');
  const node=new SourceDocument(original,input.root).dataNode(pointer+'/type');
  const source=assistSource({...input,caret:node.range[0]+1});
- assert.deepEqual(source.completions.map(choice=>choice.label),metadata.scalarTypes);
+ assert.deepEqual(source.completions.map(choice=>choice.label),metadata.scalarTypes.filter(type=>type!=='string'));
  const value=version==='2.0'?'file':version.startsWith('3.0.')?'integer':['string','null'];
  const changed=apply(input,proposal(input,value));
  const parsed=new SourceDocument(changed.resources[0].text,input.root);

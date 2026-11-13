@@ -113,7 +113,7 @@ for(const version of ['3.1.2','3.2.1'])for(const json of [false,true])test(`new 
  const text=json?JSON.stringify(document,null,2):YAML.stringify(document),input={root,snapshot:'owned-extract',resources:[{id:root,text,generation:1}],contexts:[{root,resources:[root]}],target:{root,resource:root,pointer,generation:1},name:'Node',destinationResource:destination};
  const before=await evaluateSchemas(input),plan=planExtractToFile(input),resources=apply(input,plan),after=await evaluateSchemas({...input,resources});
  assert.equal(before.complete,true);assert.equal(after.complete,true);assert.deepEqual(before.evaluations.map(value=>value.valid),[true,false]);assert.deepEqual(after.evaluations.map(value=>value.valid),[true,false]);
- assert.equal(new SourceDocument(resources[1].text,destination).node('/$id').value,'file:///project/node-resource');
+ assert.equal(new URL(new SourceDocument(resources[1].text,destination).node('/$id').value,destination).href,new URL(schema.$id,root).href);
  assert.equal(new SourceDocument(resources[1].text,destination).node('/properties/child/$dynamicRef').value,'#node');
 });
 test('unknown schema keywords cannot acquire OpenAPI operations merely by moving to a file root',()=>{

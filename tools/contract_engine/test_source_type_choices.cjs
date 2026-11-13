@@ -175,7 +175,7 @@ for(const version of ['2.0','3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1
      changed=changed.slice(0,edit.start)+edit.replacement+changed.slice(edit.end);
     }
     const parsed=new SourceDocument(changed,root);
-    assert.deepEqual(parsed.dataNode(schema+'/'+field).value,values[i]);
+    assert.equal(parsed.dataJson(schema+'/'+field),JSON.stringify(values[i]));
     assert.equal(parsed.dataNode(swagger?'/swagger':'/openapi').value,version);
     assert.equal(parsed.dataNode('/info/version').value,'unrelated');
     assert(changed.includes('9007199254740993'));

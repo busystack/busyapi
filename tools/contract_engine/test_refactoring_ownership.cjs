@@ -74,7 +74,8 @@ for(const version of ['3.1.2','3.2.1'])test(`YAML schema ownership retains resou
  for(const captured of [resources,after]){
   const graph=createGraph({root,resources:captured}).graph,ref=graph.references.find(ref=>ref.dynamic);
   assert.equal(ref.targetResource,root);assert.equal(ref.targetPointer,pointer);assert.equal(ref.dynamic.anchor,'node');
-  assert(graph.references.some(ref=>ref.resolution==='missing'));
+  const unavailable=graph.references.find(ref=>ref.pointer==='/components/schemas/Missing');
+  assert.equal(unavailable?.resolution,'unavailable');assert.equal(unavailable.targetUri,'file:///owned/missing.yaml');
   const result=await evaluateSchemas({root,resources:captured,snapshot:'owned-resource',runtimeInstances:[
    '{"n":9007199254740993,"next":{"n":9007199254740994}}','{"n":9007199254740992}'
   ].map(text=>({subject:'response-body',location:'application/json',text,schema:{resource:root,pointer}}))});
