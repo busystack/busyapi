@@ -1,4 +1,4 @@
-import {segments,type SourceDocument} from './document';
+import {escape,type SourceDocument} from './document';
 import type {ReferenceGraph} from './reference_graph';
 
 export const swaggerSchemaRulesRevision='1';
@@ -7,29 +7,20 @@ export const swaggerSchemaRulesRevision='1';
  * requirement. For meta/shape checking only, the empty tuple has the same
  * unconstrained item semantics as {} (additionalItems is outside this subset).
  * Keep the pinned upstream schema and authored/runtime values unchanged.
- * Copy only paths affected by this first-party native rule. */
+ * Copy only affected branches of the value being checked. */
 export function swaggerNativeMetaView(doc:SourceDocument,graph:ReferenceGraph,pointer='',value=doc.dataNode(pointer)?.value):any {
-    type Changes=Map<string,Changes|null>;
-    const changes:Changes=new Map();
-    for(const scope of graph.scopesFor('schema')){
-        if(scope.resource!==doc.id||scope.family!=='2.0'||
-            scope.pointer!==pointer&&!scope.pointer.startsWith(pointer+'/'))continue;
-        const original=doc.dataNode(scope.pointer)?.value;
-        if(!original||graph.referenceObject(original,scope)||!Array.isArray(original.items)||original.items.length)continue;
-        const keys=segments(scope.pointer.slice(pointer.length)+'/items');
-        const represented=keys.reduce((item,key)=>item?.[key],value);
-        if(!Array.isArray(represented)||represented.length)continue;
-        let at=changes;
-        for(const [index,key]of keys.entries()){
-            if(index===keys.length-1)at.set(key,null);
-            else{let child=at.get(key);if(!child){child=new Map();at.set(key,child);}at=child;}
+    const project=(value:any,at:string):any=>{
+        if(value===null||typeof value!=='object')return value;
+        const scope=graph.scopeAs(doc.id,at,'schema');
+        const emptyTuple=scope?.family==='2.0'&&!graph.referenceObject(value,scope)&&Array.isArray(value.items)&&!value.items.length;
+        let changed:any;
+        for(const [name,child]of Object.entries(value)){
+            const next=emptyTuple&&name==='items'?{}:project(child,at+'/'+escape(name));
+            if(next===child)continue;
+            changed??=Array.isArray(value)?[...value]:{...value};
+            Object.defineProperty(changed,name,{value:next,enumerable:true,writable:true,configurable:true});
         }
-    }
-    const apply=(source:any,selected:Changes):any=>{
-        if(!selected.size)return source;
-        const result=Array.isArray(source)?[...source]:{...source};
-        for(const [key,child]of selected)result[key]=child===null?{}:apply(source[key],child);
-        return result;
+        return changed??value;
     };
-    return apply(value,changes);
+    return project(value,pointer);
 }

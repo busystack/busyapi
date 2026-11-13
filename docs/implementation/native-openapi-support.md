@@ -64,6 +64,9 @@ multipart body checks have been deleted.
   final-owner mapping while preserving advanced semantic obligations.
 - Resolve retained runtime failures and verify all actual wire, file-change,
   credentials/TLS, mock, stream and cancellation boundaries together.
+- Complete the 6,400-schema eight-second worker gate after removing the native
+  empty-tuple adapter's repeated graph scan. Current concurrent qualification
+  runs still exceed that unchanged deadline; complete results alone do not pass it.
 - Run full current-candidate Engine, Core/CLI, official widget, native/platform and
   distribution checks after source stabilizes. `python3 tools/qualify_linux.py`
   assembles and rejects failing automated candidates; native/platform acceptance
