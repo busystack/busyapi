@@ -170,10 +170,13 @@ include("''' + str(ROOT / 'linux/contract_assets.cmake') + '''")
                 bundle = self.root / ('relocated ' + mode)
                 subprocess.run(['cmake', '-S', str(source), '-B', str(build),
                                 '-DCMAKE_BUILD_TYPE=' + mode,
+                                '-DBUSYAPI_CONTRACT_ASSETS=' + str(self.stage),
                                 '-DCMAKE_INSTALL_PREFIX=' + str(bundle)],
                                check=True, capture_output=True)
                 for iteration in range(2):
-                    subprocess.run(['cmake', '--build', str(build), '--target', 'install'],
+                    # Install the same immutable prepared runtime in each mode.
+                    # Build preparation/type checking has its own real tests.
+                    subprocess.run(['cmake', '--install', str(build)],
                                    check=True, capture_output=True)
                     self.assertTrue((bundle / 'libexec/busyapi/node').is_file())
                     self.assertTrue((bundle / 'libexec/busyapi/engine.cjs').is_file())
