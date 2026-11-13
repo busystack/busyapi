@@ -73,11 +73,11 @@ test(`${version} ${format} $self=${JSON.stringify(self)} lowers to ${target} wit
     assert.equal(input.resources[0].text,before);
 });
 
-for(const format of ['yaml','json'])test(`${format} document-level dynamic anchor bindings survive $self lowering`,async()=>{
+for(const format of ['yaml','json'])for(const self of ['https://contracts.invalid/dynamic',''])test(`${format} document-level dynamic anchor bindings survive $self=${JSON.stringify(self)} lowering`,async()=>{
     const root='file:///identity/dynamic/api.'+format;
-    const value={openapi:'3.2.1',$self:'https://contracts.invalid/dynamic',info:{title:'Dynamic identity',version:'1'},paths:{},components:{schemas:{
+    const value={openapi:'3.2.1',$self:self,info:{title:'Dynamic identity',version:'1'},paths:{},components:{schemas:{
         Tree:{$dynamicAnchor:'node',type:'object',required:['value'],properties:{value:{type:'integer'},next:{$dynamicRef:'#node'}}},
-        Strict:{$id:'strict',$dynamicAnchor:'node',allOf:[{$ref:'https://contracts.invalid/dynamic#node'}],properties:{value:{minimum:2}}},
+        Strict:{$id:'strict',$dynamicAnchor:'node',allOf:[{$ref:(self||root)+'#node'}],properties:{value:{minimum:2}}},
     }}};
     const text=render(value,format),input={root,snapshot:'dynamic-identity',resources:[{id:root,text,generation:1}],targetVersion:'3.1.2',destination:'file:///reviewed/dynamic-identity/'};
     async function instances(capture){
@@ -91,6 +91,10 @@ for(const format of ['yaml','json'])test(`${format} document-level dynamic ancho
     const converted={root:review.outputRoot,snapshot:'dynamic-cold',resources:review.outputs.map(value=>({id:value.id,text:value.text,generation:0}))};
     assert.deepEqual(await instances(converted),before);
     const {graph}=createGraph(converted),dynamic=graph.references.filter(value=>value.keyword==='$dynamicRef');
+    if(self){
+     const retained=graph.identities.get(self);
+     assert.equal(retained?.length,1);assert.equal(retained[0].kind,'schema','The removed document identity belongs to one real Schema resource');
+    }
     assert(dynamic.length>0);assert(dynamic.every(value=>value.resolution==='resolved'&&value.dynamic?.anchor==='node'));
     const moved='file:///moved/dynamic-identity/';
     const relocated={root:new URL(review.entry,moved).href,snapshot:'dynamic-moved',resources:review.outputs.map(value=>({id:new URL(value.path,moved).href,text:value.text,generation:0}))};
@@ -99,6 +103,19 @@ for(const format of ['yaml','json'])test(`${format} document-level dynamic ancho
     const older=await planMigration({...input,targetVersion:'3.0.4'});
     assert.equal(older.complete,false);assert.deepEqual(older.outputs,[]);
     assert(older.problems.some(problem=>problem.pointer.includes('Tree')&&problem.code!=='migration.feature.newer'));
+});
+
+test('document identity lowering leaves literal Schema IDs with their data owner',async()=>{
+ const root='file:///self-literal/api.json',value={openapi:'3.2.1',$self:'https://contracts.invalid/self-api',info:{title:'Literal identity',version:'1'},paths:{},
+  components:{schemas:{Use:{$ref:'#/components/examples/Payload/value'}},examples:{Payload:{value:{$id:'model',type:'integer'}}}}};
+ const text=JSON.stringify(value),input={root,snapshot:'self-literal',resources:[{id:root,generation:1,text}],targetVersion:'3.1.2',destination:'file:///self-literal-output/'};
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const output={root:review.outputRoot,snapshot:'self-literal-cold',resources:review.outputs.map(value=>({id:value.id,text:value.text,generation:0}))};
+ const checked=await evaluateSchemas({...output,runtimeInstances:['7','"7"'].map(text=>({subject:'response-body',location:text,text,schema:{resource:output.root,pointer:'/components/schemas/Use'}}))});
+ assert.equal(checked.complete,true,JSON.stringify(checked.findings));assert.deepEqual(checked.runtimeEvaluations.map(value=>value.valid),[true,false]);
+ const graph=createGraph(output).graph;
+ assert.equal(graph.docs.get(output.root).dataJson('/components/examples/Payload/value'),'{"$id":"model","type":"integer"}');
+ assert.equal(input.resources[0].text,text);
 });
 
 for(const format of ['yaml','json'])test(`${format} cross-document identity edges keep both defining owners`,async()=>{

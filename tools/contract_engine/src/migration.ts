@@ -259,8 +259,18 @@ export async function planMigration(input:MigrationInput) {
             // copying. Otherwise the first parsed entry could choose another
             // use's family or overwrite a shared incoming locator.
             const securityComponentNames=after!=='3.2'&&stage.sources.includes('3.2');
+            const identities=stage.sources.includes('3.2')?migrateDocumentIdentities(graph,sources,after,issue):new Map<string,readonly string[]>();
             for(const [origin,locations]of separateMigrationEntryUses(contexts,sources,issue,captureContext,owners,securityComponentNames,target.family))
                 specialized.set(origin,locations);
+            if(problems.length)break;
+            if(identities.size){
+                // Document identity lowering and final Schema resource ownership
+                // publish together, before indexing either changed identity.
+                const schemaIdentities=new Set(owners.planningContexts(sourceLocations(sources)).flatMap(({scope,base})=>
+                    scope.kind==='schema'&&typeof base==='string'?[base]:[]));
+                resources=resources.map(resource=>identities.has(resource.id)?
+                    {...resource,aliases:[...new Set([...identities.get(resource.id)!,...(resource.aliases??[])])].filter(uri=>!schemaIdentities.has(uri))}:resource);
+            }
             if(problems.length)break;
             let materializedConnections=false;
             if(specialized.size){
@@ -406,12 +416,6 @@ export async function planMigration(input:MigrationInput) {
             }
             await prepareNamedMultipart(contexts.map(context=>context.graph),after,input.exampleResources,target.family);
             migrateNewerObjects(contexts.map(context=>context.graph),sources,stage.sources,after,owners,issue);
-            if(problems.length)break;
-            if(stage.sources.includes('3.2')){
-                const identities=migrateDocumentIdentities(graph,sources,after,issue);
-                resources=resources.map(resource=>identities.has(resource.id)?
-                    {...resource,aliases:[...new Set([...identities.get(resource.id)!,...(resource.aliases??[])])]}:resource);
-            }
             if(problems.length)break;
             for(const before of stage.sources)for(const context of contexts)migrateServerVariableDefaults(context.graph,sources,before,after,issue);
             const rawBinaryScopes=new Set<string>();

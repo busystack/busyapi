@@ -314,6 +314,12 @@ root checks stay lazy. Dart acquires that source without a duplicate full schema
 validation; the conversion engine owns source/target validation and returns
 located blocked reviews for unsupported inputs.
 
+Lowering `$self` transfers an anchor-bearing implicit Schema resource through
+the same final allocator before the next graph capture. Public native bindings
+still reach that resource after moving the delivered directory. Literal URI
+values retain their bytes; their independent semantic copies use the allocator's
+captured context.
+
 Conversion assigns final typed owners in one captured-source traversal. Static
 references are emitted as one batch before contextual dynamic/security edges;
 there are no repeated entry/role separation passes or superseded-copy retirement
@@ -326,8 +332,13 @@ and unused anchors retain their captured-to-final association without activating
 unrelated sibling assertions. Authored dialect declarations remain distinct from
 the family defaults selected by an explicit conversion.
 Planner context can index a resource boundary without making its assertions an
-entry use. Context reconciliation admits only already entered Schema roots;
-an unrelated indexed resource cannot become executable during a retry.
+entry use. Context reconciliation retains dormant roots as metadata contexts;
+an indexed resource cannot become executable merely because another use retries.
+Shape-changing fields, including external examples materialized as payloads,
+record their final endpoints in the same occurrence association. Original
+Example objects retain their separate targets. Shared captured bytes are proved
+at their actual materialized uses, rather than creating payload owners in every
+entry. Parameter projection retains each original external Example once.
 
 Canonical schema evaluation shares one compiler AST across its captured roots,
 while resource addresses retain their separate dialect and role contexts. This

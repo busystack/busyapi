@@ -22,14 +22,13 @@ export function migrateDocumentIdentities(graph:ReferenceGraph,sources:ReadonlyM
         }
         identities.set(resource,[graph.retrievals.get(resource)!,graph.scope(resource,'').base]);
     }
+    if(!identities.size)return identities;
     const set=(location:SourceLocation,value:string)=>{
         const source=sources.get(location.resource)!,at=source.current(location.pointer);
         if(at===undefined||source.doc.dataNode(at)?.value===value)return;
-        if(graph.literalContainer(location.resource,location.pointer)!==undefined){
-            issue(location,'migration.identity.literal-owner',
-                'This URI also belongs to literal data; lowering its document base needs a separate occurrence-owned representation','implementation');
-            return;
-        }
+        // The common allocator normalizes independent semantic copies from
+        // their captured context. Their original literal bytes stay untouched.
+        if(graph.literalContainer(location.resource,location.pointer)!==undefined)return;
         source.set(at,value);
     };
     for(const occurrence of documentUriOccurrences(graph)){
