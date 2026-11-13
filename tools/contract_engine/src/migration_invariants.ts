@@ -229,7 +229,7 @@ function formSignatures(media:any,graph?:ReferenceGraph,namedTarget?:string):unk
                 const rule=field.rule&&graph.docs.get(field.rule.resource)!.dataNode(field.rule.pointer)?.value;
                 const part=field.parts[0];
                 const fallback=part.literalType?formContentType({types:[part.literalType]},'3.2'):new PositionalEncodingEquivalence(graph).defaults(part.values,'3.2');
-                return {name:field.name,mode:'content',array:true,contentType:rule?.contentType??fallback,required:field.required};
+                return {name:field.name,mode:'content',array:true,contentType:rule?.contentType??fallback};
             }).sort((a,b)=>a.name.localeCompare(b.name));
         }
     }
@@ -252,16 +252,18 @@ function formSignatures(media:any,graph?:ReferenceGraph,namedTarget?:string):unk
     if(media.swaggerForm)return media.swaggerForm.map((parameter:any)=>{
         const array=parameter.type==='array',format=parameter.collectionFormat??'csv';
         const shape={types:[parameter.type],defaultContentType:parameter.type==='file'?'application/octet-stream':'text/plain',items:{defaultContentType:'text/plain'}};
-        if(array&&!(multipart&&format==='multi'))return {...signature(parameter.name,shape,{style:format==='ssv'?'spaceDelimited':format==='pipes'?'pipeDelimited':'form',explode:format==='multi'},true),required:parameter.required===true};
-        return {...signature(parameter.name,shape,undefined,false),required:parameter.required===true};
+        if(array&&!(multipart&&format==='multi'))return signature(parameter.name,shape,{style:format==='ssv'?'spaceDelimited':format==='pipes'?'pipeDelimited':'form',explode:format==='multi'},true);
+        return signature(parameter.name,shape,undefined,false);
     }).sort((a:any,b:any)=>a.name.localeCompare(b.name));
     return Object.entries(media.form?.shape?.properties??{}).map(([name,shape])=>{
         const rule=media.encoding?.[name],styled=(!multipart||media.form.multipartStyle)&&['style','explode','allowReserved'].some(field=>Object.hasOwn(rule??{},field));
         // Repeated primitive form fields have the same decoded values as
         // content-based parts; the remaining style cases retain separators.
-        const required=(media.form?.shape?.required??[]).includes(name);
-        if(multipart&&styled&&(rule.style??'form')==='form'&&(rule.explode??true)===true)return {...signature(name,shape,{contentType:'text/plain'},false),required};
-        return {...signature(name,shape,rule,styled),required};
+        // Property presence belongs to the whole Schema and named multipart
+        // certificate. A shallow required-list hint is not an equivalent proof
+        // of conditional presence and does not change a present part's bytes.
+        if(multipart&&styled&&(rule.style??'form')==='form'&&(rule.explode??true)===true)return signature(name,shape,{contentType:'text/plain'},false);
+        return signature(name,shape,rule,styled);
     }).sort((a:any,b:any)=>a.name.localeCompare(b.name));
 }
 
