@@ -299,7 +299,8 @@ class PreflightTests(unittest.TestCase):
                     source = self.root / ('binary-' + version + '.' + format)
                     fragment = self.root / ('binary-model-' + version + '.json')
                     legacy = version in ['2.0', '3.0.4']
-                    schema = ({'type': 'string', 'format': 'byte', 'minLength': 4}
+                    schema = ({'type': 'string'} if version == '2.0' else
+                              {'type': 'string', 'format': 'byte', 'minLength': 4}
                               if encoded and legacy else
                               {'type': 'string', 'contentEncoding': 'base64', 'minLength': 4}
                               if encoded else {'type': 'string', 'format': 'binary'}
@@ -328,6 +329,28 @@ class PreflightTests(unittest.TestCase):
                     self.assertFalse(destination.exists())
                     self.assertEqual(source.read_bytes(), raw)
                     self.assertEqual(fragment.read_bytes(), extra)
+                    if version == '2.0':
+                        # The actual response has a concrete native file binding.
+                        # Its unused ordinary definition cannot independently
+                        # acquire a raw-binary interpretation without a consumer.
+                        unbound = b'{"Bytes":{"type":"string","format":"binary"}}\r\n'
+                        fragment.write_bytes(unbound)
+                        refused = subprocess.run([str(bundle / 'busyapi'), 'migrate', str(source),
+                            '--target', target, '--output', str(destination), '--json'],
+                            env={'PATH': '', 'LANG': 'C.UTF-8'}, capture_output=True, text=True, timeout=30)
+                        self.assertNotEqual(refused.returncode, 0, refused.stdout + refused.stderr)
+                        packet = json.loads(refused.stdout)
+                        verify_migration_metadata(packet)
+                        self.assertFalse(packet['complete'])
+                        self.assertFalse(packet['published'])
+                        self.assertEqual(packet['outputs'], [])
+                        self.assertEqual(packet['changes'], [])
+                        self.assertTrue(any(problem['code'] == 'migration.schema.binary-context'
+                            and problem['resource'] == fragment.as_uri()
+                            and problem['pointer'] == '/Bytes/format' for problem in packet['problems']))
+                        self.assertFalse(destination.exists())
+                        self.assertEqual(source.read_bytes(), raw)
+                        self.assertEqual(fragment.read_bytes(), unbound)
 
     def test_actual_packaged_r3c_finite_parameters_and_saved_values(self):
         bundle = Path(os.environ.get('BUSYAPI_TEST_BUNDLE') or
@@ -572,7 +595,7 @@ class PreflightTests(unittest.TestCase):
                     for path, raw in originals.items():
                         self.assertEqual(path.read_bytes(), raw)
 
-    def test_actual_packaged_r3d1_positional_default_previews(self):
+    def test_unnamed_positional_multipart_refuses_an_older_instance_model(self):
         bundle = Path(os.environ.get('BUSYAPI_TEST_BUNDLE') or
                       Path(__file__).resolve().parent.parent / 'build/linux/x64/release/bundle')
         for version in ['3.2.0', '3.2.1']:
@@ -590,9 +613,20 @@ class PreflightTests(unittest.TestCase):
                                '# Keep positional source\r\n' + '\r\n'.join(json.dumps(k) + ': ' + json.dumps(v) for k, v in value.items())).encode()
                         source.write_bytes(raw)
                         destination = self.root / ('preview-' + version + '-' + format + '-' + target)
-                        report = preflight_migration(bundle / 'busyapi', source, target, destination, {source: raw})
-                        self.assertTrue(report['complete'])
-                        self.assertFalse(report['published'])
+                        refused = subprocess.run([str(bundle / 'busyapi'), 'migrate', str(source),
+                            '--target', target, '--output', str(destination), '--json'],
+                            env={'PATH': '', 'LANG': 'C.UTF-8'}, capture_output=True, text=True, timeout=30)
+                        self.assertNotEqual(refused.returncode, 0, refused.stdout + refused.stderr)
+                        packet = json.loads(refused.stdout)
+                        verify_migration_metadata(packet)
+                        self.assertFalse(packet['complete'])
+                        self.assertFalse(packet['published'])
+                        self.assertEqual(packet['outputs'], [])
+                        self.assertEqual(packet['changes'], [])
+                        for field in ['prefixEncoding', 'itemEncoding']:
+                            self.assertTrue(any(problem['resource'] == source.as_uri()
+                                and problem['pointer'] == '/paths/~1parts/post/requestBody/content/multipart~1mixed/' + field
+                                and problem['reason'] == 'target-representation' for problem in packet['problems']))
                         self.assertFalse(destination.exists())
                         self.assertEqual(source.read_bytes(), raw)
 
