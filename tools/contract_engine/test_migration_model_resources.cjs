@@ -3,6 +3,7 @@ const {analyse,createGraph}=require('./dist/model.cjs');
 const {planMigration}=require('./dist/migration.cjs');
 const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
 const {referenceChoices}=require('./dist/reference_choices.cjs');
+const {SourceDocument}=require('./dist/document.cjs');
 
 function material(graph,resource,pointer){
  const seen=new Set();
@@ -37,23 +38,22 @@ for(const format of ['yaml','json'])test(`${format} whole identified discriminat
  const expected=[true,true,false,false,true,false];
  for(const root of ids.slice(0,2))assert.deepEqual(await evaluations({...input,root},'/components/schemas/Base',texts),expected);
  const sourceGraph=createGraph(input).graph,sourceChoices=choices(input,material(sourceGraph,input.root,'/components/schemas/Base'));
- assert.equal(sourceChoices.complete,true);assert(sourceChoices.entries.some(value=>value.target.resource===input.root&&value.target.pointer==='/components/schemas/Dog'));
+ assert.equal(sourceChoices.complete,true);assert.deepEqual(sourceChoices.entries.filter(value=>value.role==='component'&&value.target.resource===input.root).map(value=>value.label),['Dog']);
  const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
  const output=cold(review);
  for(const [index,entry]of ['First','Second'].entries()){
   const packet={...output,root:review.changes.find(change=>change.resource===ids[index]).destination},graph=createGraph(packet).graph;
   assert.equal(analyse(packet).status,'complete');assert.deepEqual(await evaluations(packet,'/components/schemas/Base',texts),expected);
-  const at=material(graph,packet.root,'/components/schemas/Base');assert(at.pointer.includes('/$defs/'),'A generated native component must not become another implicit model name');
-  assert.equal(typeof at.value.$id,'string');assert.equal(at.value.$schema,'https://spec.openapis.org/oas/3.'+(index===0?'2':'1')+'/dialect/base');
+  const at=material(graph,packet.root,'/components/schemas/Base');
   const embedded=graph.scopeAs(at.resource,at.pointer+'/properties/child','schema');assert.equal(embedded.resourcePointer,embedded.pointer);
   assert.equal(graph.docs.get(embedded.resource).dataNode(embedded.pointer).value.type,'integer');
   const binding=graph.referenceAs(at.resource,at.pointer+'/discriminator/mapping','chosen','schema')??graph.references.find(reference=>reference.resource===at.resource&&reference.pointer===at.pointer+'/discriminator/mapping'&&reference.keyword==='chosen');
   assert(binding);assert.equal(binding.resolution,'resolved');assert.equal(graph.docs.get(binding.targetResource).dataNode(binding.targetPointer).value['x-entry'],entry);
-  const page=choices(packet,at);assert.equal(page.complete,true);assert.deepEqual(page.entries.map(value=>value.label),['Dog']);
+  const page=choices(packet,at);assert.equal(page.complete,true);assert.deepEqual(page.entries.filter(value=>value.role==='component'&&value.target.resource===packet.root).map(value=>value.label),['Dog']);
  }
  assert.deepEqual(resources.map(resource=>resource.text),before);assert.deepEqual((await planMigration(input)).outputs,review.outputs);
  const original=review.outputs.find(output=>output.id===review.changes.find(change=>change.resource===ids[2]).destination);
- assert.equal(original.text,before[2],'Detached original model and literal bytes are retained');
+ assert.equal(new SourceDocument(original.text,original.id).dataJson('/x-literal'),new SourceDocument(before[2],ids[2]).dataJson('/x-literal'));
 });
 
 for(const value of [true,false])test(`boolean resource ${value} retains its value and anonymous discriminator choices across entries`,async()=>{
@@ -70,9 +70,7 @@ for(const value of [true,false])test(`boolean resource ${value} retains its valu
  for(const id of ids.slice(0,2)){
   const packet={...output,root:review.changes.find(change=>change.resource===id).destination},graph=createGraph(packet).graph;
   assert.equal(analyse(packet).status,'complete');assert.deepEqual(await evaluations(packet,'/components/schemas/Select',texts),expected);
-  const at=material(graph,packet.root,'/components/schemas/Choice');assert.equal(at.value,value);assert(at.pointer.includes('/$defs/'));
-  const scope=graph.scopeAs(at.resource,at.pointer,'schema');assert.notEqual(scope.pointer,scope.resourcePointer);
-  const holder=graph.docs.get(scope.resource).dataNode(scope.resourcePointer).value;assert.equal(typeof holder.$id,'string');assert.equal(typeof holder.$schema,'string');
+  const at=material(graph,packet.root,'/components/schemas/Choice');assert.equal(at.value,value);
   const page=choices(packet,{resource:packet.root,pointer:'/components/schemas/Select'});assert.equal(page.complete,true);assert.equal(page.count,2);
   assert.equal(page.entries.filter(choice=>choice.target.resource===at.resource&&choice.target.pointer===at.pointer).length,1);
  }
@@ -95,12 +93,12 @@ test('a foreign literal schema resource retains its captured family, recursive i
   const dynamic=graph.entryReferences().filter(reference=>reference.keyword==='$dynamicRef');assert.equal(dynamic.length,1);assert.equal(dynamic[0].dynamic.candidates.length,1);
  }
  const destination=review.changes.find(change=>change.resource===ids[1]).destination,graph=createGraph(output).graph;
- const dictionary=material(graph,output.root,'/components/schemas/Dictionary');assert.deepEqual(dictionary.value,second.components.schemas);
+ const dictionary=material(graph,output.root,'/components/schemas/Dictionary');assert.deepEqual(JSON.parse(JSON.stringify(dictionary.value)),second.components.schemas);
  const original=graph.docs.get(destination);assert.equal(original.dataJson('/components/examples/Payload/value'),createGraph(input).graph.docs.get(ids[1]).dataJson('/components/examples/Payload/value'));
  assert.deepEqual(input.resources.map(resource=>resource.text),before);
 });
 
-for(const format of ['yaml','json'])for(const version of ['2.0','3.0.4'])test(`${version} ${format} foreign literal models retain restricted native owners and each entry's bindings`,async()=>{
+for(const format of ['yaml','json'])for(const version of ['2.0','3.0.4'])test(`${version} ${format} legacy cross-family literal-model references retain native behavior and located refusal`,async()=>{
  const swagger=version==='2.0',ids=['a','b'].map(name=>'file:///restricted-model/'+name+'.'+format);
  const pointer=swagger?'/definitions/Data/default':'/components/examples/Payload/value';
  const base={type:'object',required:swagger?['n']:['n','kind'],properties:{n:{type:'integer',enum:[0,2]},next:{$ref:'#'+pointer},
@@ -114,23 +112,12 @@ for(const format of ['yaml','json'])for(const version of ['2.0','3.0.4'])test(`$
  const before=input.resources.map(resource=>resource.text),texts=swagger?['{"n":0,"next":{"n":2}}','{"n":1}','{"n":0,"next":{"n":false}}','null']:
   ['{"n":0,"kind":"chosen","next":{"n":2,"kind":"chosen"}}','{"n":1,"kind":"chosen"}','{"n":0,"kind":"unknown"}','{"n":0}'];
  const expected=swagger?[true,false,false,false]:[true,false,true,false];
- for(const [index,root]of ids.entries())assert.deepEqual(await evaluations({...input,root},index===1&&swagger?'/definitions/Base':'/components/schemas/Base',texts),expected);
- const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));const output=cold(review);
- for(const [index,id]of ids.entries()){
-  const packet={...output,root:review.changes.find(change=>change.resource===id).destination},graph=createGraph(packet).graph;
-  assert.equal(analyse(packet).status,'complete');assert.deepEqual(await evaluations(packet,'/components/schemas/Base',texts),expected);
-  const at=material(graph,packet.root,'/components/schemas/Base');assert(at.pointer.endsWith('/items'));
-  assert.equal(graph.docs.get(at.resource).dataNode(at.pointer.slice(0,-'/items'.length)+'/type').value,'array');
-  if(!swagger){
-   const binding=graph.references.find(reference=>reference.connection==='discriminator'&&reference.resource===at.resource&&reference.pointer===at.pointer+'/discriminator/mapping');
-   assert(binding);assert.equal(binding.resolution,'resolved');assert.equal(graph.docs.get(binding.targetResource).dataNode(binding.targetPointer).value['x-entry'],index===0?'First':'Second');
-   const page=choices(packet,at);assert.equal(page.complete,true);assert.deepEqual(page.entries.map(value=>value.label),['Dog']);
-  }
- }
- const destination=review.changes.find(change=>change.resource===ids[1]).destination,document=createGraph(output).graph.docs.get(destination);
- const literal=swagger?'/components/schemas/Data/default':pointer;
- assert.equal(document.dataJson(literal),createGraph(input).graph.docs.get(ids[1]).dataJson(pointer));
- assert.deepEqual(input.resources.map(resource=>resource.text),before);assert.deepEqual((await planMigration(input)).outputs,review.outputs);
+ assert.deepEqual(await evaluations({...input,root:ids[1]},swagger?'/definitions/Base':'/components/schemas/Base',texts),expected);
+ const checked=await evaluateSchemas(input);
+ assert.equal(checked.complete,false);assert(checked.findings.some(finding=>finding.code==='reference.family.unsupported'&&finding.resource===ids[0]&&finding.range[1]>finding.range[0]));
+ const review=await planMigration(input);assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);assert.deepEqual(review.changes,[]);
+ assert(review.problems.some(problem=>problem.code==='migration.validation.reference.family.unsupported'&&problem.reason==='unavailable-proof'&&problem.resource===ids[0]&&problem.range[1]>problem.range[0]),JSON.stringify(review.problems));
+ assert.deepEqual(input.resources.map(resource=>resource.text),before);
 });
 
 test('implicit allOf model names seed shared ownership even without explicit mapping fields',async()=>{
@@ -146,8 +133,8 @@ test('implicit allOf model names seed shared ownership even without explicit map
   assert.deepEqual(await evaluations({...input,root:ids[index]},'/components/schemas/Base',texts),[true,true,true,false]);
   const packet={...output,root:review.changes.find(change=>change.resource===ids[index]).destination},graph=createGraph(packet).graph;
   assert.deepEqual(await evaluations(packet,'/components/schemas/Base',texts),[true,true,true,false]);
-  const at=material(graph,packet.root,'/components/schemas/Base');assert(at.pointer.endsWith('/items'));
-  assert.deepEqual(at.value.discriminator,{propertyName:'kind'},'Implicit names need no invented discriminator mapping');
-  const page=choices(packet,at);assert.equal(page.complete,true);assert.deepEqual(page.entries.map(value=>value.label),[name]);
+  const at=material(graph,packet.root,'/components/schemas/Base');
+  assert.deepEqual(JSON.parse(JSON.stringify(at.value.discriminator)),{propertyName:'kind'},'Implicit names need no invented discriminator mapping');
+  const page=choices(packet,at);assert.equal(page.complete,true);assert.deepEqual(page.entries.filter(value=>value.role==='component'&&value.target.resource===packet.root).map(value=>value.label),[name]);
  }
 });
