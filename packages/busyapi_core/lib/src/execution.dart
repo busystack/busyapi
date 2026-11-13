@@ -405,11 +405,9 @@ class OperationResponseStream {
 class OperationRequestPlan {
   OperationRequestPlan._(
     this._owner,
-    this.snapshot,
+    this._capture,
     this.configuration,
     this.result,
-    this.saved,
-    this._revision,
   ) : responseStatusNamePolicy = MemberNamePolicy.fromJson(
         result['responseStatusNamePolicy'],
       ),
@@ -417,13 +415,16 @@ class OperationRequestPlan {
         result['ignoredRequestBody'],
       );
   final BusyProject _owner;
-  final AnalysisSnapshot snapshot;
+  final CapturedContractSnapshot _capture;
+  AnalysisSnapshot get snapshot => _capture.snapshot;
+  List<Map> get capturedOperations =>
+      (_capture.analysis['projection']?['operations'] as List? ?? const []).whereType<Map>().toList();
   final ExecutionConfiguration configuration;
   final Map<String, dynamic> result;
   final IgnoredRequestBody? ignoredRequestBody;
   final MemberNamePolicy responseStatusNamePolicy;
-  final bool saved;
-  final int _revision;
+  bool get saved => _capture.saved;
+  int get _revision => _capture._revision;
   bool _closed = false;
   int _contentPreparationSerial = 0;
   final Set<OperationResponseStream> _responseStreams = {};
@@ -1744,7 +1745,9 @@ extension RequestPlanning on BusyProject {
         'The selected contract did not produce a coherent snapshot',
       );
     }
-    return CapturedContractSnapshot(
+    return CapturedContractSnapshot._(
+      owner: this,
+      revision: _resourceRevision,
       snapshot: captured!,
       analysis: _freezeResult(result),
       saved: saved,
@@ -1762,31 +1765,49 @@ extension RequestPlanning on BusyProject {
     void Function(String resource)? onResourceRefreshed,
   }) async {
     if (_closed) throw CoreFailure('access.closed', 'Project is closed');
-    AnalysisSnapshot? captured;
-    final checked = await check(
+    final captured = await captureContractSnapshot(
       root,
       saved: saved,
       requestId: requestId == null ? null : '$requestId-check',
       cancelled: cancelled,
       onResourceRefreshed: onResourceRefreshed,
-      onSnapshot: (snapshot) => captured = snapshot,
     );
-    if (cancelled?.call() == true) {
-      throw CoreFailure('cancelled', 'Request preparation was cancelled');
+    return prepareCapturedRequest(captured, resource: resource, pointer: pointer,
+        occurrence: occurrence, requestId: requestId, cancelled: cancelled);
+  }
+
+  /// All cases in one selected run share the same immutable native capture.
+  Future<OperationRequestPlan> prepareCapturedRequest(
+    CapturedContractSnapshot captured, {
+    required String resource,
+    required String pointer,
+    String? occurrence,
+    String? requestId,
+    bool Function()? cancelled,
+  }) async {
+    void ensureCurrent() {
+      if (_closed || !identical(captured._owner, this) ||
+          captured._revision != _resourceRevision ||
+          !captured.saved && !captured.snapshot.current(store)) {
+        throw CoreFailure('request.draft.stale', 'The selected contract capture changed.');
+      }
+      if (cancelled?.call() == true) {
+        throw CoreFailure('cancelled', 'Request preparation was cancelled');
+      }
     }
-    if (captured == null || checked['projection'] == null) {
-      throw CoreFailure(
-        'request.contract',
-        'The captured contract could not produce an operation request plan',
-      );
+    ensureCurrent();
+    if (captured.analysis['projection'] == null) {
+      throw CoreFailure('request.contract',
+          'The captured contract could not produce an operation request plan');
     }
-    final snapshot = captured!, revision = _resourceRevision;
+    final snapshot = captured.snapshot;
     final result = await engine.request('requestOperation', {
       ...snapshot.toJson(),
       'resource': resource,
       'pointer': pointer,
       if (occurrence != null) 'occurrence': occurrence,
     }, requestId: requestId == null ? null : '$requestId-plan');
+    ensureCurrent();
     if (_closed ||
         cancelled?.call() == true ||
         result['snapshot'] != snapshot.identity ||
@@ -1820,21 +1841,23 @@ extension RequestPlanning on BusyProject {
     );
     return OperationRequestPlan._(
       this,
-      snapshot,
+      captured,
       configuration,
       _freezeResult(result),
-      saved,
-      revision,
     );
   }
 }
 
 class CapturedContractSnapshot {
-  const CapturedContractSnapshot({
+  const CapturedContractSnapshot._({
+    required BusyProject owner,
+    required int revision,
     required this.snapshot,
     required this.analysis,
     required this.saved,
-  });
+  }) : _owner = owner, _revision = revision;
+  final BusyProject _owner;
+  final int _revision;
   final AnalysisSnapshot snapshot;
   final Map<String, dynamic> analysis;
   final bool saved;

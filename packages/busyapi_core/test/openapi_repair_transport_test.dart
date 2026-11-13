@@ -786,6 +786,10 @@ void main() {
         resolveSecret: (_) async => null,
       );
 
+      final reopenedLower = await ContractTestRunner.reopenCase(plan, 'lower', project!.access);
+      expect(reopenedLower.planIdentity, plan.identity);
+      await expectLater(ContractTestRunner.reopenCase(plan, 'upper', project!.access),
+          throwsA(isA<CoreFailure>().having((e) => e.code, 'code', 'request.case.operation')));
       expect(built.method, 'purge');
       final exact = await const ContractHttpTransport().send(built);
       await exact.close();
@@ -821,6 +825,12 @@ void main() {
           occurrence: operation['occurrence'] as String,
         );
         addTearDown(selected.close);
+        if (method == 'PURGE') {
+          expect((await ContractTestRunner.reopenCase(selected, 'upper', project!.access)).planIdentity, selected.identity);
+          await expectLater(ContractTestRunner.reopenCase(selected, 'lower', project!.access),
+              throwsA(isA<CoreFailure>().having((e) => e.code, 'code', 'request.case.operation')));
+        }
+
         final control = await const ContractRequestBuilder().build(
           selected,
           OperationRequestDraft(planIdentity: selected.identity),

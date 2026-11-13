@@ -876,7 +876,7 @@ tests: [{name: syntax, operation: {method: post, path: /json}, body: {mediaType:
       selectedCases: ['syntax'],
       resolveSecret: (_) async => null,
     );
-    expect(report.complete, true);
+    expect(report.complete, true, reason: jsonEncode(report.toJson()));
     expect(report.passed, true);
     expect(received.last, '42');
     expect(CiReports.junit(report), isNot(contains('<failure')));

@@ -24,6 +24,16 @@ String httpOperationMethod(Map operation) => operation['customMethod'] == true
     ? '${operation['method']}'
     : '${operation['method']}'.toUpperCase();
 
+/// Resolve fixed method fields case-insensitively only after an exact wire-token
+/// match, so additionalOperations tokens retain their case-sensitive identity.
+Map? selectHttpOperation(Iterable<Map> operations, String path, String method) {
+  final candidates = operations.where((operation) =>
+      operation['role'] == 'operation' && operation['path'] == path).toList();
+  return candidates.where((operation) => httpOperationMethod(operation) == method).singleOrNull ??
+      candidates.where((operation) => operation['customMethod'] != true &&
+          httpOperationMethod(operation) == method.toUpperCase()).singleOrNull;
+}
+
 enum CoreFailureKind {
   operational,
   unsupported,

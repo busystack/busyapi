@@ -334,7 +334,9 @@ export function executionCaseValues(input:any) {
   const source=input.source;
   if(!source || typeof source.text!=='string' || Buffer.byteLength(source.text)>65536) throw new SourceError('test.configuration','Expected bounded captured configuration');
   const doc=new SourceDocument(source.text,source.id),tests=doc.dataNode('/tests');
-  const matches=[...(tests?.children.values()??[])].map(node=>doc.dataNode(node.pointer)!).filter(node=>node.value?.name===input.name);
+  const cases=[...(tests?.children.values()??[])].map(node=>doc.dataNode(node.pointer)!);
+  const projectCase=(name:string)=>{
+  const matches=cases.filter(node=>node.value?.name===name);
   if(matches.length!==1) throw new SourceError('test.configuration','Selected case is not uniquely available');
   const selected=matches[0],parameters:any={};
   const exact=(physical:any)=>{
@@ -370,6 +372,13 @@ export function executionCaseValues(input:any) {
   if(bodyValue&&representation==='data'){bodyValue.text=doc.dataJson(body!.pointer);bodyValue.json=true;}
   if(bodyValue&&representation==='serialized')bodyValue.json=false;
   return {version:1,parameters,body:bodyValue};
+  };
+  if(input.names!==undefined){
+    if(!Array.isArray(input.names)||input.names.length>2048||input.names.some((name:unknown)=>typeof name!=='string'||name.length>128))
+      throw new SourceError('test.configuration','Select bounded named cases');
+    return {version:1,cases:Object.fromEntries(input.names.map((name:string)=>[name,projectCase(name)]))};
+  }
+  return projectCase(input.name);
 }
 
 export function inspectExecutionJson(input:any) {

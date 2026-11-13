@@ -291,6 +291,15 @@ test('T01 saved YAML case values retain exact numeric types and lexemes through 
  assert.equal(values.body.text,'{"values":['+numbers.join(',')+'],"text":"9007199254740993"}');
 });
 
+test('selected saved cases retain exact values and reject an invalid later case before execution',()=>{
+ const source={id:'file:///execution/busyapi.yaml',text:'version: 1\ntests:\n - {name: first, body: {value: 9007199254740993}}\n - {name: second, parameters: {query: {x: [1.0000000000000000001, null]}}}\n - {name: invalid, body: {value: '+ '1'.repeat(4097) +'}}\n'};
+ const packet=executionCaseValues({source,names:['second','first']});
+ assert.equal(packet.cases.first.body.text,'9007199254740993');
+ assert.equal(packet.cases.second.parameters['query\0x'].text,'[1.0000000000000000001,null]');
+ assert.throws(()=>executionCaseValues({source,names:['first','invalid']}),error=>error.code==='limit.schema.numeric'&&error.message.includes('/tests/2/body/value'));
+ assert.throws(()=>executionCaseValues({source,names:['first','absent']}),error=>error.code==='test.configuration');
+});
+
 test('U4 JSON formatting preserves exact numeric lexemes and treats data refs literally',()=>{
  const {inspectExecutionJson}=require('./dist/execution.cjs');
  const raw='{"n":1.0000000000000000001,"big":9007199254740993,"$ref":"literal","items":[1e100]}';

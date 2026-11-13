@@ -159,14 +159,17 @@ class ContractTestRunner {
         configuration.tests.indexOf(definitions[name]!),
       );
     }
-    final exactCases = <String, Map<String, dynamic>>{};
-    for (final name in selectedCases) {
-      cancellation?.throwIfCancelled();
-      exactCases[name] = await project.engine.request('executionCaseValues', {
-        'source': configuration.source,
-        'name': name,
-      });
+    cancellation?.throwIfCancelled();
+    final exactPacket = await project.engine.request('executionCaseValues', {
+      'source': configuration.source, 'names': selectedCases,
+    });
+    if (exactPacket['version'] != 1 || exactPacket['cases'] is! Map ||
+        selectedCases.any((name) => exactPacket['cases'][name] is! Map ||
+            exactPacket['cases'][name]['version'] != 1 ||
+            exactPacket['cases'][name]['parameters'] is! Map)) {
+      throw CoreFailure('request.protocol', 'The worker returned malformed captured test inputs.');
     }
+    final exactCases = Map<String, dynamic>.from(exactPacket['cases'] as Map);
     final projection = captured.analysis['projection'];
     final operations = projection is Map && projection['operations'] is List
         ? (projection['operations'] as List).whereType<Map>().toList()
@@ -188,29 +191,7 @@ class ContractTestRunner {
               )
               .singleOrNull;
         } else {
-          final candidates = operations
-              .where(
-                (candidate) =>
-                    candidate['role'] == 'operation' &&
-                    candidate['path'] == operation['path'],
-              )
-              .toList();
-          // A custom token can differ from a fixed method only by case. Prefer
-          // exact wire identity before normalizing an existing fixed-field name.
-          selected = candidates
-              .where(
-                (candidate) =>
-                    httpOperationMethod(candidate) == operation['method'],
-              )
-              .singleOrNull;
-          selected ??= candidates
-              .where(
-                (candidate) =>
-                    candidate['customMethod'] != true &&
-                    httpOperationMethod(candidate) ==
-                        '${operation['method']}'.toUpperCase(),
-              )
-              .singleOrNull;
+          selected = selectHttpOperation(operations, operation['path'] as String, operation['method'] as String);
         }
       }
       if (selected == null ||
@@ -244,27 +225,20 @@ class ContractTestRunner {
       OperationRequestPlan? plan;
       final clock = Stopwatch()..start();
       try {
-        plan = await project.prepareRequest(
-          root,
+        plan = await project.prepareCapturedRequest(
+          captured,
           resource: selected['resource'] as String,
           pointer: selected['pointer'] as String,
           occurrence: selected['occurrence'] as String?,
-          saved: saved,
           requestId:
               'test-${captured.snapshot.identity.substring(0, 12)}-$name',
           cancelled: () => cancellation?.cancelled == true,
         );
-        if (plan.snapshot.sourceIdentity != captured.snapshot.sourceIdentity) {
-          throw CoreFailure(
-            'test.snapshot.changed',
-            'Project input changed while the selected test run was being captured',
-          );
-        }
         final draft = _draft(
           plan,
           definition,
           environment,
-          exactCases[name]!,
+          Map<String, dynamic>.from(exactCases[name] as Map),
           project.access,
         );
         final result = await executor.execute(
@@ -687,8 +661,13 @@ class ContractTestRunner {
     final cases = plan.configuration.tests.where((item) => item['name'] == name).toList();
     if (cases.length != 1) throw CoreFailure('test.configuration', 'Choose one current saved request case.');
     final definition = cases.single, operation = definition['operation'];
-    if (operation is! Map || operation['path'] != plan.operation['path'] ||
-        '${operation['method']}'.toLowerCase() != '${plan.operation['method']}'.toLowerCase()) {
+    final selected = operation is Map && operation['path'] is String && operation['method'] is String
+        ? operation['occurrence'] is String
+            ? plan.capturedOperations.where((candidate) => candidate['occurrence'] == operation['occurrence']).singleOrNull
+            : selectHttpOperation(plan.capturedOperations, operation['path'] as String, operation['method'] as String)
+        : null;
+    if (operation is! Map || selected == null || selected['occurrence'] != plan.operation['occurrence'] ||
+        operation['entry'] != null && operation['entry'] != plan.configuration.entryName(plan.snapshot.root)) {
       throw CoreFailure('request.case.operation', 'The saved case belongs to another captured operation.');
     }
     _validateDefinition(definition, plan.configuration.tests.indexOf(definition));
