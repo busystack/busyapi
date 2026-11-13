@@ -3288,7 +3288,9 @@ paths:
 ''';
             await f.open(original);
           });
+          f.run.selectStructuredBody(false);
           f.run.bodyText = 'value=雪+&\nother=hello';
+          await runWidgetIo(tester, f.run.inspectMultipartParts);
           await tester.pumpWidget(host(RequestRunPanel(run: f.run)));
           final disclosure = find.widgetWithText(
             BusyApiDisclosure,
@@ -3300,7 +3302,7 @@ paths:
           await tester.ensureVisible(disclosureButton);
           await tester.tap(disclosureButton);
           await tester.pumpAndSettle();
-          final choices = menu(tester, 'value · Content-Type');
+          final choices = menu(tester, '/value · Content-Type');
           final plain = choices.items
               .whereType<BusyApiPopupMenuItem<int>>()
               .singleWhere((item) => item.label == 'text/plain');
@@ -3309,7 +3311,7 @@ paths:
           final range = find.byWidgetPredicate(
             (widget) =>
                 widget is RequestDraftEntry &&
-                widget.label == 'other · Concrete Content-Type',
+                widget.label == '/other · Concrete Content-Type',
           );
           final rangeInput = find.descendant(
             of: range,
@@ -3322,8 +3324,8 @@ paths:
           f.run.selectEnvironment(null);
           await tester.pumpAndSettle();
           expect(f.run.partMediaTypes, {
-            'value': 'text/plain',
-            'other': 'text/plain; charset=utf-8',
+            '/value': 'text/plain',
+            '/other': 'text/plain; charset=utf-8',
           });
           expect(f.run.draft().body.partMediaTypes, f.run.partMediaTypes);
           await runWidgetIo(tester,
@@ -3384,7 +3386,7 @@ paths:
             await f.run.reconcileDraft();
             await HttpOverrides.runWithHttpOverrides(f.run.send, _NativeHttp());
           });
-          expect(f.run.partMediaTypes['value'], 'text/plain');
+          expect(f.run.partMediaTypes['/value'], 'text/plain');
           expect(f.run.failure, 'request.form.content-type');
           expect(received, hasLength(1));
           expect(f.run.bodyText, 'value=雪+&\nother=hello');

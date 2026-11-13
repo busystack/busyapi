@@ -166,7 +166,9 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
         const members=new Map<string,string[]>(),orders=new Map<string,number[]>();
         for(const [index,field]of literals.entries()){
             const property=rootShape.properties?.[field.name]??{},shape=property.types?.includes('array')?property.items??{}:property;
-            const rule=content.encoding?.[field.name],selected=choices[field.name]??rule?.contentType??shape.defaultContentType??'text/plain';
+            const rule=content.encoding?.[field.name],declared=rule?.contentType??shape.defaultContentType??'text/plain';
+            const choice=choices['/'+escape(field.name)]??choices[field.name];
+            const selected=input.inspect?choice??declared:mediaTypeChoice(declared,choice);
             const json=typeof selected==='string'&&mediaTypes(selected).every(type=>type.subtype==='json'||type.subtype.endsWith('+json'));
             const parsed=json||shape.literalType!==undefined&&shape.literalType!=='string';
             const value=parsed?new SourceDocument(field.value,'file:///busyapi-multipart-literal.json',true,'json'):undefined;
