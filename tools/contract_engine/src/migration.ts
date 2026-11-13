@@ -5,7 +5,7 @@ import {referenceKinds} from './contexts';
 import {createHash} from 'node:crypto';
 import {analyse,createGraph,parseResource,Resource} from './engine';
 import {SourceDocument,SourceError,escape,segments} from './document';
-import {specificationDeclaration,modernFamily} from './specification';
+import {specificationDeclaration,modernFamily,defaultSchemaDialect} from './specification';
 import {SourcePlan,SourceLocation,sourceValueIdentity,sourceLocations} from './source_plan';
 import {migrateSchemas,MigrationProblem,MigrationIssue,type MigrationChoose,type MigrationIssueLocation} from './migration_schema';
 import {upgradeSwagger} from './migration_swagger';
@@ -18,7 +18,7 @@ import {inactiveMigrationHeader} from './migration_media_schema';
 import {evaluateSchemas} from './schema_evaluation';
 import {referenceValue} from './reference_choices';
 import {coldGraph} from './reference_selection';
-import {documentUriBase,resolveUri,pointerFragment as fragment,schemaDialectIdentity,sameSchemaDialect,type GraphScope,type GraphReference} from './reference_graph';
+import {documentUriBase,resolveUri,pointerFragment as fragment,planningOccurrences,type PlanningOccurrence,type GraphScope,type GraphReference} from './reference_graph';
 import {documentUriOccurrences} from './document_uris';
 import {serverTemplate} from './derived_bundle';
 import {captureMigrationMarkdown,rewriteMigrationMarkdown,proveMigrationMarkdown} from './migration_markdown';
@@ -42,7 +42,7 @@ import {MigrationExamples,proveMigrationExamples,proveInlinedMigrationExamples,t
 import {migrateTerms} from './migration_terms';
 import {migrateServerVariableDefaults,retainDefaultServers} from './migration_servers';
 import {logicalSourcePointers} from './source_yaml_ownership';
-import {separateMigrationRoles,separateMigrationEntryUses,materializeMigrationOperationConnections} from './migration_schema_uses';
+import {separateMigrationEntryUses,materializeMigrationOperationConnections} from './migration_schema_uses';
 import {captureMigrationOwnerReferences,repairMigrationOwnerReferences} from './migration_owner_references';
 import {proveMigrationSchemaResources} from './migration_schema_resource_contexts';
 import {MigrationSchemaOwners,MigrationSemanticOrigins} from './migration_schema_owners';
@@ -140,17 +140,20 @@ export async function planMigration(input:MigrationInput) {
             .some(prefix=>error.code.startsWith(prefix));
         issue(error.source??location,error.code,error.message,error.code==='migration.configuration.alternative'?'target-representation':proofLimit?'unavailable-proof':'implementation');
     };
+    const schemaRegistryIds=new Set<string>();
+    let planningScopes:ReadonlyMap<string,readonly PlanningOccurrence[]>=new Map();
+    const capturedInput=(values:Resource[],root=input.root)=>({...input,resources:values,root,[planningOccurrences]:planningScopes});
     const validate=async(values:Resource[],root:string,phase:'source'|'target'='target',exampleResources=input.exampleResources)=>{
         const roots=[root,...values.filter(value=>value.id!==root&&specificationDeclaration(parseResource(value).root.value).status==='supported').map(value=>value.id)];
         for(const root of roots){
-            const capture={...input,resources:values,root,exampleResources},analysis=analyse(capture),schemas=await evaluateSchemas(capture);
+            const capture={...capturedInput(values,root),exampleResources},context=createGraph(capture),analysis=analyse(capture,context),schemas=await evaluateSchemas(capture,undefined,context);
             const incomplete=(finding:{code:string;incomplete?:boolean})=>finding.incomplete===true||
-                finding.code==='dialect.unsupported'||finding.code==='schema.dialect.incomplete';
+                finding.code==='dialect.unsupported'||finding.code==='schema.dialect.incomplete'||finding.code==='reference.family.unsupported';
             const findings=[...analysis.findings,...schemas.findings].filter(finding=>finding.severity==='error'||incomplete(finding)||finding.code==='example.serialization.incompatible');
             if((!analysis.complete||!schemas.complete)&&!findings.length)
                 issue({resource:root,pointer:''},'migration.validation.incomplete','Native validation did not complete; no migration can be published','source-incomplete');
             for(const finding of findings)issue(finding,'migration.validation.'+finding.code,finding.message,incomplete(finding)?
-                finding.condition==='unavailable'||finding.code.includes('dialect')?'unavailable-proof':'implementation':phase==='source'?'source-incomplete':'target-representation');
+                finding.condition==='unavailable'||finding.code.includes('dialect')||finding.code==='reference.family.unsupported'?'unavailable-proof':'implementation':phase==='source'?'source-incomplete':'target-representation');
         }
     };
     const initialContexts=migrationDocumentContexts(input,initial,issue,true);
@@ -174,8 +177,8 @@ export async function planMigration(input:MigrationInput) {
     const batches:readonly MigrationBatch[]=route.length?route:[{sources:[],to:target.family}];
     for(const stage of batches){
         if(problems.length)break;
-        const after=stage.to,context=createGraph({...input,resources});
-        let contexts=migrationDocumentContexts({...input,resources},context,issue,true);
+        const after=stage.to,context=createGraph(capturedInput(resources));
+        let contexts=migrationDocumentContexts(capturedInput(resources),context,issue,true);
         if(problems.length)break;
         const active=[...contexts].sort((a,b)=>Number(b.graph.root===input.root)-Number(a.graph.root===input.root)||a.graph.root.localeCompare(b.graph.root))
             .find(context=>stage.sources.length?stage.sources.includes(context.graph.specifications.get(context.graph.root)!.family):context.graph.root===input.root);
@@ -190,22 +193,24 @@ export async function planMigration(input:MigrationInput) {
                 source.origins.set(location.pointer,new Set([location.pointer]));
         }
         try {
-            const schemaResources=new Map<SourceDocument['format'],SourcePlan>();
-            const createSchemaResource=(format=sources.get(graph.root)!.doc.format):SourcePlan=>{
-                const cached=schemaResources.get(format);
+            const schemaResources=new Map<string,SourcePlan>();
+            const createSchemaResource=(format=sources.get(graph.root)!.doc.format,schemaOnly=true):SourcePlan=>{
+                if(schemaOnly)format=initial.docs.get(input.root)!.format;
+                const cacheKey=JSON.stringify([format,schemaOnly]);
+                const existing=schemaOnly?[...schemaRegistryIds].map(id=>sources.get(id)).find(source=>source!==undefined):undefined;
+                const cached=existing??schemaResources.get(cacheKey);
                 if(cached)return cached;
                 if(sources.size>=256)throw new SourceError('limit.migration.resources','Generated schema resources exceed the 256-resource migration bound');
-                const stem='migration-schemas-'+digest(JSON.stringify([graph.root,after,migrationProducerVersion])).slice(0,24);
+                const stem=(schemaOnly?'migration-schemas-':'migration-objects-')+digest(JSON.stringify([input.root,schemaOnly?null:after,migrationProducerVersion])).slice(0,24);
                 let id=new URL(stem+'.'+format,graph.root).href,index=0;
                 const unavailable=(id:string)=>sources.has(id)||graph.identities.has(id)||
                     input.exampleResources?.some(resource=>resource.id===id||resource.aliases?.includes(id));
                 while(unavailable(id))id=new URL(stem+'-'+(++index)+'.'+format,graph.root).href;
-                const schemaResource=new SourcePlan(new SourceDocument('{}\n',id));
-                schemaResources.set(format,schemaResource);
+                const schemaResource=new SourcePlan(new SourceDocument(schemaOnly?'{"allOf":[]}\n':'{}\n',id));
+                schemaResources.set(cacheKey,schemaResource);if(schemaOnly)schemaRegistryIds.add(id);
                 sources.set(id,schemaResource);createdResources.set(id,graph.root);
                 return schemaResource;
             };
-            const contextProofs:{scope:GraphScope;destination:SourceLocation;preserveBase:boolean;expectedBase?:string;namespace:string}[]=[];
             const owners=new MigrationSchemaOwners(graph,sources,createSchemaResource,
                 (input.exampleResources??[]).flatMap(resource=>[resource.id,...resource.aliases]),
                 contexts.map(context=>context.graph),securityConfigurationNames(input.configuration));
@@ -216,53 +221,58 @@ export async function planMigration(input:MigrationInput) {
                 if(++ownershipWork>2000000)throw new SourceError('limit.migration.owners','Composed ownership exceeds 2000000 source/proof states');
             };
             const captureContext=(scope:GraphScope,destination:SourceLocation,preserveBase:boolean,expectedBase?:string,namespace=graph.root)=>
-                contextProofs.push({scope,destination,preserveBase,expectedBase,namespace});
-            const retainCopies=(copies:ReadonlyMap<string,readonly SourceLocation[]>)=>{
-                const unique=(locations:Iterable<SourceLocation>)=>{
-                    const selected=new Map<string,SourceLocation>();
-                    for(const location of locations){admitOwnership();selected.set(key(location.resource,location.pointer),location);}
-                    return [...selected.values()];
+                owners.rememberContext(namespace,scope,destination,preserveBase,expectedBase);
+            let convertedScopes=false;
+            const sourceGraphs=new Map(sourceContexts.map(context=>[context.graph.root,context.graph]));
+            const plannedContexts=()=>{
+                const current=sourceLocations(sources),selected=new Map<string,Map<string,PlanningOccurrence>>();
+                const admit=(namespace:string,scope:GraphScope,location:SourceLocation,base?:string)=>{
+                    if(!sources.get(location.resource)?.doc.dataNode(location.pointer)||owners.retainedValue(location))return;
+                    let kind=scope.kind;
+                    const converted=convertedScopes&&stage.sources.includes(scope.family as typeof after),family=converted?after:scope.family;
+                    const value=sources.get(location.resource)!.doc.dataNode(location.pointer)!.value;
+                    if(converted&&kind==='parameter'&&scope.family==='2.0'&&value?.content&&value.in===undefined)kind='request-body';
+                    if(converted&&kind==='request-body'&&after==='2.0'&&value?.in==='body')kind='parameter';
+                    const captured=sourceGraphs.get(namespace),authored=captured?.docs.get(scope.resource);
+                    const declared=authored?.dataNode(scope.resourcePointer+'/$schema')||authored?.dataNode('/jsonSchemaDialect')||
+                        sources.get(location.resource)!.doc.dataNode(location.pointer+'/$schema');
+                    const inferred=converted&&schemaRegistryIds.has(location.resource)&&!declared;
+                    const dialect=converted&&(!modernFamily(scope.family)||!modernFamily(after)||inferred)?defaultSchemaDialect(after as typeof target.family):scope.dialect;
+                    const occurrence:PlanningOccurrence={...location,kind,family,dialect,
+                        ...(base!==undefined&&(!converted||modernFamily(after))?{expectedBase:base}:{})};
+                    const entries=selected.get(namespace)??new Map<string,PlanningOccurrence>();
+                    entries.set(JSON.stringify([location.resource,location.pointer,kind]),occurrence);selected.set(namespace,entries);
                 };
-                for(const [origin,locations]of specialized)specialized.set(origin,unique(locations.flatMap(location=>[
-                    location,...copies.get(key(location.resource,location.pointer))??[]])));
-                for(const [origin,locations]of copies)specialized.set(origin,unique([...specialized.get(origin)??[],...locations]));
+                for(const [namespace,seeds]of planningScopes)for(const seed of seeds){
+                    const scope=sourceGraphs.get(namespace)?.scopeAs(seed.resource,seed.pointer,seed.kind);if(!scope)continue;
+                    for(const location of owners.entryLocations(namespace,seed,scope,current))admit(namespace,scope,location,seed.expectedBase);
+                }
+                for(const {namespace,scope,location,base}of owners.planningContexts(current))admit(namespace,scope,location,base);
+                return new Map([...selected].map(([root,entries])=>[root,Object.freeze([...entries.values()].map(entry=>Object.freeze(entry)))]));
             };
-            const preparationInput=()=>({...input,root:graph.root,resources:[...sources].map(([id,source])=>({
-                ...resources.find(resource=>resource.id===id),id,text:source.doc.text,generation:0}))});
+            const preparationInput=()=>({...capturedInput([...sources].map(([id,source])=>({
+                ...resources.find(resource=>resource.id===id),id,text:source.doc.text,generation:0})),graph.root),[planningOccurrences]:plannedContexts()});
             // Different entry contexts acquire owners before role/literal
             // copying. Otherwise the first parsed entry could choose another
             // use's family or overwrite a shared incoming locator.
             const securityComponentNames=after!=='3.2'&&stage.sources.includes('3.2');
-            const entryCopies=separateMigrationEntryUses(contexts,sources,issue,createSchemaResource,captureContext,owners,securityComponentNames,target.family);
-            retainCopies(entryCopies);
-            if(problems.length)break;
-            let roleContexts=contexts;
-            if(entryCopies.size){
-                const roleInput=preparationInput();
-                roleContexts=migrationDocumentContexts(roleInput,createGraph(roleInput),issue,true);
-            }
-            const roleCopies=separateMigrationRoles(roleContexts,sources,issue,createSchemaResource,captureContext,owners,target.family);
-            retainCopies(roleCopies);
-            if(problems.length)break;
-            // Only newly materialized roles can introduce an entry refinement.
-            // Reusing unchanged captures avoids another full preparation pass.
-            if(roleCopies.size){
-                const entryInput=preparationInput();
-                const entryContexts=migrationDocumentContexts(entryInput,createGraph(entryInput),issue,true);
-                retainCopies(separateMigrationEntryUses(entryContexts,sources,issue,createSchemaResource,captureContext,owners,securityComponentNames,target.family));
-            }
+            for(const [origin,locations]of separateMigrationEntryUses(contexts,sources,issue,createSchemaResource,captureContext,owners,securityComponentNames,target.family))
+                specialized.set(origin,locations);
             if(problems.length)break;
             let materializedConnections=false;
             if(specialized.size){
+                // Static entry locators determine which resource frames are
+                // entered. Emit that independent batch before indexing dynamic
+                // anchors, so literal source declarations stay inactive.
+                repairMigrationOwnerReferences(sourceContexts,sources,owners,issue,[],'static');
+                if(problems.length)break;
                 const repairInput=preparationInput();
                 const repairContexts=migrationDocumentContexts(repairInput,createGraph(repairInput),issue,true);
-                repairMigrationOwnerReferences(sourceContexts,sources,owners,issue,repairContexts.map(context=>context.graph));
+                repairMigrationOwnerReferences(sourceContexts,sources,owners,issue,repairContexts.map(context=>context.graph),'contextual');
                 if(problems.length)break;
                 owners.repairResourceReferences();
                 materializedConnections=materializeMigrationOperationConnections(sourceContexts,sources,owners,issue);
                 if(problems.length)break;
-                const retirementInput=preparationInput();
-                owners.retireSuperseded(sourceContexts.map(context=>createGraph({...retirementInput,root:context.graph.root}).graph));
             }
             if(specialized.size||materializedConnections){
                 for(const [origin,copies]of specialized){
@@ -289,46 +299,11 @@ export async function planMigration(input:MigrationInput) {
                         (location,scope)=>owners.entryLocations(sourceContext.graph.root,location,scope,prepared),proofIssue,true);
                 }
                 graph=owned.graph;
-                const contextKey=(namespace:string,location:SourceLocation,scope:GraphScope,base:string)=>JSON.stringify([
-                    namespace,location.resource,location.pointer,scope.kind,scope.family,scope.dialect&&schemaDialectIdentity(scope.dialect),base,
-                ]);
-                const transitions=new Map<string,{destination:SourceLocation;base:string}[]>();
-                for(const proof of contextProofs){
-                    admitOwnership();const id=contextKey(proof.namespace,proof.scope,proof.scope,proof.scope.base),next=transitions.get(id)??[];
-                    next.push({destination:proof.destination,base:proof.expectedBase??proof.scope.base});transitions.set(id,next);
-                }
-                for(const {scope,destination,preserveBase,expectedBase,namespace}of contextProofs){
-                    // Base changes are admitted only by a captured ownership
-                    // transition, including a later entry-owned resource copy.
-                    // Provenance alone cannot authorize substituting a URI.
-                    const terminal=owners.entryOwner(namespace,scope,scope.kind);
-                    const terminalLocations=new Set((prepared.get(key(terminal.resource,terminal.pointer))??[]).map(location=>key(location.resource,location.pointer)));
-                    const ownerContext=contexts.find(context=>context.graph.root===namespace);
-                    // Role preparation and an entry refinement can start from
-                    // the same captured occurrence. Both are authorized edges;
-                    // only this entry's final material owner proves retention.
-                    const pending=[{destination,base:expectedBase??scope.base},
-                        ...transitions.get(contextKey(namespace,scope,scope,scope.base))??[]],seen=new Set<string>();let retained=false;
-                    for(let index=0;index<pending.length&&!retained;index++){
-                        admitOwnership();const state=pending[index],id=contextKey(namespace,state.destination,scope,state.base);
-                        if(seen.has(id))continue;seen.add(id);
-                        const destinations=[state.destination,...specialized.get(key(state.destination.resource,state.destination.pointer))??[]]
-                            .flatMap(location=>prepared.get(key(location.resource,location.pointer))??[]);
-                        retained=destinations.some(destination=>{
-                            admitOwnership();if(!terminalLocations.has(key(destination.resource,destination.pointer)))return false;
-                            const retained=ownerContext?.graph.scopeAs(destination.resource,destination.pointer,scope.kind);
-                            return retained&&ownerContext?.graph.isEntryUse(retained)&&(!preserveBase||retained.base===state.base)&&sameSchemaDialect(retained.dialect,scope.dialect)&&retained.family===scope.family;
-                        });
-                        pending.push(...transitions.get(id)??[]);
-                    }
-                    if(!retained)
-                        issue(scope,'migration.owners.resource-context','The independent owner did not retain its captured role, dialect, family or required schema resource URI','implementation');
-                }
                 if(problems.length)break;
             }
             const retainNativeCopies=(copies:ReadonlyMap<string,readonly SourceLocation[]>)=>{
                 if(!copies.size)return;
-                retainCopies(copies);
+                for(const [origin,locations]of copies)specialized.set(origin,[...specialized.get(origin)??[],...locations]);
                 for(const [origin,locations]of copies){
                     const [resource,pointer]=JSON.parse(origin) as [string,string];
                     for(const copy of locations)planningOrigins.set(key(copy.resource,copy.pointer),sourceLocation(resource,pointer));
@@ -441,7 +416,7 @@ export async function planMigration(input:MigrationInput) {
                 const binaryInput=preparationInput(),binaryGraph=createGraph(binaryInput);
                 contexts=migrationDocumentContexts(binaryInput,binaryGraph,issue);graph=binaryGraph.graph;
             }
-            for(const before of stage.sources)await migrateSchemas(graph,sources,before,after,issue,contexts.map(context=>context.graph),resources,input.exampleResources);
+            for(const before of stage.sources)await migrateSchemas(graph,sources,before,after,issue,contexts.map(context=>context.graph),input.exampleResources);
             for(const before of stage.sources)migrateEncodings(graph,sources,before,after,issue,contexts.map(context=>context.graph),owners);
             if(stage.sources.includes('3.2'))await prepareNamedMultipart(contexts.map(context=>context.graph),after,input.exampleResources,target.family);
             if(stage.sources.includes('3.2'))migrateNamedMultipart(contexts.map(context=>context.graph),sources,after,owners,issue);
@@ -451,7 +426,7 @@ export async function planMigration(input:MigrationInput) {
                 const original=sourceLocation(location.resource,location.pointer);
                 presentationChanges.push({resource:original.resource,pointer:original.pointer});
             }):undefined;
-            if(after==='2.0')for(const before of stage.sources)for(const [key,target]of downgradeSwagger(graph,sources,before,issue,()=>owners.releaseNativeHolders(before),owners,contexts.map(context=>context.graph),{
+            if(after==='2.0')for(const before of stage.sources)for(const [key,target]of downgradeSwagger(graph,sources,before,issue,owners,contexts.map(context=>context.graph),{
                 read:(location,namespace)=>externalExamples!.inlineCapture(sourceLocation(location.resource,location.pointer),namespace),
                 materialized:(location,namespace,media)=>externalExamples!.materialized(sourceLocation(location.resource,location.pointer),namespace,media),
                 represented:(location,namespace)=>externalExamples!.hasMaterialization(sourceLocation(location.resource,location.pointer),namespace),
@@ -488,9 +463,10 @@ export async function planMigration(input:MigrationInput) {
                 if(modernFamily(specification.family)&&modernFamily(after)&&!source.doc.nodes.has('/jsonSchemaDialect'))
                     source.set('/jsonSchemaDialect',specification.schemaDialect);
             }
+            convertedScopes=true;
             // Repair only established contract references at their mapped CST
             // occurrences. Example and extension payloads are never searched.
-            const retainedInput={...input,resources:resources.map(resource=>({...resource,text:sources.get(resource.id)!.doc.text}))};
+            const retainedInput=preparationInput();
             const retained=createGraph(retainedInput);
             // An unchanged spelling must be proved in its actual entry's
             // namespace. A foreign document's dormant interpretation in the
@@ -523,7 +499,7 @@ export async function planMigration(input:MigrationInput) {
                 }
             }
             if(problems.length)break;
-            const convertedInput={...input,root:graph.root,resources:resources.map(resource=>({...resource,text:sources.get(resource.id)!.doc.text}))};
+            const convertedInput=preparationInput();
             const converted=createGraph(convertedInput);
             const convertedContexts=migrationDocumentContexts(convertedInput,converted,issue);
             if(problems.length)break;
@@ -560,6 +536,7 @@ export async function planMigration(input:MigrationInput) {
                 if(problems.length)break;
                 resources=resources.map(resource=>({...resource,text:sources.get(resource.id)!.doc.text}));
             }
+            planningScopes=plannedContexts();
             semanticOrigins?.advance(sourceContexts.map(context=>context.graph),owners,sourceLocations(sources));
             stages.push(...stage.sources.map(from=>({from,to:after})));await validate(resources,input.root);
         }catch(error){
@@ -593,8 +570,8 @@ export async function planMigration(input:MigrationInput) {
         });
     }catch(error){refused(error,{resource:input.root,pointer:''});}
     if(problems.length)return {...common(),changes:[],outputs:[]};
-    const context=createGraph({...input,resources}),sources=new Map([...context.docs].map(([id,doc])=>[id,new SourcePlan(doc)]));
-    const sourceOwnerGraphs=migrationDocumentContexts({...input,resources},context,issue).map(context=>context.graph);
+    const context=createGraph(capturedInput(resources)),sources=new Map([...context.docs].map(([id,doc])=>[id,new SourcePlan(doc)]));
+    const sourceOwnerGraphs=migrationDocumentContexts(capturedInput(resources),context,issue).map(context=>context.graph);
     const useKey=(scope:{resource:string;pointer:string;kind:string})=>JSON.stringify([scope.resource,scope.pointer,scope.kind]);
     const finalOwners=new Set([...migrationScopes(sourceOwnerGraphs)].map(useKey));
     try {
@@ -608,6 +585,10 @@ export async function planMigration(input:MigrationInput) {
         for(const occurrence of documentUriOccurrences(context.graph))if(finalOwners.has(useKey(occurrence.scope))&&occurrence.scope.kind!=='server')sources.get(occurrence.scope.resource)!.set(occurrence.pointer,resolveUri(occurrence.value,documentUriBase(context.graph,occurrence.scope)).href);
     }catch(error){refused(error,{resource:input.root,pointer:''});}
     if(problems.length)return {...common(),changes:[],outputs:[]};
+    // The registry is already a standard compound Schema. Its final dialect
+    // is authored only after every captured family has completed conversion.
+    for(const id of schemaRegistryIds)if(modernFamily(target.family))
+        sources.get(id)?.set('/$schema',defaultSchemaDialect(target.family));
     // Each declared API must reopen with its containing directory as the
     // standalone access boundary, including references to another API's owners.
     const paths=new Map(resources.map(resource=>[resource.id,(resource.id===input.root?'openapi':(context.graph.specifications.has(resource.id)?'openapi-':'resources/')+digest(resource.id).slice(0,24))+'.'+sources.get(resource.id)!.doc.format]));
@@ -665,7 +646,14 @@ export async function planMigration(input:MigrationInput) {
                 occupied.set(group,names);
             }
             const keyword=security?'security':reference.connection==='discriminator'||reference.keyword==='$dynamicRef'&&!reference.dynamic?'$ref':reference.keyword;
-            const value=proves(reference.value)?reference.value:security?spellSecurity(graph,mappedReference,names!):
+            // Inside an authored absolute resource ID, a physical relative
+            // file route is relative to that ID's old directory, not this
+            // publication. Use the captured target's canonical identity there;
+            // the unchanged cold-closure proof still requires discoverability.
+            const embedded=scope.kind==='schema'&&scope.base!==graph.scope(scope.resource,'').base;
+            const canonical=embedded&&target?.kind==='schema'?target.base+(reference.keyword==='$dynamicRef'&&reference.dynamic?
+                '#'+encodeURIComponent(reference.dynamic.anchor):fragment(target.pointer.slice(target.resourcePointer.length))):undefined;
+            const value=canonical&&proves(canonical)?canonical:proves(reference.value)?reference.value:security?spellSecurity(graph,mappedReference,names!):
                 target&&referenceValue(graph,scope,target,keyword,undefined,reference.connection==='discriminator'?{connection:'discriminator'}:{});
             if(value===undefined||!proves(value)){
                 issue(field,'migration.reference.relocation','A captured reference has no proved final output spelling','implementation');continue;
@@ -860,7 +848,7 @@ export async function planMigration(input:MigrationInput) {
         catch(error){refused(error,{resource:root,pointer:''});}
     }
     if(problems.length)return {...common(),changes:[],outputs:[]};
-    const baseManifest={version:1,roots:initialContexts.map(({graph})=>({name:graph.root===input.root?'migrated':'resource_'+digest(graph.root).slice(0,24),path:paths.get(graph.root)})),resourceMappings:Object.fromEntries(mappings)};
+    const baseManifest={version:1,roots:initialContexts.map(({graph})=>({name:graph.root===input.root?'migrated':'resource_'+digest(graph.root).slice(0,24),path:paths.get(graph.root)})),resourceMappings:Object.fromEntries([...mappings].sort(([a],[b])=>a.localeCompare(b)))};
     const changedBindings=securityBindings.filter(binding=>binding.before.value!==binding.after.value);
     if(changedBindings.length>4096){
         issue({resource:input.root,pointer:''},'limit.migration.security','Authentication review exceeds 4096 captured binding changes','implementation');
@@ -893,7 +881,7 @@ export async function planMigration(input:MigrationInput) {
     const {manifest,manifestText,alternatives:configurationAlternatives}=configuration;
     const configurationBindings=changedBindings.map(({root,before,after})=>({
         root,resource:before.resource,pointer:before.pointer+'/'+escape(before.keyword),before:before.value,after:after.value}));
-    const outputs=outputResources.map(resource=>({path:[...paths].find(([id])=>identifiers.get(id)===resource.id)![1],id:resource.id,text:resource.text,hasBom:input.resources.find((source:Resource)=>identifiers.get(source.id)===resource.id)?.hasBom===true,identity:digest(resource.text)}));
+    const outputs=outputResources.map(resource=>({path:[...paths].find(([id])=>identifiers.get(id)===resource.id)![1],id:resource.id,text:resource.text,hasBom:input.resources.find((source:Resource)=>identifiers.get(source.id)===resource.id)?.hasBom===true,identity:digest(resource.text)})).sort((a,b)=>a.path.localeCompare(b.path));
     const changes=resources.map(resource=>{
         const source=original.get(resource.id),createdFrom=createdResources.get(resource.id);
         if(!source&&!createdFrom)throw new SourceError('migration.resource.owner','A planned resource has no captured or derived owner');

@@ -1,3 +1,4 @@
+import {graphInput} from './source_capture';
 import {SourceDocument,SourceError} from './document';
 import {SourcePlan,type SourceLocation} from './source_plan';
 import {requestOperation} from './execution';
@@ -25,8 +26,7 @@ export async function projectMigrationMultipartConfiguration(entries:readonly Mi
    const matches=migrationConfiguredOperations(configuration,entry.source,test.value?.operation);
    if(matches.length!==1)continue;
    const pair=entry.pairs.find(pair=>pair.before.occurrence===matches[0].occurrence);if(!pair)continue;
-   const plan=(graph:MigrationServerSelectionContext['source'],operation:typeof pair.before)=>requestOperation({root:graph.root,
-    resources:[...graph.docs].map(([id,doc])=>({id,text:doc.text,generation:0})),snapshot:'migration-multipart-saved',
+   const plan=(graph:MigrationServerSelectionContext['source'],operation:typeof pair.before)=>requestOperation({...graphInput(graph),snapshot:'migration-multipart-saved',
     resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence});
    const before=plan(entry.source,pair.before),after=plan(entry.target,pair.after);
    const selected=before.requestBody?.content.find((media:any)=>media.mediaType===body.value.mediaType);
@@ -64,8 +64,8 @@ export async function projectMigrationMultipartConfiguration(entries:readonly Mi
     if(!instances.length)return true;
     workBytes+=[...graph.docs.values()].reduce((bytes,doc)=>bytes+doc.text.length,0)+instances.reduce((bytes,value)=>bytes+value.text.length,0);
     if(workBytes>128*1024*1024)throw new SourceError('limit.migration.positional-encoding','Saved multipart inverse evaluation exceeds its 128 MiB captured-source work budget');
-    const checked=await evaluateSchemas({root:graph.root,snapshot:'migration-multipart-saved-proof',
-     resources:[...graph.docs].map(([id,doc])=>({id,text:doc.text,generation:0})),exampleResources:examples,runtimeInstances:instances});
+    const checked=await evaluateSchemas({...graphInput(graph),snapshot:'migration-multipart-saved-proof',
+     exampleResources:examples,runtimeInstances:instances});
     return checked.complete&&checked.runtimeEvaluations.length===instances.length&&checked.runtimeEvaluations.every(value=>value.complete&&value.valid===true);
    };
    const sourceInstances=[...(c.schema?[instance(original,c.schema)]:[]),

@@ -129,6 +129,28 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
             if(target)connect(target,scope);
         }
     }
+    // Property position changes assertions only for Swagger's active
+    // readOnly policy. Propagate that capability through same-instance edges;
+    // modern-only recursion shares one directional owner instead of creating
+    // an equivalent orphan discriminator for each caller position.
+    const propertySensitive=new Set<string>(),propertyParents=new Map<string,Set<string>>(),propertyPending:string[]=[];
+    const propertyEdge=(child:GraphScope,parent:GraphScope)=>{
+        const id=key(child),values=propertyParents.get(id)??new Set<string>();values.add(key(parent));propertyParents.set(id,values);
+    };
+    for(const scope of scopes){
+        for(const child of descendants.get(key(scope))??[])if(child.sameInstance)propertyEdge(child.scope,scope);
+        const context=contextOf(scope),reference=context.referenceAs(scope.resource,scope.pointer,'$ref','schema');
+        if(reference?.resolution==='resolved'){
+            const target=context.scopeAs(reference.targetResource!,reference.targetPointer!,'schema');if(target)propertyEdge(target,scope);
+        }
+        const owner=legacy.get(key(scope));
+        if(owner?.family==='2.0'&&!owner.property&&graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value?.readOnly===true){
+            propertySensitive.add(key(scope));propertyPending.push(key(scope));
+        }
+    }
+    while(propertyPending.length)for(const parent of propertyParents.get(propertyPending.pop()!)??[]){
+        inspect();if(!propertySensitive.has(parent)){propertySensitive.add(parent);propertyPending.push(parent);}
+    }
     // Explicit mappings and entry-component names are separate from schema
     // assertions. Preserve their targets when a composition gets copied.
     const selections=new Map<ReferenceGraph,DiscriminatorModels>();
@@ -225,7 +247,7 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
     function reserve(label:string,identity:string,container='schemas'):SourceLocation {
         if(variants.size+neutralVariants.size+headerVariants.size>=1024)throw new SourceError('limit.migration.direction','Directional specialization exceeds 1024 states');
         const source=container==='schemas'?(registry??=createSchemaResource()):entry;
-        const prefix=container==='schemas'?'':'/components/'+container;
+        const prefix=container==='schemas'?'/allOf':'/components/'+container;
         return owners.allocate(source,prefix,label,identity);
     }
     function copy(scope:GraphScope,destination:SourceLocation):void {
@@ -233,11 +255,16 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
         // Only the captured copy needs independent token ownership. A neutral
         // original with no edited consumer keeps its anchors and aliases.
         source.own(scope.pointer,true,true);
+        for(const child of contextOf(scope).containedScopes(scope)){
+            if(child.kind!=='schema'||typeof contextOf(scope).docs.get(child.resource)!.dataNode(child.pointer)?.value?.$id!=='string')continue;
+            const pointer=source.current(child.pointer,child.resource);
+            if(pointer!==undefined&&source.doc.dataNode(pointer+'/$id')?.value!==child.base)source.set(pointer+'/$id',child.base);
+        }
         const node=source.doc.node(scope.pointer);
         if((bytes+=node.range[1]-node.range[0])>16*1024*1024)
             throw new SourceError('limit.migration.direction','Directional schema copies exceed 16 MiB');
         const output=sources.get(destination.resource)!;
-        admit(output);output.copy(source,scope.pointer,destination.pointer,true);
+        admit(output);owners.copyInto(source,scope.pointer,destination,true);
         for(const uri of uris){
             inspect();
             if(uri.scope.resource===scope.resource&&inside(uri.pointer,scope.pointer)&&contextOf(uri.scope).literalContainer(uri.scope.resource,uri.pointer)===undefined)
@@ -290,6 +317,7 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
         }
     }
     function variant(scope:GraphScope,direction:Direction,property:boolean,depth=0):SourceLocation {
+        property=property&&propertySensitive.has(key(scope));
         const identity=JSON.stringify([key(scope),direction,property]),known=variants.get(identity);
         if(known)return known;
         if(depth>128)throw new SourceError('limit.migration.direction','Directional schema references exceed 128 levels');
@@ -447,7 +475,13 @@ export function migrateDirectionalSchemas(original:ReferenceGraph,graph:Referenc
         const reached=contextOf(reference).scopeAs(reference.targetResource!,reference.targetPointer!,'schema');
         if(reached&&affected.has(key(reached)))set({resource:reference.resource,pointer:reference.pointer+'/$ref'},address(neutral(reached)));
     }
-    for(const scope of scopes)if(affected.has(key(scope))&&bindings.has(key(scope)))rewriteBindings(scope,scope,undefined,0);
+    // A public neutral binding selects the one retained definition. Keeping a
+    // second concrete discriminator here would orphan its inheritance edges
+    // after those edges have moved to the neutral owner.
+    for(const scope of schemaRoots)if(affected.has(key(scope))&&!directions(scope).size){
+        replace(scope,{$ref:address(neutral(scope))});
+        owners.retainBinding(contextOf(scope).root,scope);
+    }
     for(const scope of schemaRoots){
         if(!affected.has(key(scope)))continue;
         const header=containingHeader(scope);

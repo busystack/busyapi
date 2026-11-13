@@ -22,13 +22,17 @@ export const schemaDialectIdentity = (uri:string):string => uri.endsWith('#')?ur
 export const sameSchemaDialect=(a:string|null,b:string|null):boolean=>a===b||
     typeof a==='string'&&typeof b==='string'&&schemaDialectIdentity(a)===schemaDialectIdentity(b);
 
-export type GraphTarget = { resource: string; pointer: string; kind: string };
-export type GraphScope = GraphTarget & {
+export type GraphTarget = Readonly<{ resource: string; pointer: string; kind: string }>;
+export type PlanningOccurrence = Readonly<GraphTarget & {family:string;dialect:string|null;expectedBase?:string}>;
+// Symbols cannot arrive over the engine's JSON transport. Only an explicit
+// planning copy can supply captured interpretation while its owners move.
+export const planningOccurrences=Symbol.for('busyapi-planning-occurrences');
+export type GraphScope = Readonly<GraphTarget & {
     base: string; resourcePointer: string; dialect: string|null; family: string; sourceKind?:string;
     /** Primary meta-validation boundary. All intrinsic applicator parents are
      * retained separately by ReferenceGraph.schemaParentsOf(). */
     schemaParent?:string;
-};
+}>;
 /** Canonical resource interpretation, separate from the authored spelling of
  * a dialect declaration and from per-entry/role/directional use ownership. */
 export const schemaResourceContextIdentity=(scope:GraphScope):string=>JSON.stringify([
@@ -349,11 +353,11 @@ export class ReferenceGraph {
     private readonly _issues: GraphIssue[] = [];
     readonly issues:readonly GraphIssue[] = this._issues;
     private readonly _identities = new Map<string, GraphTarget[]>();
-    readonly identities:ReadonlyMap<string,GraphTarget[]> = this._identities;
+    readonly identities:ReadonlyMap<string,readonly GraphTarget[]> = this._identities;
     private readonly _anchors = new Map<string, GraphTarget[]>();
-    readonly anchors:ReadonlyMap<string,GraphTarget[]> = this._anchors;
+    readonly anchors:ReadonlyMap<string,readonly GraphTarget[]> = this._anchors;
     private readonly _dynamicAnchors = new Map<string, GraphTarget[]>();
-    readonly dynamicAnchors:ReadonlyMap<string,GraphTarget[]> = this._dynamicAnchors;
+    readonly dynamicAnchors:ReadonlyMap<string,readonly GraphTarget[]> = this._dynamicAnchors;
     // Retrieval/display/API URL context is distinct from declared $self/$id.
     // The first approved mapping supplies the original expected location; a
     // local cache path is not the document's remote retrieval identity.
@@ -378,11 +382,21 @@ export class ReferenceGraph {
      * enclosing schema resource. OAS 3.1.2 §4.3.1 requires complete context
      * discovery before a reference is deemed missing. Rebuild this same graph
      * from proven enclosing occurrences; never guess schema keywords in data. */
-    static capture(docs:ReadonlyMap<string,SourceDocument>,root:string,family:string,aliases:Map<string,string[]>=new Map(),occurrences:GraphTarget[]=[]):ReferenceGraph {
-        const seeds=new Map(occurrences.map(target=>[key(target.resource,target.pointer)+':'+target.kind,target]));
+    static capture(docs:ReadonlyMap<string,SourceDocument>,root:string,family:string,aliases:Map<string,string[]>=new Map(),occurrences:GraphTarget[]=[],planning:readonly PlanningOccurrence[]=[]):ReferenceGraph {
+        if(planning.length>ReferenceGraph.scopeBudget)throw new SourceError('limit.graph.planning','Planning occurrences exceed the captured scope bound');
+        const contexts=new Map<string,PlanningOccurrence>();
+        for(const occurrence of planning){
+            if(!docs.get(occurrence.resource)?.dataNode(occurrence.pointer)||!supportedSchemaDialect(occurrence))
+                throw new SourceError('graph.planning.context','A planning occurrence requires a captured location and supported family/dialect');
+            const id=key(occurrence.resource,occurrence.pointer)+':'+occurrence.kind,previous=contexts.get(id);
+            if(previous&&(previous.family!==occurrence.family||!sameSchemaDialect(previous.dialect,occurrence.dialect)))
+                throw new SourceError('graph.planning.context','One planning occurrence cannot acquire conflicting family/dialect interpretations');
+            contexts.set(id,Object.freeze({...occurrence}));
+        }
+        const seeds=new Map([...occurrences,...contexts.values()].map(target=>[key(target.resource,target.pointer)+':'+target.kind,target]));
         let work=0;
         for(let pass=0;pass<=limits.depth;pass++) {
-            const graph=new ReferenceGraph(docs,root,family,aliases,[...seeds.values()]);
+            const graph=new ReferenceGraph(docs,root,family,aliases,[...seeds.values()],contexts);
             work+=graph.scopes.size+graph.roleScopes.size;
             if(work>2*ReferenceGraph.scopeBudget)break;
             if(!graph.contextChanges.size)return graph;
@@ -401,7 +415,7 @@ export class ReferenceGraph {
         throw new SourceError('limit.graph.context','The captured schema contexts could not stabilize within the bounded graph budget',range,'unsupported',{resource:root,pointer:'',range});
     }
 
-    constructor(readonly docs: ReadonlyMap<string, SourceDocument>, readonly root: string, readonly family: string, aliases: Map<string, string[]> = new Map(), occurrences: GraphTarget[] = []) {
+    constructor(readonly docs: ReadonlyMap<string, SourceDocument>, readonly root: string, readonly family: string, aliases: Map<string, string[]> = new Map(), occurrences: GraphTarget[] = [],planning:ReadonlyMap<string,PlanningOccurrence>=new Map()) {
         // Register identities before resolving any edge, so ordering cannot
         // make duplicate identifiers pick an arbitrary physical document.
         for (const doc of docs.values()) {
@@ -455,7 +469,18 @@ export class ReferenceGraph {
         for (const occurrence of [...occurrences].sort((a,b)=>a.pointer.length-b.pointer.length)) {
             if (!docs.get(occurrence.resource)?.dataNode(occurrence.pointer))
                 throw Error('Captured semantic occurrence is absent');
-            this.index(occurrence.resource, occurrence.pointer, occurrence.kind, this.scope(occurrence.resource, occurrence.pointer));
+            const context=planning.get(key(occurrence.resource,occurrence.pointer)+':'+occurrence.kind);
+            let inherited=this.scope(occurrence.resource,occurrence.pointer);
+            if(context){
+                const specification=this._specifications.get(occurrence.resource);
+                if(specification&&specification.family!==context.family)
+                    throw new SourceError('graph.planning.context','A planning occurrence cannot override an authored API family');
+                if(occurrence.kind!=='schema'&&inherited.kind==='schema')inherited=this.documentScopes.get(occurrence.resource)!;
+                inherited={...inherited,family:context.family,dialect:context.dialect};
+            }
+            this.index(occurrence.resource,occurrence.pointer,occurrence.kind,inherited);
+            if(context?.expectedBase!==undefined&&this.scopeAs(occurrence.resource,occurrence.pointer,occurrence.kind)?.base!==context.expectedBase)
+                throw new SourceError('migration.owners.resource-context','The independent owner did not retain its captured schema resource URI',docs.get(occurrence.resource)!.dataNode(occurrence.pointer)!.range,'unsupported',{...occurrence,range:docs.get(occurrence.resource)!.dataNode(occurrence.pointer)!.range});
         }
         // Referenced fragments receive their actual occurrence context, rather
         // than interpreting every key in an arbitrary fragment as a schema.

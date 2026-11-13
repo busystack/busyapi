@@ -1,11 +1,152 @@
 import {SourceError} from './document';
-import {supportedSchemaDialect,type GraphScope,type ReferenceGraph} from './reference_graph';
-import type {SourcePlan,SourceLocation} from './source_plan';
+import {schemaResourceContextIdentity,supportedSchemaDialect,type GraphScope,type ReferenceGraph} from './reference_graph';
+import {sourceValueIdentity,type SourcePlan,type SourceLocation} from './source_plan';
 import type {MigrationSchemaOwners,MigrationApplicationKind} from './migration_schema_owners';
-import {MigrationSchemaProofs,migrationExactValueIdentity} from './migration_schema_proofs';
+import {MigrationSchemaProofs,migrationExactValueIdentity,type SchemaGuardAssumptions} from './migration_schema_proofs';
 import {restrictedBooleanSchema} from './migration_schema_values';
 import {MigrationPropertyPresence} from './migration_property_presence';
-import {capturedConditionalPlan} from './migration_schema_conditions';
+import {constantSchemaAssertion} from './schema_constant_assertions';
+import {decimal} from './exact_numbers';
+
+export type ConditionPlan=Readonly<{selected?:'then'|'else'|'both';assertCondition?:boolean;complement?:Record<string,unknown>;
+    exactComplement?:Readonly<{field:string;raw:string}>;erase?:boolean;
+    projected?:readonly Readonly<{name:'then'|'else';plan:GuardProjection}>[]}>;
+
+/** Prove reductions using sibling assertions and the actual branch languages.
+ * No then/else assertion becomes an unconditional assumption merely because
+ * it is physically nested beneath the same Schema Object. */
+export function conditionalPlan(graph:ReferenceGraph,scope:GraphScope,target:string,active=new Set<string>(),assumptions:readonly GraphScope[]=[],guard?:SchemaGuardAssumptions):ConditionPlan|undefined {
+    const doc=graph.docs.get(scope.resource)!,value=doc.dataNode(scope.pointer)?.value;
+    const predicate=graph.scopeAs(scope.resource,scope.pointer+'/if','schema');if(!predicate)return;
+    const proofs=new MigrationSchemaProofs(graph);
+    let selectedPredicate=predicate,conditionDoc=doc,condition=doc.dataNode(predicate.pointer)?.value;
+    const followed=new Set<string>();
+    while(condition&&typeof condition==='object'&&!Array.isArray(condition)){
+        const fields=Object.keys(condition).filter(field=>!['$id','$schema','$anchor','$dynamicAnchor'].includes(field));
+        if(fields.length!==1)break;
+        const id=JSON.stringify([selectedPredicate.resource,selectedPredicate.pointer]);
+        if(followed.has(id)||followed.size>=128)break;followed.add(id);
+        let resolved:GraphScope|undefined;
+        if(['$ref','$dynamicRef'].includes(fields[0]))resolved=proofs.fixed(selectedPredicate,fields[0]);
+        else if(['allOf','anyOf','oneOf'].includes(fields[0]))resolved=proofs.equivalentBranch(selectedPredicate,fields[0]);
+        else if(fields[0]==='not'){
+            const child=graph.scopeAs(selectedPredicate.resource,selectedPredicate.pointer+'/not','schema');
+            const body=child&&graph.docs.get(child.resource)!.dataNode(child.pointer)?.value;
+            if(body&&Object.keys(body).filter(field=>!['$id','$schema','$anchor','$dynamicAnchor'].includes(field)).every(field=>field==='not'))
+                resolved=graph.scopeAs(child.resource,child.pointer+'/not','schema');
+        }
+        if(!resolved)break;
+        selectedPredicate=resolved;conditionDoc=graph.docs.get(resolved.resource)!;condition=conditionDoc.dataNode(resolved.pointer)?.value;
+    }
+    if(proofs.conjuncts(predicate).some(part=>part.resource===scope.resource&&part.pointer===scope.pointer))return;
+    const positive=graph.scopeAs(scope.resource,scope.pointer+'/then','schema'),negative=graph.scopeAs(scope.resource,scope.pointer+'/else','schema');
+    const presence=new MigrationPropertyPresence(graph);
+    const domains=new Set([...proofs.domains(scope)].filter(kind=>assumptions.every(parent=>proofs.domains(parent).has(kind))));
+    const selection=guard??{domains,present:(name:string)=>[scope,...assumptions].some(parent=>presence.requires(parent,name)),
+        absent:(name:string)=>[scope,...assumptions].some(parent=>presence.absent(parent,name))};
+    const guarded=proofs.guardedTruth(predicate,selection,[scope,...assumptions]);
+    if(guarded===true)return {selected:'then',assertCondition:!proofs.annotationFree(predicate)&&!proofs.annotationsInactiveIn(predicate,selection.domains)};
+    if(guarded===false)return {selected:'else'};
+    if([scope,...assumptions].some(parent=>proofs.implies(parent,predicate))||negative&&proofs.implies(negative,predicate))return {selected:'then',assertCondition:true};
+    if([scope,...assumptions].some(parent=>proofs.disjoint(parent,predicate)))return {selected:'else'};
+    if(target!=='2.0')return;
+    const constant=(child:GraphScope|undefined)=>child?
+        child===positive&&(proofs.disjoint(predicate,child)||proofs.disjoint(scope,child))?false:constantCondition(graph,child):true;
+    if(constant(negative)===false)return {selected:'then',assertCondition:true};
+    const fields=condition&&typeof condition==='object'&&!Array.isArray(condition)?
+        Object.keys(condition).filter(field=>!['$id','$schema','$anchor','$dynamicAnchor'].includes(field)):[];
+    const plainType=fields.length===1&&fields[0]==='type'&&typeof condition.type==='string'&&condition.type!=='integer';
+    const plainPresence=fields.length===1&&fields[0]==='required'&&Array.isArray(condition.required)&&condition.required.length===1;
+    if(constant(positive)===false){
+        if(plainType){
+            const types=['null','boolean','object','array','number','string'].filter(type=>type!==condition.type);
+            return {selected:'else',complement:{type:types}};
+        }
+        if(plainPresence)return {selected:'else',complement:{type:'object',properties:{[condition.required[0]]:restrictedBooleanSchema(false,target)}}};
+        if(fields.length===1){
+            const field=fields[0],numeric=['minimum','maximum','exclusiveMinimum','exclusiveMaximum'].includes(field);
+            if(numeric&&typeof condition[field]==='number'){
+                const lower=field==='minimum'||field==='exclusiveMinimum',bound=lower?'maximum':'minimum';
+                return {selected:'else',complement:{type:'number',[lower?'exclusiveMaximum':'exclusiveMinimum']:!field.startsWith('exclusive')},
+                    exactComplement:{field:bound,raw:conditionDoc.dataJson(selectedPredicate.pointer+'/'+field)}};
+            }
+            const domain=field.endsWith('Length')?'string':field.endsWith('Items')?'array':field.endsWith('Properties')?'object':undefined;
+            if(domain&&/^(?:min|max)(?:Length|Items|Properties)$/.test(field)){
+                const exact=decimal(conditionDoc.dataJson(selectedPredicate.pointer+'/'+field));
+                if(exact.exponent>=0n&&exact.exponent<=4096n){
+                    const lower=field.startsWith('min'),bound=exact.coefficient*10n**exact.exponent+(lower?-1n:1n);
+                    return bound<0n?{selected:'else',complement:restrictedBooleanSchema(false,target)}:
+                        {selected:'else',complement:{type:domain,...(domain==='array'?{items:{}}:{})},
+                            exactComplement:{field:(lower?'max':'min')+field.slice(3),raw:String(bound)}};
+                }
+            }
+        }
+    }
+    if(!proofs.annotationsCoveredByProperties(predicate,new Set(Object.keys(value.properties??{}))))return;
+    const inactive=(child:GraphScope|undefined)=>!child||constant(child)===true;
+    if(inactive(negative)&&positive&&proofs.annotationsInactiveIn(positive,proofs.domains(predicate))&&proofs.implies(predicate,positive))return {erase:true};
+    if(inactive(negative)&&positive&&proofs.annotationFree(positive)&&proofs.implies(predicate,positive))return {erase:true};
+    if(plainType&&positive&&negative&&proofs.neutralOutside(positive,new Set([condition.type]))&&
+        proofs.neutralOutside(negative,new Set(['null','boolean','object','array','number','string'].filter(type=>type!==condition.type))))return {selected:'both'};
+    if(inactive(negative)&&positive&&(
+        plainType&&proofs.neutralOutside(positive,new Set([condition.type]))||
+        plainPresence&&proofs.neutralWithoutProperty(positive,condition.required[0])))return {selected:'then'};
+    if(inactive(positive)&&negative&&plainType&&proofs.neutralOutside(negative,
+        new Set(['null','boolean','object','array','number','string'].filter(type=>type!==condition.type))))return {selected:'else'};
+    if(plainType){
+        const domains=new Set<string>([condition.type]),opposite=new Set(['null','boolean','object','array','number','string'].filter(type=>type!==condition.type));
+        const then=positive?schemaGuardProjection(graph,positive,{domains},proofs,active):undefined;
+        const otherwise=negative?schemaGuardProjection(graph,negative,{domains:opposite},proofs,active):undefined;
+        if(inactive(negative)&&then)return {selected:'then',projected:[{name:'then',plan:then}]};
+        if(inactive(positive)&&otherwise)return {selected:'else',projected:[{name:'else',plan:otherwise}]};
+        if(then&&otherwise)return {selected:'both',projected:[{name:'then',plan:then},{name:'else',plan:otherwise}]};
+    }
+    if(plainPresence&&positive&&inactive(negative)){
+        const explicit=new MigrationPropertyPresence(graph),plan=schemaGuardProjection(graph,positive,
+            {property:condition.required[0],conditionalPresence:true,unconditional:name=>explicit.unconditional(scope,name)},proofs,active);
+        if(plan)return {selected:'then',projected:[{name:'then',plan}]};
+    }
+    if([positive,negative].every(child=>!child||
+        (proofs.annotationsInactiveIn(child,proofs.domains(scope))||proofs.annotationsCoveredByProperties(child,new Set(Object.keys(value.properties??{}))))&&
+            proofs.implies(scope,child)))return {erase:true};
+}
+
+/** Shared source selection certificate for ordinary lowering and outer guard
+ * composition. Unselected branches remain independent schemas; this describes
+ * only the applicator's effect on the containing instance. */
+export function capturedConditionalPlan(graph:ReferenceGraph,scope:GraphScope,target:string,active=new Set<string>(),assumptions:readonly GraphScope[]=[],guard?:SchemaGuardAssumptions):ConditionPlan|undefined {
+    const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
+    if(!Object.hasOwn(value??{},'if'))return {erase:true};
+    const predicate=graph.scopeAs(scope.resource,scope.pointer+'/if','schema');
+    const constant=predicate?constantCondition(graph,predicate):undefined;
+    if(constant!==undefined)return {selected:constant?'then':'else'};
+    return conditionalPlan(graph,scope,target,active,assumptions,guard)??(equivalentConditionBranches(graph,scope)?{selected:'then'}:undefined);
+}
+
+/** Prove only annotation-free constants, through captured fixed references.
+ * Resource metadata does not produce instance annotations. An assertion,
+ * annotation, competing dynamic target or cycle keeps the ordinary mapping.
+ * This finite proof is not a satisfiability search. */
+export function constantCondition(graph:ReferenceGraph,initial:GraphScope):boolean|undefined {
+    const existing=constantSchemaAssertion(graph,initial);if(existing!==undefined)return existing;
+    const proof=new MigrationSchemaProofs(graph),truth=proof.validationConstant(initial);
+    return truth===false?false:truth===true&&proof.annotationFree(initial)?true:undefined;
+}
+
+/** Type/enum/const assertions collect no instance-location annotations. When
+ * both branches have the same exact schema and resource context, selection
+ * cannot change either assertions or annotations. Keep all three authored
+ * schemas as material owners while applying the shared branch once. */
+export function equivalentConditionBranches(graph:ReferenceGraph,scope:GraphScope):boolean {
+    const doc=graph.docs.get(scope.resource)!,condition=graph.scopeAs(scope.resource,scope.pointer+'/if','schema');
+    const value=doc.dataNode(scope.pointer+'/if')?.value;
+    if(!condition||!supportedSchemaDialect(condition)||!new MigrationSchemaProofs(graph).annotationsCoveredByProperties(condition,
+        new Set(Object.keys(doc.dataNode(scope.pointer)?.value?.properties??{}))))return false;
+    const positive=graph.scopeAs(scope.resource,scope.pointer+'/then','schema'),negative=graph.scopeAs(scope.resource,scope.pointer+'/else','schema');
+    return positive!==undefined&&negative!==undefined&&
+        schemaResourceContextIdentity(positive)===schemaResourceContextIdentity(negative)&&
+        sourceValueIdentity(doc,positive.pointer)===sourceValueIdentity(doc,negative.pointer);
+}
 
 type GuardPolicy=Readonly<{domains?:ReadonlySet<string>;property?:string;conditionalPresence?:boolean;
     unconditional?:(name:string)=>boolean;present?:(name:string)=>boolean;absent?:(name:string)=>boolean;assumptions?:readonly GraphScope[]}>;

@@ -1,3 +1,4 @@
+import {graphInput} from './source_capture';
 import {escape,SourceDocument,SourceError,valueType} from './document';
 import {proveFiniteNamedLanguage,multipartFieldName,type FiniteNamedLanguage,type NamedPart} from './migration_multipart_language';
 import {proveFiniteNamedTuples} from './migration_multipart_tuples';
@@ -169,9 +170,9 @@ export class NamedMultipartEquivalence {
   const index=parts.findIndex(part=>part.name!==parts[0].name);if(index<0)return false;
   const count=Math.max(minimum,index+1),before=literals.slice(0,count),after=[...before];
   [after[0],after[index]]=[after[index],after[0]];
-  const resources=[...this.graph.docs].map(([id,doc])=>({id,text:doc.text,generation:0}));
+  const resources=graphInput(this.graph).resources;
   if(resources.reduce((bytes,resource)=>bytes+resource.text.length,0)>128*1024*1024)return false;
-  const checked=await evaluateSchemas({root:this.graph.root,snapshot:'named-order-counterexample',resources,runtimeInstances:[
+  const checked=await evaluateSchemas({...graphInput(this.graph),snapshot:'named-order-counterexample',resources,runtimeInstances:[
    {subject:'request-body',location:'before',text:'['+before.join(',')+']',schema},
    {subject:'request-body',location:'after',text:'['+after.join(',')+']',schema},
    ...(item?before.map(text=>({subject:'request-body',location:'item',text,schema:item})):[])]});

@@ -32,7 +32,7 @@ export class BooleanSchemaMigration {
 
         const owner=this.owners.reserve(scope,'additional'),entry=owner.source,destination=owner.location.pointer;
         this.owners.admit(source,4);if(entry!==source)this.owners.admit(entry,4);
-        entry.copy(source,pointer,destination);
+        this.owners.copyInto(source,pointer,owner.location);
         // The copy now owns incoming schema references. Leaving this physical
         // field in its target set would make reference repair ambiguous. Its
         // containing object's provenance still retains the unchanged field.

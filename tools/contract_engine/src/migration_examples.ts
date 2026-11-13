@@ -1,3 +1,4 @@
+import {graphInput} from './source_capture';
 import {createHash} from 'node:crypto';
 import {posix} from 'node:path';
 import {SourceError} from './document';
@@ -45,8 +46,7 @@ export function migrationExampleBytes(raw:string,media:string):Buffer {
 export async function migrationModeledExampleBytes(graph:ReferenceGraph,media:string,text:string,
     schema?:PlannedLocation,header=false,packets:readonly ExternalExampleResourcePacket[]=[],itemSchema?:PlannedLocation):Promise<Buffer> {
     const family=graph.family;if(!isNativeFamily(family))throw new SourceError('migration.example.family','The captured example has no native family',[0,0],'unsupported');
-    const resources=[...graph.docs.values()].map(doc=>({id:doc.id,text:doc.text,generation:0}));
-    const input={root:graph.root,resources,snapshot:'migration-example',exampleResources:packets},
+    const input={...graphInput(graph),snapshot:'migration-example',exampleResources:packets},
         context={docs:graph.docs,graph,family,exampleResources:new CapturedExampleResources([...packets])};
     const bytes=(await prepareModeledMedia(input,text,media,schema,header,undefined,context)).bytes;
     if(itemSchema){

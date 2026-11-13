@@ -196,7 +196,7 @@ export class SourcePlan {
         for(const values of this.originSets())for(const at of [...values])if(inside(at,pointer)){values.delete(at);values.add(to+at.slice(pointer.length));}
         return to;
     }
-    copy(source:SourcePlan,from:string,to:string,entryComments=false):void {
+    copy(source:SourcePlan,from:string,to:string,entryComments=false,replaceReserved=false):void {
         source.own(from,true,true);
         const before=source.doc,node=before.node(from);
         source.located(from,()=>{before.assertSafe(from);before.assertUnshared(from,true);});
@@ -205,7 +205,12 @@ export class SourcePlan {
         const parts=segments(to),name=parts.pop()!,parent=parts.length?'/'+parts.map(escape).join('/'):'',expected=before.dataJson(from),identity=sourceValueIdentity(before,from);
         this.ensure(parent);
         this.own(parent,false);
-        if(this.doc.nodes.has(to))throw new SourceError('migration.collision','A migration destination already exists at '+to);
+        if(this.doc.nodes.has(to)){
+            const slot=this.doc.node(to);
+            if(!replaceReserved||this.original.dataNode(to)||slot.kind!=='object'||slot.children.size!==0)
+                throw new SourceError('migration.collision','A migration destination already exists at '+to);
+            this.located(to,()=>this.doc.assertUnshared(to,true));
+        }
         const owner=this.doc.node(parent),block=before.format==='yaml'&&!node.flow&&(node.kind==='object'||node.kind==='array');
         // Collection ranges begin at their first value token. Comments between
         // the entry key and that token still belong to the copied occurrence.
@@ -267,9 +272,9 @@ export class SourcePlan {
             locations.add(to);map.set(key,locations);
         }
     }
-    move(from:string,to:string,entryComments=false):void {
+    move(from:string,to:string,entryComments=false,replaceReserved=false):void {
         if(from===to)return;
-        this.copy(this,from,to,entryComments);
+        this.copy(this,from,to,entryComments,replaceReserved);
         // The copy already owns these parsed comment occurrences. Retiring the
         // old container must not preserve them a second time. Equal comment
         // texts at different ranges remain distinct authored occurrences.

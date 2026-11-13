@@ -1,5 +1,5 @@
 import {escape,SourceError} from './document';
-import type {Resource} from './engine';
+import {graphInput} from './source_capture';
 import {evaluateSchemas} from './schema_evaluation';
 import type {GraphScope,ReferenceGraph} from './reference_graph';
 import type {SourcePlan} from './source_plan';
@@ -152,7 +152,7 @@ export class FiniteMigrationDomain {
 }
 
 export async function migrateFiniteSchemaDomain(graph:ReferenceGraph,scope:GraphScope,source:SourcePlan,target:string,
-    owners:MigrationSchemaOwners,references:readonly GraphReference[],resources:readonly Resource[],exampleResources:readonly ExternalExampleResourcePacket[],flatItems=false):Promise<boolean> {
+    owners:MigrationSchemaOwners,references:readonly GraphReference[],exampleResources:readonly ExternalExampleResourcePacket[],flatItems=false):Promise<boolean> {
     const doc=graph.docs.get(scope.resource)!,value=doc.dataNode(scope.pointer)?.value,pointer=source.current(scope.pointer,scope.resource);
     if(pointer===undefined||!value||typeof value!=='object'||graph.referenceObject(value,scope))return false;
     if(graph.literalContainer(scope.resource,scope.pointer)!==undefined||graph.hasOverlappingScope(scope.resource,scope.pointer))return false;
@@ -201,16 +201,15 @@ export async function migrateFiniteSchemaDomain(graph:ReferenceGraph,scope:Graph
         if(maximum===undefined||maximum>value.prefixItems.length)return false;
     }
     const candidates=new FiniteMigrationDomain(graph).values(scope);if(candidates===undefined)return false;
-    const capture=resources.filter(resource=>graph.docs.has(resource.id)).map(resource=>({...resource,text:graph.docs.get(resource.id)!.text}));
+    const capture=graphInput(graph);
     const range=doc.dataNode(scope.pointer)!.range;
-    if((capture.reduce((bytes,resource)=>bytes+resource.text.length,0)+exampleResources.reduce((bytes,resource)=>bytes+(resource.state==='available'?resource.byteLength:0),0))*Math.ceil(candidates.length/4)>128*1024*1024)
+    if((capture.resources.reduce((bytes,resource)=>bytes+resource.text.length,0)+exampleResources.reduce((bytes,resource)=>bytes+(resource.state==='available'?resource.byteLength:0),0))*Math.ceil(candidates.length/4)>128*1024*1024)
         throw new SourceError('limit.migration.finite-work','Exhaustive finite-domain evaluation exceeds its captured-source work budget',range,'unsupported',{...scope,range});
     const accepted:string[]=[];
     // Small independent batches preserve complete native diagnostics, including
     // negative instances, without treating a truncated finding list as proof.
     for(let offset=0;offset<candidates.length;offset+=4){
-        const batch=candidates.slice(offset,offset+4),checked=await evaluateSchemas({root:graph.root,snapshot:'migration-finite-source:'+offset,
-            resources:capture,exampleResources,runtimeInstances:['request-body','response-body'].flatMap(subject=>batch.map(text=>({subject,location:'finite-domain',text,
+        const batch=candidates.slice(offset,offset+4),checked=await evaluateSchemas({...capture,snapshot:'migration-finite-source:'+offset,exampleResources,runtimeInstances:['request-body','response-body'].flatMap(subject=>batch.map(text=>({subject,location:'finite-domain',text,
                 schema:{resource:scope.resource,pointer:scope.pointer}}))),
         });
         if(!checked.complete||checked.findings.some(value=>value.severity==='error')||checked.runtimeEvaluations.length!==batch.length*2||checked.runtimeEvaluations.some(value=>!value.complete))

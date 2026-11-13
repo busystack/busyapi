@@ -1,4 +1,3 @@
-import {createHash} from 'node:crypto';
 import {escape,SourceDocument,SourceError} from './document';
 import type {ExternalExampleResourcePacket} from './external_examples';
 import {pointerFragment,type GraphScope,type ReferenceGraph} from './reference_graph';
@@ -12,7 +11,7 @@ import type {MigrationSchemaOwners} from './migration_schema_owners';
 import {logicalSourcePointers} from './source_yaml_ownership';
 import {isNativeFamily} from './specification';
 import {capturedRuntimeMedia} from './runtime_media_owner';
-import type {Resource} from './engine';
+import {graphInput} from './source_capture';
 import {MigrationSchemaProofs,migrationExactValueIdentity} from './migration_schema_proofs';
 import {schemaContext} from './schema_context';
 import {swaggerFlat} from './swagger_operation';
@@ -39,14 +38,6 @@ class ParameterProofBudget {
  private states=0;
  private bytes=0;
  private finite=new WeakMap<ReferenceGraph,FiniteMigrationDomain>();
- private captures=new WeakMap<ReferenceGraph,Resource[]>();
- resources(graph:ReferenceGraph):Resource[] {
-  let resources=this.captures.get(graph);if(resources)return resources;
-  const aliases=new Map([...graph.docs.keys()].map(id=>[id,new Set([graph.retrievals.get(id)??id])]));
-  for(const [uri,targets]of graph.identities)if(targets.length===1&&targets[0].pointer==='')aliases.get(targets[0].resource)?.add(uri);
-  resources=[...graph.docs].map(([id,doc])=>({id,text:doc.text,generation:0,identity:createHash('sha256').update(doc.text).digest('hex'),aliases:[...aliases.get(id)!]}));
-  this.captures.set(graph,resources);return resources;
- }
  candidates(graph:ReferenceGraph,scope:GraphScope):string[]|undefined {
   let finite=this.finite.get(graph);
   if(!finite){finite=new FiniteMigrationDomain(graph);this.finite.set(graph,finite);}
@@ -108,11 +99,11 @@ const emptyTextDomain=(owner:Declaration,values:Domain)=>plainQueryMedia(owner)&
 async function domain(graph:ReferenceGraph,owner:Declaration,examples:readonly ExternalExampleResourcePacket[],budget:ParameterProofBudget):Promise<Domain|undefined> {
  if(!owner.schema)return;
  const candidates=budget.candidates(graph,owner.schema);if(!candidates)return;
- const resources=budget.resources(graph);
+ const resources=graphInput(graph).resources;
  budget.admit(candidates.length,(resources.reduce((size,item)=>size+item.text.length,0)+examples.reduce((size,item)=>size+(item.state==='available'?item.byteLength:0),0))*Math.ceil(candidates.length/4));
  const accepted:string[]=[];
  for(let offset=0;offset<candidates.length;offset+=4){
-  const batch=candidates.slice(offset,offset+4),result=await evaluateSchemas({root:graph.root,resources,exampleResources:examples,
+  const batch=candidates.slice(offset,offset+4),result=await evaluateSchemas({...graphInput(graph),exampleResources:examples,
    snapshot:'migration-parameter-domain:'+offset,runtimeInstances:batch.map(text=>({subject:'request-parameter',location:'finite-domain',text,
     schema:{resource:owner.schema!.resource,pointer:owner.schema!.pointer}}))});
   if(!result.complete||result.runtimeEvaluations.length!==batch.length||result.runtimeEvaluations.some(value=>!value.complete)||result.findings.some(value=>value.severity==='error'))return;
@@ -247,14 +238,14 @@ export async function decodeMigrationParameterExample(graph:ReferenceGraph,at:Gr
   if(owner.wholeForm)return decodeMigrationRawQuery(graph,at,text,examples);
   if(text!==''||!plainQueryMedia(owner))return;
   const budget=new ParameterProofBudget(),decoded=decodeRuntimeMedia(text,'file:///migration-empty-text.json',owner.media).document.dataJson('');
-  const checked=await evaluateSchemas({root:graph.root,resources:budget.resources(graph),exampleResources:examples,snapshot:'migration-empty-text',
+  const checked=await evaluateSchemas({...graphInput(graph),exampleResources:examples,snapshot:'migration-empty-text',
    runtimeInstances:[{subject:'request-parameter',location:'empty-text',text:decoded,schema:owner.schema}]});
   return checked.complete&&checked.runtimeEvaluations.length===1&&checked.runtimeEvaluations[0].complete&&checked.runtimeEvaluations[0].valid?decoded:undefined;
  }
  const budget=new ParameterProofBudget(),accepted=new Map<string,string>();
  const evaluate=parameterSerializationEvaluator(graph,async instances=>{
   const grouped=instances.map(instance=>[instance.text,...instance.alternatives??[]].map(text=>({...instance,text,alternatives:undefined}))),candidates=grouped.flat();
-  const checked=await evaluateSchemas({root:graph.root,resources:budget.resources(graph),exampleResources:examples,snapshot:'migration-example-inverse',runtimeInstances:candidates});
+  const checked=await evaluateSchemas({...graphInput(graph),exampleResources:examples,snapshot:'migration-example-inverse',runtimeInstances:candidates});
   for(const [index,result]of checked.runtimeEvaluations.entries())if(result.complete&&result.valid){
    const candidate=candidates[index];
    const raw=candidate.mediaType?decodeRuntimeMedia(candidate.text,'file:///migration-example-inverse.json',candidate.mediaType,candidate.mediaBase64).document.dataJson(''):candidate.text;
@@ -298,10 +289,10 @@ function equalWire(before:Declaration,after:Declaration,values:Domain):boolean {
  * field attribution, media decoding and the original request schema owner. */
 async function wireLanguage(graph:ReferenceGraph,owner:Declaration,values:Domain,examples:readonly ExternalExampleResourcePacket[],budget:ParameterProofBudget):Promise<boolean> {
  const texts=values.map(raw=>wire(owner,raw)?.text);if(texts.some(text=>text===undefined))return false;
- const emitted=[...new Set(texts.filter(text=>text!==''))] as string[],resources=budget.resources(graph);
+ const emitted=[...new Set(texts.filter(text=>text!==''))] as string[],resources=graphInput(graph).resources;
  budget.admit(emitted.length,(resources.reduce((size,item)=>size+item.text.length,0)+examples.reduce((size,item)=>size+(item.state==='available'?item.byteLength:0),0))*Math.ceil(emitted.length/4));
  for(let offset=0;offset<emitted.length;offset+=4){
-  const batch=emitted.slice(offset,offset+4),result=await evaluateSchemas({root:graph.root,resources,exampleResources:examples,
+  const batch=emitted.slice(offset,offset+4),result=await evaluateSchemas({...graphInput(graph),exampleResources:examples,
    snapshot:'migration-parameter-wire:'+offset,runtimeInstances:batch.map(text=>({subject:'request-parameter',location:'finite-wire',text,
     parameter:{resource:owner.scope.resource,pointer:owner.scope.pointer}}))});
   if(!result.complete||result.runtimeEvaluations.length!==batch.length||result.runtimeEvaluations.some(value=>!value.complete||!value.valid)||
@@ -490,7 +481,7 @@ export async function decodeMigrationRawQuery(source:ReferenceGraph,before:Sourc
   const doc=decoded.document,names=[...new Set(decoded.fieldOrder)];
   if(names.length!==doc.dataNode('')!.children.size||names.some(name=>!doc.dataNode('/'+escape(name))))return;
   const raw='{'+names.map(name=>JSON.stringify(name)+':'+doc.dataJson('/'+escape(name))).join(',')+'}';
-  const budget=new ParameterProofBudget(),checked=await evaluateSchemas({root:source.root,resources:budget.resources(source),exampleResources:examples,
+  const budget=new ParameterProofBudget(),checked=await evaluateSchemas({...graphInput(source),exampleResources:examples,
    snapshot:'migration-raw-query',runtimeInstances:[{subject:'request-parameter',location:'saved-query',text:raw,schema:first.schema}]});
   if(!checked.complete||checked.runtimeEvaluations.length!==1||!checked.runtimeEvaluations[0].complete||!checked.runtimeEvaluations[0].valid||checked.findings.some(note=>note.severity==='error'))return;
   return raw;

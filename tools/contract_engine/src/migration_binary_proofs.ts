@@ -2,6 +2,7 @@ import {createHash} from 'node:crypto';
 import {SourceDocument,SourceError,escape} from './document';
 import {compare,decimal} from './exact_numbers';
 import {evaluateSchemas} from './schema_evaluation';
+import {graphInput} from './source_capture';
 import {pointerFragment,supportedSchemaDialect,type GraphScope,type ReferenceGraph} from './reference_graph';
 import {modernFamily} from './specification';
 import {projectSchemaReference} from './schema_reference_projection';
@@ -218,8 +219,9 @@ export class BinaryConstraintProofs {
         const family=state.scope.family,declaration=family==='2.0'?'swagger':'openapi',version=family==='2.0'?'2.0':'3.0.4',container=family==='2.0'?'definitions':'components';
         clauses.push('{"$ref":'+JSON.stringify(state.scope.resource+pointerFragment(state.scope.pointer))+'}');
         const schema='{"allOf":['+clauses.join(',')+']}',body='{"'+declaration+'":'+JSON.stringify(version)+',"info":{"title":"Binary source proof","version":"proof"},"paths":{},"'+container+'":'+(family==='2.0'?'{"Proof":'+schema+'}':'{"schemas":{"Proof":'+schema+'}}')+'}';
-        const id='urn:busyapi:binary-proof:'+createHash('sha256').update(body).digest('hex');
-        const accepted=await this.evaluate([{id,text:body,generation:0,identity:createHash('sha256').update(body).digest('hex')},...this.resources()],id,{resource:id,pointer:family==='2.0'?'/definitions/Proof':'/components/schemas/Proof'},candidates);
+        const identity=createHash('sha256').update(body).digest('hex'),id='urn:busyapi:binary-proof:'+identity,capture=graphInput(this.graph,id);
+        const accepted=await this.evaluate({...capture,resources:[{id,text:body,generation:0,identity},...capture.resources]},
+            {resource:id,pointer:family==='2.0'?'/definitions/Proof':'/components/schemas/Proof'},candidates);
         if(accepted===undefined)return;
         const counts=new Map<number,number>();for(const text of accepted){const length=(JSON.parse(text) as string).length;counts.set(length,(counts.get(length)??0)+1);}
         for(const [length,count]of counts)if(length>1||count!==(length===0?1:256))return;
@@ -248,7 +250,7 @@ export class BinaryConstraintProofs {
             // Positive allOf/ref envelopes retain inherited object/item rules.
             // Branching envelopes reset at not/oneOf/anyOf/conditionals.
             for(const envelope of unique<GraphScope>(entry.states.map(state=>state.envelope),key)){
-                const result=await this.evaluate(this.resources(),this.graph.root,envelope,texts);if(result===undefined){entry.complete=false;continue;}
+                const result=await this.evaluate(graphInput(this.graph),envelope,texts);if(result===undefined){entry.complete=false;continue;}
                 for(const text of result)accepted.add(text);
             }
             entry.literalValues.set(field,[...accepted]);
@@ -261,15 +263,14 @@ export class BinaryConstraintProofs {
             if(entry.complete)entry.literals.push({field,assertion:assertions.length===0?'{"not":{}}':assertions.length===1?assertions[0]:'{"anyOf":['+assertions.join(',')+']}'});
         }
     }
-    private resources(){return [...this.graph.docs].map(([id,doc])=>({id,text:doc.text,generation:0,identity:createHash('sha256').update(doc.text).digest('hex'),
-        aliases:[...this.graph.retrievals].filter(([alias,target])=>target===id&&alias!==id).map(([alias])=>alias)}));}
-    private async evaluate(resources:readonly {id:string;text:string;generation:number;identity:string;aliases?:string[]}[],root:string,scope:Pick<GraphScope,'resource'|'pointer'>,values:readonly string[]):Promise<readonly string[]|undefined>{
-        const cache=createHash('sha256').update(JSON.stringify([root,key(scope),resources.map(resource=>[resource.id,resource.text]),values])).digest('hex');
+    private async evaluate(capture:ReturnType<typeof graphInput>,scope:Pick<GraphScope,'resource'|'pointer'>,values:readonly string[]):Promise<readonly string[]|undefined>{
+        const {root,resources}=capture;
+        const cache=JSON.stringify([root,key(scope),values]);
         if(this.evaluations.has(cache))return this.evaluations.get(cache);
         const cost=resources.reduce((cost,resource)=>cost+resource.text.length,0)*Math.ceil(values.length/4);if(cost>128*1024*1024||(this.evaluationWork+=cost)>256*1024*1024)return;
         const accepted:string[]=[];
         for(let offset=0;offset<values.length;offset+=4){
-            this.inspect();const batch=values.slice(offset,offset+4),checked=await evaluateSchemas({root,snapshot:'migration-binary-source-proof',resources:[...resources],
+            this.inspect();const batch=values.slice(offset,offset+4),checked=await evaluateSchemas({...capture,snapshot:'migration-binary-source-proof',
                 runtimeInstances:['request-body','response-body'].flatMap(subject=>batch.map(text=>({subject,text,location:'binary-exhaustive-language',schema:{resource:scope.resource,pointer:scope.pointer}}))) });
             if(!checked.complete||checked.findings.some(finding=>finding.severity==='error')||checked.runtimeEvaluations.length!==batch.length*2||checked.runtimeEvaluations.some(value=>!value.complete))return;
             for(const [index,text]of batch.entries()){

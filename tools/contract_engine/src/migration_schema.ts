@@ -25,8 +25,6 @@ import {discardInactiveUnevaluated,migrateSchemaUnevaluated} from './migration_s
 import {MigrationArrayBounds,migrateConstantContains,migrateArrayAlternatives} from './migration_schema_arrays';
 import {migrationScopes,migrationReferences} from './migration_documents';
 import {migrateFiniteSchemaDomain} from './migration_finite_domain';
-import type {Resource} from './engine';
-import {createHash} from 'node:crypto';
 import type {ExternalExampleResourcePacket} from './external_examples';
 import {flatSchemaScopes} from './migration_flat_items';
 
@@ -39,7 +37,6 @@ export type MigrationChoose=(scope:MigrationIssueLocation,code:string,message:st
 /** Normative schema mappings. No schema is evaluated under another family's
  * dialect to make a migration pass. These edits affect planning copies only. */
 export async function migrateSchemas(graph:ReferenceGraph,sources:Map<string,SourcePlan>,from:string,to:string,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph],
-    resources:readonly Resource[]=[...graph.docs].map(([id,doc])=>({id,text:doc.text,generation:0,identity:createHash('sha256').update(doc.text).digest('hex')})),
     exampleResources:readonly ExternalExampleResourcePacket[]=[]):Promise<void> {
     const references=new MigrationSchemaReferences(graph,contexts);
     const owners=new MigrationSchemaOwners(graph,sources,undefined,[],contexts);
@@ -88,7 +85,7 @@ export async function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Sou
         const context=owners.contextOf(scope);if(!context)continue;
         const name=context.docs.get(scope.resource)!.dataNode(scope.pointer+'/propertyNames');
         if(name&&finitePropertyNameSet(name.value)===undefined){
-            const proof=await namesFor(context).restriction(scope,resources,exampleResources);
+            const proof=await namesFor(context).restriction(scope,exampleResources);
             if(proof)nameProofs.set(JSON.stringify([scope.resource,scope.pointer]),proof);
         }
     }
@@ -117,7 +114,7 @@ export async function migrateSchemas(graph:ReferenceGraph,sources:Map<string,Sou
                 guardedBodies.add(JSON.stringify([guarded.resource,guarded.pointer]));
             const nativeDependency=to==='2.0'&&nativeSchemaDependencies(context,scope,requirementsFor(context));
             if(!nativeDependency&&!guardedBodies.has(JSON.stringify([scope.resource,scope.pointer]))&&
-                await migrateFiniteSchemaDomain(context,scope,source,to,owners,capturedReferences,resources,exampleResources,flatItems.has(JSON.stringify([scope.resource,scope.pointer]))))continue;
+                await migrateFiniteSchemaDomain(context,scope,source,to,owners,capturedReferences,exampleResources,flatItems.has(JSON.stringify([scope.resource,scope.pointer]))))continue;
             if(!modernFamily(from))continue;
             discardInactiveSchemaConditions(context,scope,source,owners,capturedReferences,to);
             discardInactiveSchemaDependencies(context,scope,source,requirementsFor(context),owners,capturedReferences,to);

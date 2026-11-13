@@ -3,7 +3,7 @@ import {MigrationSchemaProofs} from './migration_schema_proofs';
 import {finitePropertyNameSet,type MigrationNameRestriction} from './migration_schema_property_names';
 import {evaluateSchemas} from './schema_evaluation';
 import type {GraphScope,ReferenceGraph} from './reference_graph';
-import type {Resource} from './engine';
+import {graphInput} from './source_capture';
 import type {ExternalExampleResourcePacket} from './external_examples';
 import {finiteRegexNameSuperset} from './migration_schema_regex';
 
@@ -130,20 +130,19 @@ export class MigrationPropertyDomains {
     /** Evaluate the complete name schema, on strings only, using the existing
      * exact, dialect/resource-aware evaluator. The candidates are exhaustive
      * for this occurrence, not a claim about an independent name-schema use. */
-    async restriction(scope:GraphScope,resources:readonly Resource[],exampleResources:readonly ExternalExampleResourcePacket[]):Promise<MigrationNameRestriction|undefined> {
+    async restriction(scope:GraphScope,exampleResources:readonly ExternalExampleResourcePacket[]):Promise<MigrationNameRestriction|undefined> {
         const child=this.graph.scopeAs(scope.resource,scope.pointer+'/propertyNames','schema');if(!child)return;
         if(!this.proofs.annotationsInactiveIn(child,new Set(['string'])))return;
         const truth=this.proofs.constantInDomains(child,new Set(['string']));
         if(truth!==undefined)return {names:truth?undefined:[]};
         const allowed=this.names(scope),excluded=allowed===undefined?this.excluded(child):undefined,candidates=allowed??excluded;
         if(candidates===undefined)return;
-        const capture=resources.filter(resource=>this.graph.docs.has(resource.id)).map(resource=>({...resource,text:this.graph.docs.get(resource.id)!.text}));
-        if(capture.reduce((size,resource)=>size+resource.text.length,0)*Math.ceil(candidates.length/4)>128*1024*1024)
+        const capture=graphInput(this.graph);
+        if(capture.resources.reduce((size,resource)=>size+resource.text.length,0)*Math.ceil(candidates.length/4)>128*1024*1024)
             throw new SourceError('limit.migration.name-proof','Captured property-name evaluation exceeds 128 MiB of source work');
         const names:string[]=[];
         for(let offset=0;offset<candidates.length;offset+=4){
-            const batch=candidates.slice(offset,offset+4),result=await evaluateSchemas({root:this.graph.root,snapshot:'migration-name-proof:'+offset,
-                resources:capture,exampleResources,runtimeInstances:batch.map(name=>({subject:'response-body',location:'property-name',text:JSON.stringify(name),
+            const batch=candidates.slice(offset,offset+4),result=await evaluateSchemas({...capture,snapshot:'migration-name-proof:'+offset,exampleResources,runtimeInstances:batch.map(name=>({subject:'response-body',location:'property-name',text:JSON.stringify(name),
                     schema:{resource:child.resource,pointer:child.pointer}}))});
             if(!result.complete||result.findings.some(value=>value.severity==='error')||result.runtimeEvaluations.length!==batch.length||result.runtimeEvaluations.some(value=>!value.complete))
                 throw new SourceError('migration.proof.name-incomplete','The captured property-name proof did not complete');

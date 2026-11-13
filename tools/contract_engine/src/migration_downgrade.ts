@@ -67,7 +67,7 @@ function retainFormBodyHistory(source:SourcePlan,pointer:string,scope:GraphScope
 /** Evaluate actual target representation. A simple 3.x API can be faithfully
  * represented in Swagger; newer-only constructs receive located blockers. */
 export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,SourcePlan>,from:string,issue:MigrationIssue,
-    releaseNativeHolders?:()=>void,owners=new MigrationSchemaOwners(graph,sources),contexts:readonly ReferenceGraph[]=[graph],external?:MigrationInlineExamples):Map<string,SourceLocation> {
+    owners=new MigrationSchemaOwners(graph,sources),contexts:readonly ReferenceGraph[]=[graph],external?:MigrationInlineExamples):Map<string,SourceLocation> {
     const scopes=[...migrationScopes(contexts)];
     const serverRoutes=downgradeServers(graph,sources,from,issue,owners,contexts);
     const headerTargets=new Set([...migrationReferences(contexts)].filter(edge=>edge.kind==='header'&&edge.resolution==='resolved')
@@ -354,7 +354,6 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,SourceP
         if(incoming)owners.move(scope,source,pointer,'path_item');
         else issue(scope,'migration.path-item.unused-owner','Swagger has no standard inactive reusable Path Item container or captured typed entering reference for this definition','target-representation');
     }
-    releaseNativeHolders?.();
     for(const [resource,specification]of graph.specifications){
         if(specification.family!==from)continue;
         const source=sources.get(resource)!;

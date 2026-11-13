@@ -1,3 +1,4 @@
+import {graphInput} from './source_capture';
 import {escape,SourceDocument} from './document';
 import {FiniteMigrationDomain} from './migration_finite_domain';
 import {MigrationSchemaProofs,migrationExactValueIdentity} from './migration_schema_proofs';
@@ -26,7 +27,7 @@ export async function proveFiniteNamedLanguage(graph:ReferenceGraph,schema:Graph
  if(candidates===undefined)return {reason:'Finite name/value completeness is unavailable: the source domain is unbounded, recursive or exceeds the 2048-value / 8 MiB enumeration budget'};
  const proofs=new MigrationSchemaProofs(graph),roots=proofs.alternatives(schema);
  if(!roots)return {reason:'The finite field constraints have no captured fixed same-instance alternative cover'};
- const resources=[...graph.docs].map(([id,doc])=>({id,text:doc.text,generation:0}));
+ const resources=graphInput(graph).resources;
  const accepted:string[]=[];let workBytes=0,states=0;
  const inspect=()=>++states<=50000;
  for(let offset=0;offset<candidates.length;offset+=4){
@@ -40,7 +41,7 @@ export async function proveFiniteNamedLanguage(graph:ReferenceGraph,schema:Graph
   workBytes+=resources.reduce((bytes,resource)=>bytes+resource.text.length,0)+instances.reduce((bytes,instance)=>bytes+instance.text.length,0)+
    examples.reduce((bytes,resource)=>bytes+(resource.state==='available'?resource.byteLength:0),0);
   if(workBytes>128*1024*1024)return {reason:'Finite multipart evaluation exceeds the 128 MiB captured-source work budget'};
-  const result=await evaluateSchemas({root:graph.root,snapshot:'migration-multipart-domain:'+offset,resources,exampleResources:examples,runtimeInstances:instances});
+  const result=await evaluateSchemas({...graphInput(graph),snapshot:'migration-multipart-domain:'+offset,resources,exampleResources:examples,runtimeInstances:instances});
   if(!result.complete||result.findings.some(finding=>finding.severity==='error')||result.runtimeEvaluations.length!==instances.length||result.runtimeEvaluations.some(value=>!value.complete))
    return {reason:'The canonical evaluator could not establish complete finite multipart source membership'};
   for(const [index,text]of batch.entries())if(result.runtimeEvaluations.filter(value=>value.location==='finite-array-'+index||value.location==='finite-item-'+index).every(value=>value.valid===true))accepted.push(text);

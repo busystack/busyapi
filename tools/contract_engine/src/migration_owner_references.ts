@@ -1,9 +1,10 @@
-import {escape,SourceError} from './document';
+import {escape,segments,SourceError} from './document';
 import {pointerFragment,type GraphReference,type ReferenceGraph} from './reference_graph';
 import type {DocumentContext} from './migration_documents';
 import type {MigrationIssue} from './migration_schema';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import {sourceLocations,type SourceLocation,type SourcePlan} from './source_plan';
+import {migrationSecurityUriSpellings} from './migration_security';
 
 /** Converters can introduce typed reference fields before later component
  * moves. Capture their current coordinates through the same CST relation;
@@ -32,16 +33,19 @@ export function captureMigrationOwnerReferences(contexts:readonly DocumentContex
  * never a pointer/static substitution. Per-entry dynamic proofs still check
  * every captured candidate and resource transition. */
 export function repairMigrationOwnerReferences(contexts:readonly DocumentContext[],sources:ReadonlyMap<string,SourcePlan>,
-    owners:MigrationSchemaOwners,issue:MigrationIssue,prepared:readonly ReferenceGraph[]):void {
-    const graphs=new Map(prepared.map(graph=>[graph.root,graph]));
+    owners:MigrationSchemaOwners,issue:MigrationIssue,prepared:readonly ReferenceGraph[],phase:'all'|'static'|'contextual'='all'):void {
+    const graphs=new Map(prepared.map(graph=>[graph.root,graph])),spellSecurity=migrationSecurityUriSpellings(prepared,new Set());
+    const occupied=new Map<string,Set<string>>();
     const current=sourceLocations(sources),edits=new Map<string,{
         at:SourceLocation;value:string;changed:boolean;reference:GraphReference;conflict:boolean;
     }>();let work=0;
     const inspect=()=>{if(++work>2000000)throw new SourceError('limit.migration.owners','Owner reference repair exceeds 2000000 captured states');};
     const same=(a:SourceLocation,b:SourceLocation)=>a.resource===b.resource&&a.pointer===b.pointer;
     for(const {graph}of contexts)for(const reference of graph.entryReferences()){
+        const contextual=reference.keyword==='$dynamicRef'||reference.connection==='security';
+        if(phase==='static'&&contextual||phase==='contextual'&&!contextual)continue;
         inspect();if(reference.resolution!=='resolved'||
-            reference.connection&&!['discriminator','operationRef'].includes(reference.connection))continue;
+            reference.connection&&!['discriminator','operationRef'].includes(reference.connection)&&!(reference.connection==='security'&&reference.targetUri!==undefined))continue;
         const scope=graph.referenceOwner(reference);if(!scope)continue;
         const owner=owners.entryOwner(graph.root,scope,scope.kind);
         // An unchanged data occurrence cannot acquire the copied role's
@@ -65,6 +69,15 @@ export function repairMigrationOwnerReferences(contexts:readonly DocumentContext
             value=targetScope.base+'#'+encodeURIComponent(reference.dynamic.anchor);
         }
         for(const at of owners.entryLocations(graph.root,field,scope,current)){
+            if(reference.connection==='security'){
+                const preparedGraph=graphs.get(graph.root)!,pointer=at.pointer.slice(0,at.pointer.lastIndexOf('/')),
+                    owner=preparedGraph.scopeAs(at.resource,pointer,'security-requirement');
+                const id=JSON.stringify([at.resource,pointer]),names=occupied.get(id)??new Set(sources.get(at.resource)!.doc.dataNode(pointer)!.children.keys());
+                occupied.set(id,names);
+                const selected=owner&&spellSecurity(preparedGraph,{...reference,...owner,targetResource:targets[0].resource,targetPointer:targets[0].pointer},names,true);
+                if(selected===undefined){issue(field,'migration.owners.security-binding','The captured security URI has no distinct proved terminal spelling','implementation');continue;}
+                value=selected;names.delete(segments(at.pointer).at(-1)!);names.add(value);
+            }
             if(reference.keyword==='$dynamicRef'){
                 const preparedGraph=graphs.get(graph.root),ownerScope=preparedGraph?.scopeAs(at.resource,at.pointer.slice(0,at.pointer.lastIndexOf('/')),'schema');
                 const rebound=ownerScope&&preparedGraph!.resolveReference(value,ownerScope,'$dynamicRef');
@@ -86,11 +99,13 @@ export function repairMigrationOwnerReferences(contexts:readonly DocumentContext
         }
         if(!changed)continue;
         const source=sources.get(at.resource)!;
-        if(typeof source.doc.dataNode(at.pointer)?.value!=='string'){
+        if(reference.connection!=='security'&&typeof source.doc.dataNode(at.pointer)?.value!=='string'){
             issue({...reference,pointer:reference.pointer+'/'+escape(reference.keyword)},'migration.owners.reference-source',
                 'This copied reference has no retained scalar field','implementation');continue;
         }
-        if(source.doc.dataNode(at.pointer)!.value===value)continue;
-        owners.admit(source);source.set(at.pointer,value);
+        if(reference.connection==='security'){
+            if(segments(at.pointer).at(-1)===value)continue;
+            owners.admit(source);source.rename(at.pointer,value);
+        }else if(source.doc.dataNode(at.pointer)!.value!==value){owners.admit(source);source.set(at.pointer,value);}
     }
 }

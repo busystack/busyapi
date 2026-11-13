@@ -286,3 +286,22 @@ for(const format of ['yaml','json'])test(`${format} ordinary fragment roles shar
  assert.deepEqual(await outcomes(output,'/components/schemas/Strict',values),[false,false,true,false]);
  assert.equal(review.outputs.find(output=>output.id===review.changes.find(change=>change.resource===input.resources.at(-1).id).destination).text,input.resources.at(-1).text);
 });
+
+for(const format of ['yaml','json'])for(const targetVersion of ['3.1.2','3.2.1'])
+test(`${format} neutral public model retains an independently delivered literal in ${targetVersion}`,async()=>{
+ const root='file:///dual-neutral/api.'+format;
+ const base={type:'object',required:['kind','value'],properties:{kind:{type:'string'},value:{type:'string',readOnly:true}},
+  discriminator:{propertyName:'kind'},'x-exact':'EXACT'};
+ // YAML deliberately uses one anchored value in both roles. The literal use
+ // keeps its captured value while public Schema bindings select neutral owners.
+ const value={openapi:'3.0.4',info:{title:'Dual literal',version:'1'},paths:{},components:{schemas:{Base:base,
+  Cat:{allOf:[{$ref:'#/components/schemas/Base'},{properties:{kind:{enum:['Cat']}}}]}}},'x-literal':base};
+ value.paths['/p']={post:{requestBody:{content:{'application/json':{schema:{$ref:'#/components/schemas/Base'}}}},
+  responses:{200:{description:'Reply',content:{'application/json':{schema:{$ref:'#/components/schemas/Base'}}}}}}};
+ const text=(format==='yaml'?YAML.stringify(value):JSON.stringify(value)).replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const input={root,snapshot:'dual-neutral',resources:[{id:root,text,generation:1}],targetVersion,destination:'file:///dual-neutral-output/'};
+ const {output}=await migrate(input),before=new SourceDocument(text,root),after=new SourceDocument(output.resources.find(file=>file.id===output.root).text,output.root);
+ assert.equal(after.dataJson('/x-literal'),before.dataJson('/x-literal'));
+ const values=['{"kind":"Cat","value":"ok"}','{"kind":"Cat"}','{"kind":"Other","value":"ok"}','{"kind":"Cat","value":0}','{}','false'];
+ for(const name of ['Base','Cat'])assert.deepEqual(await outcomes(output,'/components/schemas/'+name,values),await outcomes(input,'/components/schemas/'+name,values),name);
+});
