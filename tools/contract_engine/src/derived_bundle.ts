@@ -434,7 +434,10 @@ export function deriveBundle(input:any) {
    next=scope.base+originalUri.hash;
   }
   if(schema) {
-   const sourceScope=layout.graph.scopeAs(outputId,locate(ref.resource,ref.pointer),'schema')!,targetScope=layout.graph.scopeAs(outputId,locate(ref.targetResource!,ref.targetPointer!),'schema')!;
+   const sourcePointer=locate(ref.resource,ref.pointer);
+   const sourceScope=ref.connection?layout.graph.referenceOwner({...ref,resource:outputId,pointer:sourcePointer})!:
+    layout.graph.scopeAs(outputId,sourcePointer,'schema')!;
+   const targetScope=layout.graph.scopeAs(outputId,locate(ref.targetResource!,ref.targetPointer!),'schema')!;
    if(sourceScope.base===targetScope.base)next=next.slice(next.indexOf('#'));
    else if(family==='3.1'&&ref.targetResource===input.root&&targetScope.resourcePointer==='')
     throw new SourceError('bundle.entry.identity','A schema in a distinct identified resource refers back to the 3.1 entry resource; a stable portable entry identity is required');
