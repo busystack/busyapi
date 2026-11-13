@@ -116,6 +116,8 @@ export function formContentType(shape:FormShape,family:string):string {
 export class FormSemantics {
     constructor(private readonly graph:ReferenceGraph){}
     private partWork=0;
+    private shapePossibilities?:MultipartFileShapes;
+    private get fileShapes(){return this.shapePossibilities??=new MultipartFileShapes(this.graph);}
 
     /** Encoding keys must identify properties in the captured schema. Extra
      * entries are ignored, including on schema-free media; they cannot grant
@@ -163,7 +165,7 @@ export class FormSemantics {
 
     multipartRootChoices(media:GraphTarget,schema:GraphTarget|undefined,mediaType:string){
         if(!schema||!mediaType.toLowerCase().split(';')[0].trim().endsWith('/form-data'))return [];
-        const shapes=new MultipartFileShapes(this.graph);
+        const shapes=this.fileShapes;
         if(!shapes.allows(schema,[],'object')||!shapes.allows(schema,[],'array'))return [];
         const candidates=this.partSchemas(schema,[]);
         return (candidates.length?candidates:[schema]).flatMap(candidate=>
@@ -322,12 +324,23 @@ export class FormSemantics {
 
     shape(resource:string,pointer:string,seen:ReadonlySet<string>=new Set(),depth=0):FormShape {
         const key=resource+'#'+pointer;
-        if(depth>128||seen.has(key))return {};
-        seen=new Set(seen).add(key);
+        if(depth>128)return {};
         const node=this.graph.docs.get(resource)?.dataNode(pointer),value=node?.value;
         if(!value||typeof value!=='object'||Array.isArray(value))return {};
         const scope=schemaContext(this.graph,resource,pointer);
         if(!scope)return {};
+        if(seen.has(key)){
+            // A recursive object still has JSON's multipart representation.
+            // Use the existing type exclusions; unresolved/dynamic alternatives
+            // stay unknown and the full schema still checks the actual value.
+            const target={resource,pointer,kind:'schema' as const},shapes=this.fileShapes;
+            if(shapes.allows(target,[],'object')&&!['array','string','number','boolean'].some(type=>shapes.allows(target,[],type))){
+                const shape={types:['object',...(shapes.allows(target,[],'null')?['null']:[])]};
+                return {...shape,literalType:formLiteralType(shape),defaultContentType:formContentType(shape,scope.family)};
+            }
+            return {};
+        }
+        seen=new Set(seen).add(key);
         const inherited:FormShape[]=[];
         for(const keyword of modernFamily(scope.family)?['$ref','$dynamicRef']:['$ref'])if(typeof value[keyword]==='string'){
             const edge=this.graph.referenceAs(resource,pointer,keyword,'schema');
@@ -363,7 +376,7 @@ export class FormSemantics {
     media(family:string,resource:string,pointer:string,mediaType:string){
         const value=this.graph.docs.get(resource)?.dataNode(pointer)?.value,shape=this.shape(resource,pointer+'/schema');
         const encoding=this.namedEncoding(value?.encoding,[{schema:{resource,pointer:pointer+'/schema',kind:'schema'},path:[]}]);
-        const fileShapes=new MultipartFileShapes(this.graph);
+        const fileShapes=this.fileShapes;
         const parts=Object.fromEntries([...new Set([...this.propertyNames({resource,pointer:pointer+'/schema',kind:'schema'}),...Object.keys(encoding)])].map(name=>{
             const rule=encoding[name],property=shape.properties?.[name],item=property?.types?.includes('array')?property.items:property;
             const multipart=mediaType.split(';')[0].trim().toLowerCase().startsWith('multipart/');
