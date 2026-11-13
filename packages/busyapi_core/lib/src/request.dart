@@ -102,37 +102,49 @@ enum RequestValueRepresentation {
 
 class RequestValue {
   const RequestValue.absent()
-    : present = false,
+    : included = null,
       capturedExample = null,
       text = '',
       json = false,
       representation = RequestValueRepresentation.text;
   const RequestValue.text(this.text)
-    : present = true,
+    : included = true,
       capturedExample = null,
       json = false,
       representation = RequestValueRepresentation.text;
   const RequestValue.json(this.text)
-    : present = true,
+    : included = true,
       capturedExample = null,
       json = true,
       representation = RequestValueRepresentation.json;
   const RequestValue.serialized(this.text, {bool mediaLevel = false})
-    : present = true,
+    : included = true,
       capturedExample = null,
       json = false,
       representation = mediaLevel
           ? RequestValueRepresentation.serializedMedia
           : RequestValueRepresentation.serializedParameter;
   RequestValue.example(CapturedRequestParameterExample example)
-    : present = true,
+    : included = true,
       json = false,
       capturedExample = example,
       text = example.serialization,
       representation = RequestValueRepresentation.serializedParameter;
+  RequestValue._presence(RequestValue value, this.included)
+    : text = value.text,
+      json = value.json,
+      representation = value.representation,
+      capturedExample = value.capturedExample;
+
+  /// Unset input and explicit omission are both absent on the wire. Editors
+  /// retain their distinction while changing the input's text or mode.
+  final bool? included;
+  bool get present => included == true;
+  RequestValue withPresence(bool? value) => value == included
+      ? this : RequestValue._presence(this, value);
   final CapturedRequestParameterExample? capturedExample;
   final RequestValueRepresentation representation;
-  final bool present, json;
+  final bool json;
   final String text;
 }
 

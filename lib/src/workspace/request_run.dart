@@ -109,19 +109,16 @@ class RequestRunController extends ChangeNotifier {
   int? _resultDraftRevision;
   bool get resultDraftChanged =>
       result != null && _resultDraftRevision != _draftRevision;
+  // These bounded maps retain inactive alternatives; restoring consumes them.
   final Map<(String, String?), _RequestDraftState> _drafts = {};
   final Map<(String, String?), _EnvironmentSetupDraft> _setupDrafts = {};
   final Map<String, String?> _lastEnvironment = {};
-  final Map<String, String> values = {};
+  final Map<String, RequestValue> parameters = {};
   final _composingInputs = <Object>{};
   final Map<Object, (OperationRequestPlan?, String?)> _pendingSecretInputs = {};
   bool get hasPendingSecretInput =>
       _pendingSecretInputs.values.any((scope) => scope == (plan, environment));
   bool get hasComposingInput => _composingInputs.isNotEmpty;
-  final Set<String> structuredValues = {};
-  final Set<String> omittedValues = {};
-  final Map<String, RequestValueRepresentation> exampleRepresentations = {};
-  final Map<String, CapturedRequestParameterExample> parameterExamples = {};
   final List<RequestHeaderValue> customHeaders = [];
   final Map<String, String> requestVariables = {};
   final Map<(String?, RequestBodyKind, bool), _RequestBodyState> _bodyDrafts = {};
@@ -190,7 +187,7 @@ class RequestRunController extends ChangeNotifier {
         parameter['name'] as String,
       );
       return parameter['required'] == true &&
-          (!values.containsKey(key) || omittedValues.contains(key));
+          parameters[key]?.present != true;
     });
   }
 
@@ -326,25 +323,23 @@ class RequestRunController extends ChangeNotifier {
     _notify();
   }
 
+  void includeParameter(String key, bool included) {
+    parameters[key] = (parameters[key] ?? const RequestValue.absent()).withPresence(included);
+  }
+
+  void editParameter(String key, String text) {
+    final previous = parameters[key];
+    parameters[key] = (previous?.json == true ? RequestValue.json(text) : RequestValue.text(text))
+        .withPresence(previous?.included != false);
+  }
+
+  void structureParameter(String key, bool structured) {
+    final previous = parameters[key] ?? const RequestValue.absent();
+    parameters[key] = (structured ? RequestValue.json(previous.text) : RequestValue.text(previous.text))
+        .withPresence(previous.included);
+  }
+
   OperationRequestDraft draft() {
-    final parameters = <String, RequestValue>{};
-    for (final entry in values.entries) {
-      if (omittedValues.contains(entry.key)) continue;
-      final representation = exampleRepresentations[entry.key];
-      parameters[entry.key] =
-          parameterExamples.containsKey(entry.key)
-          ? RequestValue.example(parameterExamples[entry.key]!)
-          : representation == RequestValueRepresentation.serializedParameter ||
-              representation == RequestValueRepresentation.serializedMedia
-          ? RequestValue.serialized(
-              entry.value,
-              mediaLevel:
-                  representation == RequestValueRepresentation.serializedMedia,
-            )
-          : structuredValues.contains(entry.key)
-          ? RequestValue.json(entry.value)
-          : RequestValue.text(entry.value);
-    }
     final body = !bodyEnabled || bodyMediaType == null
         ? const RequestBodyDraft.none()
         : bodyExample != null
@@ -414,7 +409,7 @@ class RequestRunController extends ChangeNotifier {
       environment: environment,
       server: server,
       securityAlternative: securityAlternative,
-      parameters: parameters,
+      parameters: {for (final entry in parameters.entries) if (entry.value.present) entry.key: entry.value},
       headers: [
         ...customHeaders,
         if (headerName.isNotEmpty) RequestHeaderValue(headerName, headerValue),
@@ -431,6 +426,7 @@ class RequestRunController extends ChangeNotifier {
   void selectBodyMedia(String? media) {
     if (busy || hasComposingInput) return;
     if (!_rememberBody()) return;
+    final previousKind = bodyKind;
     bodyMediaType = media;
     bodyExample = null;
     bodyFiles.clear();
@@ -446,11 +442,13 @@ class RequestRunController extends ChangeNotifier {
     }
     final remembered = _bodyDrafts.keys.where((key) => key.$1 == media).lastOrNull;
     if (remembered != null) { bodyKind = remembered.$2;bodyStructured = remembered.$3; }
-    final retained = _bodyDrafts[(bodyMediaType, bodyKind, bodyStructured)];
+    final retained = _bodyDrafts.remove((bodyMediaType, bodyKind, bodyStructured));
     if (retained != null) {
       retained.restore(this);
     } else {
-      bodyText = bodyKind == RequestBodyKind.multipart && multipartTree ? '[]' : '';
+      if (previousKind != RequestBodyKind.raw || bodyKind != RequestBodyKind.raw) {
+        bodyText = bodyKind == RequestBodyKind.multipart && multipartTree ? '[]' : '';
+      }
       partHeaders.clear();partSchemas.clear();fileShapes.clear();
     }
     refresh();
@@ -470,7 +468,7 @@ class RequestRunController extends ChangeNotifier {
   void selectStructuredBody(bool value) {
     if (busy || hasComposingInput || value == bodyStructured) return;
     if (!_rememberBody()) return;bodyStructured = value;bodyExample = null;
-    final retained = _bodyDrafts[(bodyMediaType, bodyKind, bodyStructured)];
+    final retained = _bodyDrafts.remove((bodyMediaType, bodyKind, bodyStructured));
     if (retained != null) { retained.restore(this); } else { bodyText = '';bodyFiles.clear();partHeaders.clear();partMediaTypes.clear();partSchemas.clear();fileShapes.clear(); }
     refresh();
   }
@@ -498,7 +496,7 @@ class RequestRunController extends ChangeNotifier {
     if (!_rememberBody()) return;
     bodyKind = serialized ? RequestBodyKind.raw : _kindForMedia(bodyMediaType);
     bodyExample = null;
-    final retained = _bodyDrafts[(bodyMediaType, bodyKind, bodyStructured)];
+    final retained = _bodyDrafts.remove((bodyMediaType, bodyKind, bodyStructured));
     if (retained != null) { retained.restore(this); } else { bodyText = '';bodyFiles.clear();partHeaders.clear();partMediaTypes.clear();partSchemas.clear();fileShapes.clear(); }
     refresh();
   }
@@ -584,7 +582,7 @@ class RequestRunController extends ChangeNotifier {
     while (_caseDrafts.length > 32 || _caseDrafts.values.fold<int>(0, (n, item) => n + item.bytes) > 16 * 1024 * 1024) {
       _caseDrafts.remove(_caseDrafts.keys.first);
     }
-    final retained = _caseDrafts['${captured.identity}:${name ?? ''}'];
+    final retained = _caseDrafts.remove('${captured.identity}:${name ?? ''}');
     if (retained != null) {
       if (environment != retained.environment) selectEnvironment(retained.environment);
       _initializeFreshDraft();retained.restore(this);selectedCase = name;refresh();return;
@@ -595,13 +593,8 @@ class RequestRunController extends ChangeNotifier {
     if (loaded.body.fields.any((field) => field.name.isEmpty || field.name.contains('=') || field.name.contains('\n') || field.value.contains('\n'))) throw CoreFailure('request.case.fields', 'These literal rows cannot be displayed as name=value lines; reopen them in the saved case source.');
     if (environment != loaded.environment) selectEnvironment(loaded.environment);
     _initializeFreshDraft();
-    exampleRepresentations..clear()..addAll({for (final entry in loaded.parameters.entries)
-      if (entry.value.representation == RequestValueRepresentation.serializedParameter || entry.value.representation == RequestValueRepresentation.serializedMedia) entry.key: entry.value.representation});
-    parameterExamples..clear()..addAll({for (final entry in loaded.parameters.entries)
-      entry.key: ?entry.value.capturedExample});
-    values..clear()..addAll({for (final entry in loaded.parameters.entries) entry.key: entry.value.text});
-    structuredValues..clear()..addAll(loaded.parameters.entries.where((entry) => entry.value.json).map((entry) => entry.key));
-    omittedValues.clear();customHeaders..clear()..addAll(loaded.headers);
+    parameters.addAll(loaded.parameters);
+    customHeaders.addAll(loaded.headers);
     final body = loaded.body;
     bodyKind = body.kind;bodyText = body.text ?? body.fields.map((field) => '${field.name}=${field.value}').join('\n');bodyMediaType = body.mediaType;
     bodyStructured = body.modeled || (body.kind == RequestBodyKind.multipart || body.kind == RequestBodyKind.form) && body.text != null;
@@ -776,11 +769,7 @@ class RequestRunController extends ChangeNotifier {
 
   void _resetValues() {
     _dropPreparedInputs();
-    values.clear();
-    structuredValues.clear();
-    omittedValues.clear();
-    exampleRepresentations.clear();
-    parameterExamples.clear();
+    parameters.clear();
     customHeaders.clear();
     requestVariables.clear();_bodyDrafts.clear();selectedCase = null;streamStopAfterRecords=null;liveStream=null;
     timeoutInputs.clear();
@@ -893,6 +882,7 @@ class RequestRunController extends ChangeNotifier {
       _draftIdentity = prepared.identity;
       _initializeFreshDraft();
       if (draft != null) {
+        _drafts.remove((_operationKey!, environment));
         draft.restore(this);
         if (reconcile) _draftIdentity = prepared.identity;
       }
@@ -918,7 +908,7 @@ class RequestRunController extends ChangeNotifier {
     _draftIdentity = plan?.identity;
     _environmentAuthentication();
     final key = _operationKey;
-    if (key != null) _drafts[(key, value)]?.restore(this);
+    if (key != null) _drafts.remove((key, value))?.restore(this);
     phase = 'ready';
     failure = null;
     refresh();
@@ -988,9 +978,7 @@ class RequestRunController extends ChangeNotifier {
             parameter['name'] as String, name: example['name'] as String?,
             mediaType: example['level'] == 'media' ? example['mediaType'] as String? : null);
         final key = OperationRequestDraft.parameterKey(selected.location, selected.parameterName);
-        values[key] = selected.serialization;
-        parameterExamples[key] = selected;
-        omittedValues.remove(key);structuredValues.remove(key);exampleRepresentations.remove(key);
+        parameters[key] = RequestValue.example(selected);
         refresh();
       } on CoreFailure catch (error) {
         failure = error.code;failureMessage = error.message;_notify();
@@ -1046,39 +1034,22 @@ class RequestRunController extends ChangeNotifier {
       parameter['in'] as String,
       parameter['name'] as String,
     );
-    values[key] = example['raw'] as String;
-    parameterExamples.remove(key);
-    omittedValues.remove(key);
-    exampleRepresentations.remove(key);
     if (example['representation'] == 'serialized') {
-      structuredValues.remove(key);
-      exampleRepresentations[key] = example['level'] == 'media'
-          ? RequestValueRepresentation.serializedMedia
-          : RequestValueRepresentation.serializedParameter;
+      parameters[key] = RequestValue.serialized(example['raw'] as String,
+        mediaLevel: example['level'] == 'media');
     } else {
-      final type = (media?['mediaType'] as String?)
-          ?.split(';')
-          .first
-          .toLowerCase();
-      if (type == 'application/x-www-form-urlencoded' &&
-          example['fields'] is Map) {
-        values[key] = [
+      final type = (media?['mediaType'] as String?)?.split(';').first.toLowerCase();
+      if (type == 'application/x-www-form-urlencoded' && example['fields'] is Map) {
+        parameters[key] = RequestValue.serialized([
           for (final entry in (example['fields'] as Map).entries)
             for (final value in entry.value as List)
               '${Uri.encodeQueryComponent(entry.key as String)}=${Uri.encodeQueryComponent(value as String)}',
-        ].join('&');
-        structuredValues.remove(key);
-        exampleRepresentations[key] =
-            RequestValueRepresentation.serializedMedia;
+        ].join('&'), mediaLevel: true);
       } else if (type == 'text/plain' ||
-          type != null &&
-              type != 'application/json' &&
-              !type.endsWith('+json') &&
-              example['dataKind'] == 'string') {
-        values[key] = example['text'] as String;
-        structuredValues.remove(key);
+          type != null && type != 'application/json' && !type.endsWith('+json') && example['dataKind'] == 'string') {
+        parameters[key] = RequestValue.text(example['text'] as String);
       } else {
-        structuredValues.add(key);
+        parameters[key] = RequestValue.json(example['raw'] as String);
       }
     }
     refresh();
@@ -1821,6 +1792,7 @@ class _RequestBodyState {
   }
 }
 
+/// An inactive operation/environment or case, separate from the active draft.
 class _RequestDraftState {
   _RequestDraftState(RequestRunController run)
     : identity = run._draftIdentity,
@@ -1829,9 +1801,7 @@ class _RequestDraftState {
       bodyDrafts = Map.of(run._bodyDrafts),
       serverIdentity = _serverIdentity(run, run.server),
       securityIdentity = _securityIdentity(run, run.securityAlternative),
-      omitted = Set.of(run.omittedValues),
-      representations = Map.of(run.exampleRepresentations),
-      parameterExamples = Map.of(run.parameterExamples),
+      parameters = Map.of(run.parameters),
       headers = List.of(run.customHeaders),
       kind = run.bodyKind,
       bodyExample = run.bodyExample,
@@ -1855,8 +1825,6 @@ class _RequestDraftState {
         run.overallTimeout,
         run.inactivityTimeout,
       ),
-      values = Map.of(run.values),
-      structured = Set.of(run.structuredValues),
       files = List.of(run.bodyFiles),
       tls = Map.of(run.tlsFiles),
       body = run.bodyText,
@@ -1871,9 +1839,7 @@ class _RequestDraftState {
   final int? streamStopAfterRecords;
   final Map<String, String> variables;
   final Map<(String?, RequestBodyKind, bool), _RequestBodyState> bodyDrafts;
-  final Set<String> omitted;
-  final Map<String, RequestValueRepresentation> representations;
-  final Map<String, CapturedRequestParameterExample> parameterExamples;
+  final Map<String, RequestValue> parameters;
   final List<RequestHeaderValue> headers;
   final RequestBodyKind kind;
   final CapturedRequestBodyExample? bodyExample;
@@ -1887,8 +1853,7 @@ class _RequestDraftState {
   final bool partHeaderModeled;
   final (Duration, Duration, Duration) timeouts;
   final Map<RequestTimeoutKind, String> timeoutInputs;
-  final Map<String, String> values, tls;
-  final Set<String> structured;
+  final Map<String, String> tls;
   final List<MultipartFileValue> files;
   final String body, part, header, headerValue;
   final bool enabled;
@@ -1912,9 +1877,9 @@ class _RequestDraftState {
           ) +
           header.length +
           headerValue.length +
-          values.entries.fold<int>(
+          parameters.entries.fold<int>(
             0,
-            (n, v) => n + v.key.length + v.value.length,
+            (n, v) => n + v.key.length + v.value.text.length,
           ) +
           headers.fold<int>(0, (n, h) => n + h.name.length + h.value.length) +
           timeoutInputs.values.fold<int>(0, (n, v) => n + v.length) +
@@ -1932,14 +1897,14 @@ class _RequestDraftState {
             0,
             (n, e) => n + e.key.length + e.value.length,
           )) *
-      2 + (bodyExample?.byteLength ?? 0) + files.fold<int>(0, (n, file) => n + (file.capturedExample?.byteLength ?? 0)) + parameterExamples.values.fold<int>(0, (n, item) => n + item.byteLength) + bodyDrafts.values.fold<int>(0, (n, item) => n + item.bytes);
+      2 + (bodyExample?.byteLength ?? 0) + files.fold<int>(0, (n, file) => n + (file.capturedExample?.byteLength ?? 0)) + parameters.values.fold<int>(0, (n, item) => n + (item.capturedExample?.byteLength ?? 0)) + bodyDrafts.values.fold<int>(0, (n, item) => n + item.bytes);
   void restore(RequestRunController run) {
     run.streamStopAfterRecords=streamStopAfterRecords;run.requestVariables.addAll(variables);run._bodyDrafts.addAll(bodyDrafts);
-    run.values.addAll(values);
-    run.omittedValues.addAll(omitted);
-    run.exampleRepresentations.addAll(representations);
-    run.parameterExamples.addAll({for (final entry in parameterExamples.entries)
-      entry.key: run.plan?.restoreParameterExample(entry.value) ?? entry.value});
+    run.parameters.addAll({for (final entry in parameters.entries)
+      entry.key: switch (entry.value.capturedExample) {
+        final example? => RequestValue.example(run.plan?.restoreParameterExample(example) ?? example).withPresence(entry.value.included),
+        null => entry.value,
+      }});
     run.customHeaders.addAll(headers);
     run.bodyKind = kind;
     run.bodyExample = bodyExample == null ? null : run.plan?.restoreBodyExample(bodyExample!) ?? bodyExample;
@@ -1959,7 +1924,6 @@ class _RequestDraftState {
     run.connectTimeout = timeouts.$1;
     run.overallTimeout = timeouts.$2;
     run.inactivityTimeout = timeouts.$3;
-    run.structuredValues.addAll(structured);
     run.bodyFiles.addAll(files.map(run.restorePartFile));
     run.tlsFiles.addAll(tls);
     run.bodyText = body;
@@ -2067,7 +2031,7 @@ class RequestRunPanel extends StatelessWidget {
       return;
     }
     final setupKey = (run._operationKey!, run.environment);
-    final retainedSetup = run._setupDrafts[setupKey];
+    final retainedSetup = run._setupDrafts.remove(setupKey);
     final selected = captured.configuration.environments[run.environment];
     var name = retainedSetup?.name ?? run.environment ?? 'local',
         base = retainedSetup?.base ?? selected?.baseUrl ?? '';
@@ -2451,12 +2415,7 @@ class RequestRunPanel extends StatelessWidget {
         },
       ),
     );
-    if (approved != true || accepted == null) {
-      if (identical(run._setupDrafts[setupKey], retainedSetup)) {
-        run._setupDrafts.remove(setupKey);
-      }
-      return;
-    }
+    if (approved != true || accepted == null) return;
     final savedSetup = _EnvironmentSetupDraft(
       name,
       base,
@@ -3518,44 +3477,30 @@ class _ParameterRow extends StatelessWidget {
           title: l.requestIncludeParameter,
           subtitle:
               '${parameter['in']} · ${parameter['type'] ?? (parameter['content'] as List?)?.firstOrNull?['mediaType'] ?? l.requestStructuredValue} · ${parameter['required'] == true ? l.required : ''}',
-          value:
-              run.values.containsKey(key) && !run.omittedValues.contains(key),
+          value: run.parameters[key]?.present == true,
           enabled: !run.busy && !run.hasComposingInput,
           onChanged: (included) {
-            if (included) {
-              run.values.putIfAbsent(key, () => '');
-              run.omittedValues.remove(key);
-            } else {
-              run.omittedValues.add(key);
-            }
+            run.includeParameter(key, included);
             run.refresh();
           },
         ),
         RequestDraftEntry(
           run: run,
           key: ValueKey('${run.plan!.identity}/$key'),
-          value: run.values[key] ?? '',
+          value: run.parameters[key]?.text ?? '',
           label:
               '${parameter['name']} · ${parameter['in']}${parameter['required'] == true ? ' · ${l.required}' : ''}',
-          enabled: !run.busy && !run.omittedValues.contains(key),
+          enabled: !run.busy && run.parameters[key]?.included != false,
           onChanged: (value) {
-            run.values[key] = value;
-            run.exampleRepresentations.remove(key);
-            run.parameterExamples.remove(key);
+            run.editParameter(key, value);
           },
         ),
         BusyApiSwitchRow(
           title: l.requestStructuredValue,
-          value: run.structuredValues.contains(key),
+          value: run.parameters[key]?.json == true,
           enabled: !run.busy,
           onChanged: (value) {
-            run.exampleRepresentations.remove(key);
-            run.parameterExamples.remove(key);
-            if (value) {
-              run.structuredValues.add(key);
-            } else {
-              run.structuredValues.remove(key);
-            }
+            run.structureParameter(key, value);
             run.refresh();
           },
         ),

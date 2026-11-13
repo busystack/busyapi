@@ -363,7 +363,7 @@ tests:
       final workspace = WorkspaceController(
         EngineProcess(
           executable: runtimeNode,
-          helper: '$repositoryRoot/tools/contract_engine/dist/engine.cjs',
+          helper: runtimeHelper,
         ),
         StateLocations(
           config: '${temp.path}/config',
@@ -651,7 +651,7 @@ environments:
       final workspace = WorkspaceController(
         EngineProcess(
           executable: runtimeNode,
-          helper: '$repositoryRoot/tools/contract_engine/dist/engine.cjs',
+          helper: runtimeHelper,
         ),
         StateLocations(
           config: '${temp.path}/config',
@@ -746,7 +746,7 @@ environments:
         );
         expect(input, findsOneWidget);
         await tester.enterText(input, 'draft-only');
-        expect(request.values.values, contains('draft-only'));
+        expect(request.parameters.values.map((value) => value.text), contains('draft-only'));
         expect(workspace.buffer!.text, original);
         expect(contract.readAsStringSync(), original);
         request.selectEnvironment('local');
@@ -769,7 +769,7 @@ environments:
         );
         await tester.runAsync(() => request.open(selectedOperation));
         await tester.pumpAndSettle();
-        expect(request.values.values, contains('draft-only'));
+        expect(request.parameters.values.map((value) => value.text), contains('draft-only'));
         expect(request.environment, 'local');
         request.securityAlternative =
             1; // Explicit anonymous requirement, not environment fallback.
@@ -781,16 +781,16 @@ environments:
               .singleWhere((value) => value['path'] == '/other'),
         );
         await tester.runAsync(() => request.open(other));
-        expect(request.values, isEmpty);
-        request.values['other-input'] = 'other-owned';
+        expect(request.parameters, isEmpty);
+        request.editParameter('other-input', 'other-owned');
         await tester.runAsync(() => request.open(selectedOperation));
-        expect(request.values.values, contains('draft-only'));
-        expect(request.values.values, isNot(contains('other-owned')));
+        expect(request.parameters.values.map((value) => value.text), contains('draft-only'));
+        expect(request.parameters.values.map((value) => value.text), isNot(contains('other-owned')));
         request.headerName = 'X-Local';
         request.headerValue = 'local-only';
         request.selectEnvironment(null);
         expect(request.headerValue, isEmpty);
-        expect(request.values.values, contains('draft-only'));
+        expect(request.parameters.values.map((value) => value.text), contains('draft-only'));
         request.selectEnvironment('local');
         expect(request.headerValue, 'local-only');
         workspace.project!.store.replace(
@@ -799,12 +799,12 @@ environments:
         );
         await tester.runAsync(() => request.open(selectedOperation));
         expect(request.outdated, true);
-        expect(request.values.values, contains('draft-only'));
+        expect(request.parameters.values.map((value) => value.text), contains('draft-only'));
         await tester.runAsync(request.reconcileDraft);
         expect(request.outdated, false);
-        expect(request.values.values, contains('draft-only'));
+        expect(request.parameters.values.map((value) => value.text), contains('draft-only'));
         request.discardDraft();
-        expect(request.values, isEmpty);
+        expect(request.parameters, isEmpty);
         expect(request.headerValue, isEmpty);
         workspace.project!.store.undo();
 

@@ -264,7 +264,22 @@ paths:
         await tester.runAsync(() async {
           fixture.run.bodyText = retained.replaceFirst('9007199254740993.00', '9007199254740992');
           fixture.run.refresh();
-          await expectLater(fixture.run.inspectPreparedMultipart(), throwsA(isA<CoreFailure>().having((f) => f.code, 'code', 'request.multipart.conformance')));
+          await fixture.run.inspectPreparedMultipart();
+          final draft = fixture.run.draft();
+          final prepared = await const ContractRequestBuilder().build(
+            fixture.run.plan!, draft, resolveSecret: (_) async => null);
+          try {
+            final bytes = await prepared.body!.open().fold<List<int>>(
+              [], (all, chunk) => all..addAll(chunk));
+            expect(latin1.decode(bytes), contains('9007199254740992'));
+            final outgoing = await const ContractRequestExecutor().validateOutgoing(
+              fixture.run.plan!, draft, prepared.runId, preparedBody: prepared.body,
+              preparedHeaders: prepared.headers,
+              preparedMediaParameters: prepared.mediaParameters);
+            expect(outgoing.valid, isFalse, reason: '${outgoing.findings}');
+          } finally {
+            await prepared.body?.close();
+          }
           expect(fixture.run.bodyFiles.single.selectedMediaType, 'image/png');
           expect(fixture.run.partHeaders.single.value, 'retained');
           fixture.run.bodyText = retained;
@@ -661,7 +676,7 @@ paths:
           final l = AppLocalizations.of(
             tester.element(find.byType(RequestRunPanel)),
           )!;
-          Future<void> send() => tester.runAsync(
+          Future<void> send() => runWidgetIo(tester,
             () => HttpOverrides.runWithHttpOverrides(
               fixture.run.send,
               _NativeHttp(),
@@ -1386,13 +1401,12 @@ paths:
                   customer: {type: object, properties: {id: {type: integer}}}
                   items: {type: array, items: {type: object, properties: {quantity: {type: integer}}}}
 ''');
-          f.run.values['query\u0000count'] = 'bad';
-          f.run.structuredValues.add('query\u0000count');
+          f.run.parameters['query\u0000count'] = const RequestValue.json('bad');
           f.run.bodyEnabled = true;
           f.run.bodyText = 'not json';
           // A structured malformed parameter is a preparation failure. Use a
           // typed JSON string to exercise actual schema feedback instead.
-          f.run.values['query\u0000count'] = '"bad"';
+          f.run.editParameter('query\u0000count', '"bad"');
           await HttpOverrides.runWithHttpOverrides(f.run.send, _NativeHttp());
           expect(f.run.result!.conforming, false);
           expect(f.run.result!.outgoing.valid, false);
@@ -1633,7 +1647,7 @@ paths: {/pets: {get: {responses: {'200': {description: ok, content: {application
           for (var i = 0; i < 60; i++)
             'entry$i': i == 59 ? 'needle at the end' : 'ordinary',
         });
-        await tester.runAsync(
+        await runWidgetIo(tester,
           () => HttpOverrides.runWithHttpOverrides(f.run.send, _NativeHttp()),
         );
         await inspectorReady();
@@ -1709,8 +1723,19 @@ paths:
         controller.selection = const TextSelection.collapsed(offset: 0);
         await tester.pump();
         const key = 'query\u0000tag';
-        expect(f.run.values.containsKey(key), false);
+        expect(f.run.parameters.containsKey(key), false);
         expect(f.run.draft().parameters.containsKey(key), false);
+        f.run.structureParameter(key, true);
+        expect(f.run.parameters[key]?.included, isNull);
+        expect(f.run.draft().parameters.containsKey(key), false);
+        f.run.editParameter(key, '["retained 雪"]');
+        f.run.includeParameter(key, false);
+        expect(f.run.parameters[key]?.json, true);
+        expect(f.run.parameters[key]?.text, '["retained 雪"]');
+        expect(f.run.draft().parameters.containsKey(key), false);
+        f.run.includeParameter(key, true);
+        expect(f.run.draft().parameters[key]?.json, true);
+        expect(f.run.draft().parameters[key]?.text, '["retained 雪"]');
         final parameter =
             (f.run.plan!.result['parameters'] as List).single as Map;
         f.run.useExample(parameter);
@@ -1724,7 +1749,7 @@ paths:
             )).uri.toString();
         final original = await tester.runAsync(target);
         expect(original, endsWith('?tag=one&tag=two'));
-        await tester.runAsync(
+        await runWidgetIo(tester,
           () => HttpOverrides.runWithHttpOverrides(f.run.send, _NativeHttp()),
         );
         await tester.pump();
@@ -1750,7 +1775,7 @@ paths:
         expect(f.run.resultDraftChanged, false);
         expect(f.run.failureMessage, 'Retain this feedback');
         expect(
-          f.run.exampleRepresentations[key],
+          f.run.parameters[key]?.representation,
           RequestValueRepresentation.serializedParameter,
         );
         expect(await tester.runAsync(target), original);
@@ -1761,8 +1786,8 @@ paths:
         expect(f.run.resultDraftChanged, false);
         controller.text = 'edited';
         await tester.pump();
-        expect(f.run.values[key], 'edited');
-        expect(f.run.exampleRepresentations.containsKey(key), false);
+        expect(f.run.parameters[key]?.text, 'edited');
+        expect(f.run.parameters[key]?.representation, RequestValueRepresentation.text);
         expect(f.run.phase, 'ready');
         expect(await tester.runAsync(target), endsWith('?tag=edited'));
       } finally {
@@ -2126,8 +2151,8 @@ paths: {/pets: {get: {responses: {'204': {description: ok}}}}}
           );
           await tester.runAsync(() => f.open(initial));
           f.run.bodyText = 'retained body';
-          f.run.values[OperationRequestDraft.parameterKey('query', 'name')] =
-              'retained parameter';
+          f.run.editParameter(OperationRequestDraft.parameterKey('query', 'name'),
+              'retained parameter');
           expect(f.run.securityAlternative, isNull);
           final inherited = initial.replaceFirst(
             'security: []',
@@ -2190,7 +2215,7 @@ paths: {/pets: {get: {responses: {'204': {description: ok}}}}}
           expect(send(tester).onPressed, isNotNull);
           expect(f.run.bodyText, 'retained body');
           expect(
-            f.run.values[OperationRequestDraft.parameterKey('query', 'name')],
+            f.run.parameters[OperationRequestDraft.parameterKey('query', 'name')]?.text,
             'retained parameter',
           );
           expect(tester.takeException(), isNull);
@@ -2245,7 +2270,7 @@ paths: {/pets: {get: {responses: {'204': {description: ok}}}}}
           expect(f.run.server, 0);
           expect(f.run.hasUnavailableSelection, true);
           expect(send(tester).onPressed, isNull);
-          await tester.runAsync(f.run.send);
+          await runWidgetIo(tester, f.run.send);
           expect(f.run.phase, 'ready');
           expect(f.run.bodyText, 'owned draft');
           expect(f.run.result, isNull);
@@ -2304,7 +2329,7 @@ paths: {/pets: {get: {responses: {'204': {description: ok}}}}}
           expect(f.run.outdated, false);
           expect(f.run.hasUnavailableSelection, true);
           expect(send(tester).onPressed, isNull);
-          await tester.runAsync(f.run.send);
+          await runWidgetIo(tester, f.run.send);
           expect(f.run.phase, 'ready');
           for (final title in ['Server', 'Authentication']) {
             final native = menu(tester, title);
@@ -2402,11 +2427,11 @@ paths: {/pets: {get: {responses: {'204': {description: ok}}}}}
             f.run.server = 1;
             f.run.securityAlternative = 1;
             f.run.bodyText = 'retained exact body 雪';
-            f.run.values[OperationRequestDraft.parameterKey('query', 'name')] =
-                'retained parameter 😀';
+            f.run.editParameter(OperationRequestDraft.parameterKey('query', 'name'),
+                'retained parameter 😀');
             f.run.headerName = 'X-Retained';
             f.run.headerValue = 'retained header';
-            final values = Map<String, String>.of(f.run.values);
+            final parameters = Map<String, RequestValue>.of(f.run.parameters);
             final media = f.run.bodyMediaType;
             final bodyEnabled = f.run.bodyEnabled;
             final changed = contract(
@@ -2446,14 +2471,14 @@ paths: {/pets: {get: {responses: {'204': {description: ok}}}}}
             expect(send(tester).onPressed, isNotNull);
             expect(f.run.server, 1);
             expect(f.run.bodyText, 'retained exact body 雪');
-            expect(f.run.values, values);
+            expect(f.run.parameters, parameters);
             expect(f.run.headerName, 'X-Retained');
             expect(f.run.headerValue, 'retained header');
             expect(f.run.bodyMediaType, media);
             expect(f.run.bodyEnabled, bodyEnabled);
             expect(f.run.phase, 'ready');
             expect(f.run.result, isNull);
-            await tester.runAsync(
+            await runWidgetIo(tester,
               () =>
                   HttpOverrides.runWithHttpOverrides(f.run.send, _NativeHttp()),
             );
@@ -2529,7 +2554,7 @@ paths: {/pets: {get: {responses: {'204': {description: ok}}}}}
           expect(send(tester).onPressed, isNull);
           expect(menu(tester, 'Environment').enabled, false);
           final draft = f.run.bodyText;
-          await tester.runAsync(f.run.send);
+          await runWidgetIo(tester, f.run.send);
           f.run.selectEnvironment('local');
           f.run.useBodyExample(media);
           environmentBefore.onSelected(
@@ -2918,11 +2943,12 @@ paths:
             'note=a%26admin%3Dtrue&empty=&note=+a%3Db%2526%E9%9B%AA+',
           );
           final key = OperationRequestDraft.parameterKey('query', 'tag');
-          f.run.values[key] = 'kept';
-          f.run.omittedValues.add(key);
+          f.run.editParameter(key, 'kept');
+          f.run.includeParameter(key, false);
           expect(f.run.draft().parameters.containsKey(key), isFalse);
-          f.run.omittedValues.remove(key);
-          f.run.values[key] = '';
+          expect(f.run.parameters[key]?.text, 'kept');
+          f.run.includeParameter(key, true);
+          f.run.editParameter(key, '');
           expect(f.run.draft().parameters[key]!.present, isTrue);
           final previous = f.run.result;
           await f.run.open({
@@ -3045,7 +3071,7 @@ paths:
           expect(f.run.bodyStructured, isTrue);
           expect(f.run.bodyText, data);
           expect(f.run.draft().body.text, data);
-          await tester.runAsync(
+          await runWidgetIo(tester,
             () => HttpOverrides.runWithHttpOverrides(f.run.send, _NativeHttp()),
           );
           expect(f.run.failure, isNull, reason: f.run.failureMessage);
@@ -3300,7 +3326,7 @@ paths:
             'other': 'text/plain; charset=utf-8',
           });
           expect(f.run.draft().body.partMediaTypes, f.run.partMediaTypes);
-          await tester.runAsync(
+          await runWidgetIo(tester,
             () => HttpOverrides.runWithHttpOverrides(f.run.send, _NativeHttp()),
           );
           expect(f.run.failure, isNull, reason: f.run.failureMessage);
@@ -3434,7 +3460,13 @@ paths:
           'Application/JSON; charset=utf-8': {schema: {}, examples: {upper: {dataValue: hello}}}
           application/x-www-form-urlencoded: {schema: {}, examples: {aliased: {dataValue: *fields}, fields: {dataValue: {note: 'fish&chips', empty: '', tag: [one, two]}}, nested: {dataValue: {note: {inner: value}}}}}
           multipart/form-data:
-            schema: {}
+            schema:
+              type: object
+              properties:
+                tag: {type: array, items: {type: string}}
+                n: {type: number}
+                metadata: {type: string}
+                note: {type: string}
             encoding: {metadata: {contentType: application/json}}
             examples: {aliasedParts: {dataValue: *fields}, parts: {dataValue: {metadata: hello, note: 'a&admin=true'}}}
       responses: {'204': {description: ok}}
@@ -3445,7 +3477,7 @@ paths:
           }
           expect(f.run.failure, 'request.example.conversion');
           expect(
-            f.run.values.containsKey(
+            f.run.parameters.containsKey(
               OperationRequestDraft.parameterKey('query', 'foreign'),
             ),
             isFalse,
@@ -3603,7 +3635,7 @@ paths:
             ),
             findsOneWidget,
           );
-          await tester.runAsync(
+          await runWidgetIo(tester,
             () => HttpOverrides.runWithHttpOverrides(f.run.send, _NativeHttp()),
           );
           expect(f.run.failure, isNull, reason: f.run.failureMessage);
@@ -3702,7 +3734,7 @@ paths:
         expect(f.run.bodyText, wire);
         await tester.pumpWidget(host(RequestRunPanel(run: f.run)));
         await tester.pump();
-        await tester.runAsync(
+        await runWidgetIo(tester,
           () => HttpOverrides.runWithHttpOverrides(f.run.send, _NativeHttp()),
         );
         expect(f.run.failure, isNull, reason: f.run.failureMessage);
@@ -3784,7 +3816,7 @@ paths:
           f.run.useExample(parameter);
           await tester.pumpWidget(host(RequestRunPanel(run: f.run)));
           await tester.pump();
-          await tester.runAsync(
+          await runWidgetIo(tester,
             () => HttpOverrides.runWithHttpOverrides(f.run.send, _NativeHttp()),
           );
           expect(f.run.failure, isNull, reason: f.run.failureMessage);
@@ -3999,7 +4031,7 @@ paths: {/pets: {get: {responses: {'204': {description: ok}}}}}
 ''';
           await f.open(source);
           f.run.securityAlternative = 0;
-          f.run.values['query\u0000kept'] = 'retained';
+          f.run.editParameter('query\u0000kept', 'retained');
           var current = source.replaceFirst(
             'security: [{oauth: [read]}, {}]',
             'security: [{}, {oauth: [read]}]',
@@ -4034,7 +4066,7 @@ paths: {/pets: {get: {responses: {'204': {description: ok}}}}}
           await f.run.reconcileDraft();
           expect(f.run.server, -1);
           expect(f.run.canSend, isFalse);
-          expect(f.run.values['query\u0000kept'], 'retained');
+          expect(f.run.parameters['query\u0000kept']?.text, 'retained');
         });
       } finally {
         await tester.runAsync(f.dispose);
