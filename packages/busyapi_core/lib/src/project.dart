@@ -3915,11 +3915,14 @@ class BusyProject {
     if (contextBound) {
       final (AnalysisSnapshot, int) captured;
       try {
-        captured = await _objectSnapshot(
-          root,
-          b.id,
-          cancelled: current == null ? null : () => !current(),
-        );
+        // A proposal uses its inspected capture. Read-only assistance may
+        // reacquire invalidated inputs; doing that here would silently rebase
+        // pending metadata before the exact commit-boundary disk check.
+        final inspected = _sourceCaptures[root];
+        captured = inspected == null
+            ? await _objectSnapshot(root, b.id,
+                cancelled: current == null ? null : () => !current())
+            : (inspected.snapshot, inspected.revision);
       } on CoreFailure catch (failure) {
         if (failure.code == 'cancelled' && current != null && !current()) {
           throw CoreFailure('proposal.stale', 'The edit was retired');
@@ -3945,15 +3948,6 @@ class BusyProject {
       'target': session.target(),
       'actions': actions,
     });
-    if ((current != null && !current()) ||
-        result['snapshot'] != snap.identity ||
-        !snap.current(store) ||
-        contextRevision != null && contextRevision != _resourceRevision) {
-      throw CoreFailure(
-        'proposal.stale',
-        'Source changed while preparing the edit',
-      );
-    }
     if (contextBound) {
       final inputs = {
         for (final input in snap.allInputs)
@@ -3987,6 +3981,12 @@ class BusyProject {
           'A schema context file changed after capture; no edit was applied',
         );
       }
+    }
+    if ((current != null && !current()) ||
+        result['snapshot'] != snap.identity ||
+        !snap.current(store) ||
+        contextRevision != null && contextRevision != _resourceRevision) {
+      throw CoreFailure('proposal.stale', 'Source changed while preparing the edit');
     }
     store.apply([
       for (final e in result['edits'] as List)

@@ -364,7 +364,7 @@ void main() {
             isA<CoreFailure>().having(
               (error) => error.code,
               'code',
-              'edit.stale',
+              'proposal.stale',
             ),
           ),
         );
