@@ -6,6 +6,13 @@ import 'package:path/path.dart' as p;
 import 'package:busyapi_core/busyapi_core.dart';
 import 'refactoring_command.dart';
 
+int _migrationExitCode(MigrationOutput output) {
+  if (output.publishable) return 0;
+  return output.problems.isNotEmpty && output.problems.every((problem) =>
+      problem.reason == MigrationProblemReason.sourceIncomplete &&
+      problem.code != 'migration.validation.incomplete') ? 1 : 2;
+}
+
 const usage = '''BusyAPI 0.1.0
 Usage:
   busyapi init DESTINATION --title TITLE --api-version VERSION [--openapi 2.0|3.0.4|3.1.2|3.2.1] [--format yaml|json] [--standalone]
@@ -545,6 +552,8 @@ Future<void> runBusyApi(
             throw CoreFailure(
               'migration.blocked',
               'Resolve the reported migration blockers and decisions before publication',
+              kind: _migrationExitCode(output) == 1
+                  ? CoreFailureKind.specification : CoreFailureKind.unsupported,
             );
           if (options['apply'] != output.identity)
             throw CoreFailure(
@@ -601,7 +610,7 @@ Future<void> runBusyApi(
             options['apply'] != null ? 'Published ${output.destination}' : 'Review only; original documents and destination remain unchanged.',
           );
         }
-        exitCode = output.publishable ? 0 : 2;
+        exitCode = _migrationExitCode(output);
         return;
       } finally {
         output?.close();

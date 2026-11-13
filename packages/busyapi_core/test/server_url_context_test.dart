@@ -59,43 +59,24 @@ void main() {
               before['status'],
             );
             final failedDestination = '${temp.path}/refused-copy';
-            await expectLater(
-              project.prepareMigration(
-                root,
-                failedDestination,
-                targetVersion: version,
-              ),
-              throwsA(
-                isA<OutputAnalysisFailure>()
-                    .having(
-                      (e) => e.code,
-                      'code',
-                      unsupported
-                          ? 'migration.incomplete'
-                          : 'migration.contract',
-                    )
-                    .having(
-                      (e) => e.analysis['complete'],
-                      'complete',
-                      !unsupported,
-                    )
-                    .having(
-                      (e) => (e.analysis['findings'] as List)
-                          .where(
-                            (f) =>
-                                (f['code'] as String).startsWith(
-                                  'server.url.',
-                                ) &&
-                                f['resource'] == root &&
-                                f['pointer'] == '/servers/0/url' &&
-                                (!unsupported || f['incomplete'] == true),
-                          )
-                          .length,
-                      'precise finding',
-                      1,
-                    ),
-              ),
+            final refused = await project.prepareMigration(
+              root,
+              failedDestination,
+              targetVersion: version,
             );
+            addTearDown(refused.close);
+            expect(refused.publishable, false);
+            expect(refused.result['outputs'], isEmpty);
+            expect(refused.result['changes'], isEmpty);
+            final problems = (refused.result['problems'] as List).where(
+              (problem) => (problem['code'] as String).startsWith('migration.validation.server.url.') &&
+                  problem['resource'] == root && problem['pointer'] == '/servers/0/url',
+            );
+            expect(problems, hasLength(1));
+            final problemRange = problems.single['range'] as List;
+            expect(problemRange[1] as int, greaterThan(problemRange[0] as int));
+            await expectLater(refused.publish(),
+                throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'migration.blocked')));
             expect(await Directory(failedDestination).exists(), false);
             final migrated = await Process.run(
               '$testBundle/busyapi',
@@ -117,15 +98,14 @@ void main() {
               reason: '${migrated.stdout} ${migrated.stderr}',
             );
             final report = jsonDecode(migrated.stdout as String) as Map;
-            expect(report['status'], unsupported ? 'incomplete' : 'invalid');
+            expect(report['status'], 'blocked');
             expect(report['complete'], false);
             expect(
-              (report['findings'] as List).where(
-                (f) =>
-                    (f['code'] as String).startsWith('server.url.') &&
-                    f['pointer'] == '/servers/0/url' &&
-                    f['resource'] == root &&
-                    (!unsupported || f['incomplete'] == true),
+              (report['problems'] as List).where(
+                (problem) =>
+                    (problem['code'] as String).startsWith('migration.validation.server.url.') &&
+                    problem['pointer'] == '/servers/0/url' &&
+                    problem['resource'] == root,
               ),
               hasLength(1),
             );

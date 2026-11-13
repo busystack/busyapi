@@ -312,7 +312,8 @@ publication paths. Explicit conversion captures configured entries and their
 closures, including unsaved unselected consumers. Ordinary opening and selected
 root checks stay lazy. Dart acquires that source without a duplicate full schema
 validation; the conversion engine owns source/target validation and returns
-located blocked reviews for unsupported inputs.
+located blocked reviews for inputs that cannot be converted. CLI source errors
+retain exit code 1; incomplete or unrepresentable conversions retain exit code 2.
 
 Lowering `$self` transfers an anchor-bearing implicit Schema resource through
 the same final allocator before the next graph capture. Public native bindings

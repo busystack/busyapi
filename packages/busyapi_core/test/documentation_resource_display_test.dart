@@ -171,9 +171,9 @@ void main() {
             expect(await root.readAsBytes(), rootBytes);
             expect(await model.readAsBytes(), modelBytes);
             await publishSources(project, [buffer]);
-            // Saving identical working bytes does not make their frozen text
-            // stale or rewrite its original unsaved-input provenance.
-            expect(capture.outdated, false);
+            // Publication changes the captured file identity. The frozen
+            // presentation keeps its original working-copy provenance.
+            expect(capture.outdated, true);
             expect(capture.unsaved, true);
             for (final preset in ['native-reference', 'swagger', 'redoc']) {
               final plan = await project.prepareDocumentation(
