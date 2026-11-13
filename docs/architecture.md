@@ -374,9 +374,10 @@ ordinary execution slot. Cooperative close retires one capture; worker death
 invalidates its captures while Source retains separate workers. Framing storage
 grows geometrically and materializes completed records only for decoding.
 
-Recovery checkpoints select changed buffer owners and changed draft revisions. They
-never enumerate the workspace for a typing/field checkpoint; explicit close,
-replacement and publication drains may collect all resources. Connected file
+Recovery checkpoints select changed buffer owners and changed draft revisions.
+Field commits, undo/redo and selected saves retain that selection. Awaiting a
+checkpoint also awaits already captured writes; it does not recapture unchanged
+buffers. Complete workspace collection remains at close and replacement. Connected file
 intent membership is reused until a structural transition changes it, and unrelated
 dirty sources retain individual records. The coalescing writer inventories its
 private directory once per batch of at most sixteen records under a cross-process
@@ -444,6 +445,12 @@ Restoring a Source reader uses the current post-layout viewport mapping independ
 An accepted disk discard captures the owning project/buffer, text generation, baseline and publication/path/mode state at the decision callback. Reload reports applied, stale, failed or cancelled. After all reads it revalidates and changes history/text/baseline synchronously. Recovery retirement is queued with the exact applied capture and rechecked before deletion; a newer checkpoint remains ordered after cleanup. Automatic refresh uses the same owner/publication guards. Captures also retain the owning workspace’s eligibility callback: active/restored/applying forms and pending/composing property input block replacement at its final synchronous boundary and block recovery retirement. Clean source generations alone do not authorize discarding separate input. Grouped file intents retain their complete-operation discard/recovery restriction.
 
 Root dependency identities are monitored independently of tabs, including missing resources. Cached inactive roots are invalidated when their shared resources change. Clean reload retires every touching logical history entry; independent history survives, and replay verifies all expected texts before mutation. BusyAPI's private versioned view state restores only approved project resources, clamps caret positions, and retains root/resource/occurrence selection, tabs, mode/preview, scroll, disclosure state and pane geometry. Recovery drafts remain separate and never publish during restoration.
+
+Configured opening validates the root roster and resource mappings without
+acquiring or analyzing every root. Explicit or remembered selection acquires
+that root's closure; semantic impact and conversion collect all roots they
+actually require. Each caller retains its returned immutable capture rather than
+consulting a shared latest-root snapshot.
 
 The snapshot reference graph separates physical resources, approved retrieval identities, OpenAPI 3.2 `$self`, embedded schema `$id` resources, pointers and anchors. URI mappings are explicit session capabilities in Settings or repeatable `check --map-resource URI FILE`, or portable version-1 manifest `resourceMappings` from URI-reference keys to project-relative local paths. No mapping fetches a resource or approves an outside directory. Normalization is a bounded engine operation using the graph's own URI primitive, not a Dart resolver. Canonically equivalent keys cannot select different files; one physical file cannot silently acquire different retrieval bases. A mapped document resolves relative references from that retrieval URI, with `$self`/`$id` overriding that base where defined. Manifest snapshots are configuration inputs, never OAS graph documents; their bytes/generations join freshness, monitoring and output snapshot identities. Saved collection keeps a separate disk mapping projection from unsaved working configuration, including pending physical moves. Both mappings and source identities participate in snapshot identity. Retrieval-URI aliases remain available alongside declared identities for local navigation; references using `$self` are the interoperable OAS 3.2 form. Duplicate resource/anchor identities produce ambiguity with all physical candidates retained for collection. Missing anchors remain located invalid findings instead of repeatedly loading and dropping their resource.
 

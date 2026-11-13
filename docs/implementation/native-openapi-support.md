@@ -17,7 +17,7 @@ implementation instructions. No older passing run qualifies the changed product.
 | Area | Current implementation and qualification |
 | - | - |
 | Source/Design/history | BufferStore owns source, BOM, path/presence, reload, recovery and replay. Reversible spans and logical tokens replace history digests; asynchronous revisions advance across undo and owner replacement. Focused core/widget exact-input, branching, late-input and save/reopen cases pass. Native input remains blocked below. |
-| Recovery | Checkpoints select affected owners and changed draft revisions. File-intent groups exclude unrelated dirty sources. The bounded writer inventories once per locked batch, retains durable progress and drains at consequential transitions. Focused interruption/race and targeted-resource cases pass. |
+| Recovery | Source input, field commits, undo/redo and selected publication checkpoint affected owners and changed draft revisions. Awaiting persistence also awaits earlier captured writes. File-intent updates and retirement avoid workspace-buffer enumeration and exclude unrelated dirty sources. Complete drains remain at workspace replacement/close. Focused interruption/race and targeted-resource cases pass. |
 | Capture and assistance | Root-local immutable captures are separate from full schema analysis. Disk events invalidate relevant versions with bounded reconciliation. Folding uses selected-resource syntax without a graph. Derived text cannot reuse an old parse through inherited metadata. Focused root/cache/folding tests pass. |
 | Source saving | Desktop and CLI use PublicationStore. Alternate BusyProject.save is removed. Partial publication, conflicts, permissions, interrupted records, grouped ordering and undo across save remain. Focused publication cases pass. |
 | Conversion | TypeScript owns language/configuration transformation; Dart owns bounded review, immutable reviewed bytes and publication. Final-output reference mapping removes duplicate repair phases. Further owner/holder simplification and broad behavioral adjudication are still in progress; no complete conversion qualification is claimed. |
@@ -75,7 +75,7 @@ The paired process memory observations and complete inputs are in `editing/`.
 
 | Workload | Before → after |
 | - | - |
-| One changed resource among 33 dirty buffers | Only that buffer is captured/written by the new typing checkpoint; unchanged records survive |
+| One changed resource among 33 dirty buffers | Typing, field commit, undo, redo and a selected save each checkpoint only that buffer; unchanged records survive |
 | Two folding requests | One shared parse, zero semantic graphs in the new path |
 | Two SourcePlan forks | Zero new parses in the new path |
 | Three saved cases for one operation | Full captures 4 → 1; configuration decodes 4 → 1; exact-input requests 3 → 1; operation plans 3 → 1 |
@@ -160,12 +160,24 @@ The unchanged owned 3.0.4 YAML standalone editing journey then failed at its
 first Title assertion: requested `edited 3.0.4`, observed `Production 3.0.4`.
 The 430-byte API and 260-byte model remained byte-identical. The process reached
 418,584 KiB peak RSS. Save, Source/history and reopen were not reached. This run
-does not establish the earlier trailing-character cause; the first-party focus
-and capability boundary is under separate investigation. The candidate's
+does not establish the earlier trailing-character cause. The candidate's
 `lib/libapp.so` SHA-256 is
 `7b4d904bfc03e1a095aefabf5bae215322724ddff4d5335d4ace24a6265dea0a`.
 Original/current files, controls, screenshots, identities and memory are in
 `build/diagnostics/simplification-20261113/native-release/`.
+
+Separate controlled release AOT traces now compare `364209c` with `14004d3`,
+before authoring consolidation. Both retain one mounted, writable Title field
+through the entire burst. Tab then blurs it and clears its Flutter client;
+the complete 12-character update arrives afterward for that retired client.
+The current field retains `edited 3`; the earlier field retains `edited 3.0.`.
+Neither late update reaches Designer's input callback. This rules out the
+suspected first-party remount/read-only transition in those controlled runs.
+It does not reconstruct the untraced zero-edit run or establish comparative
+performance. Six initial-focus widget cases retain the focused client across
+feedback invalidation. No input workaround, timing change or SDK patch was added.
+Patches, raw events, original/current files and compiled identities are retained
+in `build/diagnostics/simplification-20261113/native-boundary/`.
 
 A read-only comparison of local official SDK tags 3.47.5 and 3.47.9 found the
 Linux text-input/keyboard handlers, text-input service and focus manager unchanged;
