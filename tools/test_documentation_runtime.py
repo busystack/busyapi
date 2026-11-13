@@ -18,7 +18,8 @@ class DocumentationRuntime(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.installed = Path(os.environ.get('BUSYAPI_DOCUMENTATION_MODULE',
-            ROOT / 'build/linux/x64/debug/bundle/lib/libbusyapi_documentation.so')).absolute()
+            Path(os.environ.get('BUSYAPI_TEST_BUNDLE',
+                ROOT / 'build/linux/x64/release/bundle')) / 'lib/libbusyapi_documentation.so')).absolute()
         if not cls.installed.is_file() or cls.installed.is_symlink():
             raise RuntimeError('Build the ordinary BusyAPI Linux application first')
         cls.staging = tempfile.TemporaryDirectory(prefix='busyapi-doc-runtime-')
@@ -100,6 +101,8 @@ class DocumentationRuntime(unittest.TestCase):
         self.assertIsNotNone(common)
         (source / 'CMakeLists.txt').write_text(f'''cmake_minimum_required(VERSION 3.13)
 project(documentation_module_test LANGUAGES CXX)
+set(BINARY_NAME module-host)
+add_custom_target(${{BINARY_NAME}} ALL)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK REQUIRED IMPORTED_TARGET gtk+-3.0)
 pkg_check_modules(WEBKIT REQUIRED IMPORTED_TARGET webkit2gtk-4.1)

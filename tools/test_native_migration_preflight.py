@@ -1,36 +1,18 @@
 #!/usr/bin/python3
-"""Producer mismatches must stop before a native fixture can take input."""
+"""Installed CLI reviews preserve fixtures before any native input is sent."""
 import json
 import os
 from pathlib import Path
-import re
+import subprocess
 import tempfile
 import unittest
 
 from tools.native_migration_preflight import (
-    MIGRATION_PRODUCER, preflight_migration, verify_migration_producer,
+    preflight_migration, verify_migration_metadata,
 )
 
 
 class PreflightTests(unittest.TestCase):
-    def test_revision_matches_production_engine_and_core(self):
-        repository = Path(__file__).resolve().parent.parent
-        engine = (repository / 'tools/contract_engine/src/migration.ts').read_text()
-        core = (repository / 'packages/busyapi_core/lib/src/migration.dart').read_text()
-        engine_revision = re.search(r"const migrationProducerVersion\s*=\s*'([^']+)'", engine)
-        core_revision = re.search(r"result\['producerVersion'\]\s*!=\s*'([^']+)'", core)
-        self.assertIsNotNone(engine_revision, 'Locate the production migration producer')
-        self.assertIsNotNone(core_revision, 'Locate Core migration admission')
-        self.assertEqual(engine_revision.group(1), core_revision.group(1))
-        self.assertEqual(MIGRATION_PRODUCER, engine_revision.group(1))
-
-    def test_current_revision_is_accepted_and_previous_package_is_rejected(self):
-        verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': '104'})
-        for obsolete in ('25', '34', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45', '46', '47', '48', '49', '50', '51', '52', '53', '54', '55', '56', '57', '58', '59', '60', '61', '62', '63', '64', '65', '66', '67', '68', '69', '70', '71', '72', '73', '74', '75', '76', '77', '78', '79', '80', '81', '82', '83', '84', '85', '86', '87', '88', '89', '90', '91', '92', '93', '94', '95', '96', '97', '98', '99', '100', '101', '102', '103'):
-            with self.subTest(obsolete=obsolete):
-                with self.assertRaisesRegex(RuntimeError, 'producer differ'):
-                    verify_migration_producer({'producer': 'busyapi-native-migration', 'producerVersion': obsolete})
-
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory(prefix='busyapi-native-preflight-test-')
         self.addCleanup(self.directory.cleanup)
@@ -49,18 +31,17 @@ class PreflightTests(unittest.TestCase):
         return binary
 
     def review(self, **updates):
-        return {'producer': 'busyapi-native-migration', 'producerVersion': MIGRATION_PRODUCER,
+        return {'producer': 'busyapi-native-migration', 'producerVersion': 'fixture-protocol',
                 'status': 'faithfully-convertible', 'complete': True, 'published': False,
                 'target': {'declaredVersion': '2.0'}, 'reviewIdentity': 'a' * 64, 'configurationProjections': [], 'parameterChanges': [], **updates}
 
-    def test_obsolete_producer_is_rejected_without_publication(self):
-        for version in ['6', '23', '25', '31', '32', '33', '89', '90', '91', '92', '93', '94', '95']:
-            with self.subTest(producerVersion=version):
-                binary = self.fake(self.review(producerVersion=version))
-                with self.assertRaisesRegex(RuntimeError, 'producer differ'):
-                    preflight_migration(binary, self.source, '2.0', self.destination, self.originals)
-                self.assertFalse(self.destination.exists())
-                self.assertEqual(self.source.read_bytes(), self.raw)
+    def test_review_identifies_its_producer_without_a_duplicate_revision_policy(self):
+        verify_migration_metadata(self.review())
+        for value in (None, [], {}, self.review(producer='unrelated'),
+                      self.review(producerVersion=None), self.review(producerVersion=''),
+                      self.review(producerVersion='x' * 129)):
+            with self.subTest(metadata=value), self.assertRaisesRegex(RuntimeError, 'producer identity'):
+                verify_migration_metadata(value)
 
     def test_malformed_failed_and_nonreview_outputs_are_not_readiness(self):
         cases = [(self.review(), 0, '{broken'), ([], 0, None),
@@ -90,6 +71,37 @@ class PreflightTests(unittest.TestCase):
             preflight_migration(self.root / 'missing-binary', self.source, '2.0',
                                 self.destination, self.originals)
         self.assertEqual(sentinel.read_bytes(), b'Keep foreign destination')
+
+    def test_preflight_rejects_publication_or_original_changes_after_cli_review(self):
+        binary = self.fake(self.review())
+        original = binary.read_text()
+        for mutate, message in [
+            (f'from pathlib import Path; Path({str(self.destination)!r}).mkdir()\n', 'unexpectedly published'),
+            (f'from pathlib import Path; Path({str(self.source)!r}).write_bytes(b"changed")\n', 'changed its original'),
+        ]:
+            with self.subTest(mutate=mutate):
+                # Run the actual preflight child boundary, rather than changing
+                # the evidence after the verifier has finished.
+                binary.write_text(original.replace('sys.exit(0)', mutate + 'sys.exit(0)'))
+                with self.assertRaisesRegex(RuntimeError, message):
+                    preflight_migration(binary, self.source, '2.0', self.destination, self.originals)
+                if self.destination.exists():
+                    self.destination.rmdir()
+                self.source.write_bytes(self.raw)
+
+    def test_review_evidence_retains_exact_strings_and_opaque_conversion_metadata(self):
+        record = {
+            'pointer': '/tests/0/body',
+            'before': '{"mediaType":"multipart/form-data","value":[{"tag":9007199254740993.00},{"tag":"雪"}]}',
+            'after': '{"mediaType":"multipart/form-data","value":{"tag":[9007199254740993.00,"雪"]}}',
+            'multipart': {'names': ['tag']},
+        }
+        report = preflight_migration(
+            self.fake(self.review(configurationProjections=[record])), self.source,
+            '2.0', self.destination, self.originals)
+        self.assertEqual(report['configurationProjections'], [record])
+        self.assertEqual(self.source.read_bytes(), self.raw)
+        self.assertFalse(self.destination.exists())
 
     def test_actual_packaged_cli_previews_all_families_without_publication(self):
         bundle = Path(os.environ.get('BUSYAPI_TEST_BUNDLE') or
@@ -121,7 +133,6 @@ class PreflightTests(unittest.TestCase):
                                                  {source: raw, fragment: extra})
                     self.assertFalse(report['published'])
                     self.assertFalse(report['nativeAcceptance'])
-                    self.assertEqual(report['producerVersion'], MIGRATION_PRODUCER)
                     self.assertFalse(destination.exists())
                     self.assertEqual(source.read_bytes(), raw)
                     self.assertEqual(fragment.read_bytes(), extra)
@@ -153,7 +164,6 @@ class PreflightTests(unittest.TestCase):
                 shared.write_bytes(extra)
                 destination = self.root / ('b05-preview-' + format)
                 report = preflight_migration(binary, source, '3.2.1', destination, {source: raw, shared: extra})
-                self.assertEqual(report['producerVersion'], MIGRATION_PRODUCER)
                 self.assertFalse(report['published'])
                 self.assertFalse(report['nativeAcceptance'])
                 self.assertFalse(destination.exists())
@@ -199,7 +209,6 @@ class PreflightTests(unittest.TestCase):
             destination = self.root / ('r3a-preview-' + version)
             report = preflight_migration(bundle / 'busyapi', self.root, '2.0', destination,
                                          {source: raw, configuration: config})
-            self.assertEqual(report['producerVersion'], MIGRATION_PRODUCER)
             self.assertFalse(report['published'])
             self.assertTrue(any(change['pointer'] == '/tests/0/server' for change in report['configurationProjections']))
             self.assertFalse(destination.exists())
@@ -234,7 +243,6 @@ class PreflightTests(unittest.TestCase):
                     source.write_bytes(raw)
                     destination = self.root / ('r2-preview-' + version + '-' + format)
                     report = preflight_migration(binary, source, '2.0', destination, {source: raw})
-                    self.assertEqual(report['producerVersion'], MIGRATION_PRODUCER)
                     self.assertFalse(report['published'])
                     self.assertFalse(destination.exists())
                     self.assertEqual(source.read_bytes(), raw)
@@ -267,7 +275,6 @@ class PreflightTests(unittest.TestCase):
             source.write_bytes(raw)
             destination = self.root / ('r3-preview-' + format)
             report = preflight_migration(binary, source, '3.1.2', destination, {source: raw})
-            self.assertEqual(report['producerVersion'], MIGRATION_PRODUCER)
             self.assertFalse(report['published'])
             self.assertFalse(destination.exists())
             self.assertEqual(source.read_bytes(), raw)
@@ -316,12 +323,10 @@ class PreflightTests(unittest.TestCase):
                     destination = self.root / ('binary-preview-' + version + '-' + format)
                     report = preflight_migration(bundle / 'busyapi', source, target,
                                                  destination, {source: raw, fragment: extra})
-                    self.assertEqual(report['producerVersion'], MIGRATION_PRODUCER)
                     self.assertFalse(report['published'])
                     self.assertFalse(destination.exists())
                     self.assertEqual(source.read_bytes(), raw)
                     self.assertEqual(fragment.read_bytes(), extra)
-
 
     def test_actual_packaged_r3c_finite_parameters_and_saved_values(self):
         bundle = Path(os.environ.get('BUSYAPI_TEST_BUNDLE') or
@@ -354,7 +359,6 @@ class PreflightTests(unittest.TestCase):
                             path.write_bytes(data)
                         destination = self.root / ('r3c-' + version + '-' + format + '-' + target)
                         report = preflight_migration(binary, source, target, destination, originals)
-                        self.assertEqual(report['producerVersion'], MIGRATION_PRODUCER)
                         self.assertTrue(any(change['pointer'] == '/tests/0/parameters' for change in report['configurationProjections']))
                         self.assertFalse(destination.exists())
                         for path, data in originals.items():
@@ -439,21 +443,7 @@ class PreflightTests(unittest.TestCase):
                         with self.assertRaisesRegex(RuntimeError, 'migration.parameter.saved-proof'):
                             preflight_migration(bundle / 'busyapi', source, target, destination, {**originals, configuration: rejected})
 
-    def test_malformed_raw_and_cookie_proof_records_are_rejected(self):
-        target = {'name': 'q', 'resource': 'file:///review/api.json', 'pointer': '/parameters/0'}
-        for field, proof in [('rawQueries', [{'name': 'all', 'data': '[]', 'destinations': ['q'], 'targets': [target]}]),
-                             ('rawQueries', [{'name': 'all', 'data': '{"q":"a"}', 'destinations': ['q']}]),
-                             ('rawQueries', [{'name': 'all', 'data': '{"q":"a"}', 'destinations': ['q'], 'targets': [{**target, 'name': 'wrong'}]}]),
-                             ('rawQueries', [{'name': 'all', 'data': '{}', 'destinations': ['q', 'q']}]),
-                             ('cookieGroups', [{'name': 'group', 'destinations': ['']}]),
-                             ('cookieUnwraps', ['single', 'single'])]:
-            with self.subTest(field=field, proof=proof):
-                report = self.review(configurationProjections=[{'pointer': '/tests/0/parameters', 'before': '{}', 'after': '{}', field: proof}])
-                with self.assertRaises(RuntimeError):
-                    preflight_migration(self.fake(report), self.source, '2.0', self.destination, self.originals)
-                self.assertFalse(self.destination.exists())
-
-    def test_actual_packaged_r3b_owners_and_unused_target_restrictions(self):
+    def test_actual_packaged_r3b_active_and_unused_definitions_reopen_independently(self):
         bundle = Path(os.environ.get('BUSYAPI_TEST_BUNDLE') or
                       Path(__file__).resolve().parent.parent / 'build/linux/x64/release/bundle')
         binary = bundle / 'busyapi'
@@ -487,15 +477,31 @@ class PreflightTests(unittest.TestCase):
                     for path, raw in originals.items():
                         path.write_bytes(raw)
                     destination = self.root / ('r3b-preview-' + str(unused) + '-' + format)
-                    if unused is None:
-                        report = preflight_migration(binary, source, '2.0', destination, originals)
-                        self.assertEqual(report['producerVersion'], MIGRATION_PRODUCER)
-                        self.assertFalse(report['published'])
-                    else:
-                        code = 'migration.path-item.unused-owner' if unused == 'path-item' else 'migration.media.unbound-owner'
-                        with self.assertRaisesRegex(RuntimeError, code):
-                            preflight_migration(binary, source, '2.0', destination, originals)
+                    report = preflight_migration(binary, source, '2.0', destination, originals)
+                    self.assertFalse(report['published'])
                     self.assertFalse(destination.exists())
+                    result = subprocess.run(
+                        [str(binary), 'migrate', str(source), '--target', '2.0',
+                         '--output', str(destination), '--json', '--apply', report['reviewIdentity']],
+                        env={'PATH': '', 'LANG': 'C.UTF-8'}, capture_output=True, text=True, timeout=30)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertTrue(json.loads(result.stdout)['published'])
+                    for path, raw in originals.items():
+                        self.assertEqual(path.read_bytes(), raw)
+                    # The output must resolve without consulting the originals.
+                    retired = {path: path.with_name(path.name + '.retired') for path in originals}
+                    try:
+                        for path, moved in retired.items():
+                            path.rename(moved)
+                        result = subprocess.run(
+                            [str(binary), 'check', str(destination), '--json'],
+                            env={'PATH': '', 'LANG': 'C.UTF-8'}, capture_output=True, text=True, timeout=30)
+                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                        self.assertTrue(json.loads(result.stdout)['complete'])
+                    finally:
+                        for path, moved in retired.items():
+                            if moved.exists():
+                                moved.rename(path)
                     for path, raw in originals.items():
                         self.assertEqual(path.read_bytes(), raw)
 
@@ -524,51 +530,7 @@ class PreflightTests(unittest.TestCase):
                         self.assertEqual(source.read_bytes(), raw)
 
 
-    def test_multipart_projection_packets_preserve_exact_values_and_selections(self):
-        before = '{"mediaType":"multipart/form-data","value":[{"tag":9007199254740993.00},{"tag":""}],"partMediaTypes":{"tag":"text/plain"}}'
-        after = '{"mediaType":"multipart/form-data","value":{"tag":[9007199254740993.00,""]},"partMediaTypes":{"tag":"text/plain"}}'
-        record = {'pointer': '/tests/0/body', 'before': before, 'after': after, 'multipart': {'name': 'tag'}}
-        report = preflight_migration(self.fake(self.review(configurationProjections=[record])), self.source,
-                                     '2.0', self.destination, self.originals)
-        self.assertEqual(report['configurationProjections'], [record])
-        for changed in ({**record, 'after': after.replace('9007199254740993.00', '9007199254740992.00')},
-                        {**record, 'after': after.replace('text/plain', 'application/json')},
-                        {**record, 'multipart': {'name': 'different'}},
-                        {**record, 'multipart': {}},
-                        {**record, 'pointer': '/tests/0/parameters'}):
-            with self.subTest(changed=changed):
-                with self.assertRaises(RuntimeError):
-                    preflight_migration(self.fake(self.review(configurationProjections=[changed])), self.source,
-                                        '2.0', self.destination, self.originals)
-                self.assertFalse(self.destination.exists())
-                self.assertEqual(self.source.read_bytes(), self.raw)
 
-    def test_multi_name_projection_preserves_associations_order_and_exact_numbers(self):
-        before = '{"mediaType":"multipart/form-data","value":[{"b":"雪"},{"a":9007199254740993.00},{"a":9007199254740994e0}],"partMediaTypes":{"a":"application/json"},"partHeaders":[]}'
-        after = '{"mediaType":"multipart/form-data","value":{"b":["雪"],"a":[9007199254740993.00,9007199254740994e0]},"partMediaTypes":{"a":"application/json"},"partHeaders":[]}'
-        record = {'pointer': '/tests/0/body', 'before': before, 'after': after, 'multipart': {'names': ['a', 'b', 'unused']}}
-        report = preflight_migration(self.fake(self.review(target={'declaredVersion': '3.1.2'}, configurationProjections=[record])), self.source,
-                                     '3.1.2', self.destination, self.originals)
-        self.assertEqual(report['configurationProjections'], [record])
-        for changed in ({**record, 'after': after.replace('9007199254740993.00', '9007199254740992.00')},
-                        {**record, 'after': after.replace('[9007199254740993.00,9007199254740994e0]', '[9007199254740994e0,9007199254740993.00]')},
-                        {**record, 'multipart': {'names': ['a', 'a']}},
-                        {**record, 'multipart': {'names': ['a']}},
-                        {**record, 'before': before.replace('[{"b":"雪"},{"a":9007199254740993.00},{"a":9007199254740994e0}]',
-                                                           '[{"a":9007199254740993.00},{"b":"雪"},{"a":9007199254740994e0}]')},
-                        {**record, 'after': after.replace('"partHeaders":[]', '"partHeaders":[{"part":"a","name":"X-Mode","value":"different"}]')}):
-            with self.subTest(changed=changed):
-                with self.assertRaises(RuntimeError):
-                    preflight_migration(self.fake(self.review(target={'declaredVersion': '3.1.2'}, configurationProjections=[changed])), self.source,
-                                        '3.1.2', self.destination, self.originals)
-                self.assertFalse(self.destination.exists())
-                self.assertEqual(self.source.read_bytes(), self.raw)
-
-    def test_multi_name_empty_projection_keeps_explicit_empty_fields(self):
-        record = {'pointer': '/tests/0/body', 'before': '{"mediaType":"multipart/form-data","value":[]}',
-                  'after': '{"mediaType":"multipart/form-data","value":{"a":[],"雪":[]}}', 'multipart': {'names': ['a', '雪']}}
-        preflight_migration(self.fake(self.review(target={'declaredVersion': '3.1.2'}, configurationProjections=[record])), self.source,
-                            '3.1.2', self.destination, self.originals)
 
     def test_actual_packaged_r3d1b2_multi_name_saved_previews(self):
         bundle = Path(os.environ.get('BUSYAPI_TEST_BUNDLE') or
@@ -675,7 +637,6 @@ class PreflightTests(unittest.TestCase):
                                                      {source: raw, library: child, manifest: configuration})
                         self.assertTrue(report['complete'])
                         self.assertFalse(report['published'])
-                        self.assertEqual(report['producerVersion'], MIGRATION_PRODUCER)
                         projections = [record for record in report['configurationProjections'] if 'multipart' in record]
                         self.assertEqual(len(projections), 1)
                         self.assertEqual(projections[0]['pointer'], '/tests/0/body')

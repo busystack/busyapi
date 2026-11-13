@@ -8,17 +8,17 @@ import tempfile
 import re
 
 
-MIGRATION_PRODUCER = '104'
-
-
-def verify_migration_producer(metadata):
+def verify_migration_metadata(metadata):
+    # The compiled Core consumer admits the engine protocol. Diagnostics keep
+    # the producer identity as evidence, without a second revision policy.
     if (not isinstance(metadata, dict)
             or metadata.get('producer') != 'busyapi-native-migration'
-            or metadata.get('producerVersion') != MIGRATION_PRODUCER):
-        raise RuntimeError('Native migration fixture and packaged migration producer differ')
+            or not isinstance(metadata.get('producerVersion'), str)
+            or not 1 <= len(metadata['producerVersion']) <= 128):
+        raise RuntimeError('Migration review omitted its producer identity')
 
 
-def verify_configuration_projections(report):
+def verify_review_records(report):
     records = report.get('configurationProjections')
     if not isinstance(records, list) or len(records) > 4096:
         raise RuntimeError('Migration review omitted bounded configuration projections')
@@ -32,87 +32,12 @@ def verify_configuration_projections(report):
                 or not isinstance(record.get('after'), str)):
             raise RuntimeError('Migration returned unrelated configuration projection records')
         seen.add(record['pointer'])
-        for field in ('cookieUnwraps', 'emptyQueries'):
-            names = record.get(field, [])
-            if (not isinstance(names, list) or len(names) > 2048
-                    or any(not isinstance(name, str) or not name for name in names)
-                    or len(set(names)) != len(names)
-                    or names and not record['pointer'].endswith('/parameters')):
-                raise RuntimeError('Migration returned malformed empty/singleton parameter proofs')
         try:
             json.loads(record['after'])
             if record.get('before') is not None:
                 json.loads(record['before'])
         except (ValueError, TypeError) as error:
             raise RuntimeError('Migration returned malformed exact configuration values') from error
-        if record['pointer'].endswith('/body'):
-            certificate = record.get('multipart')
-            names = certificate.get('names', [certificate.get('name')]) if isinstance(certificate, dict) else None
-            if (not isinstance(names, list) or not 1 <= len(names) <= 2048
-                    or set(certificate) not in ({'name'}, {'names'})
-                    or any(not isinstance(name, str) or not name or len(name.encode('utf-16-le', errors='surrogatepass')) // 2 > 4096
-                           or any(0xD800 <= ord(character) <= 0xDFFF for character in name)
-                           or re.search(r'[\x00-\x1f\x7f]', name) for name in names)
-                    or len(set(names)) != len(names)):
-                raise RuntimeError('Migration returned malformed multipart identity proof')
-            exact = lambda value: json.loads(value, parse_int=lambda text: ('number', text),
-                                           parse_float=lambda text: ('number', text))
-            try:
-                before, after = exact(record['before']), exact(record['after'])
-                parts = before.get('value') if isinstance(before, dict) else None
-                if (not isinstance(after, dict) or not isinstance(parts, list)
-                        or not isinstance(before.get('mediaType'), str)
-                        or before['mediaType'].split(';')[0].strip().lower() != 'multipart/form-data'
-                        or any(not isinstance(part, dict) or len(part) != 1 or not set(part) <= set(names) for part in parts)):
-                    raise ValueError('The saved multipart bijection changed unrelated selections')
-                fields, previous = {}, None
-                for part in parts:
-                    name = next(iter(part))
-                    if 'names' in certificate and previous != name and name in fields:
-                        raise ValueError('The saved multipart order has no grouped inverse')
-                    previous = name
-                    fields.setdefault(name, []).append(part[name])
-                if not parts:
-                    fields = {name: [] for name in names}
-                if 'names' in certificate and (not isinstance(after.get('value'), dict)
-                                               or list(fields) != list(after['value'])):
-                    raise ValueError('The saved multipart field order changed')
-                if {**before, 'value': fields} != after:
-                    raise ValueError('The saved multipart bijection changed unrelated selections')
-            except (ValueError, TypeError) as error:
-                raise RuntimeError('Migration returned unrelated multipart projection') from error
-        elif 'multipart' in record:
-            raise RuntimeError('Migration returned unrelated multipart identity proof')
-        for field in ('rawQueries', 'cookieGroups'):
-            proofs = record.get(field, [])
-            if not isinstance(proofs, list) or len(proofs) > 2048 or proofs and not record['pointer'].endswith('/parameters'):
-                raise RuntimeError('Migration returned unrelated parameter projection proofs')
-            names = set()
-            for proof in proofs:
-                if (not isinstance(proof, dict) or not isinstance(proof.get('name'), str)
-                        or proof['name'] in names or not isinstance(proof.get('destinations'), list)
-                        or not 1 <= len(proof['destinations']) <= 2048
-                        or any(not isinstance(name, str) or not name for name in proof['destinations'])
-                        or len(set(proof['destinations'])) != len(proof['destinations'])):
-                    raise RuntimeError('Migration returned malformed parameter projection proofs')
-                names.add(proof['name'])
-                if field == 'rawQueries':
-                    targets = proof.get('targets')
-                    if (not isinstance(targets, list) or len(targets) != len(proof['destinations'])
-                            or any(not isinstance(target, dict)
-                                   or target.get('name') != proof['destinations'][index]
-                                   or not isinstance(target.get('resource'), str)
-                                   or not isinstance(target.get('pointer'), str)
-                                   or len(target['pointer']) > 65536
-                                   or target['pointer'] and not target['pointer'].startswith('/')
-                                   or re.search(r'~(?![01])', target['pointer'])
-                                   for index, target in enumerate(targets))):
-                        raise RuntimeError('Migration returned malformed raw query target owners')
-                    try:
-                        if not isinstance(proof.get('data'), str) or not isinstance(json.loads(proof['data']), dict):
-                            raise ValueError('Expected captured decoded object data')
-                    except (ValueError, TypeError) as error:
-                        raise RuntimeError('Migration returned malformed raw query data') from error
     parameters = report.get('parameterChanges')
     if not isinstance(parameters, list) or len(parameters) > 4096:
         raise RuntimeError('Migration review omitted bounded parameter changes')
@@ -152,8 +77,8 @@ def preflight_migration(binary, source, target, destination, originals):
         report = json.loads(result.stdout)
     except json.JSONDecodeError as error:
         raise RuntimeError('Packaged migration returned malformed preflight JSON') from error
-    verify_migration_producer(report)
-    verify_configuration_projections(report)
+    verify_migration_metadata(report)
+    verify_review_records(report)
     selected = report.get('target')
     identity = report.get('reviewIdentity')
     if (report.get('status') != 'faithfully-convertible'

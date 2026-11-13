@@ -1,6 +1,7 @@
 """Native identity/notice capture, including actual assembled input evidence."""
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import tempfile
@@ -11,6 +12,8 @@ from tools.native_distribution import (assemble, cached_libraries, collect, comm
                                        original_library, package_owners, resolved_libraries)
 
 ROOT = Path(__file__).resolve().parent.parent
+BUNDLE = Path(os.environ.get('BUSYAPI_TEST_BUNDLE',
+                            ROOT / 'build/linux/x64/release/bundle')).absolute()
 
 
 class NativeDistribution(unittest.TestCase):
@@ -39,7 +42,7 @@ class NativeDistribution(unittest.TestCase):
         # Real ELF/loader/package boundaries, with small trusted local inputs.
         # This does not claim a final BusyAPI artifact or native-license review.
         with tempfile.TemporaryDirectory(prefix='busyapi-native-assembly-') as temporary:
-            bundle, real = Path(temporary), ROOT / 'build/linux/x64/debug/bundle'
+            bundle, real = Path(temporary), BUNDLE
             for name in ['busyapi-desktop', 'busyapi', 'libexec/busyapi/node',
                          'libexec/busyapi/resource-package-loader',
                          'libexec/busyapi/policy-isolation.node', 'libexec/busyapi/policy-launcher']:
@@ -135,7 +138,7 @@ class NativeDistribution(unittest.TestCase):
                     package_owners([source])
 
     def test_actual_ordinary_bundle_inventory_keeps_copied_and_system_only_libraries_distinct(self):
-        bundle = ROOT / 'build/linux/x64/debug/bundle'
+        bundle = BUNDLE
         data, notices, libraries = collect(bundle)
         self.assertFalse(data['licenceReviewComplete'], 'Identity/notice capture must not masquerade as completed source/linkage review')
         self.assertNotIn('libwebkit2gtk-4.1.so.0', libraries)

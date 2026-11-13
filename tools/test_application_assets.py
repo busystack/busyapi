@@ -22,21 +22,30 @@ class ApplicationAssets(unittest.TestCase):
         cls.sdk = cls.packages['flutter'].parent.parent
         cls.dart = os.environ.get('BUSYAPI_DART', str(cls.sdk/'bin/cache/dart-sdk/bin/dart'))
         cls.script = ROOT/'packages/busyapi_core/tool/prepare_notices.dart'
-        cls.kernel = ROOT/'build/flutter_assets/kernel_blob.bin'
-        if not cls.kernel.is_file():
-            raise unittest.SkipTest('Build the ordinary pinned Linux debug application first')
+        selected = ROOT/'build/.last_build_id'
+        if not selected.is_file():
+            raise unittest.SkipTest('Build the ordinary pinned Linux application first')
+        compiler = ROOT/'.dart_tool/flutter_build'/selected.read_text().strip()
+        # Follow the selected compiler receipt, just as CMake does. A release
+        # candidate must not require rebuilding an unrelated debug application.
+        cls.mode = next((mode for mode in ('Release', 'Profile')
+                         if (compiler/f'aot_elf_{mode.lower()}.stamp').is_file()), 'Debug')
+        cls.relative_artifact = ('data/flutter_assets/kernel_blob.bin' if cls.mode == 'Debug'
+                                 else 'lib/libapp.so')
+        cls.artifact = ROOT/('build/flutter_assets/kernel_blob.bin' if cls.mode == 'Debug'
+                            else 'build/lib/libapp.so')
 
     def run_tool(self, output, *extra):
         return subprocess.run([self.dart, '--packages='+str(CONFIG), str(self.script),
-                               '--application='+str(self.kernel), '--mode=Debug', '--entry=lib/main.dart',
+                               '--application='+str(self.artifact), '--mode='+self.mode, '--entry=lib/main.dart',
                                '--output='+str(output), *extra], capture_output=True, text=True, timeout=120)
 
     def test_actual_notices_and_covered_sources_survive_relocation_and_fail_closed_on_tampering(self):
         with tempfile.TemporaryDirectory(prefix='busyapi-application-assets-') as temporary:
             bundle = Path(temporary)/'relocated 雪 with spaces'
-            artifact = bundle/'data/flutter_assets/kernel_blob.bin'
+            artifact = bundle/self.relative_artifact
             artifact.parent.mkdir(parents=True)
-            shutil.copyfile(self.kernel, artifact)
+            shutil.copyfile(self.artifact, artifact)
             output = bundle/'share/licenses/busyapi-application'
             result = self.run_tool(output)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -103,7 +112,7 @@ class ApplicationAssets(unittest.TestCase):
             self.assertIn('are separate', result.stderr)
             self.assertFalse((Path(temporary)/'not-created').exists())
 
-    def test_ninja_all_mode_command_wiring_and_actual_debug_notice_installation(self):
+    def test_ninja_all_mode_command_wiring_and_selected_notice_installation(self):
         with tempfile.TemporaryDirectory(prefix='busyapi-application-cmake-') as temporary:
             root = Path(temporary)
             source = root/'source'
@@ -136,18 +145,20 @@ include("{ROOT}/linux/application_notices.cmake")
                 ninja = (build/'build.ninja').read_text()
                 self.assertIn('--mode='+mode, ninja)
                 self.assertIn('--entry=lib/main.dart', ninja)
-                self.assertIn(str(self.kernel) if mode == 'Debug' else str(ROOT/'build/lib/libapp.so'), ninja)
-                # Actual Profile/Release compiler receipts are tested by the
-                # core collector and normal release build, not forged here.
-                if mode != 'Debug':
+                artifact = ROOT/('build/flutter_assets/kernel_blob.bin' if mode == 'Debug'
+                                else 'build/lib/libapp.so')
+                self.assertIn(str(artifact), ninja)
+                # Exercise the actual selected compiler output; the other
+                # modes retain their wiring checks without forged receipts.
+                if mode != self.mode:
                     continue
                 result = subprocess.run(['cmake', '--build', str(build)], capture_output=True, text=True, timeout=120)
                 self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
                 result = subprocess.run(['cmake', '--install', str(build)], capture_output=True, text=True, timeout=60)
                 self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
-                artifact = install/'data/flutter_assets/kernel_blob.bin'
+                artifact = install/self.relative_artifact
                 artifact.parent.mkdir(parents=True)
-                shutil.copyfile(self.kernel, artifact)
+                shutil.copyfile(self.artifact, artifact)
                 self.assertEqual(len(verify(install)['packages']), 82)
                 self.assertFalse(any(path.is_symlink() for path in install.rglob('*')))
             (managed/'CMakeLists.txt').write_text(f'set(FLUTTER_TOOL_ENVIRONMENT "FLUTTER_TARGET={ROOT}/test/benchmark_desktop.dart")\n')

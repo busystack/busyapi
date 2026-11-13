@@ -221,6 +221,11 @@ and `test:focused` scripts delegate to these phases. Test-helper signatures trac
 compiled inputs; semantic suites run against those helpers without a persistent
 full-suite acceptance receipt.
 
+Python build and tool checks use the completed release bundle by default;
+`BUSYAPI_TEST_BUNDLE` can select another complete candidate. Application-notice
+checks follow the current compiler receipt and its actual build mode, so they
+do not require an additional debug build.
+
 To assemble and automatically qualify one candidate in the same invocation:
 
 ```sh
@@ -240,6 +245,11 @@ kernel, SDK and native-lifetime gates. No earlier successful test run qualifies 
 later candidate.
 
 Native interaction, WebKit integration, strict-Snap packaging, and paint/input performance need separate platform qualification. Headless tests and CLI smoke checks do not establish those results.
+
+The native migration preflight checks the installed CLI's unpublished review and
+preservation of original fixture bytes. Core admits engine protocol compatibility;
+the engine owns conversion semantics. The preflight records their review without
+reconstructing configuration transformations or certifying native input.
 
 ## Documentation
 
