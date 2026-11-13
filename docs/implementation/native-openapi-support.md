@@ -20,7 +20,7 @@ implementation instructions. No older passing run qualifies the changed product.
 | Recovery | Source input, field commits, undo/redo and selected publication checkpoint affected owners and changed draft revisions. Awaiting persistence also awaits earlier captured writes. File-intent updates and retirement avoid workspace-buffer enumeration and exclude unrelated dirty sources. Complete drains remain at workspace replacement/close. Focused interruption/race and targeted-resource cases pass. |
 | Capture and assistance | Root-local immutable captures are separate from full schema analysis. Disk events invalidate relevant versions with bounded reconciliation. Folding uses selected-resource syntax without a graph. Derived text cannot reuse an old parse through inherited metadata. Focused root/cache/folding tests pass. |
 | Source saving | Desktop and CLI use PublicationStore. Alternate BusyProject.save is removed. Partial publication, conflicts, permissions, interrupted records, grouped ordering and undo across save remain. Focused publication cases pass. |
-| Conversion | TypeScript owns language/configuration transformation; Dart owns bounded review, immutable reviewed bytes and publication. One captured traversal allocates final typed owners and emits common static/contextual edges. Repeated entry/role passes, temporary owner wrappers, superseded-copy retirement and Dart's duplicate full schema precheck are deleted. Explicit capture includes configured entry consumers without eager ordinary opening. Broad behavioral adjudication is still in progress; no complete conversion qualification is claimed. |
+| Conversion | TypeScript owns language/configuration transformation; Dart owns bounded review, immutable reviewed bytes and publication. One captured traversal allocates final typed owners and emits common static/contextual edges. Repeated entry/role passes, temporary owner wrappers, superseded-copy retirement and Dart's duplicate full schema precheck are deleted. Explicit capture includes configured entry consumers without eager ordinary opening. All 51 registered conversion suites pass: 7,794 cases on coherent v7, including actual mock HTTP. Later YAML ownership and captured-document reuse changes pass 876 focused cases; full product/native qualification remains outstanding. |
 | Requests, mock and streams | One parameter-value map owns active request input. Captured operations and immutable body inputs share secret-free aggregate preparation across Preview/Send, with fresh dispatch credentials/TLS and exact selected-file reconciliation. Shared serializers replace equivalent form/multipart reproof. Streams retain bounded framing/context in one engine owner, with thin continuation IPC and independent close/cancellation. Broad runtime qualification remains in progress. |
 | Outputs and governance | Prepared immutable files use the common output publisher. Generator selection and execution share a runtime. Verified renderer bytes are reused until installed files change; packaging inventory policy has left documentation-open actions. Governance reuses one immutable review and checks exact dispatch authority once. Focused output, approval and installed-input change cases pass. |
 | Build and distribution | Assembly is separate from current-invocation qualification. Editor assembly passed with optional tools unavailable; renderer rebuilds are skipped when unchanged. Official widget acceptance runs once; no persistent full-suite receipt is required. Full release assembly and distributed-artifact verification pass. Full behavioral/native qualification remains outstanding. |
@@ -32,6 +32,14 @@ stream framing/cancellation and real native focus/input. Tests of observable
 behavior and actual process/filesystem boundaries remain gates. Private conversion
 layout, historical revision literals and build-script order are not independent
 product requirements. Migration compatibility is tested separately at revision 107.
+
+The complete conversion run used immutable v7 helpers and the registered Node
+arguments, with real loopback mock execution: 51 suites, 7,794 passing cases,
+zero failures. Its inputs, invocation, logs and aggregate are retained in
+`build/diagnostics/simplification-20261113/conversion-v7/`. The later shared YAML
+key-anchor correction and SourcePlan capture reuse pass 876 focused cases with
+TypeScript checking on coherent v9. This is full v7 plus focused coverage of the
+later changes, not a new full-suite run against v9.
 
 Conversion reuses an unchanged native component Schema as its material owner;
 copied containers reference it through the same occurrence mapping. Resource
@@ -115,18 +123,18 @@ The paired process memory observations and complete inputs are in `editing/`.
 | One generated mock URL-form response, twelve values | Body evaluations 2 → 1; parsed data documents 57 → 28; parser input 1,126 → 510 bytes; the 80-byte response remains identical |
 | Eight renderer opens, two installed presets | Admissions 8 → 2; file reads 48 → 12; bytes read 34,215,944 → 8,553,986 |
 | Representative conversion captures | Graphs 21 → 14 / 28 → 17 / 19 → 12; parses 56 → 13 / 60 → 17 / 51 → 8 before the remaining holder work |
-| Same conversion captures, final-owner slice | Parses 13 → 9 / 17 → 10 / 8 → 4; all three captures complete at both checkpoints |
+| Same conversion captures, final-owner and captured-document reuse | SourceDocument constructions 13 → 5 / 17 → 5 / 8 → 1; all three captures complete at both checkpoints |
 | Same conversion captures, allocator constructions | 2 → 1 / 5 → 2 / 1 → 1; one allocator per genuine family stage |
 | Same conversion captures, provenance inspections | 358 → 306 / 527 → 449 / 358 → 306 |
 | Same conversion captures, graph API calls in final-owner slice | 14 → 14 / 17 → 17 / 12 → 12; this later slice claims no additional graph reduction |
 
-The final-owner conversion pair compares committed `c4b40de` with `88bcc46`,
+The final-owner conversion pair compares committed `c4b40de` with `eda617c`,
 after the earlier capture reduction. Each complete JSON input has one integer
 Base schema and twenty references; rows list 3.2.1 → 3.1.2, 3.0.4 → 3.2.1 and
 3.2.1 → 3.2.1 in that order. Copied-source instrumentation counts SourceDocument
 and MigrationSchemaOwners constructions, MigrationSemanticOrigins inspections,
 and createGraph calls. Exact inputs, counts and source-archive SHA-256 are retained
-in `conversion-owners/after-88bcc46.jsonl` and `final-88bcc46.json`. The additional
+in `conversion-owners/after-eda617c.jsonl` and `final-eda617c.json`. The additional
 shared dynamic fixture was blocked before and completes after; its counts are
 excluded from the performance comparison.
 
