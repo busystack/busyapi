@@ -153,8 +153,26 @@ corresponding runtime work records.
 
 Actual source-save, body, scheduler, ownership, and conversion mechanisms are the
 deletions being audited. Historical prose, vendored inputs, generated files and
-lockfile removals are excluded from production-reduction credit. Final line and
-owner/pass counts remain pending until conversion/request work lands.
+lockfile removals are excluded from production-reduction credit. Against `7cc6ab6`,
+the committed production paths at `eda617c` have these textual changes:
+
+| Production responsibility | Added lines | Deleted lines | Net lines |
+| - | -: | -: | -: |
+| Desktop `lib/` | 433 | 511 | −78 |
+| Dart core `packages/busyapi_core/lib/` | 2,419 | 2,254 | +165 |
+| TypeScript `tools/contract_engine/src/` | 2,567 | 2,442 | +125 |
+| Total | 5,419 | 5,207 | +212 |
+
+Production text therefore grows by 212 lines overall. The reductions are in
+owners and executed work: the alternate source saver, Dart conversion semantic
+mirror, Dart execution scheduler, history hashing, per-edit recovery sweep,
+superseded conversion retirement/repair, preliminary mock form proofs, repeated
+stream continuations and uncompressed response copy are absent. The conversion
+subset across Dart and TypeScript has a net reduction of 464 lines before the
+final SourcePlan parse deletion. Added code includes retained-context fixes and
+explicit captured-input ownership; gross deleted lines alone do not establish
+the structural result. The work counts above and the removed mechanisms provide
+that evidence. Full integrated and native qualification remain separate gates.
 
 ## Fresh native input reproduction — 2026-11-13
 
