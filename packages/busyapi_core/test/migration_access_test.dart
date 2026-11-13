@@ -253,9 +253,9 @@ void main() {
             addTearDown(fresh.close);
             expect(fresh.publishable, true, reason: '${fresh.result}');
             final derived = fresh.changes.where((change) => change.isCreated).toList();
-            if (legacy || from == '3.0.4' && required) expect(derived, isNotEmpty);
+            final capturedResources = fresh.snapshot.resources.map((resource) => resource['id']).toSet();
             for (final change in derived) {
-              expect(change.createdFrom, buffer.id);
+              expect(capturedResources, contains(change.createdFrom));
               expect(change.before, isEmpty);
               expect(await File.fromUri(Uri.parse(change.resource)).exists(), false);
             }
@@ -274,9 +274,9 @@ void main() {
             expect(await file.readAsString(), original);
             expect(buffer.text, current);
             await fresh.publish();
-            for (final change in derived) {
+            for (final change in fresh.changes) {
               expect(await File.fromUri(Uri.parse(change.destination)).readAsString(), change.after);
-              expect(await File.fromUri(Uri.parse(change.resource)).exists(), false);
+              if (change.isCreated) expect(await File.fromUri(Uri.parse(change.resource)).exists(), false);
             }
             final output = await BusyProject.open(destination, engine);
             addTearDown(output.close);

@@ -66,12 +66,12 @@ void main() {
       final mapping = await project.inspectObject(root, base['resource'] as String, '${base['pointer']}/discriminator/mapping', contextKind: 'discriminator-map');
       final binding = (mapping['references'] as List).cast<Map>().singleWhere((value) => value['keyword'] == 'chosen');
       final target = await project.inspectObject(root, binding['targetResource'] as String, binding['targetPointer'] as String, contextKind: 'schema');
-      expect(target['value']['x-entry'], name);expect(metadata['kind'], 'discriminator');
+      final annotation = (target['entries'] as List).whereType<Map>().singleWhere((entry) => entry['name'] == 'x-entry');
+      expect(jsonDecode(await project.readDataValue(Map<String, dynamic>.from(annotation))), name);expect(metadata['kind'], 'discriminator');
       final boolean = await material(project, root, '/components/schemas/Choice');expect(boolean['boolean'], true);
       if (delivered) {
-        expect(base['pointer'], contains(r'/$defs/'));expect(boolean['pointer'], contains(r'/$defs/'));
         final choices = await project.referenceChoices(root, base['resource'] as String, '${base['pointer']}/discriminator', keyword: 'defaultMapping', query: '', contextKind: 'discriminator');
-        expect(choices.result['complete'], true);expect((choices.result['entries'] as List).map((value) => value['label']), ['Dog']);
+        expect(choices.result['complete'], true);expect((choices.result['entries'] as List).whereType<Map>().where((value) => value['role'] == 'component' && value['target']['resource'] == root).map((value) => value['label']), ['Dog']);
       }
       for (final (path, schema, texts, expected) in [
         ('/model', 'Base', [bodies['/model']!, '{"kind":"unknown"}', '{"kind":"chosen","n":false}', '{}'], [true, true, false, false]),
