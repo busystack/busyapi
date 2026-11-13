@@ -40,7 +40,6 @@ void _verifyMigrationExampleCopies(
       final source = captured[resource], bytes = source?.bytes;
       if (source == null || bytes == null || identity != source.identity || sourceIdentity != identity ||
           generation != source.generation || bytes.length != byteLength || base64Encode(bytes) != base64 ||
-          path != 'examples/${textIdentity(resource).substring(0, 24)}.bin' ||
           !_migrationOutputPath(path) || !paths.add(path) || !copied.add(resource) ||
           id != Uri.directory(input.target).resolve(path).toString() ||
           locations.isEmpty || locations.length > 20000) invalid();
@@ -56,254 +55,6 @@ void _verifyMigrationExampleCopies(
         } else {invalid();}
       }
     } else {invalid();}
-  }
-}
-
-bool _sameMigrationSelectorTypes(Object? before, Object? after) {
-  if (before is ExactConfigurationNumber && after is ExactConfigurationNumber) {
-    return before.nativeInteger == after.nativeInteger;
-  }
-  if (before is Map && after is Map) {
-    return before.keys.every((key) => _sameMigrationSelectorTypes(before[key], after[key]));
-  }
-  return true;
-}
-
-/// Apply only reviewed canonical selection and parameter leaves to the capture.
-/// Authentication and TLS are checked separately by their existing protocol.
-void _verifyMigrationConfigurationProjections(
-  Object? configuration, Object? records, List outputs, String targetVersion,
-) {
-  Never invalid() => throw CoreFailure('migration.protocol', 'Migration returned an unrelated configuration projection');
-  if (records is! List || records.length > 4096) invalid();
-  final seen = <String>{};
-  final parsed = <String, Object?>{};
-  Map targetDeclaration(Object? certificate, String name) {
-    if (certificate is! Map || certificate['name'] != name || certificate['resource'] is! String || certificate['pointer'] is! String) invalid();
-    final resource = certificate['resource'] as String, pointer = certificate['pointer'] as String;
-    if (pointer.length > 65536 || pointer.isNotEmpty && !pointer.startsWith('/') || RegExp(r'~(?![01])').hasMatch(pointer)) invalid();
-    if (!parsed.containsKey(resource)) {
-      final matches = outputs.whereType<Map>().where((output) => output['id'] == resource).toList();
-      if (matches.length != 1 || matches.single['text'] is! String) invalid();
-      try { parsed[resource] = loadYaml(matches.single['text'] as String); } on Object { invalid(); }
-    }
-    Object? value = parsed[resource];
-    for (final token in pointer.isEmpty ? const <String>[] : pointer.substring(1).split('/')) {
-      final part = token.replaceAll('~1', '/').replaceAll('~0', '~');
-      if (value is Map) { value = value[part]; }
-      else if (value is List) {
-        final index = int.tryParse(part);
-        if (index == null || index < 0 || index >= value.length) invalid();
-        value = value[index];
-      } else { invalid(); }
-    }
-    if (value is! Map || value.containsKey(r'$ref') || value['in'] != 'query' || value['name'] != name || value.containsKey('content')) invalid();
-    final swagger = targetVersion.startsWith('2.');
-    if (swagger ? value['type'] == 'array' && value['collectionFormat'] != 'multi' :
-        (value['style'] ?? 'form') != 'form' || value['explode'] != true) invalid();
-    return {...value, 'family': swagger ? '2.0' : '3.1'};
-  }
-  for (final record in records) {
-    if (record is! Map || record['pointer'] is! String ||
-        record['before'] != null && record['before'] is! String || record['after'] is! String) invalid();
-    final pointer = record['pointer'] as String;
-    if (!seen.add(pointer) || pointer.length > 65536 || configuration is! Map) invalid();
-    final parts = pointer.split('/').skip(1).map((part) => part.replaceAll('~1', '/').replaceAll('~0', '~')).toList();
-    final environment = parts.length == 4 && parts[0] == 'environments' && parts[2] == 'servers';
-    final baseUrl = parts.length == 3 && parts[0] == 'environments' && parts[2] == 'baseUrl';
-    final test = parts.length >= 3 && parts[0] == 'tests' && int.tryParse(parts[1]) != null;
-    final operation = test && parts.length == 3 && parts[2] == 'operation';
-    final parameters = test && parts.length == 3 && parts[2] == 'parameters';
-    final multipart = test && parts.length == 3 && parts[2] == 'body';
-    if (!environment && !baseUrl && !operation && !parameters && !multipart && !(test &&
-        (parts.length == 3 && parts[2] == 'server' || parts.length == 4 && parts[2] == 'servers'))) invalid();
-    Object? owner = configuration;
-    for (final part in parts.take(parts.length - 1)) {
-      if (owner is List) {
-        final index = int.tryParse(part);
-        if (index == null || index < 0 || index >= owner.length) invalid();
-        owner = owner[index];
-      } else if (owner is Map) {
-        if (!owner.containsKey(part)) {
-          if (part != 'servers') invalid();
-          owner[part] = <String, Object?>{};
-        }
-        owner = owner[part];
-      } else { invalid(); }
-    }
-    if (owner is! Map) invalid();
-    final key = parts.last, before = record['before'];
-    Object? expected, after;
-    try {
-      expected = before == null ? null : exactConfiguration(before as String);
-      after = exactConfiguration(record['after'] as String);
-    } on Object { invalid(); }
-    if ((before != null) != owner.containsKey(key) || !sameExactConfiguration(owner[key], expected, preserveNumberSpelling: parameters || multipart)) invalid();
-    if (operation) {
-      final original = owner[key];
-      if (original is! Map || after is! Map || original['occurrence'] is! String && original['method'] != null && after['method'] != original['method'] ||
-          after.keys.any((key) => !original.containsKey(key) && !const ['occurrence', 'entry', 'method', 'path'].contains(key))) invalid();
-      for (final field in original.keys.where((key) => key != 'path' && key != 'occurrence' && key != 'entry' && key != 'method')) {
-        if (!sameExactConfiguration(original[field], after[field])) invalid();
-      }
-      if (after['occurrence'] is! String &&
-          (after['method'] is! String || (after['method'] as String).isEmpty || after['path'] is! String || !(after['path'] as String).startsWith('/')) ||
-          after.containsKey('occurrence') && after['occurrence'] is! String ||
-          after.containsKey('entry') && after['entry'] is! String) invalid();
-    } else if (multipart) {
-      final certificate = record['multipart'];
-      if (before == null || expected is! Map || after is! Map ||
-          certificate is! Map || certificate.length != 1 ||
-          certificate['name'] is! String && certificate['names'] is! List) invalid();
-      final rawNames = certificate['names'];
-      final names = rawNames == null ? [certificate['name']] : rawNames;
-      if (names is! List || names.isEmpty || names.length > 2048 ||
-          names.any((name) => name is! String || name.isEmpty || name.length > 4096 || RegExp(r'[\x00-\x1f\x7f\uD800-\uDFFF]', unicode: true).hasMatch(name)) ||
-          names.toSet().length != names.length ||
-          expected['mediaType'] is! String ||
-          (expected['mediaType'] as String).split(';').first.trim().toLowerCase() != 'multipart/form-data' ||
-          expected['value'] is! List) invalid();
-      final fields = <String, List<Object?>>{};
-      String? previous;
-      for (final part in expected['value'] as List) {
-        if (part is! Map || part.length != 1 || !names.contains(part.keys.single)) invalid();
-        final name = part.keys.single as String;
-        if (rawNames != null && previous != name && fields.containsKey(name)) invalid();
-        previous = name;
-        (fields[name] ??= []).add(part.values.single);
-      }
-      // Verify exact associations, multiplicity and same-field order. Engine
-      // certificates own shuffle closure, schema and MIME behavior.
-      if ((expected['value'] as List).isEmpty) {
-        for (final name in names) { fields[name as String] = []; }
-      }
-      if (rawNames != null && after['value'] is Map &&
-          !sameExactConfiguration(fields.keys.toList(), (after['value'] as Map).keys.toList())) invalid();
-      final planned = {...expected, 'value': fields};
-      if (!sameExactConfiguration(planned, after, preserveNumberSpelling: true)) invalid();
-    } else if (parameters) {
-      if (before == null || expected is! Map || after is! Map) invalid();
-      // Admit exact whole-value moves or lossless named field extraction.
-      // No other saved value, representation, or selection may change.
-      final planned = exactConfiguration(before as String);
-      if (planned is! Map || planned['querystring'] != null && planned['querystring'] is! Map ||
-          planned['query'] != null && planned['query'] is! Map ||
-          after['query'] != null && after['query'] is! Map ||
-          planned['cookie'] != null && planned['cookie'] is! Map ||
-          after['cookie'] != null && after['cookie'] is! Map ||
-          after['querystring'] != null && after['querystring'] is! Map) invalid();
-      final whole = planned['querystring'] as Map? ?? <String, Object?>{};
-      final query = planned['query'] as Map? ?? <String, Object?>{};
-      final rawProofs = record['rawQueries'] ?? const [];
-      if (rawProofs is! List || rawProofs.length > 2048) invalid();
-      final rawNames = <String>{};
-      for (final proof in rawProofs) {
-        if (proof is! Map || proof['name'] is! String ||
-            proof['data'] is! String || proof['destinations'] is! List ||
-            !rawNames.add(proof['name'] as String)) invalid();
-      }
-      final emptyProofs = record['emptyQueries'] ?? const [];
-      if (emptyProofs is! List || emptyProofs.length > 2048 || emptyProofs.any((name) => name is! String || name.isEmpty) || emptyProofs.toSet().length != emptyProofs.length) invalid();
-      final emptyNames = emptyProofs.toSet();
-      var moved = 0;
-      for (final name in whole.keys.toList()) {
-        if ((after['querystring'] as Map?)?.containsKey(name) == true) continue;
-        final destination = after['query'] as Map? ?? const {};
-        final value = whole[name];
-        if (value == '' && emptyNames.remove(name)) {
-          if (query.containsKey(name) || !destination.containsKey(name) || destination[name] is! List || (destination[name] as List).isNotEmpty ||
-              queryRepresentation({name: destination[name]}) != '') invalid();
-          query[name] = destination[name];whole.remove(name);
-        } else if (value is String && rawNames.contains(name)) {
-          final proof = rawProofs.cast<Map>().singleWhere((proof) => proof['name'] == name);
-          final decoded = exactConfiguration(proof['data'] as String);
-          final names = proof['destinations'] as List;
-          if (decoded is! Map || names.isEmpty || names.length > 2048 ||
-              names.any((field) => field is! String || field.isEmpty) ||
-              names.toSet().length != names.length) invalid();
-          final selections = <String, Object?>{};
-          // An identity object retains its selection name. Field extraction
-          // retains every member and its authored order.
-          final identity = names.length == 1 && destination[names.single] is Map;
-          if (identity) {
-            if (!sameExactConfiguration(decoded, destination[names.single])) invalid();
-            selections[names.single as String] = destination[names.single];
-          } else {
-            if (!sameExactConfiguration(names, decoded.keys.toList())) invalid();
-            for (final field in names) {
-              if (!destination.containsKey(field) || !sameExactConfiguration(decoded[field], destination[field])) invalid();
-              selections[field as String] = destination[field];
-            }
-          }
-          final targets = proof['targets'];
-          if (targets is! List || targets.length != names.length) invalid();
-          final declarations = <String, Map>{};
-          for (var index = 0; index < names.length; index++) {
-            declarations[names[index] as String] = targetDeclaration(targets[index], names[index] as String);
-          }
-          if (names.any(query.containsKey) ||
-              queryRepresentation(selections, declarations: declarations) != value) invalid();
-          query.addAll(selections);whole.remove(name);rawNames.remove(name);
-        } else if (!query.containsKey(name) && destination.containsKey(name) &&
-            sameExactConfiguration(value, destination[name])) {
-          query[name] = whole.remove(name);
-        } else if (value is Map && value.isNotEmpty) {
-          for (final field in value.keys) {
-            if (query.containsKey(field) ||
-                !destination.containsKey(field) ||
-                !sameExactConfiguration(value[field], destination[field])) invalid();
-            query[field] = value[field];
-          }
-          whole.remove(name);
-        } else { invalid(); }
-        moved++;
-      }
-      if (rawNames.isNotEmpty || emptyNames.isNotEmpty) invalid();
-      if (query.isNotEmpty || planned.containsKey('query')) planned['query'] = query;
-      if (moved > 0 && whole.isEmpty) planned.remove('querystring');
-      final cookieGroups = record['cookieGroups'] ?? const [];
-      if (cookieGroups is! List || cookieGroups.length > 2048) invalid();
-      final cookieNames = <String>{};
-      for (final group in cookieGroups) {
-        if (group is! Map || group['name'] is! String || group['destinations'] is! List ||
-            !cookieNames.add(group['name'] as String) || planned['cookie'] is! Map) invalid();
-        final cookies = planned['cookie'] as Map, name = group['name'] as String;
-        final original = cookies[name], names = group['destinations'] as List;
-        if (original is! Map || original.isEmpty ||
-            !sameExactConfiguration(names, original.keys.toList()) ||
-            names.any((field) => field is! String || field.isEmpty || field != name && cookies.containsKey(field))) invalid();
-        final projected = <String, Object?>{};
-        for (final entry in cookies.entries) {
-          if (entry.key == name) {
-            for (final field in names) { projected[field as String] = original[field]; }
-          } else { projected[entry.key as String] = entry.value; }
-        }
-        planned['cookie'] = projected;moved++;
-      }
-      final unwraps = record['cookieUnwraps'] ?? const [];
-      if (unwraps is! List || unwraps.length > 2048 || unwraps.toSet().length != unwraps.length) invalid();
-      for (final name in unwraps) {
-        if (name is! String || name.isEmpty || planned['cookie'] is! Map) invalid();
-        final cookies = planned['cookie'] as Map, original = cookies[name];
-        if (original is! List || original.length != 1 || original.single is Map || original.single is List) invalid();
-        cookies[name] = original.single;moved++;
-      }
-      if (moved == 0) invalid();
-      if (!sameExactConfiguration(planned, after, preserveNumberSpelling: true) ||
-          !sameExactConfiguration(query.keys.toList(), ((after['query'] as Map?) ?? const {}).keys.toList()) ||
-          !sameExactConfiguration(((planned['cookie'] as Map?) ?? const {}).keys.toList(), ((after['cookie'] as Map?) ?? const {}).keys.toList())) invalid();
-    } else if (baseUrl) {
-      final original = owner[key];
-      if (original is! String || after is! String) invalid();
-      final authority = RegExp(r'^[A-Za-z][A-Za-z0-9+.-]*://[^/?#]*');
-      final suffix = RegExp(r'[?#].*$');
-      if (authority.stringMatch(original) != authority.stringMatch(after) ||
-          suffix.stringMatch(original) != suffix.stringMatch(after)) invalid();
-    } else {
-      if (expected != null && (expected is! ExactConfigurationNumber || expected.nativeInteger == null)) invalid();
-      if (after is! ExactConfigurationNumber || after.nativeInteger == null || after.nativeInteger! < -1 || after.nativeInteger! > 2048) invalid();
-    }
-    owner[key] = after;
   }
 }
 
@@ -464,123 +215,72 @@ void _verifyMigrationReview(
       result['configurationAlternatives'] is! List ||
       (result['configurationAlternatives'] as List).length > 2048) invalid();
   Object? manifest;
-  try { manifest = jsonDecode(manifestText); } on Object { invalid(); }
-  if (manifest is! Map || manifest['version'] != 1 ||
-      manifest.keys.any((key) => !const ['version', 'roots', 'resourceMappings'].contains(key) &&
-          !(configuration.isNotEmpty && (exactConfiguration(configuration.single['text'] as String) as Map).containsKey(key)))) invalid();
-  for (final key in ['version', 'roots', 'resourceMappings']) {
-    if (jsonEncode(manifest[key]) != jsonEncode((result['manifest'] as Map?)?[key])) invalid();
-  }
-  Object? sourceConfiguration, exactManifest;
   try {
-    sourceConfiguration = configuration.isEmpty
-        ? null : exactConfiguration(configuration.single['text'] as String);
-    exactManifest = exactConfiguration(manifestText);
-  } on Object { invalid(); }
-  if (exactManifest is! Map) invalid();
-  _verifyMigrationConfigurationProjections(sourceConfiguration, result['configurationProjections'], result['outputs'] as List, targetVersion);
-  if (sourceConfiguration is Map) {
-    for (final key in sourceConfiguration.keys.where((key) => !const ['version', 'roots', 'resourceMappings', 'environments'].contains(key))) {
-      if (!exactManifest.containsKey(key) || !sameExactConfiguration(sourceConfiguration[key], exactManifest[key])) invalid();
-      if (key == 'tests' && sourceConfiguration[key] is List && exactManifest[key] is List) {
-        final originalCases = sourceConfiguration[key] as List, cases = exactManifest[key] as List;
-        for (var index = 0; index < originalCases.length; index++) {
-          final original = originalCases[index], delivered = cases[index];
-          if (original is Map && delivered is Map &&
-              (!_sameMigrationSelectorTypes(original['server'], delivered['server']) ||
-               !_sameMigrationSelectorTypes(original['servers'], delivered['servers']))) invalid();
-        }
-      }
+    manifest = jsonDecode(manifestText);
+  } on Object {
+    invalid();
+  }
+  if (manifest is! Map || manifest['version'] != 1) invalid();
+  for (final key in ['version', 'roots', 'resourceMappings']) {
+    if (jsonEncode(manifest[key]) !=
+        jsonEncode((result['manifest'] as Map)[key]))
+      invalid();
+  }
+  // These are presentation records from the semantic owner. Core bounds and
+  // decodes them; it does not replay configuration transformations or parse
+  // emitted OpenAPI to independently reconstruct the engine's interpretation.
+  final projections = result['configurationProjections'];
+  if (projections is! List || projections.length > 4096) invalid();
+  final projected = <String>{};
+  for (final value in projections) {
+    if (value case {'pointer': String pointer, 'after': String after}) {
+      if (!projected.add(pointer) ||
+          pointer.length > 65536 ||
+          !pointer.startsWith('/') ||
+          RegExp(r'~(?![01])').hasMatch(pointer) ||
+          value['before'] != null && value['before'] is! String ||
+          value['before'] is String &&
+              (value['before'] as String).length > 65536)
+        invalid();
+      if (after.length > 65536) invalid();
+    } else {
+      invalid();
     }
   }
-  final deliveredEnvironments = exactManifest['environments'];
-  bool sameConfiguration(Object? a, Object? b) {
-    try { return sameExactConfiguration(a, b); } on Object { invalid(); }
-  }
-  final originalEnvironments = sourceConfiguration is Map ? sourceConfiguration['environments'] : null;
-  if ((originalEnvironments == null) != (deliveredEnvironments == null)) invalid();
-  final alternativeChanges = <String, int>{};
   for (final value in result['configurationAlternatives'] as List) {
-    if (value case {'environment': String environment, 'before': int before, 'after': int after}) {
-      final original = originalEnvironments is Map ? originalEnvironments[environment] : null;
-      final authentication = original is Map ? original['authentication'] : null;
-      final alternative = authentication is Map ? authentication['alternative'] : null;
-      if (alternative is! ExactConfigurationNumber || alternative.nativeInteger != before ||
-          !sameConfiguration(alternative, before) || before < 0 || after < 0 || after >= 2048 ||
-          before == after || alternativeChanges.containsKey(environment)) invalid();
-      alternativeChanges[environment] = after;
-    } else { invalid(); }
+    if (value case {
+      'environment': String environment,
+      'before': int before,
+      'after': int after,
+    }) {
+      if (environment.length > 65536 ||
+          before < 0 ||
+          after < 0 ||
+          after >= 2048)
+        invalid();
+    } else {
+      invalid();
+    }
   }
   for (final value in result['configurationBindings'] as List) {
-    if (value case {'root': String root, 'resource': String resource,
-        'pointer': String pointer, 'before': String before, 'after': String after}) {
-      if (!entryResources.contains(root) || !resources.containsKey(resource) ||
-          pointer.length > 65536 || after.isEmpty || after.length > 65536 ||
-          !pointer.endsWith('/${before.replaceAll('~', '~0').replaceAll('/', '~1')}')) invalid();
-      if (originalEnvironments is Map) {
-        if (deliveredEnvironments is! Map) invalid();
-        for (final environment in originalEnvironments.entries) {
-          final settings = environment.value is Map ? environment.value['authentication'] : null;
-          final schemes = settings is Map ? settings['schemes'] : null;
-          if (schemes is! Map || !schemes.containsKey(before)) continue;
-          final delivered = deliveredEnvironments[environment.key];
-          final authentication = delivered is Map ? delivered['authentication'] : null;
-          final aliases = authentication is Map ? authentication['schemes'] : null;
-          if (aliases is! Map || !aliases.containsKey(after) ||
-              !sameConfiguration(aliases[after], schemes[before])) invalid();
-        }
-      }
-    } else { invalid(); }
-  }
-  if (originalEnvironments is Map) {
-    final delivered = deliveredEnvironments;
-    if (delivered is! Map || delivered.length != originalEnvironments.length) invalid();
-    for (final entry in originalEnvironments.entries) {
-      final original = entry.value, environment = delivered[entry.key];
-      if (original is! Map || environment is! Map || environment.length != original.length ||
-          environment.keys.any((key) => !original.containsKey(key))) invalid();
-      for (final field in original.keys.where((key) => key != 'authentication' && key != 'tls')) {
-        if (!sameConfiguration(original[field], environment[field]) ||
-            field == 'servers' && !_sameMigrationSelectorTypes(original[field], environment[field])) invalid();
-      }
-      final before = original['authentication'], after = environment['authentication'];
-      if (before is Map) {
-        if (after is! Map || before.length != after.length || after.keys.any((key) => !before.containsKey(key))) invalid();
-        for (final field in before.keys.where((key) => key != 'schemes')) {
-          final expected = field == 'alternative' ? alternativeChanges[entry.key] ?? before[field] : before[field];
-          if (!sameConfiguration(expected, after[field])) invalid();
-          if (field == 'alternative') {
-            final originalSelection = expected is int ? expected :
-                expected is ExactConfigurationNumber ? expected.nativeInteger : null;
-            final targetSelection = after[field] is ExactConfigurationNumber
-                ? (after[field] as ExactConfigurationNumber).nativeInteger : null;
-            if (originalSelection != targetSelection) invalid();
-          }
-        }
-        final originals = before['schemes'], aliases = after['schemes'];
-        if (originals is Map) {
-          if (aliases is! Map) invalid();
-          for (final setting in originals.entries) {
-            if (!aliases.containsKey(setting.key) || !sameConfiguration(setting.value, aliases[setting.key])) invalid();
-          }
-          for (final name in aliases.keys.where((name) => !originals.containsKey(name))) {
-            if (!(result['configurationBindings'] as List).cast<Map>().any((binding) =>
-                binding['after'] == name && originals.containsKey(binding['before']) &&
-                sameConfiguration(originals[binding['before']], aliases[name]))) invalid();
-          }
-        } else if (!sameConfiguration(originals, aliases)) { invalid(); }
-      } else if (!sameConfiguration(before, after)) { invalid(); }
-      final originalTls = original['tls'], tls = environment['tls'];
-      if (originalTls is Map) {
-        if (tls is! Map || tls.length != originalTls.length || tls.keys.any((key) => !originalTls.containsKey(key))) invalid();
-        for (final field in originalTls.keys) {
-          final path = originalTls[field];
-          final expected = const ['caFile', 'clientCertificateFile', 'clientKeyFile'].contains(field) &&
-              path is String && !p.isAbsolute(path)
-              ? p.normalize(p.join(p.dirname(Uri.parse(configuration.single['id'] as String).toFilePath()), path)) : path;
-          if (!sameConfiguration(expected, tls[field])) invalid();
-        }
-      } else if (!sameConfiguration(originalTls, tls)) { invalid(); }
+    if (value case {
+      'root': String root,
+      'resource': String resource,
+      'pointer': String pointer,
+      'before': String before,
+      'after': String after,
+    }) {
+      if (!entryResources.contains(root) ||
+          !resources.containsKey(resource) ||
+          pointer.length > 65536 ||
+          pointer.isNotEmpty && !pointer.startsWith('/') ||
+          RegExp(r'~(?![01])').hasMatch(pointer) ||
+          before.length > 65536 ||
+          after.isEmpty ||
+          after.length > 65536)
+        invalid();
+    } else {
+      invalid();
     }
   }
   if (result['validation'] case {'complete': true, 'family': String _}) {
@@ -798,6 +498,28 @@ class MigrationExampleCopy {
   Uint8List get bytes => _bytes;
 }
 
+Map<String, List<int>> _migrationFiles(
+  Map<String, dynamic> result,
+  Map<String, Object?> metadata,
+  List<MigrationExampleCopy> exampleCopies,
+) {
+  if (result['complete'] != true) return const {};
+  return Map.unmodifiable({
+    for (final output in (result['outputs'] as List).cast<Map>())
+      output['path'] as String: Uint8List.fromList([
+        if (output['hasBom'] == true) ...const [239, 187, 191],
+        ...utf8.encode(output['text'] as String),
+      ]).asUnmodifiableView(),
+    for (final copy in exampleCopies) copy.path: copy.bytes,
+    'busyapi.yaml': utf8
+        .encode(result['manifestText'] as String)
+        .asUnmodifiableView(),
+    'migration.json': utf8
+        .encode('${jsonEncode(metadata)}\n')
+        .asUnmodifiableView(),
+  });
+}
+
 /// A review of one captured graph. Publishing owns a separate directory and
 /// rechecks source buffers, disk inputs and destination ownership at the last
 /// publication boundary. Original source is never an output target.
@@ -851,7 +573,10 @@ class MigrationOutput extends BundleOutput {
         input.revision,
         result,
         metadata,
-      );
+      ) {
+    _files = _migrationFiles(this.result, this.metadata, exampleCopies);
+  }
+  late final Map<String, List<int>> _files;
   final MigrationStatus status;
   final List<MigrationProblem> problems;
   final List<MigrationChange> changes;
@@ -907,33 +632,11 @@ class MigrationOutput extends BundleOutput {
       );
     if (cancelled?.call() == true)
       throw CoreFailure('cancelled', 'Migration publication was cancelled');
-    await _verifyCurrent();
-    final files = <String, List<int>>{};
-    for (final output in (result['outputs'] as List).cast<Map>()) {
-      final text = output['text'] as String, path = output['path'] as String;
-      if (textIdentity(text) != output['identity'])
-        throw CoreFailure(
-          'migration.protocol',
-          'Migrated source identity changed',
-        );
-      files[path] = [
-        if (output['hasBom'] == true) ...const [239, 187, 191],
-        ...utf8.encode(text),
-      ];
-    }
-    for (final copy in exampleCopies) {
-      if (files.containsKey(copy.path) || contentIdentity(copy.bytes) != copy.identity)
-        throw CoreFailure('migration.protocol', 'Reviewed external example copy changed');
-      files[copy.path] = copy.bytes;
-    }
-    final manifestText = result['manifestText'] as String;
-    if (textIdentity(manifestText) != result['manifestIdentity'])
-      throw CoreFailure('migration.protocol', 'Reviewed configuration identity changed');
-    files['busyapi.yaml'] = utf8.encode(manifestText);
-    files['migration.json'] = utf8.encode('${jsonEncode(metadata)}\n');
+    if (_closed || outdated)
+      throw CoreFailure('migration.stale', 'The reviewed migration inputs changed; create a new review');
     return _access.publishOutput(
       destination,
-      files,
+      _files,
       metadata,
       replaceIdentity: replaceIdentity,
       cancelled: () => cancelled?.call() == true || _closed || outdated,

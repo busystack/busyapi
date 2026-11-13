@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:busyapi_core/busyapi_core.dart';
@@ -6,6 +5,24 @@ import 'package:busyapi_core/src/exact_configuration.dart';
 import 'package:test/test.dart';
 
 import 'test_support.dart';
+
+typedef _ReviewChange = void Function(Map<String, dynamic>);
+
+class _ChangedReview extends EngineProcess {
+  _ChangedReview(this.change) : super(executable: runtimeNode, helper: runtimeHelper);
+  final _ReviewChange? change;
+  Map<String, dynamic>? delivered;
+
+  @override
+  Future<Map<String, dynamic>> request(String method, Map<String, Object?> params, {String? requestId}) async {
+    final result = await super.request(method, params, requestId: requestId);
+    if (method == 'planMigration' && result['complete'] == true) {
+      change?.call(result);
+      delivered = result;
+    }
+    return result;
+  }
+}
 
 void main() {
   test('exact configuration equality uses numbers, unordered maps and ordered arrays', () {
@@ -32,86 +49,26 @@ void main() {
         exactConfiguration('{"y":9007199254740993,"x":9007199254740993e0}')), true);
   });
 
-  // This fixture goes through the real engine and Core review/publication.
-  // The proxy changes only the delivered manifest and recomputes its byte hash;
-  // successful rejection therefore requires the independent semantic proof.
-  for (final scenario in [
-    (name: 'missing configuration projections', from: 'projection:missing', to: '', accepted: false),
-    (name: 'unrelated configuration projection', from: 'projection:unrelated', to: '', accepted: false),
-    (name: 'unrelated multipart projection', from: 'projection:multipart-unrelated', to: '', accepted: false),
-    (name: 'missing parameter review', from: 'parameter-review:missing', to: '', accepted: false),
-    (name: 'foreign parameter review source', from: 'parameter-review:foreign', to: '', accepted: false),
-    (name: 'untouched', from: '', to: '', accepted: true),
-    (name: 'obsolete holder producer', from: 'producer:79', to: '', accepted: false),
-    (name: 'obsolete container producer', from: 'producer:80', to: '', accepted: false),
-    (name: 'obsolete resource producer', from: 'producer:81', to: '', accepted: false),
-    (name: 'obsolete B01 producer', from: 'producer:82', to: '', accepted: false),
-    (name: 'obsolete B01 handoff producer', from: 'producer:83', to: '', accepted: false),
-    (name: 'obsolete incomplete B02 producer', from: 'producer:84', to: '', accepted: false),
-    (name: 'obsolete B04-R1 producer', from: 'producer:88', to: '', accepted: false),
-    (name: 'obsolete B04 handoff producer', from: 'producer:90', to: '', accepted: false),
-    (name: 'obsolete B05-R1 producer', from: 'producer:91', to: '', accepted: false),
-    (name: 'obsolete B05-R3a producer', from: 'producer:94', to: '', accepted: false),
-    (name: 'obsolete B05-R3c-3 producer', from: 'producer:99', to: '', accepted: false),
-    (name: 'obsolete B05-R3d-1 producer', from: 'producer:100', to: '', accepted: false),
-    (name: 'obsolete B05-R3c-2 producer', from: 'producer:98', to: '', accepted: false),
-    (name: 'obsolete B05-R3c-1 producer', from: 'producer:97', to: '', accepted: false),
-    (name: 'obsolete B05-R3c producer', from: 'producer:96', to: '', accepted: false),
-    (name: 'obsolete B05-R3b producer', from: 'producer:95', to: '', accepted: false),
-    (name: 'obsolete partial B05-R3 producer', from: 'producer:93', to: '', accepted: false),
-    (name: 'obsolete B05-R2 producer', from: 'producer:92', to: '', accepted: false),
-    (name: 'equivalent decimals', from: '9007199254740993.00', to: '900719925474099300e-2', accepted: true),
-    (name: 'equivalent positive exponent', from: '1e99999', to: '10e99998', accepted: true),
-    (name: 'equivalent negative exponent', from: '1e-99999', to: '10e-100000', accepted: true),
-    (name: 'rounded integer collision', from: '9007199254740993.00', to: '9007199254740992.00', accepted: false),
-    (name: 'overflow collision', from: '1e99999', to: '2e99999', accepted: false),
-    (name: 'underflow collision', from: '1e-99999', to: '2e-99999', accepted: false),
-    (name: 'negative zero fidelity', from: '-0.00e5', to: '0.00e5', accepted: false),
-    (name: 'array ordering', from: '[1,2,3]', to: '[3,2,1]', accepted: false),
-    (name: 'credential binding', from: '11111111-1111-4111-8111-111111111111', to: '22222222-2222-4222-8222-222222222222', accepted: false),
-    (name: 'saved Server selector activation', from: '"server":2.0', to: '"server":2', accepted: false),
-    (name: 'authentication selector activation', from: '"alternative":2.0', to: '"alternative":2', accepted: false),
-  ]) {
-    test('Core exact configuration ${scenario.name}', () async {
+  // Conversion semantics belong to the engine. Core protects the captured
+  // packet, paths and reviewed bytes rather than reconstructing transformations.
+  final changes = <String, _ReviewChange?>{
+    'untouched': null,
+    'missing configuration projections': (result) => result.remove('configurationProjections'),
+    'malformed configuration projection': (result) => result['configurationProjections'] = [{'pointer': 7, 'after': '{}'}],
+    'malformed authentication alternative': (result) => result['configurationAlternatives'] = [{'environment': false, 'before': 0, 'after': 1}],
+    'missing parameter review': (result) => result.remove('parameterChanges'),
+    'foreign parameter review source': (result) => result['parameterChanges'] = [{'resource': 'file:///uncaptured.json', 'pointer': '', 'range': [0, 1], 'name': 'p', 'before': 'cookie', 'after': 'form'}],
+    'changed manifest bytes': (result) => result['manifestText'] = (result['manifestText'] as String).replaceAll('9007199254740993.00', '9007199254740992.00'),
+    'changed source output bytes': (result) => (result['outputs'] as List).first['text'] += '\n',
+    'foreign output destination': (result) => (result['outputs'] as List).first['id'] = 'file:///unapproved/api.json',
+    'unsafe output path': (result) => (result['outputs'] as List).first['path'] = '../api.json',
+    'unrelated configuration capture': (result) => result['affectedConfiguration']['identity'] = 'unrelated',
+  };
+  for (final scenario in changes.entries) {
+    test('migration review ${scenario.key}', () async {
       final directory = await Directory.systemTemp.createTemp('busyapi-exact-configuration-');
       addTearDown(() => directory.delete(recursive: true));
-      final proxy = File('${directory.path}/proxy.cjs');
-      await proxy.writeAsString('const helper = ${jsonEncode(runtimeHelper)};\n'
-          'const from = ${jsonEncode(scenario.from)}, to = ${jsonEncode(scenario.to)};\n' + r'''
-const child = require('node:child_process').spawn(process.execPath, [helper], {stdio:['pipe','pipe','pipe']});
-const {createHash} = require('node:crypto');
-process.stdin.pipe(child.stdin);child.stderr.pipe(process.stderr);
-let pending = Buffer.alloc(0);
-child.stdout.on('data', chunk => {
- pending = Buffer.concat([pending, chunk]);
- while (pending.length >= 4) {
-  const length = pending.readUInt32BE(0);
-  if (!length || length > 64*1024*1024) throw Error('Invalid fixture frame');
-  if (pending.length < length+4) break;
-  const value = JSON.parse(pending.subarray(4,length+4).toString('utf8'));
-  pending = pending.subarray(length+4);
-  const result = value.result;
-  if (result?.producer === 'busyapi-native-migration' && result.complete && from) {
-   if (from === 'projection:missing') delete result.configurationProjections;
-   else if (from === 'projection:unrelated') result.configurationProjections = [{pointer:'/environments/manual/authentication',before:null,after:'{}'}];
-   else if (from === 'projection:multipart-unrelated') result.configurationProjections = [{pointer:'/tests/0/body',before:null,after:'{"mediaType":"multipart/form-data","value":{"tag":[]}}',multipart:{name:'tag'}}];
-   else if (from === 'parameter-review:missing') delete result.parameterChanges;
-   else if (from === 'parameter-review:foreign') result.parameterChanges = [{resource:'file:///uncaptured.json',pointer:'',range:[0,1],name:'p',before:'cookie',after:'form'}];
-   else if (from.startsWith('producer:')) result.producerVersion = from.slice('producer:'.length);
-   else {
-    if (!result.manifestText.includes(from)) throw Error('Mutation did not reach its production field');
-    result.manifestText = result.manifestText.replaceAll(from,to);
-    result.manifestIdentity = createHash('sha256').update(result.manifestText).digest('hex');
-   }
-  }
-  const payload = Buffer.from(JSON.stringify(value)), header = Buffer.alloc(4);
-  header.writeUInt32BE(payload.length);process.stdout.write(header);process.stdout.write(payload);
- }
-});
-process.once('SIGTERM', () => child.kill('SIGTERM'));
-child.once('exit', code => {process.exitCode = code ?? 1;});
-''');
-      final engine = EngineProcess(executable: runtimeNode, helper: proxy.path);
+      final engine = _ChangedReview(scenario.value);
       addTearDown(engine.close);
       final source = File('${directory.path}/api.json');
       const sourceText = '{"openapi":"3.2.1","info":{"title":"Exact","version":"1"},"paths":{},'
@@ -130,14 +87,29 @@ child.once('exit', code => {process.exitCode = code ?? 1;});
       addTearDown(project.close);
       final destination = '${directory.path}/output';
       final preparation = project.prepareMigration(source.uri.toString(), destination, targetVersion: '3.0.4');
-      if (scenario.accepted) {
+      if (scenario.value == null) {
         final review = await preparation;
         addTearDown(review.close);
         expect(review.publishable, true, reason: '${review.result}');
         expect(review.securityBindings, isNotEmpty);
+        // A retained mutable RPC map cannot alter already reviewed output.
+        engine.delivered!['manifestText'] = '{}';
+        (engine.delivered!['outputs'] as List).first['text'] = 'changed after review';
+        expect(() => review.result['manifestText'] = '{}', throwsUnsupportedError);
         await review.publish();
         final delivered = await File('$destination/busyapi.yaml').readAsString();
-        expect(delivered, contains(scenario.from.isEmpty ? '9007199254740993.00' : scenario.to));
+        // Exact spelling and inactive noninteger selectors survive semantic
+        // conversion, immutable publication and cold reopen.
+        for (final spelling in ['9007199254740993.00', '123456789012345678901234567890',
+            '1e99999', '1e-99999', '-0.00e5', '"server":2.0', '"alternative":2.0',
+            '11111111-1111-4111-8111-111111111111']) {
+          expect(delivered, contains(spelling));
+        }
+        final exact = exactConfiguration(delivered) as Map;
+        final original = exactConfiguration(text) as Map;
+        expect(sameExactConfiguration(exact['tests'], original['tests'], preserveNumberSpelling: true), true);
+        expect(sameExactConfiguration(exact['environments']['manual']['x-nested'],
+            original['environments']['manual']['x-nested'], preserveNumberSpelling: true), true);
         final reopened = await BusyProject.open(destination, engine);
         addTearDown(reopened.close);
         expect(reopened.roots, hasLength(1));
