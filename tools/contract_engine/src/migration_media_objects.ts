@@ -102,9 +102,10 @@ function retainMediaDefinition(scope:GraphScope,graphs:readonly ReferenceGraph[]
   owners.admit(output,8);output.copy(input.source.fork(),input.location.pointer,destination.pointer,true);
   referenceMediaChildren(output,destination.pointer,input.location);
   coordinates(output,destination.pointer);
-  owners.rememberRole(scope,destination,scope);output.presentationChanges.push(destination.pointer);
+  output.presentationChanges.push(destination.pointer);
  }
  for(const context of contexts)owners.rememberEntry(context.root,scope,destination);
+ owners.rememberRole(graph.root,scope,destination);
 }
 
 /** Aggregate inventory for reference chains. Certificates use the individual

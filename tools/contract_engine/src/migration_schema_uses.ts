@@ -1,11 +1,11 @@
 import {componentFamily,componentLocation} from './authoring';
-import {children,referenceKinds,standardOperationMethods} from './contexts';
+import {children,referenceKinds} from './contexts';
 import {escape,segments,SourceError} from './document';
 import {documentUriOccurrences} from './document_uris';
 import {serverTemplate} from './derived_bundle';
 import {documentUriBase,pointerFragment,resolveUri,schemaResourceContextIdentity,supportedSchemaDialect,sameSchemaDialect,type GraphScope,type GraphReference,type ReferenceGraph} from './reference_graph';
 import {MigrationSchemaOwners,type MigrationOperationSlot} from './migration_schema_owners';
-import {migrationContextDifferences,migrationReferences,securityConnectionTarget,sharedNativeSecurityDefinition,type DocumentContext} from './migration_documents';
+import {migrationContextDifferences,securityConnectionTarget,sharedNativeSecurityDefinition,type DocumentContext} from './migration_documents';
 import {defaultSchemaDialect,modernFamily,type SpecificationFamily} from './specification';
 import {SourcePlan,type SourceLocation} from './source_plan';
 import type {MigrationIssue} from './migration_schema';
@@ -19,8 +19,6 @@ type Placement=Readonly<{scope:GraphScope;location:SourceLocation;intrinsic:Read
 type OwnerSelection=Readonly<{entryNamespace:string;scopes:readonly GraphScope[];distinct:boolean}>;
 const useKey=(scope:{resource:string;pointer:string;kind:string})=>JSON.stringify([scope.resource,scope.pointer,scope.kind]);
 const interpretationKey=(scope:GraphScope)=>JSON.stringify([useKey(scope),schemaResourceContextIdentity(scope),scope.schemaParent]);
-const referenceOwnerKind=(reference:GraphReference)=>reference.connection==='discriminator'?'discriminator':
-    reference.connection==='security'?'security-requirement':reference.connection?'link':reference.kind;
 const independentSchema=(graph:ReferenceGraph,scope:GraphScope)=>scope.kind==='schema'&&(
     graph.literalContainer(scope.resource,scope.pointer)!==undefined||
     graph.scopes.get(scope.resource+'#'+scope.pointer)?.kind!=='schema'&&graph.hasOverlappingScope(scope.resource,scope.pointer));
@@ -282,7 +280,8 @@ function materializeMigrationOwners(graph:ReferenceGraph,sources:ReadonlyMap<str
                 const value=graph.docs.get(schema.resource)!.dataNode(schema.pointer)?.value;
                 return typeof value?.$anchor==='string'||typeof value?.$dynamicAnchor==='string';
             });
-            const needsResource=anchored||dynamicDependency([scope]);
+            const needsResource=anchored||dynamicDependency([scope])||owners.authoredDialect(scope)!==undefined&&
+                !sameSchemaDialect(scope.dialect,defaultSchemaDialect(graph.family));
             // Entry variants must not add discriminator wire names. Anonymous
             // map uses, ordinary models and boolean choices share the same
             // resource holder; original public aliases retain their names.
@@ -291,6 +290,11 @@ function materializeMigrationOwners(graph:ReferenceGraph,sources:ReadonlyMap<str
         const selected=new Set(candidates.map(useKey));
         for(const [identity,scope]of [...needed].sort(([a],[b])=>a.localeCompare(b))){
             const captured=resources.get(identity)!,boundary=captured.boundary;
+            if(!entry.distinct){
+                const frames=new Map(captured.members.flatMap(member=>owners.roleOwners(member)).flatMap(use=>
+                    use.context?.frame?[[key(use.context.frame.location),use.context.frame] as const]:[]));
+                if(frames.size===1){const frame=[...frames.values()][0];resourceHolders.set(identity,{location:frame.location,dialect:frame.scope.dialect});continue;}
+            }
             const whole=boundary!==undefined;
             // A real retained Schema resource is already the final URI owner.
             // Literal-role extraction can place its selected use directly in
@@ -449,7 +453,8 @@ function materializeMigrationOwners(graph:ReferenceGraph,sources:ReadonlyMap<str
                 return placement!==undefined&&(placement.location.resource!==role.resource||placement.location.pointer!==role.pointer);
             });
         }
-        const separated=owners.separate(scope,'entry_use',{
+        const shared=!entry.distinct?owners.roleOwners(scope):[];
+        const separated=shared.length===1?{location:shared[0].location,provenance:new Map<string,SourceLocation>()}:owners.separate(scope,'entry_use',{
             container,captured:pristine.get(scope.resource),
             operationSlot,
             identity:JSON.stringify([entry.entryNamespace,interpretationKey(scope)]),
@@ -482,6 +487,7 @@ function materializeMigrationOwners(graph:ReferenceGraph,sources:ReadonlyMap<str
             if(frame&&frame.resource===destination.resource&&destination.pointer.startsWith(frame.pointer+'/'))
                 owners.rememberFrame(entry.entryNamespace,captured,destination,frame);
         }
+        if(!entry.distinct)owners.rememberRole(entry.entryNamespace,captured,destination);
         if(kind!=='schema'||!nativeSlots.has(key(captured))||owner===placement)continue;
         const slot=mapped(captured,placement),source=sources.get(slot.resource)!;
         // The native field is a use of the material schema, not a second
@@ -492,7 +498,7 @@ function materializeMigrationOwners(graph:ReferenceGraph,sources:ReadonlyMap<str
             inspect();return location.resource!==slot.resource||location.pointer===slot.pointer||!inside(location.pointer,slot.pointer);
         }));
         const target=mapped(captured,owner);
-        owners.resourceReferenceUse(source,slot.pointer,target,captured,{scope:placement.scope,location:placement.location});
+        owners.referenceUse(source,slot.pointer,target);
     }
     const set=(at:SourceLocation,value:string)=>{const source=sources.get(at.resource)!;owners.admit(source);source.set(at.pointer,value);};
     const securityAlias=(reference:GraphReference,target:SourceLocation):string=>{
@@ -558,8 +564,11 @@ function materializeMigrationOwners(graph:ReferenceGraph,sources:ReadonlyMap<str
         }
         // Selecting the captured dialect is necessary when the generated owner
         // belongs to an entry with a different default schema dialect.
-        if(placement.scope.kind==='schema'&&modernFamily(placement.scope.family)&&!sameSchemaDialect(placement.scope.dialect,placement.inheritedDialect)&&placement.scope.dialect)
+        if(placement.scope.kind==='schema'&&modernFamily(placement.scope.family)&&!sameSchemaDialect(placement.scope.dialect,placement.inheritedDialect)&&placement.scope.dialect&&owners.authoredDialect(placement.scope)!==undefined){
+            if(typeof sources.get(placement.location.resource)!.doc.dataNode(placement.location.pointer)?.value?.$id!=='string')
+                set({...placement.location,pointer:placement.location.pointer+'/$id'},owners.resourceIdentity(entry.entryNamespace,interpretationKey(placement.scope)));
             set({...placement.location,pointer:placement.location.pointer+'/$schema'},placement.scope.dialect);
+        }
         else if(placement.scope.kind==='schema'&&placement.inheritsResource&&
             Object.hasOwn(graph.docs.get(placement.scope.resource)!.dataNode(placement.scope.pointer)?.value??{},'$schema'))
             sources.get(placement.location.resource)!.remove(placement.location.pointer+'/$schema');

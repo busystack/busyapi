@@ -31,7 +31,8 @@ for(const format of ['yaml','json'])for(const reverse of [false,true])test(`${fo
  const resources=values.map((value,index)=>({id:index?child:root,text:format==='json'?JSON.stringify(value,null,2):YAML.stringify(value),generation:index+1}));
  if(reverse)resources.reverse();const before=resources.map(resource=>resource.text),input={root,snapshot:'mixed',resources},result=await planMigration({...input,targetVersion:'3.2.1',destination:'file:///output/mixed/'});
  assert.equal(analyse(input).complete,false);assert(analyse(input).findings.some(finding=>finding.code==='reference.family.unsupported'));
- assert.equal(result.status,'blocked');assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);assert(result.problems.some(problem=>problem.code==='migration.validation.incomplete'&&problem.reason==='source-incomplete'));
+ assert.equal(result.status,'blocked');assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);
+ assert(result.problems.some(problem=>problem.code==='migration.validation.reference.family.unsupported'&&problem.reason==='unavailable-proof'&&problem.resource===root&&problem.pointer==='/paths/~1items/$ref'&&problem.range[1]>problem.range[0]));
  assert.deepEqual(resources.map(resource=>resource.text),before);
 });
 for(const alias of [false,true])test(`YAML implicit Server alias=${alias} retains physical ownership`,async()=>{

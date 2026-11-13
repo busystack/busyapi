@@ -9,36 +9,52 @@ export type CapturedSchemaResource=Readonly<{
     boundary?:GraphScope;anchors:ReadonlyMap<string,GraphScope>;dynamicAnchors:ReadonlyMap<string,GraphScope>;
 }>;
 
+/** Read an effective declaration from this immutable captured interpretation.
+ * External implicit fragments use their native family default; an API's
+ * jsonSchemaDialect governs its own embedded schemas. */
+export function authoredSchemaDialect(graph:ReferenceGraph,scope:GraphScope):string|undefined {
+    const document=graph.docs.get(scope.resource)!;
+    for(let pointer=scope.pointer;;pointer=pointer.slice(0,pointer.lastIndexOf('/'))){
+        const declaration=graph.scopeAs(scope.resource,pointer,'schema')&&document.dataNode(pointer+'/$schema')?.value;
+        if(typeof declaration==='string'&&sameSchemaDialect(declaration,scope.dialect))return declaration;
+        if(!pointer)break;
+    }
+    const declaration=graph.specifications.has(scope.resource)&&document.dataNode('/jsonSchemaDialect')?.value;
+    return typeof declaration==='string'&&sameSchemaDialect(declaration,scope.dialect)?declaration:undefined;
+}
+
 /** A view of the canonical capture, not an identity/ownership registry. Files,
  * retrieval aliases and native containers are not schema resource boundaries.
  * In particular an implicit resource can have several independently embedded
  * Schema roots. All its captured anchors belong to that same resource. */
 export function capturedSchemaResources(graph:ReferenceGraph):ReadonlyMap<string,CapturedSchemaResource> {
-    const members=new Map<string,GraphScope[]>();let work=0;
+    const resources=new Map<string,{identity:string;members:GraphScope[];roots:GraphScope[];boundary?:GraphScope;anchors:Map<string,GraphScope>;dynamicAnchors:Map<string,GraphScope>}>();let work=0;
     const inspect=()=>{if(++work>2000000)throw new SourceError('limit.migration.resources','Schema resource capture exceeds 2000000 typed states');};
     for(const scope of graph.entryScopes()){
         inspect();if(scope.kind!=='schema')continue;
-        const identity=schemaResourceContextIdentity(scope),values=members.get(identity)??[];
-        values.push(scope);members.set(identity,values);
+        const identity=schemaResourceContextIdentity(scope);
+        let resource=resources.get(identity);
+        if(!resource){resource={identity,members:[],roots:[],anchors:new Map(),dynamicAnchors:new Map()};resources.set(identity,resource);}
+        resource.members.push(scope);
     }
-    const result=new Map<string,CapturedSchemaResource>();
-    for(const [identity,values]of [...members].sort(([a],[b])=>a.localeCompare(b))){
-        const ordered=values.sort((a,b)=>a.pointer.length-b.pointer.length||a.pointer.localeCompare(b.pointer));
-        const candidate=graph.scopeAs(ordered[0].resource,ordered[0].resourcePointer,'schema');
-        const boundary=candidate&&graph.isEntryUse(candidate)&&schemaResourceContextIdentity(candidate)===identity?candidate:undefined;
-        const roots=ordered.filter(scope=>{
+    // Resource declarations and anchor availability do not apply unrelated
+    // sibling assertions or native model metadata to a referenced fragment.
+    for(const scope of graph.interpretedScopes()){
+        inspect();if(scope.kind!=='schema')continue;
+        const resource=resources.get(schemaResourceContextIdentity(scope));if(!resource)continue;
+        if(scope.pointer===scope.resourcePointer)resource.boundary=scope;
+        const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
+        for(const [keyword,index]of [['$anchor',resource.anchors],['$dynamicAnchor',resource.dynamicAnchors]] as const)
+            if(typeof value?.[keyword]==='string')index.set(value[keyword],scope);
+    }
+    for(const resource of resources.values()){
+        resource.members.sort((a,b)=>a.pointer.length-b.pointer.length||a.pointer.localeCompare(b.pointer));
+        resource.roots=resource.members.filter(scope=>{
             inspect();const parent=scope.schemaParent===undefined?undefined:graph.scopeAs(scope.resource,scope.schemaParent,'schema');
-            return !parent||schemaResourceContextIdentity(parent)!==identity;
+            return !parent||!graph.isEntryUse(parent)||schemaResourceContextIdentity(parent)!==resource.identity;
         });
-        const anchors=new Map<string,GraphScope>(),dynamicAnchors=new Map<string,GraphScope>();
-        for(const scope of ordered){
-            inspect();const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
-            for(const [keyword,index]of [['$anchor',anchors],['$dynamicAnchor',dynamicAnchors]] as const)
-                if(typeof value?.[keyword]==='string')index.set(value[keyword],scope);
-        }
-        result.set(identity,{identity,members:ordered,roots,boundary,anchors,dynamicAnchors});
     }
-    return result;
+    return new Map([...resources].sort(([a],[b])=>a.localeCompare(b)));
 }
 
 /** A resource/anchor isomorphism proves all evaluation paths, rather than a
@@ -79,14 +95,8 @@ export function proveMigrationSchemaResources(source:ReferenceGraph,target:Refer
     const destinationOwners=new Map<string,string>();
     for(const identity of new Set([...critical,...dynamic])){
         const group=captured.get(identity);if(!group)continue;
-        const original=group.members[0],document=source.docs.get(original.resource)!;
-        let authoredDialect=source.docs.get(source.root)!.dataNode('/jsonSchemaDialect')!==undefined||document.dataNode('/jsonSchemaDialect')!==undefined;
-        for(let pointer=original.pointer;;pointer=pointer.slice(0,pointer.lastIndexOf('/'))){
-            inspect();
-            if(source.scopeAs(original.resource,pointer,'schema')&&document.dataNode(pointer+'/$schema'))authoredDialect=true;
-            if(!pointer)break;
-        }
-        const destinations=new Map<string,Map<string,GraphScope>>();
+        const authoredDialect=authoredSchemaDialect(source,group.members[0])!==undefined;
+        const destinations=new Set<string>();
         for(const member of group.members){
             inspect();const locations=mapped(member,member).flatMap(at=>{
                 const scope=target.scopeAs(at.resource,at.pointer,'schema');return scope&&target.isEntryUse(scope)?[scope]:[];
@@ -103,13 +113,12 @@ export function proveMigrationSchemaResources(source:ReferenceGraph,target:Refer
                     sameSchemaDialect(scope.dialect,defaultSchemaDialect(scope.family));
                 inspect();if(!sameSchemaDialect(scope.dialect,member.dialect)&&!defaultTransition||preserveFamily&&scope.family!==member.family)
                     issue(member,'migration.invariant.resource-dialect','The retained schema resource changes its captured effective dialect or family','implementation');
-                const id=schemaResourceContextIdentity(scope),members=destinations.get(id)??new Map<string,GraphScope>();
-                members.set(member.pointer,scope);destinations.set(id,members);
+                destinations.add(schemaResourceContextIdentity(scope));
             }
         }
         if(critical.has(identity)&&destinations.size>1)
             issue(group.members[0],'migration.invariant.resource-boundary','This captured identified or anchor-bearing resource was split between independent target resources','implementation');
-        for(const [destination,members]of destinations){
+        for(const destination of destinations){
             inspect();const actual=retained.get(destination);if(!actual)continue;
             if(critical.has(identity)){
                 const previous=destinationOwners.get(destination);
@@ -119,8 +128,12 @@ export function proveMigrationSchemaResources(source:ReferenceGraph,target:Refer
             }
             for(const [expected,found]of [[group.anchors,actual.anchors],[group.dynamicAnchors,actual.dynamicAnchors]]){
                 if(expected.size!==found.size||[...expected].some(([name,at])=>{
-                    inspect();const material=members.get(at.pointer),anchor=found.get(name);
-                    return !material||!anchor||material.resource!==anchor.resource||material.pointer!==anchor.pointer;
+                    inspect();const anchor=found.get(name);
+                    return !anchor||!mapped(at,at).some(material=>{
+                        inspect();const scope=target.scopeAs(material.resource,material.pointer,'schema');
+                        return scope!==undefined&&schemaResourceContextIdentity(scope)===destination&&
+                            material.resource===anchor.resource&&material.pointer===anchor.pointer;
+                    });
                 }))issue(group.members[0],'migration.invariant.resource-anchors','The target resource changes a captured anchor table or introduces a dynamic binding from another resource','implementation');
             }
         }

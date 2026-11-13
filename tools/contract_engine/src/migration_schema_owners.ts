@@ -1,5 +1,4 @@
 import {createHash} from 'node:crypto';
-import {children,standardOperationMethods} from './contexts';
 import {componentLocation,richTextField} from './authoring';
 import {escape,segments,SourceError,type Range,type SourceDocument} from './document';
 import {documentUriFields,documentUriOccurrences,type DocumentUriOccurrence} from './document_uris';
@@ -8,6 +7,7 @@ import type {SourceLocation,SourcePlan} from './source_plan';
 import {logicalSourcePointers} from './source_yaml_ownership';
 import {modernFamily} from './specification';
 import {projectSchemaReference} from './schema_reference_projection';
+import {capturedSchemaResources} from './migration_schema_resource_contexts';
 
 type SemanticOwner=Readonly<{source:GraphScope;owner:GraphScope;location:SourceLocation;context?:Readonly<{base?:string;frame?:Readonly<{location:SourceLocation;scope:GraphScope}>}>}>;
 export type MigrationOwnerLayout='array-item'|'response-header';
@@ -30,8 +30,6 @@ export class MigrationSchemaOwners {
     private readonly additionalUses=new Map<string,{location:SourceLocation;excludedFields:ReadonlySet<string>}[]>();
     private readonly copiedOperationIds=new Set<string>();
     private readonly connectionAliases=new Map<string,string>();
-    private readonly resourceReferences:{slot:SourceLocation;scope:GraphScope;
-        parent:{scope:GraphScope;location:SourceLocation}}[]=[];
     private readonly documentUris=new WeakMap<ReferenceGraph,readonly DocumentUriOccurrence[]>();
     private identityConsumers?:readonly SourceLocation[];
     private useWork=0;
@@ -39,7 +37,8 @@ export class MigrationSchemaOwners {
         private readonly sources:ReadonlyMap<string,SourcePlan>,
         private readonly generatedResource:(format?:SourceDocument['format'],schemaOnly?:boolean)=>SourcePlan,reservedIdentities:Iterable<string>=[],
         private contexts:readonly ReferenceGraph[]=[graph],
-        private readonly connectionNames:ReadonlySet<string>=new Set()){
+        private readonly connectionNames:ReadonlySet<string>,
+        readonly authoredDialect:(scope:GraphScope)=>string|undefined){
         this.contexts=[...contexts].sort((a,b)=>a.root.localeCompare(b.root));
         this.externalIdentities=new Set([...reservedIdentities].map(uri=>new URL(uri).href));
     }
@@ -208,8 +207,10 @@ export class MigrationSchemaOwners {
     private roleKey(scope:GraphScope):string {
         return this.useKey('native-role:'+JSON.stringify([schemaResourceContextIdentity(scope),scope.schemaParent]),scope,scope.kind);
     }
-    rememberRole(scope:GraphScope,destination:SourceLocation,owner:GraphScope):void {
-        this.remember(this.entryUses,this.roleKey(scope),scope,destination,owner);
+    rememberRole(namespace:string,scope:GraphScope,destination:SourceLocation):void {
+        const use=this.entryUses.get(this.useKey(namespace,scope,scope.kind))?.find(use=>
+            use.location.resource===destination.resource&&use.location.pointer===destination.pointer);
+        if(use&&!this.entryUses.has(this.roleKey(scope)))this.entryUses.set(this.roleKey(scope),[use]);
     }
     roleOwners(scope:GraphScope):readonly SemanticOwner[] {
         this.inspectUse();return this.entryUses.get(this.roleKey(scope))??[];
@@ -808,54 +809,6 @@ export class MigrationSchemaOwners {
         source.origins.set(pointer+'/$ref',new Set([pointer+'/$ref']));
     }
 
-    /** A native Schema slot moved into another document must not contribute
-     * that document's unrelated dynamic anchors before entering its material
-     * owner. An anchorless, explicitly dialected resource is a neutral frame
-     * on every dynamic path. Its identity uses the common reservation set. */
-    resourceReferenceUse(source:SourcePlan,pointer:string,target:SourceLocation,scope:GraphScope,
-        parent:{scope:GraphScope;location:SourceLocation}):void {
-        this.referenceUse(source,pointer,target);
-        this.inspectUse();this.resourceReferences.push({slot:{resource:source.doc.id,pointer},scope,parent});
-        if(!modernFamily(scope.family)||!scope.dialect)return;
-        const base=this.resourceIdentity(source.doc.id,JSON.stringify(['schema-slot',source.doc.id,pointer,schemaResourceContextIdentity(scope)]));
-        this.admit(source,2);source.set(pointer+'/$id',base);source.set(pointer+'/$schema',scope.dialect);
-        for(const name of ['$id','$schema'])source.origins.set(pointer+'/'+name,new Set([pointer+'/'+name]));
-    }
-
-    /** Generated slots have no authored $ref provenance. Keep their edges in
-     * this same final occurrence association. */
-    repairResourceReferences():void {
-        const edits=new Map<string,{source:SourcePlan;field:string;value:string}>();
-        const same=(a:SourceLocation,b:SourceLocation)=>a.resource===b.resource&&a.pointer===b.pointer;
-        for(const reference of this.resourceReferences){
-            for(const graph of this.contexts){
-                this.inspectUse();const namespace=graph.root;
-                if(!this.entryUses.has(this.useKey(namespace,reference.parent.scope,reference.parent.scope.kind)))continue;
-                const slot=this.entryOwner(namespace,reference.slot,'schema');
-                const parent=this.entryOwner(namespace,reference.parent.scope,reference.parent.scope.kind);
-                // A fresh native copy may come directly from immutable source,
-                // without this generated shell. Only its exact schema-owner
-                // transition can project the shell into a later occurrence.
-                if(same(slot,reference.slot)&&!same(parent,reference.parent.location))continue;
-                const target=this.entryOwner(namespace,reference.scope,'schema');
-                const source=this.sources.get(slot.resource)!,field=source.current(slot.pointer+'/$ref');
-                const failure=(code:string,message:string)=>{
-                    const range:Range=source.doc.dataNode(slot.pointer)?.range??[0,0];
-                    return new SourceError(code,message,range,'unsupported',{...slot,range});
-                };
-                if(field===undefined||typeof source.doc.dataNode(field)?.value!=='string')
-                    throw failure('migration.owners.resource-reference','A generated schema slot has no retained reference field');
-                const value=target.resource+pointerFragment(target.pointer),id=JSON.stringify([source.doc.id,field]),previous=edits.get(id);
-                if(previous&&previous.value!==value)
-                    throw failure('migration.owners.resource-reference-context','This shared generated slot still needs independent entry ownership for its resource targets');
-                edits.set(id,{source,field,value});
-            }
-        }
-        for(const {source,field,value}of edits.values()){
-            if(source.doc.dataNode(field)!.value!==value){this.admit(source);source.set(field,value);}
-        }
-    }
-
     /** A separately interpreted use has its own conversion coordinates. Keep
      * its original provenance for review, without making later reference repair
      * choose between the structural/data owner and the schema copy. The caller
@@ -912,8 +865,7 @@ export class MigrationSchemaOwners {
             if(material.resource!==origin.resource||material.pointer===origin.pointer||!material.pointer.startsWith(origin.pointer+'/'))
                 throw new SourceError('migration.owners.retained','A retained material schema must be a captured child of this occurrence');
             const pointer=owner.location.pointer+material.pointer.slice(origin.pointer.length);
-            retainedPointers.push(pointer);this.resourceReferenceUse(owner.source,pointer,material,material,
-                {scope:origin,location:owner.location});
+            retainedPointers.push(pointer);this.referenceUse(owner.source,pointer,material);
         }
         const inside=(at:string)=>at===owner.location.pointer||at.startsWith(owner.location.pointer+'/');
         for(const locations of owner.source.originSets())for(const at of [...locations])if(inside(at))locations.delete(at);
@@ -931,7 +883,7 @@ export class MigrationSchemaOwners {
     }
 }
 
-type UseOriginKind='reference'|'description'|'uri'|'target';
+type UseOriginKind='reference'|'description'|'uri'|'target'|'resource';
 type SemanticOrigin={
     namespace:string;kind:string;field:UseOriginKind;locations:readonly SourceLocation[];
 };
@@ -948,6 +900,8 @@ export class MigrationSemanticOrigins {
             this.inspect();const id=this.key(graph.root,location,kind);
             const previous=this.records.get(id);
             if(previous){
+                if(field==='resource'&&previous.field==='target'){previous.field='resource';return;}
+                if(field==='target'&&previous.field==='resource')return;
                 if(previous.field!==field)throw new SourceError('migration.owners.connection-context','One typed coordinate has conflicting semantic field and target roles');
                 return;
             }
@@ -972,6 +926,13 @@ export class MigrationSemanticOrigins {
                 add(graph,{resource:scope.resource,pointer:scope.pointer+'/'+escape(name)},scope.kind,name==='description'?'description':'uri');
                 add(graph,scope,scope.kind,'target');
             }
+        }
+        // Entering a resource publishes its declarations even when a sibling
+        // anchor's assertions are not selected by this entry. Keep metadata
+        // endpoints in the same occurrence relation without activating them.
+        for(const graph of graphs)for(const resource of capturedSchemaResources(graph).values()){
+            if(resource.boundary)add(graph,resource.boundary,'schema','resource');
+            for(const scope of [...resource.anchors.values(),...resource.dynamicAnchors.values()])add(graph,scope,'schema','resource');
         }
     }
     private inspect():void {
@@ -1007,7 +968,7 @@ export class MigrationSemanticOrigins {
             const locations=new Map<string,SourceLocation>();
             for(const location of record.locations){
                 this.inspect();let scope:GraphScope|undefined;
-                if(record.field==='target')scope=graph.scopeAs(location.resource,location.pointer,record.kind);
+                if(record.field==='target'||record.field==='resource')scope=graph.scopeAs(location.resource,location.pointer,record.kind);
                 else if(record.field==='reference'){
                     scope=fields.get(this.key(record.namespace,location,record.kind));
                     // A proved finite 3.2 defaultMapping lowers into ordinary
@@ -1036,7 +997,7 @@ export class MigrationSemanticOrigins {
                     // unique actual field capability owns the next stage.
                     scope=choices[0];
                 }
-                if(!scope||!graph.isEntryUse(scope))continue;
+                if(!scope||record.field!=='resource'&&!graph.isEntryUse(scope))continue;
                 for(const mapped of owners.entryLocations(record.namespace,location,scope,current)){
                     this.inspect();locations.set(JSON.stringify([mapped.resource,mapped.pointer]),mapped);
                 }

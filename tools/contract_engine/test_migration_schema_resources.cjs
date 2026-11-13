@@ -43,8 +43,7 @@ test(`${format} ${single?'ordinary role':'independent entries'} whole resources 
 test('authored resource IDs resembling private owners remain published and collision-safe',async()=>{
  const input=fixture('json','3.2.1',true),first=await planMigration(input);assert.equal(first.complete,true,JSON.stringify(first.problems));
  const firstGraph=createGraph(cold(first)).graph;
- const reserved=[...firstGraph.entryScopes()].map(scope=>firstGraph.docs.get(scope.resource).dataNode(scope.pointer+'/$id')?.value)
-  .find(value=>typeof value==='string'&&value.includes('busyapi-schema-owner'));assert(reserved);
+ const reserved=[...firstGraph.identities.keys()].find(value=>value.includes('busyapi-schema-owner'));assert(reserved);
  const api=JSON.parse(input.resources[0].text);api.components.schemas.Authored={$id:reserved,$dynamicAnchor:'authored',type:'string'};
  input.resources[0].text=JSON.stringify(api);
  const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));const output=cold(review),graph=createGraph(output).graph;
@@ -52,6 +51,28 @@ test('authored resource IDs resembling private owners remain published and colli
  const evaluated=await evaluateSchemas({...output,runtimeInstances:['"kept"','null'].map(text=>({subject:'response-body',location:text,text,schema:{resource:output.root,pointer:'/components/schemas/Authored'}}))});
  assert.equal(evaluated.complete,true,JSON.stringify(evaluated.findings));assert.deepEqual(evaluated.runtimeEvaluations.map(value=>value.valid),[true,false]);
  assert.deepEqual(await outcomes(output,'First'),[true,true,true,true,false,false,false,true,false,true,false,false]);
+});
+
+test('a referenced fragment retains its identified resource and unused static anchor through conversion',async()=>{
+ const root='file:///fragment-resource/api.json',model='file:///fragment-resource/model.json';
+ const value={$id:'https://schemas.invalid/fragment',$defs:{Used:{type:'integer'},Unused:{$anchor:'spare',type:'string'}},Example:{value:'retained'}};
+ const input={root,snapshot:'fragment-static-anchor',targetVersion:'3.2.1',destination:'file:///fragment-resource-output/',resources:[
+  {id:root,generation:1,text:JSON.stringify({openapi:'3.2.1',info:{title:'Fragment',version:'1'},paths:{},components:{schemas:{Use:{$ref:'model.json#/$defs/Used'}},examples:{Data:{$ref:'model.json#/Example'}}}})},
+  {id:model,generation:1,text:JSON.stringify(value)},
+ ]};
+ const original=input.resources.map(resource=>resource.text),review=await planMigration(input);
+ assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const output=cold(review),graph=createGraph(output).graph,identity=graph.identities.get(value.$id);
+ assert.equal(identity?.length,1,'The authored resource retains one identity');
+ const owner=identity[0],use=graph.referenceAs(output.root,'/components/schemas/Use','$ref','schema');
+ assert.equal(use.resolution,'resolved');
+ const schema=graph.scopeAs(use.targetResource,use.targetPointer,'schema');assert.equal(schema.base,value.$id);
+ const spare=graph.anchors.get(value.$id+'#spare');assert.equal(spare?.length,1,'Unused static anchors remain available');
+ assert.equal(graph.docs.get(spare[0].resource).dataNode(spare[0].pointer+'/type').value,'string');
+ assert.equal(owner.resource,spare[0].resource);
+ const evaluated=await evaluateSchemas({...output,runtimeInstances:['7','"7"'].map(text=>({subject:'response-body',location:text,text,schema:{resource:output.root,pointer:'/components/schemas/Use'}}))});
+ assert.equal(evaluated.complete,true,JSON.stringify(evaluated.findings));assert.deepEqual(evaluated.runtimeEvaluations.map(value=>value.valid),[true,false]);
+ assert.deepEqual(input.resources.map(resource=>resource.text),original);
 });
 
 for(const holder of [false,true])test(`native object copies retain independently dialected implicit Schema resources, existing holder=${holder}`,async()=>{
