@@ -366,31 +366,32 @@ class GitRepository {
     var commit = info.commit, ahead = 0, behind = 0;
     String? branch = info.branch, upstream;
     final fields = utf8.decode(result.stdout, allowMalformed: false).split('\u0000');
-    for (final field in fields) {
-      if (field.startsWith('# branch.oid ')) {
-        final value = field.substring(13);
-        commit = value == '(initial)' ? null : value;
-      }
-      if (field.startsWith('# branch.head ')) {
-        final value = field.substring(14);
-        branch = value == '(detached)' ? null : value;
-      }
-      if (field.startsWith('# branch.upstream ')) {
-        upstream = field.substring(18);
-      }
-      if (field.startsWith('# branch.ab ')) {
-        final match = RegExp(r'^# branch\.ab \+(\d+) -(\d+)$')
-            .firstMatch(field);
-        if (match != null) {
-          ahead = int.parse(match.group(1)!);
-          behind = int.parse(match.group(2)!);
-        }
-      }
-    }
     final changes = <GitChange>[];
     for (var index = 0; index < fields.length; index++) {
       final field = fields[index];
       if (field.isEmpty) continue;
+      if (field.startsWith('# ')) {
+        if (field.startsWith('# branch.oid ')) {
+          final value = field.substring(13);
+          commit = value == '(initial)' ? null : value;
+        }
+        if (field.startsWith('# branch.head ')) {
+          final value = field.substring(14);
+          branch = value == '(detached)' ? null : value;
+        }
+        if (field.startsWith('# branch.upstream ')) {
+          upstream = field.substring(18);
+        }
+        if (field.startsWith('# branch.ab ')) {
+          final match = RegExp(r'^# branch\.ab \+(\d+) -(\d+)$')
+              .firstMatch(field);
+          if (match != null) {
+            ahead = int.parse(match.group(1)!);
+            behind = int.parse(match.group(2)!);
+          }
+        }
+        continue;
+      }
       if (field.startsWith('? ')) {
         changes.add(
           GitChange(

@@ -79,6 +79,23 @@ void main() {
         }
       },
     );
+  for (final name in ['# branch.head forged', '# branch.oid ${'0' * 40}', '# branch.ab +99 -99']) {
+    test('renamed filename remains data in combined Git status: $name', () async {
+      await File('${temp.path}/$name').writeAsString('Tracked content\n');
+      await git(['add', '.']);
+      await git(['commit', '-m', 'Tracked source']);
+      final commit = ((await git(['rev-parse', 'HEAD'])).stdout as String).trim();
+      await git(['mv', '--', name, 'renamed.yaml']);
+      final repo = (await GitRepository.discover(temp.path, trusted: true))!;
+      final status = await repo.status();
+      expect(status.branch, 'main');
+      expect(status.commit, commit);
+      expect(status.ahead, 0);
+      expect(status.behind, 0);
+      expect(status.changes.single.path, 'renamed.yaml');
+      expect(status.changes.single.originalPath, name);
+    });
+  }
   for (final split in [false, true])
     test(
       'R07-B review matches Git owner execute semantics split=$split',
