@@ -133,7 +133,9 @@ void main() {
           expect(await utf8.decoder.bind(request).join(), payload);
           request.response.statusCode = 201;
         } else {
-          expect(request.method, 'GET');expect(request.uri.path, '/v1/inventory/雪-1');
+          expect(request.method, 'GET');
+          expect(request.uri.path, '/v1/inventory/%E9%9B%AA-1');
+          expect(request.uri.pathSegments, ['v1', 'inventory', '雪-1']);
           expect(request.uri.queryParameters['warehouse'], '北');
           expect(request.headers.value('x-correlation-id'), 'trace-1');
         }
@@ -275,11 +277,18 @@ void main() {
         request.write(control == 'exact-minimum' ? payload.replaceFirst('9007199254740993', '9007199254740992') : payload);
         final response = await request.close();
         final responseText = await utf8.decoder.bind(response).join();
-        expect(response.statusCode, control == 'valid' ? 201 : control == 'missing-auth' ? 401 : 422,
+        expect(response.statusCode, control == 'valid' ? 201 : control == 'missing-auth' ? 401 : 400,
             reason: responseText);
         if (control == 'valid') {
           expect(response.headers.value('busyapi-response-validation-complete'), 'true');
           expect(responseText, contains('9007199254740993'));
+        } else {
+          final violations = jsonDecode(response.headers.value('sl-violations')!) as List;
+          expect(violations.whereType<Map>().any((value) => value['severity'] == 'Error' &&
+            (value['location'] as List).first == 'request'), isTrue);
+          if (control == 'exact-minimum') {
+            expect(jsonDecode(responseText), {'code': 'invalid', 'message': 'Check order fields'});
+          }
         }
       }
       await mock.stop();
