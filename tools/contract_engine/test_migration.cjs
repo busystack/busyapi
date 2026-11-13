@@ -303,7 +303,7 @@ consumes: [${media}]
 paths:
   /form:
     post:
-      parameters: [{in: formData, name: tags, type: array, items: {type: string}, collectionFormat: ${format}}]
+      parameters: [{in: formData, name: tags, type: array, items: {type: string${media==='application/x-www-form-urlencoded'?', enum: [one, two]':''}}, collectionFormat: ${format}}]
       responses: {'204': {description: ok}}
 `;
  const input={...capture(text),targetVersion:'3.0.4'},result=await planMigration(input);
@@ -315,8 +315,38 @@ paths:
   const doc=new SourceDocument(result.outputs[0].text,result.outputRoot),pointer='/paths/~1form/post/requestBody/content/'+media.replaceAll('~','~0').replaceAll('/','~1')+'/encoding/tags';
   if(media==='multipart/form-data')assert.equal(doc.dataNode(pointer),undefined);
   else {assert.equal(doc.dataNode(pointer+'/style').value,format==='ssv'?'spaceDelimited':format==='pipes'?'pipeDelimited':'form');assert.equal(doc.dataNode(pointer+'/explode').value,format==='multi');}
+  const {requestOperation,requestFormBytes}=require('./dist/execution.cjs');
+  const cold={root:result.outputRoot,snapshot:'cold-form',resources:result.outputs};
+  if(media==='application/x-www-form-urlencoded'){
+   const body=format==='multi'?'tags=one&tags=two':format==='csv'?'tags=one,two':format==='ssv'?'tags=one%20two':'tags=one%7Ctwo';
+   const generated=await requestFormBytes({...cold,resource:cold.root,pointer:'/paths/~1form/post',mediaType:media,text:'{"tags":["one","two"]}',fields:[]});
+   assert.equal(Buffer.from(generated.base64,'base64').toString(),body);
+   for(const packet of [input,cold]){
+    const plan=requestOperation({...packet,resource:packet.root,pointer:'/paths/~1form/post'}),declaration=plan.requestBody.content[0];
+    const checked=await evaluateSchemas({...packet,runtimeInstances:[{subject:'request-body',location:media,text:body,mediaType:media,
+     form:declaration.swaggerForm?{resource:packet.root,pointer:'/paths/~1form/post'}:declaration.definition??declaration.source}]});
+    assert.equal(checked.complete,true,JSON.stringify(checked.runtimeFindings));assert(checked.runtimeEvaluations.every(value=>value.complete&&value.valid));
+   }
+  }
  }
  assert.equal(input.resources[0].text,text);
+});
+
+for(const format of ['csv','ssv','pipes'])test(`Swagger URL-form ${format} unconstrained item separators keep an explicit no-output refusal`,async()=>{
+ const text=`swagger: '2.0'
+info: {title: Unbounded separated form, version: '1'}
+host: api.invalid
+schemes: [https]
+consumes: [application/x-www-form-urlencoded]
+paths:
+  /form:
+    post:
+      parameters: [{in: formData, name: tags, type: array, items: {type: string}, collectionFormat: ${format}}]
+      responses: {'204': {description: ok}}
+`;
+ const input={...capture(text),targetVersion:'3.0.4'},result=await planMigration(input);
+ assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);assert.equal(input.resources[0].text,text);
+ assert(result.problems.some(problem=>problem.code==='migration.form.collection-boundary'&&problem.reason==='unavailable-proof'&&problem.pointer.endsWith('/items')),JSON.stringify(result.problems));
 });
 
 for(const source of ['3.0.4','3.1.2'])for(const explode of [false,true])test(`multipart migration ${source} explode=${explode} preserves the active serialization`,async()=>{

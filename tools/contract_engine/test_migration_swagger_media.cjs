@@ -31,8 +31,8 @@ for(const location of ['whole','cookie'])test(`R3c Swagger retains the ${locatio
  }
  input.resources[0].text=input.encode(input.value);const result=await planMigration(input);
  assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);assert.deepEqual(result.changes,[]);
- assert(result.problems.some(problem=>problem.code===(location==='whole'?'migration.parameter.querystring-example-proof':'migration.parameter.cookie-target')&&
-  problem.reason===(location==='whole'?'unavailable-proof':'target-representation')),JSON.stringify(result.problems));
+ assert(result.problems.some(problem=>problem.code===(location==='whole'?'migration.parameter.querystring-example-target':'migration.parameter.cookie-target')&&
+  problem.reason==='target-representation'),JSON.stringify(result.problems));
 });
 
 const publishedTargets = ['3.0.0', '3.0.1', '3.0.2', '3.0.3', '3.0.4', '3.1.0', '3.1.1', '3.1.2', '3.2.0', '3.2.1'];
@@ -40,6 +40,11 @@ for(const version of publishedTargets)for(const format of ['yaml','json'])test(`
  const fixture=require('./migration_b05_r2_fixture.cjs'),{input}=fixture.capture(version,format),before=JSON.stringify(input);
  const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));
  const after=fixture.reopened(result,'file:///cold/r2/');assert.equal(analyse(after).complete,true,JSON.stringify(analyse(after).findings));
+ const targetGraph=createGraph(after).graph;
+ for(const scope of targetGraph.entryScopes()){
+  const description=targetGraph.docs.get(scope.resource).dataNode(scope.pointer+'/description')?.value;
+  if(typeof description==='string')assert(!description.includes('](./'),description);
+ }
  const source=operations(input)[0],target=operations(after)[0];
  const selected=plan=>[plan.parameters.map(p=>[p.name,p.in,p.required,p.deprecated]),plan.requestBody.required,
   plan.requestBody.content.map(m=>[m.mediaType,[...new Set(m.examples.map(e=>e.raw))]]),
@@ -47,7 +52,7 @@ for(const version of publishedTargets)for(const format of ['yaml','json'])test(`
  assert.deepEqual(selected(target),selected(source));
  assert.equal(target.requestBody.content[0].examples[0].raw,'9007199254740993.00');
  assert.equal(target.responses.find(r=>r.status==='200').content[0].examples.length,1);
- assert.equal(target.responses.find(r=>r.status==='204').content.length,0);
+ assert.equal(target.responses.find(r=>r.status==='204').bodyAllowed,false);
  for(const sample of ['9007199254740993.00','0','-1']){
   const check=async(packet,plan)=>{
    const response=plan.responses.find(r=>r.status==='200');
@@ -77,7 +82,14 @@ for(const format of ['yaml','json'])for(const distinct of [false,true])test(`B05
  else{
   assert.equal(result.complete,true,JSON.stringify(result.problems));const after=reopened(result),plan=operations(after)[0];
   assert.equal(plan.responses[0].bodyAllowed,true);assert.deepEqual(plan.responses[0].content.map(m=>[m.mediaType,m.examples[0].raw]),[['application/json','false']]);
-  assert.equal(plan.responses[1].content.length,0);
+  assert.equal(plan.responses[1].bodyAllowed,false);
+  for(const packet of [input,after]){
+   const response=operations(packet)[0].responses.find(value=>value.status==='204');
+   for(const [text,valid]of [['',true],['false',false]]){
+    const checked=await evaluateSchemas({...packet,runtimeInstances:[{subject:'response-body',location:'204',text,mediaType:'application/json',media:response.definition??response.source}]});
+    assert.equal(checked.complete,true,JSON.stringify(checked.runtimeFindings));assert(checked.runtimeEvaluations.every(value=>value.valid===valid));
+   }
+  }
   const check=await evaluateSchemas({...after,runtimeInstances:[{subject:'response-body',location:'retained-owner',text:'{"n":3}',schema:{resource:after.root,pointer:'/definitions/Independent'}}]});
   assert.equal(check.complete,true);assert(check.runtimeEvaluations.every(e=>e.valid));
  }
@@ -147,7 +159,7 @@ for(const format of ['yaml','json'])for(const referenced of [false,true])test(`B
   components:referenced?{headers:{Type:{schema:{type:'string'}}}}:{schemas:{Independent:{$ref:'#/paths/~1empty/get/responses/204/headers/Content-Type/schema'}}}};
  const text=render(value,format),input={root,resources:[{id:root,text,generation:1}],snapshot:'ignored-header',targetVersion:'2.0',destination:'file:///review/ignored-header/'};
  const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));const after=reopened(result),plan=operations(after)[0];
- assert.equal(plan.responses[0].content.length,0);assert.deepEqual(plan.responses[0].headers,[]);assert(result.outputs.some(output=>output.text.includes('ignored.md')));
+ assert.equal(plan.responses[0].bodyAllowed,false);assert.deepEqual(plan.responses[0].headers,[]);assert(result.outputs.some(output=>output.text.includes('ignored.md')));
  if(!referenced){const check=await evaluateSchemas({...after,runtimeInstances:[{subject:'response-body',location:'independent',text:'{"n":3}',schema:{resource:after.root,pointer:'/definitions/Independent'}}]});assert.equal(check.complete,true);assert(check.runtimeEvaluations.every(e=>e.valid));}
  assert.equal(input.resources[0].text,text);
 });

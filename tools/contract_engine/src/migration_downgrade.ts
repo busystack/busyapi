@@ -315,12 +315,44 @@ export function downgradeSwagger(graph:ReferenceGraph,sources:Map<string,SourceP
             target=ref?.resolution==='resolved'?context.scopeAs(ref.targetResource!,ref.targetPointer!,'request-body'):undefined;
         }
     }
+    // Swagger reusable responses contain Response Objects, not Reference
+    // Objects. Materialize their captured aliases after the concrete bodies
+    // have converted, sharing the independently owned schema assertions.
+    for(const scope of scopes)if(scope.family===from&&scope.kind==='response'&&/^\/components\/responses\/[^/]+$/.test(scope.pointer)){
+        const context=owners.contextOf(scope)??primary,source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);
+        if(pointer===undefined||typeof source.doc.dataNode(pointer)?.value?.$ref!=='string')continue;
+        let target:GraphScope|undefined=scope;const seen=new Set<string>();
+        while(target&&typeof context.docs.get(target.resource)!.dataNode(target.pointer)?.value?.$ref==='string'){
+            const id=target.resource+'#'+target.pointer;
+            if(seen.has(id)||seen.size>=128){target=undefined;break;}seen.add(id);
+            const edge=context.referenceAs(target.resource,target.pointer,'$ref','response');
+            target=edge?.resolution==='resolved'?context.scopeAs(edge.targetResource!,edge.targetPointer!,'response'):undefined;
+        }
+        if(!target){issue(scope,'migration.response.reference','The captured Response chain has no bounded concrete target','source-incomplete');continue;}
+        const material=owners.uniqueLocation(target),schemaAt=material.location.pointer+'/schema';
+        const schema=owners.capturedSchema({...material.location,pointer:schemaAt});
+        if(schema&&material.source.doc.dataNode(schemaAt)){
+            const retained=owners.move(schema,material.source,schemaAt,'response_alias_schema',{context:owners.contextOf(schema)??context,layout:'array-item'});
+            material.source.set(schemaAt,{$ref:owners.reference(retained,'2.0')});
+        }
+        owners.materializeNativeUse(scope,source,pointer,material.source,material.location.pointer);
+        owners.rememberAdditionalUse(context.root,target,{resource:source.doc.id,pointer});
+    }
     // Swagger has no Header component map or Header Reference Object. Retain
     // independent native owners in unused, standard Response.headers slots.
     for(const scope of scopes)if(scope.family===from&&scope.kind==='header'&&scope.pointer.startsWith('/components/headers/')&&
         scope.pointer.slice('/components/headers/'.length).indexOf('/')<0){
         const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);if(pointer===undefined||!source.doc.dataNode(pointer))continue;
         owners.move(scope,source,pointer,'header_owner',{context:owners.contextOf(scope)??graph,layout:'response-header'});
+    }
+    // Admit each actual copied Header after its final native owner moves.
+    // The canonical captured edges already express alias chains; reusing them
+    // retains rendered field copies without repeating reference resolution.
+    for(const context of contexts)for(const edge of context.entryReferences())if(edge.kind==='header'&&edge.resolution==='resolved'){
+        const scope=context.scopeAs(edge.resource,edge.pointer,'header'),target=context.scopeAs(edge.targetResource!,edge.targetPointer!,'header');
+        if(!scope||!target||inactiveMigrationHeader(context,scope)&&!headerTargets.has(JSON.stringify([scope.resource,scope.pointer])))continue;
+        for(const material of owners.materialLocations(scope))if(material.source.doc.dataNode(material.location.pointer)&&!owners.retainedValue(material.location))
+            owners.rememberAdditionalUse(context.root,target,material.location);
     }
     // Materialized media occurrences now own their context-specific older
     // representations. Keep the definition's children as separate native

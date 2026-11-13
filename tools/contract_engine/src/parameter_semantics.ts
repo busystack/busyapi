@@ -169,7 +169,7 @@ export class ParameterSemantics {
                 const operationValue=this.graph.docs.get(operation.resource)!.dataNode(operation.pointer)?.value;
                 const media=Object.hasOwn(operationValue??{},'consumes')?operationValue.consumes:this.graph.docs.get(this.graph.root)!.root.value?.consumes;
                 if(forms.some(entry=>this.graph.docs.get(entry.definition!.resource)!.dataNode(entry.definition!.pointer)?.value?.type==='file')&&
-                    Array.isArray(media)&&!media.includes('multipart/form-data'))
+                    Array.isArray(media)&&!media.some(type=>typeof type==='string'&&type.split(';')[0].trim().toLowerCase()==='multipart/form-data'))
                     add(forms[0].source,'parameter.file.media','A file formData parameter requires multipart/form-data in the effective consumes declaration');
             }
             if(this.graph.scope(operation.resource,operation.pointer).family==='3.2') {

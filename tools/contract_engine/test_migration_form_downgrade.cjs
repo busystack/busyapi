@@ -64,11 +64,12 @@ test(`R2 ${version} ${format} shared mixed form singleton=${singleton} retains f
  const multipart=(bytes,extra='',omit=false)=>Buffer.concat([Buffer.from(omit?'':'--R2\r\nContent-Disposition: form-data; name="file"\r\nContent-Type: application/octet-stream\r\n\r\n'),omit?Buffer.alloc(0):bytes,Buffer.from((omit?'':'\r\n')+'--R2\r\nContent-Disposition: form-data; name="name"\r\n\r\n\r\n'+extra+'--R2--\r\n')]);
  async function check(input,bytes){
   const {graph}=createGraph(input),op=graph.operations().find(value=>value.path==='/items'),plan=requestOperation({...input,resource:op.source.resource,pointer:op.source.pointer,occurrence:op.occurrence}),media=plan.requestBody.content[0];
-  const result=await evaluateSchemas({...input,runtimeInstances:[{subject:'request-body',location:type,text:bytes.toString('base64'),mediaBase64:true,mediaType:type,form:media.swaggerForm?{resource:op.source.resource,pointer:op.source.pointer,occurrence:op.occurrence}:media.definition??media.source}]});
+  const result=await evaluateSchemas({...input,runtimeInstances:[{subject:'request-body',location:type,text:bytes.toString('base64'),mediaBase64:true,mediaType:type,schema:media.schema,itemSchema:media.itemSchema,form:media.swaggerForm?{resource:op.source.resource,pointer:op.source.pointer,occurrence:op.occurrence}:media.definition??media.source}]});
   assert.equal(result.complete,true,JSON.stringify(result.runtimeFindings));return result.runtimeEvaluations.every(value=>value.complete&&value.valid)&&!result.runtimeFindings.some(value=>value.severity==='error');
  }
- for(const bytes of [multipart(Buffer.alloc(0)),multipart(Buffer.from([0,255,128,195,169])),multipart(Buffer.from([0]),'--R2\r\nContent-Disposition: form-data; name="numbers"\r\n\r\n-1\r\n'),multipart(Buffer.alloc(0),'',true)])
-  assert.equal(await check(after,bytes),await check(input,bytes));
+ for(const [bytes,valid]of [[multipart(Buffer.alloc(0)),true],[multipart(Buffer.from([0,255,128,195,169])),true],[multipart(Buffer.from([0]),'--R2\r\nContent-Disposition: form-data; name="numbers"\r\n\r\n-1\r\n'),false],[multipart(Buffer.alloc(0),'',true),false]]){
+  assert.equal(await check(input,bytes),valid);assert.equal(await check(after,bytes),valid);
+ }
  const schemas=await evaluateSchemas({...after,runtimeInstances:[{subject:'response-body',location:'independent',text:'""',schema:{resource:after.root,pointer:'/definitions/Independent'}}]});
  assert.equal(schemas.complete,true);assert(schemas.runtimeEvaluations.every(value=>value.valid));
  const header=await evaluateSchemas({...after,runtimeInstances:[{subject:'response-body',location:'independent-header',text:'{"n":7}',schema:{resource:after.root,pointer:'/definitions/IndependentHeader'}}]});

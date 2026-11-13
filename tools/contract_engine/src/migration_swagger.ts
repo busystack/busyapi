@@ -152,7 +152,7 @@ export function upgradeSwagger(graph:ReferenceGraph,sources:Map<string,SourcePla
                         if(format!=='multi'&&value.items?.type==='string'){
                             const separator=format==='ssv'?' ':format==='pipes'?'|':',';
                             if(!Array.isArray(value.items.enum)||value.items.enum.some((item:unknown)=>typeof item!=='string'||item.includes(separator)))
-                                issue({...definition,pointer:definition.pointer+'/items'},'migration.form.collection-boundary','Separated string items need an exhaustive separator-free language certificate before RFC6570 expansion can preserve Swagger split boundaries','implementation');
+                                issue({...definition,pointer:definition.pointer+'/items'},'migration.form.collection-boundary','Separated string items need an exhaustive separator-free language certificate before RFC6570 expansion can preserve Swagger split boundaries','unavailable-proof');
                         }
                         if(value.allowEmptyValue!==true&&value.items?.type==='string'){
                             if(format==='multi'){
