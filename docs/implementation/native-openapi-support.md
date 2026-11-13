@@ -20,7 +20,7 @@ implementation instructions. No older passing run qualifies the changed product.
 | Recovery | Source input, field commits, undo/redo and selected publication checkpoint affected owners and changed draft revisions. Awaiting persistence also awaits earlier captured writes. File-intent updates and retirement avoid workspace-buffer enumeration and exclude unrelated dirty sources. Complete drains remain at workspace replacement/close. Focused interruption/race and targeted-resource cases pass. |
 | Capture and assistance | Root-local immutable captures are separate from full schema analysis. Disk events invalidate relevant versions with bounded reconciliation. Folding uses selected-resource syntax without a graph. Derived text cannot reuse an old parse through inherited metadata. Focused root/cache/folding tests pass. |
 | Source saving | Desktop and CLI use PublicationStore. Alternate BusyProject.save is removed. Partial publication, conflicts, permissions, interrupted records, grouped ordering and undo across save remain. Focused publication cases pass. |
-| Conversion | TypeScript owns language/configuration transformation; Dart owns bounded review, immutable reviewed bytes and publication. One captured traversal allocates final typed owners and emits common static/contextual edges. Repeated entry/role passes, temporary owner wrappers, superseded-copy retirement and Dart's duplicate full schema precheck are deleted. Explicit capture includes configured entry consumers without eager ordinary opening. All 51 registered conversion suites pass: 7,794 cases on coherent v7, including actual mock HTTP. Later YAML ownership and captured-document reuse changes pass 876 focused cases; full product/native qualification remains outstanding. |
+| Conversion | TypeScript owns language/configuration transformation; Dart owns bounded review, immutable reviewed bytes and publication. One captured traversal allocates final typed owners and emits common static/contextual edges. Repeated entry/role passes, temporary owner wrappers, superseded-copy retirement and Dart's duplicate full schema precheck are deleted. Explicit capture includes configured entry consumers without eager ordinary opening. All 51 registered conversion suites pass: 7,810 cases on the coherent post-tuple snapshot, including actual mock HTTP and the final native-child, resource-local and tuple regressions. Full product/Core/native qualification remains outstanding. |
 | Requests, mock and streams | One parameter-value map owns active request input. Captured operations and immutable body inputs share secret-free aggregate preparation across Preview/Send, with fresh dispatch credentials/TLS and exact selected-file reconciliation. Shared serializers replace equivalent form/multipart reproof. Streams retain bounded framing/context in one engine owner, with thin continuation IPC and independent close/cancellation. Broad runtime qualification remains in progress. |
 | Outputs and governance | Prepared immutable files use the common output publisher. Generator selection and execution share a runtime. Verified renderer bytes are reused until installed files change; packaging inventory policy has left documentation-open actions. Governance reuses one immutable review and checks exact dispatch authority once. Focused output, approval and installed-input change cases pass. |
 | Build and distribution | Assembly is separate from current-invocation qualification. Editor assembly passed with optional tools unavailable; renderer rebuilds are skipped when unchanged. Official widget acceptance runs once; no persistent full-suite receipt is required. Full release assembly and distributed-artifact verification pass. Full behavioral/native qualification remains outstanding. |
@@ -33,13 +33,17 @@ behavior and actual process/filesystem boundaries remain gates. Private conversi
 layout, historical revision literals and build-script order are not independent
 product requirements. Migration compatibility is tested separately at revision 107.
 
-The complete conversion run used immutable v7 helpers and the registered Node
-arguments, with real loopback mock execution: 51 suites, 7,794 passing cases,
-zero failures. Its inputs, invocation, logs and aggregate are retained in
-`build/diagnostics/simplification-20261113/conversion-v7/`. The later shared YAML
-key-anchor correction and SourcePlan capture reuse pass 876 focused cases with
-TypeScript checking on coherent v9. This is full v7 plus focused coverage of the
-later changes, not a new full-suite run against v9.
+The latest complete conversion run used immutable post-tuple helpers and the
+registered Node arguments, with real loopback mock execution: 51 suites, 7,810
+passing cases, zero failures. The captured input identity is
+`9b93b878ad767e41bff053d263a85c4338a352833dbf544164f11306df671cd0`.
+Its source identity, helper hashes, invocation, registry, logs and aggregate are
+retained in `build/diagnostics/simplification-20261113/conversion-post-tuples/`.
+This run includes the YAML ownership correction, captured-document reuse and
+sixteen added native-child, shared recursive-resource and tuple-connection cases.
+Earlier v7 evidence remains in `conversion-v7/`. Complete Core/CLI journeys must
+also use a refreshed candidate: an updated private conversion worker cannot
+qualify the saved-source CLI inside an older candidate.
 
 Conversion reuses an unchanged native component Schema as its material owner;
 copied containers reference it through the same occurrence mapping. Resource
@@ -51,6 +55,13 @@ locations still fail instead of falling back to JavaScript number projections.
 The same mapping separates a whole document used as a Schema before its API
 declaration is converted, preserving the Schema's original annotation bytes.
 The former early shared-document identity refusal is removed.
+Copied native roles retain their original typed child owners and associate the
+additional concrete uses through the same occurrence map. The traversal follows
+the native field definitions and stops at Schema boundaries, so a copied Schema
+map cannot invent typed children. Equivalent bare tuple references without an
+independent consumer share their surviving actual application; an independently
+referenced tail keeps its own owner. This deletes an unused tail holder without
+dropping the captured dynamic connection or activating a dormant Schema.
 Finite conversion selects its original conjuncts from the capture even when an
 earlier step has moved an inactive child. The annotation corpus checks every
 native sample within the unchanged diagnostic bound. Two existing OpenAPI 3.0
@@ -68,8 +79,8 @@ multipart body checks have been deleted.
 
 - Resolve or obtain an approved official-upstream resolution for the reproduced
   native stale-client input loss below. Core/widget results cannot qualify it.
-- Resolve retained conversion failures and complete broad qualification of the
-  final-owner mapping while preserving advanced semantic obligations.
+- Complete Core/CLI and published-output qualification of the final-owner mapping
+  against the same refreshed candidate, preserving advanced semantic obligations.
 - Resolve retained runtime failures and verify all actual wire, file-change,
   credentials/TLS, mock, stream and cancellation boundaries together.
 - Run full current-candidate Engine, Core/CLI, official widget, native/platform and
@@ -125,6 +136,7 @@ The paired process memory observations and complete inputs are in `editing/`.
 | Same conversion captures, allocator constructions | 2 → 1 / 5 → 2 / 1 → 1; one allocator per genuine family stage |
 | Same conversion captures, provenance inspections | 358 → 306 / 527 → 449 / 358 → 306 |
 | Same conversion captures, graph API calls in final-owner slice | 14 → 14 / 17 → 17 / 12 → 12; this later slice claims no additional graph reduction |
+| One homogeneous fixed-reference tuple, both conversions complete | Unconsumed tail holders 1 → 0; SourceDocument constructions 144 → 138; position holders remain 1 → 1 |
 
 The final-owner conversion pair compares committed `c4b40de` with `eda617c`,
 after the earlier capture reduction. Each complete JSON input has one integer
@@ -135,6 +147,13 @@ and createGraph calls. Exact inputs, counts and source-archive SHA-256 are retai
 in `conversion-owners/after-eda617c.jsonl` and `final-eda617c.json`. The additional
 shared dynamic fixture was blocked before and completes after; its counts are
 excluded from the performance comparison.
+
+The tuple pair compares committed `2b20e5d` with `098b508` using one unchanged
+JSON input. Only the unconsumed, equivalent bare-reference tail is coalesced;
+independently referenced tails remain separate in the regression corpus. Copied
+source counters and input/archive identities are retained in
+`conversion-tuples/receipt.json`. This measures construction and allocation work,
+not elapsed conversion latency or native input.
 
 The unfinished-stream pair feeds 257 × 64 KiB into the same record bound. Both
 accurately stop at `limit.stream.record`. Copied framing bytes fall from
