@@ -229,7 +229,7 @@ export async function planMigration(input:MigrationInput) {
             const sourceGraphs=new Map(sourceContexts.map(context=>[context.graph.root,context.graph]));
             const plannedContexts=()=>{
                 const current=sourceLocations(sources),selected=new Map<string,Map<string,PlanningOccurrence>>();
-                const admit=(namespace:string,scope:GraphScope,location:SourceLocation,base?:string)=>{
+                const admit=(namespace:string,scope:GraphScope,location:SourceLocation,base?:string,metadataOnly?:true)=>{
                     if(!sources.get(location.resource)?.doc.dataNode(location.pointer)||owners.retainedValue(location))return;
                     let kind=scope.kind;
                     const converted=convertedScopes&&stage.sources.includes(scope.family as typeof after),family=converted?after:scope.family;
@@ -239,16 +239,18 @@ export async function planMigration(input:MigrationInput) {
                     const declared=owners.authoredDialect(scope);
                     const inferred=converted&&!declared;
                     const dialect=converted&&(!modernFamily(scope.family)||!modernFamily(after)||inferred)?defaultSchemaDialect(after as typeof target.family):scope.dialect;
-                    const occurrence:PlanningOccurrence={...location,kind,family,dialect,
+                    const occurrence:PlanningOccurrence={...location,kind,family,dialect,...(metadataOnly?{metadataOnly}:{}),
                         ...(base!==undefined&&(!converted||modernFamily(after))?{expectedBase:base}:{})};
                     const entries=selected.get(namespace)??new Map<string,PlanningOccurrence>();
-                    entries.set(JSON.stringify([location.resource,location.pointer,kind]),occurrence);selected.set(namespace,entries);
+                    const id=JSON.stringify([location.resource,location.pointer,kind]),previous=entries.get(id);
+                    if(!previous||previous.metadataOnly)entries.set(id,occurrence);
+                    selected.set(namespace,entries);
                 };
                 for(const [namespace,seeds]of planningScopes)for(const seed of seeds){
                     const scope=sourceGraphs.get(namespace)?.scopeAs(seed.resource,seed.pointer,seed.kind);if(!scope)continue;
-                    for(const location of owners.entryLocations(namespace,seed,scope,current))admit(namespace,scope,location,seed.expectedBase);
+                    for(const location of owners.entryLocations(namespace,seed,scope,current))admit(namespace,scope,location,seed.expectedBase,seed.metadataOnly);
                 }
-                for(const {namespace,scope,location,base}of owners.planningContexts(current))admit(namespace,scope,location,base);
+                for(const {namespace,scope,location,base,metadataOnly}of owners.planningContexts(current))admit(namespace,scope,location,base,metadataOnly);
                 return new Map([...selected].map(([root,entries])=>[root,Object.freeze([...entries.values()].map(entry=>Object.freeze(entry)))]));
             };
             const preparationInput=()=>({...capturedInput([...sources].map(([id,source])=>({

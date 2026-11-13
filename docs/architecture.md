@@ -325,6 +325,9 @@ anchorless resource shells or a second reference-repair list. Resource metadata
 and unused anchors retain their captured-to-final association without activating
 unrelated sibling assertions. Authored dialect declarations remain distinct from
 the family defaults selected by an explicit conversion.
+Planner context can index a resource boundary without making its assertions an
+entry use. Context reconciliation admits only already entered Schema roots;
+an unrelated indexed resource cannot become executable during a retry.
 
 Canonical schema evaluation shares one compiler AST across its captured roots,
 while resource addresses retain their separate dialect and role contexts. This

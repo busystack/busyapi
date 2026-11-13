@@ -23,7 +23,11 @@ export const sameSchemaDialect=(a:string|null,b:string|null):boolean=>a===b||
     typeof a==='string'&&typeof b==='string'&&schemaDialectIdentity(a)===schemaDialectIdentity(b);
 
 export type GraphTarget = Readonly<{ resource: string; pointer: string; kind: string }>;
-export type PlanningOccurrence = Readonly<GraphTarget & {family:string;dialect:string|null;expectedBase?:string}>;
+export type PlanningOccurrence = Readonly<GraphTarget & {
+    family:string;dialect:string|null;expectedBase?:string;
+    /** Index a captured resource frame without applying its assertions. */
+    metadataOnly?:true;
+}>;
 // Symbols cannot arrive over the engine's JSON transport. Only an explicit
 // planning copy can supply captured interpretation while its owners move.
 export const planningOccurrences=Symbol.for('busyapi-planning-occurrences');
@@ -404,7 +408,7 @@ export class ReferenceGraph {
             // that proved owner before retrying direct schema pointers.
             for(const [id,target]of graph.nativeAdmissions)seeds.set(id,target);
             for(const {target,root:entry} of graph.schemaAdmissions.values()) {
-                if(!entry)continue;
+                if(!entry||!graph.isEntryUse(target))continue;
                 seeds.set(key(target.resource,target.pointer)+':schema',target);
             }
             if(seeds.size===before)break;
@@ -526,7 +530,8 @@ export class ReferenceGraph {
         this.checkReferenceChains();
         for(const scope of this._scopes.values())if(scope.kind==='path-item')this.pathItem(scope);
         this.operations();
-        this.captureEntryUses(occurrences);
+        this.captureEntryUses(occurrences.filter(occurrence=>
+            !planning.get(key(occurrence.resource,occurrence.pointer)+':'+occurrence.kind)?.metadataOnly));
     }
 
     /** Located Path Item fields, not a merged API object. Non-overlapping

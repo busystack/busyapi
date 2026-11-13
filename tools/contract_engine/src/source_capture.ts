@@ -62,7 +62,7 @@ export function createGraph(input: any) {
     const contexts=input[planningOccurrences] as ReadonlyMap<string,readonly PlanningOccurrence[]>|undefined,planning=contexts?.get(input.root);
     const graph=ReferenceGraph.capture(docs, input.root, family, new Map(input.resources.map((r: Resource) => [r.id, r.aliases ?? []])), input.occurrences,planning);
     const resources=Object.freeze((input.resources as Resource[]).map(resource=>Object.freeze({...resource,...(resource.aliases?{aliases:Object.freeze([...resource.aliases])}:{} )})));
-    const interpretations=contexts&&new Map([...contexts].map(([root,values])=>[root,Object.freeze(values.map(({resource,pointer,kind,family,dialect,expectedBase})=>Object.freeze({resource,pointer,kind,family,dialect,...(expectedBase===undefined?{}:{expectedBase})})))] as const));
+    const interpretations=contexts&&new Map([...contexts].map(([root,values])=>[root,Object.freeze(values.map(({resource,pointer,kind,family,dialect,expectedBase,metadataOnly})=>Object.freeze({resource,pointer,kind,family,dialect,...(expectedBase===undefined?{}:{expectedBase}),...(metadataOnly?{metadataOnly}:{} )})))] as const));
     const occurrences=input.occurrences&&Object.freeze((input.occurrences as GraphTarget[]).map(({resource,pointer,kind})=>Object.freeze({resource,pointer,kind})));
     Object.defineProperty(graph,ownedGraphCapture,{value:Object.freeze({root:input.root,resources,...(occurrences?{occurrences}:{}),...(interpretations?{[planningOccurrences]:interpretations}:{})})});
     return {docs,family,exampleResources:new CapturedExampleResources(input.exampleResources),graph};

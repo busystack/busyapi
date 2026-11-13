@@ -107,8 +107,8 @@ export class MigrationSchemaOwners {
         if(index<0)throw new SourceError('migration.owners.context','A captured context has no matching material occurrence');
         uses[index]={...uses[index],context:preserveBase?{base:expectedBase??scope.base}:{}};
     }
-    planningContexts(current:ReadonlyMap<string,readonly SourceLocation[]>):readonly Readonly<{namespace:string;scope:GraphScope;location:SourceLocation;base?:string}>[] {
-        const result:{namespace:string;scope:GraphScope;location:SourceLocation;base?:string}[]=[],namespaces=new Set(this.contexts.map(graph=>graph.root));
+    planningContexts(current:ReadonlyMap<string,readonly SourceLocation[]>):readonly Readonly<{namespace:string;scope:GraphScope;location:SourceLocation;base?:string;metadataOnly?:true}>[] {
+        const result:{namespace:string;scope:GraphScope;location:SourceLocation;base?:string;metadataOnly?:true}[]=[],namespaces=new Set(this.contexts.map(graph=>graph.root));
         for(const [id,uses]of this.entryUses){
             const [namespace]=JSON.parse(id) as string[];if(!namespaces.has(namespace))continue;
             for(const use of uses){
@@ -119,7 +119,7 @@ export class MigrationSchemaOwners {
                     if(this.retainedValue(location))continue;
                     const frame=use.context.frame;
                     if(frame)for(const at of current.get(JSON.stringify([frame.location.resource,frame.location.pointer]))??[])
-                        result.push({namespace,scope:frame.scope,location:at,base:this.sources.get(at.resource)?.doc.dataNode(at.pointer)?.value?.$id});
+                        result.push({namespace,scope:frame.scope,location:at,base:this.sources.get(at.resource)?.doc.dataNode(at.pointer)?.value?.$id,metadataOnly:true});
                     // Intrinsic subschemas inherit this same captured owner.
                     // Re-admitting each child as a standalone root would turn
                     // permitted legacy boolean fields into invalid schemas.
