@@ -47,16 +47,21 @@ paths:
     final result = await const ContractRequestExecutor().execute(plan, draft('9007199254740993.00'), resolveSecret: (_) async => null);
     try { expect(result.conforming, isTrue, reason: '${result.outgoing.findings}'); }
     finally { await result.close(); }
-    expect(seen.single, [
-      ...utf8.encode('--Swagger\r\nContent-Disposition: form-data; name="n"\r\n\r\n9007199254740993.00\r\n'
+    List<int> expected(String number) => [
+      ...utf8.encode('--Swagger\r\nContent-Disposition: form-data; name="n"\r\n\r\n$number\r\n'
         '--Swagger\r\nContent-Disposition: form-data; name="tag"\r\n\r\nfirst\r\n'
         '--Swagger\r\nContent-Disposition: form-data; name="tag"\r\n\r\n雪\r\n'
         '--Swagger\r\nContent-Disposition: form-data; name="asset"; filename="input.bin"\r\nContent-Type: application/octet-stream\r\n\r\n'),
       0, 255, 128, ...utf8.encode('\r\n--Swagger--\r\n'),
-    ]);
-    await expectLater(const ContractRequestExecutor().execute(plan, draft('9007199254740992'), resolveSecret: (_) async => null),
-      throwsA(isA<CoreFailure>().having((failure) => failure.code, 'code', 'request.multipart.conformance')));
-    expect(seen.length, 1);
+    ];
+    expect(seen.single, expected('9007199254740993.00'));
+    final invalid = await const ContractRequestExecutor().execute(plan, draft('9007199254740992'), resolveSecret: (_) async => null);
+    try {
+      expect(invalid.outgoing.complete, true);
+      expect(invalid.outgoing.valid, false);
+      expect(seen.last, expected('9007199254740992'));
+    } finally {await invalid.close();}
+    expect(seen.length, 2);
     expect(upload.readAsBytesSync(), [0, 255, 128]);
   });
   for (final version in ['2.0', '3.0.0', '3.0.1', '3.0.2', '3.0.3', '3.0.4', '3.1.0', '3.1.1', '3.1.2', '3.2.0', '3.2.1']) {
@@ -217,10 +222,13 @@ ${legacy ? "      parameters: [{in: formData, name: value, type: string, allowEm
           expect(seen.last.$3, 'multipart/form-data; boundary=TypedBoundary');
           expect(seen.last.$4, utf8.encode(
             '--TypedBoundary\r\nContent-Disposition: form-data; name="value"\r\n${legacy ? '' : 'Content-Type: text/plain\r\n'}\r\n\r\n--TypedBoundary--\r\n'));
-          await expectLater(send(const RequestBodyDraft.multipart([
+          final collision = await send(const RequestBodyDraft.multipart([
             RequestFormField('value', 'before\r\n--TypedBoundary-collision'),
-          ], [], mediaType: 'multipart/form-data; boundary=TypedBoundary')),
-            throwsA(isA<CoreFailure>().having((f) => f.code, 'code', 'runtime.form.syntax')));
+          ], [], mediaType: 'multipart/form-data; boundary=TypedBoundary'));
+          expect(collision.outgoing.complete, true);
+          expect(collision.outgoing.valid, false);
+          expect(seen.last.$4, utf8.encode(
+            '--TypedBoundary\r\nContent-Disposition: form-data; name="value"\r\n${legacy ? '' : 'Content-Type: text/plain\r\n'}\r\nbefore\r\n--TypedBoundary-collision\r\n--TypedBoundary--\r\n'));
           for (final wire in [
             '--Fixture--\r\n',
             '--Fixture\r\nContent-Disposition: form-data; name="value"\r\n\r\nbefore\r\n--Fixture-is-data\r\nafter\r\n--Fixture--\r\n',
@@ -257,8 +265,8 @@ ${legacy ? "      parameters: [{in: formData, name: value, type: string, allowEm
               ),
             ),
           );
-          expect(dispatched, 4);
-          expect(seen, hasLength(4));
+          expect(dispatched, 5);
+          expect(seen, hasLength(5));
           expect(await file.readAsString(), original);
           expect((await project.buffer(file.uri.toString())).text, original);
         },

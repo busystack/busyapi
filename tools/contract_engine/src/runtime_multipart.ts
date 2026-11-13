@@ -137,7 +137,8 @@ export function decodeRuntimeMultipart(text:string,id:string,contentType:string,
             const fileShape=depth===0&&!array?target.fileShapes?.[name!]:undefined;
             if(fileShape)itemHints=itemHints.map(hint=>({...hint,shape:{...hint.shape,types:[fileShape==='array'?'array':'string'],literalType:fileShape==='array'?'array':'string',
                 items:fileShape==='array'?forms.pathShape(hint.schema,[...hint.path,{item:undefined}],hint.shape.items):hint.shape.items}}));
-            const repeated=expandedProperty===undefined&&!array&&itemHints[0]?.shape.types?.includes('array');
+            const repeated=expandedProperty===undefined&&!array&&itemHints[0]?.shape.types?.includes('array')&&
+                (!styled||(encoding.explode??((encoding.style??'form')==='form'))!==false);
             if(repeated)repeatedNames.add(name!);
             if(repeated)itemHints=itemHints.map(hint=>descend(hint,{item:members.get(name!)?.length??0}));
             const partPrefix=prefix+'/'+(array?index:escape(name!));
@@ -213,7 +214,7 @@ export function decodeRuntimeMultipart(text:string,id:string,contentType:string,
                 }
             }
             else{
-                const decoded=decodeMedia(payload.bytes.toString('base64'),id+'/part/'+serial++,decodingType,true,transfer.instanceEncoding==='octets'?'octets':'binary',partSerialization);
+                const decoded=decodeMedia(payload.bytes.toString('base64'),id+'/part/'+serial++,decodingType,true,family==='3.0'?'legacy-octets':'binary',partSerialization);
                 partBinary=decoded.binaryInstances?.get(decoded.document)??partBinary;
                 const value=decoded.document.dataJson(''),type=formLiteralType(field);
                 if(decoded.kind==='text'&&type!==undefined&&type!=='string'){

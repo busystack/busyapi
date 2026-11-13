@@ -2399,7 +2399,7 @@ class ContractRequestBuilder {
           filename = files[index].filename ?? p.basename(files[index].path);
           _partName(filename);
           payload = fileBodies[index];
-        } else if (part.bytes != null && part.text != null) {
+        } else if (part.bytes != null) {
           try {
             literal = transfer.schemaEncoded
                 ? await multipartTextBytes(

@@ -158,5 +158,5 @@ for(const version of ['3.2.0','3.2.1'])for(const format of ['yaml','json'])test(
  const value=YAML.parse(input.resources[0].text);
  value.paths['/upload'].post.requestBody.content['multipart/mixed'].schema.prefixItems[0].contentEncoding='rot13';
  input.resources[0].text=format==='json'?JSON.stringify(value):YAML.stringify(value);
- await assert.rejects(requestMultipartPlan(input),error=>error.code==='request.multipart.header.invalid'||error.code==='request.multipart.encoding.unsupported');
+ await assert.rejects(requestMultipartPlan(input),error=>error.code==='request.multipart.encoding.undefined'&&error.kind==='unsupported'&&error.source.pointer.endsWith('/headers/Content-Transfer-Encoding'));
 });

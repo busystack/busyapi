@@ -232,10 +232,11 @@ components:
         ),
         resolveSecret: (_) async => null,
       );
-      expect(literal.outgoing.complete, isFalse);
+      expect(literal.outgoing.complete, isTrue);
+      expect(literal.outgoing.valid, isFalse, reason: '${literal.outgoing.findings}');
       expect(
         literal.outgoing.findings.any(
-          (finding) => finding['code'] == 'runtime.request.body.unchecked',
+          (finding) => finding['code'] == 'runtime.body.mapping',
         ),
         isTrue,
       );

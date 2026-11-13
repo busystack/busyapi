@@ -169,8 +169,9 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
             const rule=content.encoding?.[field.name],declared=rule?.contentType??shape.defaultContentType??'text/plain';
             const choice=choices['/'+escape(field.name)]??choices[field.name];
             const selected=input.inspect?choice??declared:mediaTypeChoice(declared,choice);
-            const json=typeof selected==='string'&&mediaTypes(selected).every(type=>type.subtype==='json'||type.subtype.endsWith('+json'));
-            const parsed=json||shape.literalType!==undefined&&shape.literalType!=='string';
+            const types=typeof selected==='string'?mediaTypes(selected):[];
+            const json=types.length>0&&types.every(type=>type.subtype==='json'||type.subtype.endsWith('+json'));
+            const parsed=field.modeled===true||json||types.length>0&&types.every(type=>type.type==='text'&&type.subtype==='plain')&&shape.literalType!==undefined&&shape.literalType!=='string';
             const value=parsed?new SourceDocument(field.value,'file:///busyapi-multipart-literal.json',true,'json'):undefined;
             if(value?.issues.length)throw value.issues[0];
             const raw=value?value.dataJson(''):JSON.stringify(field.value);
@@ -250,9 +251,12 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
                     childHints=childHints.map(hint=>({...hint,selection:choice!.schema,shape:forms.selectedShape(hint.shape,choice!.shape,choice!.schema)}));
                 }
             }
-            // Named arrays repeat the Encoding once per item; an array-valued
-            // item itself can be a nested multipart entity.
-            if(!ordered&&child.kind==='array'&&(childHints[0]?.shape.types?.includes('array')||literalOrder.has(child.pointer+'/0'))){
+            // Named content arrays repeat per item. An explicit style with
+            // explode:false serializes the array in one field instead.
+            const separated=content.family!=='3.0'&&(form||content.family!=='3.2')&&
+                ['style','explode','allowReserved'].some(key=>Object.hasOwn(encoding,key))&&
+                (encoding.explode??((encoding.style??'form')==='form'))===false;
+            if(!ordered&&!separated&&child.kind==='array'&&(childHints[0]?.shape.types?.includes('array')||literalOrder.has(child.pointer+'/0'))){
                 const alternatives=[...new Map(values.map(hint=>descend(hint,{property:name!})).flatMap(hint=>forms.partRepresentations(at,hint.schema,hint.path)).map(choice=>[choice.id,choice])).values()];
                 controls.push({name:child.pointer,styled:true,emitted:false,formData:form,source:{...ruleAt,pointer},selected:selections[child.pointer],
                     schemas:alternatives.map(choice=>({...choice.schema,id:choice.id,type:choice.type}))});
@@ -470,7 +474,7 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
                     part.bytes=prepared.bytes.toString('base64');normalizations.set(pointer,{text:prepared.text});parts.push(part);continue;
                 }
                 let text:string;
-                try{text=literalText!==undefined?literalText:styled&&!entry.expanded?multipartStyleText(doc,entry.node,entry.rule):kind==='json'?doc.dataJson(pointer):entry.node.kind==='string'?entry.node.value:doc.dataJson(pointer);}
+                try{text=styled&&!entry.expanded&&['object','array'].includes(entry.node.kind)?multipartStyleText(doc,entry.node,entry.rule):literalText!==undefined?literalText:kind==='json'?doc.dataJson(pointer):entry.node.kind==='string'?entry.node.value:doc.dataJson(pointer);}
                 catch(error){if(!(error instanceof SourceError))throw error;fail(error.code,error.message,entry.at,error.kind==='unsupported');}
                 part.text=text;
                 try{
@@ -498,7 +502,7 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
     const tree=await build(doc.root,input.mediaType,graph.docs.get(at.resource)!.dataNode(at.pointer)!.value,at,whole?[whole]:[],0,true);
     if(content.formBinding==='multipart-named'&&(legacy.length||literals.length)){
         const order=(part:Part)=>part.file!==undefined?literals.length+2048+part.file:
-            [...literalOrder].find(([pointer])=>part.pointer===pointer||part.pointer.startsWith(pointer+'/'))?.[1]??-1;
+            [...literalOrder].find(([pointer])=>part.pointer===pointer||part.pointer.startsWith(pointer+'/')||pointer.startsWith(part.pointer+'/'))?.[1]??-1;
         tree.parts.sort((left,right)=>order(left)-order(right));
     }
     const positions=(entity:Entity)=>entity.parts.forEach((part,index)=>{

@@ -105,7 +105,7 @@ for(const version of ['3.2.0','3.2.1'])test(`${version} named multipart owns rep
  const value=JSON.parse(input.resources[0].text),content=value.paths['/files'].post.requestBody.content;
  content['multipart/mixed']={schema:{type:'array',items:{type:'string'}}};delete content['multipart/form-data'];
  const positional={...input,mediaType:'multipart/mixed',resources:[{...input.resources[0],text:JSON.stringify(value)},...input.resources.slice(1)]};
- assert.equal(requestOperation(positional).requestBody.content[0].formBinding,undefined);
+ assert.equal(requestOperation(positional).requestBody.content[0].formBinding,'multipart-ordered');
  await assert.rejects(()=>requestMultipartEncoding(positional),error=>error.code==='request.multipart.encoding');
 });
 
@@ -166,7 +166,15 @@ for(const version of ['3.2.0','3.2.1'])for(const format of ['yaml','json'])for(c
  const disposition=type==='multipart/form-data'?'Content-Disposition: form-data; name="asset"\r\n':'';
  const text=binding==='nested'?'--Fixture\r\n'+disposition+'Content-Type: multipart/mixed; boundary=Inner\r\n\r\n--Inner\r\nContent-Type: text/plain\r\n\r\nabc\r\n--Inner--\r\n\r\n--Fixture--\r\n':'--Fixture\r\n'+disposition+'Content-Type: text/plain\r\n\r\nabc\r\n--Fixture--\r\n';
  const before=input.resources.map(resource=>resource.text),result=await evaluateSchemas({...input,runtimeInstances:[{subject:'request-body',location:'grouping',text,mediaType:type+'; boundary=Fixture',schema:{resource:input.root,pointer:pointer+'/schema'},form:{resource:input.root,pointer,fileShapes:{asset:'array'}}}]});
- assert.equal(result.complete,false,JSON.stringify(result.runtimeFindings));assert(result.runtimeFindings.some(finding=>finding.detailCode==='runtime.form.file-shape'),JSON.stringify(result.runtimeFindings));assert.deepEqual(input.resources.map(resource=>resource.text),before);
+ if(binding==='nested'){
+  assert.equal(result.complete,true,JSON.stringify(result.runtimeFindings));
+  assert(result.runtimeEvaluations.every(value=>value.complete===true&&value.valid===false));
+  assert(result.runtimeFindings.some(finding=>finding.detailCode==='request.form.content-type'),JSON.stringify(result.runtimeFindings));
+ }else{
+  assert.equal(result.complete,false,JSON.stringify(result.runtimeFindings));
+  assert(result.runtimeFindings.some(finding=>finding.detailCode==='runtime.form.file-shape'),JSON.stringify(result.runtimeFindings));
+ }
+ assert.deepEqual(input.resources.map(resource=>resource.text),before);
 });
 
 for(const version of ['3.2.0','3.2.1'])for(const format of ['yaml','json'])test(`${version} ${format} ordered file pointers preserve binary capture identity`,async()=>{
@@ -181,7 +189,7 @@ for(const version of ['3.2.0','3.2.1'])for(const format of ['yaml','json'])test(
  const body=Buffer.concat([Buffer.from('--W4\r\nContent-Type: application/json\r\n\r\n{"id":9007199254740993.00}\r\n--W4\r\nContent-Disposition: attachment; filename="data.bin"\r\nContent-Type: image/png\r\n\r\n'),bytes,Buffer.from('\r\n--W4--\r\n')]);
  const proof=await requestMultipartPlan({...input,wire:body.toString('base64'),wireType:'multipart/mixed; boundary=W4'});assert.equal(proof.proof.valid,true);
  await assert.rejects(requestMultipartPlan({...input,files:[{...input.files[0],identity:'0'.repeat(64)}],wire:body.toString('base64'),wireType:'multipart/mixed; boundary=W4'}),error=>error.code==='request.multipart.file.identity');
- await assert.rejects(requestMultipartPlan({...input,files:[{name:'/9',selected:'image/png'}]}),error=>error.code==='request.multipart.codec.unsupported'||error.code==='request.multipart.file.stale');
+ await assert.rejects(requestMultipartPlan({...input,choices:{'/1':'image/png'},files:[{name:'/9',selected:'image/png'}]}),error=>error.code==='request.multipart.codec.unsupported'||error.code==='request.multipart.file.stale');
  await assert.rejects(requestMultipartPlan({...input,files:[{name:'/1'}]}),error=>error.code==='request.form.content-type'&&error.source.pointer.endsWith('/prefixEncoding/1'));
 });
 

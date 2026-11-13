@@ -43,7 +43,8 @@ class MultipartEntityPlan {
             raw['file'] != null &&
                 (raw['file'] is! int || (raw['file'] as int) < 0) ||
             raw['bytes'] != null &&
-                (raw['bytes'] is! String || raw['text'] is! String))
+                (raw['bytes'] is! String ||
+                    transfer.schemaEncoded && raw['text'] is! String))
           _invalid();
         Uint8List? bytes;
         if (raw['bytes'] is String) {

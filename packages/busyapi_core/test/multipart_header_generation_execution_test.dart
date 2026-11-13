@@ -350,7 +350,7 @@ paths:
           );
           try {
             final dispatched = seen.length;
-            await expectLater(const ContractRequestExecutor().execute(
+            final invalid = await const ContractRequestExecutor().execute(
               changedPlan,
               OperationRequestDraft(
                 planIdentity: changedPlan.identity,
@@ -361,9 +361,14 @@ paths:
                 ),
               ),
               resolveSecret: (_) async => null,
-            ), throwsA(isA<CoreFailure>().having((failure) => failure.code,
-              'code', 'request.multipart.conformance')));
-            expect(seen.length, dispatched);
+            );
+            try {
+              expect(invalid.outgoing.complete, true);
+              expect(invalid.outgoing.valid, false);
+              final boundary = ContentType.parse(seen.last.$4).parameters['boundary']!;
+              expect(seen.last.$5, utf8.encode(_wire(boundary)));
+            } finally {await invalid.close();}
+            expect(seen.length, dispatched + 1);
           } finally {
             changedPlan.close();
           }
@@ -551,17 +556,17 @@ void modeledMultipartJourneys() {
     final seen=<List<int>>[];
     server.listen((request) async {seen.add(await request.fold<List<int>>([], (all,chunk)=>all..addAll(chunk)));request.response.statusCode=204;await request.response.close();});
     final xml={'type':'object','xml':{'name':'Part'},'required':['n'],'properties':{'n':{'type':'number','enum':['EXACT']}}},link={'type':'object','required':['linkset']};
-    final media={'schema':{'type':'object','required':['xml','links'],'properties':{'xml':xml,'links':link}},'encoding':{
-      'xml':{'contentType':'application/xml; charset=utf-16be','headers':{'Link':{'required':true,'content':{'application/linkset':{'schema':link}}}}},
-      'links':{'contentType':'application/linkset'}}};
+    final media={'schema':{'type':'array','minItems':2,'maxItems':2,'prefixItems':[xml,link],'items':false},'prefixEncoding':[
+      {'contentType':'application/xml; charset=utf-16be','headers':{'Link':{'required':true,'content':{'application/linkset':{'schema':link}}}}},
+      {'contentType':'application/linkset'}]};
     final source=File('${directory.path}/api.json');
     final original=jsonEncode({'openapi':'3.2.1','info':{'title':'Native parts','version':'1'},'servers':[{'url':'http://127.0.0.1:${server.port}'}],
       'paths':{'/parts':{'post':{'requestBody':{'content':{'multipart/mixed':media}},'responses':{'204':{'description':'OK'}}}}}}).replaceAll('"EXACT"','9007199254740993');
     await source.writeAsString(original);
     final project=await BusyProject.open(source.path,engine);addTearDown(project.close);
     final plan=await project.prepareRequest(source.uri.toString(),resource:source.uri.toString(),pointer:'/paths/~1parts/post');addTearDown(plan.close);
-    const data='{"xml":{"n":9007199254740993},"links":{"linkset":[{"next":[{"href":"/p","title":"a,b"}]}]}}';
-    const headers=[RequestPartHeaderValue('/xml','Link','{"linkset":[{"next":[{"href":"/n","title*":[{"value":"雪","language":"ja"}]}]}]}',modeled:true)];
+    const data='[{"n":9007199254740993},{"linkset":[{"next":[{"href":"/p","title":"a,b"}]}]}]';
+    const headers=[RequestPartHeaderValue('/0','Link','{"linkset":[{"next":[{"href":"/n","title*":[{"value":"雪","language":"ja"}]}]}]}',modeled:true)];
     final draft=OperationRequestDraft(planIdentity:plan.identity,body:RequestBodyDraft.multipartValue(mediaType:'multipart/mixed',json:data,partHeaders:headers));
     final result=await const ContractRequestExecutor().execute(plan,draft,resolveSecret:(_) async=>null);addTearDown(result.close);
     expect(result.conforming,true,reason:'${result.outgoing.findings}');
