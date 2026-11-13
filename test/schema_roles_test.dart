@@ -55,15 +55,15 @@ void main() {
         final timer=Stopwatch()..start();
         while(!condition()&&errors.isEmpty&&timer.elapsed<const Duration(seconds:12)) {
           await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds:20)));
-          await tester.pump();
+          await tester.pump(const Duration(milliseconds:20));
         }
-        expect(condition(),true);expect(errors,isEmpty);await tester.pumpAndSettle();
+        expect(errors,isEmpty);expect(condition(),true,reason:'${c.error}; ${find.byType(Text).evaluate().where((element) => ModalRoute.of(element)?.isCurrent == true).map((element) => (element.widget as Text).data).toList()}');await tester.pumpAndSettle();
       }
       Future<void> ready(String kind) async {
         final timer=Stopwatch()..start();
         while(timer.elapsed<const Duration(seconds:12)) {
           await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds:20)));
-          await tester.pump();
+          await tester.pump(const Duration(milliseconds:20));
           final found=find.byKey(const ValueKey('object-interpretation'));
           if(found.evaluate().isNotEmpty&&tester.widget<BusyApiComboRow<String>>(found).selected==kind)break;
         }
@@ -71,7 +71,7 @@ void main() {
         expect(c.selectedObjectKind,kind);expect(errors,isEmpty);
       }
       try {
-        await runWidgetIo(tester,() async {await c.initialize();await c.open(file.path);await c.analyse();});
+        await tester.runAsync(() async {await c.initialize();await c.open(file.path);await c.analyse();});
         await tester.pumpWidget(MaterialApp(theme:buildBusyApiTheme(brightness:Brightness.light,accentColor:Colors.blue),
           localizationsDelegates:AppLocalizations.localizationsDelegates,supportedLocales:AppLocalizations.supportedLocales,
           home:Scaffold(body:ListenableBuilder(listenable:c,builder:(_,_)=>Designer(controller:c,

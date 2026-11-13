@@ -1,7 +1,7 @@
 import {assertRoleAnnotations} from './schema_role_annotations';
 import {captureRefactoringGraph as createGraph,assertRefactoringLiterals,assertRefactoringByteConsumers,assertRefactoringCaseFiles} from './refactoring_graph';
 import {createHash} from 'node:crypto';
-import {Resource} from './engine';
+import {Resource,createGraph as createPlannedGraph} from './engine';
 import {SourceDocument,SourceError,escape,segments} from './document';
 import {referenceValue} from './reference_choices';
 import {fieldsForScope,componentFamily,componentLocation,richTextField} from './authoring';
@@ -403,7 +403,9 @@ function planOwnedCopy(input:any,moving=false) {
   // Do not inject one entry description's entire resource set into unrelated
   // roots. Reuse canonical cold closure for genuinely new outgoing resources.
   for(const id of coldGraph(g.context.root,current).docs.keys())ids.add(id);
-  return createGraph({root:g.context.root,resources:current.filter(r=>ids.has(r.id)),
+  // The input capture rejects ambiguous authored reference edits. These new
+  // forwarding fields are proved for every captured typed role below.
+  return createPlannedGraph({root:g.context.root,resources:current.filter(r=>ids.has(r.id)),
    // Seed only captured interpretations while repairing stale addresses,
    // including independently referenced schemas inside an opaque annotation.
    // The final and cold proofs below must rediscover them without these seeds.

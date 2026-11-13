@@ -7,6 +7,25 @@ const {SourceDocument}=require('./dist/document.cjs');
 const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
 const pointer='/paths/~1items/get/responses/200/content/application~1json/schema';
 
+for(const version of ['3.1.2','3.2.1'])for(const format of ['yaml','json'])
+test(`${version} ${format} extraction refuses a captured reference whose Schema and Header targets differ`,()=>{
+ const root='file:///project/ambiguous.'+format,shared='/components/headers/Shared';
+ const native='file:///project/native.json',schema='https://schemas.invalid/base/native.json';
+ const api={openapi:version,info:{title:'Independent meanings',version:'1'},paths:{'/p':{get:{responses:{200:{description:'Value',headers:{Value:{$ref:'#'+shared}}}}}}},
+  components:{headers:{Shared:{$id:'https://schemas.invalid/base/',$ref:'native.json#/Value'}},schemas:{Use:{$ref:'#'+shared}}}};
+ const resources=[{id:root,generation:1,text:format==='yaml'?YAML.stringify(api):JSON.stringify(api)},
+  {id:native,generation:1,text:JSON.stringify({Value:{description:'Native header',schema:{type:'string'}}})},
+  {id:schema,generation:1,text:JSON.stringify({Value:{type:'integer'}})}];
+ const before=resources.map(resource=>resource.text),graph=createGraph({root,resources}).graph;
+ const refs=graph.references.filter(reference=>reference.resource===root&&reference.pointer===shared);
+ assert.deepEqual(new Set(refs.map(reference=>reference.kind)),new Set(['header','schema']));
+ assert.deepEqual(new Set(refs.map(reference=>reference.targetResource)),new Set([native,schema]));
+ const input={snapshot:'divergent-reference',resources,contexts:[{root,resources:resources.map(resource=>resource.id)}],
+  target:{root,resource:root,pointer:'/paths/~1p/get/responses/200/headers/Value',generation:1,kind:'header'},name:'Extracted'};
+ assert.throws(()=>planExtract(input),error=>error.code==='reference.edit.context'&&error.kind==='unsupported'&&error.source.pointer===shared+'/$ref');
+ assert.deepEqual(resources.map(resource=>resource.text),before);
+});
+
 for(const version of ['3.1.2','3.2.0','3.2.1'])for(const format of ['yaml','json'])for(const cross of [false,true])
 test(`${version} ${format} extracting a concrete Header reference retains other shared interpretations cross=${cross}`,async()=>{
  const root='file:///project/referenced.'+format,destination=cross?'file:///project/destination.'+format:root;
