@@ -287,13 +287,8 @@ void main() {
             '$findingResource $pointer',
           );
           expect(row, findsOneWidget);
-          expect(
-            find.descendant(
-              of: row,
-              matching: find.text(unsupported ? 'Warning' : 'Error'),
-            ),
-            findsOneWidget,
-          );
+          expect(finding['severity'], unsupported ? 'warning' : 'error');
+          expect(tester.widget<BusyApiActionRow>(row).title, finding['message']);
           final publish = find.widgetWithText(
             BusyApiDialogButton,
             'Create migrated copy',

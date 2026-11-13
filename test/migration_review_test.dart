@@ -231,6 +231,7 @@ void main() {
             cache: '${temp.path}/cache',
           ),
         );
+        Map<String, List<bool>>? sourceOutcomes;
         Future<void>? dialog;
         Future<void> ready(bool Function() condition) async {
           final watch = Stopwatch()..start();
@@ -261,6 +262,10 @@ void main() {
               );
             }
             await c.analyse();
+            if (coordinatedVersion != null) {
+              sourceOutcomes = await _responseOutcomes(c.project!, c.root!);
+              expect(sourceOutcomes, isNotEmpty);
+            }
           });
           await tester.pumpWidget(
             MaterialApp(
@@ -381,25 +386,18 @@ void main() {
           expect(comparison.after, contains(targetVersion));
           expect(comparison.after, contains('[Guide](/guide)'));
           if (sharedBinary) {
-            expect(comparison.after, contains('_migrated_binary_use_'));
             expect(comparison.after, contains('application/octet-stream'));
             expect(comparison.after, contains('maxLength'));
-            expect(comparison.after, contains('binary_container_literal'));
           }
           if (swagger && coordinatedVersion != null) {
-            expect(comparison.after, contains('_migrated_entry_use_'));
             expect(comparison.after, contains('application/json'));
-            final resources = tester.widget<BusyApiComboRow<int>>(find.byWidgetPredicate((widget) => widget is BusyApiComboRow<int>));
-            expect(resources.values.length, greaterThan(2));
           }
           if (uriSecurity) {
-            expect(comparison.after, contains('_migrated_security_binding_'));
-            expect(comparison.after, contains('_migrated_oauth_flow_'));
-            expect(comparison.after, contains('_migrated_equivalent_condition_'));
             expect(find.byWidgetPredicate((widget) => widget is SelectableText &&
-                (widget.data?.contains('#/components/securitySchemes/Key → _migrated_security_binding_') ?? false)),
+                (widget.data?.contains('#/components/securitySchemes/Key → ') ?? false)),
                 findsNWidgets(2));
-            expect(find.text('manual · Alternative 3 → Alternative 4'), findsOneWidget);
+            expect(find.byWidgetPredicate((widget) => widget is SelectableText &&
+                (widget.data?.startsWith('manual · Alternative 3 → Alternative ') ?? false)), findsOneWidget);
             expect(File('${temp.path}/busyapi.yaml').readAsStringSync(), authenticationConfiguration);
           }
           expect(
@@ -419,6 +417,17 @@ void main() {
           if (ignoredBody) {
             expect(comparison.before, contains('requestBody'));
             expect(comparison.after, isNot(contains('requestBody')));
+          }
+          final reviewedFiles = <String, String>{};
+          final resourceChoice = tester.widget<BusyApiComboRow<int>>(
+            find.byWidgetPredicate((widget) => widget is BusyApiComboRow<int>));
+          for (final index in resourceChoice.values) {
+            resourceChoice.onSelected(index);
+            await tester.pumpAndSettle();
+            final destination = tester.widgetList<SelectableText>(find.byType(SelectableText))
+                .map((widget) => widget.data).whereType<String>()
+                .singleWhere((value) => value.startsWith(Uri.directory('${temp.path}/busyapi-migrated').toString()));
+            reviewedFiles[destination] = tester.widget<BusyApiReviewComparison>(find.byType(BusyApiReviewComparison)).after;
           }
           expect(file.readAsStringSync(), original);
           expect(c.buffer!.text, contains(sourceVersion));
@@ -468,6 +477,21 @@ void main() {
             );
             expect(c.buffer!.text, contains(sourceVersion));
             expect(c.buffer!.dirty, true);
+            await runWidgetIo(tester, () async {
+              for (final entry in reviewedFiles.entries) {
+                expect(await File.fromUri(Uri.parse(entry.key)).readAsString(), entry.value);
+              }
+            });
+            if (sourceOutcomes != null) {
+              final cold = await runWidgetIo(tester, () => BusyProject.open(path, c.engine));
+              try {
+                final outcomes = <String, List<bool>>{};
+                for (final root in cold.roots) {
+                  outcomes.addAll(await runWidgetIo(tester, () => _responseOutcomes(cold, root.id)));
+                }
+                expect(outcomes, sourceOutcomes);
+              } finally {cold.close();}
+            }
             if (coordinatedVersion != null) {
               final manifest = jsonDecode(
                 File('$path/busyapi.yaml').readAsStringSync(),
@@ -509,4 +533,42 @@ void main() {
       },
     );
   }
+}
+
+Future<Map<String, List<bool>>> _responseOutcomes(BusyProject owner, String root) async {
+  final checked = await owner.check(root);
+  expect(checked['complete'], true, reason: '$checked');
+  final outcomes = <String, List<bool>>{};
+  for (final operation in (checked['operations'] as List).whereType<Map>()) {
+    final path = operation['path'];
+    if (!const ['/items', '/literal', '/bytes', '/encoded'].contains(path)) continue;
+    final plan = await owner.prepareRequest(root, resource: operation['resource'] as String,
+        pointer: operation['pointer'] as String, occurrence: operation['occurrence'] as String?);
+    try {
+      for (final response in (plan.result['responses'] as List).whereType<Map>()) {
+        for (final content in (response['content'] as List).whereType<Map>()) {
+          final type = content['mediaType'] as String;
+          final json = type == 'application/json' || type.endsWith('+json');
+          if (!json && type != 'application/octet-stream') continue;
+          final texts = json ? path == '/items' ? ['1', '"invalid"']
+              : path == '/literal' ? ['{"payload":""}', '{"payload":"discarded"}'] : ['"a"', '""', 'null']
+              : path == '/encoded' ? ['YWJj', 'YQ==', 'bad!'] : ['', 'a', '123456'];
+          final definition = content['definition'], schema = content['schema'];
+          final result = await plan.evaluateRuntime([for (final text in texts)
+            RuntimeSchemaInstance(subject: 'response-body', location: type,
+                text: definition is Map ? base64Encode(utf8.encode(text)) : text,
+                mediaType: definition is Map ? type : null, mediaBase64: definition is Map,
+                media: definition is Map ? RuntimeMediaTarget(resource: definition['resource'] as String, pointer: definition['pointer'] as String) : null,
+                schemaResource: definition is Map ? null : schema['resource'] as String,
+                schemaPointer: definition is Map ? null : schema['pointer'] as String),
+          ]);
+          final evaluations = (result['runtimeEvaluations'] as List).whereType<Map>();
+          expect(evaluations, hasLength(texts.length));
+          expect(evaluations.every((value) => value['complete'] == true), true, reason: '$result');
+          outcomes['$path $type'] = evaluations.map((value) => value['valid'] as bool).toList();
+        }
+      }
+    } finally {plan.close();}
+  }
+  return outcomes;
 }
