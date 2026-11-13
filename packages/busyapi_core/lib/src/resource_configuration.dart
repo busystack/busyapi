@@ -106,7 +106,7 @@ extension ResourceConfiguration on BusyProject {
       ..addAll(mappings);
     _resourceConfigurationText = text;
     _resourceRevision++;
-    _workingSnapshot = null;
+    _sourceCaptures.clear();
   }
 
   Map<String, String> _parseResourceMappings(

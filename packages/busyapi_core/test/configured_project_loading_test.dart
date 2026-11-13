@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:busyapi_core/busyapi_core.dart';
@@ -5,14 +6,39 @@ import 'package:test/test.dart';
 
 import 'test_support.dart';
 
+class _LoadingEngine extends EngineProcess {
+  _LoadingEngine() : super(executable: runtimeNode, helper: runtimeHelper);
+  final analyses = <({String root, Set<String> resources})>[];
+  void Function()? onNormalization;
+  @override
+  Future<Map<String, dynamic>> request(
+    String method,
+    Map<String, Object?> params, {
+    String? requestId,
+  }) async {
+    if (method == 'analyse') {
+      analyses.add((
+        root: params['root'] as String,
+        resources: {
+          for (final resource in params['resources'] as List)
+            (resource as Map)['id'] as String,
+        },
+      ));
+    }
+    final result = await super.request(method, params, requestId: requestId);
+    if (method == 'normalizeResourceUris') onNormalization?.call();
+    return result;
+  }
+}
+
 void main() {
   late Directory directory;
-  late EngineProcess engine;
+  late _LoadingEngine engine;
   setUp(() async {
     directory = await Directory.systemTemp.createTemp(
       'busyapi-configured-loading-',
     );
-    engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);
+    engine = _LoadingEngine();
   });
   tearDown(() async {
     await engine.close();
@@ -24,7 +50,7 @@ void main() {
       File('${directory.path}/busyapi.yaml').writeAsStringSync(text);
 
   test(
-    'configured graph opens before unrelated candidate and entry limits',
+    'configured roots load before unrelated candidate and entry limits',
     () async {
       manifest('version: 1\nroots: [{name: API, path: api.yaml}]\n');
       final root = File('${directory.path}/api.yaml')
@@ -53,6 +79,135 @@ void main() {
       expect(project.fileBrowserTruncated, isTrue);
       expect(root.readAsStringSync(), contains('Saved'));
       expect(project.roots.single.id, root.uri.toString());
+    },
+  );
+
+  test('configured opening acquires no roots and checking one leaves the other closure untouched', () async {
+    final first = File('${directory.path}/first.yaml')
+      ..writeAsStringSync(
+        '$contract'
+        'components: {schemas: {Value: {\$ref: first-part.yaml#/Value}}}\n',
+      );
+    final second = File('${directory.path}/second.yaml')
+      ..writeAsStringSync(
+        '$contract'
+        'components: {schemas: {Value: {\$ref: second-part.yaml#/Value}}}\n',
+      );
+    final firstPart = File('${directory.path}/first-part.yaml')
+      ..writeAsStringSync('Value: {type: string}\n');
+    final secondPart = File('${directory.path}/second-part.yaml')
+      ..writeAsBytesSync([0xff]);
+    manifest(
+      'version: 1\nroots: [{name: First, path: first.yaml}, {name: Second, path: second.yaml}]\n',
+    );
+    final project = await BusyProject.open(directory.path, engine);
+    addTearDown(project.close);
+    expect(project.roots.map((root) => root.name), ['First', 'Second']);
+    expect(project.store.buffers, isEmpty);
+    expect(engine.analyses, isEmpty);
+    expect(project.dependencies, isEmpty);
+    await project.buffer(first.uri.toString());
+    final result = await project.check(
+      first.uri.toString(),
+      schemaEvaluation: false,
+    );
+    expect(result['complete'], true, reason: '$result');
+    expect(engine.analyses, isNotEmpty);
+    expect(
+      engine.analyses.every((job) => job.root == first.uri.toString()),
+      true,
+    );
+    expect(
+      engine.analyses.every(
+        (job) =>
+            !job.resources.contains(second.uri.toString()) &&
+            !job.resources.contains(secondPart.uri.toString()),
+      ),
+      true,
+    );
+    expect(project.store.buffers.keys, [first.uri.toString()]);
+    expect(project.dependencies.keys, [first.uri.toString()]);
+    expect(project.resourceFingerprints, contains(firstPart.uri.toString()));
+    expect(
+      project.resourceFingerprints,
+      isNot(contains(second.uri.toString())),
+    );
+    expect(
+      project.resourceFingerprints,
+      isNot(contains(secondPart.uri.toString())),
+    );
+    await project.populateFileBrowser();
+    expect(project.files, contains(secondPart.path));
+    expect(project.store.buffers.keys, [first.uri.toString()]);
+    expect(secondPart.readAsBytesSync(), [0xff]);
+  });
+
+  test(
+    'CLI root selection does not read malformed unselected source',
+    () async {
+      final first = File('${directory.path}/first.yaml')
+        ..writeAsStringSync(contract);
+      final second = File('${directory.path}/second.yaml')
+        ..writeAsBytesSync([0xff]);
+      manifest(
+        'version: 1\nroots: [{name: First, path: first.yaml}, {name: Second, path: second.yaml}]\n',
+      );
+      final result = await Process.run(
+        '$testBundle/busyapi',
+        ['check', directory.path, '--root', 'First', '--json'],
+        environment: const {'PATH': '', 'LANG': 'C.UTF-8'},
+        includeParentEnvironment: false,
+      );
+      expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
+      final report = jsonDecode(result.stdout as String) as Map;
+      expect(report['complete'], true);
+      expect(
+        (report['checkedRoots'] as List).map((root) => (root as Map)['name']),
+        ['First'],
+      );
+      expect(first.readAsStringSync(), contract);
+      expect(second.readAsBytesSync(), [0xff]);
+    },
+  );
+
+  test(
+    'configured opening honors cancellation without running analysis',
+    () async {
+      manifest('version: 1\nroots: [{name: First, path: first.yaml}]\n');
+      await expectLater(
+        BusyProject.open(directory.path, engine, cancelled: () => true),
+        throwsA(
+          isA<CoreFailure>().having(
+            (failure) => failure.code,
+            'code',
+            'open.cancelled',
+          ),
+        ),
+      );
+      expect(engine.analyses, isEmpty);
+    },
+  );
+
+  test(
+    'configured opening can be cancelled while metadata is acquired',
+    () async {
+      manifest(
+        'version: 1\nroots: [{name: First, path: first.yaml}]\nresourceMappings: {"https://schemas.invalid/Value": value.yaml}\n',
+      );
+      var cancelled = false;
+      engine.onNormalization = () => cancelled = true;
+      await expectLater(
+        BusyProject.open(directory.path, engine, cancelled: () => cancelled),
+        throwsA(
+          isA<CoreFailure>().having(
+            (failure) => failure.code,
+            'code',
+            'open.cancelled',
+          ),
+        ),
+      );
+      expect(cancelled, true);
+      expect(engine.analyses, isEmpty);
     },
   );
 
@@ -91,7 +246,10 @@ void main() {
       project.roots.single.id,
       File('${directory.path}/missing.yaml').uri.toString(),
     );
-    expect(project.discoveryFailure, isNotNull);
+    expect(project.discoveryFailure, isNull);
+    expect(project.store.buffers, isEmpty);
+    expect(project.files, contains('${directory.path}/missing.yaml'));
+    expect(engine.analyses, isEmpty);
     await expectLater(
       project.buffer(project.roots.single.id),
       throwsA(

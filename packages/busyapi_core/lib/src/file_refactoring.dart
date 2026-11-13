@@ -532,7 +532,7 @@ extension FileRefactoring on BusyProject {
         _resourceConfigurationText = null;
       }
     }
-    _workingSnapshot = null;
+    _sourceCaptures.clear();
     _resourceRevision++;
   }
 

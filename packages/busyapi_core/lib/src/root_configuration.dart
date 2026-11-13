@@ -21,7 +21,7 @@ extension RootConfiguration on BusyProject {
         .where((buffer) => buffer.id == _manifestResource)
         .firstOrNull;
     if (manifest == null) return;
-    _workingSnapshot = null;
+    _sourceCaptures.clear();
     _resourceRevision++;
     if (!manifest.present) return;
     try {
@@ -299,7 +299,7 @@ extension RootConfiguration on BusyProject {
       final path = Uri.parse(root.id).toFilePath();
       if (!files.contains(path)) files.add(path);
     }
-    _workingSnapshot = null;
+    _sourceCaptures.clear();
     _resourceRevision++;
   }
 }

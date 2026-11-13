@@ -1132,7 +1132,6 @@ class BusyProject {
   final Map<DocumentBuffer, Set<DocumentBuffer>> _fileParticipants = {};
   final Map<String, (DocumentBuffer, int, String, String)> _fileRecoveries = {};
   int _resourceRevision = 0;
-  AnalysisSnapshot? _workingSnapshot;
   final Map<String, _SourceCapture> _sourceCaptures = {};
   final Map<String, StreamSubscription<FileSystemEvent>> _diskWatches = {};
   final Map<String, String> _watchedResourcePaths = {};
@@ -1184,7 +1183,6 @@ class BusyProject {
   Map<String, int> _captureDiskVersions(Iterable<String> ids) =>
       {for (final id in ids) id: store.resourceVersion(id)};
 
-  int _workingSnapshotRevision = -1;
   Map<String, String> get approvedResources =>
       Map.unmodifiable(_resourceMappings);
   Map<String, String> get _resourceMappings => {
@@ -1297,6 +1295,9 @@ class BusyProject {
     EngineProcess engine, {
     bool Function()? cancelled,
   }) async {
+    if (cancelled?.call() ?? false) {
+      throw CoreFailure('open.cancelled', 'Project opening cancelled');
+    }
     final absolute = p.normalize(p.absolute(location));
     final isFile =
         await FileSystemEntity.type(absolute) == FileSystemEntityType.file;
@@ -1433,36 +1434,9 @@ class BusyProject {
       } on CoreFailure catch (error) {
         project.discoveryFailure = error.toString();
       }
-      if (configured) {
-        for (final root in List<ProjectRoot>.of(roots)) {
-          if (cancelled?.call() ?? false) {
-            project.close();
-            throw CoreFailure('open.cancelled', 'Project opening cancelled');
-          }
-          try {
-            await project.buffer(root.id);
-            await project.check(
-              root.id,
-              schemaEvaluation: false,
-              cancelled: cancelled,
-            );
-          } on CoreFailure catch (failure) {
-            if (failure.code == 'cancelled' ||
-                failure.code == 'open.cancelled') {
-              project.close();
-              rethrow;
-            }
-            project.discoveryFailure = failure.toString();
-          } on FileSystemException catch (failure) {
-            // Missing roots remain configured and visible for source/file
-            // recovery. They are never replaced by unrelated discovered APIs.
-            project.discoveryFailure = failure.toString();
-          }
-        }
-        for (final buffer in project.store.buffers.values) {
-          if (!files.contains(buffer.path)) files.add(buffer.path);
-        }
-        files.sort();
+      if (cancelled?.call() ?? false) {
+        project.close();
+        throw CoreFailure('open.cancelled', 'Project opening cancelled');
       }
       return project;
     } on Object {
@@ -2062,10 +2036,6 @@ class BusyProject {
       if (coherent) {
         ensureActive();
         onSnapshot?.call(snapshot);
-        if (!saved) {
-          _workingSnapshot = snapshot;
-          _workingSnapshotRevision = resourceRevision;
-        }
         lastTimings = {
           'collectionUs': collection,
           'ipcAndEngineUs': ipc,
@@ -2288,15 +2258,17 @@ class BusyProject {
 
     for (final entry in List<ProjectRoot>.of(roots)) {
       active();
+      AnalysisSnapshot? acquired;
       final checked = await check(
         entry.id,
         schemaEvaluation: false,
         requestId: '$requestId${snapshots.length}:collect',
         cancelled: cancelled,
         onResourceRefreshed: refreshed,
+        onSnapshot: (snapshot) => acquired = snapshot,
       );
       active();
-      final snapshot = _workingSnapshot;
+      final snapshot = acquired;
       if (snapshot == null ||
           snapshot.root != entry.id ||
           snapshot.identity != checked['contextSnapshot'])
@@ -3067,15 +3039,13 @@ class BusyProject {
           cancelled: cancelled, onResourceRefreshed: onResourceRefreshed);
     }
     final snapshot = capture.snapshot;
-    _workingSnapshot = snapshot;
-    _workingSnapshotRevision = capture.revision;
     if (!snapshot.resources.any((r) => r['id'] == resource)) {
       throw CoreFailure(
         'inspect.resource',
         'The object is not in this root’s approved snapshot',
       );
     }
-    final revision = _workingSnapshotRevision;
+    final revision = capture.revision;
     if (cancelled?.call() ?? false)
       throw CoreFailure('cancelled', 'Source assistance was cancelled');
     if (snapshot.root != root ||
@@ -3594,17 +3564,19 @@ class BusyProject {
     final snapshots = <AnalysisSnapshot>[];
     for (final entry in List<ProjectRoot>.of(roots)) {
       active();
+      AnalysisSnapshot? acquired;
       await check(
         entry.id,
         schemaEvaluation: false,
         onResourceRefreshed: onResourceRefreshed,
+        onSnapshot: (snapshot) => acquired = snapshot,
         requestId: requestId == null
             ? null
             : '$requestId:snapshot:${snapshots.length}',
         cancelled: cancelled,
       );
       active();
-      final snapshot = _workingSnapshot;
+      final snapshot = acquired;
       if (snapshot == null || snapshot.root != entry.id) {
         throw CoreFailure(
           'refactor.snapshot',
