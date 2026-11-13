@@ -1,8 +1,10 @@
 // Ported BusyMark control assertions, Copyright 2026 BusyStack, Apache-2.0.
 import 'dart:ui' as ui;
+import 'dart:async';
 
 import 'package:busyapi/src/app/app_theme.dart';
 import 'package:busyapi/src/app/busyapi_design.dart';
+import 'package:busyapi/src/platform/native_menu_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -456,5 +458,178 @@ void main() {
     expect(decoration.labelText, 'Language');
     expect(decoration.hintText, 'dart');
     expect(find.text('Required'), findsOneWidget);
+  });
+  testWidgets(
+    'grouped entry leaves composition and submission with TextFormField',
+    (tester) async {
+      final controller = TextEditingController();
+      addTearDown(controller.dispose);
+      final submitted = <String>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: BusyApiGroupedTextEntry(
+              label: 'Value',
+              controller: controller,
+              onSubmitted: submitted.add,
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.byType(TextFormField));
+      await tester.pump();
+      tester.testTextInput.updateEditingValue(
+        const TextEditingValue(
+          text: 'pending',
+          selection: TextSelection.collapsed(offset: 7),
+          composing: TextRange(start: 0, end: 7),
+        ),
+      );
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      expect(submitted, isEmpty);
+      expect(controller.value.composing, const TextRange(start: 0, end: 7));
+      tester.testTextInput.updateEditingValue(
+        const TextEditingValue(
+          text: 'complete',
+          selection: TextSelection.collapsed(offset: 8),
+        ),
+      );
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(submitted, ['complete']);
+    },
+  );
+
+  testWidgets(
+    'header menu response retains its captured callback across rebuild',
+    (tester) async {
+      const channel = MethodChannel('busyapi/test/header-owner');
+      final response = Completer<int?>();
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+        call,
+      ) async {
+        return call.method == 'show' ? response.future : null;
+      });
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          channel,
+          null,
+        ),
+      );
+      final oldOwner = <int>[], newOwner = <int>[];
+      Widget header(ValueChanged<int> onSelected) => MaterialApp(
+        home: Scaffold(
+          body: BusyApiHeaderPopupMenuButton<int>(
+            tooltip: 'Actions',
+            icon: Icons.more_horiz,
+            nativeMenuService: const NativeMenuService(channel: channel),
+            itemBuilder: (_) => [
+              BusyApiPopupMenuItem<int>(value: 42, label: 'Use component'),
+            ],
+            onSelected: onSelected,
+          ),
+        ),
+      );
+      await tester.pumpWidget(header(oldOwner.add));
+      await tester.tap(find.byTooltip('Actions'));
+      await tester.pump();
+      await tester.pumpWidget(header(newOwner.add));
+      response.complete(0);
+      await tester.pumpAndSettle();
+      expect(oldOwner, [42]);
+      expect(newOwner, isEmpty);
+    },
+  );
+
+  testWidgets('retiring a loading header menu cannot present or select it', (
+    tester,
+  ) async {
+    const channel = MethodChannel('busyapi/test/header-retired');
+    final items = Completer<List<PopupMenuEntry<int>>>();
+    var presentations = 0, selections = 0;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+      call,
+    ) async {
+      if (call.method == 'show') presentations++;
+      return null;
+    });
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        channel,
+        null,
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BusyApiHeaderPopupMenuButton<int>(
+            tooltip: 'Actions',
+            icon: Icons.more_horiz,
+            nativeMenuService: const NativeMenuService(channel: channel),
+            itemBuilder: (_) => items.future,
+            onSelected: (_) => selections++,
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byTooltip('Actions'));
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox.shrink());
+    items.complete([
+      BusyApiPopupMenuItem<int>(value: 1, label: 'Use component'),
+    ]);
+    await tester.pumpAndSettle();
+    expect((presentations, selections), (0, 0));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('keyboard opens the reachable Flutter menu fallback', (
+    tester,
+  ) async {
+    const channel = MethodChannel('busyapi/test/header-fallback');
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      channel,
+      (_) async => throw MissingPluginException(),
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        channel,
+        null,
+      ),
+    );
+    final before = FocusNode();
+    addTearDown(before.dispose);
+    final selected = <int>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Column(
+            children: [
+              TextField(focusNode: before),
+              BusyApiHeaderPopupMenuButton<int>(
+                tooltip: 'Actions',
+                icon: Icons.more_horiz,
+                nativeMenuService: const NativeMenuService(channel: channel),
+                itemBuilder: (_) => [
+                  BusyApiPopupMenuItem<int>(value: 42, label: 'Use component'),
+                ],
+                onSelected: selected.add,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    before.requestFocus();
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+    expect(find.text('Use component'), findsOneWidget);
+    await tester.tap(find.text('Use component'));
+    await tester.pumpAndSettle();
+    expect(selected, [42]);
   });
 }

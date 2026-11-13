@@ -83,8 +83,6 @@ abstract final class BusyApiSizes {
   static const double languagePopupMinWidth = 220;
   static const double languagePopupMaxWidth = 280;
   static const double languageButtonMaxWidth = 256;
-  static const double aboutLogoViewport = 136;
-  static const double aboutLogoAsset = 216;
   static const double sidebarSeparatorHeight = 22;
   // The surrounding hairline insets bring tree rows to the same outer height
   // as sidebar header controls.
@@ -112,26 +110,13 @@ abstract final class BusyApiSizes {
   static const double documentImageMinHeight = iconButton;
   static const double previewInlineImageMaxHeight = 180;
   static const double previewInlineImageHeight = 96;
-  static const double wysiwygToolbarReserve =
-      iconButton + BusyApiSpacing.xs * 2;
-  static const double wysiwygToolbarClearance =
-      BusyApiSpacing.sm + wysiwygToolbarReserve + BusyApiSpacing.sm;
-  static const double wysiwygPrefixWidth = 30;
-  static const double tableDialogWidth = 360;
-  static const double tablePickerHeight = 224;
-  static const double tableMinWidth = 360;
   static const double markerDot = 6;
   static const double listMarkerTopInset = 7;
-  static const double thematicBreakHandleWidth = 44;
   static const double controlRowWidth = 256;
   static const double sliderRowWidth = 260;
   static const double toolbarPlacementRowWidth = 430;
   static const double settingsControlBreakpoint = 560;
   static const double toolbarPlacementBreakpoint = 620;
-  static const int tableMinColumns = 1;
-  static const int tableMaxColumns = 12;
-  static const int tableMinRows = 1;
-  static const int tableMaxRows = 50;
 }
 
 abstract final class BusyApiFormLayout {
@@ -145,10 +130,8 @@ abstract final class BusyApiElevation {
 
 abstract final class BusyApiStroke {
   static const double hairline = 1;
-  static const double tableGrid = 0.5;
   static const double focus = kYaruFocusBorderWidth;
   static const double sourceCursor = 1.4;
-  static const double thematicBreak = 1.6;
 }
 
 abstract final class BusyApiAlpha {
@@ -162,9 +145,6 @@ abstract final class BusyApiAlpha {
   static const double syntaxCommentDark = 0.82;
   static const double syntaxCommentLight = 0.76;
   static const double previewHighlight = 0.24;
-  static const double thematicBreak = 0.34;
-  static const double thematicBreakHandle = 0.24;
-  static const double thematicBreakSelected = 0.72;
 }
 
 /// Native libadwaita/Yaru shadow layers shared by grouped card surfaces.
@@ -354,14 +334,6 @@ abstract final class BusyApiInsets {
   static const documentThematicBreakBlock = EdgeInsets.symmetric(
     vertical: BusyApiSpacing.mdPlus,
   );
-  static const wysiwygContainerBlock = documentCalloutBlock;
-  static const wysiwygTableBlock = EdgeInsets.symmetric(
-    vertical: BusyApiSpacing.md,
-  );
-  static const wysiwygDefaultBlock = EdgeInsets.symmetric(
-    vertical: BusyApiSpacing.xs,
-  );
-  static const wysiwygContainerContent = documentCalloutContent;
   static const sourceEditor = EdgeInsets.fromLTRB(
     BusyApiSourceEditorMetrics.paddingLeft,
     BusyApiSourceEditorMetrics.paddingTop,
@@ -1050,6 +1022,7 @@ class BusyApiHeaderIconButton extends StatelessWidget {
     required this.icon,
     required this.onPressed,
     this.nativeIcon,
+    this.focusNode,
     this.selected = false,
     this.accented = false,
     this.transparent = true,
@@ -1066,6 +1039,7 @@ class BusyApiHeaderIconButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback? onPressed;
   final BusyApiLinuxHeaderIcon? nativeIcon;
+  final FocusNode? focusNode;
   final bool selected;
   final bool accented;
   final bool transparent;
@@ -1132,6 +1106,7 @@ class BusyApiHeaderIconButton extends StatelessWidget {
     ).defaultStyleOf(context);
     final button = IconButton(
       isSelected: selected,
+      focusNode: focusNode,
       tooltip: shortcut == null ? tooltip : '$tooltip ($shortcut)',
       icon: BusyApiGtkHeaderIcon(icon, nativeIcon: nativeIcon),
       padding: EdgeInsets.zero,
@@ -1206,7 +1181,7 @@ class BusyApiCompactIconButton extends StatelessWidget {
   }
 }
 
-class BusyApiHeaderPopupMenuButton<T> extends StatefulWidget {
+class BusyApiHeaderPopupMenuButton<T> extends StatelessWidget {
   const BusyApiHeaderPopupMenuButton({
     super.key,
     required this.tooltip,
@@ -1242,100 +1217,31 @@ class BusyApiHeaderPopupMenuButton<T> extends StatefulWidget {
   final NativeMenuService nativeMenuService;
 
   @override
-  State<BusyApiHeaderPopupMenuButton<T>> createState() =>
-      _BusyApiHeaderPopupMenuButtonState<T>();
-}
-
-class _BusyApiHeaderPopupMenuButtonState<T>
-    extends State<BusyApiHeaderPopupMenuButton<T>> {
-  final _triggerKey = GlobalKey();
-  BusyApiMenuSession? _activeMenuSession;
-  var _loading = false;
-  var _open = false;
-
-  @override
-  void dispose() {
-    final session = _activeMenuSession;
-    _activeMenuSession = null;
-    if (session != null) {
-      unawaited(session.dismiss());
-    }
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return KeyedSubtree(
-      key: _triggerKey,
-      child: Semantics(
-        expanded: _open,
+  Widget build(BuildContext context) => BusyApiMenuButton<T>(
+    tooltip: tooltip,
+    itemBuilder: itemBuilder,
+    onSelected: onSelected,
+    onCanceled: onCanceled,
+    nativeMenuService: nativeMenuService,
+    triggerBuilder: (context, trigger) => Semantics(
+      expanded: trigger.isOpen,
+      child: trigger.anchor(
         child: BusyApiHeaderIconButton(
-          tooltip: widget.tooltip,
-          icon: widget.icon,
-          shortcut: widget.shortcut,
-          selected: widget.highlightWhenOpen && (_loading || _open),
-          transparent: widget.transparent,
-          elevated: widget.elevated,
-          foregroundColor: widget.foregroundColor,
-          backgroundColor: widget.backgroundColor,
-          borderRadius: widget.borderRadius,
-          onPressed: _loadAndShowMenu,
+          tooltip: tooltip,
+          icon: icon,
+          shortcut: shortcut,
+          focusNode: trigger.focusNode,
+          selected: highlightWhenOpen && (trigger.isLoading || trigger.isOpen),
+          transparent: transparent,
+          elevated: elevated,
+          foregroundColor: foregroundColor,
+          backgroundColor: backgroundColor,
+          borderRadius: borderRadius,
+          onPressed: trigger.onPressed,
         ),
       ),
-    );
-  }
-
-  Future<void> _loadAndShowMenu() async {
-    if (_loading || _open) {
-      return;
-    }
-    setState(() => _loading = true);
-    // A menu response belongs to the context in which it was opened. A
-    // rebuilt caller may now represent another buffer or element.
-    final onSelected = widget.onSelected;
-    final onCanceled = widget.onCanceled;
-    try {
-      final items = await widget.itemBuilder(context);
-      if (!mounted || items.isEmpty) {
-        return;
-      }
-      final triggerContext = _triggerKey.currentContext;
-      if (triggerContext == null || !triggerContext.mounted) {
-        return;
-      }
-      final session = BusyApiMenuSession();
-      _activeMenuSession = session;
-      setState(() => _open = true);
-      T? selection;
-      try {
-        selection = await showBusyApiMenu<T>(
-          context: triggerContext,
-          anchorContext: triggerContext,
-          items: List.unmodifiable(items),
-          nativeMenuService: widget.nativeMenuService,
-          session: session,
-        );
-      } finally {
-        if (mounted && identical(_activeMenuSession, session)) {
-          setState(() {
-            _activeMenuSession = null;
-            _open = false;
-          });
-        }
-      }
-      if (mounted && !session.dismissed) {
-        if (selection != null) {
-          onSelected(selection);
-        } else {
-          onCanceled?.call();
-        }
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _loading = false);
-      }
-    }
-  }
+    ),
+  );
 }
 
 /// Owns one native or Flutter fallback menu presentation.
@@ -1954,6 +1860,7 @@ class BusyApiMenuTriggerDetails {
     required this.onPressed,
     required this.focusNode,
     required this.isOpen,
+    required this.isLoading,
     required GlobalKey anchorKey,
     // ignore: prefer_initializing_formals
   }) : _anchorKey = anchorKey;
@@ -1961,6 +1868,7 @@ class BusyApiMenuTriggerDetails {
   final VoidCallback? onPressed;
   final FocusNode focusNode;
   final bool isOpen;
+  final bool isLoading;
   final GlobalKey _anchorKey;
 
   Widget anchor({required Widget child}) {
@@ -1973,8 +1881,10 @@ class BusyApiMenuButton<T> extends StatefulWidget {
   const BusyApiMenuButton({
     super.key,
     required this.tooltip,
-    required this.items,
+    this.items = const [],
+    this.itemBuilder,
     required this.onSelected,
+    this.onCanceled,
     required this.triggerBuilder,
     this.enabled = true,
     this.nativeMenuService = const NativeMenuService(),
@@ -1983,6 +1893,8 @@ class BusyApiMenuButton<T> extends StatefulWidget {
 
   final String tooltip;
   final List<PopupMenuEntry<T>> items;
+  final FutureOr<List<PopupMenuEntry<T>>> Function(BuildContext)? itemBuilder;
+  final VoidCallback? onCanceled;
   final ValueChanged<T> onSelected;
   final BusyApiMenuTriggerBuilder triggerBuilder;
   final bool enabled;
@@ -1999,6 +1911,7 @@ class _BusyApiMenuButtonState<T> extends State<BusyApiMenuButton<T>> {
   late final FocusNode _focusNode;
   BusyApiMenuSession? _activeMenuSession;
   var _open = false;
+  var _loading = false;
 
   @override
   void initState() {
@@ -2012,7 +1925,7 @@ class _BusyApiMenuButtonState<T> extends State<BusyApiMenuButton<T>> {
   @override
   void didUpdateWidget(covariant BusyApiMenuButton<T> oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.enabled && !widget.enabled && _open) {
+    if (oldWidget.enabled && !widget.enabled && (_open || _loading)) {
       _closeMenu();
     }
   }
@@ -2034,6 +1947,7 @@ class _BusyApiMenuButtonState<T> extends State<BusyApiMenuButton<T>> {
       onPressed: widget.enabled ? _toggleMenu : null,
       focusNode: _focusNode,
       isOpen: _open,
+      isLoading: _loading,
       anchorKey: _anchorKey,
     );
     return KeyedSubtree(
@@ -2055,7 +1969,7 @@ class _BusyApiMenuButtonState<T> extends State<BusyApiMenuButton<T>> {
       }
       return KeyEventResult.handled;
     }
-    if (event.logicalKey == LogicalKeyboardKey.escape && _open) {
+    if (event.logicalKey == LogicalKeyboardKey.escape && (_open || _loading)) {
       _closeMenu();
       return KeyEventResult.handled;
     }
@@ -2063,6 +1977,9 @@ class _BusyApiMenuButtonState<T> extends State<BusyApiMenuButton<T>> {
   }
 
   void _toggleMenu() {
+    if (_loading) {
+      return;
+    }
     if (_open) {
       _closeMenu();
       return;
@@ -2074,38 +1991,59 @@ class _BusyApiMenuButtonState<T> extends State<BusyApiMenuButton<T>> {
     final triggerContext = _triggerKey.currentContext;
     if (!widget.enabled ||
         _open ||
+        _loading ||
         triggerContext == null ||
-        widget.items.isEmpty) {
+        (widget.itemBuilder == null && widget.items.isEmpty)) {
       return;
     }
-    final items = List<PopupMenuEntry<T>>.unmodifiable(widget.items);
-    final onSelected = widget.onSelected;
+    final onSelected = widget.onSelected, onCanceled = widget.onCanceled;
+    final nativeMenuService = widget.nativeMenuService;
+    final width = widget.fallbackMenuWidth;
     final session = BusyApiMenuSession();
     _activeMenuSession = session;
-    setState(() => _open = true);
-
+    setState(() => _loading = widget.itemBuilder != null);
     T? selection;
+    var presented = false;
     try {
-      final anchorContext = _anchorKey.currentContext ?? triggerContext;
+      final items = widget.itemBuilder == null
+          ? widget.items
+          : await widget.itemBuilder!(context);
+      if (!mounted ||
+          !identical(_activeMenuSession, session) ||
+          session.dismissed ||
+          !triggerContext.mounted ||
+          items.isEmpty) {
+        return;
+      }
+      setState(() {
+        _loading = false;
+        _open = true;
+      });
+      presented = true;
       selection = await showBusyApiMenu<T>(
         context: triggerContext,
-        anchorContext: anchorContext,
+        anchorContext: _anchorKey.currentContext ?? triggerContext,
         items: items,
-        nativeMenuService: widget.nativeMenuService,
+        nativeMenuService: nativeMenuService,
         session: session,
         focusFirst: focusFirst,
-        width: widget.fallbackMenuWidth,
+        width: width,
       );
     } finally {
       if (mounted && identical(_activeMenuSession, session)) {
         setState(() {
           _activeMenuSession = null;
           _open = false;
+          _loading = false;
         });
       }
     }
-    if (mounted && !session.dismissed && selection != null) {
-      onSelected(selection);
+    if (mounted && !session.dismissed && presented) {
+      if (selection != null) {
+        onSelected(selection);
+      } else {
+        onCanceled?.call();
+      }
     }
   }
 
@@ -2117,6 +2055,7 @@ class _BusyApiMenuButtonState<T> extends State<BusyApiMenuButton<T>> {
     setState(() {
       _activeMenuSession = null;
       _open = false;
+      _loading = false;
     });
     unawaited(session.dismiss());
   }
@@ -2341,7 +2280,7 @@ InputDecoration busyApiGroupedTextFieldDecoration(
 ///
 /// The row owns the background, outline, padding, and separators while
 /// [TextFormField] continues to own editing, validation, and focus behavior.
-class BusyApiGroupedTextEntry extends StatefulWidget {
+class BusyApiGroupedTextEntry extends StatelessWidget {
   const BusyApiGroupedTextEntry({
     super.key,
     required this.label,
@@ -2396,72 +2335,37 @@ class BusyApiGroupedTextEntry extends StatefulWidget {
   final ValueChanged<String>? onSubmitted;
 
   @override
-  State<BusyApiGroupedTextEntry> createState() =>
-      _BusyApiGroupedTextEntryState();
-}
-
-class _BusyApiGroupedTextEntryState extends State<BusyApiGroupedTextEntry> {
-  final _fieldKey = GlobalKey<FormFieldState<String>>();
-
-  @override
   Widget build(BuildContext context) {
-    final row = _buildRow(context);
-    if (!widget.enabled || widget.onSubmitted == null) {
-      return row;
-    }
-    // Linux physical key events are not always translated into the text-input
-    // action that drives TextFormField.onFieldSubmitted. Keep that callback for
-    // IME actions and bind the desktop Enter keys explicitly as well.
-    return CallbackShortcuts(
-      bindings: {
-        const SingleActivator(LogicalKeyboardKey.enter): _submit,
-        const SingleActivator(LogicalKeyboardKey.numpadEnter): _submit,
-      },
-      child: row,
-    );
-  }
-
-  Widget _buildRow(BuildContext context) {
     return YaruListTile.square(
       title: TextFormField(
-        key: _fieldKey,
-        controller: widget.controller,
-        initialValue: widget.initialValue,
-        enabled: widget.enabled,
-        readOnly: widget.readOnly,
-        autofocus: widget.autofocus,
-        focusNode: widget.focusNode,
-        keyboardType: widget.keyboardType,
-        inputFormatters: widget.inputFormatters,
-        minLines: widget.minLines,
-        maxLines: widget.maxLines,
-        textInputAction: widget.textInputAction,
-        textDirection: widget.textDirection,
-        obscureText: widget.obscureText,
-        enableSuggestions: widget.enableSuggestions,
-        autocorrect: widget.autocorrect,
-        style: widget.textStyle,
-        onChanged: widget.enabled ? widget.onChanged : null,
-        onFieldSubmitted: widget.enabled ? widget.onSubmitted : null,
+        controller: controller,
+        initialValue: initialValue,
+        enabled: enabled,
+        readOnly: readOnly,
+        autofocus: autofocus,
+        focusNode: focusNode,
+        keyboardType: keyboardType,
+        inputFormatters: inputFormatters,
+        minLines: minLines,
+        maxLines: maxLines,
+        textInputAction: textInputAction,
+        textDirection: textDirection,
+        obscureText: obscureText,
+        enableSuggestions: enableSuggestions,
+        autocorrect: autocorrect,
+        style: textStyle,
+        onChanged: enabled ? onChanged : null,
+        onFieldSubmitted: enabled ? onSubmitted : null,
         decoration: busyApiGroupedTextFieldDecoration(
           context,
-          labelText: widget.label,
-          hintText: widget.hintText,
-          errorText: widget.errorText,
-          alignLabelWithHint: widget.alignLabelWithHint,
+          labelText: label,
+          hintText: hintText,
+          errorText: errorText,
+          alignLabelWithHint: alignLabelWithHint,
         ),
       ),
-      trailing: widget.trailing,
+      trailing: trailing,
     );
-  }
-
-  void _submit() {
-    final value =
-        widget.controller?.text ??
-        _fieldKey.currentState?.value ??
-        widget.initialValue ??
-        '';
-    widget.onSubmitted?.call(value);
   }
 }
 
@@ -3688,7 +3592,7 @@ class _BusyApiSwitchState extends State<BusyApiSwitch> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final inheritedSwitchTheme = YaruSwitchTheme.of(context);
-    final checkedTrackColor = _busyApiCheckedSwitchColor(
+    final checkedTrackColor = _busyApiCheckedControlColor(
       theme.colorScheme.primary,
       brightness: theme.brightness,
       hovered: _hovered,
@@ -3749,7 +3653,7 @@ class _BusyApiSwitchState extends State<BusyApiSwitch> {
   }
 }
 
-Color _busyApiCheckedSwitchColor(
+Color _busyApiCheckedControlColor(
   Color accent, {
   required Brightness brightness,
   required bool hovered,
@@ -3860,7 +3764,7 @@ class _BusyApiRadioButtonState<T> extends State<BusyApiRadioButton<T>> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final inheritedRadioTheme = YaruRadioTheme.of(context);
-    final checkedColor = _busyApiCheckedRadioColor(
+    final checkedColor = _busyApiCheckedControlColor(
       theme.colorScheme.primary,
       brightness: theme.brightness,
       hovered: _hovered,
@@ -3928,25 +3832,6 @@ class _BusyApiRadioButtonState<T> extends State<BusyApiRadioButton<T>> {
       setState(() => _pressedPointer = null);
     }
   }
-}
-
-Color _busyApiCheckedRadioColor(
-  Color accent, {
-  required Brightness brightness,
-  required bool hovered,
-  required bool pressed,
-}) {
-  final normalLightnessDelta = brightness == Brightness.light ? 0.05 : 0.0;
-  final stateLightnessDelta = pressed ? -0.07 : (hovered ? 0.07 : 0.0);
-  final hsl = HSLColor.fromColor(accent);
-  return hsl
-      .withLightness(
-        (hsl.lightness + normalLightnessDelta + stateLightnessDelta).clamp(
-          0.0,
-          1.0,
-        ),
-      )
-      .toColor();
 }
 
 class BusyApiCheckbox extends StatelessWidget {
