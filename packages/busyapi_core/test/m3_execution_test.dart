@@ -17,7 +17,7 @@ void main() {
     temp = await Directory.systemTemp.createTemp('busyapi-m3-execution-');
     engine = EngineProcess(
       executable: runtimeNode,
-      helper: '$repositoryRoot/tools/contract_engine/dist/engine.cjs',
+      helper: runtimeHelper,
     );
   });
   tearDown(() async {
@@ -501,7 +501,7 @@ paths:
     final plan = await project.prepareMock(root);
     final run = await plan.start(
       nodeExecutable: runtimeNode,
-      helper: '$repositoryRoot/tools/contract_engine/dist/mock-server.cjs',
+      helper: '$testBundle/libexec/busyapi/mock-server.cjs',
     );
     expect(run.host, '127.0.0.1');
     expect(run.toolVersion, '5.15.11');
@@ -533,7 +533,7 @@ paths:
     );
     final proxy = await plan.start(
       nodeExecutable: runtimeNode,
-      helper: '$repositoryRoot/tools/contract_engine/dist/mock-server.cjs',
+      helper: '$testBundle/libexec/busyapi/mock-server.cjs',
       proxyTarget: plan.configuredProxyTarget(),
     );
     addTearDown(proxy.stop);
