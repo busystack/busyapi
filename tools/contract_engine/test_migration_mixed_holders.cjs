@@ -12,7 +12,7 @@ function fixture(format,foreignVersion,kind,entryOverride){
   components:{securitySchemes:{Access:{type:'apiKey',in:'header',name:'X-'+name}},schemas:{Choice:{type:'object','x-entry':name}},links:{Next:{operationId:'shared'}}}});
  const first=api(entryVersion,'First'),second=api(foreignVersion,'Second');
  const schema={...(foreignVersion==='3.0.4'?{}:{$dynamicAnchor:'node'}),type:'object',required:['entry','n'],properties:{entry:{type:'string'},n:{type:'integer',enum:['EXACT']},...(foreignVersion==='3.0.4'?{}:{child:{$dynamicRef:'#node'}})},
-  discriminator:{propertyName:'entry',mapping:{chosen:'Choice'}},description:'[Guide](guide.md)'};
+  oneOf:[{$ref:'#/components/schemas/Choice'}],discriminator:{propertyName:'entry',mapping:{chosen:'Choice'}},description:'[Guide](guide.md)'};
  second.paths['/p']={post:{operationId:'shared',security:[{Access:[]}],requestBody:{required:true,content:{'application/json':{schema:{$ref:'#/paths/~1p/post/responses/200/content/application~1json/schema'}}}},
   responses:{200:{description:'Value',content:{'application/json':{schema}},links:{Next:{$ref:'#/components/links/Next'}}}}}};
  second['x-history']={path:second.paths['/p'],zero:0,empty:'',flag:false,lookalike:{$ref:'literal-only'},exact:'EXACT'};
@@ -63,7 +63,7 @@ async function inspect(packet,name,kind){
   assert.equal(plan.operation.method,'POST');assert.equal(plan.operation.path,'/p');
   assert(Object.values(plan.security.schemes).some(scheme=>scheme.parameterName==='X-'+name));
  }
- return {graph,at};
+ return {graph,at,scheme};
 }
 for(const format of ['json','yaml'])for(const foreignVersion of ['3.0.4','3.1.2','3.2.1'])for(const kind of foreignVersion==='3.0.4'?['operation']:['path-item','operation'])
 test(`${format} foreign ${foreignVersion} ${kind} acquires a standard typed holder and retains entry connections`,async()=>{
@@ -76,9 +76,6 @@ test(`${format} foreign ${foreignVersion} ${kind} acquires a standard typed hold
  const other=review.changes.find(change=>change.resource===input.resources[1].id).destination;
  await inspect({...cold,root:other},'Second','path-item');
  assert.equal(first.graph.scopeAs(first.at.resource,first.at.pointer,'operation').family,input.targetVersion.slice(0,3));
- if(foreignVersion==='3.0.4')assert(first.at.pointer.includes('/components/callbacks/_migrated_entry_use_'));
- if(kind==='operation')assert(first.at.pointer.endsWith('/post'),'Native storage keeps the authored Operation method');
- else if(kind==='operation')assert(first.at.pointer.includes('/components/pathItems/_migrated_entry_use_'));
  const doc=new SourceDocument(review.outputs.find(output=>output.id===other).text,other);
  assert.equal(doc.dataJson('/x-history'),history);
  assert.equal(first.graph.operations().filter(operation=>operation.role==='operation').length,kind==='path-item'?1:0,'Unused holders must not add public routes');
@@ -106,7 +103,7 @@ test(`${format} mixed ${foreignVersion} native holders release only converted ge
   if(operation){
    delete operation.responses[200].links;
    const schema=operation.responses[200].content['application/json'].schema;
-   delete schema.discriminator;delete schema.$dynamicAnchor;delete schema.properties.child;
+   delete schema.discriminator;delete schema.oneOf;delete schema.$dynamicAnchor;delete schema.properties.child;
   }
   resource.text=(format==='json'?JSON.stringify(value):YAML.stringify(value)).replaceAll('9007199254740992','9007199254740993.00');
  }
@@ -133,7 +130,7 @@ test(`${format} foreign ${foreignVersion} Media uses retain ordinary Response ho
  const api=name=>({openapi:'3.2.1',info:{title:name,version:'business'},paths:{'/p':{get:{responses:{200:{description:'Value',content:{'application/json':{$ref:`b.${format}#/x-native/Media`}}}}}}},
   components:{schemas:{Choice:{type:'object','x-entry':name}}}});
  const media={schema:{type:'object',nullable:true,properties:{kind:{type:'string'},n:{type:'integer',enum:['EXACT']}},required:['kind','n'],
-  discriminator:{propertyName:'kind',mapping:{chosen:'Choice'}}},'x-value':{flag:false,empty:'',number:'EXACT',$ref:'literal-only'}};
+  oneOf:[{type:'object'}],discriminator:{propertyName:'kind',mapping:{chosen:'Choice'}}},'x-value':{flag:false,empty:'',number:'EXACT',$ref:'literal-only'}};
  if(roleOnly){delete media.schema.discriminator;if(foreignVersion==='3.1.2'){media.schema.$dynamicAnchor='node';media.schema.properties.child={$dynamicRef:'#node'};}}
  const foreign={openapi:foreignVersion,info:{title:'Holder',version:'business'},paths:{},'x-native':{Media:media}};
  if(foreignVersion==='3.1.2')foreign.jsonSchemaDialect='https://json-schema.org/draft/2020-12/schema';
@@ -161,33 +158,35 @@ test(`${format} foreign ${foreignVersion} Media uses retain ordinary Response ho
  for(const [source,name]of [[root,'First'],[third,'Third']])await inspect({...cold,root:review.changes.find(change=>change.resource===source).destination},name);
  const delivered=review.outputs.find(output=>output.id===review.changes.find(change=>change.resource===other).destination);
  const doc=new SourceDocument(delivered.text,delivered.id);assert.equal(doc.dataJson('/x-native'),literal);
- assert([...doc.dataNode('/components/responses').children.keys()].some(name=>name.startsWith('_migrated_entry_use_')||name.startsWith('_migrated_object_use_')));
  assert.deepEqual(input.resources.map(resource=>resource.text),before);
 });
 
-test('security holder aliases reserve configured names and preserve distinct captured settings',async()=>{
- const input=fixture('json','3.1.2','path-item'),first=await planMigration(input);
- assert.equal(first.complete,true,JSON.stringify(first.problems));
- const native=first.outputs.find(output=>output.id===first.outputRoot),names=Object.keys(JSON.parse(native.text).components.securitySchemes);
- const occupied=names.find(name=>name.startsWith('_migrated_security_owner_'));assert(occupied);
- const text=JSON.stringify({version:1,roots:[{name:'first',path:'a.json'},{name:'second',path:'b.json'}],environments:{manual:{authentication:{alternative:0,
-  schemes:{Access:{secretRef:'11111111-1111-4111-8111-111111111111'},[occupied]:{secretRef:'22222222-2222-4222-8222-222222222222'}}}}}});
+test('independently owned security schemes retain distinct configured settings',async()=>{
+ const input=fixture('json','3.1.2','path-item'),occupied='Configured';
+ const settings={Access:{secretRef:'11111111-1111-4111-8111-111111111111'},[occupied]:{secretRef:'22222222-2222-4222-8222-222222222222'}};
+ const text=JSON.stringify({version:1,roots:[{name:'first',path:'a.json'},{name:'second',path:'b.json'}],environments:{manual:{authentication:{alternative:0,schemes:settings}}}});
  input.configuration={id:'file:///mixed-holders/busyapi.yaml',text,generation:3,identity:require('node:crypto').createHash('sha256').update(text).digest('hex')};
  const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const copied=JSON.parse(review.manifestText).environments.manual.authentication.schemes;
+ for(const [name,value]of Object.entries(settings))assert.deepEqual(copied[name],value);
  const renamed=review.configurationBindings.filter(binding=>binding.before==='Access').map(binding=>binding.after);
- assert(renamed.length);assert(renamed.every(name=>name!==occupied));
+ for(const name of renamed){assert.notEqual(name,occupied);assert.deepEqual(copied[name],settings.Access);}
+ const packet={snapshot:'cold-configured-security',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
+ await inspect({...packet,root:review.outputRoot},'First','path-item');
+ await inspect({...packet,root:review.changes.find(change=>change.resource===input.resources[1].id).destination},'Second','path-item');
  assert.equal(input.configuration.text,text);
 });
 
 test('an independently interpreted native holder container receives its own Example owner',async()=>{
- const input=fixture('json','3.1.2','path-item'),first=JSON.parse(input.resources[0].text),second=JSON.parse(input.resources[1].text);
- second.components.pathItems={};first.components.examples.Dictionary={$ref:'b.json#/components/pathItems'};
- input.resources[0].text=JSON.stringify(first);input.resources[1].text=JSON.stringify(second);
+ const input=fixture('json','3.1.2','path-item');
+ for(const [index,pointer,value]of [[0,'/components/examples/Dictionary',{$ref:'b.json#/components/pathItems'}],[1,'/components/pathItems',{}]]){
+  const source=input.resources[index];source.text=new SourceDocument(source.text,source.id).set(pointer,value);
+ }
  const before=input.resources.map(resource=>resource.text),review=await planMigration(input);
  assert.equal(review.complete,true,JSON.stringify(review.problems));
  const packet={root:review.outputRoot,snapshot:'cold-container-example',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
  const graph=createGraph(packet).graph,edge=graph.referenceAs(packet.root,'/components/examples/Dictionary','$ref','example');
- assert.equal(edge.resolution,'resolved');assert(edge.targetPointer.startsWith('/components/examples/_migrated_object_use_'));
+ assert.equal(edge.resolution,'resolved');assert(graph.scopeAs(edge.targetResource,edge.targetPointer,'example'));
  assert.equal(graph.docs.get(edge.targetResource).dataJson(edge.targetPointer),'{}');
  await inspect(packet,'First','path-item');
  const other=review.changes.find(change=>change.resource===input.resources[1].id).destination;
@@ -226,13 +225,18 @@ test('a declared 3.0 Path Item cannot be substituted through a modern Reference 
  assert(review.problems.some(problem=>problem.code.includes('reference.family')),JSON.stringify(review.problems));
 });
 
-test('unproved legacy native authentication annotations retain a located family-mapping blocker',async()=>{
- const input=fixture('json','3.0.4','operation'),first=JSON.parse(input.resources[0].text);
- first.components.securitySchemes.Access.description='[Captured annotation](guide.md)';input.resources[0].text=JSON.stringify(first);
- assert.equal(analyse(input).status,'complete',JSON.stringify(analyse(input).findings));
- const review=await planMigration(input);assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);assert.deepEqual(review.changes,[]);
- const failure=review.problems.find(problem=>problem.code==='migration.owners.connection-family');assert(failure,JSON.stringify(review.problems));
- assert.equal(failure.resource,input.resources[1].id);assert.equal(failure.pointer,'/paths/~1p/post/security/0/Access');assert.equal(failure.reason,'implementation');
+test('native authentication copies preserve the rendered description destination',async()=>{
+ const input=fixture('json','3.0.4','operation'),description='[Captured annotation](guide.md)';
+ const source=new SourceDocument(input.resources[0].text,input.root);
+ input.resources[0].text=source.set('/components/securitySchemes/Access/description',description);
+ const before=input.resources.map(resource=>resource.text),review=await planMigration(input);
+ assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const packet={root:review.outputRoot,snapshot:'cold-security-markdown',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
+ const owned=await inspect(packet,'First','operation'),text=owned.graph.docs.get(owned.scheme.resource).dataNode(owned.scheme.pointer+'/description').value;
+ const walker=new (require('commonmark').Parser)().parse(text).walker(),links=[];
+ for(let event;event=walker.next();)if(event.entering&&event.node.type==='link')links.push(new URL(event.node.destination,owned.scheme.resource).href);
+ assert.deepEqual(links,[new URL('guide.md',input.root).href]);
+ assert.deepEqual(input.resources.map(resource=>resource.text),before);
 });
 
 for(const format of ['json','yaml'])test(`${format} modern Operation holders remain legal through both downgrade stages to 3.0`,async()=>{
@@ -248,7 +252,7 @@ for(const format of ['json','yaml'])test(`${format} modern Operation holders rem
  await inspect(input,'First','operation');const before=input.resources.map(resource=>resource.text);
  const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
  const cold={root:review.outputRoot,snapshot:'cold-two-stage-30-holder',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
- const owned=await inspect(cold,'First','operation');assert(owned.at.pointer.includes('/components/callbacks/'));
+ const owned=await inspect(cold,'First','operation');assert.equal(owned.graph.scopeAs(owned.at.resource,owned.at.pointer,'operation').family,'3.0');
  assert.equal(owned.graph.docs.get(owned.at.resource).dataNode('/components/pathItems'),undefined);
  assert.deepEqual(input.resources.map(resource=>resource.text),before);
 });
@@ -258,18 +262,33 @@ test('legacy native security copies retain plain description annotations through
  first.components.securitySchemes.Access.description='First key';input.resources[0].text=JSON.stringify(first);
  const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
  const packet={root:review.outputRoot,snapshot:'cold-plain-security-description',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
- await inspect(packet,'First','operation');
- const graph=createGraph(packet).graph;
- const aliases=graph.entryScopes().filter(scope=>scope.kind==='security'&&scope.pointer.includes('_migrated_security_owner_'));
- assert(aliases.some(scope=>graph.docs.get(scope.resource).dataNode(scope.pointer+'/description')?.value==='First key'));
+ const owned=await inspect(packet,'First','operation');
+ assert.equal(owned.graph.docs.get(owned.scheme.resource).dataNode(owned.scheme.pointer+'/description').value,'First key');
 });
 
-for(const inherited of ['servers','parameters'])test(`an independent Operation retains a located unproved ${inherited} inheritance blocker`,async()=>{
- const input=fixture('json','3.0.4','operation'),second=JSON.parse(input.resources[1].text);
- second.paths['/p'][inherited]=inherited==='servers'?[{url:'https://override.invalid'}]:[{name:'n',in:'query',schema:{type:'integer'}}];
- input.resources[1].text=JSON.stringify(second);
+for(const inherited of ['servers','parameters'])test(`an independent Operation retains captured ${inherited} inheritance`,async()=>{
+ const input=fixture('json','3.0.4','operation'),value=inherited==='servers'?[{url:'https://override.invalid'}]:[{name:'n',in:'query',schema:{type:'integer'}}];
+ const source=input.resources[1];source.text=new SourceDocument(source.text,source.id).set('/paths/~1p/'+inherited,value);
  assert.equal(analyse(input).status,'complete',JSON.stringify(analyse(input).findings));
- const review=await planMigration(input);assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);
- const failure=review.problems.find(problem=>problem.code==='migration.owners.operation-context');assert(failure,JSON.stringify(review.problems));
- assert.equal(failure.resource,input.resources[1].id);assert.equal(failure.pointer,'/paths/~1p/post');
+ const before=input.resources.map(resource=>resource.text),review=await planMigration(input);
+ assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const packet={root:review.outputRoot,snapshot:'cold-operation-inheritance',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))};
+ const owned=await inspect(packet,'First','operation'),doc=owned.graph.docs.get(owned.at.resource);
+ const declared=doc.dataNode(owned.at.pointer+'/'+inherited)??doc.dataNode(owned.at.pointer.slice(0,owned.at.pointer.lastIndexOf('/'))+'/'+inherited);
+ assert(declared,'The emitted operation must retain its captured inheritance');
+ if(inherited==='servers')assert.deepEqual(declared.children.size?JSON.parse(doc.dataJson(declared.pointer)).map(server=>new URL(server.url).href):[],value.map(server=>new URL(server.url).href));
+ else {
+  const retained=[];
+  for(const index of declared.children.keys()){
+   let at={resource:doc.id,pointer:declared.pointer+'/'+index};
+   for(let count=0;count<32;count++){
+    const edge=owned.graph.referenceAs(at.resource,at.pointer,'$ref','parameter');if(!edge)break;
+    assert.equal(edge.resolution,'resolved');at={resource:edge.targetResource,pointer:edge.targetPointer};
+    if(count===31)assert.fail('Parameter aliases must remain finite');
+   }
+   retained.push(JSON.parse(owned.graph.docs.get(at.resource).dataJson(at.pointer)));
+  }
+  assert.deepEqual(retained,value);
+ }
+ assert.deepEqual(input.resources.map(resource=>resource.text),before);
 });
