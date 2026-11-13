@@ -1,6 +1,6 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),YAML=require('yaml');
 const {createHash}=require('node:crypto');
-const {planMigration}=require('./dist/migration.cjs'),{analyse}=require('./dist/model.cjs');
+const {planMigration}=require('./dist/migration.cjs'),{analyse,createGraph}=require('./dist/model.cjs');
 const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
 const {SourceDocument}=require('./dist/document.cjs');
 const controls={
@@ -33,7 +33,10 @@ test(`${version} ${format} finite property names retain assertions, independent 
  assert.deepEqual(after.runtimeEvaluations.map(proof=>proof.valid),before.runtimeEvaluations.map(proof=>proof.valid));
  const doc=new SourceDocument(target.resources.find(resource=>resource.id===target.root).text,target.root),container=targetVersion==='2.0'?'/definitions':'/components/schemas';
  assert.equal(doc.dataJson('/x-literal'),new SourceDocument(text,root).dataJson('/x-literal'));
- assert.equal(doc.dataNode(container+'/'+stem+'/type').value,'boolean');assert(doc.dataNode(container+'/'+stem+'_1'));
+ assert.equal(doc.dataNode(container+'/'+stem+'/type').value,'boolean');
+ const independent=createGraph(target).graph.referenceAs(target.root,container+'/enumNames','$ref','schema');
+ assert.equal(independent.resolution,'resolved');
+ assert.notDeepEqual([independent.targetResource,independent.targetPointer],[target.root,container+'/'+stem]);
  assert.equal(doc.dataNode(container+'/enum/propertyNames'),undefined);assert.equal(input.resources[0].text,text);
 });
 for(const propertyNames of [{pattern:'^a'}, {enum:['a'],description:'Name annotation'}, {enum:['a'],'x-kept':false}])

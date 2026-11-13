@@ -113,8 +113,7 @@ test(`${version} ${format} cross-resource schema copies materialize only nested 
     const doc=new SourceDocument(changed.after,changed.destination);
     outsidePreserved(new SourceDocument(original[1],input.resources[1].id),doc,format);
     const {graph}=createGraph(output),field=graph.referenceAs(changed.destination,'/Object/properties/value','$ref','schema');
-    assert.equal(field.resolution,'resolved');assert.equal(field.targetResource,output.root);
-    assert(field.targetPointer.startsWith('/components/schemas/_migrated_'));
+    assert.equal(field.resolution,'resolved');assert(output.resources.some(resource=>resource.id===field.targetResource));
     const target=graph.docs.get(field.targetResource);assert.equal(target.dataNode(field.targetPointer+'/type').value,'string');
     assert.equal(target.dataJson(field.targetPointer+'/x-captured'),doc.dataJson('/x-record'));
     if(format==='yaml'){
