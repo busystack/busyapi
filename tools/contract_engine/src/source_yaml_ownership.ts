@@ -4,7 +4,7 @@ type Ownership=Readonly<{document:SourceDocument;changed:readonly string[]}>;
 const inside=(pointer:string,parent:string)=>pointer===parent||pointer.startsWith(parent+'/');
 
 /** Give an explicit source transformation independent YAML ownership. Only captured
- * anchor-property and alias-value tokens change. Alias bindings use node
+ * anchor properties, their key separators and alias values change. Bindings use node
  * identity, including reused names and key anchors; no text search resolves
  * them. All other logical values must remain exactly equal before editing. */
 export function separateYamlOwnership(doc:SourceDocument,pointer:string,descendants=true,includeKey=false):Ownership {
@@ -28,7 +28,11 @@ export function separateYamlOwnership(doc:SourceDocument,pointer:string,descenda
         if(!anchor.range||doc.text.slice(...anchor.range)!=='&'+anchor.name)
             fail(anchor.node.pointer,'The captured anchor has no unique concrete-syntax property token');
         doc.assertSafe(anchor.node.pointer);
-        edits.push({pointer:anchor.node.pointer,range:anchor.range,replacement:''});changed.add(anchor.node.pointer);
+        // A leading key property occupies the key's indentation column. Its
+        // separator belongs to that property; leaving it indents the key.
+        const separator=anchor.node.key&&doc.text.slice(doc.lineStart(anchor.range[0]),anchor.range[0]).trim()===''
+            ?/^[ \t]+/u.exec(doc.text.slice(anchor.range[1]))?.[0].length??0:0;
+        edits.push({pointer:anchor.node.pointer,range:[anchor.range[0],anchor.range[1]+separator],replacement:''});changed.add(anchor.node.pointer);
     }
     for(const alias of aliases){
         doc.assertSafe(alias.pointer);

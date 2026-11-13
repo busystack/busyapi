@@ -17,7 +17,7 @@ const parent=()=>({type:'object',required:['kind'],properties:{kind:{type:'strin
 
 for(const version of ['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1']) {
  for(const kind of ['schemas','responses'])for(const anchor of ['key','value'])
-  test(`inline guards anchored reference ${anchor} descendants ${version} ${kind}`,()=>{
+  test(`inline separates anchored reference ${anchor} descendants ${version} ${kind} without changing aliases`,()=>{
    const root='file:///project/root.yaml',pointer='/components/'+kind+'/Use';
    const definition=kind==='schemas'?'type: string':'description: OK';
    const ref=anchor==='key'?`&name $ref: '#/components/${kind}/Target'`:`$ref: &name '#/components/${kind}/Target'`;
@@ -26,7 +26,9 @@ for(const version of ['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1']) {
    assert.deepEqual(analyse(input).findings,[]);
    const wanted=doc.dataJson('/x-preserved');
    assert.throws(()=>doc.set(pointer,kind==='schemas'?{type:'string'}:{description:'OK'}),error=>error.code==='edit.shared');
-   assert.throws(()=>planInline({...input,contexts:[{root,resources:[root]}],target:{root,resource:root,pointer,generation:1}}),error=>error.code==='edit.shared');
+   const plan=planInline({...input,contexts:[{root,resources:[root]}],target:{root,resource:root,pointer,generation:1}});let changed=text;
+   for(const edit of [...plan.edits].sort((a,b)=>b.start-a.start)){assert.equal(changed.slice(edit.start,edit.end),edit.expected);changed=changed.slice(0,edit.start)+edit.replacement+changed.slice(edit.end);}
+   const accepted=new SourceDocument(changed,root);assert.equal(accepted.dataJson('/x-preserved'),wanted);assert.equal(accepted.dataJson(pointer),JSON.stringify(kind==='schemas'?{type:'string'}:{description:'OK'}));assert.equal(analyse({...input,resources:[{id:root,text:changed,generation:2}]}).status,'complete');
    assert.equal(input.resources[0].text,text);
    assert.equal(new SourceDocument(input.resources[0].text,root).dataJson('/x-preserved'),wanted);
   });
@@ -38,7 +40,7 @@ for(const version of ['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1']) {
   for(const edit of [...plan.edits].sort((a,b)=>b.start-a.start))changed=changed.slice(0,edit.start)+edit.replacement+changed.slice(edit.end);
   const doc=new SourceDocument(changed,root);
   assert.equal(doc.dataJson('/x-preserved'),'"Use"');
-  assert.deepEqual(doc.node(pointer).value,{type:'string'});
+  assert.equal(doc.dataJson(pointer),JSON.stringify({type:'string'}));
  });
 
  for(const json of [false,true]) {
