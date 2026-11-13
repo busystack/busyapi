@@ -1651,7 +1651,13 @@ Future<void> _addObjectEntry(
       identical(c.project, owner) &&
       c.root == root &&
       c.store!.get(item['resource']).generation == acceptedGeneration) {
-    if (!textValue) await c.selectObject({...item, 'pointer': createdPointer});
+    if (!textValue) {
+      await c.selectObject({
+        'root': root,
+        'resource': item['resource'],
+        'pointer': createdPointer,
+      });
+    }
   }
 }
 
@@ -2312,8 +2318,6 @@ Future<Map<String, dynamic>?> _prepareObjectAction(
     throw CoreFailure('draft.stale', staleMessage);
   }
   final generation = buffer.generation;
-  await c.analyse();
-  if (!current()) return null;
   final fresh = await owner.inspectObject(
     root,
     item['resource'] as String,
