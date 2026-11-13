@@ -317,8 +317,8 @@ export async function evaluateRuntimeInstances(runtime:unknown,owner:Owner) {
    }
   }
   if(entry.swaggerHeader){
-   const header=entry.swaggerHeader,scope=owner.scopes.get(header.resource+'#'+header.pointer);
-   if(scope?.family!=='2.0'||scope.objectKind!=='header'||entry.schema&&(entry.schema.resource!==header.resource||entry.schema.pointer!==header.pointer))
+   const header=entry.swaggerHeader,scope=owner.graph.scopeAs(header.resource,header.pointer,'header');
+   if(scope?.family!=='2.0'||scope.kind!=='header'||entry.schema&&(entry.schema.resource!==header.resource||entry.schema.pointer!==header.pointer))
     throw new SourceError('runtime.instance','Swagger header evaluation requires its original captured Header Object');
    try{
     const lines=httpFieldLines(header.name,header.values);

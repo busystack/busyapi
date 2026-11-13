@@ -38,3 +38,18 @@ test('wire target context and media alternatives cannot bypass captured schema o
  const clean=await evaluateSchemas({...input,runtimeInstances:[instance('correct',['0|9007199254740993,9007199254740993|0'])]});
  assert.equal(clean.complete,true);assert.equal(clean.runtimeEvaluations[0].valid,true);
 });
+
+for(const format of ['yaml','json'])test(`Swagger ${format} a native Header retains wire ownership when independently used as a Schema`,async()=>{
+ const root='file:///swagger-header/shared.'+format,pointer='/responses/Shared/headers/X-Count';
+ const value={swagger:'2.0',info:{title:'Shared Header',version:'1'},paths:{'/p':{get:{responses:{200:{$ref:'#/responses/Shared'}}}}},
+  responses:{Shared:{description:'Reply',headers:{'X-Count':{type:'integer',enum:['EXACT']}}}},definitions:{Use:{$ref:'#'+pointer}}};
+ const text=(format==='yaml'?YAML.stringify(value):JSON.stringify(value)).replaceAll(format==='json'?'"EXACT"':'EXACT','9007199254740993.00');
+ const input={root,snapshot:'shared-native-header',resources:[{id:root,text,generation:1}]};
+ const runtimeInstances=['9007199254740993.00','9007199254740992'].flatMap((text,index)=>[
+  {subject:'response-header',location:'header-'+index,text:'',header:{resource:root,pointer,name:'X-Count',values:[text]}},
+  {subject:'response-body',location:'schema-'+index,text,schema:{resource:root,pointer:'/definitions/Use'}},
+ ]);
+ const checked=await evaluateSchemas({...input,runtimeInstances});assert.equal(checked.complete,true,JSON.stringify(checked.runtimeFindings));
+ assert.deepEqual(checked.runtimeEvaluations.map(value=>[value.complete,value.valid]),[[true,true],[true,true],[true,false],[true,false]]);
+ await assert.rejects(evaluateSchemas({...input,runtimeInstances:[{subject:'response-header',location:'mismatch',text:'0',swaggerHeader:{resource:root,pointer,name:'X-Count',values:['0']},schema:{resource:root,pointer:'/definitions/Use'}}]}),{code:'runtime.instance'});
+});
