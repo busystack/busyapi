@@ -49,7 +49,7 @@ void main() {
           final page = await project.referencePage(root, root, pointer, contextKind: role);
           final field = (page['entries'] as List).cast<Map>().singleWhere((field) => field['name'] == 'description');
           expect(field['parentKind'], role);
-          final expected = role == 'schema' ? 'https://schemas.invalid/base/resource' : root;
+          final expected = Uri.parse(role == 'schema' ? 'https://schemas.invalid/base/resource' : root);
           expect(referenceMarkdownBase(Map<String, dynamic>.from(field)), expected);
           final scalar = await project.referencePage(root, root, '$pointer/description', data: true, parentKind: role);
           expect(scalar['richText'], true);
