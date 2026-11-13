@@ -165,10 +165,9 @@ void main() {
             Future<void>? pending;
             Future<void> waitFor(bool Function() condition) async {
               final timer = Stopwatch()..start();
-              await tester.pump();
-              while (!condition() &&
-                  errors.isEmpty &&
-                  timer.elapsed < const Duration(seconds: 12)) {
+              while (errors.isEmpty && timer.elapsed < const Duration(seconds: 12)) {
+                await tester.pumpAndSettle();
+                if (condition()) break;
                 await tester.runAsync(
                   () => Future<void>.delayed(const Duration(milliseconds: 20)),
                 );
@@ -179,9 +178,8 @@ void main() {
                 condition(),
                 true,
                 reason:
-                    'selection=${c.selectedPointer}; checking=${c.checking}/${c.checkingSemantics}; error=${c.error}',
+                    'selection=${c.selectedPointer}; checking=${c.checking}/${c.checkingSemantics}; error=${c.error}; dialogs=${tester.widgetList<Text>(find.descendant(of: find.byType(BusyApiDialogShell), matching: find.byType(Text))).map((widget) => widget.data).toList()}',
               );
-              await tester.pumpAndSettle();
             }
 
             Future<void> settleAction() async {
@@ -266,6 +264,7 @@ void main() {
                   'resource': c.root,
                   'pointer': pointer,
                 });
+                await c.analyse();
               });
               await tester.pumpWidget(
                 MaterialApp(
