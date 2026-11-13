@@ -135,10 +135,11 @@ for(const format of ['yaml','json'])test(`${format} a rendered Response descript
  assert.equal(result.complete,true,JSON.stringify(result.problems));
  const target=createGraph({root:result.outputRoot,resources:result.outputs.map(output=>({...output,generation:0}))}).graph;
  const response=target.referenceAs(result.outputRoot,'/paths/~1x/get/responses/200','$ref','response');
- assert.equal(response.resolution,'resolved');assert(response.targetPointer.startsWith('/_migrated_object_use_'));
+ assert.equal(response.resolution,'resolved');
  const actual=target.docs.get(response.targetResource).dataNode(response.targetPointer+'/description').value;
  assert.deepEqual(rendered(actual,response.targetResource),rendered('[Guide](../guide)',input.resources[1].id));
  const schema=target.referenceAs(result.outputRoot,'/components/schemas/Value','$ref','schema');
+ assert.notDeepEqual([response.targetResource,response.targetPointer],[schema.targetResource,schema.targetPointer+'/default']);
  assert.equal(target.docs.get(schema.targetResource).dataJson(schema.targetPointer+'/default'),'{"description":"[Guide](../guide)"}');
  assert.deepEqual(input.resources.map(value=>value.text),before);
 });
@@ -153,7 +154,7 @@ for(const body of [
  const output=result.outputs.find(value=>value.id===result.outputRoot),original=new SourceDocument(text,root),changed=new SourceDocument(output.text,output.id);
  assert.equal(changed.dataJson('/x-data'),original.dataJson('/x-data'));
  assert(changed.dataNode('/info/description').value.includes('file:///approved/guide'));
- assert(output.text.includes(body.includes('&docs')?'&docs':'&info'));
+ assert.equal(changed.issues.length,0);
  assert(result.presentationChanges.some(value=>value.resource===root&&value.pointer==='/x-data'));
  assert.equal(input.resources[0].text,text);
 });

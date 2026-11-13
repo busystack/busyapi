@@ -7,7 +7,7 @@ function capture(format='json',version='3.2.1',{external=false,scalarContexts=fa
  const root='https://retrieval.invalid/r3b/api.'+format,library='https://retrieval.invalid/r3b/library.'+format;
  const payload={schema:{type:'integer',enum:['EXACT']},
   examples:{Count:ref('/components/examples/Count'),Same:ref('/components/examples/Count')},
-  encoding:{field:{contentType:'application/json',headers:{'X-Part':{schema:{type:'integer'}}}}},prefixEncoding:[{}],itemEncoding:{}};
+  encoding:{field:{contentType:'application/json',headers:{'X-Part':{schema:{type:'integer'}}}}}};
  const scalar={schema:{type:'integer',minimum:0}},literal={value:'EXACT',flag:false,empty:'',nil:null,$ref:'literal-only'};
  const item={parameters:[{name:'n',in:'query',required:true,...(scalarContexts?{content:{'application/json':ref('/components/mediaTypes/Scalar')}}:{schema:{type:'integer',minimum:0}})}],
   post:{requestBody:{required:true,content:{'application/json':ref('/components/mediaTypes/Alias')}},
@@ -21,7 +21,7 @@ function capture(format='json',version='3.2.1',{external=false,scalarContexts=fa
   headers:{Part:ref('/components/mediaTypes/Payload/encoding/field/headers/X-Part')},
   schemas:{Independent:ref('/components/mediaTypes/Payload/schema')}},'x-exact':literal,'x-alias':literal};
  const bytes=Buffer.from('9007199254740993.00');
- const exampleResources=external?[{version:1,id:'https://retrieval.invalid/r3b/count.bin',generation:3,state:'available',
+ const exampleResources=external?[{version:1,id:'https://retrieval.invalid/r3b/count.bin',aliases:[],generation:3,state:'available',
   identity:createHash('sha256').update(bytes).digest('hex'),byteLength:bytes.length,base64:bytes.toString('base64')}]:[];
  return {entry,objects,input:{root,snapshot:'r3b-owners',targetVersion:'2.0',destination:'file:///reviewed/r3b/',
   resources:[entry,objects].map((value,index)=>({id:[root,library][index],text:render(value,format),generation:index+4})),exampleResources}};

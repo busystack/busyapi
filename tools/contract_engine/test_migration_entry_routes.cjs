@@ -1,19 +1,20 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),YAML=require('yaml');
 const {planMigration}=require('./dist/migration.cjs'),{analyse}=require('./dist/model.cjs'),{evaluateSchemas}=require('./dist/schema_evaluation.cjs');
 const {SourceDocument}=require('./dist/document.cjs');
+const {createHash}=require('node:crypto'),configurationIdentity=text=>createHash('sha256').update(text).digest('hex');
 
 test('R3c-3 shared raw cases cannot acquire incompatible decoded selections',async()=>{
  const input=require('./migration_b05_r3c3_fixture.cjs')('3.2.1','json','3.1.2',true).configure('q=a%2Bb');
  const second=JSON.parse(input.resources[0].text);second.components.parameters.Whole.content['application/x-www-form-urlencoded'].schema.properties.q={type:'string',enum:['a+b']};
  input.resources.push({id:'file:///captured/second.json',generation:1,text:JSON.stringify(second)});
- const settings=JSON.parse(input.configuration.text);settings.roots.push({name:'second',path:'second.json'});input.configuration.text=JSON.stringify(settings);
+ const settings=JSON.parse(input.configuration.text);settings.roots.push({name:'second',path:'second.json'});input.configuration.text=JSON.stringify(settings);input.configuration.identity=configurationIdentity(input.configuration.text);
  const review=await planMigration(input);assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);
  assert(review.problems.some(problem=>problem.code==='migration.parameter.saved-context'&&problem.reason==='target-representation'),JSON.stringify(review.problems));
 });
 
 test('R3c-3 raw projection never overwrites an occupied query destination',async()=>{
  const input=require('./migration_b05_r3c3_fixture.cjs')('3.2.1','json','3.0.4',true).configure('q=a%2Bb');
- const settings=JSON.parse(input.configuration.text);settings.tests[0].parameters.query={q:['held']};input.configuration.text=JSON.stringify(settings);
+ const settings=JSON.parse(input.configuration.text);settings.tests[0].parameters.query={q:['held']};input.configuration.text=JSON.stringify(settings);input.configuration.identity=configurationIdentity(input.configuration.text);
  const review=await planMigration(input);assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);
  assert(review.problems.some(problem=>problem.code==='migration.parameter.saved-collision'),JSON.stringify(review.problems));
 });
@@ -24,11 +25,12 @@ for(const targetVersion of ['3.1.2','3.0.4'])test(`R3c-3 ${targetVersion} cookie
  const singleton={name:'single',in:'cookie',style:'cookie',schema:{type:'array',minItems:1,maxItems:1,items:{type:'string',enum:['','a%20b','%zz']}}};
  input.value.paths['/p'].get.parameters=[group,singleton,{name:'tail',in:'cookie',style:'cookie',schema:{type:'string',enum:['safe']}}];input.refresh();
  input.configuration={id:'file:///captured/busyapi.yaml',generation:1,text:JSON.stringify({version:1,roots:[{name:'api',path:'factors.json'}],tests:[{name:'cookies',operation:{method:'get',path:'/p'},parameters:{cookie:{bundle:{right:false,left:'%2C'},single:['a%20b'],tail:'safe'}}}]})};
+ input.configuration.identity=configurationIdentity(input.configuration.text);
  const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
  const change=review.configurationProjections.find(change=>change.pointer==='/tests/0/parameters'),after=JSON.parse(change.after);
  assert.deepEqual(Object.keys(after.cookie),['right','left','single','tail']);assert.deepEqual(after.cookie,{right:false,left:'%2C',single:'a%20b',tail:'safe'});
  assert.deepEqual(change.cookieGroups,[{name:'bundle',destinations:['right','left']}]);assert.deepEqual(change.cookieUnwraps,['single']);
- const original=JSON.parse(input.configuration.text);original.tests[0].parameters.cookie.left='occupied';input.configuration.text=JSON.stringify(original);
+ const original=JSON.parse(input.configuration.text);original.tests[0].parameters.cookie.left='occupied';input.configuration.text=JSON.stringify(original);input.configuration.identity=configurationIdentity(input.configuration.text);
  const refused=await planMigration(input);assert.equal(refused.complete,false);assert.deepEqual(refused.outputs,[]);
  assert(refused.problems.some(problem=>problem.code==='migration.parameter.saved-collision'),JSON.stringify(refused.problems));
 });
@@ -76,6 +78,7 @@ for(const format of ['yaml','json'])test(`R3c ${format} saved whole-query values
   {name:'saved',operation:{method:'get',path:'/p'},environment:'local',parameters:{querystring:{descriptionOnly:{q:'%20',flag:false}},cookie:{literal:'a%20b',one:['safe'],object:{left:'L'}}}},
  ]};
  input.configuration={id:'file:///captured/busyapi.yaml',text:JSON.stringify(configuration),generation:7};
+ input.configuration.identity=configurationIdentity(input.configuration.text);
  const result=await planMigration(input);assert.equal(result.complete,true,JSON.stringify(result.problems));
  const projection=result.configurationProjections.find(change=>change.pointer==='/tests/0/parameters');assert(projection);
  assert.deepEqual(JSON.parse(projection.before),configuration.tests[0].parameters);
@@ -87,7 +90,7 @@ for(const format of ['yaml','json'])test(`R3c ${format} saved whole-query values
   if(mutation==='occupied')changed.tests[0].parameters.query={descriptionOnly:{q:'keep'}};
   if(mutation==='outside-domain')changed.tests[0].parameters.querystring.descriptionOnly={q:'a b'};
   if(mutation==='raw')changed.tests[0].parameters.querystring.descriptionOnly='q=%20';
-  const refused=await planMigration({...input,configuration:{...input.configuration,text:JSON.stringify(changed)}});
+  const refused=await planMigration({...input,configuration:{...input.configuration,text:JSON.stringify(changed),identity:configurationIdentity(JSON.stringify(changed))}});
   assert.equal(refused.complete,false);assert.deepEqual(refused.outputs,[]);
   assert(refused.problems.some(problem=>problem.code.startsWith('migration.parameter.saved-')),JSON.stringify(refused.problems));
  }
@@ -121,7 +124,10 @@ for(const primary of versions)for(const secondary of versions)for(const targetVe
  assert.equal(analyse(input).status,'complete');const result=await planMigration(input);
  assert.equal(result.status,'faithfully-convertible',JSON.stringify(result.problems));assert.equal(result.complete,true);assert.equal(result.manifest.roots.length,2);assert.equal(result.entryRoutes.length,2);
  for(const [index,entry]of result.entryRoutes.entries()){const source=input.resources.find(r=>r.id===entry.resource);assert(source);const declaration=new SourceDocument(source.text,source.id).root.value;assert.equal(entry.from.declaredVersion,declaration.swagger??declaration.openapi);assert.equal(entry.target.declaredVersion,targetVersion);assert(Array.isArray(entry.stages));}
- assert.equal(result.outputs.length,2);assert.deepEqual(input.resources.map(r=>r.text),before);
+ assert.equal(new Set(result.outputs.map(output=>output.path)).size,result.outputs.length);
+ assert.deepEqual(new Set(result.changes.filter(change=>!change.createdFrom).map(change=>change.resource)),new Set(input.resources.map(resource=>resource.id)));
+ assert(result.outputs.every(output=>result.changes.some(change=>change.destination===output.id)));
+ assert.deepEqual(input.resources.map(r=>r.text),before);
  const resources=result.outputs.map(o=>({id:o.id,text:o.text,generation:0,aliases:Object.entries(result.manifest.resourceMappings).filter(([,path])=>path===o.path).map(([uri])=>uri)}));
  for(const name of ['primary','secondary']){
   const output=result.outputs.find(o=>new SourceDocument(o.text,o.id).node('/info/title').value===name+' 雪');assert(output);
@@ -265,6 +271,7 @@ for(const value of [{q:['a+b','a+b']},{q:[]}])test(`R3c-1 saved field extraction
  const input=require('./migration_b05_r3c1_fixture.cjs')();
  const parameters={querystring:{descriptionOnly:value},cookie:{literal:'a%20b'}};
  input.configuration={id:'file:///captured/busyapi.yaml',generation:1,text:JSON.stringify({version:1,roots:[{name:'api',path:'api.json'}],tests:[{name:'saved',operation:{method:'get',path:'/p'},parameters}]})};
+ input.configuration.identity=configurationIdentity(input.configuration.text);
  const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
  const projection=review.configurationProjections.find(change=>change.pointer==='/tests/0/parameters');assert(projection);
  const after=JSON.parse(projection.after);assert.deepEqual(after.cookie,parameters.cookie);assert.equal(after.querystring,undefined);
@@ -292,6 +299,7 @@ for(const targetVersion of ['3.1.2','3.0.4','2.0'])for(const array of [[],[''],[
  const value={text:'',q:array,flag:false};
  const settings={version:1,roots:[{name:'api',path:'factors.json'}],tests:[{name:'saved',operation:{method:'get',path:'/p'},parameters:{querystring:{descriptionOnly:value},header:{Keep:'literal'}}}]};
  input.configuration={id:'file:///captured/busyapi.yaml',generation:1,text:JSON.stringify(settings)};
+ input.configuration.identity=configurationIdentity(input.configuration.text);
  const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
  const projection=review.configurationProjections.find(change=>change.pointer==='/tests/0/parameters'),after=JSON.parse(projection.after);
  assert.deepEqual(after.query,value);assert.deepEqual(Object.keys(after.query),Object.keys(value));assert.deepEqual(after.header,settings.tests[0].parameters.header);assert.equal(after.querystring,undefined);
@@ -333,4 +341,18 @@ test('R3c-2 operation signature rejects a partial group despite surviving reusab
  resource.text=doc.remove('/paths/~1shared/get/parameters/1');
  const before=[...migrationRequestProfiles(source,input.resources,proof.before).values()],after=[...migrationRequestProfiles(createGraph(packet).graph,packet.resources,proof.after).values()];
  assert.notDeepEqual(after,before);
+});
+
+// OAS 3.2 Media Type Object: named and positional encoding cannot coexist.
+// Keep this invalid case separate from reusable-media conversion acceptance.
+for(const format of ['yaml','json'])for(const field of ['prefixEncoding','itemEncoding'])
+test(`${format} conflicting named and ${field} encoding is a located source refusal`,async()=>{
+ const fixture=require('./migration_b05_r3b_fixture.cjs'),{input,objects}=fixture.capture(format);
+ objects.components.mediaTypes.Payload[field]=field==='prefixEncoding'?[{}]:{};
+ input.resources[1].text=fixture.render(objects,format);
+ const before=input.resources.map(resource=>resource.text),result=await planMigration(input);
+ assert.equal(result.complete,false);assert.deepEqual(result.outputs,[]);
+ assert(result.problems.some(problem=>problem.resource===input.resources[1].id&&
+  problem.pointer.endsWith('/'+field)&&problem.reason==='source-incomplete'),JSON.stringify(result.problems));
+ assert.deepEqual(input.resources.map(resource=>resource.text),before);
 });

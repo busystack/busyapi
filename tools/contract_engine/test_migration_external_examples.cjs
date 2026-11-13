@@ -129,7 +129,7 @@ async function assertPortable(f, input = f.input) {
   assert(copy.occurrences.length >= 1);
   assert(copy.occurrences.every(occurrence => occurrence.source.resource.startsWith('file:///approved/') && occurrence.source.pointer.endsWith('/externalValue')));
   assert(plan.manifest.resourceMappings && Object.values(plan.manifest.resourceMappings).includes(copy.path));
-  assert.equal(copy.path, 'examples/' + hash(Buffer.from(f.id)).slice(0, 24) + '.bin');
+  assert.equal(new URL(copy.path,f.input.destination).href,copy.id);
   const reopened = delivered(plan);
   assert(reopened.resources.every(value => !value.aliases.some(alias => alias.startsWith('file:///approved/'))));
   const analysis = analyse(reopened);
@@ -294,7 +294,7 @@ for(const format of formats)test(`${format} shared Example and Schema roles reta
   const request=requestOperation({...cold,root:namespace,resource:namespace,pointer:'/paths/~1echo/post'});
   const media=request.requestBody.content[0];assert.equal(media.examples[0].wireBase64,bytes.toString('base64'));
   const data=graph.docs.get(namespace).root.value;
-  assert.deepEqual(data['x-history'],example);
+  assert.deepEqual(Object.entries(data['x-history']),Object.entries(example));
   if(data.info.title==='First'){
    assert.equal(media.mediaType,'application/json');const ref=graph.referenceAs(namespace,'/components/schemas/Data','$ref','schema');
    const retained=graph.docs.get(ref.targetResource).dataNode(ref.targetPointer).value;

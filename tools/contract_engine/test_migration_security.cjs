@@ -1,6 +1,12 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const {createHash}=require('node:crypto');
+const {Parser}=require('commonmark');
+const linkDestination=markdown=>{
+ const walker=new Parser().parse(markdown).walker();let event;
+ while((event=walker.next()))if(event.entering&&event.node.type==='link')return event.node.destination;
+ assert.fail('Expected a rendered documentation link');
+};
 const YAML=require('yaml');
 const {planMigration}=require('./dist/migration.cjs');
 const {analyse,createGraph}=require('./dist/model.cjs');
@@ -90,7 +96,7 @@ test(`${format} URI security downgrades to ${target} through native planning and
  const group=target==='2.0'?'/securityDefinitions/':'/components/securitySchemes/';
  for(const name of first.slice(1)){
   assert(entry.dataNode(group+name));
-  assert.deepEqual(after.plan.schemes[name].flows.clientCredentials.scopes,{read:'[Read](./read.md)',write:'Write'});
+  assert.deepEqual(Object.entries(after.plan.schemes[name].flows.clientCredentials.scopes),Object.entries({read:'[Read](./read.md)',write:'Write'}));
   assert.equal(after.plan.schemes[name].flows.clientCredentials.tokenUrl,'https://auth.invalid/token');
  }
  const sourceDoc=new SourceDocument(before[0],input.root);
@@ -109,7 +115,7 @@ test(`${format} URI security downgrades to ${target} through native planning and
  assert(copied);assert.equal(copied.targetUri,undefined);
  const declaration=after.plan.schemes[first[1]],definition=declaration.definition;
  const description=after.graph.docs.get(definition.resource).dataNode(definition.pointer+'/description').value;
- const destination=description.match(/\]\(([^)]+)\)/)[1];
+ const destination=linkDestination(description);
  assert.equal(resolveUri(destination,after.graph.scopeAs(definition.resource,definition.pointer,'security').base).href,
   resolveUri('./security.md',original.graph.scopeAs(input.resources[1].id,'/Access','security').base).href);
  assert.equal(original.plan.requirements.length,after.plan.requirements.length);
@@ -161,7 +167,7 @@ for(const header of ['Authorization','Proxy-Authorization','Cookie','X-Precedenc
 test(`literal ${header} credentials remain in the source configuration and cannot enter migration output`,async()=>{
  const input=fixture('json','3.1.2'),before=input.configuration.text;
  const doc=new SourceDocument(before,input.configuration.id);
- input.configuration.text=doc.set('/environments/manual/headers/'+escaped(header),'controlled-private-value');
+ input.configuration.text=doc.set('/environments/manual/headers',{[header]:'controlled-private-value'});
  const review=await planMigration(input);
  assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);assert.equal(review.manifestText,undefined);
  assert(review.problems.some(problem=>problem.resource===input.configuration.id&&problem.code==='migration.configuration.representation'&&
@@ -245,7 +251,7 @@ for(const target of ['3.0.4','2.0'])test(`${target} materializes Security Scheme
  assert.equal(review.complete,true,JSON.stringify(review.problems));
  const after=security(reopen(review)),name=after.plan.requirements[0].schemes[1],at=after.plan.schemes[name].definition;
  const description=after.graph.docs.get(at.resource).dataNode(at.pointer+'/description').value;
- assert.equal(resolveUri(description.match(/\]\(([^)]+)\)/)[1],after.graph.scopeAs(at.resource,at.pointer,'security').base).href,
+ assert.equal(resolveUri(linkDestination(description),after.graph.scopeAs(at.resource,at.pointer,'security').base).href,
   resolveUri('../alias-guide.md',source.graph.scopeAs(input.resources[1].id,'/Alias','security').base).href);
 });
 function multipleFlows(format='json'){

@@ -1,4 +1,4 @@
-const YAML=require('yaml');
+const YAML=require('yaml'),{createHash}=require('node:crypto');
 module.exports=function fixture(version='3.2.1',format='json',targetVersion='3.1.2',single=false){
  const input=require('./migration_b05_r3c2_fixture.cjs')(version,format,targetVersion,'required');
  input.schema.properties.q.items={type:'string',enum:['','a+b','%20','雪']};
@@ -9,6 +9,6 @@ module.exports=function fixture(version='3.2.1',format='json',targetVersion='3.1
  input.refresh=()=>{input.resources[0].text=input.encode(input.value);return input;};
  input.configure=raw=>{input.configuration={id:'file:///captured/busyapi.yaml',generation:7,text:JSON.stringify({version:1,roots:[{name:'api',path:'factors.'+format}],
   environments:{manual:{variables:{held:'a+b%20'},authentication:{alternative:-1,schemes:{}}}},tests:[{name:'saved',operation:{method:'get',path:'/p'},environment:'manual',
-   parameters:{querystring:{descriptionOnly:raw},header:{Keep:'literal%2B'}},expect:{status:204}}]})};return input;};
+   parameters:{querystring:{descriptionOnly:raw},header:{Keep:'literal%2B'}},expect:{status:204}}]})};input.configuration.identity=createHash('sha256').update(input.configuration.text).digest('hex');return input;};
  return input.refresh();
 };

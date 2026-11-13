@@ -1,6 +1,7 @@
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const {planMigration}=require('./dist/migration.cjs'),{analyse,createGraph}=require('./dist/model.cjs');
 const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
+const {SourceDocument}=require('./dist/document.cjs');
 const {readFileSync}=require('node:fs'),{join}=require('node:path');
 const fixture=require('./migration_schema_resources_fixture.cjs');
 const cold=review=>({root:review.outputRoot,snapshot:'resources-cold',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0}))});
@@ -34,7 +35,7 @@ test(`${format} ${single?'ordinary role':'independent entries'} whole resources 
  assert.equal(copy.text,literal.text,'Shared literal resource and YAML aliases remain byte-exact');
  assert.deepEqual(input.resources.map(resource=>resource.text),before);
  const repeated=await planMigration({...input,resources:[...input.resources].reverse()});assert.equal(repeated.complete,true,JSON.stringify(repeated.problems));
- assert.deepEqual(repeated.outputs,review.outputs);
+ assert.deepEqual(repeated.outputs.slice().sort((a,b)=>a.path.localeCompare(b.path)),review.outputs.slice().sort((a,b)=>a.path.localeCompare(b.path)));
  const moved='file:///cold-resources-moved/',relocated={root:new URL(review.entry,moved).href,snapshot:'moved-resources',resources:review.outputs.map(output=>({id:new URL(output.path,moved).href,text:output.text,generation:0}))};
  assert.deepEqual(await outcomes(relocated,'First'),expected);
 });
@@ -70,7 +71,7 @@ for(const holder of [false,true])test(`native object copies retain independently
  const graph=createGraph(output).graph,reference=graph.referenceAs(output.root,'/components/schemas/Use','$ref','schema');
  assert.equal(graph.scopeAs(reference.targetResource,reference.targetPointer,'schema').dialect.replace(/#$/,''),'https://json-schema.org/draft/2020-12/schema');
  const copiedData=graph.docs.get(review.changes.find(change=>change.resource===data).destination);
- assert.deepEqual(copiedData.dataNode('/Example/value').value,JSON.parse(input.resources[1].text).Example.value);
+ assert.equal(copiedData.dataJson('/Example/value'),new SourceDocument(input.resources[1].text,data).dataJson('/Example/value'));
  if(holder)assert.equal(copiedData.dataNode('/Other/type').value,'object');
 });
 

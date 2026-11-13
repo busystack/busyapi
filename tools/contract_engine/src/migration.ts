@@ -1,8 +1,9 @@
 import type {ExternalExampleResourcePacket} from './external_examples';
 import {externalExampleRequests} from './external_examples';
 import {assertRoleAnnotations} from './schema_role_annotations';
+import {referenceKinds} from './contexts';
 import {createHash} from 'node:crypto';
-import {analyse,createGraph,Resource} from './engine';
+import {analyse,createGraph,parseResource,Resource} from './engine';
 import {SourceDocument,SourceError,escape,segments} from './document';
 import {specificationDeclaration,modernFamily} from './specification';
 import {SourcePlan,SourceLocation,sourceValueIdentity,sourceLocations} from './source_plan';
@@ -140,15 +141,16 @@ export async function planMigration(input:MigrationInput) {
         issue(error.source??location,error.code,error.message,error.code==='migration.configuration.alternative'?'target-representation':proofLimit?'unavailable-proof':'implementation');
     };
     const validate=async(values:Resource[],root:string,phase:'source'|'target'='target',exampleResources=input.exampleResources)=>{
-        const roots=[root,...values.filter(value=>value.id!==root&&specificationDeclaration(new SourceDocument(value.text,value.id).root.value).status==='supported').map(value=>value.id)];
+        const roots=[root,...values.filter(value=>value.id!==root&&specificationDeclaration(parseResource(value).root.value).status==='supported').map(value=>value.id)];
         for(const root of roots){
             const capture={...input,resources:values,root,exampleResources},analysis=analyse(capture),schemas=await evaluateSchemas(capture);
-            if(!analysis.complete||!schemas.complete)issue({resource:root,pointer:''},'migration.validation.incomplete','Native validation did not complete; no migration can be published','source-incomplete');
-            // Incomplete warnings identify evaluator limitations, not invalid
-            // source. Preserve their locations alongside the overall refusal.
-            for(const finding of [...analysis.findings,...schemas.findings])if(finding.severity==='error'||finding.incomplete===true)
-                issue(finding,'migration.validation.'+finding.code,finding.message,finding.incomplete===true?
-                    finding.condition==='unavailable'?'unavailable-proof':'implementation':phase==='source'?'source-incomplete':'target-representation');
+            const incomplete=(finding:{code:string;incomplete?:boolean})=>finding.incomplete===true||
+                finding.code==='dialect.unsupported'||finding.code==='schema.dialect.incomplete';
+            const findings=[...analysis.findings,...schemas.findings].filter(finding=>finding.severity==='error'||incomplete(finding)||finding.code==='example.serialization.incompatible');
+            if((!analysis.complete||!schemas.complete)&&!findings.length)
+                issue({resource:root,pointer:''},'migration.validation.incomplete','Native validation did not complete; no migration can be published','source-incomplete');
+            for(const finding of findings)issue(finding,'migration.validation.'+finding.code,finding.message,incomplete(finding)?
+                finding.condition==='unavailable'||finding.code.includes('dialect')?'unavailable-proof':'implementation':phase==='source'?'source-incomplete':'target-representation');
         }
     };
     const initialContexts=migrationDocumentContexts(input,initial,issue,true);
@@ -828,13 +830,15 @@ export async function planMigration(input:MigrationInput) {
     }
     for(const origin of exactPayloads){
         const [resource,pointer]=JSON.parse(origin) as [string,string],expected=sourceValueIdentity(original.get(resource)!,pointer);
-        // A schema interpretation of a payload has a separate semantic owner.
-        // Exact-data invariants apply to the surviving literal occurrences,
-        // including literals inside copied schemas, not the converted schema
-        // root that happens to share the original source coordinates.
-        const locations=(origins.get(origin)??[]).filter(location=>
-            !finalContext.graph.scopeAs(identifiers.get(location.resource)!,location.pointer,'schema')||
-            finalContext.graph.literalContainer(identifiers.get(location.resource)!,location.pointer)!==undefined);
+        // Typed interpretations of a payload have separate semantic owners.
+        // Exact data belongs to surviving literal occurrences, including data
+        // inside copied schemas, rather than native objects copied from it.
+        const locations=(origins.get(origin)??[]).filter(location=>{
+            const resource=identifiers.get(location.resource)!;
+            return finalContext.graph.literalContainer(resource,location.pointer)!==undefined||
+                !finalContext.graph.scopesAt(resource,location.pointer).some(scope=>finalContext.graph.isEntryUse(scope)&&
+                    (referenceKinds.has(scope.kind)||scope.kind==='operation'));
+        });
         // Only an explicit, graph-bound omission decision can remove values
         // inside an ignored declaration. Originals remain independent inputs.
         if(ignoredBodyOmissions.some(location=>location.resource===resource&&(pointer===location.pointer||pointer.startsWith(location.pointer+'/'))))continue;

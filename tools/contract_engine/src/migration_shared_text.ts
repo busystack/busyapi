@@ -20,6 +20,20 @@ export function specializeMigrationText(doc:SourceDocument,requested:ReadonlyMap
         if(typeof doc.dataNode(pointer)?.value!=='string'||!doc.dataSyntaxSafe(pointer))
             fail(pointer,'The documentation specialization has no unambiguous captured string occurrence');
     }
+    if(doc.format==='json'){
+        // JSON strings have independent physical spans. Emit those captured
+        // edits together; no alias separation or whole-value reproof applies.
+        const edits=[...desired].map(([pointer,value])=>{
+            const node=doc.dataNode(pointer)!,text=doc.emit(value,node,node.flow);
+            bytes+=Buffer.byteLength(text);
+            return {range:node.range,text};
+        }).sort((a,b)=>a.range[0]-b.range[0]);
+        if(bytes>8*1024*1024)throw new SourceError('limit.migration.text','Documentation replacements exceed 8 MiB');
+        const output:string[]=[];let at=0;
+        for(const edit of edits){output.push(doc.text.slice(at,edit.range[0]),edit.text);at=edit.range[1];}
+        output.push(doc.text.slice(at));
+        return {document:new SourceDocument(output.join(''),doc.id),changed:[...desired.keys()]};
+    }
     const expected=doc.dataJson('',(_node,occurrence)=>desired.has(occurrence)?JSON.stringify(desired.get(occurrence)):undefined);
     const source=new SourcePlan(doc),changed=new Set<string>();
     for(const [pointer,value]of desired){
