@@ -479,7 +479,7 @@ function materializeMigrationOwners(graph:ReferenceGraph,sources:ReadonlyMap<str
                 return placement!==undefined&&(placement.location.resource!==role.resource||placement.location.pointer!==role.pointer);
             });
         }
-        const shared=!entry.distinct?owners.roleOwners(scope):[];
+        const shared=(!entry.distinct||scope.kind==='schema'&&!entry.varyingResources.has(schemaResourceContextIdentity(scope)))?owners.roleOwners(scope):[];
         const separated=retainedNative(scope)?{location:scope,provenance:new Map<string,SourceLocation>()}:
             shared.length===1?{location:shared[0].location,provenance:new Map<string,SourceLocation>()}:owners.separate(scope,'entry_use',{
             container,captured:pristine.get(scope.resource),
@@ -532,7 +532,7 @@ function materializeMigrationOwners(graph:ReferenceGraph,sources:ReadonlyMap<str
             if(frame&&frame.resource===destination.resource&&destination.pointer.startsWith(frame.pointer+'/'))
                 owners.rememberFrame(entry.entryNamespace,captured,destination,frame);
         }
-        if(!entry.distinct)owners.rememberRole(entry.entryNamespace,captured,destination);
+        if(!entry.distinct||captured.kind==='schema'&&!entry.varyingResources.has(schemaResourceContextIdentity(captured)))owners.rememberRole(entry.entryNamespace,captured,destination);
         if(kind!=='schema'||!nativeSlots.has(key(captured))||owner===placement)continue;
         const slot=mapped(captured,placement),source=sources.get(slot.resource)!;
         // The native field is a use of the material schema, not a second

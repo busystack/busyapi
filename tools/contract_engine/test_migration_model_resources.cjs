@@ -138,3 +138,31 @@ test('implicit allOf model names seed shared ownership even without explicit map
   const page=choices(packet,at);assert.equal(page.complete,true);assert.deepEqual(page.entries.filter(value=>value.role==='component'&&value.target.resource===packet.root).map(value=>value.label),[name]);
  }
 });
+
+for(const extra of [true,{type:'integer'}])test(`unrelated shared ${typeof extra==='boolean'?'boolean':'object'} schemas do not split a literal resource frame`,async()=>{
+ const ids=['file:///model-local/a.json','file:///model-local/b.yaml','file:///model-local/extra.json'];
+ const literal={$id:'https://schemas.invalid/recursive',$ref:'#/$defs/Node',$defs:{Node:{$dynamicAnchor:'node',type:'object',required:['n'],
+  properties:{n:{type:'integer',minimum:0},child:{$dynamicRef:'#node'}}}}};
+ const entry=version=>({openapi:version,info:{title:version,version:'1'},paths:{},components:{schemas:{
+  Literal:{$ref:'b.yaml#/components/examples/Payload/value'},Extra:{$ref:'extra.json'},
+ }}});
+ const second=entry('3.1.2');second.components.examples={Payload:{value:literal}};
+ const input={root:ids[0],snapshot:'resource-local-role-reuse',targetVersion:'3.2.1',destination:'file:///model-local-output/',resources:[entry('3.2.1'),second,extra].map((value,index)=>({
+  id:ids[index],text:(index===1?'\ufeff# Keep source 雪\r\n':'')+JSON.stringify(value)+'\r\n',generation:1,
+ }))};
+ const before=input.resources.map(resource=>resource.text),source=new SourceDocument(before[1],ids[1]);
+ const texts=['{"n":0,"child":{"n":1}}','{"n":0,"child":{"n":-1}}','{"n":"0"}'];
+ for(const root of ids.slice(0,2))assert.deepEqual(await evaluations({...input,root},'/components/schemas/Literal',texts),[true,false,false]);
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const output=cold(review);
+ for(const root of ids.slice(0,2)){
+  const destination=review.changes.find(change=>change.resource===root).destination,packet={...output,root:destination};
+  assert.equal(analyse(packet).complete,true);assert.deepEqual(await evaluations(packet,'/components/schemas/Literal',texts),[true,false,false]);
+ }
+ const target=review.changes.find(change=>change.resource===ids[1]).destination,doc=createGraph({...output,root:target}).graph.docs.get(target);
+ assert.equal(doc.dataJson('/components/examples/Payload/value'),source.dataJson('/components/examples/Payload/value'));
+ assert.deepEqual(input.resources.map(resource=>resource.text),before);
+ const moved='file:///model-local-moved/';
+ const relocated={...output,root:new URL(review.entry,moved).href,resources:review.outputs.map(file=>({id:new URL(file.path,moved).href,text:file.text,generation:0}))};
+ assert.equal(analyse(relocated).complete,true);assert.deepEqual(await evaluations(relocated,'/components/schemas/Literal',texts),[true,false,false]);
+});
