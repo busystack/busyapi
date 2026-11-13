@@ -7,7 +7,7 @@ import {parseXml,xmlCharacters,xmlEscape,xmlBytes,type XmlElement,type XmlText} 
 
 export type XmlTarget={resource:string;pointer:string};
 export type XmlBinding={graph:ReferenceGraph;schema:XmlTarget};
-type Proof=(target:XmlTarget,document:SourceDocument,stack?:XmlTarget[])=>boolean|undefined;
+type Proof=(target:XmlTarget,document:SourceDocument,stack?:XmlTarget[],pointer?:string)=>boolean|undefined;
 const proofs=new WeakMap<ReferenceGraph,Proof>();
 /** Installed only during the existing canonical evaluator's captured lifetime. */
 export function bindXmlProof(graph:ReferenceGraph,proof:Proof):()=>void {proofs.set(graph,proof);return ()=>proofs.delete(graph);}
@@ -25,13 +25,13 @@ const identity=(at:XmlTarget)=>JSON.stringify([at.resource,at.pointer]);
 const data=(text:string)=>new SourceDocument(text,'urn:busyapi:xml-data',true,'json');
 /** Semantic data equality retains exact decimal values, object membership and
  * array order. Lexical numeric normalization does not imply rounded equality. */
-export function sameMediaData(left:SourceDocument,right:SourceDocument):boolean {
+export function sameMediaData(left:SourceDocument,right:SourceDocument,leftPointer='',rightPointer=''):boolean {
  const equal=(a:Node,b:Node):boolean=>{
   if(a.kind!==b.kind)return false;
   if(a.kind==='number')return compare(decimal(left.dataJson(a.pointer)),decimal(right.dataJson(b.pointer)))===0;
   if(['array','object'].includes(a.kind))return a.children.size===b.children.size&&[...a.children].every(([key,node])=>{const other=b.children.get(key);return other!==undefined&&equal(left.dataNode(node.pointer)!,right.dataNode(other.pointer)!);});
   return a.value===b.value;
- };return equal(left.root,right.root);
+ };const a=left.dataNode(leftPointer),b=right.dataNode(rightPointer);return !!a&&!!b&&equal(a,b);
 }
 
 function mergeXmlObjects(left:string,right:string):string {
@@ -52,8 +52,8 @@ type Budget={work:number;proofs:number};
 function interpreter(binding:XmlBinding,asciiText=false,decisions?:Decisions,budget:Budget={work:0,proofs:0}){
  const {graph}=binding;let candidates=0;
  const consume=()=>{if(++budget.work>200000)throw new SourceError('limit.xml.work','XML interpretation exceeds 200000 node/schema steps');};
- const proof=(at:XmlTarget,document:SourceDocument,stack?:XmlTarget[])=>{
-  consume();if(++budget.proofs>2048)throw new SourceError('limit.xml.proofs','XML branch selection exceeds 2048 canonical proofs');const result=proofs.get(graph)?.(at,document,stack);
+ const proof=(at:XmlTarget,document:SourceDocument,stack?:XmlTarget[],pointer='')=>{
+  consume();if(++budget.proofs>2048)throw new SourceError('limit.xml.proofs','XML branch selection exceeds 2048 canonical proofs');const result=proofs.get(graph)?.(at,document,stack,pointer);
   if(result===undefined)return unavailable('Applicable XML schema interpretation requires the captured canonical evaluator',at,graph);
   return result;
  };
@@ -114,9 +114,11 @@ function interpreter(binding:XmlBinding,asciiText=false,decisions?:Decisions,bud
  };
  // Property presence selects dependentSchemas' XML interpretation; all of its
  // assertions still belong exclusively to the canonical evaluator.
- const guardMatches=(guard:Guard,document:SourceDocument,stack?:XmlTarget[])=>
-  (guard.present!==undefined?document.root.kind==='object'&&document.root.children.has(guard.present):proof(guard.target,document,stack))===guard.valid;
- const models=(spec:Spec,instance?:SourceDocument):Model[]=>{
+ const guardMatches=(guard:Guard,document:SourceDocument,stack?:XmlTarget[],pointer='')=>{
+  const node=document.dataNode(pointer);
+  return (guard.present!==undefined?node?.kind==='object'&&node.children.has(guard.present):proof(guard.target,document,stack,pointer))===guard.valid;
+ };
+ const models=(spec:Spec,instance?:SourceDocument,pointer=''):Model[]=>{
   if(spec.implicit){
    if(!spec.name)return unavailable('Implicit XML array items have no inferred property or component name; declare items.xml.name',spec.implicit,graph);
    return ['string','number','boolean','null'].map(type=>({type,nullable:false,node:'element',name:spec.name,namespace:spec.namespace??'',properties:new Map<string,Spec>(),required:new Set<string>(),prefixItems:[],guards:[],source:spec.implicit!,stack:spec.stack??[],additionalAllowed:true,closedItems:false,minItems:0,maxItems:Infinity}));
@@ -124,7 +126,7 @@ function interpreter(binding:XmlBinding,asciiText=false,decisions?:Decisions,bud
   let combinations:Clause[]=[{sources:[],guards:[],stack:spec.stack??[]}];
   for(const target of spec.targets)combinations=product(combinations,clauses(target,spec.stack??[]));
   return combinations.flatMap(choice=>{
-   if(instance&&choice.guards.some(guard=>!guardMatches(guard,instance,choice.stack)))return [];
+   if(instance&&choice.guards.some(guard=>!guardMatches(guard,instance,choice.stack,pointer)))return [];
    consume();const source=spec.targets[0],all=[...new Map(choice.sources.map(at=>[identity(at),at])).values()];
    const entries=all.map(at=>({at,value:graph.docs.get(at.resource)!.dataNode(at.pointer)!.value,s:scope(at)})).filter(entry=>entry.value&&typeof entry.value==='object');
    const primary=entries[0];if(!primary)return models({...spec,implicit:source}).map(model=>({...model,guards:choice.guards,stack:choice.stack}));
@@ -218,7 +220,7 @@ function interpreter(binding:XmlBinding,asciiText=false,decisions?:Decisions,bud
    });
   });
  };
- const accepts=(m:Model,document:SourceDocument)=>m.guards.every(guard=>guardMatches(guard,document,m.stack));
+ const accepts=(m:Model,document:SourceDocument,pointer='')=>m.guards.every(guard=>guardMatches(guard,document,m.stack,pointer));
  const choose=(width:number,normalization=false)=>{
   if(!Number.isSafeInteger(width)||width<1)invalid('XML interpretation has no finite applicable choice');
   if(width===1)return 0;
@@ -228,6 +230,7 @@ function interpreter(binding:XmlBinding,asciiText=false,decisions?:Decisions,bud
   if(index>=width)invalid('XML interpretation choice is absent');return index;
  };
  const unique=(values:string[],message:string,pointer='')=>{
+  if(values.length===1)return values[0];
   const distinct:SourceDocument[]=[];
   for(const value of values){const document=data(value);if(!distinct.some(existing=>sameMediaData(existing,document)))distinct.push(document);}
   if(distinct.length>1&&decisions){
@@ -445,8 +448,12 @@ function interpreter(binding:XmlBinding,asciiText=false,decisions?:Decisions,bud
     }
    }
    if(++candidates>200000)throw new SourceError('limit.xml.candidates','XML candidate budget exceeded');
-   fallback.push(value);const candidate=data(context?mergeXmlObjects(value,context):value);
-   if(accepts(m,candidate)&&(options.length===1||spec.targets.every(target=>proof(target,candidate,m.stack))))values.push(value);
+   fallback.push(value);
+   if(!m.guards.length&&options.length===1)values.push(value);
+   else {
+    const candidate=data(context?mergeXmlObjects(value,context):value);
+    if(accepts(m,candidate)&&(options.length===1||spec.targets.every(target=>proof(target,candidate,m.stack))))values.push(value);
+   }
   }catch(caught){if(caught instanceof SourceError&&caught.code.startsWith('limit.'))throw caught;if(caught instanceof SourceError&&caught.kind==='unsupported'&&decisions)decisions.uncertain=caught;error=caught;}
   if(values.length)return unique(values,'Several applicable XML inversions produce different data values',pointer);
   if(fallback.length){
@@ -456,12 +463,10 @@ function interpreter(binding:XmlBinding,asciiText=false,decisions?:Decisions,bud
   }
   throw error??new SourceError('runtime.xml.mapping','No applicable XML representation');
  };
- const write=(spec:Spec,document:SourceDocument,node:Node,depth=0,inheritedPrefixes?:Map<string,string>,attributeSink?:string[]):string=>{
+ const write=(spec:Spec,document:SourceDocument,node:Node,depth=0,inheritedPrefixes?:Map<string,string>,attributeSink?:string[],options=models(spec,document,node.pointer)):string=>{
   if(depth>=limits.depth)throw new SourceError('limit.xml.depth','XML instance exceeds 128 levels');
   const outputs:{wire:string;attributes:string}[]=[];let error:unknown;
-  const local=data(document.dataJson(node.pointer));
-  for(const m of models(spec,local))try{
-   if(!accepts(m,local))continue;
+  for(const m of options)try{
    if(node.kind!=='null'&&node.kind!==m.type&&!(m.type==='integer'&&node.kind==='number'))invalid('XML typed value differs from schema type');
    if(node.kind==='null'&&!m.nullable&&m.type!=='null')invalid('Null has no XML interpretation');
    const text=node.kind==='string'?node.value:document.dataJson(node.pointer);
@@ -485,15 +490,15 @@ function interpreter(binding:XmlBinding,asciiText=false,decisions?:Decisions,bud
      if(m.wrapper&&!m.wrapperOuter?.has(key))continue;
      if(spec.exclude?.has(key)&&!m.properties.has(key)&&!m.additional)continue;
      const child=(m.wrapper?m.wrapperOuter?.get(key):m.properties.get(key))??(m.additional?{...m.additional,name:key}:undefined);if(!child)return unavailable('XML property has no captured representation',m.source,graph);
-     const inlineAttributes:string[]=[];
-     const wire=write(child,document,document.dataNode(physical.pointer)!,depth+1,attributePrefixes,inlineAttributes);
+     const shapes=models(child,document,physical.pointer),inlineAttributes:string[]=[];
+     const wire=write(child,document,document.dataNode(physical.pointer)!,depth+1,attributePrefixes,inlineAttributes,shapes);
      attributes+=inlineAttributes.join('');
-     if(models(child,data(document.dataJson(physical.pointer))).every(m=>m.node==='attribute'))attributes+=wire;else content+=wire;
+     if(shapes.every(m=>m.node==='attribute'))attributes+=wire;else content+=wire;
     }else if(node.kind==='array'&&!m.wrapper)for(const [index,physical]of node.children){
      const child=m.prefixItems[Number(index)]??m.items;if(!child)return unavailable('XML array item has no captured representation schema',m.source,graph);
-     const shapes=models(child,data(document.dataJson(physical.pointer))),inlineAttributes:string[]=[];
+     const shapes=models(child,document,physical.pointer),inlineAttributes:string[]=[];
      if(shapes.every(shape=>shape.node==='attribute')&&!m.prefixItems[Number(index)])return unavailable('Repeated XML attributes cannot be serialized as distinct array items',m.source,graph);
-     const wire=write(child,document,document.dataNode(physical.pointer)!,depth+1,attributePrefixes,inlineAttributes);
+     const wire=write(child,document,document.dataNode(physical.pointer)!,depth+1,attributePrefixes,inlineAttributes,shapes);
      attributes+=inlineAttributes.join('');if(shapes.every(shape=>shape.node==='attribute'))attributes+=wire;else content+=wire;
     }else if(!m.wrapper)content=node.kind==='null'?'':xmlEscape(text,false,asciiText);
     if(m.node==='none'){if(attributes&&!attributeSink)return unavailable('XML attribute groups require an enclosing element',m.source,graph);output=content;outerAttributes=attributes;}
@@ -524,7 +529,7 @@ function interpreter(binding:XmlBinding,asciiText=false,decisions?:Decisions,bud
  };
  return {read,write,proof,models,finiteValues};
 }
-export function decodeXml(bytes:Buffer,id:string,binding:XmlBinding,charset?:string):SourceDocument {
+export function decodeXml(bytes:Buffer,id:string,binding:XmlBinding,charset?:string):{document:SourceDocument;schemaValid:boolean} {
  const root=parseXml(xmlCharacters(bytes,charset)),budget={work:0,proofs:0};
  const finite=interpreter(binding,false,undefined,budget).finiteValues();
  const hint=finite?.length===1?finite[0]:undefined;
@@ -539,7 +544,7 @@ export function decodeXml(bytes:Buffer,id:string,binding:XmlBinding,charset?:str
    if(codec.proof(binding.schema,document)){
     if(!valid.some(other=>sameMediaData(other,document)||xmlCorresponds(other,document,binding)))valid.push(document);
     if(valid.length>1)throw new SourceError('runtime.xml.ambiguous','Several schema-valid XML inversions produce different data',[0,0],'unsupported');
-    if(hint&&sameMediaData(hint,document)||!uncertain&&!decisions.uncertain&&decisions.widths.every((_,index)=>decisions.normalizations[index]))return document;
+    if(hint&&sameMediaData(hint,document)||!uncertain&&!decisions.uncertain&&decisions.widths.every((_,index)=>decisions.normalizations[index]))return {document,schemaValid:true};
    }else if(!invalidCandidates.some(other=>sameMediaData(other,document)))invalidCandidates.push(document);
   }catch(error){if(error instanceof SourceError&&(error.code.startsWith('limit.')||error.code==='runtime.xml.ambiguous'))throw error;problem=error;}
   uncertain??=decisions.uncertain;
@@ -550,17 +555,17 @@ export function decodeXml(bytes:Buffer,id:string,binding:XmlBinding,charset?:str
   }
  }
  if(uncertain)throw uncertain;
- if(valid.length===1)return valid[0];
+ if(valid.length===1)return {document:valid[0],schemaValid:true};
  if(valid.length>1)return unavailable('Several schema-valid XML inversions produce different data',binding.schema,binding.graph);
- if(invalidCandidates.length===1)return invalidCandidates[0];
+ if(invalidCandidates.length===1)return {document:invalidCandidates[0],schemaValid:false};
  if(invalidCandidates.length>1){const range=binding.graph.docs.get(binding.schema.resource)!.dataNode(binding.schema.pointer)!.range;throw new SourceError('runtime.xml.schema','Every bounded XML interpretation violates the original captured schema',range,undefined,{...binding.schema,range});}
  throw problem??new SourceError('runtime.xml.mapping','XML has no captured data interpretation');
 }
 
-export function encodeXml(document:SourceDocument,binding:XmlBinding,charset?:string,header=false):Buffer {
+export function encodeXml(document:SourceDocument,binding:XmlBinding,charset?:string,header=false,pointer=''):Buffer {
  if(document.issues.length)throw document.issues[0];
  try{
-  const codec=interpreter(binding,header),text=codec.write({targets:[binding.schema]},document,document.root);
+  const codec=interpreter(binding,header),text=codec.write({targets:[binding.schema]},document,document.dataNode(pointer)!);
   parseXml(text);return xmlBytes(text,charset);
  }catch(error){
   if(!(error instanceof SourceError)||error.source)throw error;
@@ -572,12 +577,12 @@ export function encodeXml(document:SourceDocument,binding:XmlBinding,charset?:st
 /** Documented XML inverse policy: optional omitted nullable attributes normalize
  * to omission; required/schema-necessary omitted nullable attributes become null; absent optional unwrapped arrays and empty explicit character nodes
  * normalize to omission. No other member/value loss is permitted. */
-export function xmlCorresponds(original:SourceDocument,decoded:SourceDocument,binding:XmlBinding):boolean {
+export function xmlCorresponds(original:SourceDocument,decoded:SourceDocument,binding:XmlBinding,originalPointer=''):boolean {
  const codec=interpreter(binding);
  const equal=(spec:Spec,a:Node,b:Node,depth=0):boolean=>{
   if(depth>=limits.depth)throw new SourceError('limit.xml.depth','XML correspondence exceeds 128 levels');
-  if(sameMediaData(data(original.dataJson(a.pointer)),data(decoded.dataJson(b.pointer))))return true;
-  const options=codec.models(spec,data(original.dataJson(a.pointer)));
+  if(sameMediaData(original,decoded,a.pointer,b.pointer))return true;
+  const options=codec.models(spec,original,a.pointer);
   if(a.kind==='object'&&b.kind==='object')return options.some(m=>{
    const keys=new Set([...a.children.keys(),...b.children.keys()]);
    return [...keys].every(key=>{
@@ -595,5 +600,5 @@ export function xmlCorresponds(original:SourceDocument,decoded:SourceDocument,bi
   }));
   return false;
  };
- return equal({targets:[binding.schema]},original.root,decoded.root);
+ return equal({targets:[binding.schema]},original.dataNode(originalPointer)!,decoded.root);
 }

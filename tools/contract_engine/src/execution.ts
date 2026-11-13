@@ -88,8 +88,8 @@ export async function requestContentParameters(input:any,capture=createGraph(inp
 }
 
 /** A URL-form field retains its own captured schema and declared media. */
-export async function requestFormContentValue(input:any,captured=createGraph(input),plan=requestOperation(input,captured)){
- if(typeof input.text!=='string'||typeof input.name!=='string'||typeof input.mediaType!=='string'||typeof input.formType!=='string'||!Number.isSafeInteger(input.index)||input.index<0||input.index>=2048||typeof input.structured!=='boolean')throw new SourceError('request.form.media','Expected a bounded captured form field');
+async function formContentValue(input:any,captured:ReturnType<typeof createGraph>,plan:ReturnType<typeof requestOperation>,root?:SourceDocument){
+ if(!(input.structured&&root)&&typeof input.text!=='string'||typeof input.name!=='string'||typeof input.mediaType!=='string'||typeof input.formType!=='string'||!Number.isSafeInteger(input.index)||input.index<0||input.index>=2048||typeof input.structured!=='boolean')throw new SourceError('request.form.media','Expected a bounded captured form field');
  const response=input.status===undefined?undefined:plan.responses.find(value=>value.status===String(input.status))??plan.responses.find(value=>value.status===String(input.status)[0]+'XX')??plan.responses.find(value=>value.status==='default');
  const content=selectRequestMedia<Record<string,any>&{mediaType:string}>(input.status===undefined?plan.requestBody?.content??[]:response?.content??[],input.formType);
  if(!content?.schema||content.formBinding!=='urlencoded')throw new SourceError('request.form.owner','Select the captured URL-encoded media owner');
@@ -97,18 +97,17 @@ export async function requestFormContentValue(input:any,captured=createGraph(inp
  if(['style','explode','allowReserved'].some(key=>Object.hasOwn(rule,key)))throw new SourceError('request.form.media','Style serialization does not use a content media codec');
  const property=shape.properties?.[input.name],declared=rule.contentType??(property?.types?.includes('array')?property.items:property)?.defaultContentType??'text/plain';
  mediaTypeChoice(declared,input.mediaType);
- const root=input.bodyText===undefined?undefined:new SourceDocument(input.bodyText,'urn:busyapi:form-input',true,'json');
- if(root?.issues.length)throw root.issues[0];
  const array=root?root.dataNode('/'+escape(input.name))?.kind==='array':property?.types?.includes('array');
  const path=[{property:input.name},...(array?[{item:input.index}]:[])];
  const representations=forms.partRepresentations({...content.definition,kind:'media'},{...content.schema,kind:'schema'},path);
  if(representations.length!==1)throw new SourceError('request.form.media.unsupported','This field requires an explicit, unambiguous captured representation',[0,0],'unsupported',content.definition);
  const {prepareModeledMedia}=await import('./modeled_media');
- const prepared=input.structured?await prepareModeledMedia(input,input.text,input.mediaType,representations[0].schema,false,input.status===undefined?'request':'response',captured):undefined;
+ const valuePointer=root?'/'+escape(input.name)+(array?'/'+input.index:''):undefined;
+ const prepared=input.structured?await prepareModeledMedia(input,root&&valuePointer!==undefined?{document:root,pointer:valuePointer}:input.text,input.mediaType,representations[0].schema,false,input.status===undefined?'request':'response',captured):undefined;
  const bytes=prepared?prepared.bytes:
   runtimeMediaKind(input.mediaType)==='xml'?rawXmlBytes(input.text,mediaTypes(input.mediaType,false)[0].parameters.get('charset')):runtimeMediaBytes(input.text,false);
  const value=Array.from(bytes,byte=>byte===32?'+':/[A-Za-z0-9._~-]/.test(String.fromCharCode(byte))?String.fromCharCode(byte):'%'+byte.toString(16).toUpperCase().padStart(2,'0')).join('');
- return {version:1,snapshot:input.snapshot,identity:plan.identity,name:input.name,index:input.index,mediaType:input.mediaType,input:createHash('sha256').update(input.text).digest('hex'),value,...(prepared?{modeledData:prepared.text}:{})};
+ return {value,...(prepared?{modeledData:prepared.text}:{})};
 }
 
 export async function requestMediaBytes(input:any,captured=createGraph(input),plan=requestOperation(input,captured)){
@@ -170,15 +169,17 @@ export async function requestFormBytes(input:any,captured=createGraph(input),pla
    const undecoded=!actual&&!styled&&kind!=='json'&&type?.split(';')[0].trim().toLowerCase()!=='text/plain'&&['object','array','number','integer','boolean','null'].includes(item.literalType);
    if(!actual&&(modeled||undecoded))complete=false;
    const parsed=actual?undefined:!undecoded&&(kind==='json'||['object','array','integer','number','boolean','null'].includes(item.literalType))?parse(text):undefined;
-   const exact=actual?typed!.dataJson(actual.pointer):parsed?.dataJson('')??JSON.stringify(text);
+   const exact=actual?text:parsed?.dataJson('')??JSON.stringify(text);
    raw.push(exact);
    if(styled)continue;
    if(actual&&!modeled&&kind!=='json'&&!['text/plain','application/octet-stream'].includes(type!.split(';')[0].trim().toLowerCase())&&['object','array'].includes(actual.kind))throw new SourceError('request.form.media.unsupported','This form media has no structured data serializer; use a literal serialized field',[0,0],'unsupported');
    const value=actual?(kind==='json'||modeled?exact:actual.kind==='string'?actual.value:exact):text;
-   if(modeled)wire.push((await requestFormContentValue({...input,formType:input.mediaType,bodyText:input.text,name,index,text:value,mediaType:type,structured:actual!==undefined},captured,plan)).value);
+   if(modeled)wire.push((await formContentValue({...input,formType:input.mediaType,name,index,text:actual?undefined:value,mediaType:type,structured:actual!==undefined},captured,plan,typed)).value);
    else {const charset=mediaTypes(type!,false)[0].parameters.get('charset');wire.push(formPercent(kind==='text'?declaredPlainTextBytes(value,charset??'utf-8'):Buffer.from(value)));}
   }
-  if(!raw.length||styled&&!array&&parse(raw[0]).root.kind==='object'&&parse(raw[0]).root.children.size===0)continue;
+  if(!raw.length)continue;
+  const fieldValue=styled&&!array?(supplied??parse(raw[0]).root):undefined;
+  if(fieldValue?.kind==='object'&&fieldValue.children.size===0)continue;
   members.push(JSON.stringify(name)+':'+(array?'['+raw.join(',')+']':raw[0]));mediaValues[name]=wire;
  }
  const raw='{'+members.join(',')+'}',bytes=urlEncodedWire({raw,declaration:content,mediaTypes:resolved.types,mediaValues,...(typed?{}:{order})});
@@ -201,7 +202,7 @@ export async function mockFormBytes(input:any){
   const values=field.kind==='array'?[...field.children.values()].map(node=>doc.dataNode(node.pointer)!):[field];
   mediaValues[name]=[];
   for(const [index,node]of values.entries()){
-   const prepared=await requestFormContentValue({...input,formType:input.mediaType,bodyText:input.text,name,index,text:doc.dataJson(node.pointer),mediaType:type,structured:true},captured,plan);
+   const prepared=await formContentValue({...input,formType:input.mediaType,name,index,mediaType:type,structured:true},captured,plan,doc);
    mediaValues[name].push(prepared.value);normalizations.push({pointer:node.pointer,text:prepared.modeledData!});
   }
  }

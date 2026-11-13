@@ -442,7 +442,7 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
                             const candidates=hint?forms.partRepresentations(at,hint.schema,[...hint.path,...(field.kind==='array'?[{item:index}]:[])]):[];
                             const selected=candidates.find(choice=>choice.id===selections[node.pointer])??(candidates.length===1?candidates[0]:undefined);
                             if(!selected)fail('request.multipart.schema','The nested form media field needs its own captured representation',fieldAt,true);
-                            const prepared=await prepareModeledMedia(input,doc.dataJson(node.pointer),types[name],selected.schema,false,input.direction==='response'?'response':'request',context);
+                            const prepared=await prepareModeledMedia(input,{document:doc,pointer:node.pointer},types[name],selected.schema,false,input.direction==='response'?'response':'request',context);
                             encoded.push(Array.from(prepared.bytes,byte=>byte===32?'+':/[A-Za-z0-9._~-]/.test(String.fromCharCode(byte))?String.fromCharCode(byte):'%'+byte.toString(16).toUpperCase().padStart(2,'0')).join(''));
                             normalizations.set(node.pointer,{text:prepared.text});
                         }
@@ -464,7 +464,7 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
                 if(literalText===undefined&&!styled&&!transfer.schemaEncoded&&transfer.instanceEncoding!=='octets'&&['xml','linkset','linkset-json'].includes(kind)){
                     const schema=selected??(candidates.length===1?candidates[0]:undefined);
                     if(kind==='xml'&&!schema)fail('request.multipart.schema','XML part requires its own unique captured schema',entry.at,true);
-                    const prepared=await prepareModeledMedia(input,doc.dataJson(pointer),selectedType!,schema,false,input.direction==='response'?'response':'request',context);
+                    const prepared=await prepareModeledMedia(input,{document:doc,pointer},selectedType!,schema,false,input.direction==='response'?'response':'request',context);
                     part.bytes=prepared.bytes.toString('base64');normalizations.set(pointer,{text:prepared.text});parts.push(part);continue;
                 }
                 let text:string;

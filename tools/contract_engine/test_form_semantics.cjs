@@ -45,7 +45,7 @@ for(const version of ['3.0.4','3.1.2','3.2.1'])test(`${version} an Encoding key 
  const root='file:///ignored-name/api.json',media={schema:{type:'object',properties:{value:{type:'string'}}},encoding:{absent:{contentType:'application/unavailable',headers:{'Content-Transfer-Encoding':{schema:{type:'string',enum:['unavailable']}}},itemEncoding:{contentType:'application/unavailable'}}}};
  const input={root,resource:root,pointer:'/paths/~1form/post',snapshot:version,mediaType:'multipart/form-data',files:[],resources:[{id:root,generation:1,text:JSON.stringify({openapi:version,info:{title:'Ignored name',version:'1'},paths:{'/form':{post:{requestBody:{content:{'multipart/form-data':media}},responses:{204:{description:'Empty'}}}}}})}]};
  const content=requestOperation(input).requestBody.content[0];
- assert.deepEqual(content.encoding,{});assert.equal(content.multipart.usesTree,false);assert(!content.form.parts.absent);
+ assert.deepEqual(Object.keys(content.encoding),[]);assert.equal(content.formBinding,'multipart-named');assert(!content.form.parts.absent);
  const wire='--W4\r\nContent-Disposition: form-data; name="value"\r\nContent-Type: text/plain\r\n\r\nretained\r\n--W4--\r\n';
  assert.equal((await requestMultipartPlan({...input,text:'{"value":"retained"}',wireType:'multipart/form-data; boundary=W4',wire:Buffer.from(wire).toString('base64'),expected:'{"value":"retained"}'})).proof.valid,true);
 });

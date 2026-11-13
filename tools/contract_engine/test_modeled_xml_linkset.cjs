@@ -278,18 +278,19 @@ test('nullable attribute omission is normalized only when the full schema permit
  const result=await wire(input,'{"id":null}');assert.equal(result.decoded.runtimeEvaluations[0].valid,true,JSON.stringify(result.decoded.runtimeFindings));assert.equal(result.decoded.runtimeEvaluations[0].modeledData,'{"id":null}');
 });
 test('URL-form media fields use their own XML/Linkset schemas and actual charset octets',async()=>{
- const {requestFormContentValue}=require('./dist/execution.cjs');
- const input=capture({}),document=JSON.parse(input.resources[0].text),xml={type:'object',xml:{name:'Value'},properties:{n:{type:'number',enum:['EXACT']}},required:['n']},links={type:'object',required:['linkset']};
+ const {requestFormBytes}=require('./dist/execution.cjs');
+ const input=capture({}),document=JSON.parse(input.resources[0].text),xml={type:'object',xml:{name:'Value'},allOf:[{properties:{n:{type:'number',enum:['EXACT']}},required:['n']}],unevaluatedProperties:false},links={type:'object',required:['linkset']};
  document.paths['/p'].post.requestBody.content={'application/x-www-form-urlencoded':{schema:{type:'object',required:['xml','links'],properties:{xml,links}},encoding:{xml:{contentType:'application/xml; charset=utf-16be'},links:{contentType:'application/linkset'}}}};
  input.resources[0].text=JSON.stringify(document).replaceAll('"EXACT"','9007199254740993');
  const formType='application/x-www-form-urlencoded',bodyText='{"xml":{"n":9007199254740993},"links":{"linkset":[{"next":[{"href":"/n","title":"a,b"}]}]}}';
- const a=await requestFormContentValue({...input,formType,bodyText,name:'xml',index:0,mediaType:'application/xml; charset=utf-16be',text:'{"n":9007199254740993}',structured:true});
- const b=await requestFormContentValue({...input,formType,bodyText,name:'links',index:0,mediaType:'application/linkset',text:'{"linkset":[{"next":[{"href":"/n","title":"a,b"}]}]}',structured:true});
- assert.match(a.value,/%00%3C/);assert.match(b.value,/%3C%2Fn%3E/);
+ const prepared=await requestFormBytes({...input,mediaType:formType,text:bodyText,fields:[]});
+ const body=Buffer.from(prepared.base64,'base64').toString();
+ assert.match(body,/xml=%00%3C/);assert.match(body,/links=%3C%2Fn%3E/);
  const at={resource:root,pointer:'/paths/~1p/post/requestBody/content/application~1x-www-form-urlencoded'};
- const result=await evaluateSchemas({...input,runtimeInstances:[{subject:'request-body',location:formType,text:'xml='+a.value+'&links='+b.value,mediaType:formType,form:at,schema:{...at,pointer:at.pointer+'/schema'}}]});
+ const result=await evaluateSchemas({...input,runtimeInstances:[{subject:'request-body',location:formType,text:body,mediaType:formType,form:at,schema:{...at,pointer:at.pointer+'/schema'}}]});
  assert(result.runtimeEvaluations.every(value=>value.complete&&value.valid),JSON.stringify(result.runtimeFindings));
- await assert.rejects(requestFormContentValue({...input,formType,bodyText,name:'xml',index:0,mediaType:'application/xml; charset=utf-16be',text:'{"n":9007199254740992}',structured:true}),error=>error.code==='request.media.conformance');
+ await assert.rejects(requestFormBytes({...input,mediaType:formType,text:bodyText.replace('9007199254740993','9007199254740992'),fields:[]}),error=>error.code==='request.media.conformance');
+ await assert.rejects(requestFormBytes({...input,mediaType:formType,text:bodyText.replace('{"n":','{"extra":true,"n":'),fields:[]}),error=>error.code==='request.media.conformance');
 });
 test('positional XML attribute/element arrays retain order from the schema and reject unmodeled attributes',async()=>{
  const schema={type:'array',xml:{nodeType:'element',name:'p'},prefixItems:[{type:'string',xml:{nodeType:'attribute',name:'id'}},{type:'number',xml:{nodeType:'element',name:'n'}}],items:false,minItems:2,maxItems:2};
@@ -374,4 +375,13 @@ test('two schema-valid values do not prove XML serialization correspondence',asy
   assert(result.runtimeEvaluations.every(value=>value.complete&&value.valid));
  }
  await assert.rejects(requestMediaBytes({...input,mediaType:'application/xml',text:'{"content":"\\r"}'}),error=>error.code==='runtime.media.correspondence');
+});
+
+test('XML wire verdicts retain complete original schema diagnostics and evaluated properties',async()=>{
+ const schema={type:'object',xml:{name:'value'},allOf:[{properties:{n:{type:'integer',enum:['EXACT']}},required:['n']}],unevaluatedProperties:false};
+ const input=capture(schema),at={resource:root,pointer:'/paths/~1p/post/responses/200/content/application~1xml/schema'};
+ const result=await evaluateSchemas({...input,runtimeInstances:[{subject:'response-body',location:'body',text:'<value><n>9007199254740992</n></value>',mediaType:'application/xml',schema:at}]});
+ assert.equal(result.complete,true,JSON.stringify(result.runtimeFindings));
+ assert(result.runtimeEvaluations.some(value=>value.valid===false));
+ assert(result.runtimeFindings.some(value=>value.code==='runtime.schema.incompatible'&&value.keyword?.endsWith('/enum')&&value.schema.resource===at.resource&&value.schema.pointer===at.pointer),JSON.stringify(result.runtimeFindings));
 });

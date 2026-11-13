@@ -49,9 +49,9 @@ function linkMembers(rel:string,targets:unknown):boolean {
 function extensionValues(name:string,value:unknown):boolean {
  return Array.isArray(value)&&value.length>0&&value.every(item=>name.endsWith('*')?international(item):typeof item==='string');
 }
-export function validateLinkset(document:SourceDocument):Linkset {
+export function validateLinkset(document:SourceDocument,pointer=''):Linkset {
  if(document.issues.length)throw document.issues[0];
- const value:unknown=document.root.value;
+ const value:unknown=document.dataNode(pointer)?.value;
  if(!object(value)||!Array.isArray(value.linkset))return fail('A linkset document requires a linkset array member');
  let count=0;
  for(const context of value.linkset){
@@ -136,8 +136,8 @@ export function parseLinkset(text:string,id:string,header=false):SourceDocument 
  const document=new SourceDocument(JSON.stringify({linkset:contexts}),id,true,'json');validateLinkset(document);return document;
 }
 
-export function encodeLinkset(document:SourceDocument,header=false):string {
- const value=validateLinkset(document),links:string[]=[];
+export function encodeLinkset(document:SourceDocument,header=false,pointer=''):string {
+ const value=validateLinkset(document,pointer),links:string[]=[];
  if(Object.keys(value).some(key=>key!=='linkset'))unsupported('Additional JSON Linkset metadata has no lossless textual representation');
  const quote=(value:string)=>{
   if(/[\x00-\x08\x0a-\x1f\x7f]/.test(value))return fail('A Link attribute contains prohibited control characters');
@@ -175,14 +175,14 @@ export function encodeLinkset(document:SourceDocument,header=false):string {
 
 /** Link meaning is independent of context/relation grouping and object order;
  * relative references and absent versus explicit anchors remain distinct. */
-export function linksetCorresponds(left:SourceDocument,right:SourceDocument):boolean {
- const canonical=(document:SourceDocument)=>{
-  const value=validateLinkset(document);encodeLinkset(document);
+export function linksetCorresponds(left:SourceDocument,right:SourceDocument,leftPointer='',rightPointer=''):boolean {
+ const canonical=(document:SourceDocument,pointer:string)=>{
+  const value=validateLinkset(document,pointer);encodeLinkset(document,false,pointer);
   const stable=(value:any):string=>Array.isArray(value)?'['+value.map(stable).join(','):
    value&&typeof value==='object'?'{'+Object.keys(value).sort().map(key=>JSON.stringify(key)+':'+stable(value[key])).join(',')+'}':JSON.stringify(value);
   const links:string[]=[];
   for(const context of value.linkset)for(const [rel,targets]of Object.entries(context))if(rel!=='anchor')for(const target of targets as Target[])links.push(stable({anchor:context.anchor??null,rel,target}));
   return links.sort();
  };
- const a=canonical(left),b=canonical(right);return a.length===b.length&&a.every((value,index)=>value===b[index]);
+ const a=canonical(left,leftPointer),b=canonical(right,rightPointer);return a.length===b.length&&a.every((value,index)=>value===b[index]);
 }

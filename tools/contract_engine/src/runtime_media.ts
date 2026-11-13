@@ -10,7 +10,7 @@ import {plainTextCharset,validatePlainText} from './text_encoding';
 
 export type TextSerialization='embedded'|'unicode';
 export type RuntimeMediaKind='xml'|'json'|'linkset-json'|'linkset'|'text'|'json-lines'|'json-sequence'|'event-stream'|'opaque';
-export type RuntimeMediaData={document:SourceDocument;items?:SourceDocument[];binaryInstances?:BinaryDocuments;kind:RuntimeMediaKind|'binary'|'file'|'octets'|'form-urlencoded'|'multipart-form'|'multipart-sequence'};
+export type RuntimeMediaData={document:SourceDocument;schemaEvaluation?:{binding:XmlBinding;valid:boolean};items?:SourceDocument[];binaryInstances?:BinaryDocuments;kind:RuntimeMediaKind|'binary'|'file'|'octets'|'form-urlencoded'|'multipart-form'|'multipart-sequence'};
 export type RuntimeMediaDescription=
  {dataModelStatus:'classified'|'opaque';dataModel:RuntimeMediaKind;incremental:boolean}|
  {dataModelStatus:'invalid'|'unsupported';dataModelIssue:{code:string;message:string}};
@@ -89,7 +89,8 @@ export function decodeRuntimeMedia(text:string,id:string,contentType?:string,bas
  }
  if(kind==='xml'&&opaque!=='file'){
   if(!xmlBinding)throw new SourceError('runtime.xml.model.unsupported','XML requires its captured schema binding',[0,0],'unsupported');
-  return {document:decodeXml(bytes??rawXmlBytes(text,type?.[0].parameters.get('charset')),id,xmlBinding,type?.[0].parameters.get('charset')),kind};
+  const decoded=decodeXml(bytes??rawXmlBytes(text,type?.[0].parameters.get('charset')),id,xmlBinding,type?.[0].parameters.get('charset'));
+  return {document:decoded.document,schemaEvaluation:{binding:xmlBinding,valid:decoded.schemaValid},kind};
  }
  if(opaque==='file'){
   if(['xml','linkset','linkset-json'].includes(kind))validateRuntimeMediaSyntax(bytes??(kind==='xml'?rawXmlBytes(text,type?.[0].parameters.get('charset')):runtimeMediaBytes(text,false)),id,contentType!);
@@ -168,23 +169,24 @@ export function decodeRuntimeMedia(text:string,id:string,contentType?:string,bas
 }
 
 /** Shared typed encoder; callers retain original-schema validation before dispatch. */
-export function encodeRuntimeMedia(document:SourceDocument,contentType:string,header=false,xmlBinding?:XmlBinding):Buffer {
+export function encodeRuntimeMedia(document:SourceDocument,contentType:string,header=false,xmlBinding?:XmlBinding,pointer=''):Buffer {
  if(document.issues.length)throw document.issues[0];
  const kind=runtimeMediaKind(contentType);
- const json=()=>header?document.dataJson('',()=>undefined).replace(/[^\x00-\x7f]/g,character=>'\\u'+character.charCodeAt(0).toString(16).padStart(4,'0')):document.dataJson('');
+ const json=()=>header?document.dataJson(pointer,()=>undefined).replace(/[^\x00-\x7f]/g,character=>'\\u'+character.charCodeAt(0).toString(16).padStart(4,'0')):document.dataJson(pointer);
  if(kind==='linkset'||kind==='linkset-json')validateLinksetProfile(mediaTypes(contentType,false)[0].parameters.get('profile'));
  if(kind==='xml'){
   if(!xmlBinding)throw new SourceError('runtime.xml.model.unsupported','XML requires its captured schema binding',[0,0],'unsupported');
   const charset=mediaTypes(contentType,false)[0].parameters.get('charset');
-  return encodeXml(document,xmlBinding,charset,header);
+  return encodeXml(document,xmlBinding,charset,header,pointer);
  }
- if(kind==='linkset')return runtimeMediaBytes(encodeLinkset(document,header),false);
+ if(kind==='linkset')return runtimeMediaBytes(encodeLinkset(document,header,pointer),false);
  if(kind==='linkset-json'){
-  validateLinkset(document);return runtimeMediaBytes(json(),false);
+  validateLinkset(document,pointer);return runtimeMediaBytes(json(),false);
  }
  if(['json-lines','json-sequence','event-stream'].includes(kind)){
-  if(header||document.root.kind!=='array')throw new SourceError('runtime.media.encoder.sequence','A typed sequence requires array data in an ordinary body');
-  const items=[...document.root.children.values()].map(node=>document.dataNode(node.pointer)!);
+  const root=document.dataNode(pointer)!;
+  if(header||root.kind!=='array')throw new SourceError('runtime.media.encoder.sequence','A typed sequence requires array data in an ordinary body');
+  const items=[...root.children.values()].map(node=>document.dataNode(node.pointer)!);
   if(items.length>2048)throw new SourceError('limit.runtime.items','A finite generated sequence exceeds 2048 items');
   let text='';
   for(const item of items){

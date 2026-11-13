@@ -328,7 +328,7 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
    const ast=await getCompiled(scope);if(ast)xmlAsts.set(scopeId(scope),ast);
   }
   let mediaProofWork=0;
-  const mediaProof=(target:{resource:string;pointer:string},document:SourceDocument,stack?:{resource:string;pointer:string}[]):boolean|undefined=>{
+  const mediaProof=(target:{resource:string;pointer:string},document:SourceDocument,stack?:{resource:string;pointer:string}[],pointer=''):boolean|undefined=>{
    const scope=graph.scopeAs(target.resource,target.pointer,'schema');if(!scope)return;
    const ast=xmlAsts.get(scopeId(scope));if(!ast)return;
    const active=new Set<string>();let steps=0;
@@ -341,7 +341,7 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
     },
     afterSchema(url:string,instance:any){active.delete(url+'\0'+instance.pointer);}
    };
-   if(!stack?.length)return interpret(ast,exact.exactInstance(document,''),{outputFormat:BASIC,plugins:[bounded]}).valid;
+   if(!stack?.length)return interpret(ast,exact.exactInstance(document,pointer),{outputFormat:BASIC,plugins:[bounded]}).valid;
    const rootScope=graph.scopeAs(stack[0].resource,stack[0].pointer,'schema');
    const root=rootScope&&xmlAsts.get(scopeId(rootScope));
    if(!root)return;
@@ -355,7 +355,7 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
     for(const [name,uri]of Object.entries(compiled.ast.metaData[compiled.schemaUri.split('#')[0]]?.dynamicAnchors??{}))if(!Object.hasOwn(anchors,name))anchors[name]=uri as string;
    }
    let seeded=false;
-   return interpret({...ast,ast:shared},exact.exactInstance(document,''),{outputFormat:BASIC,plugins:[bounded,{
+   return interpret({...ast,ast:shared},exact.exactInstance(document,pointer),{outputFormat:BASIC,plugins:[bounded,{
     beforeSchema(_url,_instance,context:any){if(!seeded){context.dynamicAnchors={...context.dynamicAnchors,...anchors};seeded=true;}}
    }]}).valid;
   };
@@ -364,23 +364,24 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
   if(input.mediaPreparations!==undefined){
    if(!Array.isArray(input.mediaPreparations)||input.mediaPreparations.length>2048)throw new SourceError('limit.media.preparation','Expected at most 2048 captured media preparations');
    for(const item of input.mediaPreparations){
-    if(!item||typeof item.text!=='string'||typeof item.mediaType!=='string'||item.header!==undefined&&typeof item.header!=='boolean'||item.direction!==undefined&&!['request','response'].includes(item.direction))throw new SourceError('runtime.media.preparation','Malformed media preparation');
+    const captured=item?.document instanceof SourceDocument;
+    if(!item||(!captured?typeof item.text!=='string':typeof item.pointer!=='string'||!item.document.dataNode(item.pointer))||typeof item.mediaType!=='string'||item.header!==undefined&&typeof item.header!=='boolean'||item.direction!==undefined&&!['request','response'].includes(item.direction))throw new SourceError('runtime.media.preparation','Malformed media preparation');
     const schema=item.schema;
     if(schema&&(typeof schema.resource!=='string'||typeof schema.pointer!=='string'||!graph.scopeAs(schema.resource,schema.pointer,'schema')))throw new SourceError('runtime.media.owner','Media preparation requires an original captured schema');
     const mediaSource=schema?{...schema,range:graph.docs.get(schema.resource)!.dataNode(schema.pointer)!.range}:undefined;
-    const document=new SourceDocument(item.text,'urn:busyapi:media-preparation',true,'json');if(document.issues.length)throw document.issues[0];
+    const document:SourceDocument=captured?item.document:new SourceDocument(item.text,'urn:busyapi:media-preparation',true,'json'),pointer=captured?item.pointer:'';if(document.issues.length)throw document.issues[0];
     exact.setDirection(item.direction);
     try{
-    const inputValid=schema?mediaProof(schema,document):true;
+    const inputValid=schema?mediaProof(schema,document,undefined,pointer):true;
     if(inputValid===undefined)throw new SourceError('runtime.media.schema.unavailable','The original media schema cannot supply a complete evaluation',mediaSource?.range??[0,0],'unsupported',mediaSource);
     if(!inputValid)throw new SourceError('request.media.conformance','Typed media input does not completely satisfy its original schema',mediaSource?.range??[0,0],undefined,mediaSource);
     const binding=schema?{graph,schema}:undefined;
-    const bytes=encodeRuntimeMedia(document,item.mediaType,item.header===true,binding);
+    const bytes=encodeRuntimeMedia(document,item.mediaType,item.header===true,binding,pointer);
     const decoded=decodeRuntimeMedia(bytes.toString('base64'),'urn:busyapi:media-correspondence',item.mediaType,true,'unsupported',undefined,binding);
-    const outputValid=schema?mediaProof(schema,decoded.document):true;
+    const outputValid=decoded.schemaEvaluation?.valid??(schema?mediaProof(schema,decoded.document):true);
     if(outputValid===undefined)throw new SourceError('runtime.media.schema.unavailable','The original media schema cannot supply a complete wire evaluation',mediaSource?.range??[0,0],'unsupported',mediaSource);
     if(!outputValid)throw new SourceError('request.media.conformance','Encoded media does not completely satisfy its original schema',mediaSource?.range??[0,0],undefined,mediaSource);
-    const corresponds=decoded.kind==='xml'&&binding?xmlCorresponds(document,decoded.document,binding):decoded.kind==='linkset'?linksetCorresponds(document,decoded.document):sameMediaData(document,decoded.document);
+    const corresponds=decoded.kind==='xml'&&binding?xmlCorresponds(document,decoded.document,binding,pointer):decoded.kind==='linkset'?linksetCorresponds(document,decoded.document,pointer):sameMediaData(document,decoded.document,pointer);
     if(!corresponds)throw new SourceError('runtime.media.correspondence','Encoded media does not preserve the typed value under the documented inversion policy',[0,0],'unsupported');
     mediaPreparations.push({mediaType:item.mediaType,base64:bytes.toString('base64'),byteLength:bytes.length,text:decoded.document.dataJson(''),complete:true,valid:true});
     }finally{exact.setDirection(undefined);}
@@ -461,7 +462,7 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
   // Establish optionality using this same compiled canonical schema, rather
   // than treating the absence of a local required keyword as proof.
   let discriminatorRequirements:SchemaPropertyRequirements|undefined;
-  const emptyObject=new SourceDocument('{}','urn:busyapi:discriminator-absence',true);
+  let emptyObject:SourceDocument|undefined;
   for(const scope of all) {
    const doc=docs.get(scope.resource)!,value=doc.dataNode(scope.pointer)?.value;
    if(scope.family!=='3.2'||typeof value?.discriminator?.propertyName!=='string'||value.discriminator.defaultMapping!==undefined)continue;
@@ -472,7 +473,7 @@ export async function evaluateSchemas(input:any,observeFailure?:(error:unknown)=
    try {
     const ast=await getCompiled(scope);
     if(ast&&!proof.exhausted) {
-     const candidates=[{doc:emptyObject,pointer:''},...examples.filter(example=>example.schema.resource===scope.resource&&example.schema.pointer===scope.pointer).slice(0,32)];
+     const candidates=[{doc:emptyObject??=new SourceDocument('{}','urn:busyapi:discriminator-absence',true),pointer:''},...examples.filter(example=>example.schema.resource===scope.resource&&example.schema.pointer===scope.pointer).slice(0,32)];
      for(const candidate of candidates) {
       if(!proof.consume())break;
       const node=candidate.doc.dataNode(candidate.pointer);

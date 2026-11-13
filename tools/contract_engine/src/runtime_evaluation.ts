@@ -197,7 +197,12 @@ async function evaluateRuntimeValues(runtime:unknown,owner:Owner,diagnostics?:{o
     if(!ast){complete=false;evaluations.push({subject:supplied.subject,location:supplied.location,pointer:check.prefix,complete:false,valid:false,reason:'schema-incomplete'});continue;}
     owner.exact.setDirection(supplied.subject.startsWith('request-')?'request':supplied.subject.startsWith('response-')?'response':undefined);
     let result:Output;
-    try{result=interpret(ast,owner.exact.exactInstance(check.document,'',undefined,false,check.binary??decoded.binaryInstances?.get(check.document),supplied.rawByteLength),BASIC);instances++;}
+    try{
+     const verified=decoded.schemaEvaluation;
+     result=check.document===decoded.document&&verified?.valid===true&&verified.binding.graph===owner.graph&&verified.binding.schema.resource===check.schema.resource&&verified.binding.schema.pointer===check.schema.pointer
+      ?{valid:true}:interpret(ast,owner.exact.exactInstance(check.document,'',undefined,false,check.binary??decoded.binaryInstances?.get(check.document),supplied.rawByteLength),BASIC);
+     instances++;
+    }
     finally{owner.exact.setDirection(undefined);}
     if(check.expectedValid===false){
      const valid=result.valid===false;
