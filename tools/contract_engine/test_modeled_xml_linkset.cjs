@@ -1,3 +1,4 @@
+const {prepareMultipart}=require('./multipart_test_capture.cjs');
 const {test}=require('node:test'),assert=require('node:assert/strict'),YAML=require('yaml');
 const {requestMediaBytes,requestContentParameters,planExecutionCase,executionCaseValues}=require('./dist/execution.cjs');
 const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
@@ -110,7 +111,7 @@ test('XML ambiguous adjacent text and finite resource overflows never claim succ
  await assert.rejects(requestMediaBytes({...deep,mediaType:'application/xml',text:'{"child":'.repeat(130)+'{}'+'}'.repeat(130)}),error=>error.code.startsWith('limit.'));
 });
 test('ordered multipart XML and Linkset parts keep their own schemas and modeled Link Header',async()=>{
- const {requestMultipartPlan}=require('./dist/execution.cjs');
+
  const xml={type:'object',xml:{name:'payload'},properties:{n:{type:'number',const:'EXACT'}},required:['n']};
  const link={type:'object',required:['linkset']},media={schema:{type:'array',prefixItems:[xml,link],items:false,minItems:2,maxItems:2},prefixEncoding:[
   {contentType:'application/xml',headers:{Link:{required:true,content:{'application/linkset':{schema:link}}}}},
@@ -120,14 +121,14 @@ test('ordered multipart XML and Linkset parts keep their own schemas and modeled
  document.paths['/p'].post.requestBody.content={'multipart/mixed':media};input.resources[0].text=JSON.stringify(document).replaceAll('"EXACT"','9007199254740993');
  const text='[{"n":9007199254740993},{"linkset":[{"next":[{"href":"../p","title":"a,b"}]}]}]';
  const selection={...input,mediaType:'multipart/mixed',text,headers:{'/0':[{name:'Link',value:'{"linkset":[{"next":[{"href":"/next","title":"a,b"}]}]}',modeled:true}]}};
- const generated=await requestMultipartPlan(selection),parts=generated.tree.parts;
+ const generated=await prepareMultipart(selection),parts=generated.tree.parts;
  assert.match(Buffer.from(parts[0].bytes,'base64').toString(),/payload/);
  assert.equal(parts[0].headers[0].value,'</next>; rel="next"; title="a,b"');
  assert.match(Buffer.from(parts[1].bytes,'base64').toString(),/^<\.\.\/p>/);
  const buffers=[];for(const part of parts){buffers.push(Buffer.from('--Wire\r\nContent-Type: '+part.contentType+'\r\n'+part.headers.map(field=>field.name+': '+field.value+'\r\n').join('')+'\r\n'));buffers.push(Buffer.from(part.bytes,'base64'),Buffer.from('\r\n'));}buffers.push(Buffer.from('--Wire--\r\n'));
- const bytes=Buffer.concat(buffers),proof=await requestMultipartPlan({...selection,wire:bytes.toString('base64'),wireType:'multipart/mixed; boundary=Wire'});
- assert.equal(proof.proof.valid,true);
- await assert.rejects(requestMultipartPlan({...selection,text:text.replace('9007199254740993','9007199254740992')}),error=>error.code==='request.media.conformance');
+ const bytes=Buffer.concat(buffers),proof=await prepareMultipart({...selection,wire:bytes.toString('base64'),wireType:'multipart/mixed; boundary=Wire'});
+ assert.equal(proof.checked.valid,true);
+ await assert.rejects(prepareMultipart({...selection,text:text.replace('9007199254740993','9007199254740992')}),error=>error.code==='request.media.conformance');
 });
 test('explicit reference wrappers retain sibling attributes and nested namespace context through forwarding',async()=>{
  const input=capture({$ref:'#/components/schemas/Alias',type:'object',xml:{nodeType:'element',name:'Envelope',namespace:'urn:outer'},required:['extra'],properties:{extra:{type:'string',xml:{nodeType:'attribute'}}}},'3.2.1',false,{
@@ -251,22 +252,22 @@ test('literal XML media parameters retain MIME charset bytes and single URI esca
  assert.deepEqual(Buffer.from(prepared.bodies['query\0xml'],'base64'),Buffer.from('<V>é</V>','latin1'));
 });
 test('named XML/Linkset multipart preparation enters the same captured tree and full wire proof',async()=>{
- const {requestMultipartPlan,requestOperation}=require('./dist/execution.cjs');
+ const {requestOperation}=require('./dist/execution.cjs');
  const input=capture({},'3.1.2'),document=JSON.parse(input.resources[0].text),xml={type:'object',xml:{name:'Part'},required:['n'],properties:{n:{type:'number',enum:['EXACT']}}},link={type:'object',required:['linkset']};
  document.paths['/p'].post.requestBody.content={'multipart/mixed':{schema:{type:'object',required:['xml','links'],properties:{xml,links:link}},encoding:{xml:{contentType:'application/xml; charset=utf-16be',headers:{Link:{content:{'application/linkset':{schema:link}}}}},links:{contentType:'application/linkset'}}}};
  input.resources[0].text=JSON.stringify(document).replaceAll('"EXACT"','9007199254740993');
  const plan=requestOperation(input);assert.equal(plan.requestBody.content[0].multipart.usesTree,true);
  const selection={...input,mediaType:'multipart/mixed',text:'{"xml":{"n":9007199254740993},"links":{"linkset":[{"next":[{"href":"/p"}]}]}}',headers:{'/xml':[{name:'Link',modeled:true,value:'{"linkset":[{"next":[{"href":"/n","title":"a,b"}]}]}'}]}};
- const prepared=await requestMultipartPlan(selection),chunks=[];
+ const prepared=await prepareMultipart(selection),chunks=[];
  for(const part of prepared.tree.parts){chunks.push(Buffer.from('--Named\r\nContent-Type: '+part.contentType+'\r\nContent-Disposition: form-data; name="'+part.name+'"\r\n'+part.headers.map(field=>field.name+': '+field.value+'\r\n').join('')+'\r\n'),Buffer.from(part.bytes,'base64'),Buffer.from('\r\n'));}chunks.push(Buffer.from('--Named--\r\n'));
- const result=await requestMultipartPlan({...selection,wireType:'multipart/mixed; boundary=Named',wire:Buffer.concat(chunks).toString('base64')});
- assert.equal(result.proof.valid,true);assert.equal(result.proof.instance,selection.text);
+ const result=await prepareMultipart({...selection,wireType:'multipart/mixed; boundary=Named',wire:Buffer.concat(chunks).toString('base64')});
+ assert.equal(result.checked.valid,true);assert.equal(result.checked.instance,selection.text);
  // A different Linkset also passes this schema. That is insufficient evidence
  // that it is the body generated from this exact captured typed input.
  const changed=Buffer.from(Buffer.concat(chunks).toString('latin1').replace('</p>','</q>'),'latin1');
  const validDifferent=await evaluateSchemas({...input,runtimeInstances:[{subject:'request-body',location:'part',schema:{resource:root,pointer:'/paths/~1p/post/requestBody/content/multipart~1mixed/schema/properties/links'},mediaType:'application/linkset',text:'</q>; rel=next'}]});
  assert(validDifferent.runtimeEvaluations.every(value=>value.complete&&value.valid),JSON.stringify(validDifferent.runtimeFindings));
- await assert.rejects(requestMultipartPlan({...selection,wireType:'multipart/mixed; boundary=Named',wire:changed.toString('base64')}),error=>error.code==='request.multipart.identity');
+ await assert.rejects(prepareMultipart({...selection,wireType:'multipart/mixed; boundary=Named',wire:changed.toString('base64')}),error=>error.code==='runtime.multipart.correspondence');
 });
 test('dependentSchemas XML layouts follow actual property presence and retain original assertions',async()=>{
  const input=capture({type:'object',xml:{name:'p'},properties:{enabled:{type:'boolean'}},dependentSchemas:{enabled:{required:['value'],properties:{value:{type:'number',xml:{nodeType:'attribute'}}}}}});

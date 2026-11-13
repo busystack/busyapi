@@ -735,7 +735,6 @@ class OperationRequestPlan {
       'pointer': (operation['source'] as Map)['pointer'],
       'occurrence': operation['occurrence'],
       'mediaType': mediaType,
-      'requireConformance': false,
       'text': text,
       'files': files,
       'choices': choices,
@@ -1103,7 +1102,7 @@ class OperationRequestPlan {
     final projected = await _formProjection('requestInputPreparation', {
       ...snapshot.toJson(), 'resource': (operation['source'] as Map)['resource'],
       'pointer': (operation['source'] as Map)['pointer'], 'occurrence': operation['occurrence'],
-      'values': values, 'rawValues': rawValues, 'body': body, 'requireConformance': false,
+      'values': values, 'rawValues': rawValues, 'body': body,
     }, 'request-inputs-$identity-${_requestPreparationSerial++}', cancellation);
     if (projected['version'] != 1 || projected['identity'] != identity || projected['snapshot'] != snapshot.identity ||
         projected['structured'] is! Map || (projected['structured'] as Map).length != values.length ||

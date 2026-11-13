@@ -23,7 +23,7 @@ import {wholeBodyEncoding} from './whole_body_encoding';
 import {runtimeMediaKind} from './runtime_media';
 
 type SchemaLocation={resource:string;pointer:string};
-type RuntimeInstance={rawByteLength?:number;captureData?:boolean;originalData?:string;originalFiles?:string[];text:string;subject:string;location:string;schema?:SchemaLocation;itemSchema?:SchemaLocation;parameter?:SchemaLocation&{values?:string[]};media?:RuntimeMediaTarget;mediaType?:string;mediaBase64?:boolean;unicodeSerialization?:boolean;textSerialization?:TextSerialization;form?:RuntimeFormTarget;alternatives?:string[];swaggerHeader?:SwaggerHeaderTarget;header?:RuntimeHeaderTarget};
+type RuntimeInstance={rawByteLength?:number;captureData?:boolean;originalData?:string;originalFiles?:string[];expectedData?:string|true;omittedFields?:readonly string[];text:string;subject:string;location:string;schema?:SchemaLocation;itemSchema?:SchemaLocation;parameter?:SchemaLocation&{values?:string[]};media?:RuntimeMediaTarget;mediaType?:string;mediaBase64?:boolean;unicodeSerialization?:boolean;textSerialization?:TextSerialization;form?:RuntimeFormTarget;alternatives?:string[];swaggerHeader?:SwaggerHeaderTarget;header?:RuntimeHeaderTarget};
 type Finding=Record<string,unknown>;
 type Owner={snapshot:string;graph:ReferenceGraph;scopes:ReadonlyMap<string,SchemaEvaluationScope>;
  exact:ReturnType<typeof createExactNumericAdapter>;compile:(scope:SchemaEvaluationScope)=>Promise<CompiledSchema|undefined>;schemaReady:(scope:SchemaEvaluationScope)=>boolean;
@@ -42,6 +42,8 @@ function suppliedInstance(value:unknown):RuntimeInstance {
   item.captureData!==undefined&&(typeof item.captureData!=='boolean'||item.form===undefined||!['request-body','response-body'].includes(item.subject as string))||
   item.originalData!==undefined&&(typeof item.originalData!=='string'||item.originalData.length>16*1024*1024||item.form===undefined||!['request-body','response-body'].includes(item.subject as string))||
   item.originalFiles!==undefined&&(!Array.isArray(item.originalFiles)||item.originalFiles.length>2048||item.originalFiles.some(pointer=>typeof pointer!=='string'||pointer.length>4096)||item.originalData===undefined)||
+  item.expectedData!==undefined&&(item.expectedData!==true&&(typeof item.expectedData!=='string'||item.expectedData.length>16*1024*1024)||item.originalData===undefined)||
+  item.omittedFields!==undefined&&(!Array.isArray(item.omittedFields)||item.omittedFields.length>2048||item.omittedFields.some(pointer=>typeof pointer!=='string'||pointer.length>4096)||item.expectedData===undefined)||
   typeof item.text!=='string'||item.text.length>64*1024*1024||typeof item.subject!=='string'||item.subject.length>1024||
   typeof item.location!=='string'||item.location.length>4096||item.schema!==undefined&&!schema(item.schema)||
   item.parameter!==undefined&&(!schema(item.parameter)||Object.keys(item.parameter).some(name=>!['resource','pointer','values'].includes(name))||'values' in item.parameter&&(!Array.isArray(item.parameter.values)||item.parameter.values.length<1||item.parameter.values.length>2048||item.parameter.values.some(value=>typeof value!=='string'||value.length>65536))||item.subject!=='request-parameter'||
@@ -154,17 +156,42 @@ async function evaluateRuntimeValues(runtime:unknown,owner:Owner,diagnostics?:{o
   if(supplied.captureData===true&&Buffer.byteLength(decoded.document.dataJson(''))>16*1024*1024)throw new SourceError('limit.runtime.projection','Captured form projection exceeds 16 MiB');
   const projection=supplied.captureData===true?{projectionData:decoded.document.dataJson(''),projectionBinary:[...(decoded.binaryInstances?.get(decoded.document)?.keys()??[])]}:{};
   const checks:FormCheck[]=[...(supplied.form?.streamIndex===undefined?[{document:decoded.document,schema:supplied.schema,prefix:''}]:[]),...(form?.checks??[])];
+  let original:SourceDocument|undefined;
   if(supplied.originalData!==undefined){
-   let original=new SourceDocument(supplied.originalData,'urn:busyapi:original-multipart',true,'json');
+   original=new SourceDocument(supplied.originalData,'urn:busyapi:original-multipart',true,'json');
    if(original.issues.length)throw original.issues[0];
    let text=original.text;
-   const replacements=(supplied.originalFiles??[]).map(pointer=>({node:original.dataNode(pointer),actual:decoded.document.dataNode(pointer)}));
+   const replacements=(supplied.originalFiles??[]).map(pointer=>({node:original!.dataNode(pointer),actual:decoded.document.dataNode(pointer)}));
    for(const {node,actual}of replacements.sort((a,b)=>(b.node?.range[0]??0)-(a.node?.range[0]??0))){
     if(!node||node.kind!=='null'||!actual)throw new SourceError('runtime.multipart.original','Original file inputs require captured null placeholders and decoded file values');
     text=text.slice(0,node.range[0])+decoded.document.dataJson(actual.pointer)+text.slice(node.range[1]);
    }
-   original=new SourceDocument(text,'urn:busyapi:original-multipart-data',true,'json');
+   if(replacements.length)original=new SourceDocument(text,'urn:busyapi:original-multipart-data',true,'json');
    checks.unshift({document:original,schema:supplied.schema,prefix:'',binary:decoded.binaryInstances?.get(decoded.document)});
+  }
+  if(supplied.expectedData!==undefined){
+   // The preparation recipe owns the expected projection. Decode and prove
+   // the actual wire once, retaining the original typed schema check above.
+   const expected=supplied.expectedData===true||supplied.expectedData===supplied.originalData?original!:
+    new SourceDocument(supplied.expectedData,'urn:busyapi:expected-multipart',true,'json');
+   if(expected.issues.length)throw expected.issues[0];
+   const omissions=new Set(supplied.omittedFields??[]),files=new Set(supplied.originalFiles??[]);
+   const equal=(pointer:string):boolean=>{
+    if(files.has(pointer))return true;
+    const left=expected.dataNode(pointer),right=decoded.document.dataNode(pointer);
+    if(!left||!right||left.kind!==right.kind)return false;
+    if(left.kind==='number')return expected.dataJson(pointer)===decoded.document.dataJson(pointer);
+    if(left.kind==='object'){
+     const members=[...left.children.values()].filter(child=>!(omissions.has(child.pointer)&&!decoded.document.dataNode(child.pointer)));
+     return members.length===right.children.size&&members.every(child=>equal(child.pointer));
+    }
+    if(left.kind==='array')return left.children.size===right.children.size&&[...left.children.values()].every(child=>equal(child.pointer));
+    return left.value===right.value;
+   };
+   if(!equal('')){
+    evaluations.push({subject:supplied.subject,location:supplied.location,complete:true,valid:false,reason:'typed-wire-correspondence'});
+    add({code:decoded.kind==='form-urlencoded'?'runtime.form.correspondence':'runtime.multipart.correspondence',severity:'error',subject:supplied.subject,location:supplied.location,pointer:'',range:[0,0],message:'The actual body bytes do not preserve the prepared typed value.'});
+   }
   }
 
   if(supplied.form?.streamIndex!==undefined)checks.push({document:decoded.document,prefix:''});

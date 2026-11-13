@@ -31,6 +31,7 @@ export type {NativeMockCheck} from './mock_projection';
 
 export type MockCapture={root:string;snapshot:string;resources:Resource[];exampleResources?:readonly ExternalExampleResourcePacket[]};
 type BodyDeclaration={required:boolean;source:SourceLocation;content:NativeMedia[]};
+type WirePreparation=Readonly<{mediaType:string;body?:Readonly<{identity:string;status:string;originalData:string;expectedData:string|true;omittedFields:readonly string[];partSchemas:Readonly<Record<string,string>>}>}>;
 
 export function mockCapture(value:unknown):MockCapture {
     if(!record(value)||typeof value.root!=='string'||typeof value.snapshot!=='string'||!/^[a-f0-9]{64}$/.test(value.snapshot)||!Array.isArray(value.resources)||!value.resources.length||value.resources.length>limits.resources)
@@ -223,7 +224,13 @@ export class MockNativeValidation {
 
     async response(path:string,method:string,status:number,headers:unknown,bytes:Buffer,signal:AbortSignal):Promise<NativeMockCheck> {
         const {description}=this.plan(path,method);
-        return validateMockResponse(this.context.graph,description,description.operation.method,status,headers,bytes,instances=>this.evaluateInstances(instances,signal));
+        const prepared=this.wirePreparations.get(bytes)?.body;
+        this.wirePreparations.delete(bytes);
+        if(prepared&&(prepared.identity!==description.identity||prepared.status!==String(status)))throw new SourceError('mock.validation.protocol','Prepared data belongs to another response');
+        return validateMockResponse(this.context.graph,description,description.operation.method,status,headers,bytes,instances=>this.evaluateInstances(
+            prepared?instances.map(instance=>instance.subject==='response-body'&&instance.form?{...instance,
+                originalData:prepared.originalData,expectedData:prepared.expectedData,omittedFields:prepared.omittedFields,
+                form:{...instance.form,partSchemas:prepared.partSchemas}}:instance):instances,signal));
     }
 
     async streamResponseHeaders(path:string,method:string,status:number,headers:unknown,signal:AbortSignal):Promise<NativeMockCheck> {
@@ -314,8 +321,21 @@ export class MockNativeValidation {
         return output;
     }
 
-    private readonly wireMediaTypes=new WeakMap<Buffer,string>();
-    responseMediaType(bytes:Buffer):string|undefined {return this.wireMediaTypes.get(bytes);}
+    private readonly wirePreparations=new WeakMap<Buffer,WirePreparation>();
+    responseMediaType(bytes:Buffer):string|undefined {return this.wirePreparations.get(bytes)?.mediaType;}
+
+    private preparedResponseBytes(path:string,method:string,status:string,result:Record<string,unknown>):Buffer {
+        if(result.version!==1||result.snapshot!==this.capture.snapshot||result.identity!==this.plan(path,method).description.identity||result.producer!==this.producer?.name||result.producerVersion!==this.producer?.version||result.configuration!==this.producer?.configuration)throw new SourceError('mock.validation.protocol','Response preparation returned unrelated producer data');
+        const preparation=result.preparation;
+        if(typeof result.base64!=='string'||typeof result.mediaType!=='string'||!record(preparation)||
+            typeof preparation.originalData!=='string'||preparation.expectedData!==true&&typeof preparation.expectedData!=='string'||
+            !Array.isArray(preparation.omittedFields)||preparation.omittedFields.some(value=>typeof value!=='string')||
+            !record(preparation.partSchemas)||Object.values(preparation.partSchemas).some(value=>typeof value!=='string'))throw new SourceError('mock.validation.protocol','Generated response omitted its captured preparation');
+        const bytes=Buffer.from(result.base64,'base64');if(bytes.toString('base64')!==result.base64||bytes.length!==result.byteLength)throw new SourceError('mock.validation.protocol','Generated response byte identity is malformed');
+        this.wirePreparations.set(bytes,Object.freeze({mediaType:result.mediaType,body:Object.freeze({identity:this.plan(path,method).description.identity,status,
+            originalData:preparation.originalData,expectedData:preparation.expectedData,
+            omittedFields:Object.freeze([...preparation.omittedFields]),partSchemas:Object.freeze({...preparation.partSchemas}) as Readonly<Record<string,string>>})}));return bytes;
+    }
 
     private async multipartResponse(path:string,method:string,status:string,actual:string,raw:string,signal?:AbortSignal):Promise<Buffer> {
         if(!signal)throw new SourceError('mock.multipart.cancel','Multipart response preparation requires its request cancellation owner');
@@ -348,10 +368,8 @@ export class MockNativeValidation {
                 if(part.children)await visit(part.children,depth+1);
             }
         };await visit(projected.tree);
-        const result=await this.client.request('mockMultipartBytes',{...input,headers},signal);check(result);
-        if(typeof result.base64!=='string'||typeof result.mediaType!=='string'||!record(result.proof)||result.proof.complete!==true||result.proof.valid!==true)throw new SourceError('mock.validation.protocol','Multipart response omitted its actual wire proof');
-        const bytes=Buffer.from(result.base64,'base64');if(bytes.toString('base64')!==result.base64||bytes.length!==result.byteLength)throw new SourceError('mock.validation.protocol','Multipart response byte identity is malformed');
-        this.wireMediaTypes.set(bytes,result.mediaType);return bytes;
+        const result=await this.client.request('mockMultipartBytes',{...input,headers},signal);
+        return this.preparedResponseBytes(path,method,status,result);
     }
 
     async generatedWireResponse(path:string,method:string,status:string,actual:string,signal:AbortSignal):Promise<Buffer|undefined> {
@@ -362,7 +380,7 @@ export class MockNativeValidation {
         const schema=schemaLocation(media.schema),candidates:Buffer[]=[];
         if(schema){
             const raw=await this.samples.value(schema,signal,actual);
-            if(raw!==undefined){const value:unknown=JSON.parse(raw);if(typeof value==='string'){if(kind==='text'){const encoded=encodePlainText(value,actual,mediaTypes(actual,false)[0].parameters.get('charset'));this.wireMediaTypes.set(encoded.bytes,encoded.contentType);candidates.push(encoded.bytes);}else candidates.push(Buffer.from(value,'utf8'));}}
+            if(raw!==undefined){const value:unknown=JSON.parse(raw);if(typeof value==='string'){if(kind==='text'){const encoded=encodePlainText(value,actual,mediaTypes(actual,false)[0].parameters.get('charset'));this.wirePreparations.set(encoded.bytes,Object.freeze({mediaType:encoded.contentType}));candidates.push(encoded.bytes);}else candidates.push(Buffer.from(value,'utf8'));}}
         }
         const sizes=new Set([0,1]);
         if(schema){
@@ -405,8 +423,7 @@ export class MockNativeValidation {
         if(actual.split(';')[0].trim().toLowerCase()==='application/x-www-form-urlencoded'){
             const {operation}=this.plan(path,method).description;
             const result=await this.client.request('mockFormBytes',{resource:operation.source.resource,pointer:operation.source.pointer,occurrence:operation.occurrence,status,mediaType:actual,text:raw},signal);
-            if(result.snapshot!==this.capture.snapshot||result.identity!==this.plan(path,method).description.identity||result.producer!==this.producer?.name||result.producerVersion!==this.producer?.version||result.configuration!==this.producer?.configuration||typeof result.base64!=='string'||!record(result.proof)||result.proof.complete!==true||result.proof.valid!==true)throw new SourceError('mock.validation.protocol','URL-form preparation returned unrelated data');
-            const bytes=Buffer.from(result.base64,'base64');if(bytes.toString('base64')!==result.base64||bytes.length!==result.byteLength)throw new SourceError('mock.validation.protocol','URL-form byte identity is malformed');return bytes;
+            return this.preparedResponseBytes(path,method,status,result);
         }
         if(actual.split(';')[0].trim().toLowerCase().startsWith('multipart/'))return this.multipartResponse(path,method,status,actual,raw,signal);
         const media=capturedMockResponseMedia(this.plan(path,method).description,status,actual),schema=media&&schemaLocation(media.schema);
@@ -426,7 +443,7 @@ export class MockNativeValidation {
 
     authoredResponseBytes(path:string,method:string,status:string,actual:string,keys:readonly string[],signal:AbortSignal):Buffer|undefined {
         if(signal.aborted)throw new SourceError('cancelled','Mock example selection was cancelled');
-        try{return authoredMockResponseBytes(this.plan(path,method).description,status,actual,keys,this.context.graph,this.examples,(bytes,type)=>this.wireMediaTypes.set(bytes,type));}
+        try{return authoredMockResponseBytes(this.plan(path,method).description,status,actual,keys,this.context.graph,this.examples,(bytes,type)=>this.wirePreparations.set(bytes,Object.freeze({mediaType:type})));}
         catch(error){if(error instanceof SourceError&&!error.source){const source=this.operationSource(path,method);throw new SourceError(error.code,error.message,source.range,error.kind,source);}throw error;}
     }
 

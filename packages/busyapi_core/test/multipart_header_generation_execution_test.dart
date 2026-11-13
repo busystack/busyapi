@@ -566,12 +566,13 @@ void modeledMultipartJourneys() {
     final project=await BusyProject.open(source.path,engine);addTearDown(project.close);
     final plan=await project.prepareRequest(source.uri.toString(),resource:source.uri.toString(),pointer:'/paths/~1parts/post');addTearDown(plan.close);
     const data='[{"n":9007199254740993},{"linkset":[{"next":[{"href":"/p","title":"a,b"}]}]}]';
-    const headers=[RequestPartHeaderValue('/0','Link','{"linkset":[{"next":[{"href":"/n","title*":[{"value":"雪","language":"ja"}]}]}]}',modeled:true)];
+    const headers=[RequestPartHeaderValue('/0','Link','{"linkset":[{"next":[{"href":"/n","title*":[{"value":"雪","language":"ja"}]}]}]}',modeled:true),RequestPartHeaderValue('/0','Content-Disposition','inline')];
     final draft=OperationRequestDraft(planIdentity:plan.identity,body:RequestBodyDraft.multipartValue(mediaType:'multipart/mixed',json:data,partHeaders:headers));
     final result=await const ContractRequestExecutor().execute(plan,draft,resolveSecret:(_) async=>null);addTearDown(result.close);
     expect(result.conforming,true,reason:'${result.outgoing.findings}');
     final raw=String.fromCharCodes(seen.single);
     expect(raw,contains("Link: </n>; rel=\"next\"; title*=UTF-8'ja'%E9%9B%AA"));
+    expect(raw,contains('Content-Disposition: inline\r\n'));
     expect(raw,contains('</p>; rel="next"; title="a,b"'));
     // The XML leaf remains UTF-16BE inside the MIME entity, with no UTF-8 round trip.
     expect(raw,contains('\u0000P\u0000a\u0000r\u0000t'));expect(raw,contains('\u00009\u00000\u00000\u00007'));
@@ -581,7 +582,7 @@ void modeledMultipartJourneys() {
     final cold=await BusyProject.open(directory.path,coldEngine);addTearDown(cold.close);
     final reopened=await cold.prepareRequest(source.uri.toString(),resource:source.uri.toString(),pointer:'/paths/~1parts/post');addTearDown(reopened.close);
     final loaded=await ContractTestRunner.reopenCase(reopened,'parts',cold.access);
-    expect(loaded.body.partHeaders.single.modeled,true);expect(loaded.body.text,data);
+    expect(loaded.body.partHeaders,hasLength(2));expect(loaded.body.partHeaders.first.modeled,true);expect(loaded.body.partHeaders.last.value,'inline');expect(loaded.body.text,data);
     final replay=await const ContractRequestExecutor().execute(reopened,loaded,resolveSecret:(_) async=>null);addTearDown(replay.close);
     expect(replay.conforming,true,reason:'${replay.outgoing.findings}');expect(seen,hasLength(2));
     expect(await source.readAsString(),original);

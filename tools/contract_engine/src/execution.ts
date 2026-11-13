@@ -33,7 +33,7 @@ import {ignoresRequestBody} from './operation_semantics';
 import {requestExampleProjection} from './request_examples';
 import {serverContextProblem,serverContextError,serverVariableValues,serverHttpFragmentPolicy} from './server_semantics';
 import {formFieldOmitted,formPercent,urlEncodedWire} from './url_form_serialization';
-import {multipartStructure,multipartGeneration,proveMultipartGeneration} from './multipart_generation';
+import {multipartStructure,multipartGeneration} from './multipart_generation';
 
 /** Captured ordinary-body generation. Encoding never substitutes a schema;
  * both the input data and resulting wire inversion must pass original assertions. */
@@ -129,10 +129,8 @@ export async function requestMultipartPlan(input:any,captured=createGraph(input)
     content.multipart=multipartStructure(captured.graph,content);
   }
   try{
-    if(input.inspect&&input.wire!==undefined)throw new SourceError('request.multipart.input','Inspection is not a generated-byte proof');
     const generated=await multipartGeneration(captured.graph,content,input,captured);
-    const proof=input.wire===undefined?undefined:await proveMultipartGeneration(captured.graph,content,input,generated,captured);
-    return {version:1,snapshot:input.snapshot,identity:plan.identity,representationRevisions:plan.representationRevisions,...generated,proof};
+    return {version:1,snapshot:input.snapshot,identity:plan.identity,representationRevisions:plan.representationRevisions,...generated};
   }catch(error){
     if(!(error instanceof SourceError)||error.source)throw error;
     throw new SourceError(error.code,error.message,error.range[1]>error.range[0]?error.range:content.definition.range,error.kind,content.definition);
@@ -206,19 +204,15 @@ export async function mockFormBytes(input:any,captured:ReturnType<typeof createG
   }
  }
  const bytes=urlEncodedWire({raw:input.text,declaration:{encoding},mediaTypes:mediaTypesByName,mediaValues});
- const result=await evaluateSchemas({...input,runtimeInstances:[{subject:'response-body',location:input.mediaType,text:bytes.toString('base64'),mediaBase64:true,mediaType:input.mediaType,form:content.definition,schema:content.schema,captureData:true,originalData:input.text}]},undefined,captured);
- const checked=result.runtimeEvaluations.find(value=>typeof value.projectionData==='string');
- if(!checked||result.runtimeEvaluations.some(value=>!value.complete||!value.valid)||result.runtimeFindings.some(value=>value.severity==='error'))throw new SourceError('mock.form.conformance','Generated URL-form response violates its captured original schema');
  let expected=input.text;for(const change of normalizations.sort((a,b)=>doc.dataNode(b.pointer)!.range[0]-doc.dataNode(a.pointer)!.range[0])){const node=doc.dataNode(change.pointer)!;expected=expected.slice(0,node.range[0])+change.text+expected.slice(node.range[1]);}
- const normalized=new SourceDocument(expected,'urn:busyapi:normalized-form',true,'json');
- expected='{'+[...normalized.root.children].filter(([name,node])=>!formFieldOmitted(normalized.dataNode(node.pointer),encoding[name]??{})).map(([name,node])=>JSON.stringify(name)+':'+normalized.dataJson(node.pointer)).join(',')+'}';
- const {sameMediaData}=await import('./xml_model');
- if(!sameMediaData(new SourceDocument(expected,'urn:busyapi:mock-form-expected',true,'json'),new SourceDocument(checked.projectionData as string,'urn:busyapi:mock-form-actual',true,'json')))throw new SourceError('mock.form.correspondence','Generated form values differ from their modeled inputs',[0,0],'unsupported');
- return {version:1,snapshot:input.snapshot,identity:plan.identity,producer:schemaProducer.name,producerVersion:schemaProducer.version,configuration:schemaProducer.configuration,base64:bytes.toString('base64'),byteLength:bytes.length,mediaType:input.mediaType,proof:{complete:true,valid:true}};
+ const normalized=expected===input.text?doc:new SourceDocument(expected,'urn:busyapi:normalized-form',true,'json');
+ const omittedFields=[...normalized.root.children].filter(([name,node])=>formFieldOmitted(normalized.dataNode(node.pointer),encoding[name]??{})).map(([,node])=>node.pointer);
+ return {version:1,snapshot:input.snapshot,identity:plan.identity,producer:schemaProducer.name,producerVersion:schemaProducer.version,configuration:schemaProducer.configuration,base64:bytes.toString('base64'),byteLength:bytes.length,mediaType:input.mediaType,
+  preparation:{originalData:input.text,expectedData:expected===input.text?true:expected,omittedFields,partSchemas:{}}};
 }
 
 /** Native mock multipart responses consume the same captured part preparation
- * and whole-data/actual-wire proof as the native request writer. */
+ * recipe as the native request writer. Actual response validation owns proof. */
 export async function mockMultipartBytes(input:any,captured:ReturnType<typeof createGraph>=createGraph(input)){
  const plan=requestOperation(input,captured);
  const response=plan.responses.find(value=>value.status===String(input.status))??plan.responses.find(value=>value.status===String(input.status)[0]+'XX')??plan.responses.find(value=>value.status==='default');
@@ -229,8 +223,8 @@ export async function mockMultipartBytes(input:any,captured:ReturnType<typeof cr
  if(input.inspect)return {...base,tree:generated.tree};
  const {mockMultipartWire}=await import('./mock_multipart_generation');
  const wire=mockMultipartWire(generated.tree,input.text);
- const proof=await proveMultipartGeneration(captured.graph,content,{...options,wire:wire.bytes.toString('base64'),wireType:wire.mediaType},generated,captured);
- return {...base,base64:wire.bytes.toString('base64'),byteLength:wire.bytes.length,mediaType:wire.mediaType,proof};
+ return {...base,base64:wire.bytes.toString('base64'),byteLength:wire.bytes.length,mediaType:wire.mediaType,
+  preparation:{originalData:generated.original,expectedData:generated.raw===generated.original?true:generated.raw,omittedFields:generated.intentOmissions,partSchemas:generated.partSchemas}};
 }
 
 /** Exact array editing for the native ordered-part control. The caller owns

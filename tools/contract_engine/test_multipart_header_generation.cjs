@@ -1,3 +1,4 @@
+const {prepareMultipart}=require('./multipart_test_capture.cjs');
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const path=require('node:path');
@@ -9,7 +10,7 @@ const meta='{"id":9007199254740993.00,"flag":false,"empty":""}';
 
 for(const version of ['3.0.4','3.1.2','3.2.0','3.2.1'])for(const format of ['yaml','json'])
 test(`${version} ${format} concrete MIME Header example selection retains approved bytes and original proof`,async()=>{
- const {requestMultipartPlan}=require(path.join(engine,'dist/execution.cjs'));
+
  const input=fixture(version,format,false,{
   Approved:{externalValue:'header.bin'},'':{externalValue:'header.bin'},
  });
@@ -25,16 +26,16 @@ test(`${version} ${format} concrete MIME Header example selection retains approv
  }
  const position=ordered?'/0':'/value';
  const selection={...input,text:ordered?'["value"]':'{"value":"value"}',files:[],headers:{[position]:[{name:'X-Meta',value:'',example:{name:'Approved'}}]}};
- const inspected=await requestMultipartPlan({...selection,inspect:true}),header=inspected.controls.find(value=>value.name===position).headerControls[0];
+ const inspected=await prepareMultipart({...selection,inspect:true}),header=inspected.controls.find(value=>value.name===position).headerControls[0];
  assert.equal(header.examples[0].external.resource,id);assert.equal(header.examples[0].wireBase64,undefined);
- const prepared=await requestMultipartPlan(selection);assert.equal(prepared.tree.parts[0].headers[0].value,meta);
- const emptyName=await requestMultipartPlan({...selection,headers:{[position]:[{name:'X-Meta',value:'',example:{name:''}}]}});
+ const prepared=await prepareMultipart(selection);assert.equal(prepared.tree.parts[0].headers[0].value,meta);
+ const emptyName=await prepareMultipart({...selection,headers:{[position]:[{name:'X-Meta',value:'',example:{name:''}}]}});
  assert.equal(emptyName.tree.parts[0].headers[0].value,meta);
  const wire=value=>'--Example\r\n'+(ordered?'':'Content-Disposition: form-data; name="value"\r\n')+'Content-Type: text/plain\r\nX-Meta: '+value+'\r\n\r\nvalue\r\n--Example--\r\n';
- assert.equal((await requestMultipartPlan({...selection,wire:Buffer.from(wire(meta)).toString('base64'),wireType:'multipart/mixed; boundary=Example'})).proof.valid,true);
+ assert.equal((await prepareMultipart({...selection,wire:Buffer.from(wire(meta)).toString('base64'),wireType:'multipart/mixed; boundary=Example'})).checked.valid,true);
  await rejectChangedHeader({...selection,wire:Buffer.from(wire(meta.replace('9007199254740993.00','9007199254740992'))).toString('base64'),wireType:'multipart/mixed; boundary=Example'});
- await assert.rejects(requestMultipartPlan({...selection,exampleResources:[]}),error=>error.code==='request.multipart.header.example');
- await assert.rejects(requestMultipartPlan({...selection,headers:{[position]:[{name:'X-Meta',value:'literal',example:{name:'Approved'}}]}}),error=>error.code==='request.multipart.headers');
+ await assert.rejects(prepareMultipart({...selection,exampleResources:[]}),error=>error.code==='request.multipart.header.example');
+ await assert.rejects(prepareMultipart({...selection,headers:{[position]:[{name:'X-Meta',value:'literal',example:{name:'Approved'}}]}}),error=>error.code==='request.multipart.headers');
 });
 function fixture(version,format,transfer=false,examples){
  const root='file:///generated-headers/api.'+format,mediaType=transfer?'multipart/form-data':'multipart/mixed';
@@ -47,12 +48,10 @@ function fixture(version,format,transfer=false,examples){
  return {root,resource:root,pointer:'/paths/~1parts/post',snapshot:version+format,mediaType,resources:[{id:root,text,generation:2},{id:'file:///generated-headers/headers.yaml',text:shared,generation:3}],parts:[{name:'value',kind:'string'}],files:[],headers:transfer?{}:{value:[{name,value:meta}]}};
 }
 async function rejectChangedHeader(input){
- const {requestMultipartPlan}=require(path.join(engine,'dist/execution.cjs'));
+
  const {evaluateSchemas}=require(path.join(engine,'dist/schema_evaluation.cjs'));
- // Construction rejects bytes that differ from the captured choice, even if
- // those bytes happen to satisfy a schema. Independently observe validation of
- // this changed large integer against the original referenced Header schema.
- await assert.rejects(requestMultipartPlan(input),error=>error.code==='request.multipart.identity');
+ // Evaluate the actual changed large integer under its original Header owner.
+ await assert.rejects(prepareMultipart(input),error=>error.code==='runtime.schema.incompatible');
  const pointer=input.pointer+'/requestBody/content/multipart~1mixed';
  const checked=await evaluateSchemas({...input,runtimeInstances:[{
   subject:'request-body',location:input.mediaType,text:input.wire,mediaBase64:true,mediaType:input.wireType,
@@ -125,20 +124,22 @@ for(const version of versions)for(const format of ['yaml','json'])test(`${versio
 });
 
 for(const version of ['3.2.0','3.2.1'])for(const format of ['yaml','json'])test(`${version} ${format} ordered Header values use actual position and original Header schema`,async()=>{
- const {requestMultipartPlan}=require(path.join(engine,'dist/execution.cjs'));
+
  const input=fixture(version,format),value=YAML.parse(input.resources[0].text);
  value.paths['/parts'].post.requestBody.content['multipart/mixed']={schema:{type:'array',items:{type:'string'}},itemEncoding:{contentType:'text/plain',headers:{'X-Meta':{$ref:'headers.yaml#/Alias'}}}};
  input.resources[0].text=format==='yaml'?YAML.stringify(value):JSON.stringify(value);
  const typed={...input,text:'["value"]',files:[],headers:{'/0':[{name:'X-Meta',value:meta}]}};
- const plan=await requestMultipartPlan(typed);assert.equal(plan.tree.parts[0].headers[0].value,meta);
+ const plan=await prepareMultipart(typed);assert.equal(plan.tree.parts[0].headers[0].value,meta);
  const wire=value=>'--W4\r\nContent-Type: text/plain\r\nX-Meta: '+value+'\r\n\r\nvalue\r\n--W4--\r\n';
- assert.equal((await requestMultipartPlan({...typed,wire:Buffer.from(wire(meta)).toString('base64'),wireType:'multipart/mixed; boundary=W4'})).proof.valid,true);
+ assert.equal((await prepareMultipart({...typed,wire:Buffer.from(wire(meta)).toString('base64'),wireType:'multipart/mixed; boundary=W4'})).checked.valid,true);
  await rejectChangedHeader({...typed,wire:Buffer.from(wire(meta.replace('9007199254740993.00','9007199254740992'))).toString('base64'),wireType:'multipart/mixed; boundary=W4'});
- await assert.rejects(requestMultipartPlan({...typed,headers:{'/8':[{name:'X-Meta',value:meta}]}}),error=>error.code==='request.multipart.choice.stale');
+ await assert.rejects(prepareMultipart({...typed,headers:{'/8':[{name:'X-Meta',value:meta}]}}),error=>error.code==='request.multipart.choice.stale');
  const disposition={...typed,headers:{'/0':[{name:'X-Meta',value:meta},{name:'Content-Disposition',value:'inline'}]}};
- const selected=await requestMultipartPlan(disposition);
+ const selected=await prepareMultipart(disposition);
  assert.equal(selected.tree.parts[0].allowDisposition,true);
- assert.equal((await requestMultipartPlan({...disposition,wire:Buffer.from(wire(meta).replace('X-Meta:', 'Content-Disposition: inline\r\nX-Meta:')).toString('base64'),wireType:'multipart/mixed; boundary=W4'})).proof.valid,true);
- await assert.rejects(requestMultipartPlan({...disposition,headers:{'/0':[{name:'Content-Disposition',value:'inline'},{name:'content-disposition',value:'attachment'}]}}),error=>error.code==='request.multipart.header.singleton');
- await assert.rejects(requestMultipartPlan({...disposition,wire:Buffer.from(wire(meta).replace('X-Meta:', 'Content-Disposition: attachment\r\nX-Meta:')).toString('base64'),wireType:'multipart/mixed; boundary=W4'}),error=>error.code==='request.multipart.identity');
+ assert.equal((await prepareMultipart({...disposition,wire:Buffer.from(wire(meta).replace('X-Meta:', 'Content-Disposition: inline\r\nX-Meta:')).toString('base64'),wireType:'multipart/mixed; boundary=W4'})).checked.valid,true);
+ await assert.rejects(prepareMultipart({...disposition,headers:{'/0':[{name:'Content-Disposition',value:'inline'},{name:'content-disposition',value:'attachment'}]}}),error=>error.code==='request.multipart.header.singleton');
+ // Neither disposition is constrained by this Schema. Core's modeled-parts
+ // HTTP/reopen case checks that the writer emits its selected literal inline.
+ assert.equal((await prepareMultipart({...disposition,wire:Buffer.from(wire(meta).replace('X-Meta:', 'Content-Disposition: attachment\r\nX-Meta:')).toString('base64'),wireType:'multipart/mixed; boundary=W4'})).checked.valid,true);
 });

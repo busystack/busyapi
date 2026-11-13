@@ -216,3 +216,37 @@ for(const version of ['3.0.0','3.0.4'])test(`${version} mock binary Unicode exam
  assert(response.bytes.includes(Buffer.from('\r\n\r\n雪😀\r\n')),response.text);
  assert(response.bytes.includes(Buffer.from('9007199254740993.00')),response.text);
 });
+for(const mediaType of ['multipart/mixed','application/x-www-form-urlencoded'])
+test(`final mock response check rejects a schema-valid mutation of prepared ${mediaType} bytes`,{timeout:20000},async t=>{
+ const multipart=mediaType.startsWith('multipart/');
+ const fs=require('node:fs/promises'),os=require('node:os'),path=require('node:path');
+ const directory=await fs.mkdtemp(path.join(os.tmpdir(),'busyapi-mock-correspondence-'));
+ t.after(()=>fs.rm(directory,{recursive:true,force:true}));
+ const helper=path.join(directory,'mock-server.cjs');
+ await fs.copyFile(path.join(__dirname,'dist/mock-server.cjs'),helper);
+ await fs.copyFile(path.join(__dirname,'dist/engine.cjs'),path.join(directory,'captured-engine.cjs'));
+ await fs.writeFile(path.join(directory,'engine.cjs'),`const {Worker,parentPort,workerData}=require('node:worker_threads');
+const {join}=require('node:path');
+const worker=new Worker(join(__dirname,'captured-engine.cjs'),{workerData});
+parentPort.on('message',request=>worker.postMessage(request));
+worker.on('error',error=>{throw error;});
+worker.on('message',payload=>{
+ const packet=JSON.parse(new TextDecoder().decode(payload));
+ if(packet.result?.preparation&&typeof packet.result.base64==='string'){
+  const original=Buffer.from(packet.result.base64,'base64'),changed=Buffer.from(original);
+  const offset=original.indexOf(Buffer.from(${multipart?"'\\r\\n1\\r\\n'":"'n=1'"}));
+  if(offset<0)throw Error('The prepared numeric part was not emitted');
+  changed[offset+2]=50;
+  packet.result.base64=changed.toString('base64');
+  payload=new TextEncoder().encode(JSON.stringify(packet));
+ }
+ parentPort.postMessage(payload,[payload.buffer]);
+});\n`);
+ const input=mockStart({openapi:'3.2.1',info:{title:'Prepared value',version:'1'},paths:{'/value':{post:{responses:{200:{description:'Number',content:{[mediaType]:{
+  schema:multipart?{type:'array',items:{type:'integer',minimum:0}}:{type:'object',required:['n'],properties:{n:{type:'integer',minimum:0}}},...(multipart?{itemEncoding:{contentType:'text/plain'}}:{}),examples:{one:{dataValue:multipart?[1]:{n:1}}}
+ }}}}}}}});
+ const ready=await start(t,input,{helper}),response=await request(ready.port,'/value');
+ assert.equal(response.status,501,response.text);
+ assert.equal(JSON.parse(response.text).complete,false);
+ assert.match(response.text,multipart?/runtime\.multipart\.correspondence/:/runtime\.form\.correspondence/);
+});

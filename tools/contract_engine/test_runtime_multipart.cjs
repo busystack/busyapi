@@ -1,3 +1,4 @@
+const {prepareMultipart}=require('./multipart_test_capture.cjs');
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const YAML=require('yaml');
@@ -156,11 +157,11 @@ test('an encoded schema string still needs the declared text charset',async()=>{
 // W4.01: generation directives and proof use the same captured media owner as
 // the existing request/response decoder above. These sources are held, not run.
 for(const version of ['3.2.0','3.2.1'])for(const format of ['json','yaml'])test(`${version} ${format} typed prefix, item and nested generation prove actual bytes`,async()=>{
- const {requestMultipartPlan}=require('./dist/execution.cjs');
+
  const media={schema:{type:'array',minItems:1,maxItems:3,prefixItems:[{type:'object',required:['id'],properties:{id:{type:'integer',const:exact}}},{type:'array',items:{type:'boolean'}}],items:{type:'string'}},
   prefixEncoding:[{contentType:'application/json'},{contentType:'multipart/mixed',itemEncoding:{contentType:'text/plain'}}],itemEncoding:{contentType:'text/plain'}};
  const source=capture(version,format,media),input={...source,resource:source.root,pointer:'/paths/~1parts/post',mediaType:'multipart/mixed',text:'[{"id":9007199254740993.00},[false,true],""]',files:[]};
- const before=JSON.stringify(input.resources),plan=await requestMultipartPlan(input);
+ const before=JSON.stringify(input.resources),plan=await prepareMultipart(input);
  assert.deepEqual(plan.tree.parts.map(part=>part.pointer),['/0','/1','/2']);
  assert.equal(plan.tree.parts[0].text,'{"id":9007199254740993.00}');
  assert.deepEqual(plan.tree.parts[1].children.parts.map(part=>part.text),['false','true']);
@@ -168,100 +169,103 @@ for(const version of ['3.2.0','3.2.1'])for(const format of ['json','yaml'])test(
  const body=wire([{headers:{'Content-Type':'application/json'},body:'{"id":9007199254740993.00}'},
   {headers:{'Content-Type':'multipart/mixed; boundary=Inner'},body:wire([{headers:{'Content-Type':'text/plain'},body:'false'},{headers:{'Content-Type':'text/plain'},body:'true'}],'Inner')},
   {headers:{'Content-Type':'text/plain'},body:''}]);
- const proof=await requestMultipartPlan({...input,wire:Buffer.from(body).toString('base64'),wireType:'multipart/mixed; boundary=Fixture'});
- assert.deepEqual(proof.proof,{complete:true,valid:true});
+ const proof=await prepareMultipart({...input,wire:Buffer.from(body).toString('base64'),wireType:'multipart/mixed; boundary=Fixture'});
+ assert.deepEqual(proof.checked,{complete:true,valid:true});
  for(const changed of [body.replace('9007199254740993.00','9007199254740992'),body.replace('false','true')])
-  await assert.rejects(requestMultipartPlan({...input,wire:Buffer.from(changed).toString('base64'),wireType:'multipart/mixed; boundary=Fixture'}),error=>error.code==='request.multipart.identity'||error.code==='request.multipart.roundtrip');
- const short=await requestMultipartPlan({...input,text:'[{"id":9007199254740993.00}]'});
+  await assert.rejects(prepareMultipart({...input,wire:Buffer.from(changed).toString('base64'),wireType:'multipart/mixed; boundary=Fixture'}),error=>error.code==='runtime.multipart.correspondence');
+ const short=await prepareMultipart({...input,text:'[{"id":9007199254740993.00}]'});
  assert.equal(short.tree.parts.length,1);assert.equal(JSON.stringify(input.resources),before);
 });
 for(const version of ['3.2.0','3.2.1'])test(`${version} typed itemSchema is independent and checked against the original declaration`,async()=>{
- const {requestMultipartPlan}=require('./dist/execution.cjs');
+
  const source=capture(version,'json',{itemSchema:{type:'integer',minimum:1},itemEncoding:{contentType:'text/plain'}});
  const input={...source,resource:source.root,pointer:'/paths/~1parts/post',mediaType:'multipart/mixed',text:'[0]',files:[]};
  const bad=wire([{headers:{'Content-Type':'text/plain'},body:'0'}]);
- await assert.rejects(requestMultipartPlan({...input,wire:Buffer.from(bad).toString('base64'),wireType:'multipart/mixed; boundary=Fixture'}),error=>error.code==='request.multipart.conformance'&&error.source.resource===source.root);
- const constructed = await requestMultipartPlan({...input, requireConformance:false,
+ await assert.rejects(prepareMultipart({...input,wire:Buffer.from(bad).toString('base64'),wireType:'multipart/mixed; boundary=Fixture'}),error=>error.code==='runtime.schema.incompatible'&&error.source.resource===source.root);
+ const constructed = await prepareMultipart({...input, allowInvalid:true,
   wire:Buffer.from(bad).toString('base64'),wireType:'multipart/mixed; boundary=Fixture'});
- assert.equal(constructed.proof.valid, true);
+ assert.equal(constructed.checked.valid, false);
  const checked = await run(source, bad);
  assert.equal(checked.result.complete, true);
  assert.equal(checked.valid, false);
  const {mockMultipartBytes} = require('./dist/execution.cjs');
- await assert.rejects(mockMultipartBytes({...input,status:'200',requireConformance:false}),
-  error => error.code === 'request.multipart.conformance');
+ const generated=await mockMultipartBytes({...input,status:'200'});
+ assert.equal(Object.hasOwn(generated,'proof'),false);
+ const responseSource={...source,subject:'response-body',at:source.at.replace('/requestBody/','/responses/200/')};
+ const response=await run(responseSource,Buffer.from(generated.base64,'base64').toString(),generated.mediaType);
+ assert.equal(response.result.complete,true);assert.equal(response.valid,false);
  const good=wire([{headers:{'Content-Type':'text/plain'},body:'1'}]);
- assert.equal((await requestMultipartPlan({...input,text:'[1]',wire:Buffer.from(good).toString('base64'),wireType:'multipart/mixed; boundary=Fixture'})).proof.valid,true);
+ assert.equal((await prepareMultipart({...input,text:'[1]',wire:Buffer.from(good).toString('base64'),wireType:'multipart/mixed; boundary=Fixture'})).checked.valid,true);
 });
 
 for(const style of ['form','deepObject'])test(`nested named ${style} expansion reuses exact typed fields without URL encoding`,async()=>{
- const {requestMultipartPlan}=require('./dist/execution.cjs');
+
  const source=capture('3.2.1','json',{schema:{type:'array',items:{type:'object',required:['options'],properties:{options:{type:'object',required:['big','flag'],properties:{big:{type:'integer',const:exact},flag:{type:'boolean',const:false}}}}}},
   itemEncoding:{contentType:'multipart/form-data',encoding:{options:{style,explode:true,contentType:'application/ignored'}}}});
  const input={...source,resource:source.root,pointer:'/paths/~1parts/post',mediaType:'multipart/mixed',text:'[{"options":{"big":9007199254740993.00,"flag":false}}]',files:[]};
- const plan=await requestMultipartPlan(input),children=plan.tree.parts[0].children.parts;
+ const plan=await prepareMultipart(input),children=plan.tree.parts[0].children.parts;
  assert.deepEqual(children.map(part=>part.name),style==='form'?['big','flag']:['options[big]','options[flag]']);
  const inner=wire(children.map(part=>({headers:{'Content-Disposition':'form-data; name="'+part.name+'"','Content-Type':'text/plain'},body:part.text})),'Inner');
  const body=wire([{headers:{'Content-Type':'multipart/form-data; boundary=Inner'},body:inner}]);
- const result=await requestMultipartPlan({...input,wire:Buffer.from(body).toString('base64'),wireType:'multipart/mixed; boundary=Fixture'});
- assert.equal(result.proof.valid,true);
+ const result=await prepareMultipart({...input,wire:Buffer.from(body).toString('base64'),wireType:'multipart/mixed; boundary=Fixture'});
+ assert.equal(result.checked.valid,true);
 });
 for(const version of ['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3.1.2'])test(`${version} named union media choices remain native and explicit`,async()=>{
- const {requestMultipartPlan,requestOperation}=require('./dist/execution.cjs');
+ const {requestOperation}=require('./dist/execution.cjs');
  const source=capture(version,'json',{schema:{type:'object',properties:{value:{anyOf:[{type:'string'},{type:'object',required:['n'],properties:{n:{type:'integer',enum:[exact]}}}]}}}},'request-body','multipart/form-data');
  const input={...source,resource:source.root,pointer:'/paths/~1parts/post',mediaType:'multipart/form-data',text:'{"value":{"n":9007199254740993.00}}',files:[]};
  assert.equal(requestOperation(input).requestBody.content[0].multipart.usesTree,true);
- const options=await requestMultipartPlan({...input,inspect:true});
+ const options=await prepareMultipart({...input,inspect:true});
  const selection=options.controls[0].schemas.find(schema=>schema.pointer.endsWith('/anyOf/1')).id;
  const body=wire([{headers:{'Content-Disposition':'form-data; name="value"','Content-Type':'application/json'},body:'{"n":9007199254740993.00}'}]);
- assert.equal((await requestMultipartPlan({...input,partSchemas:{'/value':selection},wire:Buffer.from(body).toString('base64'),wireType:'multipart/form-data; boundary=Fixture'})).proof.valid,true);
+ assert.equal((await prepareMultipart({...input,partSchemas:{'/value':selection},wire:Buffer.from(body).toString('base64'),wireType:'multipart/form-data; boundary=Fixture'})).checked.valid,true);
 });
 
 test('nested URL-encoded content applies its own form codec and ignores MIME-only field Headers',async()=>{
- const {requestMultipartPlan}=require('./dist/execution.cjs');
+
  const media={schema:{type:'array',items:{type:'object',required:['n','note','metadata','ids'],properties:{n:{type:'integer',const:exact},note:{type:'string'},metadata:{type:'object',properties:{ok:{type:'boolean'}}},ids:{type:'array',items:{type:'integer'}}}}},
   itemEncoding:{contentType:'application/x-www-form-urlencoded',encoding:{metadata:{contentType:'application/json'},ids:{style:'form',explode:false},note:{contentType:'text/plain',headers:{'X-Ignored':{required:true,schema:false}}}}}};
  const source=capture('3.2.1','json',media),text='[{"n":9007199254740993.00,"note":"a+b &雪","metadata":{"ok":false},"ids":[1,2]}]';
  const input={...source,resource:source.root,pointer:'/paths/~1parts/post',mediaType:'multipart/mixed',text,files:[]};
- const plan=await requestMultipartPlan(input);
+ const plan=await prepareMultipart(input);
  const encoded='n=9007199254740993.00&note=a%2Bb+%26%E9%9B%AA&metadata=%7B%22ok%22%3Afalse%7D&ids=1,2';
  assert.equal(Buffer.from(plan.tree.parts[0].bytes,'base64').toString(),encoded);
  const body=wire([{headers:{'Content-Type':'application/x-www-form-urlencoded'},body:encoded}]);
- assert.equal((await requestMultipartPlan({...input,wire:Buffer.from(body).toString('base64'),wireType:'multipart/mixed; boundary=Fixture'})).proof.valid,true);
- await assert.rejects(requestMultipartPlan({...input,wire:Buffer.from(body.replace('a%2Bb','a+b')).toString('base64'),wireType:'multipart/mixed; boundary=Fixture'}),error=>error.code==='request.multipart.identity');
+ assert.equal((await prepareMultipart({...input,wire:Buffer.from(body).toString('base64'),wireType:'multipart/mixed; boundary=Fixture'})).checked.valid,true);
+ await assert.rejects(prepareMultipart({...input,wire:Buffer.from(body.replace('a%2Bb','a+b')).toString('base64'),wireType:'multipart/mixed; boundary=Fixture'}),error=>error.code==='runtime.multipart.correspondence');
 });
 
 test('nested URL form retains captured schema and media alternatives through generated-byte proof',async()=>{
- const {requestMultipartPlan}=require('./dist/execution.cjs');
+
  const media={schema:{type:'array',items:{type:'object',required:['value'],properties:{value:{oneOf:[{type:'integer',minimum:1},{type:'string',minLength:1}]}}}},
   itemEncoding:{contentType:'application/x-www-form-urlencoded',encoding:{value:{contentType:'text/plain, application/json'}}}};
  const source=capture('3.2.1','json',media),input={...source,resource:source.root,pointer:'/paths/~1parts/post',mediaType:'multipart/mixed',text:'[{"value":9007199254740993.00}]',files:[],choices:{'/0/value':'application/json'}};
- const options=await requestMultipartPlan({...input,inspect:true});
+ const options=await prepareMultipart({...input,inspect:true});
  const selection=options.controls.find(part=>part.name==='/0/value').schemas.find(schema=>schema.type==='integer').id;
  const body=wire([{headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'value=9007199254740993.00'}]);
- assert.equal((await requestMultipartPlan({...input,partSchemas:{'/0/value':selection},wire:Buffer.from(body).toString('base64'),wireType:'multipart/mixed; boundary=Fixture'})).proof.valid,true);
- await assert.rejects(requestMultipartPlan({...input,choices:{}}),error=>error.code==='request.form.content-type');
- await assert.rejects(requestMultipartPlan({...input,partSchemas:{'/0/value':'choice:absent'}}),error=>error.code==='request.multipart.representation.stale');
+ assert.equal((await prepareMultipart({...input,partSchemas:{'/0/value':selection},wire:Buffer.from(body).toString('base64'),wireType:'multipart/mixed; boundary=Fixture'})).checked.valid,true);
+ await assert.rejects(prepareMultipart({...input,choices:{}}),error=>error.code==='request.form.content-type');
+ await assert.rejects(prepareMultipart({...input,partSchemas:{'/0/value':'choice:absent'}}),error=>error.code==='request.multipart.representation.stale');
 });
 
 for(const version of ['3.1.0','3.1.1','3.1.2','3.2.0','3.2.1'])test(`${version} named repeated tuple values retain index schemas and one-item multiplicity`,async()=>{
- const {requestMultipartPlan}=require('./dist/execution.cjs');
+
  const source=capture(version,'json',{schema:{type:'object',required:['values'],properties:{values:{type:'array',minItems:1,maxItems:2,prefixItems:[{type:'integer',enum:[exact]},{type:'boolean'}],items:false}}}},'request-body','multipart/form-data');
  const input={...source,resource:source.root,pointer:'/paths/~1parts/post',mediaType:'multipart/form-data',text:'{"values":[9007199254740993.00,false]}',files:[]};
  const body=wire([{headers:{'Content-Disposition':'form-data; name="values"','Content-Type':'text/plain'},body:'9007199254740993.00'},
   {headers:{'Content-Disposition':'form-data; name="values"','Content-Type':'text/plain'},body:'false'}]);
- assert.equal((await requestMultipartPlan({...input,wire:Buffer.from(body).toString('base64'),wireType:'multipart/form-data; boundary=Fixture'})).proof.valid,true);
+ assert.equal((await prepareMultipart({...input,wire:Buffer.from(body).toString('base64'),wireType:'multipart/form-data; boundary=Fixture'})).checked.valid,true);
  const one=wire([{headers:{'Content-Disposition':'form-data; name="values"','Content-Type':'text/plain'},body:'9007199254740993.00'}]);
- assert.equal((await requestMultipartPlan({...input,text:'{"values":[9007199254740993.00]}',wire:Buffer.from(one).toString('base64'),wireType:'multipart/form-data; boundary=Fixture'})).proof.instance,'{"values":[9007199254740993.00]}');
- await assert.rejects(requestMultipartPlan({...input,text:'{"values":[]}',wire:Buffer.from(one).toString('base64'),wireType:'multipart/form-data; boundary=Fixture'}),error=>error.code==='request.multipart.empty');
+ assert.equal((await prepareMultipart({...input,text:'{"values":[9007199254740993.00]}',wire:Buffer.from(one).toString('base64'),wireType:'multipart/form-data; boundary=Fixture'})).checked.instance,'{"values":[9007199254740993.00]}');
+ await assert.rejects(prepareMultipart({...input,text:'{"values":[]}',wire:Buffer.from(one).toString('base64'),wireType:'multipart/form-data; boundary=Fixture'}),error=>error.code==='request.multipart.empty');
 });
 
 for(const styled of [false,true])test(`nested URL form ${styled?'style':'content'} arrays preserve selected item kinds`,async()=>{
- const {requestMultipartPlan}=require('./dist/execution.cjs');
+
  const source=capture('3.2.1','json',{schema:{type:'array',items:{type:'object',properties:{values:{type:'array',items:{anyOf:[{type:'string'},{type:'integer'}]}}}}},
   itemEncoding:{contentType:'application/x-www-form-urlencoded',encoding:{values:styled?{style:'form',explode:false}:{contentType:'text/plain'}}}});
  const input={...source,resource:source.root,pointer:'/paths/~1parts/post',mediaType:'multipart/mixed',text:'[{"values":["x",9007199254740993.00]}]',files:[]};
  const body=wire([{headers:{'Content-Type':'application/x-www-form-urlencoded'},body:styled?'values=x,9007199254740993.00':'values=x&values=9007199254740993.00'}]);
- const plan=await requestMultipartPlan({...input,wire:Buffer.from(body).toString('base64'),wireType:'multipart/mixed; boundary=Fixture'});
- assert.equal(plan.proof.valid,true);assert(plan.partSchemas['/0/values/0']);assert(plan.partSchemas['/0/values/1']);
+ const plan=await prepareMultipart({...input,wire:Buffer.from(body).toString('base64'),wireType:'multipart/mixed; boundary=Fixture'});
+ assert.equal(plan.checked.valid,true);assert(plan.partSchemas['/0/values/0']);assert(plan.partSchemas['/0/values/1']);
 });

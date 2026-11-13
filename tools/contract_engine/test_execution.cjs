@@ -6,6 +6,16 @@ const {deriveBundle}=require('./dist/derived_bundle.cjs');
 const {requestFormDataValues}=require('./dist/execution.cjs');
 const {requestFormMediaTypes}=require('./dist/execution.cjs');
 
+async function assertPreparedFormResponse(input,prepared){
+ const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
+ const content=requestOperation(input).responses[0].content[0];
+ const result=await evaluateSchemas({...input,runtimeInstances:[{subject:'response-body',location:prepared.mediaType,
+  text:prepared.base64,mediaBase64:true,mediaType:prepared.mediaType,schema:content.schema,form:content.definition,
+  originalData:prepared.preparation.originalData,expectedData:prepared.preparation.expectedData,omittedFields:prepared.preparation.omittedFields}]});
+ assert.equal(result.complete,true,JSON.stringify(result.runtimeFindings));
+ assert(result.runtimeEvaluations.length>0&&result.runtimeEvaluations.every(value=>value.complete&&value.valid),JSON.stringify(result.runtimeFindings));
+}
+
 for(const version of ['3.0.4','3.1.2','3.2.0','3.2.1'])test(`${version} request security projects device endpoints only for its native family`,()=>{
  const root='file:///execution/device.json',deviceAuthorizationUrl='https://auth.example/device';
  const value={openapi:version,info:{title:'Native device flow',version:'business'},paths:{'/p':{get:{security:[{oauth:[]}],responses:{204:{description:'Empty'}}}}},
@@ -410,6 +420,7 @@ for(const version of ['3.0.4','3.1.2','3.2.1'])test(`${version} request and mock
  const request=await requestFormBytes(input),mock=await mockFormBytes({...input,status:'200'});
  assert.equal(Buffer.from(request.base64,'base64').toString(),'empty=&exact=9007199254740993.00');
  assert.equal(mock.base64,request.base64);assert.equal(request.instance,'{"empty":"","exact":9007199254740993.00}');
+ await assertPreparedFormResponse(input,mock);
 });
 test('literal form rows retain interleaving and invalid serialized JSON without source-per-field work',async()=>{
  const {requestFormBytes}=require('./dist/execution.cjs'),root='file:///execution/literal-form.json';
@@ -435,7 +446,8 @@ test('native and mock URL-form text fields use the same declared charset bytes',
  const value={openapi:'3.2.1',info:{title:'Charset',version:'1'},paths:{'/':{post:{requestBody:{content:{'application/x-www-form-urlencoded':media}},responses:{200:{description:'ok',content:{'application/x-www-form-urlencoded':media}}}}}}};
  const input={root,snapshot:'charset',resource:root,pointer:'/paths/~1/post',resources:[{id:root,text:JSON.stringify(value),generation:0}],mediaType:'application/x-www-form-urlencoded',text:'{"word":"café"}',fields:[]};
  const request=await requestFormBytes(input),literal=await requestFormBytes({...input,text:undefined,fields:[{name:'word',value:'café'}]}),mock=await mockFormBytes({...input,status:'200'});
- assert.equal(Buffer.from(request.base64,'base64').toString(),'word=caf%E9');assert.equal(literal.base64,request.base64);assert.equal(mock.base64,request.base64);assert.equal(mock.proof.valid,true);
+ assert.equal(Buffer.from(request.base64,'base64').toString(),'word=caf%E9');assert.equal(literal.base64,request.base64);assert.equal(mock.base64,request.base64);
+ await assertPreparedFormResponse(input,mock);
 });
 
 test('ordinary form data keys keep their values without object-prototype interpretation',async()=>{

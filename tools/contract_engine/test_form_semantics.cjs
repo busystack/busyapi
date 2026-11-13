@@ -1,10 +1,11 @@
+const {prepareMultipart}=require('./multipart_test_capture.cjs');
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const YAML=require('yaml');
 const {analyse}=require('./dist/model.cjs');
 
 for(const version of ['3.0.4','3.1.2','3.2.1'])for(const format of ['json','yaml'])for(const composition of [false,true])test(`${version} ${format} recursive object parts keep their JSON representation and full schema checks composition=${composition}`,async()=>{
- const {requestOperation,requestMultipartPlan}=require('./dist/execution.cjs');
+ const {requestOperation}=require('./dist/execution.cjs');
  const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
  const root='file:///recursive-form/api.'+format,mediaType='multipart/form-data';
  const node={type:'object',properties:{label:{type:'string'},next:{$ref:'#/components/schemas/Node'}}};
@@ -14,7 +15,7 @@ for(const version of ['3.0.4','3.1.2','3.2.1'])for(const format of ['json','yaml
  const content=requestOperation(input).requestBody.content[0];
  assert.deepEqual(content.form.parts.next.contentTypes,['application/json']);
  assert.deepEqual(content.form.parts.label.contentTypes,['text/plain']);
- const text='{"label":"outer","next":{"label":"inner"}}',plan=await requestMultipartPlan({...input,text});
+ const text='{"label":"outer","next":{"label":"inner"}}',plan=await prepareMultipart({...input,text});
  const part=plan.tree.parts.find(part=>part.name==='next');
  assert.equal(part.contentType,'application/json');assert.equal(Buffer.from(part.bytes,'base64').toString(),'{"label":"inner"}');
  for(const [nested,valid]of [['{"label":"inner"}',true],['{"label":7}',false],['{"label":"x"}',!composition]]){
@@ -44,13 +45,13 @@ for(const version of ['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3
 });
 
 for(const version of ['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3.1.2'])test(`${version} undeclared newer positional metadata does not activate a codec`,async()=>{
- const {requestOperation,requestMultipartPlan}=require('./dist/execution.cjs');
+ const {requestOperation}=require('./dist/execution.cjs');
  const root='file:///ignored-position/api.json',media={schema:{type:'object',required:['value'],properties:{value:{type:'integer',enum:[1]}}},
   prefixEncoding:[{contentType:'application/unavailable'}],itemEncoding:{contentType:'application/unavailable'}};
  const input={root,resource:root,pointer:'/paths/~1form/post',snapshot:version,mediaType:'multipart/form-data',files:[],resources:[{id:root,generation:1,text:JSON.stringify({openapi:version,info:{title:'Ignored',version:'1'},paths:{'/form':{post:{requestBody:{content:{'multipart/form-data':media}},responses:{204:{description:'Empty'}}}}}})}]};
  assert.equal(requestOperation(input).requestBody.content[0].formBinding,'multipart-named');
  const wire='--W4\r\nContent-Disposition: form-data; name="value"\r\nContent-Type: text/plain\r\n\r\n1\r\n--W4--\r\n';
- assert.equal((await requestMultipartPlan({...input,text:'{"value":1}',wireType:'multipart/form-data; boundary=W4',wire:Buffer.from(wire).toString('base64'),expected:'{"value":1}'})).proof.valid,true);
+ assert.equal((await prepareMultipart({...input,text:'{"value":1}',wireType:'multipart/form-data; boundary=W4',wire:Buffer.from(wire).toString('base64')})).checked.valid,true);
 });
 
 for(const version of ['3.2.0','3.2.1'])test(`${version} ordered form-data exposes captured ordering and ignores absent Encoding positions`,async()=>{
@@ -59,18 +60,18 @@ for(const version of ['3.2.0','3.2.1'])test(`${version} ordered form-data expose
  const input={root,resource:root,pointer:'/paths/~1form/post',snapshot:version,mediaType:'multipart/form-data',text:'[{"tag":9007199254740993.00}]',files:[],resources:[{id:root,generation:1,text:JSON.stringify({openapi:version,info:{title:'Policy',version:'1'},paths:{'/form':{post:{requestBody:{content:{'multipart/form-data':media}},responses:{204:{description:'Empty'}}}}}})}]};
  const projected=requestOperation(input).requestBody.content[0];
  assert.equal(projected.formBinding,'multipart-ordered');assert.equal(projected.multipart.usesTree,true);
- const plan=await requestMultipartPlan(input);assert.equal(plan.tree.parts.length,1);assert.equal(plan.tree.parts[0].name,'tag');
+ const plan=await prepareMultipart(input);assert.equal(plan.tree.parts.length,1);assert.equal(plan.tree.parts[0].name,'tag');
  assert.equal(plan.tree.parts[0].text,'9007199254740993.00');
  assert.equal(requestMultipartAppend({text:input.text,pointer:'',value:'{"tag":false}'}).text,'[{"tag":9007199254740993.00},{"tag":false}]');
- await assert.rejects(requestMultipartPlan({...input,text:'[{"tag":1},{"tag":2}]'}),error=>error.code==='request.multipart.codec.unsupported'&&error.source.pointer.endsWith('/prefixEncoding/1'));
+ await assert.rejects(prepareMultipart({...input,text:'[{"tag":1},{"tag":2}]'}),error=>error.code==='request.multipart.codec.unsupported'&&error.source.pointer.endsWith('/prefixEncoding/1'));
 });
 
 for(const version of ['3.0.4','3.1.2','3.2.1'])test(`${version} an Encoding key absent from schema properties remains inactive`,async()=>{
- const {requestOperation,requestMultipartPlan}=require('./dist/execution.cjs');
+ const {requestOperation}=require('./dist/execution.cjs');
  const root='file:///ignored-name/api.json',media={schema:{type:'object',properties:{value:{type:'string'}}},encoding:{absent:{contentType:'application/unavailable',headers:{'Content-Transfer-Encoding':{schema:{type:'string',enum:['unavailable']}}},itemEncoding:{contentType:'application/unavailable'}}}};
  const input={root,resource:root,pointer:'/paths/~1form/post',snapshot:version,mediaType:'multipart/form-data',files:[],resources:[{id:root,generation:1,text:JSON.stringify({openapi:version,info:{title:'Ignored name',version:'1'},paths:{'/form':{post:{requestBody:{content:{'multipart/form-data':media}},responses:{204:{description:'Empty'}}}}}})}]};
  const content=requestOperation(input).requestBody.content[0];
  assert.deepEqual(Object.keys(content.encoding),[]);assert.equal(content.formBinding,'multipart-named');assert(!content.form.parts.absent);
  const wire='--W4\r\nContent-Disposition: form-data; name="value"\r\nContent-Type: text/plain\r\n\r\nretained\r\n--W4--\r\n';
- assert.equal((await requestMultipartPlan({...input,text:'{"value":"retained"}',wireType:'multipart/form-data; boundary=W4',wire:Buffer.from(wire).toString('base64'),expected:'{"value":"retained"}'})).proof.valid,true);
+ assert.equal((await prepareMultipart({...input,text:'{"value":"retained"}',wireType:'multipart/form-data; boundary=W4',wire:Buffer.from(wire).toString('base64')})).checked.valid,true);
 });

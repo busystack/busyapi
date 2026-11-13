@@ -1,3 +1,4 @@
+const {prepareMultipart}=require('./multipart_test_capture.cjs');
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const YAML=require('yaml');
@@ -89,48 +90,47 @@ for(const version of ['3.0.4','3.1.2'])for(const format of ['yaml','json']){
 }
 
 for(const version of ['3.2.0','3.2.1'])test(`${version} explicit union representation is captured, validated and relocation-stable`,async()=>{
- const {requestMultipartPlan}=require('./dist/execution.cjs');
+
  const root='file:///typed-choice/api.json',media={schema:{type:'array',items:{oneOf:[{type:'string',contentEncoding:'base64',pattern:'^AP8=$'},{type:'string',contentEncoding:'base16',pattern:'^00FF$'}]}},itemEncoding:{contentType:'application/octet-stream'}};
  const input={root,resource:root,pointer:'/paths/~1parts/post',snapshot:version,mediaType:'multipart/mixed',text:'["AP8="]',files:[],resources:[{id:root,generation:1,text:JSON.stringify({openapi:version,info:{title:'Choices',version:'1'},paths:{'/parts':{post:{requestBody:{content:{'multipart/mixed':media}},responses:{204:{description:'Empty'}}}}}})}]};
- const options=await requestMultipartPlan({...input,inspect:true});
+ const options=await prepareMultipart({...input,inspect:true});
  const selected=options.controls[0].schemas.find(schema=>schema.pointer.endsWith('/oneOf/0')).id;
  assert(!selected.startsWith('file:///'));
- await assert.rejects(requestMultipartPlan(input),error=>error.code==='request.multipart.encoding.unsupported');
+ await assert.rejects(prepareMultipart(input),error=>error.code==='request.multipart.encoding.unsupported');
  const wire=Buffer.from('--W4\r\nContent-Type: application/octet-stream\r\nContent-Transfer-Encoding: base64\r\n\r\nAP8=\r\n--W4--\r\n');
- assert.equal((await requestMultipartPlan({...input,partSchemas:{'/0':selected},wire:wire.toString('base64'),wireType:'multipart/mixed; boundary=W4'})).proof.valid,true);
- await assert.rejects(requestMultipartPlan({...input,partSchemas:{'/0':'#/not-a-choice'}}),error=>error.code==='request.multipart.representation.stale');
+ assert.equal((await prepareMultipart({...input,partSchemas:{'/0':selected},wire:wire.toString('base64'),wireType:'multipart/mixed; boundary=W4'})).checked.valid,true);
+ await assert.rejects(prepareMultipart({...input,partSchemas:{'/0':'#/not-a-choice'}}),error=>error.code==='request.multipart.representation.stale');
  const relocated={...input,root:'file:///relocated/api.json',resource:'file:///relocated/api.json',resources:input.resources.map(resource=>({...resource,id:'file:///relocated/api.json'}))};
- assert.equal((await requestMultipartPlan({...relocated,partSchemas:{'/0':selected}})).tree.parts[0].transfer.encoding,'base64');
+ assert.equal((await prepareMultipart({...relocated,partSchemas:{'/0':selected}})).tree.parts[0].transfer.encoding,'base64');
 });
 
 for(const version of versions)test(`${version} generated named bytes cannot substitute a rounded intended number`,async()=>{
- const {requestMultipartPlan}=require('./dist/execution.cjs');
+
  const input=capture(version,'json');
  const proof={...input,mediaType:'multipart/mixed',wireType:'multipart/mixed; boundary=Fixture',wire:Buffer.from(wire()).toString('base64'),files:[],headers:{'/flag':[{name:'X-Tag',value:'retained'}]},text:'{"flag":false,"metadata":{"id":9007199254740993.00}}'};
- assert.equal((await requestMultipartPlan(proof)).proof.valid,true);
- await assert.rejects(requestMultipartPlan({...proof,wire:Buffer.from(wire('false','retained','9007199254740992')).toString('base64')}),error=>error.code==='request.multipart.identity'&&error.source.resource===input.root);
- await assert.rejects(requestMultipartPlan({...proof,wire:Buffer.from(wire('false','retained','9007199254740993')).toString('base64')}),error=>error.code==='request.multipart.identity');
- await assert.rejects(requestMultipartPlan({...proof,wire:Buffer.from(wire('false','retained','9007199254740992')).toString('base64'),text:'{"flag":false,"metadata":{"id":9007199254740992}}'}),error=>error.code==='request.multipart.conformance'&&error.source.range[1]>0);
- const invalid = {...proof, requireConformance:false,
+ assert.equal((await prepareMultipart(proof)).checked.valid,true);
+ await assert.rejects(prepareMultipart({...proof,wire:Buffer.from(wire('false','retained','9007199254740992')).toString('base64')}),error=>error.code==='runtime.multipart.correspondence'&&error.source.resource===input.root);
+ await assert.rejects(prepareMultipart({...proof,wire:Buffer.from(wire('false','retained','9007199254740993')).toString('base64')}),error=>error.code==='runtime.multipart.correspondence');
+ await assert.rejects(prepareMultipart({...proof,wire:Buffer.from(wire('false','retained','9007199254740992')).toString('base64'),text:'{"flag":false,"metadata":{"id":9007199254740992}}'}),error=>error.code==='runtime.schema.incompatible'&&error.source.range[1]>0);
+ const invalid = {...proof, allowInvalid:true,
   wire:Buffer.from(wire('false','retained','9007199254740992')).toString('base64'),
   text:'{"flag":false,"metadata":{"id":9007199254740992}}'};
- assert.equal((await requestMultipartPlan(invalid)).proof.valid, true);
- await assert.rejects(requestMultipartPlan({...invalid, text:proof.text}), error => error.code === 'request.multipart.identity');
- await assert.rejects(requestMultipartPlan({...proof, requireConformance:'false'}), error => error.code === 'request.multipart.protocol');
+ assert.equal((await prepareMultipart(invalid)).checked.valid, false);
+ await assert.rejects(prepareMultipart({...invalid, text:proof.text}), error => error.code === 'runtime.multipart.correspondence');
 });
 
 for(const version of ['3.0.0','3.0.4'])test(`${version} typed binary input keeps its native octet model and exact numbers`,async()=>{
- const {requestMultipartPlan}=require('./dist/execution.cjs');
+
  const root='file:///binary-intent/api.json',schema={type:'object',required:['asset','exact'],properties:{asset:{type:'string',format:'binary',minLength:7,maxLength:7},exact:{type:'integer',enum:['EXACT']}}};
  const source=JSON.stringify({openapi:version,info:{title:'Native binary intent',version:'1'},paths:{'/parts':{post:{requestBody:{content:{'multipart/form-data':{schema}}},responses:{204:{description:'Empty'}}}}}}).replace('"EXACT"','9007199254740993.00');
  const input={root,resource:root,pointer:'/paths/~1parts/post',snapshot:version,mediaType:'multipart/form-data',files:[],resources:[{id:root,generation:1,text:source}]};
  const text=value=>'"asset":'+JSON.stringify(value)+',"exact":9007199254740993.00';
  const wire=value=>Buffer.from('--Native\r\nContent-Disposition: form-data; name="asset"\r\nContent-Type: application/octet-stream\r\n\r\n'+value+'\r\n--Native\r\nContent-Disposition: form-data; name="exact"\r\nContent-Type: text/plain\r\n\r\n9007199254740993.00\r\n--Native--\r\n').toString('base64');
- const prepare=value=>requestMultipartPlan({...input,text:'{'+text(value)+'}',wire:wire(value),wireType:'multipart/form-data; boundary=Native'});
+ const prepare=value=>prepareMultipart({...input,text:'{'+text(value)+'}',wire:wire(value),wireType:'multipart/form-data; boundary=Native'});
  const prepared=await prepare('雪😀');
- assert.equal(prepared.proof.valid,true);
+ assert.equal(prepared.checked.valid,true);
  assert.equal(JSON.parse(prepared.original).asset,Buffer.from('雪😀').toString('latin1'));
  assert.match(prepared.original,/9007199254740993\.00/);
- await assert.rejects(prepare('雪'),error=>error.code==='request.multipart.conformance');
+ await assert.rejects(prepare('雪'),error=>error.code==='runtime.schema.incompatible');
  assert.equal(input.resources[0].text,source);
 });

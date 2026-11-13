@@ -10,9 +10,7 @@ import {MultipartEncoding,supportsMultipartTransfer,type MultipartTransfer} from
 import {mediaTypes,mediaTypeChoice,mediaTypeOptions} from './media_types';
 import {multipartHeaderValues} from './multipart_header_values';
 import {declaredPlainTextBytes,encodePlainText} from './text_encoding';
-import {runtimeMediaKind,runtimeMediaBytes} from './runtime_media';
-import {mimeParts,mimeSingleton} from './mime_parts';
-import {decodeMultipartTransfer} from './multipart_transfer';
+import {runtimeMediaKind} from './runtime_media';
 import {decimal} from './exact_numbers';
 import {evaluateSchemas} from './schema_evaluation';
 import {capturedMimeHeaderContent} from './mime_header_content';
@@ -29,52 +27,6 @@ type Entity={contentType:string;parts:Part[]};
 const object=(v:unknown):v is Content=>v!==null&&typeof v==='object'&&!Array.isArray(v);
 const hash=(bytes:Buffer)=>createHash('sha256').update(bytes).digest('hex');
 
-type MultipartEvaluation = Awaited<ReturnType<typeof evaluateSchemas>>;
-
-function failMultipartEvaluation(
-    result: MultipartEvaluation,
-    encoding: MultipartEncoding,
-    at: GraphTarget,
-): never {
-    const first = result.runtimeFindings.find(value => value.severity === 'error') ?? result.runtimeFindings[0];
-    return encoding.failure('request.multipart.conformance', first?.message ??
-        'Generated multipart has no complete conforming evaluation', first?.schema ?? first?.source ?? at);
-}
-
-function multipartProjection(
-    result: MultipartEvaluation,
-    subject: 'request-body' | 'response-body',
-    encoding: MultipartEncoding,
-    at: GraphTarget,
-) {
-    if (!result.runtimeEvaluations.length || result.runtimeEvaluations.some(value => !value.complete)) {
-        failMultipartEvaluation(result, encoding, at);
-    }
-    const projection = result.runtimeEvaluations.find(value => value.subject === subject && typeof value.projectionData === 'string');
-    if (!projection) {
-        encoding.failure('request.multipart.protocol', 'The canonical decoder omitted its captured form projection', at);
-    }
-    return projection;
-}
-
-function requireMultipartConformance(
-    result: MultipartEvaluation,
-    required: unknown,
-    response: boolean,
-    encoding: MultipartEncoding,
-    at: GraphTarget,
-): void {
-    if (required !== undefined && typeof required !== 'boolean') {
-        encoding.failure('request.multipart.protocol', 'requireConformance must be a boolean', at);
-    }
-    // Construction proves byte fidelity. Request execution reports schema
-    // conformance separately, including intentionally invalid user input. Direct
-    // proofs and generated responses retain their strict conformance requirement.
-    if ((response || required !== false) && (result.runtimeEvaluations.some(value => !value.valid) ||
-        result.runtimeFindings.some(value => value.severity === 'error'))) {
-        failMultipartEvaluation(result, encoding, at);
-    }
-}
 // Projection never activates an unused Encoding Object just to discover an
 // editor mode. Syntax/codec errors belong to the actual selected instance.
 const mediaMatches=(raw:unknown,predicate:(type:ReturnType<typeof mediaTypes>[number])=>boolean)=>{
@@ -523,82 +475,4 @@ export async function multipartGeneration(graph:ReferenceGraph,content:Content,i
     const original=[...normalizations.values()].some(value=>value.intent)?project(true):doc.dataJson('');
     const raw=[...normalizations.values()].every(value=>value.intent)?original:project(false);
     return {tree,controls,selectedChecks,input:hash(Buffer.from(input.text)),original,raw,partSchemas:selections,files,fileShapes,intentOmissions:[...intentOmissions]};
-}
-
-/** A MIME body and a simplified schema are insufficient evidence. Decode the
- * actual emitted bytes, check leaf identity and exact typed values, then run
- * the existing evaluator against the original media/whole/item declarations. */
-export async function proveMultipartGeneration(graph:ReferenceGraph,content:Content,input:any,generated:Awaited<ReturnType<typeof multipartGeneration>>,context?:ReturnType<typeof createGraph>){
-    const transfers=new MultipartEncoding(graph),at:GraphTarget={...content.definition,kind:'media'};
-    const fail=(code:string,message:string,source=at):never=>transfers.failure(code,message,source);
-    mediaTypeChoice(input.mediaType,input.wireType);
-    const wire=runtimeMediaBytes(input.wire,true);
-    const check=(entity:Entity,bytes:Buffer,type:string)=>{
-        const parts=mimeParts(bytes,type);
-        if(parts.length!==entity.parts.length)fail('request.multipart.identity','Emitted part count differs from typed input');
-        entity.parts.forEach((part,index)=>{
-            const actual=parts[index],actualType=mimeSingleton(actual.headers,'content-type')??'text/plain';
-            mediaTypeChoice(part.contentType,actualType);
-            const transfer=mimeSingleton(actual.headers,'content-transfer-encoding')??'binary';
-            if(transfer.toLowerCase()!==(part.transfer.encoding??'binary').toLowerCase())fail('request.multipart.identity','The emitted transfer token differs from the captured selection',part.rule);
-            for(const name of new Set(part.headers.map(header=>header.name.toLowerCase()))){
-                const intended=part.headers.filter(header=>header.name.toLowerCase()===name).map(header=>header.value);
-                if(JSON.stringify(actual.headers.get(name)??[])!==JSON.stringify(intended))fail('request.multipart.identity','The emitted Header values differ from the captured input',part.rule);
-            }
-            const disposition=mimeSingleton(actual.headers,'content-disposition');
-            if(part.name!==undefined||part.file!==undefined){
-                if(disposition===undefined)fail('request.multipart.identity','An emitted named/file part omitted its disposition',part.rule);
-                const parsed=mediaTypes('x/'+disposition,false)[0];
-                if(part.name!==undefined&&(parsed.subtype!=='form-data'||parsed.parameters.get('name')!==part.name))fail('request.multipart.identity','The emitted part name differs from its typed position',part.rule);
-                if(part.file!==undefined&&input.files[part.file].filename!==undefined){
-                    let filename=parsed.parameters.get('filename');
-                    if(filename===undefined&&parsed.parameters.has('filename*')){
-                        const encoded=parsed.parameters.get('filename*')!;
-                        try{if(encoded.toLowerCase().startsWith("utf-8''"))filename=decodeURIComponent(encoded.slice(7));}
-                        catch{fail('request.multipart.identity','The emitted filename parameter is malformed',part.rule);}
-                    }
-                    if(filename!==input.files[part.file].filename)fail('request.multipart.identity','The emitted filename differs from the approved file input',part.rule);
-                }
-            }
-            const payload=decodeMultipartTransfer(actual.bytes,transfer);
-            if(part.children)check(part.children,payload.bytes,actualType);
-            else if(part.file!==undefined){
-                const identity=input.files[part.file].identity;
-                if(typeof identity!=='string'||hash(payload.bytes)!==identity)fail('request.multipart.file.identity','Emitted file bytes differ from the approved capture',part.rule);
-            }else if(part.transfer.schemaEncoded){
-                if((payload.encoded??payload.bytes.toString('utf8'))!==part.text)fail('request.multipart.identity','The encoded schema string changed during preparation',part.rule);
-            }else if(!payload.bytes.equals(runtimeMediaBytes(part.bytes!,true)))fail('request.multipart.identity','The part payload changed during preparation',part.rule);
-        });
-    };
-    check(generated.tree,wire,input.wireType);
-    const form={...at,partSchemas:generated.partSchemas,...(input.direction==='response'?{}:{fileShapes:generated.fileShapes}),partMediaTypes:input.choices??{}};
-    const subject=input.direction==='response'?'response-body':'request-body';
-    const runtimeInstances:any[]=[{subject,location:input.mediaType,text:input.wire,captureData:true,mediaBase64:true,mediaType:input.wireType,form,
-        schema:content.schema,itemSchema:content.itemSchema,originalData:generated.original,originalFiles:generated.files.map(file=>file.name)}];
-    const result=await evaluateSchemas({...input,runtimeInstances},undefined,context);
-    const projection = multipartProjection(result, subject, transfers, at);
-    const decoded={document:new SourceDocument(projection.projectionData,'urn:busyapi:proved-multipart',true,'json')};
-    const intended=new SourceDocument(generated.raw,'file:///busyapi-intended-multipart',true,'json');
-    const files=new Set<string>(generated.files.map(file=>file.name));
-    const octets=new Map<string,string>();
-    const omissions=new Set(generated.intentOmissions);
-    const collect=(entity:Entity)=>{for(const part of entity.parts){if(part.children)collect(part.children);else if(part.file===undefined&&part.transfer.instanceEncoding==='octets')octets.set(part.pointer,runtimeMediaBytes(part.bytes!,true).toString('latin1'));}};
-    collect(generated.tree);
-    const equal=(pointer:string):boolean=>{
-        if(files.has(pointer))return true;
-        if(octets.has(pointer))return decoded.document.dataNode(pointer)?.value===octets.get(pointer);
-        const left=intended.dataNode(pointer),right=decoded.document.dataNode(pointer);
-        if(!left||!right||left.kind!==right.kind)return false;
-        if(left.kind==='number')return intended.dataJson(pointer)===decoded.document.dataJson(pointer);
-        if(left.kind==='object'){
-            const members=[...left.children.values()].filter(child=>!(omissions.has(child.pointer)&&!decoded.document.dataNode(child.pointer)));
-            return members.length===right.children.size&&members.every(child=>equal(child.pointer));
-        }
-        if(left.kind==='array')return left.children.size===right.children.size&&[...left.children.values()].every(child=>equal(child.pointer));
-        return left.value===right.value;
-    };
-    if(!equal(''))fail('request.multipart.roundtrip','The emitted body does not decode to the intended typed input');
-    requireMultipartConformance(result, input.requireConformance, input.direction === 'response', transfers, at);
-    return {complete:true,valid:true,...(content.formBinding==='multipart-named'&&!content.itemSchema&&
-        !projection.projectionBinary?.length?{instance:decoded.document.dataJson('')}:{})};
 }
