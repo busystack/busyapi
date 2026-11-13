@@ -881,20 +881,20 @@ ${authoredQuery ? '' : "    baseUrl: '$queryBase'\n"}    authentication: {altern
                 SecretPersistence.sessionOnly,
               );
               expect(f.run.canSend, true);
-              await HttpOverrides.runWithHttpOverrides(
-                f.run.send,
-                _NativeHttp(),
-              );
-              expect(f.run.result, isNotNull, reason: f.run.failureMessage);
-              expect(
-                f.run.result!.response.incompleteReason,
-                'cross-origin-redirect-not-followed',
-              );
-              expected =
-                  'http://127.0.0.1:${destination!.port}/target?reflected=[REDACTED]&opaque=%E9';
-              expect(f.run.result!.response.redirects.single, expected);
-              expect(destinationRequests, 0);
             });
+            await runWidgetIo(
+              tester,
+              () => HttpOverrides.runWithHttpOverrides(f.run.send, _NativeHttp()),
+            );
+            expect(f.run.result, isNotNull, reason: f.run.failureMessage);
+            expect(
+              f.run.result!.response.incompleteReason,
+              'cross-origin-redirect-not-followed',
+            );
+            expected =
+                'http://127.0.0.1:${destination!.port}/target?reflected=[REDACTED]&opaque=%E9';
+            expect(f.run.result!.response.redirects.single, expected);
+            expect(destinationRequests, 0);
             await tester.pumpWidget(
               host(SingleChildScrollView(child: RequestRunPanel(run: f.run))),
             );
