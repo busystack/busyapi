@@ -91,6 +91,7 @@ void main() {
           ),
         );
         Future<void>? dialog;
+        List<bool>? originalOutcomes;
         Future<void> ready(bool Function() condition) async {
           final watch = Stopwatch()..start();
           await tester.pump();
@@ -118,6 +119,7 @@ void main() {
               shared.text.replaceFirst('Original model', 'Unsaved model'),
             );
             await c.analyse();
+            if (!blocked) originalOutcomes = await _dependencyOutcomes(c.project!, c.root!);
           });
           await tester.pumpWidget(
             MaterialApp(
@@ -174,7 +176,7 @@ void main() {
             await ready(
               () => find
                   .byWidgetPredicate(
-                    (widget) => widget is BusyApiActionRow && widget.title == 'The dependency map is also used as a Schema Object and needs a separate faithful representation',
+                    (widget) => widget is BusyApiActionRow && widget.subtitle?.contains('model.yaml ') == true && widget.subtitle?.contains('/dependent') == true,
                   )
                   .evaluate()
                   .isNotEmpty,
@@ -194,31 +196,31 @@ void main() {
             );
             expect(comparison.before, contains('Unsaved API 雪'));
             expect(comparison.after, contains(target));
-            expect(comparison.after, contains('allOf'));
-            expect(comparison.after, contains('anyOf'));
-            expect(comparison.after, contains(r'$ref'));
             expect(comparison.after, contains('9007199254740993.00'));
             expect(
               tester.widget<BusyApiDialogButton>(publish).onPressed,
               isNotNull,
             );
-            final resourceChoice = find.byWidgetPredicate(
-              (widget) => widget is BusyApiComboRow<int>,
+            final resourceChoice = tester.widget<BusyApiComboRow<int>>(
+              find.byWidgetPredicate((widget) => widget is BusyApiComboRow<int>),
             );
-            expect(resourceChoice, findsOneWidget);
-            await tester.tap(resourceChoice);
-            await tester.pumpAndSettle();
-            final sharedComparison = tester.widget<BusyApiReviewComparison>(
-              find.byType(BusyApiReviewComparison),
-            );
-            expect(sharedComparison.before, contains('dependentRequired'));
-            expect(sharedComparison.before, contains('Unsaved model'));
+            final reviewedFiles = <String, String>{};
+            BusyApiReviewComparison? sharedComparison;
+            for (final index in resourceChoice.values) {
+              resourceChoice.onSelected(index);
+              await tester.pumpAndSettle();
+              final current = tester.widget<BusyApiReviewComparison>(find.byType(BusyApiReviewComparison));
+              final destination = tester.widgetList<SelectableText>(find.byType(SelectableText))
+                  .map((widget) => widget.data).whereType<String>()
+                  .singleWhere((value) => value.startsWith(Uri.directory(path).toString()));
+              reviewedFiles[destination] = current.after;
+              if (resourceChoice.labelFor(index) == model.uri.toString()) sharedComparison = current;
+            }
+            expect(sharedComparison, isNotNull);
+            expect(sharedComparison!.before, c.project!.store.get(model.uri.toString()).text);
+            expect(sharedComparison.before, contains(conditionalSchemas ? 'dependentSchemas' : 'dependentRequired'));
             expect(sharedComparison.after, contains('Unsaved model'));
             expect(sharedComparison.after, contains('x-alias: *literal'));
-            expect(
-              sharedComparison.after,
-              isNot(contains('dependentRequired')),
-            );
             await tester.runAsync(() => tester.tap(publish));
             await ready(
               () =>
@@ -232,48 +234,14 @@ void main() {
             );
             final output = File('$path/openapi.$format').readAsStringSync();
             expect(output, contains('Unsaved API 雪'));
-            await tester.runAsync(() async {
+            await runWidgetIo(tester, () async {
+              for (final entry in reviewedFiles.entries) {
+                expect(await File.fromUri(Uri.parse(entry.key)).readAsString(), entry.value);
+              }
               final copy = await BusyProject.open(path, c.engine);
               try {
-                final checked = await copy.check(copy.roots.single.id);
-                expect(checked['status'], 'complete', reason: '$checked');
-                final subject = await copy.inspectObject(
-                  copy.roots.single.id,
-                  copy.roots.single.id,
-                  target == '2.0'
-                      ? '/definitions/Subject'
-                      : '/components/schemas/Subject',
-                );
-                expect(subject['family'], target == '2.0' ? '2.0' : '3.0');
-                final entries = subject['entries'] as List;
-                expect(
-                  entries.where((entry) => entry['name'] == r'$dynamicRef'),
-                  isEmpty,
-                );
-                expect(
-                  entries.singleWhere(
-                    (entry) => entry['name'] == 'allOf',
-                  )['count'],
-                  2,
-                );
-                final composition = await copy.inspectObject(
-                  copy.roots.single.id,
-                  copy.roots.single.id,
-                  '${subject['pointer']}/allOf',
-                );
-                for (final entry in composition['entries'] as List) {
-                  final branch = await copy.inspectObject(
-                    copy.roots.single.id,
-                    copy.roots.single.id,
-                    entry['pointer'] as String,
-                  );
-                  final reference = (branch['references'] as List).single;
-                  expect(reference['keyword'], r'$ref');
-                  expect(reference['resolution'], 'resolved');
-                }
-              } finally {
-                copy.close();
-              }
+                expect(await _dependencyOutcomes(copy, copy.roots.single.id), originalOutcomes);
+              } finally {copy.close();}
             });
             expect(output, contains(target));
             expect(output, contains('9007199254740993.00'));
@@ -300,4 +268,24 @@ void main() {
       },
     );
   }
+}
+
+Future<List<bool>> _dependencyOutcomes(BusyProject owner, String root) async {
+  final captured = await owner.captureContractSnapshot(root);
+  final result = await owner.engine.request('evaluateSchemas', {
+    ...captured.snapshot.toJson(),
+    'runtimeInstances': [
+      for (final text in ['null', '{}', '{"flag":true}', '{"flag":true,"name":"雪"}',
+          '{"flag":true,"name":"雪","n":9007199254740993}',
+          '{"flag":true,"name":"雪","n":9007199254740992}', '{"flag":false}'])
+        RuntimeSchemaInstance(subject: 'response-body', location: 'Subject', text: text,
+            schemaResource: root, schemaPointer: '/components/schemas/Subject').toJson(),
+    ],
+  });
+  expect(result['complete'], true, reason: '$result');
+  final evaluations = (result['runtimeEvaluations'] as List).whereType<Map>();
+  expect(evaluations.every((value) => value['complete'] == true), true);
+  final outcomes = evaluations.map((value) => value['valid'] as bool).toList();
+  expect(outcomes, containsAll([true, false]));
+  return outcomes;
 }

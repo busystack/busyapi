@@ -8,7 +8,7 @@ Map<String, String> mixedHolderDocuments(String foreignVersion, String server, {
   Map<String, dynamic> api(String version, String name) => {
     'openapi': version, 'info': {'title': name, 'version': 'business'},
     'servers': [{'url': server}], 'paths': <String, dynamic>{},
-    'components': {
+    'components': <String, dynamic>{
       'securitySchemes': {'Access': {'type': 'apiKey', 'in': 'header', 'name': 'X-$name'}},
       'schemas': {'Choice': {'type': 'object', 'x-entry': name}},
       'links': {'Next': {'operationId': 'shared'}},

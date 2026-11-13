@@ -135,6 +135,7 @@ void main() {
           ),
         );
         Future<void>? dialog;
+        List<bool>? originalOutcomes;
         Future<void> ready(bool Function() condition) async {
           final watch = Stopwatch()..start();
           await tester.pump();
@@ -157,6 +158,7 @@ void main() {
               original.replaceFirst('Original 雪', 'Unsaved 雪'),
             );
             await c.analyse();
+            if (!blocked) originalOutcomes = await _accessOutcomes(c.project!, c.root!);
           });
           await tester.pumpWidget(
             MaterialApp(
@@ -250,7 +252,21 @@ void main() {
             );
             expect(comparison.before, contains('Unsaved 雪'));
             expect(comparison.after, contains(target));
-            expect(comparison.after, contains('"$flag":true'));
+            final resourceChoice = tester.widget<BusyApiComboRow<int>>(
+              find.byWidgetPredicate((widget) => widget is BusyApiComboRow<int>),
+            );
+            final reviewedFiles = <String, String>{};
+            for (final index in resourceChoice.values) {
+              resourceChoice.onSelected(index);
+              await tester.pumpAndSettle();
+              final current = tester.widget<BusyApiReviewComparison>(find.byType(BusyApiReviewComparison));
+              final destination = tester.widgetList<SelectableText>(find.byType(SelectableText))
+                  .map((widget) => widget.data).whereType<String>()
+                  .singleWhere((value) => value.startsWith(Uri.directory(path).toString()));
+              reviewedFiles[destination] = current.after;
+            }
+            expect(reviewedFiles.values.any((text) => RegExp('"?$flag"?\\s*:\\s*true').hasMatch(text)), true,
+                reason: 'The captured annotation remains in a reviewed source resource.');
             expect(comparison.after, contains('9007199254740993.000'));
             expect(
               tester.widget<BusyApiDialogButton>(publish).onPressed,
@@ -271,6 +287,15 @@ void main() {
             expect(output, contains('Unsaved 雪'));
             expect(output, contains(target));
             expect(output, contains('9007199254740993.000'));
+            await runWidgetIo(tester, () async {
+              for (final entry in reviewedFiles.entries) {
+                expect(await File.fromUri(Uri.parse(entry.key)).readAsString(), entry.value);
+              }
+              final cold = await BusyProject.open(path, c.engine);
+              try {
+                expect(await _accessOutcomes(cold, cold.roots.single.id), originalOutcomes);
+              } finally {cold.close();}
+            });
           }
           expect(file.readAsStringSync(), original);
           expect(
@@ -293,4 +318,33 @@ void main() {
       },
     );
   }
+}
+
+Future<List<bool>> _accessOutcomes(BusyProject owner, String root) async {
+  final checked = await owner.check(root, schemaEvaluation: false);
+  expect(checked['complete'], true, reason: '$checked');
+  final operation = (checked['operations'] as List).whereType<Map>().single;
+  final plan = await owner.prepareRequest(root,
+      resource: operation['resource'] as String, pointer: operation['pointer'] as String,
+      occurrence: operation['occurrence'] as String?);
+  try {
+    final schemas = <(String, Map)>[
+      for (final content in (plan.result['requestBody']['content'] as List).whereType<Map>())
+        ('request-body', content['schema'] as Map),
+      for (final response in (plan.result['responses'] as List).whereType<Map>())
+        for (final content in (response['content'] as List).whereType<Map>())
+          ('response-body', content['schema'] as Map),
+    ];
+    expect(schemas, isNotEmpty);
+    final result = await plan.evaluateRuntime([
+      for (final (subject, schema) in schemas)
+        for (final text in ['{}', '{"value":"雪"}', '{"value":false}', '{"value":null}'])
+          RuntimeSchemaInstance(subject: subject, location: '/value', text: text,
+              schemaResource: schema['resource'] as String, schemaPointer: schema['pointer'] as String),
+    ]);
+    expect(result['complete'], true, reason: '$result');
+    final evaluations = (result['runtimeEvaluations'] as List).whereType<Map>();
+    expect(evaluations.every((value) => value['complete'] == true), true);
+    return evaluations.map((value) => value['valid'] as bool).toList();
+  } finally {plan.close();}
 }
