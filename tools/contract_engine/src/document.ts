@@ -5,12 +5,12 @@ export type Range = [
     number,
     number
 ];
-export type Node = {
+type MutableNode = {
     pointer: string;
     range: Range;
     end: number;
     value: any;
-    children: Map<string, Node>;
+    children: Map<string, MutableNode>;
     keyRange?: Range;
     keyShared?: boolean;
     entryStart?: number;
@@ -19,11 +19,15 @@ export type Node = {
     flow: boolean;
     shared: boolean;
     style?: string;
-    alias?: Node;
+    alias?: MutableNode;
     key?: boolean;
     tag?: string;
     valuePrefix?: string;
     implicitFlow?: boolean;
+};
+export type Node = Readonly<Omit<MutableNode, 'children' | 'alias'>> & {
+    readonly children: ReadonlyMap<string, Node>;
+    readonly alias?: Node;
 };
 export type ValueType = 'null' | 'boolean' | 'number' | 'string' | 'array' | 'object';
 
@@ -78,7 +82,7 @@ function capturedYaml(text:string) {
     return {document,source};
 }
 export class SourceDocument {
-    private readonly _nodes = new Map<string, Node>();
+    private readonly _nodes = new Map<string, MutableNode>();
     readonly nodes:ReadonlyMap<string,Node> = this._nodes;
     private readonly _issues: SourceError[] = [];
     readonly issues:readonly SourceError[] = this._issues;
@@ -96,7 +100,7 @@ export class SourceDocument {
         this.format = syntax??(id.toLowerCase().endsWith('.json') ? 'json' : 'yaml');
         this.newline = text.match(/\r\n|\n|\r/)?.[0] ?? '\n';
         let count = 0;
-        const remember = (n: Node) => {
+        const remember = (n: MutableNode) => {
             this._nodes.set(n.pointer, n);
             if (++count > 400000)
                 throw new SourceError('limit.nodes', 'Document has too many nodes');
@@ -109,7 +113,7 @@ export class SourceDocument {
                 this._issues.push(new SourceError('json.syntax', `Strict JSON: ${printParseErrorCode(e.error)}`, [e.offset, e.offset + e.length]));
             if (!tree || (!tolerant && this.issues.length))
                 throw this.issues[0] ?? new SourceError('json.syntax', 'Expected a JSON value');
-            const walk = (t: any, p: string, depth: number, semantic: any): Node => {
+            const walk = (t: any, p: string, depth: number, semantic: any): MutableNode => {
                 if (depth > limits.depth)
                     throw new SourceError('limit.depth', 'Maximum nesting depth exceeded', [t.offset, t.offset + t.length]);
                 const n = remember({ pointer: p, range: [t.offset, t.offset + t.length], end: t.offset + t.length, value: semantic, children: new Map(), kind: t.type, flow: true, shared: false });
@@ -154,8 +158,8 @@ export class SourceDocument {
             catch {
                 throw new SourceError('yaml.alias', 'Alias expansion exceeds the safe limit');
             }
-            const dataAnchors=new Map<string,Node>();
-            const anchor=(node:Node,name:unknown,props:readonly CST.SourceToken[])=>{
+            const dataAnchors=new Map<string,MutableNode>();
+            const anchor=(node:MutableNode,name:unknown,props:readonly CST.SourceToken[])=>{
                 if(typeof name!=='string')return;
                 const matches=props.filter(token=>token.type==='anchor'&&token.source==='&'+name);
                 const token=matches.length===1?matches[0]:undefined;
@@ -176,7 +180,7 @@ export class SourceDocument {
                 const valueEnd = item.value ? value?.range?.[1] ?? start : start;
                 return [start, Math.max(start, keyEnd, valueEnd, ...ends)];
             };
-            const walk = (t: any, p: string, v: any, depth: number, inherited = false, props:readonly CST.SourceToken[]=[]): Node => {
+            const walk = (t: any, p: string, v: any, depth: number, inherited = false, props:readonly CST.SourceToken[]=[]): MutableNode => {
                 if (depth > limits.depth)
                     throw new SourceError('limit.depth', 'Maximum nesting depth exceeded', t?.range?.slice(0, 2));
                 const n = remember({ pointer: p, range: [t?.range?.[0] ?? 0, t?.range?.[1] ?? 0], end: t?.range?.[2] ?? t?.range?.[1] ?? 0, value: v, children: new Map(), kind: isMap(t) ? 'object' : isSeq(t) ? 'array' : 'scalar', flow: t?.flow ?? false, shared: inherited || !!t?.anchor || isAlias(t), style: t?.type, tag: t?.tag });
@@ -208,7 +212,7 @@ export class SourceDocument {
                         // previous value anchor. Keep the key's own provenance;
                         // the member value at this pointer is a different node.
                         if (typeof pair.key.anchor === 'string') {
-                            const source: Node = { pointer, range: pair.key.range.slice(0, 2) as Range, end: pair.key.range[2], value: key, children: new Map(), kind: 'scalar', flow: false, shared: true, key: true, style: pair.key.type, tag: pair.key.tag };
+                            const source: MutableNode = { pointer, range: pair.key.range.slice(0, 2) as Range, end: pair.key.range[2], value: key, children: new Map(), kind: 'scalar', flow: false, shared: true, key: true, style: pair.key.type, tag: pair.key.tag };
                             anchor(source,pair.key.anchor,pair.srcToken?.start??[]);
                         }
                         const c = walk(pair.value, pointer, v?.[key], depth + 1, n.shared,pair.srcToken?.sep??[]);
@@ -276,7 +280,7 @@ export class SourceDocument {
         if (!this.syntaxSafe(at))
             throw new SourceError('edit.scope.syntax', 'This source scope has ambiguous syntax; retain its draft and repair Source');
     }
-    node(p: string) {
+    node(p: string): Node {
         const n = this.nodes.get(p);
         if (!n)
             throw new SourceError('edit.target', 'The captured source occurrence no longer exists');
