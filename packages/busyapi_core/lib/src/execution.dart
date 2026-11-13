@@ -544,10 +544,8 @@ class OperationRequestPlan {
         selected.serialization == previous.serialization ? selected : null;
   }
 
-  List<CapturedExternalExample> get availablePartExamples {
-    ensureCurrentPreparation();
-    return List.unmodifiable(snapshot.exampleResources.where((resource) => resource.available));
-  }
+  List<CapturedExternalExample> get availablePartExamples =>
+      List.unmodifiable(snapshot.exampleResources.where((resource) => resource.available));
 
   CapturedRequestPartExample capturePartExample(String bodyMediaType, String part,
       String mediaType, String resource) {

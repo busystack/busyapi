@@ -113,7 +113,7 @@ paths:
               run.bodyStructured = true;
               run.bodyText = ordered ? '[false]' : '{"value":false}';
               run.refresh();
-              if (ordered) await run.inspectMultipartParts();
+              await run.inspectMultipartParts();
             });
             await tester.pumpWidget(
               MaterialApp(
@@ -232,9 +232,14 @@ paths:
               await run.reconcileDraft();
               await HttpOverrides.runWithHttpOverrides(run.send, _NativeHttp());
             });
-            expect(run.failure, 'request.multipart.conformance');
+            expect(run.failure, isNull, reason: run.failureMessage);
+            expect(run.result!.outgoing.complete, isTrue);
+            expect(run.result!.outgoing.valid, isFalse,
+              reason: '${run.result!.outgoing.findings}');
             expect(run.partHeaders.single.value, _meta);
-            expect(seen.length, 1);
+            expect(seen.length, 2);
+            final changedBoundary = ContentType.parse(seen.last.$3).parameters['boundary']!;
+            expect(seen.last.$4, utf8.encode(wire(changedBoundary)));
             expect(file.readAsStringSync(), source);
           } finally {
             await tester.pumpWidget(const SizedBox.shrink());

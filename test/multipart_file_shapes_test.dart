@@ -256,8 +256,14 @@ void main() {
                 () =>
                     HttpOverrides.runWithHttpOverrides(run.send, _NativeHttp()),
               );
-              expect(run.failure, 'request.multipart.conformance');
-              expect(seen, hasLength(1));
+              expect(run.failure, isNull, reason: run.failureMessage);
+              expect(run.result!.outgoing.complete, isTrue);
+              expect(run.result!.outgoing.valid, isFalse,
+                reason: '${run.result!.outgoing.findings}');
+              expect(seen, hasLength(2));
+              final singleBoundary = ContentType.parse(seen.last.$3).parameters['boundary']!;
+              expect(latin1.encode(latin1.decode(seen.last.$4).replaceAll(singleBoundary, boundary)),
+                request.$4);
               expect(run.fileShapes, {'asset': MultipartFileShape.single});
               expect(file.readAsStringSync(), original);
               expect(workspace.buffer!.text, original);
@@ -279,8 +285,11 @@ void main() {
                 );
               });
               expect(run.fileShapes, {'asset': MultipartFileShape.single});
-              expect(run.failure, 'request.multipart.conformance');
-              expect(seen, hasLength(1));
+              expect(run.failure, isNull, reason: run.failureMessage);
+              expect(run.result!.outgoing.complete, isTrue);
+              expect(run.result!.outgoing.valid, isFalse,
+                reason: '${run.result!.outgoing.findings}');
+              expect(seen, hasLength(3));
               expect(run.plan!.identity, isNot(previousIdentity));
               expect(file.readAsStringSync(), original);
               await runWidgetIo(tester, () async {
@@ -296,7 +305,7 @@ void main() {
               expect(run.failure, isNull, reason: run.failureMessage);
               expect(run.result!.outgoing.complete, isTrue);
               expect(run.result!.outgoing.valid, isTrue);
-              expect(seen, hasLength(2));
+              expect(seen, hasLength(4));
               final restoredBoundary = ContentType.parse(seen.last.$3)
                   .parameters['boundary']!;
               expect(
