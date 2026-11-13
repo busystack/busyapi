@@ -12,7 +12,11 @@ class _ReviewEngine extends EngineProcess {
   Completer<void>? entered, release;
   bool malformed = false;
   bool runtimeFailure = false;
-  int executions = 0, runtimeGateRemaining = 0, runtimeGateEntered = 0;
+  int executions = 0,
+      discoveries = 0,
+      runtimeGateRemaining = 0,
+      runtimeGateEntered = 0;
+  Completer<void>? runtimeEntered, runtimeRelease;
   Completer<void>? runtimeGate;
   @override
   Future<Map<String, dynamic>> request(
@@ -20,9 +24,17 @@ class _ReviewEngine extends EngineProcess {
     Map<String, Object?> params, {
     String? requestId,
   }) async {
+    if (method == 'discoverPolicy') discoveries++;
     if (method == 'policyRuntime' && runtimeFailure)
       throw CoreFailure('policy.assets', 'Controlled missing isolated runtime');
     final result = await super.request(method, params, requestId: requestId);
+    if (method == 'policyRuntime' && runtimeEntered != null) {
+      runtimeEntered!.complete();
+      runtimeEntered = null;
+      final paused = runtimeRelease;
+      runtimeRelease = null;
+      if (paused != null) await paused.future;
+    }
     if (method == 'policyRuntime' && runtimeGateRemaining > 0) {
       final gate = runtimeGate ??= Completer<void>();
       runtimeGateRemaining--;
@@ -174,6 +186,89 @@ void main() {
       'module.exports=async()=>[{message:"reviewed finding"}];',
     );
   });
+  test(
+    'approved lint reuses its closure and binds ordered rules and severity',
+    () async {
+      File('${temp.path}/first.yaml')
+          .writeAsStringSync('extends: ["./.spectral.yaml"]\nrules: {}\n');
+      File('${temp.path}/second.yaml')
+          .writeAsStringSync('extends: [busyapi:recommended]\nrules: {}\n');
+      final selected = ['./first.yaml', './second.yaml'];
+      final review = await project.reviewPolicyCode(
+        root.uri.toString(),
+        rulesets: selected,
+        failSeverity: 'error',
+      );
+      final trust = await project.policyCodeTrust(review);
+      final approval = await project.approvePolicyCode(
+        review,
+        expectedIdentity: trust['identity'] as String,
+      );
+      final discoveries = engine.discoveries;
+      for (final (rules, threshold) in [
+        (selected.reversed.toList(), 'error'),
+        (selected, 'warning'),
+      ]) {
+        await expectLater(
+          project.lint(
+            root.uri.toString(),
+            rulesets: rules,
+            failSeverity: threshold,
+            codeApproval: approval,
+          ),
+          throwsA(
+            isA<CoreFailure>().having(
+              (e) => e.code,
+              'code',
+              'policy.code.approval.changed',
+            ),
+          ),
+        );
+      }
+      expect(engine.executions, 0);
+      final result = await project.lint(
+        root.uri.toString(),
+        rulesets: selected,
+        failSeverity: 'error',
+        codeApproval: approval,
+      );
+      expect(result['complete'], true, reason: jsonEncode(result));
+      expect(engine.executions, 1);
+      expect(
+        engine.discoveries,
+        discoveries,
+        reason: 'The approved closure must not be rediscovered',
+      );
+      expect(
+        () => review.resources.first['text'] = 'changed',
+        throwsUnsupportedError,
+      );
+    },
+  );
+
+  test('code changing at final runtime admission cannot dispatch the approved capture', () async {
+    final review = await project.reviewPolicyCode(root.uri.toString());
+    final trust = await project.policyCodeTrust(review);
+    final approval = await project.approvePolicyCode(
+      review,
+      expectedIdentity: trust['identity'] as String,
+    );
+    final entered = engine.runtimeEntered = Completer<void>();
+    final release = engine.runtimeRelease = Completer<void>();
+    final pending = project.lint(root.uri.toString(), codeApproval: approval);
+    final rejected = expectLater(
+      pending,
+      throwsA(isA<CoreFailure>().having((e) => e.code, 'code', 'policy.stale')),
+    );
+    await entered.future;
+    helper.writeAsStringSync(
+      'module.exports=()=>[{message:"unapproved replacement"}];',
+    );
+    release.complete();
+    await rejected;
+    expect(engine.executions, 0);
+  });
+
   test('a declarative executable selector has a reviewable source identity without inventing code modules', () async {
     policy.writeAsStringSync(
       'rules:\n  reviewed:\n    given: \$.tags[?(@.name === "one")]\n    then: {field: description, function: truthy}\n',

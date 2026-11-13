@@ -7,11 +7,16 @@ class PolicyCodeReview {
     this._owner,
     this.root,
     this.saved,
-    this._inputs,
+    _PolicyInputs inputs,
     Map<String, dynamic> result,
     Map<String, Map<String, Object?>> resources,
-    this._metadata,
-  ) : result = _freezeResult(result),
+  ) : _inputs = inputs.freeze(
+        _owner._captureDiskVersions({
+          ...inputs.observed.keys,
+          ...inputs.metadata.keys,
+        }),
+      ),
+      result = _freezeResult(result),
       resources = List.unmodifiable(
         resources.values.map(
           (value) => _freezeProjection(value) as Map<String, Object?>,
@@ -19,7 +24,6 @@ class PolicyCodeReview {
       );
   final BusyProject _owner;
   final _PolicyInputs _inputs;
-  final Map<String, (String, ResourceMetadata)> _metadata;
   final String root;
   final bool saved;
   final Map<String, dynamic> result;
@@ -36,15 +40,20 @@ class PolicyCodeReview {
 /// Explicit, one-run local authority. It is never serialized into the project,
 /// manifest, resource lock, output or personal display preferences.
 class PolicyCodeApproval {
-  PolicyCodeApproval._(this.review, this.identity, this.runtimeIdentity);
+  PolicyCodeApproval._(this.review, this.identity);
   final PolicyCodeReview review;
-  final String identity, runtimeIdentity;
+  final String identity;
   bool _consumed = false;
 }
 
 extension BusyProjectPolicyCode on BusyProject {
   Future<Map<String, dynamic>> policyCodeTrust(PolicyCodeReview review) async {
-    await verifyPolicyCodeReview(review);
+    if (!identical(review._owner, this) || _closed) {
+      throw CoreFailure(
+        'policy.stale',
+        'Code review belongs to a retired owner',
+      );
+    }
     final runtime = await engine.request('policyRuntime', {});
     if (runtime['version'] != 1 ||
         runtime['profile'] != 'busyapi-node-captured-v1' ||
@@ -55,7 +64,8 @@ extension BusyProjectPolicyCode on BusyProject {
         'policy.protocol',
         'Isolated governance runtime returned malformed identity',
       );
-    await verifyPolicyCodeReview(review);
+    if (!_policyInputsCurrent(review._inputs, saved: review.saved))
+      throw CoreFailure('policy.stale', 'Code review inputs have changed');
     return {
       'version': 1,
       'identity': textIdentity(
@@ -90,20 +100,16 @@ extension BusyProjectPolicyCode on BusyProject {
         'policy.code.approval.changed',
         'Code or runtime identity does not match the explicit approval',
       );
-    return PolicyCodeApproval._(
-      review,
-      expectedIdentity,
-      (trust['runtime'] as Map)['identity'] as String,
-    );
+    return PolicyCodeApproval._(review, expectedIdentity);
   }
 
-  Future<void> _verifyPolicyApproval(
+  void _checkPolicyApprovalScope(
     PolicyCodeApproval approval,
     String root,
-    bool saved, {
-    required bool consume,
-  }) async {
-    if (approval._consumed ||
+    bool saved,
+  ) {
+    if (_closed ||
+        approval._consumed ||
         approval.review.root != root ||
         approval.review.saved != saved ||
         !identical(approval.review._owner, this))
@@ -111,20 +117,25 @@ extension BusyProjectPolicyCode on BusyProject {
         'policy.code.approval.changed',
         'Code approval is spent or belongs to another source scope',
       );
+  }
+
+  Future<void> _verifyPolicyApproval(
+    PolicyCodeApproval approval,
+    String root,
+    bool saved, {
+    bool Function()? cancelled,
+  }) async {
+    _checkPolicyApprovalScope(approval, root, saved);
     final current = await policyCodeTrust(approval.review);
-    // Another caller can consume this same token across the awaited resource /
-    // runtime checks. Recheck at the synchronous consume boundary too.
-    if (approval._consumed)
-      throw CoreFailure(
-        'policy.code.approval.changed',
-        'Code approval was already consumed by another run',
-      );
+    await verifyPolicyCodeReview(approval.review, cancelled: cancelled);
+    // One synchronous authority boundary follows the awaited exact checks.
+    _checkPolicyApprovalScope(approval, root, saved);
     if (current['identity'] != approval.identity)
       throw CoreFailure(
         'policy.code.approval.changed',
         'Code or runtime changed after explicit approval',
       );
-    if (consume) approval._consumed = true;
+    approval._consumed = true;
   }
 
   ProjectAccess _policyCodeAccess(String path) {
@@ -181,7 +192,8 @@ extension BusyProjectPolicyCode on BusyProject {
       for (final entry in inputs.resources.entries)
         entry.key: {...entry.value, 'kind': 'file'},
     };
-    final metadata = <String, (String, ResourceMetadata)>{};
+    final metadata = inputs.metadata;
+    var acquired = 0;
     Future<void> acquire(Map request) async {
       active();
       final id = request['id'] as String;
@@ -198,16 +210,16 @@ extension BusyProjectPolicyCode on BusyProject {
           final description = await capability.describe(path);
           active();
           final before = metadata[physical];
-          if (before != null && before.$2.identity != description.identity)
+          if (before != null && before.identity != description.identity)
             throw CoreFailure(
               'policy.stale',
               'Code lookup metadata changed during review',
             );
-          metadata[physical] = (path, description);
+          metadata[physical] = description;
           final kind = buffer?.present == true ? 'file' : description.kind;
           record = {'id': physical, 'kind': kind};
           if (kind == 'file' && request['capability'] == 'content') {
-            final source = await inputs.read(id, optional: true);
+            final source = await inputs.read!(id, optional: true);
             active();
             record = source == null
                 ? {'id': physical, 'kind': 'denied'}
@@ -230,7 +242,7 @@ extension BusyProjectPolicyCode on BusyProject {
           'policy.stale',
           'Code resource presence changed during review',
         );
-      resources[physical] = {
+      final next = <String, Object?>{
         ...?before,
         ...record,
         'aliases': {
@@ -239,6 +251,13 @@ extension BusyProjectPolicyCode on BusyProject {
           if (physical != id) id,
         }.toList()..sort(),
       };
+      if (before == null ||
+          before['kind'] != next['kind'] ||
+          before['text'] != next['text'] ||
+          (before['aliases'] as List?)?.length !=
+              (next['aliases'] as List).length)
+        acquired++;
+      resources[physical] = next;
     }
 
     for (var round = 0; round < 128; round++) {
@@ -279,6 +298,7 @@ extension BusyProjectPolicyCode on BusyProject {
           'Code dependency review returned malformed work',
         );
       if (requests.isEmpty) {
+        _watchSources({...inputs.observed.keys, ...metadata.keys});
         final review = PolicyCodeReview._(
           this,
           root,
@@ -286,12 +306,11 @@ extension BusyProjectPolicyCode on BusyProject {
           inputs,
           result,
           resources,
-          metadata,
         );
         await verifyPolicyCodeReview(review, cancelled: cancelled);
         return review;
       }
-      final before = textIdentity(jsonEncode(resources));
+      final before = acquired;
       await _resourceBatch(requests.cast<Map>(), acquire);
       if (resources.length > 2048 ||
           resources.values.fold<int>(
@@ -304,7 +323,7 @@ extension BusyProjectPolicyCode on BusyProject {
           'limit.policy.code.resources',
           'Code review exceeds its captured resource bound',
         );
-      if (before == textIdentity(jsonEncode(resources)))
+      if (before == acquired)
         throw CoreFailure(
           'policy.protocol',
           'Code review made no progress acquiring requested capabilities',
@@ -316,8 +335,8 @@ extension BusyProjectPolicyCode on BusyProject {
     );
   }
 
-  /// Revalidate every source and negative/directory observation before trust or
-  /// execution. Source generations matter here, but not in reusable code trust.
+  /// Revalidate captured bytes and negative/directory observations at acquisition
+  /// and final dispatch. Trust identities never recapture the dependency closure.
   Future<void> verifyPolicyCodeReview(
     PolicyCodeReview review, {
     bool Function()? cancelled,
@@ -336,27 +355,63 @@ extension BusyProjectPolicyCode on BusyProject {
     }
 
     active();
-    for (final entry in Map<String, Map<String, Object?>?>.from(
-      review._inputs.observed,
-    ).entries) {
-      final source = await review._inputs.read(entry.key, optional: true);
+    await _resourceBatch(review._inputs.observed.entries, (entry) async {
+      String? identity;
+      int? generation;
+      final uri = Uri.tryParse(entry.key);
+      try {
+        if (uri?.scheme == 'file') {
+          if (!review.saved) _verifyVirtualResource(entry.key);
+          final buffer = !review.saved ? store.buffers[entry.key] : null;
+          if (buffer != null) {
+            generation = buffer.generation;
+            identity = buffer.sourceIdentity;
+          }
+          // Clean buffers still have an exact disk boundary; working overlays
+          // execute their reviewed immutable bytes rather than unrelated disk.
+          if (buffer == null || !buffer.dirty && !buffer.externalConflict) {
+            identity = await contentIdentityAsync(
+              await accessFor(uri!.toFilePath()).read(uri.toFilePath()),
+            );
+            // Unopened resources use DocumentBuffer.decode's initial revision.
+            generation ??= 1;
+          }
+        }
+      } on FileSystemException {
+        identity = null;
+        // Absence or denied access remains a negative observation.
+      } on CoreFailure catch (error) {
+        identity = null;
+        if (error.code == 'access.closed' ||
+            error.code == 'cancelled' ||
+            error.code.startsWith('limit.'))
+          rethrow;
+      }
       active();
-      if (source?['identity'] != entry.value?['identity'] ||
-          !review.saved && source?['generation'] != entry.value?['generation'])
+      if (identity != entry.value?['identity'] ||
+          !review.saved &&
+              identity != null &&
+              generation != entry.value?['generation'])
         throw CoreFailure(
           'policy.stale',
           'Code or configuration changed after review',
         );
-    }
-    await _resourceBatch(review._metadata.values, (entry) async {
-      final current = await _policyCodeAccess(entry.$1).describe(entry.$1);
+    });
+    await _resourceBatch(review._inputs.metadata.entries, (entry) async {
+      final path = Uri.parse(entry.key).toFilePath();
+      final current = await _policyCodeAccess(path).describe(path);
       active();
-      if (current.identity != entry.$2.identity)
+      if (current.identity != entry.value.identity)
         throw CoreFailure(
           'policy.stale',
           'Code lookup metadata changed after review',
         );
     });
     active();
+    if (!_policyInputsCurrent(review._inputs, saved: review.saved))
+      throw CoreFailure(
+        'policy.stale',
+        'Code inputs changed during verification',
+      );
   }
 }

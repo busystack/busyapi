@@ -22,27 +22,32 @@ class _PolicyInputs {
     this.entries,
     this.threshold,
     this.dependenciesComplete,
-    this.read,
-  ) : identity = textIdentity(
-        jsonEncode({
-          'observed': [
-            for (final id in observed.keys.toList()..sort())
-              {
-                'id': id,
-                'identity': observed[id]?['identity'],
-                'generation': observed[id]?['generation'],
-              },
-          ],
-          'resources': [
-            for (final id in resources.keys.toList()..sort())
-              {'id': id, 'aliases': resources[id]?['aliases']},
-          ],
-          'entries': entries,
-          'threshold': threshold,
-          'unavailable': unavailable.toList()..sort(),
-          'dependenciesComplete': dependenciesComplete,
-        }),
-      );
+    this.read, {
+    required this.metadata,
+    Map<String, int> versions = const {},
+    this.defaultEntries,
+    this.defaultThreshold = 'warning',
+  }) : versions = Map.unmodifiable(versions),
+       identity = textIdentity(
+         jsonEncode({
+           'observed': [
+             for (final id in observed.keys.toList()..sort())
+               {
+                 'id': id,
+                 'identity': observed[id]?['identity'],
+                 'generation': observed[id]?['generation'],
+               },
+           ],
+           'resources': [
+             for (final id in resources.keys.toList()..sort())
+               {'id': id, 'aliases': resources[id]?['aliases']},
+           ],
+           'entries': entries,
+           'threshold': threshold,
+           'unavailable': unavailable.toList()..sort(),
+           'dependenciesComplete': dependenciesComplete,
+         }),
+       );
   final int revision;
   final Map<String, Map<String, Object?>?> observed;
   final Set<String> unavailable;
@@ -51,10 +56,95 @@ class _PolicyInputs {
   final Map<String, Object?>? manifest;
   final List<String> entries;
   final bool dependenciesComplete;
-  final Future<Map<String, Object?>?> Function(String, {bool optional}) read;
+  final Future<Map<String, Object?>?> Function(String, {bool optional})? read;
+  final Map<String, int> versions;
+  final Map<String, ResourceMetadata> metadata;
+  final List<String>? defaultEntries;
+  final Object? defaultThreshold;
+
+  _PolicyInputs freeze(Map<String, int> versions) => _PolicyInputs(
+    revision,
+    Map.unmodifiable({
+      for (final entry in observed.entries)
+        entry.key: entry.value == null
+            ? null
+            : _freezeProjection(entry.value) as Map<String, Object?>,
+    }),
+    Set.unmodifiable(unavailable),
+    Map.unmodifiable({
+      for (final entry in resources.entries)
+        entry.key: _freezeProjection(entry.value) as Map<String, Object?>,
+    }),
+    configurationSource,
+    manifest == null
+        ? null
+        : _freezeProjection(manifest) as Map<String, Object?>,
+    List.unmodifiable(entries),
+    threshold,
+    dependenciesComplete,
+    null,
+    metadata: Map.unmodifiable(metadata),
+    versions: versions,
+    defaultEntries: defaultEntries == null
+        ? null
+        : List.unmodifiable(defaultEntries!),
+    defaultThreshold: defaultThreshold,
+  );
 }
 
 extension BusyProjectGovernance on BusyProject {
+  List<String> _policyEntries(List<String> selected) => [
+    for (final entry in selected)
+      if (entry.length > 4096)
+        throw CoreFailure(
+          'limit.policy.entry',
+          'Ruleset identity exceeds its bound',
+        )
+      else if (['busyapi:recommended', 'spectral:oas'].contains(entry))
+        entry
+      else
+        Uri.directory('${access.boundary}/').resolve(entry).toString(),
+  ];
+
+  bool _policyInputsCurrent(_PolicyInputs inputs, {required bool saved}) =>
+      inputs.revision == _resourceRevision &&
+      inputs.versions.entries.every(
+        (entry) => store.resourceVersion(entry.key) == entry.value,
+      ) &&
+      (saved ||
+          inputs.observed.entries.every((entry) {
+            final buffer = store.buffers[entry.key];
+            return buffer == null ||
+                (!buffer.present
+                    ? entry.value == null
+                    : entry.value != null &&
+                          buffer.generation == entry.value!['generation']);
+          }));
+
+  void _bindPolicyOptions(
+    _PolicyInputs inputs,
+    List<String>? rulesets,
+    String? failSeverity,
+  ) {
+    final selected = rulesets == null
+        ? inputs.defaultEntries
+        : _policyEntries(rulesets);
+    final threshold = failSeverity ?? inputs.defaultThreshold;
+    if (!_policySeverities.contains(threshold))
+      throw CoreFailure(
+        'policy.threshold',
+        'Use error, warning, information or hint as the failure threshold',
+      );
+    if (selected == null ||
+        selected.length != inputs.entries.length ||
+        selected.indexed.any((entry) => entry.$2 != inputs.entries[entry.$1]) ||
+        threshold != inputs.threshold)
+      throw CoreFailure(
+        'policy.code.approval.changed',
+        'Ruleset order or failure threshold differs from the reviewed run',
+      );
+  }
+
   // Acquisition/discovery only: never invokes governance or project code.
   // Both lint and file-impact reviews use this exact approved-source boundary.
   Future<_PolicyInputs> _capturePolicyInputs({
@@ -66,6 +156,14 @@ extension BusyProjectGovernance on BusyProject {
     void Function(String resource)? onResourceRefreshed,
   }) async {
     active();
+    final configurationPath = p.join(access.boundary, 'busyapi.yaml');
+    final configurationSource = Uri.file(configurationPath).toString();
+    final metadata = <String, ResourceMetadata>{};
+    try {
+      metadata[configurationSource] = await access.describe(configurationPath);
+    } on Object {
+      // Configuration acquisition below preserves its access error semantics.
+    }
     final configuration = await _refreshResourceConfiguration(
       saved: saved,
       onResourceRefreshed: onResourceRefreshed,
@@ -75,9 +173,6 @@ extension BusyProjectGovernance on BusyProject {
     final observed = <String, Map<String, Object?>?>{},
         unavailable = <String>{};
     final resources = <String, Map<String, Object?>>{};
-    final configurationSource = Uri.file(
-      p.join(access.boundary, 'busyapi.yaml'),
-    ).toString();
     Future<Map<String, Object?>?> read(
       String id, {
       bool optional = false,
@@ -86,6 +181,16 @@ extension BusyProjectGovernance on BusyProject {
       final uri = Uri.parse(id);
       final mapped = configuration.mappings[id];
       final physical = mapped ?? id;
+      if (observed.containsKey(physical)) {
+        final captured = observed[physical];
+        if (captured == null && !optional) unavailable.add(id);
+        return captured == null
+            ? null
+            : {
+                ...captured,
+                if (mapped != null) 'aliases': [uri.toString()],
+              };
+      }
       if (Uri.parse(physical).scheme != 'file') {
         unavailable.add(id);
         observed[physical] = null;
@@ -95,9 +200,11 @@ extension BusyProjectGovernance on BusyProject {
       try {
         if (!saved) _verifyVirtualResource(physical);
         final capability = accessFor(path), buffer = store.buffers[physical];
+        final description = await capability.describe(path);
+        metadata[physical] = description;
         if (optional &&
             (saved || buffer == null) &&
-            await capability.missing(path)) {
+            description.kind == 'absent') {
           if (observed.containsKey(physical) && observed[physical] != null)
             throw CoreFailure(
               'policy.stale',
@@ -160,7 +267,13 @@ extension BusyProjectGovernance on BusyProject {
       }
     }
 
-    final manifest = await read(configurationSource, optional: true);
+    observed[configurationSource] = configuration.source;
+    final manifest = configuration.source;
+    if (manifest != null && (manifest['text'] as String).length > 256 * 1024)
+      throw CoreFailure(
+        'limit.policy.configuration',
+        'Ruleset resource exceeds 256 KiB',
+      );
     Object? settings;
     if (manifest != null) {
       try {
@@ -200,18 +313,7 @@ extension BusyProjectGovernance on BusyProject {
             : List<String>.from(configuredRulesets as List));
     final entries = <String>[];
     if (selected != null) {
-      for (final entry in selected) {
-        if (entry.length > 4096)
-          throw CoreFailure(
-            'limit.policy.entry',
-            'Ruleset identity exceeds its bound',
-          );
-        entries.add(
-          ['busyapi:recommended', 'spectral:oas'].contains(entry)
-              ? entry
-              : Uri.directory('${access.boundary}/').resolve(entry).toString(),
-        );
-      }
+      entries.addAll(_policyEntries(selected));
     } else {
       for (final name in [
         '.spectral.yaml',
@@ -318,6 +420,7 @@ extension BusyProjectGovernance on BusyProject {
         );
     }
     active();
+    _watchSources(observed.keys);
     return _PolicyInputs(
       revision,
       observed,
@@ -329,6 +432,16 @@ extension BusyProjectGovernance on BusyProject {
       threshold,
       dependenciesComplete,
       read,
+      metadata: metadata,
+      versions: _captureDiskVersions({...observed.keys, ...metadata.keys}),
+      defaultEntries: configuredRulesets != null
+          ? List.unmodifiable(
+              _policyEntries(List<String>.from(configuredRulesets as List)),
+            )
+          : rulesets == null
+          ? List.unmodifiable(entries)
+          : null,
+      defaultThreshold: configured['failSeverity'] ?? 'warning',
     );
   }
 
@@ -352,8 +465,10 @@ extension BusyProjectGovernance on BusyProject {
     }
 
     active();
-    if (codeApproval != null)
-      await _verifyPolicyApproval(codeApproval, root, saved, consume: false);
+    if (codeApproval != null) {
+      _checkPolicyApprovalScope(codeApproval, root, saved);
+      _bindPolicyOptions(codeApproval.review._inputs, rulesets, failSeverity);
+    }
     AnalysisSnapshot? captured;
     final checked = await check(
       root,
@@ -371,32 +486,31 @@ extension BusyProjectGovernance on BusyProject {
         'policy.snapshot',
         'Governance has no coherent source snapshot',
       );
-    final inputs = await _capturePolicyInputs(
-      active: active,
-      saved: saved,
-      rulesets: rulesets,
-      failSeverity: failSeverity,
-      requestId: requestId,
-      onResourceRefreshed: onResourceRefreshed,
-    );
-    final revision = inputs.revision,
-        observed = inputs.observed,
+    final inputs =
+        codeApproval?.review._inputs ??
+        await _capturePolicyInputs(
+          active: active,
+          saved: saved,
+          rulesets: rulesets,
+          failSeverity: failSeverity,
+          requestId: requestId,
+          onResourceRefreshed: onResourceRefreshed,
+        );
+    final observed = inputs.observed,
         unavailable = inputs.unavailable,
         resources = inputs.resources,
         configurationSource = inputs.configurationSource,
         manifest = inputs.manifest,
         entries = inputs.entries,
-        threshold = inputs.threshold,
-        read = inputs.read;
-    final monitored = {...observed, ...?codeApproval?.review._inputs.observed};
-    _policyDependencies[root] = monitored.keys.toSet();
+        threshold = inputs.threshold;
+    _policyDependencies[root] = observed.keys.toSet();
     _policyLookupKinds[root] = {
       if (codeApproval != null)
         for (final resource in codeApproval.review.resources)
           if (resource['text'] == null)
             resource['id'] as String: resource['kind'] as String,
     };
-    for (final entry in monitored.entries) {
+    for (final entry in observed.entries) {
       final buffer = store.buffers[entry.key];
       if (!saved &&
           buffer != null &&
@@ -417,16 +531,16 @@ extension BusyProjectGovernance on BusyProject {
     });
     Map<String, dynamic>? policy;
     String? executionFailure;
+    if (codeApproval != null) {
+      await _verifyPolicyApproval(
+        codeApproval,
+        root,
+        saved,
+        cancelled: cancelled,
+      );
+      active();
+    }
     try {
-      if (codeApproval != null) {
-        if (inputs.identity != codeApproval.review._inputs.identity)
-          throw CoreFailure(
-            'policy.code.approval.changed',
-            'Policy settings changed after code review',
-          );
-        await _verifyPolicyApproval(codeApproval, root, saved, consume: true);
-        active();
-      }
       policy = await engine.request('govern', {
         ...snapshot.toJson(),
         'policy': {
@@ -530,46 +644,33 @@ extension BusyProjectGovernance on BusyProject {
           : 'policy.execution.failed';
       policy = null;
     }
-    // Re-collect actual API dependencies and every observed configuration,
-    // including missing default candidates. No stale result becomes current.
-    AnalysisSnapshot? verification;
-    await check(
-      root,
-      saved: saved,
-      schemaEvaluation: false,
-      cancelled: cancelled,
-      requestId: requestId == null ? null : '$requestId-policy-verify',
-      onResourceRefreshed: onResourceRefreshed,
-      onSnapshot: (value) => verification = value,
-    );
-    if (verification?.identity != snapshot.identity ||
-        revision != _resourceRevision)
+    // Reconcile this bounded capture once to catch delayed/missed watcher events.
+    // Metadata can invalidate a capture; it never proves content equality.
+    await _resourceBatch(inputs.metadata.entries, (entry) async {
+      ResourceMetadata? current;
+      try {
+        final path = Uri.parse(entry.key).toFilePath();
+        current = await _policyCodeAccess(path).describe(path);
+      } on Object {
+        active();
+      }
+      if (current?.identity != entry.value.identity)
+        store.invalidateResource(entry.key);
+    });
+    // Feedback remains bound to its immutable capture. No source reread or
+    // second project analysis is needed at this read-only completion boundary.
+    if ((!saved && !snapshot.current(store)) ||
+        !snapshot._diskInputsCurrent(store))
       throw CoreFailure(
         'policy.stale',
         'Source changed while governance was running',
       );
-    for (final entry in Map<String, Map<String, Object?>?>.from(
-      observed,
-    ).entries) {
-      final current = await read(entry.key, optional: true);
-      if (current?['identity'] != entry.value?['identity'] ||
-          !saved && current?['generation'] != entry.value?['generation'])
-        throw CoreFailure(
-          'policy.stale',
-          'Rules or configuration changed while governance was running',
-        );
-    }
+    if (!_policyInputsCurrent(inputs, saved: saved))
+      throw CoreFailure(
+        'policy.stale',
+        'Rules or configuration changed while governance was running',
+      );
     active();
-    if (codeApproval != null) {
-      await verifyPolicyCodeReview(codeApproval.review, cancelled: cancelled);
-      final runtime = await engine.request('policyRuntime', {});
-      if (runtime['identity'] != codeApproval.runtimeIdentity)
-        throw CoreFailure(
-          'policy.stale',
-          'Isolated governance runtime changed during execution',
-        );
-      active();
-    }
     final configuration = textIdentity(
       jsonEncode({
         'rules': policy?['configuration'],
