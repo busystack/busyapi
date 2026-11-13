@@ -45,7 +45,7 @@ for(const name of ['ETag','X-Unknown'])test(`proxy retains actual repeated ${nam
  });
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
  t.after(()=>new Promise(resolve=>{server.closeAllConnections();server.close(resolve);}));
- const document={openapi:'3.2.1',info:{title:'Retained fields',version:'1'},paths:{'/data':{post:{responses:{200:{description:'Reply',headers:{[name]:{content:{'text/plain':{schema:{type:'string',enum:[lines.join(', ')]}}}}},content:{'application/json':{schema:{type:'integer'}}}}}}}};
+ const document={openapi:'3.2.1',info:{title:'Retained fields',version:'1'},paths:{'/data':{post:{responses:{200:{description:'Reply',headers:{[name]:{content:{'text/plain':{schema:{type:'string',enum:[lines.join(', ')]}}}}},content:{'application/json':{schema:{type:'integer'}}}}}}}}};
  const {port}=await startMock(t,mockStart(document,{upstream:'http://127.0.0.1:'+server.address().port,errors:false}));
  const response=await send(port,'/data');
  assert.equal(response.status,200);assert.equal(response.text,'9007199254740993.00');

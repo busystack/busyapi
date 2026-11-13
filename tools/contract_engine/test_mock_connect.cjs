@@ -1,7 +1,13 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),net=require('node:net'),http=require('node:http');
 const {once}=require('node:events');
 const {mockStart,startMock}=require('./mock_test_capture.cjs');
-function document(extra={}){return {openapi:'3.2.1',info:{title:'Controlled tunnel',version:'1'},components:{securitySchemes:{Key:{type:'apiKey',in:'header',name:'X-Key'}}},paths:{'/tunnel':{additionalOperations:{CONNECT:{security:[{Key:[]}],parameters:[{name:'X-Mode',in:'header',required:true,schema:{const:'bytes',type:'string'}}],responses:{200:{description:'Tunnel',headers:{'X-Proof':{required:true,schema:{type:'integer',const:9007199254740991}},'X-Authored':{required:true,schema:{type:'string',const:'established'},examples:{first:{dataValue:'established'}}}},content:{'application/json':{schema:false}}}},...extra}}},'/ordinary':{get:{responses:{200:{description:'Ordinary',content:{'application/json':{schema:{const:7}}}}}}}};}
+function document(extra={}){
+ const operation={security:[{Key:[]}],parameters:[{name:'X-Mode',in:'header',required:true,schema:{const:'bytes',type:'string'}}],
+  responses:{200:{description:'Tunnel',headers:{'X-Proof':{required:true,schema:{type:'integer',const:9007199254740991}},
+   'X-Authored':{required:true,schema:{type:'string',const:'established'},examples:{first:{dataValue:'established'}}}},content:{'application/json':{schema:false}}}},...extra};
+ return {openapi:'3.2.1',info:{title:'Controlled tunnel',version:'1'},components:{securitySchemes:{Key:{type:'apiKey',in:'header',name:'X-Key'}}},
+  paths:{'/tunnel':{additionalOperations:{CONNECT:operation}},'/ordinary':{get:{responses:{200:{description:'Ordinary',content:{'application/json':{schema:{const:7}}}}}}}}};
+}
 function policy(port,extra={}){return {destinations:[{path:'/tunnel',authority:`approved.test:${port}`,address:'127.0.0.1'}],maximumTunnels:2,maximumBytes:2*1024*1024,idleTimeoutMs:10000,durationMs:60000,...extra};}
 async function peer(t,handler){const sockets=new Set(),server=net.createServer({allowHalfOpen:true},socket=>{sockets.add(socket);socket.once('close',()=>sockets.delete(socket));socket.on('error',()=>{});handler(socket);});await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));t.after(async()=>{for(const socket of sockets)socket.destroy();await new Promise(resolve=>server.close(resolve));});return server;}
 function connect(port,target,{head=Buffer.alloc(0),headers=['X-Key: synthetic','X-Mode: bytes']}={}){
@@ -34,7 +40,9 @@ test('production CONNECT preserves initial binary bytes, both directions, half-c
  assert.equal(tunnel.status,200);assert.equal(tunnel.headers['content-length'],undefined);assert.equal(tunnel.headers['transfer-encoding'],undefined);assert.equal(tunnel.headers['content-type'],undefined);assert.equal(tunnel.headers['x-proof'],'9007199254740991');assert.equal(tunnel.headers['x-authored'],'established');
  assert.deepEqual(await tunnel.read(prefix.length+initial.length),Buffer.concat([prefix,initial]));
  const large=Buffer.alloc(3*1024*1024);for(let index=0;index<large.length;index++)large[index]=index%256;
- tunnel.socket.pause();assert.equal(tunnel.socket.write(large),false,'The controlled producer must encounter socket backpressure');tunnel.socket.resume();assert.deepEqual(await tunnel.read(large.length),large);
+ // Queue the controlled write before releasing it to the kernel, whose socket
+ // capacity varies independently of the stream's bounded high-water mark.
+ tunnel.socket.pause();tunnel.socket.cork();assert.equal(tunnel.socket.write(large),false,'The controlled producer must encounter socket backpressure');tunnel.socket.uncork();tunnel.socket.resume();assert.deepEqual(await tunnel.read(large.length),large);
  tunnel.socket.end();assert.deepEqual(await tunnel.read(tail.length),tail);await tunnel.closed;
  assert.deepEqual(Buffer.concat(received),Buffer.concat([initial,large]));
  const established=await events.wait(value=>value.event==='tunnel-established');assert.equal(established.source.pointer,'/paths/~1tunnel/additionalOperations/CONNECT');assert.equal(established.responseBody,'not-applicable');
