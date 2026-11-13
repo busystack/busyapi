@@ -26,12 +26,15 @@ for(const version of versions)for(const format of ['yaml','json'])test(`${versio
 });
 for(const version of ['3.0.4','3.1.2','3.2.1'])test(`${version} mock multipart XML and Linkset use their own part/Header schema`,{timeout:20000},async t=>{
  const xml={type:'object',xml:{name:'Part'},required:['n'],properties:{n:{type:'number',enum:['EXACT']}}},link={type:'object',required:['linkset']};
- const media={schema:{type:'object',required:['xml','links'],properties:{xml,links:link}},encoding:{xml:{contentType:'application/xml',headers:{Link:{required:true,content:{'application/linkset':{schema:link}}}}},links:{contentType:'application/linkset'}}};
+ const xmlEncoding={contentType:'application/xml',headers:{Link:{required:true,content:{'application/linkset':{schema:link}}}}},linkEncoding={contentType:'application/linkset'};
+ const media=version.startsWith('3.2.')
+  ?{schema:{type:'array',prefixItems:[xml,link],items:false,minItems:2,maxItems:2},prefixEncoding:[xmlEncoding,linkEncoding]}
+  :{schema:{type:'object',required:['xml','links'],properties:{xml,links:link}},encoding:{xml:xmlEncoding,links:linkEncoding}};
  const document={openapi:version,info:{title:'Part owners',version:'1'},paths:{'/parts':{post:{requestBody:{content:{'multipart/mixed':media}},responses:{204:{description:'OK'}}}}}};
  const capture=mockStart(JSON.stringify(document).replaceAll('"EXACT"','9007199254740993')),original=JSON.stringify(capture.capture),{port}=await startMock(t,capture);
  const body='--Parts\r\nContent-Disposition: form-data; name="xml"\r\nContent-Type: application/xml\r\nLink: </n>; rel=next; title="a,b"\r\n\r\n<Part><n>9007199254740993</n></Part>\r\n--Parts\r\nContent-Disposition: form-data; name="links"\r\nContent-Type: application/linkset\r\n\r\n</p>; rel=next; title*=UTF-8\'ja\'%E9%9B%AA\r\n--Parts--\r\n';
  const send=value=>mockRequest(port,'/parts',value,{mediaType:'multipart/mixed; boundary=Parts'});
- assert.equal((await send(body)).status,204);
+ const positive=await send(body);assert.equal(positive.status,204,positive.text);
  for(const invalid of [body.replace('9007199254740993','9007199254740992'),body.replace('<n>','<wrong>'),body.replace("title*=UTF-8'ja'%E9%9B%AA",'title="雪"'),body.replace('<Part>','<!DOCTYPE Part SYSTEM "file:///never-acquire"><Part>')])assert.equal((await send(invalid)).status,422);
  assert.equal(JSON.stringify(capture.capture),original);
 });

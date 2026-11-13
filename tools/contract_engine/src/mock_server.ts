@@ -487,7 +487,7 @@ async function main(): Promise<void> {
         }
         const result = outcome.right;
         const checked=nativeChecks.get(prismRequest),notes=checked?nativeDiagnostics(checked,'warning').map(value=>violation(value,'request')):[];
-        if(native&&selected._tag==='Right')result.output.headers=await native.responseHeaders(selected.right.path,selected.right.method,result.output.statusCode,result.output.headers??{},cancellation.signal) as Record<string,string>;
+        if(!input.upstream&&native&&selected._tag==='Right')result.output.headers=await native.responseHeaders(selected.right.path,selected.right.method,result.output.statusCode,result.output.headers??{},cancellation.signal) as Record<string,string>;
         for (const [name, value] of Object.entries(result.output.headers ?? {}))
           if(!['sl-violations','busyapi-response-validation-complete','busyapi-request-security-complete'].includes(name.toLowerCase()))reply.setHeader(name, value);
         const mediaType = String(reply.getHeader('content-type') ?? '').split(';')[0].trim().toLowerCase() || undefined;

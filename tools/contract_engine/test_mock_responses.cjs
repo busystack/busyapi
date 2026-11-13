@@ -109,6 +109,7 @@ for(const version of ['3.0.4','2.0','3.1.2','3.2.1'])for(const format of ['yaml'
  const {port}=await startMock(t,mockStart(serialize(contract(version,{type:'integer'},headers),format),{upstream:target},'file:///response-headers/api.'+format));
  const valid=await request(port,'/data?valid');assert.deepEqual(violations(valid),[]);assert.equal(valid.headers['busyapi-response-validation-complete'],'true');
  const invalid=await request(port,'/data'),findings=violations(invalid);
+ if(version!=='2.0')assert.equal(invalid.headers['x-json'],'9007199254740992','The proxy must validate the actual upstream content Header without replacing it');
  for(const header of ['X-List','X-Flag',...(version==='2.0'?[]:['X-Object','X-Json'])])assert.ok(findings.some(finding=>finding.code==='runtime.schema.incompatible'&&finding.location.includes(header)),JSON.stringify({header,findings}));
  assert.equal(invalid.headers['busyapi-response-validation-complete'],'true');
 });

@@ -44,7 +44,7 @@ test('incremental producer admission uses the actual Engine and Core declaration
  const stream=await fs.readFile(path.join(__dirname,'src/runtime_stream.ts'),'utf8');
  const core=await fs.readFile(path.resolve(__dirname,'../../packages/busyapi_core/lib/src/execution.dart'),'utf8');
  const revision=/export const streamRevision='([^']+)'/.exec(stream)?.[1];assert(revision);
- const method=core.slice(core.indexOf('Future<Map<String, dynamic>> responseStreamChunk'),core.indexOf('Future<Map<String, (String, bool, String)>> contentParameterValues'));
- assert(method.includes("result['revision'] != '"+revision+"'"));
- assert(method.includes("result['producerVersion'] != _schemaProducerVersion"));
+ const coreRevision=/result\['revision'\] != '([^']+)'/.exec(core)?.[1];
+ assert.equal(coreRevision,revision);
+ assert(core.includes("result['producerVersion'] != _schemaProducerVersion"));
 });

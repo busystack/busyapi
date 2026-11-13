@@ -28,7 +28,7 @@ for(const version of ['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3
  for(const [path,cookie]of [
   ['/list','Value=one%2C%E9%9B%AA'],['/list','Value=one%2c%E9%9B%AA'],['/list','Value=a%26%3D%2B%25'],['/list','Value='],
   ['/mixed','Value=9007199254740993.00'],['/mixed','Value=false'],['/mixed','Value=null'],
-  ['/object','a%2Cb=c%2Cd&zero=0'],['/content','Value=%7B%22x%22%3A%22100%25%22%7D'],
+  ['/object','a%2Cb=c%2Cd&zero=0'],['/content','Value={"x":"100%"}'],
  ]){
   const response=await wire(port,path,cookie);assert.equal(response.status,204,path+': '+response.text);
   assert.equal(response.headers['busyapi-response-validation-complete'],'true');
@@ -38,6 +38,7 @@ for(const version of ['3.0.0','3.0.1','3.0.2','3.0.3','3.0.4','3.1.0','3.1.1','3
   ['/list','Value=one%2C%E9%9B%AA,other','runtime.request.parameter.serialization'],
   ['/list','Value=bad%','runtime.request.parameter.serialization'],
   ['/mixed','Value=9007199254740992','runtime.schema.incompatible'],
+  ['/content','Value=%7B%22x%22%3A%22100%25%22%7D','runtime.body.syntax'],
  ]){
   const response=await wire(port,path,cookie);assert.equal(response.status,422,response.text);
   const findings=JSON.parse(response.headers['sl-violations']??'[]');
