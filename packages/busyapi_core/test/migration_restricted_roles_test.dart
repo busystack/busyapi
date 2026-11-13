@@ -47,6 +47,7 @@ void main() {
         final project = await BusyProject.open(file.path, engine);
         addTearDown(project.close);
         final root = file.uri.toString();
+        await project.buffer(root);
         project.store.replace(root, original.replaceFirst('Original', 'Unsaved 雪'));
         for (final kind in [native, 'schema']) {
           final page = await project.inspectObject(root, root, pointer, contextKind: kind);

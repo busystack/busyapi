@@ -40,7 +40,7 @@ void main() {
         project.store.replace(shared.id, shared.text.replaceFirst('Original B02 model', 'Unsaved B02 model'));
         final captured = buffer.text, capturedModel = shared.text;
         List<bool>? independent;
-        Future<void> exercise(BusyProject owner, String prefix) async {
+        Future<void> exercise(BusyProject owner, String prefix, {bool capturedDynamicHeader = false}) async {
           final current = owner.roots.single.id;
           final prepared = await owner.prepareRequest(current, resource: current, pointer: '/paths/~1echo/post');
           try {
@@ -67,8 +67,14 @@ void main() {
                     parameter: RuntimeParameterTarget(resource: current, pointer: '/paths/~1echo/post/parameters/0')),
                 ],
               ]);
-              expect(checked['complete'], true, reason: '$checked');
-              expect((checked['runtimeEvaluations'] as List).map((value) => value['valid']), [true, true, false, false]);
+              expect(checked['complete'], !capturedDynamicHeader, reason: '$checked');
+              final evaluations = (checked['runtimeEvaluations'] as List).cast<Map>();
+              expect(evaluations.map((value) => value['valid']), [true, true, false, false]);
+              expect(evaluations.map((value) => value['complete']), [true, true, !capturedDynamicHeader, true]);
+              if (capturedDynamicHeader) {
+                expect((checked['runtimeFindings'] as List).whereType<Map>().any((finding) =>
+                  finding['code'] == 'runtime.response.header.unchecked' && finding['subject'] == 'response-header'), true);
+              }
             }
             final response = await const ContractRequestExecutor().execute(prepared,
               OperationRequestDraft(planIdentity: prepared.identity,
@@ -79,7 +85,29 @@ void main() {
             finally {await response.close();}
           } finally {prepared.close();}
         }
-        await exercise(project, '/components/schemas');
+        await exercise(project, '/components/schemas', capturedDynamicHeader: mode == 'flat-items');
+        if (mode == 'tail' && target.startsWith('3.0.')) {
+          final refused = await project.prepareMigration(root, '${directory.path}/unproved-tail', targetVersion: target);
+          addTearDown(refused.close);
+          expect(refused.publishable, false);
+          expect((refused.result['problems'] as List).whereType<Map>().any((problem) =>
+            problem['code'] == 'migration.schema.tuple' && problem['reason'] == 'unavailable-proof' &&
+            problem['resource'] == model.uri.toString() && problem['pointer'] == r'/$defs/Actual/prefixItems'), true);
+          expect(refused.result['outputs'], isEmpty);expect(refused.result['changes'], isEmpty);
+          await expectLater(refused.publish(), throwsA(isA<CoreFailure>()));
+          expect(await Directory(refused.destination).exists(), false);
+          final cli = await Process.run('$testBundle/busyapi', ['migrate', file.path, '--target', target,
+            '--output', '${directory.path}/cli-unproved', '--json'],
+            environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
+          expect(cli.exitCode, 2, reason: '${cli.stdout} ${cli.stderr}');
+          final report = jsonDecode(cli.stdout as String) as Map;
+          expect(report['complete'], false);expect(report['published'], false);
+          expect((report['problems'] as List).whereType<Map>().any((problem) => problem['code'] == 'migration.schema.tuple'), true);
+          expect(await Directory('${directory.path}/cli-unproved').exists(), false);
+          expect(await file.readAsString(), original);expect(await model.readAsString(), originalModel);
+          expect(buffer.text, captured);expect(shared.text, capturedModel);expect(requests, 1);
+          return;
+        }
         if (mode == 'flat-items' && target == '2.0') {
           project.store.replace(shared.id, capturedModel.replaceFirst('"format":"int64"', '"description":"Applicable item annotation","format":"int64"'));
           final refused = await project.prepareMigration(root, '${directory.path}/unsupported-items', targetVersion: target);

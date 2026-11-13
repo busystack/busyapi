@@ -62,16 +62,16 @@ void main() {
         request.response.add(bytes); await request.response.close();
       });
       final document = jsonDecode(_source('3.0.4', 'json', server.port, binary: true)) as Map<String, dynamic>;
-      document['components'] = {'schemas': {'Shared': {'type': 'string', 'format': 'binary',
+      document['components'] = <String, Object?>{'schemas': <String, Object?>{'Shared': <String, Object?>{'type': 'string', 'format': 'binary',
         'description': '[Retained](./guide.md)', 'x-number': 'EXACT'}}};
       if (bounded) {
-        final leaf = document['components']['schemas']['Shared'] as Map;
+        final leaf = document['components']['schemas']['Shared'] as Map<String, Object?>;
         leaf.addAll({'minLength': 1, 'maxLength': 5, 'nullable': true});
         if (representation == 'bounded-composition') {
           document['components']['schemas']['Shared'] = {'allOf': [leaf, {'type': 'string'}]};
         }
       }
-      if (proof) document['components']['schemas']['Shared'].addAll({'enum': ['', 'discarded'], 'maxLength': 0, 'pattern': r'^$'});
+      if (proof) document['components']['schemas']['Shared'].addAll(<String, Object?>{'enum': ['', 'discarded'], 'maxLength': 0, 'pattern': r'^$'});
       if (impossible) document['components']['schemas']['Shared']['minLength'] = 1;
       document['x-number'] = 'EXACT';
       if (targeted) document.remove('components');
@@ -96,7 +96,7 @@ void main() {
         final target = pointer.replaceFirst('application~1octet-stream',
             rawType.replaceAll('~', '~0').replaceAll('/', '~1')) + (multipart ? '/properties/payload' : '');
         content['application/json'] = {'schema': targeted
-            ? representation == 'targeted' ? {r'$ref': '#$target'} : {'allOf': [{r'$ref': '#$target'}]}
+            ? representation == 'targeted' ? {r'$ref': Uri.encodeFull('#$target')} : {'allOf': [{r'$ref': Uri.encodeFull('#$target')}]}
             : schema};
       }
       final text = jsonEncode(document).replaceAll('"EXACT"', '9007199254740993.00');
@@ -302,6 +302,7 @@ void _r3Transactions() {
         addTearDown(engine.close);
         final main = File('${directory.path}/api.$format'), model = File('${directory.path}/model.$format');
         final value = jsonDecode(_source('3.0.4', 'json', 1, binary: true)) as Map;
+        value['x-number'] = 'EXACT';
         final operation = value['paths']['/bytes']['post'] as Map;
         for (final content in [operation['requestBody']['content'], operation['responses']['200']['content']]) {
           content['application/octet-stream']['schema'] = {r'$ref': 'model.$format#/components/schemas/Leaf'};
@@ -314,7 +315,7 @@ void _r3Transactions() {
         final privateContent = {'application/octet-stream': {'schema': {r'$ref': '#/components/schemas/Private'}}};
         final externalPaths = {'/private': {'post': {'requestBody': {'content': privateContent}, 'responses': {'200': {'description': 'Private bytes', 'content': privateContent}}}}};
         final external = {'openapi': '3.0.4', 'info': {'title': 'Original model', 'version': '1'}, 'paths': externalPaths, 'components': {'schemas': schemas}};
-        final originalMain = '${format == 'yaml' ? '# Keep main\r\n' : ''}${jsonEncode(value).replaceAll('9007199254740993', '9007199254740993.00')}\r\n';
+        final originalMain = '${format == 'yaml' ? '# Keep main\r\n' : ''}${jsonEncode(value).replaceAll('"EXACT"', '9007199254740993.00')}\r\n';
         final originalModel = format == 'json' ? '${jsonEncode(external)}\r\n'
             : 'openapi: 3.0.4\r\ninfo: {title: Original model, version: "1"}\r\npaths: ${jsonEncode(externalPaths)}\r\ncomponents:\r\n  schemas:\r\n'
                 '    Leaf: &bytes ${jsonEncode(leaf)}\r\n    Alias: *bytes\r\n    Private: ${jsonEncode(leaf)}\r\n    Recursive: ${jsonEncode(schemas['Recursive'])}\r\n';

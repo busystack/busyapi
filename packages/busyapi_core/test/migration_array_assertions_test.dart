@@ -70,6 +70,7 @@ void main() {
         final project = await BusyProject.open(file.path, engine);
         addTearDown(project.close);
         final root = file.uri.toString();
+        await project.buffer(root);
         project.store.replace(root, original.replaceFirst('Original', 'Captured 雪'));
         Future<List<bool>> outcomes(BusyProject owner, String id, String prefix) async {
           final plan = await owner.prepareRequest(id, resource: id, pointer: '/paths/~1p/get');

@@ -68,18 +68,24 @@ void main() {
       final checked = await output.check(outputRoot);
       expect(checked['status'], 'complete', reason: '$checked');
       expect(checked['projection']['specification']['declaredVersion'], '2.0');
-      final inspected = await output.inspectObject(outputRoot, outputRoot, '/definitions/Value');
-      expect(jsonDecode(await output.readDataValue(inspected)), {'type': 'string', 'enum': ['', 'café 東京']});
+      final valuePage = await output.referencePage(outputRoot, outputRoot, '/definitions/Value', contextKind: 'schema');
+      final valueEntries = (valuePage['entries'] as List).cast<Map>();
+      expect(valueEntries.map((entry) => entry['name']), unorderedEquals(['type', 'enum']));
+      expect(valueEntries.singleWhere((entry) => entry['name'] == 'type')['text'], 'string');
+      final enumPage = await output.referencePage(outputRoot, outputRoot, '/definitions/Value/enum', data: true);
+      expect((enumPage['entries'] as List).map((entry) => entry['text']), ['', 'café 東京']);
       final references = (checked['projection'] as Map)['references'] as List;
       final reference = references.singleWhere((reference) => reference['pointer'] == r'/definitions/Alias/$ref');
       expect(reference['resolution'], 'resolved');expect(reference['targetPointer'], '/definitions/Value');
-      final rootObject = await output.inspectObject(outputRoot, outputRoot, '');
-      final entries = (rootObject['entries'] as List).whereType<Map>();
-      Future<String> data(String name) => output.readDataValue(Map<String, dynamic>.from(entries.singleWhere((entry) => entry['name'] == name)));
-      expect(await data('x-type'), '"string"');expect(await data('x-type-copy'), '"string"');
-      expect(await data('x-later-copy'), '"integer"');
-      expect(jsonDecode(await data('x-values-copy')), ['', 'café 東京']);
-      expect(await data('x-exact'), '9007199254740993.00');
+      Future<Map<String, dynamic>> data(String name) async {
+        final page = await output.referencePage(outputRoot, outputRoot, '/$name', data: true);
+        return page['physicalPointer'] == null ? page :
+            output.referencePage(outputRoot, outputRoot, page['physicalPointer'] as String, data: true);
+      }
+      expect((await data('x-type'))['text'], 'string');expect((await data('x-type-copy'))['text'], 'string');
+      expect((await data('x-later-copy'))['text'], 'integer');
+      expect(((await data('x-values-copy'))['entries'] as List).map((entry) => entry['text']), ['', 'café 東京']);
+      expect((await data('x-exact'))['text'], '9007199254740993.00');
       if (format == 'yaml') {
         final published = (await output.buffer(outputRoot)).text;
         expect(published, contains('x-type: &kind string # keep definition\r\nx-type-copy: *kind # keep consumer\r\n'));

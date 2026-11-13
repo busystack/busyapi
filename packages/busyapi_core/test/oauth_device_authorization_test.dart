@@ -133,6 +133,7 @@ void main() {
     fixture.overrides = {};fixture.redirect = true;
     await expectLater(fixture.authorize(), throwsA(isA<CoreFailure>()));expect(fixture.paths, isNot(contains('/not-authorized')));
     fixture.redirect = false;
+    await fixture.project.buffer(fixture.source.uri.toString());
     await expectLater(fixture.authorize(present: (_) async {
       fixture.project.store.replace(fixture.source.uri.toString(), fixture.original.replaceFirst('Device flow', 'Changed owner'));
     }), throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'request.draft.stale')));

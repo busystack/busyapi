@@ -215,7 +215,7 @@ void r3aServerRelocation() {
         final capturedConfiguration = jsonEncode({'version': 1, 'roots': [{'name': 'api', 'path': 'api.$format'}],
           'environments': {'manual': settings, 'secure': {...settings, 'variables': {'transport': 'https'}}},
           'tests': [
-            {'name': 'saved', 'operation': {'occurrence': '${file.uri}#/paths/~1shared/post', 'method': 'get', 'path': '/ignored', 'x-exact': 'EXACT'}, 'environment': 'manual', 'server': 1,
+            {'name': 'saved', 'operation': {'occurrence': '${file.uri}#/paths/~1shared/post', 'method': 'get', 'path': '/ignored', 'x-exact': 'EXACT'}, 'environment': 'manual', 'server': 1, 'securityAlternative': 0,
               'body': {'mediaType': 'application/json', 'value': false}, 'expect': {'status': 204}},
             {'name': 'invalid', 'operation': {'method': 'get', 'path': '/shared'}, 'server': 99, 'expect': {'status': 204}},
           ], 'x-top': 'EXACT'}).replaceAll('"EXACT"', '9007199254740993.00');
@@ -233,11 +233,11 @@ void r3aServerRelocation() {
         }
         Future<void> read(BusyProject owner) async {
           final checked = await owner.check(owner.roots.single.id);
-          final operation = (checked['projection']['operations'] as List).cast<Map>().singleWhere((operation) => operation['operationId'] == 'read');
+          final operation = (checked['projection']['operations'] as List).cast<Map>().singleWhere((operation) => operation['value']['operationId'] == 'read');
           final plan = await owner.prepareRequest(owner.roots.single.id, resource: operation['resource'] as String, pointer: operation['pointer'] as String, occurrence: operation['occurrence'] as String?);
           try {
             final result = await const ContractRequestExecutor().execute(plan,
-                OperationRequestDraft(planIdentity: plan.identity, environment: 'manual'), resolveSecret: resolve);
+                OperationRequestDraft(planIdentity: plan.identity, environment: 'manual', securityAlternative: 0), resolveSecret: resolve);
             try { expect(result.conforming, true);expect(seen.last, ('GET', '/read%2Fv/shared', '')); }
             finally { await result.close(); }
           } finally { plan.close(); }
@@ -281,12 +281,12 @@ void r3aServerRelocation() {
         await runSaved(cold);
         await read(cold);
         final checked = await cold.check(cold.roots.single.id);
-        final operation = (checked['projection']['operations'] as List).cast<Map>().singleWhere((operation) => operation['operationId'] == 'read');
+        final operation = (checked['projection']['operations'] as List).cast<Map>().singleWhere((operation) => operation['value']['operationId'] == 'read');
         final plan = await cold.prepareRequest(cold.roots.single.id,
             resource: operation['resource'] as String, pointer: operation['pointer'] as String, occurrence: operation['occurrence'] as String?);
         addTearDown(plan.close);
         final prepared = await const ContractRequestBuilder().build(plan,
-            OperationRequestDraft(planIdentity: plan.identity, environment: 'secure'), resolveSecret: resolve);
+            OperationRequestDraft(planIdentity: plan.identity, environment: 'secure', securityAlternative: 0), resolveSecret: resolve);
         try { expect(prepared.uri.scheme, 'https');expect(prepared.uri.toString(), 'https://127.0.0.1:${server.port}/read%2Fv/shared'); }
         finally { await prepared.body?.close(); }
         final invalid = await const ContractTestRunner().run(cold, cold.roots.single.id,

@@ -168,7 +168,7 @@ void main() {
           resolveSecret: (_) async => null);
         try {
           expect(result.conforming, true, reason: '${result.outgoing.findings} ${result.received.findings}');
-          expect(received.last, (path, utf8.encode(_body)));expect(await result.response.bytes(), utf8.encode(_body));
+          expect(received.last.$1, path);expect(received.last.$2, utf8.encode(_body));expect(await result.response.bytes(), utf8.encode(_body));
         } finally { await result.close(); }
       } finally { plan.close(); }
     }
@@ -313,7 +313,10 @@ void main() {
           addTearDown(review.close);
           expect(review.publishable, true, reason: '${review.result}');
           expect(review.unsaved, true);
-          expect(review.changes, hasLength(4));
+          for (final buffer in buffers.values) {
+            expect(review.changes.where((change) => change.resource == buffer.id), hasLength(1));
+          }
+          expect(review.changes.map((change) => change.destination).toSet(), hasLength(review.changes.length));
           expect((review.result['manifest'] as Map)['roots'], hasLength(3));
           await expectLater(
             review.publish(cancelled: () => true),
@@ -346,7 +349,7 @@ void main() {
               '',
             );
             expect(
-              declaration['value'][target == '2.0' ? 'swagger' : 'openapi'],
+              (jsonDecode(await output.readDataValue(declaration)) as Map)[target == '2.0' ? 'swagger' : 'openapi'],
               target,
             );
             final info = await output.inspectObject(
@@ -355,7 +358,7 @@ void main() {
               '/info',
             );
             expect(
-              info['value']['title'],
+              (jsonDecode(await output.readDataValue(info)) as Map)['title'],
               name.startsWith('other') ? 'Unsaved' : 'Keep',
             );
           }

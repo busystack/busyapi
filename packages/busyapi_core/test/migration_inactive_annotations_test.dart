@@ -30,6 +30,25 @@ void main() {
         final project = await BusyProject.open(file.path, engine);
         addTearDown(project.close);
         final root = project.roots.single.id;
+        Future<List<bool>> evaluateFalse(BusyProject owner, String selectedRoot, String pointer) async {
+          AnalysisSnapshot? captured;
+          await owner.check(selectedRoot, onSnapshot: (snapshot) => captured = snapshot);
+          final evaluated = await engine.request('evaluateSchemas', {
+            ...captured!.toJson(),
+            'runtimeInstances': [
+              for (final text in ['null', 'false', '0', '"雪"', '[]', '{}'])
+                {'subject': 'authored-example', 'location': 'False', 'text': text,
+                  'schema': {'resource': selectedRoot, 'pointer': pointer}},
+            ],
+          });
+          expect(evaluated['complete'], true, reason: '$evaluated');
+          final outcomes = (evaluated['runtimeEvaluations'] as List).cast<Map>();
+          expect(outcomes.every((value) => value['complete'] == true), true);
+          return outcomes.map((value) => value['valid'] as bool).toList();
+        }
+        final capturedOutcomes = version == '3.0.4' ? null :
+            await evaluateFalse(project, root, '/components/schemas/False');
+        if (capturedOutcomes != null) expect(capturedOutcomes, List.filled(6, false));
         final destination = '${directory.path}/converted';
         Future<MigrationOutput> prepare() => project.prepareMigration(root, destination, targetVersion: '2.0');
         final review = await prepare();
@@ -63,7 +82,10 @@ void main() {
           final references = (checked['projection'] as Map)['references'] as List;
           final reference = references.singleWhere((reference) => reference['pointer'] == r'/definitions/False/$ref');
           expect(reference['resolution'], 'resolved');
-          expect(reference['targetPointer'], startsWith('/definitions/_migrated_annotation_'));
+          final target = await output.inspectObject(outputRoot,
+              reference['targetResource'] as String, reference['targetPointer'] as String, contextKind: 'schema');
+          expect(target['kind'], 'schema');
+          expect(await evaluateFalse(output, outputRoot, '/definitions/False'), capturedOutcomes);
         }
         expect(await file.readAsString(), original);
         expect((await project.buffer(root)).dirty, true);

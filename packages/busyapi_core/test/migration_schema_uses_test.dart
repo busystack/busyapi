@@ -44,6 +44,27 @@ void main() {
       final root = file.uri.toString();
       await project.buffer(root);
       project.store.replace(root, original.replaceFirst('Original', 'Captured 雪'));
+      Future<List<bool>> evaluateUses(BusyProject owner, String selectedRoot) async {
+        AnalysisSnapshot? captured;
+        await owner.check(selectedRoot, onSnapshot: (snapshot) => captured = snapshot);
+        final evaluated = await engine.request('evaluateSchemas', {
+          ...captured!.toJson(),
+          'runtimeInstances': [
+            for (final text in ['9007199254740993.00', '9007199254740994', '9007199254740992', 'null'])
+              {'subject': 'authored-example', 'location': 'Value', 'text': text,
+                'schema': {'resource': selectedRoot, 'pointer': '/components/schemas/Value'}},
+            for (final text in ['{"value":1}', '{}', 'null'])
+              {'subject': 'authored-example', 'location': 'Dictionary', 'text': text,
+                'schema': {'resource': selectedRoot, 'pointer': '/components/schemas/Dictionary'}},
+          ],
+        });
+        expect(evaluated['complete'], true, reason: '$evaluated');
+        final outcomes = (evaluated['runtimeEvaluations'] as List).cast<Map>();
+        expect(outcomes.every((value) => value['complete'] == true), true);
+        return outcomes.map((value) => value['valid'] as bool).toList();
+      }
+      final capturedOutcomes = await evaluateUses(project, root);
+      expect(capturedOutcomes, [true, true, false, false, true, false, true]);
       final destination = '${directory.path}/converted';
       Future<MigrationOutput> prepare() => project.prepareMigration(root, destination, targetVersion: '3.0.4');
       final review = await prepare();
@@ -69,8 +90,11 @@ void main() {
       for (final name in ['Value', 'Dictionary']) {
         final reference = references.singleWhere((reference) => reference['pointer'] == '/components/schemas/$name/\$ref');
         expect(reference['resolution'], 'resolved');
-        expect(reference['targetPointer'], startsWith('/_migrated_schema_use_'));
+        final target = await output.inspectObject(outputRoot,
+            reference['targetResource'] as String, reference['targetPointer'] as String, contextKind: 'schema');
+        expect(target['kind'], 'schema');
       }
+      expect(await evaluateUses(output, outputRoot), capturedOutcomes);
       final inspected = await output.inspectObject(outputRoot, outputRoot, '/components/schemas/Model');
       final data = await output.readDataValue(inspected);
       expect(data, contains('9007199254740993.00'));

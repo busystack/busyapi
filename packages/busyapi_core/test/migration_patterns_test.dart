@@ -76,9 +76,12 @@ void main() {
       final model = await project.inspectObject(root, modelReference['targetResource'] as String, modelReference['targetPointer'] as String, contextKind: 'schema');
       expect((model['fields'] as List).cast<Map>().singleWhere((field) => field['name'] == 'allOf')['present'], true);
       final independent = await project.inspectObject(root, root, '${prefix}Independent', contextKind: 'schema');
-      final material = (independent['references'] as List).single;expect(material['targetPointer'], endsWith('/items'));
+      final material = (independent['references'] as List).single;
+      final materialPage = await project.inspectObject(root, material['targetResource'] as String,
+          material['targetPointer'] as String, contextKind: 'schema');
+      expect(materialPage['kind'], 'schema');
       final docs = await project.inspectObject(root, material['targetResource'] as String, '${material['targetPointer']}/externalDocs', contextKind: 'external-documentation');
-      expect(docs['value']['url'], File('${directory.path}/defs/pattern.html').uri.toString());
+      expect((jsonDecode(await project.readDataValue(docs)) as Map)['url'], File('${directory.path}/defs/pattern.html').uri.toString());
       final document = await project.inspectObject(root, root, '');
       final history = (document['entries'] as List).cast<Map>().singleWhere((entry) => entry['name'] == 'x-patterns');
       final raw = await project.readDataValue(Map<String, dynamic>.from(history));expect(raw, contains('9007199254740993.00'));

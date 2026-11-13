@@ -170,8 +170,11 @@ $_tail''').replaceAll('\n', '\r\n')}',
           expect(await Directory(review.destination).exists(), isFalse);
           await review.publish();
           final outputs = (review.result['outputs'] as List).cast<Map>();
+          final sharedChange = review.changes.singleWhere(
+            (change) => change.resource == model.uri.toString(),
+          );
           final sharedOutput = outputs.singleWhere(
-            (value) => value['path'] != 'openapi.yaml',
+            (value) => value['id'] == sharedChange.destination,
           );
           expect(sharedOutput['text'], capturedShared);
           expect(

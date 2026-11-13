@@ -260,7 +260,9 @@ paths:
     await model.rename('${temp.path}/source-only.json');
     final copy = await BusyProject.open(review.destination, engine);
     addTearDown(copy.close);
-    final result = await copy.check(copy.roots.single.id);
+    AnalysisSnapshot? captured;
+    final result = await copy.check(copy.roots.single.id,
+        onSnapshot: (snapshot) => captured = snapshot);
     expect(result['status'], 'complete', reason: '$result');
     expect(result['projection']['specification']['family'], '2.0');
     expect(await file.readAsBytes(), original);
@@ -268,11 +270,18 @@ paths:
       await File('${temp.path}/source-only.json').readAsString(),
       modelText,
     );
-    expect(
-      await File('${review.destination}/${review.result['entry']}')
-          .readAsString(),
-      contains('9007199254740993'),
-    );
+    final evaluated = await engine.request('evaluateSchemas', {
+      ...captured!.toJson(),
+      'runtimeInstances': [
+        for (final text in ['{"value":9007199254740993}', '{"value":9007199254740992}', '{}', 'null'])
+          {'subject': 'authored-example', 'location': 'Model', 'text': text,
+            'schema': {'resource': copy.roots.single.id, 'pointer': '/definitions/Model'}},
+      ],
+    });
+    expect(evaluated['complete'], true, reason: '$evaluated');
+    final outcomes = (evaluated['runtimeEvaluations'] as List).cast<Map>();
+    expect(outcomes.every((value) => value['complete'] == true), true);
+    expect(outcomes.map((value) => value['valid']), [true, false, true, false]);
   });
   test(
     'Source edits and declaration changes reject stale migration reviews',
