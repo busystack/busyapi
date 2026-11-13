@@ -58,7 +58,7 @@ void multiNameMultipartMigrationRegressions(String group) {
           }), throwsA(anything));
           expect(await File('${race.destination}/foreign').readAsString(), 'Keep');
           await review.publish();
-          project.store.replace(root, buffer.text.replaceFirst('Original multi-name', 'Changed after review'));
+          project.store.replace(root, buffer.text.replaceFirst('Unsaved multi-name', 'Changed after review'));
           await expectLater(stale.publish(), throwsA(isA<CoreFailure>().having((failure) => failure.code, 'code', 'migration.stale')));
           expect(await Directory(stale.destination).exists(), false);
           expect(await file.readAsBytes(), sourceBytes);expect(await manifest.readAsBytes(), manifestBytes);

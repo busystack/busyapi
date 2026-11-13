@@ -5011,7 +5011,11 @@ class ContractRequestExecutor {
             : _bodyCoverage(
                 instances,
                 'response-body',
-                'not-applicable-or-incomplete',
+                response.stream?.wholeAvailable == true
+                    ? _jsonMedia(contentType ?? '')
+                          ? 'selected-json-body'
+                          : 'selected-media-body'
+                    : 'not-applicable-or-incomplete',
               ),
       },
       onBodyProof: (proved, configuration) {

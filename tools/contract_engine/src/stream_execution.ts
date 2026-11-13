@@ -21,13 +21,13 @@ class ResponseStream {
  constructor(readonly capture:any,context?:ReturnType<typeof createGraph>){
   this.context=context??createGraph(capture);this.plan=requestOperation(capture,this.context);
   const declaration=this.plan.responses.find(item=>item.status===String(capture.status))??this.plan.responses.find(item=>item.status===String(capture.status)[0]+'XX')??this.plan.responses.find(item=>item.status==='default');
-  this.media=declaration&&selectNativeMedia<any>(declaration.content,capture.mediaType);
+  this.media=declaration?.bodyAllowed===false?undefined:declaration&&selectNativeMedia<any>(declaration.content,capture.mediaType);
   this.base={version:1,revision:streamRevision,stream:capture.stream,snapshot:capture.snapshot,identity:this.plan.identity,producer:schemaProducer.name,producerVersion:schemaProducer.version,configuration:schemaProducer.configuration};
   this.retained=capture.resources.reduce((bytes:number,resource:any)=>bytes+resource.text.length*2,0);
  }
  async chunk(input:any){
  const {capture,context,media,base}=this;
- if(!media||!streamingMedia(capture.mediaType))return {...base,supported:false};
+ if(!media||media.schema?.file||!streamingMedia(capture.mediaType))return {...base,supported:false};
  const framed=frameStream(capture.mediaType,this.state,runtimeMediaBytes(input.text,true),input.end,input.maximumRecords??128),instances:any[]=[],binary=runtimeBinaryMedia(capture.mediaType);
  this.state=framed.state;
  const itemSchema=media.family==='3.2'?media.itemSchema:undefined;

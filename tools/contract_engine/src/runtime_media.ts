@@ -93,7 +93,6 @@ export function decodeRuntimeMedia(text:string,id:string,contentType?:string,bas
   return {document:decoded.document,schemaEvaluation:{binding:xmlBinding,valid:decoded.schemaValid},kind};
  }
  if(opaque==='file'){
-  if(['xml','linkset','linkset-json'].includes(kind))validateRuntimeMediaSyntax(bytes??(kind==='xml'?rawXmlBytes(text,type?.[0].parameters.get('charset')):runtimeMediaBytes(text,false)),id,contentType!);
   if(textSerialization==='unicode')validateRuntimeMediaSyntax(bytes??runtimeMediaBytes(text,false),id+'/file-media',contentType!,textSerialization);
   if(bytes===undefined)runtimeMediaBytes(text,false);
   return {document:parse('null'),kind:'file'};

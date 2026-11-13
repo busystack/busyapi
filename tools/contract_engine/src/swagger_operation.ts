@@ -33,7 +33,7 @@ export function swaggerResponseContent(graph:ReferenceGraph,resource:string,poin
     const doc=graph.docs.get(resource)!,node=doc.dataNode(pointer)!,value=node.value;
     const examples=doc.dataNode(pointer+'/examples');
     const names=[...new Set([...media,...(examples?.children.keys()??[])])];
-    const scope=graph.scopes.get(resource+'#'+pointer+'/schema');
+    const scope=graph.scopeAs(resource,pointer+'/schema','schema');
     let file=false,fileIssue:{code:string;message:string;source:LocatedSource}|undefined;
     if(scope)try{file=swaggerFileSchemas(graph)(scope)!==undefined;}catch(error){
         if(!(error instanceof SourceError)||error.kind!=='unsupported')throw error;

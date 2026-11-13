@@ -21,11 +21,12 @@ const object=(value:unknown):value is ObjectValue=>value!==null&&typeof value===
 /** OAS 3.2 §§4.14.3/4.14.5/4.15.2: wire positions and nested encodings
  * project into exact CST instances. The original captured schemas, including
  * itemSchema, remain the only authority for their constraints. */
-export function decodeRuntimeMultipart(text:string,id:string,contentType:string,base64:boolean,target:RuntimeFormTarget,graph:ReferenceGraph,decodeHeaderForm:MimeHeaderFormDecoder,textSerialization?:TextSerialization,
+export function decodeRuntimeMultipart(text:string,id:string,contentType:string,base64:boolean,target:RuntimeFormTarget,graph:ReferenceGraph,decodeHeaderForm:MimeHeaderFormDecoder,encodingApplies:boolean,textSerialization?:TextSerialization,
     decodeNestedForm?:(text:string,id:string,type:string,target:RuntimeFormTarget,model:RuntimeFormModel)=>RuntimeFormData):RuntimeFormData|undefined {
     const unicode=textSerialization==='unicode'?'unicode':undefined;
-    const owner=graph.docs.get(target.resource)?.dataNode(target.pointer),media=owner?.value;
-    if(!object(media))throw new SourceError('runtime.form.owner','The captured multipart Media Type Object is unavailable',owner?.range??[0,0]);
+    const owner=graph.docs.get(target.resource)?.dataNode(target.pointer),value=owner?.value;
+    if(!object(value))throw new SourceError('runtime.form.owner','The captured multipart Media Type Object is unavailable',owner?.range??[0,0]);
+    const media=encodingApplies?value:{};
     const forms=new FormSemantics(graph);
     const family=graph.scopeAs(target.resource,target.pointer,'media')?.family??'3.2';
     if(!isNativeFamily(family))throw new SourceError('runtime.form.family','The captured multipart specification family is unsupported',owner.range);
@@ -155,7 +156,7 @@ export function decodeRuntimeMultipart(text:string,id:string,contentType:string,
             const field=itemHints.find(hint=>hint.shape.types?.length||hint.shape.contentEncoding!==undefined)?.shape??itemHints[0]?.shape??{};
             const declared=styled?'text/plain':typeof encoding.contentType==='string'?encoding.contentType:field.defaultContentType??'application/octet-stream';
             const actual=mimeSingleton(part.headers,'content-type')??(concrete.subtype==='digest'?'message/rfc822':'text/plain');
-            mediaTypeChoice(declared,actual);
+            if(encodingApplies)mediaTypeChoice(declared,actual);
             const actualType=mediaTypes(actual,false)[0];
             const decodingType=mimePartDecodingType(actual,form);
             const decodeMedia=(...args:Parameters<typeof decodeRuntimeMedia>)=>{

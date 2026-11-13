@@ -193,6 +193,8 @@ void main() {
                       expect(
                         result.received.valid,
                         schema != null || received.isEmpty,
+                        reason: '$type $schema ${received.length} bytes: '
+                            '${result.received.findings}',
                       );
                       if (type == null) {
                         expect(

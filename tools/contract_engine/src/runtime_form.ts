@@ -90,13 +90,14 @@ export function decodeRuntimeForm(text:string,id:string,contentType:string,base6
         throw new SourceError(code,message,range,unsupported?'unsupported':undefined,{...at,range});
     };
     if(!owner||!node||!scope)failure('runtime.form.owner','The captured form owner is unavailable');
+    const encodingApplies=subject==='request-body'||scope.family==='3.2';
     if(Object.keys(target.fileShapes??{}).length&&(!namedFileShapeSelection(scope.family,contentType,false)||subject!=='request-body'))
         failure('runtime.form.file-shape','File value shapes require a captured named multipart request');
     // MIME field lines already have their ASCII/UTF-8 framing proof. A
     // Header.content model does not replace the part body's serialization.
     const decodeHeaderForm=(text:string,id:string,type:string,target:RuntimeFormTarget)=>decodeRuntimeForm(text,id,type,false,target,subject,graph);
     if((scope.family==='3.2'||subject==='request-body'||target.streamIndex!==undefined)&&scope.kind==='media'&&mediaTypes(contentType,false)[0].type==='multipart'){
-        const decoded=decodeRuntimeMultipart(text,id,contentType,base64,target,graph,decodeHeaderForm,unicode,
+        const decoded=decodeRuntimeMultipart(text,id,contentType,base64,target,graph,decodeHeaderForm,encodingApplies,unicode,
             (text,id,type,target,model)=>decodeRuntimeForm(text,id,type,true,target,subject,graph,undefined,model));
         if(decoded)return decoded;
     }
@@ -176,7 +177,6 @@ export function decodeRuntimeForm(text:string,id:string,contentType:string,base6
             if(subject!=='request-body'||!namedFileShapeSelection(scope.family,contentType,false)||!fileShapes.choices(schema,name).includes(selected))
                 failure('runtime.form.file-shape','The file shape is not owned by this captured request media',schema);
         }
-        const encodingApplies=subject==='request-body'||scope.family==='3.2';
         const encoding=forms.namedEncoding(model?.encoding??(media&&encodingApplies&&object(node.value?.encoding)?node.value.encoding:{}),[{schema,path:model?.path??[]}]);
         const selectedField=(field:FormShape,path:MultipartSchemaStep[],pointer:string):FormShape=>{
             const selection=model?target.partSchemas?.[model.prefix+pointer]:undefined;

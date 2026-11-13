@@ -243,11 +243,15 @@ x-payload: {Old: literal}
           project.store.replace(notes.id, 'unsaved notes 雪\n');
           final recovery = RecoveryStore('${directory.path}/drafts');
           expect(await recovery.persistFileMoves(project.recoveryOwner), true);
+          await recovery.persist(notes);
+          final notesCheckpoint = Directory(recovery.directory).listSync().whereType<File>().where((file) => file.path.endsWith('.json')).singleWhere(
+            (file) => (jsonDecode(file.readAsStringSync()) as Map)['id'] == notes.id);
+          final notesRecord = {...jsonDecode(await notesCheckpoint.readAsString()) as Map<String, dynamic>, 'recordPath': notesCheckpoint.path};
           final checkpoint = Directory(recovery.directory)
               .listSync()
               .whereType<File>()
               .where((file) => file.path.endsWith('.json'))
-              .single;
+              .singleWhere((file) => (jsonDecode(file.readAsStringSync()) as Map)['kind'] == 'file-workspace');
           final record = {
             ...jsonDecode(await checkpoint.readAsString())
                 as Map<String, dynamic>,
@@ -282,6 +286,7 @@ x-payload: {Old: literal}
             configuration,
           );
           await recovery.adoptFileMoves(record, project.recoveryOwner);
+          await recovery.adopt(notesRecord, await project.buffer(notes.id), store: project.store);
           for (final entry in accepted.entries) {
             expect(project.store.get(entry.key).text, entry.value);
           }

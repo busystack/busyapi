@@ -110,6 +110,16 @@ void main() {
         else {await release.future;try{await request.response.close();}on Object{/* Client deliberately retired. */}}
       });
       final fixture=await openMedia(directory,server,'3.2.1','json',{'itemSchema':{'type':'number','enum':['EXACT_VALUE']}},contentType:'application/x-ndjson');
+      if(mode=='overall') {
+        // Arrange a completed codec proof outside the transport's 500 ms
+        // deadline; cold worker startup has its own engine deadline.
+        final prepared=await fixture.plan.openResponseStream(200,'application/x-ndjson');
+        expect(prepared,isNotNull);
+        try {
+          final proof=await prepared!.add(utf8.encode('9007199254740993\n'));
+          expect((proof['records'] as List).single['valid'],true);
+        } finally {await prepared!.close();}
+      }
       final token=RunCancellation(),control=ContractStreamControl();
       final result=await const ContractRequestExecutor().execute(fixture.plan,OperationRequestDraft(planIdentity:fixture.plan.identity,inactivityTimeout:mode=='overall'?const Duration(seconds:10):const Duration(milliseconds:250),overallTimeout:mode=='overall'?const Duration(milliseconds:500):const Duration(seconds:30)),resolveSecret:(_) async=>null,cancellation:token,streamControl:control,
         onStream:(value){if(value.records>0&&!value.terminal){if(mode=='stop')control.stop();if(mode=='cancel')token.cancel();}});

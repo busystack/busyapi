@@ -785,10 +785,9 @@ class ContractTestRunner {
                   fileShapes: fileShapes,
                   partSchemas: (rawBody['partSchemas'] as Map? ?? const {}).cast<String, String>(),
                 ),
-              null => (media.split(';').first.trim().toLowerCase() == 'application/linkset' ||
-                       media.split(';').first.trim().toLowerCase().endsWith('+json') ||
+              null => (['application/linkset', 'application/linkset+json'].contains(media.split(';').first.trim().toLowerCase()) ||
                        media.split(';').first.trim().toLowerCase().endsWith('+xml') ||
-                       ['application/json', 'application/xml', 'text/xml'].contains(media.split(';').first.trim().toLowerCase()))
+                       ['application/xml', 'text/xml'].contains(media.split(';').first.trim().toLowerCase()))
                   ? RequestBodyDraft.modeled(mediaType: media, json: text)
                   : RequestBodyDraft.raw(mediaType: media, text: text),
             }

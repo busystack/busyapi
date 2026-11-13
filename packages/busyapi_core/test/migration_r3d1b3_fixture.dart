@@ -44,7 +44,7 @@ void finiteTupleMultipartMigrationRegressions(String group) {
         await expectLater(race.publish(beforePublish: () async {await Directory(race.destination).create();await File('${race.destination}/foreign').writeAsString('Keep');}), throwsA(anything));
         expect(await File('${race.destination}/foreign').readAsString(), 'Keep');
         await review.publish();
-        project.store.replace(root, buffer.text.replaceFirst('Original tuple', 'Changed tuple'));
+        project.store.replace(root, buffer.text.replaceFirst('Unsaved tuple', 'Changed tuple'));
         await expectLater(stale.publish(), throwsA(isA<CoreFailure>().having((failure) => failure.code, 'code', 'migration.stale')));
         expect(await Directory(stale.destination).exists(), false);
         expect(await file.readAsString(), raw);expect(await manifest.readAsBytes(), originalManifest);

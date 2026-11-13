@@ -759,7 +759,7 @@ export function requestOperation(input:any,captured?:ReturnType<typeof createGra
   }
   const headerShape=headerShapes(graph);
   const responses:any[]=[];
-  const responseNode=node.children.get('responses');
+  const responseNode=doc.dataNode(input.pointer+'/responses');
   if(responseNode?.kind!=='object')throw new SourceError('request.responses','The operation has no usable Responses Object');
   for(const [status,response] of responseNode.children){
     if(status.startsWith('x-'))continue;
@@ -773,7 +773,8 @@ export function requestOperation(input:any,captured?:ReturnType<typeof createGra
       const selection=examplesWithSchema(header.resource,header.pointer,hv,'header',undefined,'header');
       headers.push({name,family:headerFamily,required:hv?.required===true,source:location(selected.resource,hp),definition:header.source,style:hv?.style??'simple',explode:hv?.explode===true,examples:selection.examples,schemaExamples:selection.schemaExamples,content:headerFamily==='2.0'?[]:media(header.resource,header.pointer+'/content',hv?.content),schema:schema(header.resource,header.pointer,hv,'header'),shape:headerShape({resource:header.resource,pointer:headerFamily==='2.0'?header.pointer:header.pointer+'/schema',kind:'schema'}),...(headerFamily==='2.0'?swaggerFlat(hv,header.source):{})});
     }
-    responses.push({status,source:location(input.resource,at),definition:selected.source,description:v?.description,headers,bodyAllowed:responseAllowsContent(family,v),content:family==='2.0'?swaggerResponseContent(graph,selected.resource,selected.pointer,swaggerMedia(graph,input.resource,input.pointer,'produces'),location).map(item=>({...item,...runtimeMediaDescription(item.mediaType)})):media(selected.resource,selected.pointer+'/content',v?.content)});
+    const bodyAllowed=responseAllowsContent(family,v);
+    responses.push({status,source:location(input.resource,at),definition:selected.source,description:v?.description,headers,bodyAllowed,content:family==='2.0'?swaggerResponseContent(graph,selected.resource,selected.pointer,swaggerMedia(graph,input.resource,input.pointer,'produces'),location).map(item=>({...item,...runtimeMediaDescription(item.mediaType),...(!bodyAllowed||item.schema?.file?{incremental:false}:{})})):media(selected.resource,selected.pointer+'/content',v?.content)});
   }
   const identity=createHash('sha256').update(JSON.stringify(['request-examples-v2','oauth-device-v1','parameter-media-v2',multipartProjectionRevision,schemaExamplesRevision,input.snapshot,input.resource,input.pointer,context.occurrence])).digest('hex');
   return {version:1,snapshot:input.snapshot,root:input.root,identity,family,representationRevisions:{multipart:multipartProjectionRevision,schemaExamples:schemaExamplesRevision,xml:'2',linkset:'2',stream:'2',parameterExamples:'2',partExamples:'1',oauth:'1',parameterMedia:'2'},operation:{method,customMethod:context.customMethod===true,path:context.path,

@@ -146,12 +146,13 @@ test('native mock admission rejects a complete proof with only obsolete discrimi
  t.after(()=>fs.rm(directory,{recursive:true,force:true}));
  // The unmodified BusyAPI mock consumes a controlled old wire proof. The real
  // current evaluator above supplies every other field, including the capture.
- const worker=`const {parentPort}=require('node:worker_threads');
+ const worker=`const {parentPort,workerData}=require('node:worker_threads');
 const assert=require('node:assert/strict');
 const capture=${JSON.stringify(input.capture)};
 const proof=${JSON.stringify(obsolete)};
+assert.deepEqual(workerData.capture,capture);
 parentPort.on('message',request=>{
- assert.equal(request.method,'evaluateSchemas');assert.deepEqual(request.params,capture);
+ assert.equal(request.method,'evaluateSchemas');assert.deepEqual(request.params,{});
  const payload=new TextEncoder().encode(JSON.stringify({protocol:1,id:request.id,ok:true,result:proof}));
  parentPort.postMessage(payload,[payload.buffer]);
 });\n`;

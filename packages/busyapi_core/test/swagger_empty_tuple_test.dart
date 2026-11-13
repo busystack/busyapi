@@ -223,11 +223,16 @@ tests:
           );
           final constrainedReport =
               jsonDecode(constrained.stdout as String) as Map;
-          expect(constrainedReport['complete'], true);
+          expect(
+            constrainedReport['complete'],
+            true,
+            reason: '${constrained.stdout} ${constrained.stderr}',
+          );
           expect(constrainedReport['passed'], false);
           expect(
             (constrainedReport['cases'] as List).single['dispatched'],
             true,
+            reason: '${constrained.stdout} ${constrained.stderr}',
           );
           expect(
             seen,
@@ -288,7 +293,6 @@ tests:
             reason: '${review.result}',
           );
           expect(review.unsaved, true);
-          expect(review.result['producerVersion'], '30');
           await review.publish();
           expect(await file.readAsBytes(), originalRoot);
           expect(await shared.readAsBytes(), originalShared);

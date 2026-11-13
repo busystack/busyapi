@@ -217,7 +217,7 @@ void main() {
     }
   }
   for (final version in ['2.0', '3.0.4', '3.1.2', '3.2.1']) {
-    for (final phase in ['requestParameterValues', 'evaluateSchemas']) {
+    for (final phase in ['requestInputPreparation', 'evaluateSchemas']) {
       test(
         '$version Source declaration changes during $phase prevent raw dispatch',
         () async {

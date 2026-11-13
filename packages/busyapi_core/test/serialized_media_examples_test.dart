@@ -177,6 +177,15 @@ void main() {
             root.id,
             source.replaceFirst('application/json', 'application/xml'),
           );
+          final invalidXml = await project.check(root.id);
+          expect(invalidXml['complete'], isTrue, reason: '$invalidXml');
+          expect(invalidXml['status'], 'complete');
+          expect(_examples(invalidXml).single['complete'], isTrue);
+          expect(_examples(invalidXml).single['valid'], isFalse);
+          project.store.replace(
+            root.id,
+            source.replaceFirst('application/json', 'application/cbor'),
+          );
           final unsupported = await project.check(root.id);
           expect(unsupported['complete'], isFalse);
           expect(unsupported['status'], 'incomplete');
