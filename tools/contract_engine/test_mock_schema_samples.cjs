@@ -108,8 +108,10 @@ for(const version of versions)for(const format of ['yaml','json'])test(`${versio
   const expected=samples.find(sample=>sample[0]===name)[2];
   const allowed=name==='nested-array'?['['+low+','+high+']','['+high+','+low+']']
    :name==='nested-reference'&&!modern?['{"id":'+low+'}','{"id":'+high+'}']:[expected];
+  // Generated witnesses may use an equal decimal spelling; authored bytes above stay exact.
+  const generated=allowed.flatMap(text=>[text,text.replaceAll(high,'9007199254740993').replaceAll(low,'9007199254740992')]);
   const response=await send(port,'/'+name,{prefer:'dynamic=true'});
-  assert.equal(response.status,200,name+': '+response.text);assert.ok(allowed.includes(response.text),name+': '+response.text);
+  assert.equal(response.status,200,name+': '+response.text);assert.ok(generated.includes(response.text),name+': '+response.text);
   assert.equal(response.headers['busyapi-response-validation-complete'],'true');
   assert.deepEqual(JSON.parse(response.headers['sl-violations']??'[]'),[],name);
  }
