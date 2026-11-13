@@ -3,7 +3,7 @@ import type {ReferenceGraph} from './reference_graph';
 import type {SourcePlan} from './source_plan';
 import type {MigrationIssue} from './migration_schema';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
-import {migrationScopes} from './migration_documents';
+import {migrationScopes,migrationScopeUses} from './migration_documents';
 import {MigrationSchemaProofs} from './migration_schema_proofs';
 import {FiniteMigrationDomain} from './migration_finite_domain';
 import {SchemaPropertyRequirements} from './schema_property_requirements';
@@ -22,12 +22,8 @@ export function migrateNewerObjects(graphs:readonly ReferenceGraph[],sources:Map
  // key owns applicability; copy provenance must not pool other consumers back
  // into the canonical, now unbound definition.
  const mediaTypes=migrationMediaTypes(graphs);let work=0;
- for(const scope of migrationScopes(graphs)){
+ for(const {graph,scope}of migrationScopeUses(graphs)){
   if(!families.includes(scope.family))continue;
-  const graph=graphs.find(graph=>{
-   const captured=graph.scopeAs(scope.resource,scope.pointer,scope.kind);
-   return captured?.family===scope.family&&captured.base===scope.base&&captured.schemaParent===scope.schemaParent;
-  })!;
   const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
   const materials=owners.materialLocations(scope).filter(material=>material.source.doc.dataNode(material.location.pointer)&&!owners.retainedValue(material.location));
   const material=materials.find(material=>material.location.resource===scope.resource&&material.location.pointer===scope.pointer)??(materials.length===1?materials[0]:undefined);
@@ -39,11 +35,11 @@ export function migrateNewerObjects(graphs:readonly ReferenceGraph[],sources:Map
   if(scope.kind==='root'&&['2.0','3.0'].includes(target)&&!source.doc.dataNode(pointer+'/paths'))source.set(pointer+'/paths',{});
   if(scope.kind==='root'&&['2.0','3.0'].includes(target)&&Object.hasOwn(value,'webhooks')){
    if(Object.keys(value.webhooks).length)issue(field('webhooks'),'migration.webhooks','The target has no independent Webhook entry category; callback or ordinary route placement would change invocation semantics','target-representation');
-   else source.remove(pointer+'/webhooks');
+   else owners.retireNativeField(field('webhooks'),source,pointer+'/webhooks',graph);
   }
   if(['2.0','3.0'].includes(target)&&['3.1','3.2'].includes(scope.family)){
    if(scope.kind==='info'&&Object.hasOwn(value,'summary')){
-    if(value.summary===value.title)source.remove(pointer+'/summary');
+    if(value.summary===value.title)owners.retireNativeField(field('summary'),source,pointer+'/summary',graph);
     else issue(field('summary'),'migration.info.summary','The target Info Object has no separate display summary','target-representation');
    }
    if(scope.kind==='license'&&Object.hasOwn(value,'identifier'))issue(field('identifier'),'migration.license.identifier','The target License Object has no SPDX identifier field; no captured equivalent license URL is established','unavailable-proof');
@@ -51,7 +47,7 @@ export function migrateNewerObjects(graphs:readonly ReferenceGraph[],sources:Map
   if(scope.family!=='3.2'||target==='3.2')continue;
   if(scope.kind==='path-item'&&Object.hasOwn(value,'additionalOperations')){
    if(Object.keys(value.additionalOperations).length)issue(field('additionalOperations'),'migration.operation.additional','The older target has no slot for these case-sensitive additional HTTP methods','target-representation');
-   else source.remove(pointer+'/additionalOperations');
+   else owners.retireNativeField(field('additionalOperations'),source,pointer+'/additionalOperations',graph);
   }
   if(scope.kind==='server'&&Object.hasOwn(value,'name'))issue(field('name'),'migration.server.name',
    'The older Server representation has no independently named Server choice; a description cannot preserve that label field','target-representation');
@@ -59,7 +55,7 @@ export function migrateNewerObjects(graphs:readonly ReferenceGraph[],sources:Map
    if(Object.hasOwn(value,'summary')){
     // Older tag viewers already display the unchanged tag name. No rename is
     // allowed: operation tags and implicit connections use that identity.
-    if(value.summary===value.name)source.remove(pointer+'/summary');
+    if(value.summary===value.name)owners.retireNativeField(field('summary'),source,pointer+'/summary',graph);
     else issue(field('summary'),'migration.tag.summary','The target has no separate Tag display summary; changing the tag name would change its implicit operation connections','target-representation');
    }
    for(const name of ['kind','parent'])if(Object.hasOwn(value,name))issue(field(name),'migration.tag.'+name,
@@ -69,10 +65,10 @@ export function migrateNewerObjects(graphs:readonly ReferenceGraph[],sources:Map
    const parent=graph.scopeAs(scope.resource,scope.pointer.slice(0,-4),'schema');
    if(!parent){issue(field('nodeType'),'migration.xml.owner','No captured Schema Object establishes XML node applicability','unavailable-proof');continue;}
    const proofs=new MigrationSchemaProofs(graph);
-   if(proofs.validationConstant(parent)===false){source.remove(pointer+'/nodeType');continue;}
+   if(proofs.validationConstant(parent)===false){owners.retireNativeField(field('nodeType'),source,pointer+'/nodeType',graph);continue;}
    const domains=proofs.domains(parent),array=domains.size===1&&domains.has('array'),nonArray=!domains.has('array');
    if(value.nodeType==='attribute'&&nonArray&&!domains.has('object')||value.nodeType==='element'&&(array||nonArray)||value.nodeType==='none'&&array){
-    const nodeType=value.nodeType;source.remove(pointer+'/nodeType');
+    const nodeType=value.nodeType;owners.retireNativeField(field('nodeType'),source,pointer+'/nodeType',graph);
     source.set(pointer+'/attribute',nodeType==='attribute');
     if(array){
      // Older XML wrapping takes effect alongside a literal type: array. A
@@ -132,7 +128,7 @@ export function migrateNewerObjects(graphs:readonly ReferenceGraph[],sources:Map
   }
   if(scope.kind==='security'){
    if(Object.hasOwn(value,'deprecated')){
-    if(value.deprecated===false)source.remove(pointer+'/deprecated');
+    if(value.deprecated===false)owners.retireNativeField(field('deprecated'),source,pointer+'/deprecated',graph);
     else issue(field('deprecated'),'migration.security.deprecated','The older Security Scheme Object has no standard deprecation instruction','target-representation');
    }
    if(Object.hasOwn(value,'oauth2MetadataUrl'))issue(field('oauth2MetadataUrl'),'migration.security.metadata','The older Security Scheme Object cannot retain OAuth authorization-server metadata discovery','target-representation');

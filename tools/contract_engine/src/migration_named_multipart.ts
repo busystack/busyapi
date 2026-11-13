@@ -12,7 +12,7 @@ import {mimeParts,mimeSingleton} from './mime_parts';
 import {MultipartEncoding} from './multipart_encoding';
 import {FormSemantics,formContentType,formLiteralType,type FormShape} from './form_semantics';
 import {runtimeMediaKind} from './runtime_media';
-import {migrationScopes} from './migration_documents';
+import {migrationScopeUses} from './migration_documents';
 import {migrationMediaTypes,migrationMediaDefinition,migrationMediaOccurrence,migrationMediaOccurrences} from './migration_media_objects';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import type {SourceLocation,SourcePlan} from './source_plan';
@@ -546,9 +546,8 @@ export function migrateNamedMultipart(graphs:readonly ReferenceGraph[],sources:R
  target:string,owners:MigrationSchemaOwners,issue:MigrationIssue):boolean {
  if(!['3.0','3.1'].includes(target))return false;
  const types=migrationMediaTypes(graphs);let changed=false;
- for(const scope of migrationScopes(graphs)){
+ for(const {graph,scope}of migrationScopeUses(graphs)){
   if(scope.kind!=='media'||scope.family!=='3.2')continue;
-  const graph=graphs.find(graph=>graph.scopeAs(scope.resource,scope.pointer,'media')?.family==='3.2')!;
   const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
   if(!value||value.prefixEncoding===undefined&&value.itemEncoding===undefined)continue;
   const media=[...types.get(JSON.stringify([scope.resource,scope.pointer]))??[]];

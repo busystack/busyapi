@@ -9,7 +9,7 @@ import type {MigrationIssue} from './migration_schema';
 import {modernFamily} from './specification';
 import {ParameterSemantics} from './parameter_semantics';
 import {swaggerMedia} from './swagger_operation';
-import {migrationScopes} from './migration_documents';
+import {migrationScopes,migrationScopeUses} from './migration_documents';
 import {MigrationSchemaProofs} from './migration_schema_proofs';
 import {MigrationSchemaOwners} from './migration_schema_owners';
 import {MultipartEncoding,type MultipartSchemaStep} from './multipart_encoding';
@@ -263,10 +263,10 @@ export async function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<stri
         uses.constraints.projectGuards(sources,from);
         uses.constraints.projectLiterals(sources,owners,from,to,issue);
     }
-    for(const scope of migrationScopes(contexts)){
+    for(const {graph:context,scope}of migrationScopeUses(contexts)){
         if(scope.kind!=='schema')continue;
         if(scope.family!==from)continue;
-        const doc=graph.docs.get(scope.resource)!,value=doc.dataNode(scope.pointer)?.value;
+        const doc=context.docs.get(scope.resource)!,value=doc.dataNode(scope.pointer)?.value;
         if(value===null||typeof value!=='object'||Array.isArray(value)||!modernFamily(from)&&typeof value.$ref==='string')continue;
         const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);
         if(pointer===undefined)continue;
@@ -342,7 +342,7 @@ export async function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<stri
                 owners.retainLiteralValue(field('contentEncoding'),source,pointer+'/contentEncoding','raw_inactive_encoding');
             if(Object.hasOwn(value,'contentSchema')){
                 const schema={...scope,pointer:scope.pointer+'/contentSchema'};
-                owners.move(schema,source,pointer+'/contentSchema','raw_inactive_content',{context:owners.contextOf(scope)??graph,layout:'array-item'});
+                owners.move(schema,source,pointer+'/contentSchema','raw_inactive_content',{context,layout:'array-item'});
             }
             if(Object.hasOwn(value,'format')&&value.format!=='binary')
                 owners.retainLiteralValue(field('format'),source,pointer+'/format','raw_inactive_format');
@@ -367,10 +367,6 @@ export async function migrateBinarySchemas(graph:ReferenceGraph,sources:Map<stri
         // values/independent schemas are retained by the vocabulary owner;
         // they do not authorize introducing a binary runtime representation.
         if(['contentEncoding','contentMediaType','contentSchema'].some(field=>Object.hasOwn(value,field))){
-            const context=contexts.find(context=>{
-                const captured=context.scopeAs(scope.resource,scope.pointer,'schema');
-                return captured&&context.isEntryUse(captured)&&schemaResourceContextIdentity(captured)===schemaResourceContextIdentity(scope);
-            })??graph;
             if(!new MigrationSchemaProofs(context).domains(scope).has('string'))continue;
         }
         // An active decoded-schema binding belongs to the content vocabulary

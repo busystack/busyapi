@@ -394,14 +394,22 @@ test('request invariants retain Server variable names that resemble projection m
 
 for(const format of ['yaml','json'])test(`B05-R3 ${format} inactive deprecation retains ordered independent authentication requirements`,async()=>{
  const root='https://contracts.invalid/r3-security.'+format,value={openapi:'3.2.1',info:{title:'R3 security',version:'1'},servers:[{url:'https://api.invalid'}],
-  components:{securitySchemes:{Key:{type:'apiKey',in:'header',name:'X-Key',deprecated:false},Basic:{type:'http',scheme:'Basic',deprecated:false}}},
+  components:{securitySchemes:{Key:{type:'apiKey',in:'header',name:'X-Key',deprecated:false},Basic:{type:'http',scheme:'Basic',deprecated:false}},
+   schemas:{False:{$ref:'#/components/securitySchemes/Key/deprecated'}}},'x-flags':{deprecated:false},
   security:[{Key:[],Basic:[]},{Key:[]},{Key:[]},{}],paths:{'/p':{get:{responses:{204:{description:'Done'}}}}}};
  const input={root,snapshot:'r3-security',resources:[{id:root,text:encode(value,format),generation:3}],targetVersion:'2.0',destination:'file:///r3-security/'};
- const before=security(input),review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ const original=input.resources[0].text,before=security(input),review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
  const cold=reopen(review),after=security(cold);
  assert.deepEqual(after.plan.requirements.map(row=>row.schemes),[['Key','Basic'],['Key'],['Key'],[]]);
  assert.deepEqual(migrationRequestSignatures(before.graph,input.resources),migrationRequestSignatures(after.graph,cold.resources));
- assert(review.outputs.some(output=>output.text.includes('false')),'Original false annotations retain authored owners');
+ const delivered=after.graph.docs.get(cold.root);
+ assert.equal(delivered.dataJson('/x-flags'),before.graph.docs.get(input.root).dataJson('/x-flags'));
+ const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
+ for(const [capture,pointer]of [[input,'/components/schemas/False'],[cold,'/definitions/False']]){
+  const checked=await evaluateSchemas({...capture,runtimeInstances:['null','false','0','"雪"','{}','[]'].map(text=>({subject:'response-body',text,location:'false-annotation',schema:{resource:capture.root,pointer}}))});
+  assert.equal(checked.complete,true,JSON.stringify(checked.findings));assert(checked.runtimeEvaluations.every(value=>value.complete&&value.valid===false));
+ }
+ assert.equal(input.resources[0].text,original);
 });
 for(const [scheme,targetVersion,code]of [
  [{type:'mutualTLS'},'3.0.4','migration.security.mutual-tls'],

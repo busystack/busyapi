@@ -2,7 +2,7 @@ import {createHash} from 'node:crypto';
 import {children,standardOperationMethods} from './contexts';
 import {componentLocation,richTextField} from './authoring';
 import {escape,segments,SourceError,type Range,type SourceDocument} from './document';
-import {documentUriOccurrences,type DocumentUriOccurrence} from './document_uris';
+import {documentUriFields,documentUriOccurrences,type DocumentUriOccurrence} from './document_uris';
 import {documentUriBase,resolveUri,pointerFragment,schemaResourceContextIdentity,type ReferenceGraph,type GraphScope,type GraphReference} from './reference_graph';
 import type {SourceLocation,SourcePlan} from './source_plan';
 import {logicalSourcePointers} from './source_yaml_ownership';
@@ -540,6 +540,14 @@ export class MigrationSchemaOwners {
         owner.source.presentationChanges.push(owner.location.pointer);return location;
     }
 
+    /** Retired native syntax needs an output only for an actual independent
+     * Schema use. YAML aliases keep their values through SourcePlan ownership. */
+    retireNativeField(origin:SourceLocation,source:SourcePlan,pointer:string,context:ReferenceGraph):void {
+        const schema=context.scopeAs(origin.resource,origin.pointer,'schema');
+        if(schema&&context.isEntryUse(schema))this.move(schema,source,pointer,'native_field',{context,layout:'array-item'});
+        else source.remove(pointer);
+    }
+
     /** A retired native object is history, so its former typed locators must
      * not be repaired inside the literal copy. Independent live consumers
      * retain their own provenance and continue through ordinary edge repair. */
@@ -983,12 +991,15 @@ export class MigrationSemanticOrigins {
         // Resource and operation-media proofs need every captured member,
         // including unused definitions and operations without incoming Links.
         // Typed provenance uses the same relation as reference targets.
-        for(const graph of graphs)for(const scope of graph.entryScopes())
-            if(['schema','path-item','operation','parameter','header','request-body','response','media','example'].includes(scope.kind))add(graph,scope,scope.kind,'target');
-        for(const graph of graphs)for(const scope of graph.entryScopes())
-            if(scope.kind==='security-array'||scope.kind==='security-requirement')add(graph,scope,scope.kind,'target');
-        for(const graph of graphs)for(const {location,scope,field}of this.valueFields(graph)){
-            add(graph,location,scope.kind,field);add(graph,scope,scope.kind,'target');
+        for(const graph of graphs)for(const scope of graph.entryScopes()){
+            if(['schema','path-item','operation','parameter','header','request-body','response','media','example','security-array','security-requirement'].includes(scope.kind))
+                add(graph,scope,scope.kind,'target');
+            const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
+            for(const name of ['description',...documentUriFields(scope,value)]){
+                if(typeof value?.[name]!=='string'||name==='description'&&!richTextField(scope.kind,scope.family,value,name,segments(scope.pointer).at(-1)??'',graph.allowsReference(scope)))continue;
+                add(graph,{resource:scope.resource,pointer:scope.pointer+'/'+escape(name)},scope.kind,name==='description'?'description':'uri');
+                add(graph,scope,scope.kind,'target');
+            }
         }
     }
     private inspect():void {
@@ -1009,30 +1020,14 @@ export class MigrationSemanticOrigins {
             record.locations=[...locations.values()];
         }
     }
-    private *valueFields(graph:ReferenceGraph):Generator<{location:SourceLocation;scope:GraphScope;field:'description'|'uri'}> {
-        for(const scope of graph.entryScopes()){
-            this.inspect();const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
-            if(typeof value?.description==='string'&&richTextField(scope.kind,scope.family,value,'description',segments(scope.pointer).at(-1)??'',graph.allowsReference(scope)))
-                yield {location:{resource:scope.resource,pointer:scope.pointer+'/description'},scope,field:'description'};
-        }
-        for(const {scope,pointer}of documentUriOccurrences(graph)){
-            this.inspect();if(graph.isEntryUse(scope))yield {location:{resource:scope.resource,pointer},scope,field:'uri'};
-        }
-    }
     advance(graphs:readonly ReferenceGraph[],owners:MigrationSchemaOwners,
         current:ReadonlyMap<string,readonly SourceLocation[]>):void {
         const contexts=new Map(graphs.map(graph=>[graph.root,graph]));
         const fields=new Map<string,GraphScope>();
-        const values=new Map<string,GraphScope[]>();
-        const valueKey=(namespace:string,location:SourceLocation,field:UseOriginKind)=>JSON.stringify([namespace,location.resource,location.pointer,field]);
         for(const graph of graphs)for(const reference of graph.entryReferences()){
             this.inspect();const owner=graph.referenceOwner(reference);if(!owner)continue;
             const pointer=reference.pointer+'/'+escape(reference.keyword);
             fields.set(this.key(graph.root,{resource:reference.resource,pointer},owner.kind),owner);
-        }
-        for(const graph of graphs)for(const {location,scope,field}of this.valueFields(graph)){
-            const id=valueKey(graph.root,location,field),owners=values.get(id)??[];
-            owners.push(scope);values.set(id,owners);
         }
         for(const record of this.records.values()){
             this.inspect();const graph=contexts.get(record.namespace);
@@ -1050,7 +1045,14 @@ export class MigrationSemanticOrigins {
                     if(!scope&&record.kind==='discriminator')scope=fields.get(this.key(record.namespace,location,'discriminator-map'));
                 }
                 else{
-                    const candidates=values.get(valueKey(record.namespace,location,record.field))??[];
+                    const pointer=location.pointer.slice(0,location.pointer.lastIndexOf('/')),name=segments(location.pointer).at(-1)!;
+                    const value=graph.docs.get(location.resource)!.dataNode(pointer)?.value;
+                    // Query the canonical field capability at this retained
+                    // occurrence; rebuilding an all-document value registry
+                    // would duplicate its scopes and URI/authoring definitions.
+                    const candidates=typeof value?.[name]!=='string'?[]:graph.scopesAt(location.resource,pointer).filter(scope=>graph.isEntryUse(scope)&&
+                        (record.field==='uri'?documentUriFields(scope,value).includes(name):name==='description'&&
+                            richTextField(scope.kind,scope.family,value,name,segments(scope.pointer).at(-1)??'',graph.allowsReference(scope))));
                     const matching=candidates.filter(scope=>{this.inspect();return scope.kind===record.kind;});
                     const choices=matching.length?matching:candidates;
                     if(choices.length>1){

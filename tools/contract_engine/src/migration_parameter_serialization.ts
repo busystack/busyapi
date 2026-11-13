@@ -5,7 +5,7 @@ import {pointerFragment,type GraphScope,type ReferenceGraph} from './reference_g
 import {ParameterSemantics,parameterStyle} from './parameter_semantics';
 import {FiniteMigrationDomain} from './migration_finite_domain';
 import {evaluateSchemas} from './schema_evaluation';
-import {migrationScopes} from './migration_documents';
+import {migrationScopeUses} from './migration_documents';
 import type {MigrationIssue} from './migration_schema';
 import {sourceValueIdentity,type SourceLocation,type SourcePlan} from './source_plan';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
@@ -619,9 +619,8 @@ export async function migrateParameterSerialization(graphs:readonly ReferenceGra
  target:string,owners:MigrationSchemaOwners,issue:MigrationIssue,examples:readonly ExternalExampleResourcePacket[]=[]):Promise<boolean> {
  if(target==='3.2'||!families.includes('3.2')&&target!=='2.0')return false;
  let changed=false;const budget=new ParameterProofBudget(),factorOwners=new Map<string,readonly SourceLocation[]>();
- for(const scope of migrationScopes(graphs)){
+ for(const {graph,scope}of migrationScopeUses(graphs)){
   if(scope.kind!=='parameter')continue;
-  const graph=graphs.find(graph=>graph.scopeAs(scope.resource,scope.pointer,'parameter')?.family===scope.family)!;
   const authored=graph.docs.get(scope.resource)!.dataNode(scope.pointer)!.value;
   if(target==='2.0'&&authored?.in==='query'&&authored.allowReserved===true&&!authored.content&&typeof authored.$ref!=='string'){
    const before=declaration(graph,scope),values=before?.schema&&await domain(graph,before,examples,budget);
@@ -631,7 +630,7 @@ export async function migrateParameterSerialization(graphs:readonly ReferenceGra
      collectionFormat:type==='array'?'multi':undefined}};
     if(equalWire(before,after,values)&&await wireLanguage(graph,before,values,examples,budget)){
      const {source,location:{pointer}}=owners.uniqueLocation(scope);
-     source.remove(pointer+'/allowReserved');
+     owners.retireNativeField({...scope,pointer:scope.pointer+'/allowReserved'},source,pointer+'/allowReserved',graph);
      source.presentationChanges.push(pointer);changed=true;
     }
    }
@@ -651,7 +650,7 @@ export async function migrateParameterSerialization(graphs:readonly ReferenceGra
   // language. Neither case needs an invented codec for a present value.
   if(whole&&values?.length===0){
    const {source,location:{pointer}}=owners.uniqueLocation(scope);
-   if(source.doc.dataNode(pointer+'/allowEmptyValue'))source.remove(pointer+'/allowEmptyValue');
+   if(source.doc.dataNode(pointer+'/allowEmptyValue'))owners.retireNativeField({...scope,pointer:scope.pointer+'/allowEmptyValue'},source,pointer+'/allowEmptyValue',graph);
    if(target==='2.0'){
     const material=owners.uniqueLocation(before.schema!);owners.move(before.schema!,material.source,material.location.pointer,'empty_query_language',{context:graph});
     owners.retainNativeHistory({...scope,pointer:scope.pointer+'/content'},source,pointer+'/content','empty_query_media',graph);
@@ -678,7 +677,7 @@ export async function migrateParameterSerialization(graphs:readonly ReferenceGra
    owners.retainNativeHistory({...scope,pointer:scope.pointer+'/content'},source,pointer+'/content','empty_query_media',graph);
    source.set(pointer+'/schema',{type:'array',maxItems:0,items:{type:'string'},enum:[[]]});
    source.set(pointer+'/in','query');source.set(pointer+'/style','form');source.set(pointer+'/explode',true);
-   if(source.doc.dataNode(pointer+'/allowEmptyValue'))source.remove(pointer+'/allowEmptyValue');
+   if(source.doc.dataNode(pointer+'/allowEmptyValue'))owners.retireNativeField({...scope,pointer:scope.pointer+'/allowEmptyValue'},source,pointer+'/allowEmptyValue',graph);
    installMigrationParameterExamples(graph,projectedExamples,0,source,pointer,owners);
    for(const at of logicalSourcePointers(source.doc))if(!source.origins.has(at))source.origins.set(at,new Set([at]));
    source.presentationChanges.push(pointer);changed=true;continue;
@@ -749,8 +748,8 @@ export async function migrateParameterSerialization(graphs:readonly ReferenceGra
    const schemaAt=before.schema!,schemaMaterial=owners.uniqueLocation(schemaAt);
    owners.move(schemaAt,schemaMaterial.source,schemaMaterial.location.pointer,'whole_query_object',{context:graph});
    if(whole)owners.retainNativeHistory({...scope,pointer:scope.pointer+'/content'},source,pointer+'/content','whole_query_media',graph);
-   if(!whole&&source.doc.dataNode(pointer+'/allowReserved'))source.remove(pointer+'/allowReserved');
-   if(source.doc.dataNode(pointer+'/allowEmptyValue'))source.remove(pointer+'/allowEmptyValue');
+   if(!whole&&source.doc.dataNode(pointer+'/allowReserved'))owners.retireNativeField({...scope,pointer:scope.pointer+'/allowReserved'},source,pointer+'/allowReserved',graph);
+   if(source.doc.dataNode(pointer+'/allowEmptyValue'))owners.retireNativeField({...scope,pointer:scope.pointer+'/allowEmptyValue'},source,pointer+'/allowEmptyValue',graph);
    const base=source.fork(),outputs:SourceLocation[]=[];
    const orderedFields=projectedExamples.order.map(index=>({field:factors.fields[index],declaration:declarations[index],examples:projectedExamples.fields[index]}));
    const orderedExamples={...projectedExamples,fields:orderedFields.map(field=>field.examples)};
@@ -808,7 +807,7 @@ export async function migrateParameterSerialization(graphs:readonly ReferenceGra
    // Exact literals are copied as source text, never machine numbers.
    source.exact(pointer+'/schema/enum','['+repeated.values.join(',')+']');
    owners.retainNativeHistory({...scope,pointer:scope.pointer+'/content'},source,pointer+'/content','whole_query_media',graph);
-   if(source.doc.dataNode(pointer+'/allowEmptyValue'))source.remove(pointer+'/allowEmptyValue');
+   if(source.doc.dataNode(pointer+'/allowEmptyValue'))owners.retireNativeField({...scope,pointer:scope.pointer+'/allowEmptyValue'},source,pointer+'/allowEmptyValue',graph);
    source.set(pointer+'/name',repeated.name);source.set(pointer+'/in','query');source.set(pointer+'/required',repeated.required);
    source.set(pointer+'/style','form');source.set(pointer+'/explode',true);
    installMigrationParameterExamples(graph,projectedExamples,0,source,pointer,owners);
@@ -829,7 +828,7 @@ export async function migrateParameterSerialization(graphs:readonly ReferenceGra
     retainMigrationParameterExampleOwners(graph,{parameter:before.scope,schema:before.schema!},owners);
     const {source,location:{pointer}}=owners.uniqueLocation(scope),material=owners.uniqueLocation(before.schema!);
     owners.move(before.schema!,material.source,material.location.pointer,'literal_cookie_array',{context:graph});
-    for(const name of ['style','explode','allowReserved'])if(source.doc.dataNode(pointer+'/'+name))source.remove(pointer+'/'+name);
+    for(const name of ['style','explode','allowReserved'])if(source.doc.dataNode(pointer+'/'+name))owners.retireNativeField({...scope,pointer:scope.pointer+'/'+name},source,pointer+'/'+name,graph);
     source.set(pointer+'/content',{[media]:{schema:kinds.size===1?{type:[...kinds][0]}:{}}});
     const schema=pointer+'/content/'+escape(media)+'/schema';source.exact(schema+'/enum','['+projected.join(',')+']');
     installMigrationParameterExamples(graph,projectedExamples,0,source,pointer,owners);
@@ -869,19 +868,19 @@ export async function migrateParameterSerialization(graphs:readonly ReferenceGra
    let projectedExamples:ParameterExampleProjection;
    try{projectedExamples=await parameterExamples(graph,before,[after],values,examples);}
    catch(error){if(!(error instanceof SourceError))throw error;fail(error.code.endsWith('example-target')?'example-target':'example-proof',error.message,error.code.endsWith('example-target')?'target-representation':'unavailable-proof');continue;}
-   if(source.doc.dataNode(pointer+'/allowEmptyValue'))source.remove(pointer+'/allowEmptyValue');
+   if(source.doc.dataNode(pointer+'/allowEmptyValue'))owners.retireNativeField({...scope,pointer:scope.pointer+'/allowEmptyValue'},source,pointer+'/allowEmptyValue',graph);
    source.move(media+'/schema',pointer+'/schema');
    installMigrationParameterExamples(graph,projectedExamples,0,source,pointer,owners);
    owners.retainNativeHistory({...scope,pointer:scope.pointer+'/content'},source,pointer+'/content','whole_query_media',graph);
    source.set(pointer+'/in','query');source.set(pointer+'/style','form');source.set(pointer+'/explode',true);
    if(after.value.allowReserved===true)source.set(pointer+'/allowReserved',true);
   }else if(after.media){
-   source.remove(pointer+'/style');
-   if(source.doc.dataNode(pointer+'/explode'))source.remove(pointer+'/explode');
-   if(source.doc.dataNode(pointer+'/allowReserved'))source.remove(pointer+'/allowReserved');
+   owners.retireNativeField({...scope,pointer:scope.pointer+'/style'},source,pointer+'/style',graph);
+   if(source.doc.dataNode(pointer+'/explode'))owners.retireNativeField({...scope,pointer:scope.pointer+'/explode'},source,pointer+'/explode',graph);
+   if(source.doc.dataNode(pointer+'/allowReserved'))owners.retireNativeField({...scope,pointer:scope.pointer+'/allowReserved'},source,pointer+'/allowReserved',graph);
    source.set(pointer+'/content',{[after.media]:{}});source.move(pointer+'/schema',pointer+'/content/'+escape(after.media)+'/schema');
   }else {
-   if(source.doc.dataNode(pointer+'/allowReserved'))source.remove(pointer+'/allowReserved');
+   if(source.doc.dataNode(pointer+'/allowReserved'))owners.retireNativeField({...scope,pointer:scope.pointer+'/allowReserved'},source,pointer+'/allowReserved',graph);
    source.set(pointer+'/style','form');source.set(pointer+'/explode',true);
   }
   if(cookieExamples)installMigrationParameterExamples(graph,cookieExamples,0,source,pointer,owners);

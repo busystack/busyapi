@@ -3,7 +3,7 @@ import type {GraphScope,ReferenceGraph} from './reference_graph';
 import {sourceValueIdentity,type SourcePlan,type SourceLocation} from './source_plan';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import type {MigrationIssue} from './migration_schema';
-import {migrationScopes} from './migration_documents';
+import {migrationScopeUses} from './migration_documents';
 import {runtimeMediaKind} from './runtime_media';
 import {migrationExampleBytes,migrationModeledExampleBytes} from './migration_examples';
 import type {ExternalExampleResourcePacket} from './external_examples';
@@ -50,9 +50,8 @@ export async function migrateExampleVersions(graphs:readonly ReferenceGraph[],so
    const values=uses.get(id)??[];values.push({graph,owner,media});uses.set(id,values);
   }
  }
- for(const scope of migrationScopes(graphs)){
+ for(const {graph,scope}of migrationScopeUses(graphs)){
   if(scope.family!=='3.2'||scope.kind!=='example')continue;
-  const graph=graphs.find(graph=>graph.scopeAs(scope.resource,scope.pointer,'example')?.family==='3.2')!;
   const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
   if(typeof value?.$ref==='string'||!Object.hasOwn(value??{},'dataValue')&&!Object.hasOwn(value??{},'serializedValue'))continue;
   const source=sources.get(scope.resource)!,pointer=source.current(scope.pointer);if(pointer===undefined)continue;

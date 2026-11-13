@@ -24,12 +24,16 @@ export type DocumentContext=Context&Readonly<{uses:readonly MigrationUse[]}>;
  * identities. Preserve differing contexts until the common allocator has
  * specialized them; payload/literal occurrences never become mutation owners. */
 export function* migrationScopes(contexts:readonly ReferenceGraph[]):IterableIterator<GraphScope> {
+    for(const {scope}of migrationScopeUses(contexts))yield scope;
+}
+
+export function* migrationScopeUses(contexts:readonly ReferenceGraph[]):IterableIterator<Readonly<{graph:ReferenceGraph;scope:GraphScope}>> {
     const seen=new Set<string>();
     for(const graph of contexts)for(const scope of graph.entryScopes()){
         const id=JSON.stringify([scope.resource,scope.pointer,scope.kind,schemaResourceContextIdentity(scope)]);
         if(seen.has(id))continue;
         if(seen.size>=200000)throw new SourceError('limit.migration.uses','Conversion ownership exceeds 200000 captured scope states');
-        seen.add(id);yield scope;
+        seen.add(id);yield {graph,scope};
     }
 }
 

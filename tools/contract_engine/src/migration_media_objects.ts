@@ -3,7 +3,7 @@ import {pointerFragment,type GraphScope,type ReferenceGraph} from './reference_g
 import type {SourceLocation,SourcePlan} from './source_plan';
 import type {MigrationIssue} from './migration_schema';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
-import {migrationScopes} from './migration_documents';
+import {migrationScopes,migrationScopeUses} from './migration_documents';
 import {capturedRuntimeMedia} from './runtime_media_owner';
 import {mediaTypes} from './media_types';
 
@@ -148,9 +148,8 @@ export function materializeMediaReferences(graphs:readonly ReferenceGraph[],sour
   });
  };
  const contexts:{source:SourcePlan;pointer:string;aliases:GraphScope[]}[]=[];
- for(const scope of migrationScopes(graphs)){
+ for(const {graph,scope}of migrationScopeUses(graphs)){
   if(scope.family!=='3.2'||scope.kind!=='media')continue;
-  const graph=graphs.find(graph=>graph.scopeAs(scope.resource,scope.pointer,'media')?.family==='3.2')!;
   if(!graph.referenceAs(scope.resource,scope.pointer,'$ref','media'))continue;
   let terminal:GraphScope|undefined=scope;const seen=new Set<string>(),chain:GraphScope[]=[];
   while(terminal){

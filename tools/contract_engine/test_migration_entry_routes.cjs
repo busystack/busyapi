@@ -122,7 +122,16 @@ for(const format of ['yaml','json'])test(`R3c ${format} saved whole-query values
   if(mutation==='occupied')changed.tests[0].parameters.query={descriptionOnly:{q:'keep'}};
   if(mutation==='outside-domain')changed.tests[0].parameters.querystring.descriptionOnly={q:'a b'};
   if(mutation==='raw')changed.tests[0].parameters.querystring.descriptionOnly='q=%20';
-  const refused=await planMigration({...input,configuration:{...input.configuration,text:JSON.stringify(changed),identity:configurationIdentity(JSON.stringify(changed))}});
+  const configuration={...input.configuration,text:JSON.stringify(changed),identity:configurationIdentity(JSON.stringify(changed))};
+  const refused=await planMigration({...input,configuration});
+  if(mutation==='outside-domain'){
+   // Saved invalid data remains editable/sendable. Its identity mapping is
+   // admitted only after the production proof compares the actual codecs.
+   assert.equal(refused.complete,true,JSON.stringify(refused.problems));
+   const parameters=JSON.parse(refused.configurationProjections.find(change=>change.pointer==='/tests/0/parameters').after);
+   assert.deepEqual(parameters.query.descriptionOnly,{q:'a b'});assert.deepEqual(parameters.cookie,changed.tests[0].parameters.cookie);
+   assert.equal(configuration.text,JSON.stringify(changed));continue;
+  }
   assert.equal(refused.complete,false);assert.deepEqual(refused.outputs,[]);
   assert(refused.problems.some(problem=>problem.code.startsWith('migration.parameter.saved-')),JSON.stringify(refused.problems));
  }
