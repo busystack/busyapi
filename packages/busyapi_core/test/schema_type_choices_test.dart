@@ -25,7 +25,7 @@ Map<String, Object?> document(String version, {String? reference}) => {
   'info': {'title': 'Keep 雪😀', 'version': 'unrelated'},
   'paths': {
     '/value': {
-      'get': {
+      'get': <String, Object?>{
         'responses': {
           '200': {
             'description': 'Keep response',
@@ -228,7 +228,7 @@ void main() {
             isA<CoreFailure>().having(
               (e) => e.code,
               'code',
-              'edit.schema-type.stale',
+              'proposal.stale',
             ),
           ),
         );

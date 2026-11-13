@@ -158,7 +158,7 @@ void main() {
       expect(
         () => result.replace(project.store, 'x' * 4000),
         throwsA(
-          isA<CoreFailure>().having((e) => e.code, 'code', 'limit.transaction'),
+          isA<CoreFailure>().having((e) => e.code, 'code', 'limit.buffers'),
         ),
       );
       for (final entry in before.entries) {

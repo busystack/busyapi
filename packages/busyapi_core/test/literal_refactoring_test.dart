@@ -38,11 +38,16 @@ void main() {
         final inline = await project.planReferenceInlining({'root': root, 'resource': root, 'pointer': '$group/Use', 'generation': buffer.generation});
         await project.applyRefactoring(inline);
         final detached = buffer.bytes();
-        final literal = (await project.inspectObject(root, root, '$group/Holder'))['value']['default'];
+        Future<String> literalText(BusyProject owner) async {
+          final holder = await owner.inspectObject(root, root, '$group/Holder');
+          final entry = (holder['entries'] as List).whereType<Map>().singleWhere((entry) => entry['name'] == 'default');
+          return owner.readDataValue(Map<String, dynamic>.from(entry));
+        }
+        final retainedLiteral = await literalText(project), literal = jsonDecode(retainedLiteral) as Map;
         expect(literal[r'$ref'], 'model.$format');expect(literal['x-bytes'], 'AAECA/7/AA==');
-        expect(buffer.text, contains('9007199254740993.00'));
+        expect(retainedLiteral, contains('9007199254740993.00'));
         await project.applyRefactoring(await project.planFileMove(fragment.id, moved.path));
-        expect((await project.inspectObject(root, root, '$group/Holder'))['value']['default'], literal);
+        expect(await literalText(project), retainedLiteral);
         final page = await project.referencePage(root, root, '$group/Use');
         expect(page['references'][0]['target']['resource'], moved.uri.toString());
         project.store.undo();expect(buffer.bytes(), detached);
@@ -52,7 +57,7 @@ void main() {
         final reopened = await BusyProject.open(source.path, engine);
         addTearDown(reopened.close);
         expect((await reopened.check(root))['complete'], true);
-        expect((await reopened.inspectObject(root, root, '$group/Holder'))['value']['default'], literal);
+        expect(await literalText(reopened), retainedLiteral);
       });
     }
   }

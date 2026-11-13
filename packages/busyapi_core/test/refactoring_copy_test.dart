@@ -36,9 +36,11 @@ void main() {
         await project.applyRefactoring(plan);
         final accepted = buffer.bytes(), consumerAccepted = consumer.bytes();
         final literal = await project.inspectObject(root, root, '$group/Holder');
-        expect(literal['value']['default']['description'], '[Guide](guide.md)');
-        expect(literal['value']['default']['x-data'][r'$ref'], 'literal');
-        expect(buffer.text, contains('9007199254740993.00'));
+        final defaultEntry = (literal['entries'] as List).whereType<Map>().singleWhere((entry) => entry['name'] == 'default');
+        final literalText = await project.readDataValue(Map<String, dynamic>.from(defaultEntry)), literalValue = jsonDecode(literalText);
+        expect(literalValue['description'], '[Guide](guide.md)');
+        expect(literalValue['x-data'][r'$ref'], 'literal');
+        expect(literalText, contains('9007199254740993.00'));
         expect(buffer.text, contains('AAECA/7/AA=='));
         for (final id in [root, consumer.id]) {
           final page = await project.referencePage(id, id, '$group/Use');
