@@ -1,5 +1,23 @@
 # Ownership and source preservation
 
+The simplification contract preserves native Swagger 2.0 and OpenAPI 3.0/3.1/3.2,
+authoritative YAML/JSON, Source/Design/Reference, explicit conversion, source
+fidelity, recovery, refactoring, runtime workflows, outputs, CLI and Linux
+integration. Tests of observable behavior and real filesystem/process boundaries
+remain acceptance gates. Private conversion layouts and build-script ordering
+are implementation details, not independent requirements.
+
+Migration protocol compatibility is tested in `migration_protocol_test.dart`:
+the shipped producer/consumer require revision 107 and reject stale producers.
+Semantic suites test meaning independently of the revision number; the former
+30/91 assertions have been removed rather than accepted as alternate protocols.
+The initial focused run passed server-template and empty-tuple cases but found
+external-dynamic discriminator conversions refused by the resource-dialect
+invariant. This remains a behavioral failure to resolve during conversion work.
+Historical native trailing-input loss, including the plain two-field fixture,
+remains recorded in the implementation history; it is not a new reproduction
+or presumed fixed by the editing changes.
+
 `specification.ts` owns declared specification family/version, the applicable
 schema dialect and document capabilities. Core presentation reads the captured
 typed `SpecificationContext`; `info.version` is unrelated. OpenAPI 3.0 uses the

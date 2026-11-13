@@ -6,16 +6,6 @@ import 'package:test/test.dart';
 
 import 'test_support.dart';
 
-class _XmlMigrationEngine extends EngineProcess {
-  _XmlMigrationEngine():super(executable:runtimeNode,helper:runtimeHelper);
-  String? oldProducer;
-  @override
-  Future<Map<String,dynamic>> request(String method,Map<String,Object?> params,{String? requestId}) async {
-    final result=await super.request(method,params,requestId:requestId);
-    return method=='planMigration'&&oldProducer!=null?{...result,'producerVersion':oldProducer}:result;
-  }
-}
-
 void main() {
   for(final format in ['json','yaml'])for(final target in ['3.1.2','3.0.4','2.0']) {
     test('$format inferred XML arrays retain native HTTP and independent CLI behavior after explicit migration to $target',() async {
@@ -41,7 +31,7 @@ void main() {
         'x-kept':{r'$ref':'literal','n':'EXACT'},
       }).replaceAll('"EXACT"','9007199254740993.00')}\r\n';
       await source.writeAsString('\ufeff$text');
-      final engine=_XmlMigrationEngine();addTearDown(engine.close);
+      final engine=EngineProcess(executable:runtimeNode,helper:runtimeHelper);addTearDown(engine.close);
       final project=await BusyProject.open(source.path,engine);addTearDown(project.close);
       final root=source.uri.toString();
       Future<void> send(BusyProject owner) async {
@@ -54,16 +44,9 @@ void main() {
         } finally {plan.close();}
       }
       await send(project);final before=await source.readAsBytes();
-      for(final obsolete in ['104','105','106']) {
-        engine.oldProducer=obsolete;
-        await expectLater(project.prepareMigration(root,'${temp.path}/obsolete-$obsolete',targetVersion:target),
-          throwsA(isA<CoreFailure>().having((error)=>error.code,'code','migration.protocol')));
-        expect(Directory('${temp.path}/obsolete-$obsolete').existsSync(),false);
-      }
-      engine.oldProducer=null;
       final review=await project.prepareMigration(root,'${temp.path}/converted',targetVersion:target);
       addTearDown(review.close);expect(review.publishable,true,reason:'${review.result}');
-      expect(review.result['producerVersion'],'107');expect(await source.readAsBytes(),before);
+      expect(await source.readAsBytes(),before);
       await review.publish();expect(await source.readAsBytes(),before);
       final moved=await Directory(review.destination).rename('${temp.path}/moved 雪');
       final cold=await BusyProject.open(moved.path,engine);addTearDown(cold.close);

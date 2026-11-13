@@ -62,8 +62,7 @@ void main() {
       source.store.replace(root,render());await source.save(source.store.get(root));
       final before=await file.readAsBytes();
       final review=await source.prepareMigration(root,'${directory.path}/converted',targetVersion:target);
-      addTearDown(review.close);expect(review.publishable,true,reason:'${review.result}');expect(review.result['producerVersion'],'107');
-      expect(review.exampleCopies.single.bytes,seen.single);expect(await file.readAsBytes(),before);
+      addTearDown(review.close);expect(review.publishable,true,reason:'${review.result}');expect(review.exampleCopies.single.bytes,seen.single);expect(await file.readAsBytes(),before);
       await review.publish();expect(await file.readAsBytes(),before);
       source.close();
       final moved=await Directory(review.destination).rename('${directory.path}/moved 雪');
