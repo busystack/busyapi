@@ -29,11 +29,12 @@ void main() {
       final engine = EngineProcess(executable: runtimeNode, helper: runtimeHelper);addTearDown(engine.close);
       final source = await BusyProject.open(directory.path, engine);addTearDown(source.close);
       final roots = [for (final name in ['a.yaml', 'b.yaml']) File('${directory.path}/$name').uri.toString()];
-      Future<void> exercise(BusyProject project, String root, String name) async {
+      Future<void> exercise(BusyProject project, String root, String name, {Map? authenticationSchemes}) async {
         final checked = await project.check(root);expect(checked['status'], 'complete', reason: '$checked');
         final operations = (checked['projection']['operations'] as List).whereType<Map>().where((operation) => operation['path'] == (version == '3.0.4' && name == 'First' ? '/local' : '/p'));
         expect(operations, hasLength(1));final operation = operations.single;
         final page = await project.inspectObject(root, operation['resource'] as String, operation['pointer'] as String, contextKind: 'operation');
+        expect(page['kind'], 'operation');
         expect((jsonDecode(await project.readDataValue(page)) as Map)['operationId'], version == '3.0.4' && name == 'First' ? 'local' : 'shared');
         if (version == '3.0.4' && name == 'First') {
           final link = await project.inspectObject(root, root, '/components/links/Use', contextKind: 'link');
@@ -55,6 +56,10 @@ void main() {
           expect((evaluated['runtimeEvaluations'] as List).map((value) => value['valid']), [true, false, false, if (version != '3.0.4') ...[true, false]]);
           final schemes = (plan.result['security']['schemes'] as Map).values.whereType<Map>();
           expect(schemes.single['parameterName'], 'X-$name');
+          final requirement = (plan.result['security']['requirements'] as List).single as Map;
+          final schemeName = (requirement['schemes'] as List).single as String;
+          expect((plan.result['security']['schemes'] as Map)[schemeName]['parameterName'], 'X-$name');
+          if (authenticationSchemes != null) expect(authenticationSchemes[schemeName]['secretRef'], mixedHolderSecret);
           final response = await const ContractRequestExecutor().execute(plan,
             OperationRequestDraft(planIdentity: plan.identity, environment: 'manual',
               body: RequestBodyDraft.raw(mediaType: 'application/json', text: mixedHolderWire)),
@@ -80,8 +85,13 @@ void main() {
       final destinations = [for (final root in roots) Uri.parse(review.changes.singleWhere((change) => change.resource == root).destination).pathSegments.last];
       final manifest = loadYaml(await File('${review.destination}/busyapi.yaml').readAsString()) as Map;
       final schemes = manifest['environments']['manual']['authentication']['schemes'] as Map;
-      expect(schemes.keys.where((name) => name.toString().startsWith('_migrated_security_owner_')), isNotEmpty);
       for (final value in schemes.values) expect(value['secretRef'], mixedHolderSecret);
+      for (final output in (review.result['outputs'] as List).whereType<Map>()) {
+        expect(await File.fromUri(Uri.parse(output['id'] as String)).readAsBytes(),
+          [if (output['hasBom'] == true) ...const [239, 187, 191], ...utf8.encode(output['text'] as String)],
+          reason: 'Every published source file must equal its immutable reviewed bytes');
+      }
+      expect(await File('${review.destination}/busyapi.yaml').readAsString(), review.result['manifestText']);
       for (final entry in originals.entries) expect(await File('${directory.path}/${entry.key}').readAsString(), entry.value);
       final foreignCopy = loadYaml(await File('${review.destination}/${destinations[1]}').readAsString()) as Map;
       final originalForeign = loadYaml(originals['b.yaml']!) as Map;
@@ -90,7 +100,7 @@ void main() {
       source.close();final relocated = await Directory(review.destination).rename('${directory.path}/cold 雪');
       for (final name in originals.keys) await File('${directory.path}/$name').delete();
       final cold = await BusyProject.open(relocated.path, engine);addTearDown(cold.close);
-      for (final (index, name) in ['First', 'Second'].indexed) await exercise(cold, File('${relocated.path}/${destinations[index]}').uri.toString(), name);
+      for (final (index, name) in ['First', 'Second'].indexed) await exercise(cold, File('${relocated.path}/${destinations[index]}').uri.toString(), name, authenticationSchemes: schemes);
       final cli = await Process.run('$testBundle/busyapi', ['check', relocated.path, '--json'],
         environment: const {'PATH': '', 'LANG': 'C.UTF-8'}, includeParentEnvironment: false);
       expect(cli.exitCode, 0, reason: '${cli.stdout} ${cli.stderr}');

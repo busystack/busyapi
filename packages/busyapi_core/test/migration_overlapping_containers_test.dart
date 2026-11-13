@@ -20,28 +20,34 @@ void main() {
       final source = await BusyProject.open(directory.path, engine);addTearDown(source.close);
       final legacy = File('${directory.path}/legacy/api.yaml').uri.toString();
       final modern = File('${directory.path}/modern/api.yaml').uri.toString();
+      final capturedValues = <String, String>{};
       Future<Map> target(BusyProject project, String root, String pointer, String kind) async {
         final page = await project.inspectObject(root, root, pointer, contextKind: kind);
+        expect(page['kind'], kind);
         final edge = (page['references'] as List).whereType<Map>().singleWhere((reference) => reference['keyword'] == r'$ref');
-        expect(edge['resolution'], 'resolved');return edge;
+        expect(edge['kind'], kind);expect(edge['resolution'], 'resolved');return edge;
       }
       Future<void> inspect(BusyProject project, String root, {required bool copied}) async {
         final checked = await project.check(root);expect(checked['status'], 'complete', reason: '$checked');
         final edge = await target(project, root, '/components/examples/Dictionary', 'example');
-        if (copied) expect(edge['targetPointer'], startsWith('/components/examples/_migrated_object_use_'));
         final page = await project.inspectObject(root, edge['targetResource'] as String, edge['targetPointer'] as String, contextKind: 'example');
+        expect(page['kind'], 'example');
         final text = await project.readDataValue(page);
+        if (copied) {
+          expect(text, capturedValues['Dictionary'], reason: 'The retained Example value must equal the original immutable capture');
+        } else { capturedValues['Dictionary'] = text; }
         expect(text, contains('9007199254740993.00'));
         final data = jsonDecode(text) as Map;
         final literal = data['value']['x-literal'] as Map;
         expect(data.keys, ['value']);expect(literal['flag'], false);expect(literal['empty'], '');expect(literal[r'$ref'], 'literal-only');
-        if (copied) for (final name in ['ExampleMap', 'SchemaMap']) {
+        for (final name in ['ExampleMap', 'SchemaMap']) {
           final schema = await target(project, root, '/components/schemas/$name', 'schema');
-          expect(schema['targetPointer'], startsWith('/components/schemas/_migrated_schema_use_'));
           final view = await project.inspectObject(root, schema['targetResource'] as String, schema['targetPointer'] as String, contextKind: 'schema');
-          final data = jsonDecode(await project.readDataValue(view)) as Map;
-          expect(data.keys.where((key) => key.toString().startsWith('_migrated_')), isEmpty,
-            reason: 'Independent dictionary annotations must read the immutable capture');
+          expect(view['kind'], 'schema');
+          final value = await project.readDataValue(view);
+          if (copied) {
+            expect(value, capturedValues[name], reason: 'The retained $name must equal its original immutable capture');
+          } else { capturedValues[name] = value; }
         }
         final request = await project.prepareRequest(root, resource: root, pointer: '/paths/~1value/get');
         try {
