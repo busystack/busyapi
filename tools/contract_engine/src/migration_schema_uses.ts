@@ -10,7 +10,6 @@ import {defaultSchemaDialect,modernFamily,type SpecificationFamily} from './spec
 import {SourcePlan,type SourceLocation} from './source_plan';
 import type {MigrationIssue} from './migration_schema';
 import {capturedSchemaResources} from './migration_schema_resource_contexts';
-import {swaggerMedia} from './swagger_operation';
 import {ParameterSemantics} from './parameter_semantics';
 
 const key=(at:SourceLocation)=>JSON.stringify([at.resource,at.pointer]);
@@ -331,6 +330,11 @@ function materializeMigrationOwners(graph:ReferenceGraph,sources:ReadonlyMap<str
                 source.origins.set(holder.pointer,new Set([holder.pointer]));
                 source.presentationChanges.push(holder.pointer);
                 if(!native)resourceVariants.set(identity,base);resourceHolders.set(identity,{location:holder,dialect:scope.dialect});
+                // The API's other native roots already inhabit this exact
+                // resource. Copy only the selected independent occurrences;
+                // cloning native public bindings would reactivate literal
+                // declarations and duplicate their anchors.
+                if(native)continue;
             }
             if(whole&&boundary&&!selected.has(useKey(boundary))){candidates.push(boundary);selected.add(useKey(boundary));}
             for(const member of captured.roots){
@@ -472,17 +476,6 @@ function materializeMigrationOwners(graph:ReferenceGraph,sources:ReadonlyMap<str
         const owner=placementFor(captured,kind)!;
         const destination=mapped(captured,owner);
         owners.rememberEntry(entry.entryNamespace,captured,destination,owner.scope);
-        // A private Swagger owner can also be reached from its containing
-        // document's entry. Bind inherited media on the copy before recapture;
-        // otherwise that second entry would reinterpret it using its globals.
-        // Authored overrides, including [], retain their exact CST values.
-        if(kind==='operation'&&captured.family==='2.0'){
-            const source=sources.get(destination.resource)!;
-            for(const field of ['consumes','produces'] as const)
-                if(!graph.docs.get(captured.resource)!.dataNode(captured.pointer)!.children.has(field)){
-                    owners.admit(source);source.set(destination.pointer+'/'+field,swaggerMedia(graph,captured.resource,captured.pointer,field));
-                }
-        }
         const expectedBase=kind==='schema'?resourceVariants.get(schemaResourceContextIdentity(captured)):undefined;
         preserveContext(captured,destination,kind==='schema'&&(owner.resourceSensitive||expectedBase!==undefined),expectedBase,entry.entryNamespace);
         if(kind==='schema'){

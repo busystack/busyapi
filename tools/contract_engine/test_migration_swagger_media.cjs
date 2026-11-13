@@ -42,8 +42,8 @@ for(const version of publishedTargets)for(const format of ['yaml','json'])test(`
  const after=fixture.reopened(result,'file:///cold/r2/');assert.equal(analyse(after).complete,true,JSON.stringify(analyse(after).findings));
  const source=operations(input)[0],target=operations(after)[0];
  const selected=plan=>[plan.parameters.map(p=>[p.name,p.in,p.required,p.deprecated]),plan.requestBody.required,
-  plan.requestBody.content.map(m=>[m.mediaType,[...new Set(m.examples.map(e=>e.raw))])]),
-  plan.responses.map(r=>[r.status,r.bodyAllowed===false?[]:r.content.map(m=>[m.mediaType,[...new Set(m.examples.map(e=>e.raw))])]),r.headers.map(h=>[h.name,h.required])])];
+  plan.requestBody.content.map(m=>[m.mediaType,[...new Set(m.examples.map(e=>e.raw))]]),
+  plan.responses.map(r=>[r.status,r.bodyAllowed===false?[]:r.content.map(m=>[m.mediaType,[...new Set(m.examples.map(e=>e.raw))]]),r.headers.map(h=>[h.name,h.required])])];
  assert.deepEqual(selected(target),selected(source));
  assert.equal(target.requestBody.content[0].examples[0].raw,'9007199254740993.00');
  assert.equal(target.responses.find(r=>r.status==='200').content[0].examples.length,1);
@@ -134,7 +134,7 @@ for(const format of ['yaml','json'])test(`B05-R2 ${format} formerly ignored resp
  for(const part of ['plain','wrong']){
   const bytes=Buffer.from('--R2\r\nContent-Disposition: form-data; name="part"\r\n\r\n'+part+'\r\n--R2--\r\n');
   for(const packet of [input,after]){
-   const media=operations(packet)[0].responses[0].content[0],check=await evaluateSchemas({...packet,runtimeInstances:[{subject:'response-body',location:part,text:bytes.toString('base64'),mediaBase64:true,mediaType:type,media:media.definition??media.source}]});
+   const media=operations(packet)[0].responses[0].content[0],check=await evaluateSchemas({...packet,runtimeInstances:[{subject:'response-body',location:part,text:bytes.toString('base64'),mediaBase64:true,mediaType:type,form:media.definition??media.source,schema:media.schema,itemSchema:media.itemSchema}]});
    assert.equal(check.complete,true,JSON.stringify(check.findings));assert.deepEqual(check.runtimeEvaluations.map(e=>e.valid),[part==='plain']);
   }
  }

@@ -3,7 +3,7 @@ import {FormSemantics} from './form_semantics';
 import type {ReferenceGraph} from './reference_graph';
 import type {MigrationIssue} from './migration_schema';
 import {SourcePlan} from './source_plan';
-import {migrationScopes} from './migration_documents';
+import {migrationScopeUses} from './migration_documents';
 import type {MigrationSchemaOwners} from './migration_schema_owners';
 import {retainFormHeaderOwners} from './migration_media_schema';
 
@@ -11,6 +11,10 @@ import {retainFormHeaderOwners} from './migration_media_schema';
  * activates them and ignores contentType instead. A declaration-only upgrade
  * would change request bytes even though both documents validate. */
 export function migrateEncodings(graph:ReferenceGraph,sources:Map<string,SourcePlan>,from:string,to:string,issue:MigrationIssue,contexts:readonly ReferenceGraph[]=[graph],owners?:MigrationSchemaOwners):void {
+    const forms=new Map<ReferenceGraph,FormSemantics>();
+    const form=(context:ReferenceGraph)=>{
+        let captured=forms.get(context);if(!captured){captured=new FormSemantics(context);forms.set(context,captured);}return captured;
+    };
     // 3.2 removes the request-only restriction on Encoding. This directly
     // affects R2 response semantics even when no newer media fields are used.
     for(const context of contexts)for(const scope of context.entryScopes())if(scope.kind==='media'&&scope.family===from&&((from==='3.2')!==(to==='3.2'))){
@@ -28,7 +32,7 @@ export function migrateEncodings(graph:ReferenceGraph,sources:Map<string,SourceP
             owners.retainNativeHistory({...scope,pointer:scope.pointer+'/encoding'},source,pointer,'inactive_response_encoding',context);
             continue;
         }
-        const properties=new FormSemantics(context).shape(scope.resource,scope.pointer+'/schema').properties??{};
+        const properties=form(context).shape(scope.resource,scope.pointer+'/schema').properties??{};
         for(const [name,raw]of Object.entries(value.encoding)){
             if(name.startsWith('x-'))continue;
             const rule=raw as Record<string,unknown>,shape=properties[name],types=shape?.types;
@@ -39,7 +43,8 @@ export function migrateEncodings(graph:ReferenceGraph,sources:Map<string,SourceP
             const defaultStyle=primitive&&(rule.style??'form')==='form'&&(rule.explode??true)===true&&
                 (media.startsWith('multipart/')||rule.allowReserved!==true)&&part?.defaultContentType==='text/plain';
             const fields=Object.keys(rule).some(field=>!['style','explode','allowReserved','contentType','headers'].includes(field)&&!field.startsWith('x-'));
-            const unknown=(styled||activeHeaders||rule.contentType!==undefined)&&(!part?.types?.length||part.defaultContentType===undefined);
+            const unknown=styled&&!part?.types?.length||
+                (styled||activeHeaders||rule.contentType!==undefined)&&part?.defaultContentType===undefined;
             if(unknown||activeHeaders||fields||styled&&!defaultStyle||!styled&&rule.contentType!==undefined&&rule.contentType!==part?.defaultContentType)
                 issue({...scope,pointer:scope.pointer+'/encoding/'+escape(name)},'migration.response.encoding',
                     unknown?'No captured part shape proves that this response encoding is redundant in the older target':
@@ -47,15 +52,14 @@ export function migrateEncodings(graph:ReferenceGraph,sources:Map<string,SourceP
         }
     }
     if(from!=='3.0'&&to!=='3.0')return;
-    const forms=new FormSemantics(graph);
-    for(const scope of migrationScopes(contexts))if(scope.kind==='media'&&scope.family===from){
+    for(const {graph:context,scope}of migrationScopeUses(contexts))if(scope.kind==='media'&&scope.family===from){
         const content=scope.pointer.lastIndexOf('/content/');
-        if(content<0||graph.scope(scope.resource,scope.pointer.slice(0,content)).kind!=='request-body')continue;
+        if(content<0||context.scope(scope.resource,scope.pointer.slice(0,content)).kind!=='request-body')continue;
         const media=scope.pointer.slice(content+9).replaceAll('~1','/').replaceAll('~0','~').split(';')[0].trim().toLowerCase();
         if(!media.startsWith('multipart/'))continue;
-        const value=graph.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
+        const value=context.docs.get(scope.resource)!.dataNode(scope.pointer)?.value;
         if(!value?.encoding||typeof value.encoding!=='object')continue;
-        const properties=forms.shape(scope.resource,scope.pointer+'/schema').properties??{};
+        const properties=form(context).shape(scope.resource,scope.pointer+'/schema').properties??{};
         const source=sources.get(scope.resource)!;
         for(const [name,rule]of Object.entries(value.encoding)){
             if(!rule||typeof rule!=='object')continue;

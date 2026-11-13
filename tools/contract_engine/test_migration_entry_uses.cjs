@@ -8,8 +8,8 @@ const root='file:///entries/legacy.json',other='file:///entries/modern.json',mod
 function fixture(format,recursive){
  const entry=(version,name)=>({openapi:version,info:{title:name,version:'business'},paths:{'/p':{post:{
   requestBody:{required:true,content:{'application/json':{schema:{$ref:'#/components/schemas/Model'}}}},
-  responses:{200:{description:'Response',headers:{'X-Name':{$ref:'headers.json#/Header'}},content:{'application/json':{schema:{$ref:'#/components/schemas/Model'}}}}}}},
-  components:{schemas:{Model:{$ref:'models.json#/Forward'}}}});
+  responses:{200:{description:'Response',headers:{'X-Name':{$ref:'headers.json#/Header'}},content:{'application/json':{schema:{$ref:'#/components/schemas/Model'}}}}},
+ }}},components:{schemas:{Model:{$ref:'models.json#/Forward'}}}});
  const node=recursive?{type:'array',items:{$ref:'#/Node'},nullable:true}:{type:'string',minLength:1,nullable:true};
  const values=[entry('3.0.4','Legacy'),entry('3.2.1','Modern'),
   {Forward:{$ref:'#/Node'},Node:{...node,description:'[Guide](guide.md)'},'x-literal':{$ref:'literal-only',zero:0,empty:'',flag:false}},
@@ -456,7 +456,10 @@ for(const format of ['yaml','json'])test(`${format} a foreign whole-document Sch
 test('declared 3.0 Schema and Header references from a modern entry retain their family refusal',async()=>{
  const root='file:///mixed-legacy-ref/a.json',other='file:///mixed-legacy-ref/b.json';
  const foreign={openapi:'3.0.4',info:{title:'Foreign',version:'1'},paths:{},components:{schemas:{Base:{type:'integer'}},headers:{Shared:{schema:{type:'string'}}}}};
- const primary={openapi:'3.2.1',info:{title:'Primary',version:'1'},paths:{'/p':{get:{responses:{200:{description:'Value',headers:{'X-Value':{$ref:'b.json#/components/headers/Shared'}},content:{'application/json':{schema:{$ref:'b.json#/components/schemas/Base'}}}}}}}};
+ const primary={openapi:'3.2.1',info:{title:'Primary',version:'1'},paths:{'/p':{get:{responses:{200:{
+  description:'Value',headers:{'X-Value':{$ref:'b.json#/components/headers/Shared'}},
+  content:{'application/json':{schema:{$ref:'b.json#/components/schemas/Base'}}},
+ }}}}}};
  const input={root,snapshot:'declared-legacy-family-refusal',targetVersion:'3.2.1',destination:'file:///refused-legacy/',resources:[primary,foreign].map((value,index)=>({id:[root,other][index],text:JSON.stringify(value),generation:index+1}))};
  const review=await planMigration(input);assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);assert.deepEqual(review.changes,[]);
  assert(review.problems.some(problem=>problem.resource===root&&problem.code.includes('reference.family')));

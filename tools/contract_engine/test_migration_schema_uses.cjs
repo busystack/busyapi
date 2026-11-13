@@ -3,6 +3,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const YAML=require('yaml');
+const {Parser}=require('commonmark');
 const {planMigration}=require('./dist/migration.cjs');
 const {analyse,createGraph}=require('./dist/model.cjs');
 const {evaluateSchemas}=require('./dist/schema_evaluation.cjs');
@@ -45,7 +46,7 @@ test(`${format} ${keyword} dictionary and independent schema retain distinct con
  const {graph}=createGraph(output);
  const reference=graph.referenceAs(output.root,'/components/schemas/Dictionary','$ref','schema');
  assert.equal(reference.resolution,'resolved');
- assert(reference.targetPointer.startsWith('/_migrated_schema_use_'));
+ assert(graph.scopeAs(reference.targetResource,reference.targetPointer,'schema'),'The independent dictionary resolves to a real Schema owner');
 });
 for(const format of ['yaml','json'])for(const version of ['3.1.2','3.2.1'])
 test(`${version} ${format} literal schema identity, exact data and Markdown retain separate ownership`,async()=>{
@@ -63,7 +64,8 @@ test(`${version} ${format} literal schema identity, exact data and Markdown reta
  const reference=createGraph(output).graph.referenceAs(output.root,'/components/schemas/Value','$ref','schema');
  const definition=new SourceDocument(output.resources.find(resource=>resource.id===reference.targetResource).text,reference.targetResource).dataNode(reference.targetPointer).value;
  assert.equal(definition.exclusiveMinimum,true);
- assert.equal(definition.description,'[Guide](file:///approved/guide)');
+ const rendered=new Parser().parse(definition.description).firstChild.firstChild;
+ assert.equal(rendered.type,'link');assert.equal(rendered.destination,'file:///approved/guide');assert.equal(rendered.firstChild.literal,'Guide');
 });
 for(const format of ['yaml','json'])test(`${format} recursive literal schema copies repair only semantic reference consumers`,async()=>{
  const input=capture(format,{
@@ -261,7 +263,7 @@ test(`${format} identified recursive Schema resources coexist with mixed ${restr
  const graph=createGraph({...output,root}).graph;
  assert.equal(graph.issues.some(issue=>issue.code==='reference.identity.duplicate'),false);
  const node=graph.docs.get(root).dataNode(target==='2.0'?'/definitions/Node':pointer);
- if(target!=='2.0')assert.equal(node.value.$id,'https://schemas.invalid/legacy-holder-node');
+ if(target.startsWith('3.1.')||target.startsWith('3.2.'))assert.equal(node.value.$id,'https://schemas.invalid/legacy-holder-node');
  assert.deepEqual(input.resources.map(resource=>resource.text),before);
 });
 
@@ -304,4 +306,24 @@ test(`${format} neutral public model retains an independently delivered literal 
  assert.equal(after.dataJson('/x-literal'),before.dataJson('/x-literal'));
  const values=['{"kind":"Cat","value":"ok"}','{"kind":"Cat"}','{"kind":"Other","value":"ok"}','{"kind":"Cat","value":0}','{}','false'];
  for(const name of ['Base','Cat'])assert.deepEqual(await outcomes(output,'/components/schemas/'+name,values),await outcomes(input,'/components/schemas/'+name,values),name);
+});
+
+
+for(const independent of [false,true])test(`Swagger conditional reduction uses only captured ancestor facts, independent branch=${independent}`,async()=>{
+ const input=capture('json',{
+  Model:{type:'object',properties:{flag:{type:'boolean'},text:{type:'string',minLength:1}},
+   allOf:[{if:{required:['flag'],properties:{flag:{const:true}}},then:{properties:{text:{type:'string',minLength:1}}}}]},
+  ...(independent?{Branch:{$ref:'#/components/schemas/Model/allOf/0'}}:{}),
+ });
+ input.targetVersion='2.0';
+ const samples=['null','{}','{"flag":true}','{"flag":false,"text":""}','{"flag":true,"text":""}','{"flag":true,"text":"ok"}','{"text":"ok"}'];
+ const expected=await outcomes(input,'/components/schemas/Model',samples),review=await planMigration(input);
+ if(independent){
+  assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);
+  assert(review.problems.some(problem=>problem.code==='migration.schema.conditional'&&problem.pointer.includes('/allOf/0')),
+   JSON.stringify(review.problems));
+ }else{
+  assert.equal(review.complete,true,JSON.stringify(review.problems));
+  assert.deepEqual(await outcomes(delivered(review),'/definitions/Model',samples),expected);
+ }
 });

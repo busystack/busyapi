@@ -18,7 +18,9 @@ export type ConditionPlan=Readonly<{selected?:'then'|'else'|'both';assertConditi
 export function conditionalPlan(graph:ReferenceGraph,scope:GraphScope,target:string,active=new Set<string>(),assumptions:readonly GraphScope[]=[],guard?:SchemaGuardAssumptions):ConditionPlan|undefined {
     const doc=graph.docs.get(scope.resource)!,value=doc.dataNode(scope.pointer)?.value;
     const predicate=graph.scopeAs(scope.resource,scope.pointer+'/if','schema');if(!predicate)return;
-    const proofs=new MigrationSchemaProofs(graph);
+    const proofs=new MigrationSchemaProofs(graph),premises=[scope,...assumptions];
+    const coveredProperties=new Set(premises.flatMap(parent=>proofs.conjuncts(parent).flatMap(part=>
+        Object.keys(graph.docs.get(part.resource)!.dataNode(part.pointer)?.value?.properties??{}))));
     let selectedPredicate=predicate,conditionDoc=doc,condition=doc.dataNode(predicate.pointer)?.value;
     const followed=new Set<string>();
     while(condition&&typeof condition==='object'&&!Array.isArray(condition)){
@@ -82,7 +84,7 @@ export function conditionalPlan(graph:ReferenceGraph,scope:GraphScope,target:str
             }
         }
     }
-    if(!proofs.annotationsCoveredByProperties(predicate,new Set(Object.keys(value.properties??{}))))return;
+    if(!proofs.annotationsCoveredByProperties(predicate,coveredProperties))return;
     const inactive=(child:GraphScope|undefined)=>!child||constant(child)===true;
     if(inactive(negative)&&positive&&proofs.annotationsInactiveIn(positive,proofs.domains(predicate))&&proofs.implies(predicate,positive))return {erase:true};
     if(inactive(negative)&&positive&&proofs.annotationFree(positive)&&proofs.implies(predicate,positive))return {erase:true};
@@ -107,8 +109,8 @@ export function conditionalPlan(graph:ReferenceGraph,scope:GraphScope,target:str
         if(plan)return {selected:'then',projected:[{name:'then',plan}]};
     }
     if([positive,negative].every(child=>!child||
-        (proofs.annotationsInactiveIn(child,proofs.domains(scope))||proofs.annotationsCoveredByProperties(child,new Set(Object.keys(value.properties??{}))))&&
-            proofs.implies(scope,child)))return {erase:true};
+        (proofs.annotationsInactiveIn(child,proofs.domains(scope))||proofs.annotationsCoveredByProperties(child,coveredProperties))&&
+            premises.some(parent=>proofs.implies(parent,child))))return {erase:true};
 }
 
 /** Shared source selection certificate for ordinary lowering and outer guard
