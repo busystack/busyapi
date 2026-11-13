@@ -1989,6 +1989,10 @@ paths: {/data: {get: {responses: {'200': {description: ok, content: {application
               selected == 'gzip' ||
               selected == 'double') {
             expect(result.conforming, isTrue);
+            if (selected == 'plain') {
+              expect(result.response.decodedBodyFile, result.response.bodyFile);
+              expect(Directory(result.response.ownedDirectory!).listSync().whereType<File>(), hasLength(1));
+            }
             expect(utf8.decode(result.response.displayBytes), json);
             expect(utf8.decode(await result.response.decodedBytes()), json);
           } else {

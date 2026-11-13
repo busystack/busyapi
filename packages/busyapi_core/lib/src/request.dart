@@ -3285,6 +3285,41 @@ class ContractHttpTransport {
     if (encodings.length > 8 || encodings.any((e) => e != 'gzip')) {
       return (null, 0, Uint8List(0), 'unsupported-content-encoding');
     }
+    if (encodings.isEmpty) {
+      // The retained entity already is the decoded representation. Read only
+      // the bounded display prefix and share its immutable file ownership.
+      final display = BytesBuilder(copy: false);
+      var retained = 0;
+      try {
+        checkOwner();
+        cancellation?.throwIfCancelled();
+        final length = await original.length();
+        retained = min(length, decodedLimit);
+        await for (final chunk in original.openRead(
+          0,
+          min(retained, maximumDisplayBytes),
+        )) {
+          checkOwner();
+          cancellation?.throwIfCancelled();
+          display.add(chunk);
+        }
+        return (
+          original.path,
+          retained,
+          display.takeBytes(),
+          length > decodedLimit ? 'decoded-size-limit' : null,
+        );
+      } on CoreFailure catch (error) {
+        return (
+          original.path,
+          retained,
+          display.takeBytes(),
+          error.code == 'cancelled' ? 'cancelled' : 'decoding-failed',
+        );
+      } on FileSystemException {
+        return (null, retained, display.takeBytes(), 'decoded-storage-failed');
+      }
+    }
     var source = original;
     var length = 0;
     final display = BytesBuilder(copy: false);
@@ -3301,8 +3336,7 @@ class ContractHttpTransport {
       }
     }
 
-    for (var layer = 0; layer < max(1, encodings.length); layer++) {
-      final compressed = encodings.isNotEmpty;
+    for (var layer = 0; layer < encodings.length; layer++) {
       final target = File(
         p.join(p.dirname(original.path), 'decoded-$layer.bin'),
       );
@@ -3311,9 +3345,9 @@ class ContractHttpTransport {
       display.clear();
       try {
         output = await target.open(mode: FileMode.write);
-        final stream = compressed
-            ? gzip.decoder.bind(_gzipMemberChunks(boundedInput(source)))
-            : boundedInput(source);
+        final stream = gzip.decoder.bind(
+          _gzipMemberChunks(boundedInput(source)),
+        );
         await for (final chunk in stream) {
           cancellation?.throwIfCancelled();
           checkOwner();
@@ -3336,7 +3370,7 @@ class ContractHttpTransport {
             break;
           }
         }
-        if (compressed && problem == null) {
+        if (problem == null) {
           checkOwner();
           cancellation?.throwIfCancelled();
           await _verifyGzipFraming(source.path, decodedLimit, length, deadline);
