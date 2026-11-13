@@ -503,8 +503,21 @@ function materializeMigrationOwners(graph:ReferenceGraph,sources:ReadonlyMap<str
     }
     const mapped=(at:SourceLocation,placement:Placement):SourceLocation=>({resource:placement.location.resource,pointer:placement.location.pointer+at.pointer.slice(placement.scope.pointer.length)});
     for(const placement of placements){
-      const native=graph.scopes.get(placement.scope.resource+'#'+placement.scope.pointer);
-      const retained=native&&native.kind!==placement.scope.kind&&graph.isEntryUse(native)&&!placementFor(native,native.kind);
+      const native=graph.scopes.get(placement.scope.resource+'#'+placement.scope.pointer),retained=new Set<string>();
+      if(native&&native.kind!=='schema'&&placement.scope.kind!=='schema'&&native.kind!==placement.scope.kind&&
+          graph.isEntryUse(native)&&!placementFor(native,native.kind)){
+        const visit=(pointer:string,kind:string,depth=0)=>{
+            inspect();if(depth>128)throw new SourceError('limit.migration.owners','Native child ownership exceeds 128 typed levels');
+            if(kind==='schema'||placement.intrinsic.get(pointer)!==kind)return;
+            retained.add(pointer);
+            const scope=graph.scopeAs(native.resource,pointer,kind),value=graph.docs.get(native.resource)!.dataNode(pointer)?.value;
+            if(!scope||graph.referenceObject(value,scope)&&kind!=='path-item')return;
+            for(const [name,,child]of children(value,kind,scope.family))visit(pointer+'/'+escape(name),child,depth+1);
+        };
+        const value=graph.docs.get(native.resource)!.dataNode(native.pointer)?.value;
+        if(!graph.referenceObject(value,native))for(const [name,,kind]of children(value,native.kind,native.family))
+            visit(native.pointer+'/'+escape(name),kind);
+      }
       for(const [pointer,kind]of placement.intrinsic){
         const captured=graph.scopeAs(placement.scope.resource,pointer,kind);if(!captured)continue;
         const owner=placementFor(captured,kind)!;
@@ -512,8 +525,7 @@ function materializeMigrationOwners(graph:ReferenceGraph,sources:ReadonlyMap<str
         // A copied role can share a child with a retained native parent.
         // Keep that actual original child and its copied use, rather than
         // refining both parents' fields into the copy's coordinates.
-        if(retained&&owner===placement&&pointer!==placement.scope.pointer&&kind!=='schema'&&
-            graph.scopes.get(captured.resource+'#'+captured.pointer)?.kind===kind){
+        if(retained.has(pointer)&&owner===placement){
             owners.retainBinding(entry.entryNamespace,captured);
             const source=sources.get(destination.resource)!,locations=source.original.id===captured.resource?
                 source.origins.get(captured.pointer):source.foreignOrigins.get(captured.resource+'#'+captured.pointer);
