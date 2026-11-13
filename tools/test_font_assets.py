@@ -147,7 +147,7 @@ class FontAssets(unittest.TestCase):
             self.assertIn('Unreviewed font notice', result.stderr)
             self.assertFalse((root/'not-published').exists())
 
-    def test_cmake_orders_current_flutter_assets_and_installs_ordinary_notices_in_every_mode(self):
+    def test_cmake_builds_and_reinstalls_ordinary_font_notices_in_every_mode(self):
         with tempfile.TemporaryDirectory(prefix='busyapi-font-cmake-') as temporary:
             root = Path(temporary)
             inputs = self.assets(root/'inputs')
@@ -161,8 +161,11 @@ set(BUSYAPI_SOURCE_DIR "{ROOT}")
 set(BUSYAPI_NOTICE_DART "{self.dart}")
 set(PROJECT_BUILD_DIR "${{CMAKE_BINARY_DIR}}/stage")
 set(FLUTTER_ASSET_DIR_NAME flutter_assets)
-add_custom_target(flutter_assemble COMMAND "${{CMAKE_COMMAND}}" -E copy_directory "{inputs}" "${{PROJECT_BUILD_DIR}}/${{FLUTTER_ASSET_DIR_NAME}}")
+add_custom_target(flutter_assemble
+  COMMAND "${{CMAKE_COMMAND}}" -E copy_directory "{inputs}" "${{PROJECT_BUILD_DIR}}/${{FLUTTER_ASSET_DIR_NAME}}"
+  BYPRODUCTS "${{PROJECT_BUILD_DIR}}/${{FLUTTER_ASSET_DIR_NAME}}/FontManifest.json")
 include("{ROOT}/linux/font_notices.cmake")
+install(DIRECTORY "${{PROJECT_BUILD_DIR}}/${{FLUTTER_ASSET_DIR_NAME}}" DESTINATION data COMPONENT Runtime)
 ''')
             for mode in ('Debug', 'Profile', 'Release'):
                 build = root/mode
@@ -170,14 +173,19 @@ include("{ROOT}/linux/font_notices.cmake")
                 commands = [
                     ['cmake', '-G', 'Ninja', '-S', str(source), '-B', str(build), '-DCMAKE_BUILD_TYPE='+mode, '-DCMAKE_INSTALL_PREFIX='+str(install), '-DBUSYAPI_FONT_NOTICES='+str(build/'notices')],
                     ['cmake', '--build', str(build)],
-                    ['cmake', '--install', str(build)],
                 ]
                 for command in commands:
                     result = subprocess.run(command, capture_output=True, text=True, timeout=60)
                     self.assertEqual(result.returncode, 0, result.stdout+'\n'+result.stderr)
-                shutil.copytree(build/'stage/flutter_assets', install/'data/flutter_assets')
-                verify(install)
-                self.assertTrue(all(not file.is_symlink() for file in (install/'share/licenses/busyapi-fonts').rglob('*')))
+                for _ in range(2):
+                    if install.exists():
+                        shutil.rmtree(install)
+                    result = subprocess.run(['cmake', '--install', str(build)],
+                                            capture_output=True, text=True, timeout=60)
+                    self.assertEqual(result.returncode, 0, result.stdout+'\n'+result.stderr)
+                    inventory = verify(install)
+                    self.assertEqual(sum(len(group['fonts']) for group in inventory['groups']), 11)
+                    self.assertTrue(all(not file.is_symlink() for file in (install/'share/licenses/busyapi-fonts').rglob('*')))
             self.assertIn('verify_font_assets(bundle)', (ROOT/'tools/package_linux.py').read_text())
 
 
