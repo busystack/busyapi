@@ -142,6 +142,8 @@ Future<Map<String, Object>> _loadDocumentationRuntime(
 /// Immutable installed presentation assets. This is not a project resource
 /// resolver, parser or package manager; missing assets never trigger downloads.
 class DocumentationRuntime {
+  static final _installed = <(String, String), ({String signature, Future<DocumentationRuntime> pending})>{};
+
   DocumentationRuntime._(
     this.identity,
     this.preset,
@@ -176,14 +178,45 @@ class DocumentationRuntime {
         'documentation.preset',
         'The requested documentation preset is not installed',
       );
-    final data = await Isolate.run(
-      () => _loadDocumentationRuntime(directory, preset),
-    );
-    return DocumentationRuntime._(
-      data['identity'] as String,
-      preset,
-      (data['files'] as Map).cast<String, Uint8List>(),
-    );
+    final root = p.normalize(p.absolute(directory));
+    final key = (root, preset);
+    final signature = await _installedSignature(root, preset);
+    final previous = _installed[key];
+    if (previous?.signature == signature) return previous!.pending;
+    Future<DocumentationRuntime> acquire() async {
+      final data = await Isolate.run(() => _loadDocumentationRuntime(root, preset));
+      if (await _installedSignature(root, preset) != signature) {
+        throw DocumentationAssetsFailure('assets.json', preset: preset);
+      }
+      return DocumentationRuntime._(data['identity'] as String, preset,
+          (data['files'] as Map).cast<String, Uint8List>());
+    }
+    final pending = acquire();
+    _installed.remove(key);
+    while (_installed.length >= 2) _installed.remove(_installed.keys.first);
+    _installed[key] = (signature: signature, pending: pending);
+    try {
+      return await pending;
+    } on Object {
+      if (identical(_installed[key]?.pending, pending)) _installed.remove(key);
+      rethrow;
+    }
+  }
+
+  // Admission retains verified immutable bytes. Metadata invalidates that
+  // admission; it never supplies a replacement content identity.
+  static Future<String> _installedSignature(String root, String preset) async {
+    final states = <String>[];
+    for (final name in ['', 'assets.json', ...(preset == 'redoc' ? _redocFiles : _swaggerFiles)]) {
+      final path = name.isEmpty ? root : p.join(root, name);
+      final type = await FileSystemEntity.type(path, followLinks: false);
+      if (type != (name.isEmpty ? FileSystemEntityType.directory : FileSystemEntityType.file)) {
+        throw DocumentationAssetsFailure(name.isEmpty ? 'assets.json' : name, preset: preset);
+      }
+      final stat = await FileStat.stat(path);
+      states.add('${stat.mode}:${stat.size}:${stat.modified.microsecondsSinceEpoch}:${stat.changed.microsecondsSinceEpoch}');
+    }
+    return states.join('/');
   }
 
   final String identity;

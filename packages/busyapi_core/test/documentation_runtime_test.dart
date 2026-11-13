@@ -426,7 +426,7 @@ void main() {
       },
     );
 
-    for (final problem in ['missing', 'modified', 'notice', 'symlink']) {
+    for (final problem in ['missing', 'modified', 'same-size', 'notice', 'symlink']) {
       test(
         '$preset $problem installed assets fail explicitly without using a project or network loader',
         () async {
@@ -444,8 +444,17 @@ void main() {
           }
           final script = File('${directory.path}/$preset.js'),
               notice = File('${directory.path}/THIRD_PARTY_NOTICES.txt');
+          // A previously admitted artifact must not conceal a later change.
+          await DocumentationRuntime.loadInstalled(directory.path, preset: preset);
           if (problem == 'missing') await script.delete();
           if (problem == 'modified') await script.writeAsString('changed code');
+          if (problem == 'same-size') {
+            final modified = await script.lastModified();
+            final bytes = await script.readAsBytes();
+            bytes[0] ^= 1;
+            await script.writeAsBytes(bytes, flush: true);
+            await script.setLastModified(modified);
+          }
           if (problem == 'notice') await notice.delete();
           if (problem == 'symlink') {
             await script.delete();
