@@ -298,18 +298,21 @@ export async function prepareMigrationRequestProfiles(graph:ReferenceGraph,resou
     // witness for equivalence of the surrounding schemas.
     for(const plan of plans.values()){
         const media=[...(plan.requestBody?.content??[]),...plan.responses.filter((response:any)=>response.bodyAllowed!==false).flatMap((response:any)=>response.content)];
-        for(const value of media)if(['xml','linkset','linkset-json','json-lines','json-sequence','event-stream'].includes(runtimeMediaKind(value.mediaType)))for(const example of value.examples??[]){
-            if(example.representation!=='json'||example.wireBase64!==undefined)continue;
-            const key=mediaExampleKey(value,example);if(bytes.has(key))continue;
-            if(bytes.size>=20000)throw new SourceError('limit.migration.examples','Modeled example profiles exceed 20000 captured choices');
-            try{
-                bytes.set(key,(await migrationModeledExampleBytes(graph,value.mediaType,example.raw,value.schema,false,exampleResources,value.itemSchema)).toString('base64'));
-            }catch(error){
-                if(!(error instanceof SourceError))throw error;
-                // Existing authored examples can remain incompatible advice.
-                // Keep that state and exact data in the comparison; it cannot
-                // equal a successful byte preparation on the other side.
-                bytes.set(key,'unprepared:'+JSON.stringify(example.raw));
+        for(const value of media){
+            const examples=(value.examples??[]).filter((example:any)=>example.representation==='json'&&example.wireBase64===undefined);
+            if(!examples.length||!['xml','linkset','linkset-json','json-lines','json-sequence','event-stream'].includes(runtimeMediaKind(value.mediaType)))continue;
+            for(const example of examples){
+                const key=mediaExampleKey(value,example);if(bytes.has(key))continue;
+                if(bytes.size>=20000)throw new SourceError('limit.migration.examples','Modeled example profiles exceed 20000 captured choices');
+                try{
+                    bytes.set(key,(await migrationModeledExampleBytes(graph,value.mediaType,example.raw,value.schema,false,exampleResources,value.itemSchema)).toString('base64'));
+                }catch(error){
+                    if(!(error instanceof SourceError))throw error;
+                    // Existing authored examples can remain incompatible advice.
+                    // Keep that state and exact data in the comparison; it cannot
+                    // equal a successful byte preparation on the other side.
+                    bytes.set(key,'unprepared:'+JSON.stringify(example.raw));
+                }
             }
         }
     }
