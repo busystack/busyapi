@@ -960,14 +960,18 @@ class RecoveryStore {
       bool current() => identical(_fileGroups[id], transition) && !grouped();
       // Keep the group until every replacement record is durable. A failed
       // write or a newer transition leaves the preceding checkpoint intact.
-      for (final b in _fileGroupMembers[id] ?? <DocumentBuffer>{}) {
-        if (!current()) return true;
-        await persist(
-          b,
-          draft: draft?.buffer == b.id ? draft : null,
-          form: form?.target.buffer == b.id ? form : null,
-        );
-      }
+      await Future.wait(
+        (_fileGroupMembers[id] ?? <DocumentBuffer>{})
+            .where((_) => current())
+            .map(
+              (b) => persist(
+                b,
+                draft: draft?.buffer == b.id ? draft : null,
+                form: form?.target.buffer == b.id ? form : null,
+              ),
+            ),
+      );
+      if (!current()) return true;
       await retireIfCurrent(id, current);
       if (current()) {
         _fileGroups.remove(id);

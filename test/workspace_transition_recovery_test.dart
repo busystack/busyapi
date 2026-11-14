@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:busyapi/src/workspace/workspace_controller.dart';
 import 'package:busyapi_core/busyapi_core.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
@@ -57,10 +58,9 @@ class _PausedAdoptionStore extends RecoveryStore {
 }
 
 class _ObservedRecovery extends RecoveryStore {
-  _ObservedRecovery(super.directory);
+  _ObservedRecovery(super.directory, {super.onCheckpointPhase});
   final List<String> captured = [];
   final snapshots = <({String text, Map<String, dynamic>? form})>[];
-  Future<void>? writing;
   Future<void>? finishAfter;
   void Function()? onDurable;
   @override
@@ -78,7 +78,7 @@ class _ObservedRecovery extends RecoveryStore {
     ));
     final persisted = super.persist(buffer, draft: draft, form: form);
     final gate = finishAfter;
-    return writing = gate == null
+    return gate == null
         ? persisted
         : persisted.then((_) async {
             onDurable?.call();
@@ -116,7 +116,13 @@ void main() {
     await file.writeAsString(
       'openapi: 3.2.1\ninfo: {title: Original, version: "1"}\npaths: {}\n',
     );
-    final recovery = _ObservedRecovery('${directory.path}/recovery');
+    var inventories = 0;
+    final recovery = _ObservedRecovery(
+      '${directory.path}/recovery',
+      onCheckpointPhase: (phase) {
+        if (phase == 'inventory:start') inventories++;
+      },
+    );
     final c = controller(recovery: recovery);
     try {
       await c.open(file.path);
@@ -134,7 +140,30 @@ void main() {
           ),
         );
       }
+      inventories = 0;
       await c.persist(all: true);
+      final initialRecords = [
+        for (final file in Directory(
+          recovery.directory,
+        ).listSync().whereType<File>())
+          if (file.path.endsWith('.json'))
+            jsonDecode(file.readAsStringSync()) as Map,
+      ];
+      final durable = {
+        for (final record in initialRecords) record['id']: record['text'],
+      };
+      expect(durable, {
+        for (var i = 0; i < 32; i++)
+          'file://${directory.path}/other-$i.yaml': 'dirty $i',
+      });
+      debugPrint(
+        'Recovery checkpoint: ${durable.length} durable records, inventories=$inventories',
+      );
+      expect(
+        inventories,
+        lessThan(32),
+        reason: 'The existing recovery writer must batch captured records',
+      );
       recovery.captured.clear();
       c.sourceDelta(
         TextEdit(
@@ -146,7 +175,7 @@ void main() {
           replacement: '# exact 雪😀\r\n',
         ),
       );
-      await recovery.writing;
+      await c.persist();
       expect(recovery.captured, [buffer.id]);
       await c.analyse();
       final draft = c.bind(
@@ -156,7 +185,7 @@ void main() {
       draft.edit('title', 'unfinished field');
       recovery.captured.clear();
       c.checkpoint();
-      await recovery.writing;
+      await c.persist();
       expect(recovery.captured, [buffer.id]);
       final records = [
         for (final entry in Directory(

@@ -2120,18 +2120,22 @@ class WorkspaceController extends ChangeNotifier {
           affected: all ? null : selected,
         );
       }
-      for (final b in selected) {
-        if (b.hasFileIntent ||
-            b.pendingFilePublication ||
-            captured.store.hasPublicationGroup(b)) {
-          continue;
-        }
-        await recovery.persist(
-          b,
-          draft: draft?.buffer == b.id && draft!.pending ? draft : null,
-          form: capturedForm?.target.buffer == b.id ? capturedForm : null,
-        );
-      }
+      await Future.wait(
+        selected
+            .where(
+              (b) =>
+                  !b.hasFileIntent &&
+                  !b.pendingFilePublication &&
+                  !captured.store.hasPublicationGroup(b),
+            )
+            .map(
+              (b) => recovery.persist(
+                b,
+                draft: draft?.buffer == b.id && draft!.pending ? draft : null,
+                form: capturedForm?.target.buffer == b.id ? capturedForm : null,
+              ),
+            ),
+      );
       if (identical(project, captured)) storageError = null;
     } on Object catch (e) {
       if (identical(project, captured)) {
