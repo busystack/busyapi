@@ -1,79 +1,82 @@
-import {createGraph} from './source_capture';
-import {requestInputPreparation} from './request_preparation';
-import {responseStreamOpen,responseStreamChunk,responseStreamClose,responseStreamOwned} from './stream_execution';
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
-import {SourceError} from './document';
-import { analyse, propose, discover, inspect, readDataValue, protocol, engineVersion } from './engine';
-import { planRename, planPropertyRename, planResponseRename, planSchemaDefinitionRename } from './refactoring';
-import { planDelete } from './refactoring_delete';
-import {planYamlOwnership} from './refactoring_ownership';
-import {planExtract,planExtractToFile,planInline,planMoveDefinition,planOperationMove} from './refactoring_copy';
-import {planFileMove,planFileDeletion,planRootRemoval} from './refactoring_file';
-import {normalizeResourceUris} from './reference_graph';
-import { assistSource, sourceFolds, semanticSearch } from './source_assistance';
-import { suggestSchema, planSchemaSuggestion } from './schema_suggestion';
-import { referencePage, referenceDocument } from './reference_projection';
-import { evaluateSchemas, standardResource } from './schema_evaluation';
-import { deriveBundle } from './derived_bundle';
-import { referenceDisplayPacket } from './reference_display';
-import {describeResourcePackage} from './resource_package';
-import { schemaTree } from './schema_tree';
-import { referenceChoices } from './reference_choices';
-import { planReference } from './reference_selection';
 import { WorkerDispatcher } from './worker_dispatcher';
-import {planDiagnosticFix} from './diagnostic_fixes';
-import {planResponseExample,requestOperation,requestParameterValues,requestFormDataValues,requestFormMediaTypes,requestMultipartEncoding,requestMimeTextBytes,executionCaseValues,inspectExecutionJson,planExecutionEnvironment,semanticDiffCoverage} from './execution';
-import {discoverPolicy} from './governance_configuration';
-import {inspectPolicyCode} from './policy_code';
 import {PolicyProcessWorker} from './policy_process_worker';
 import {join} from 'node:path';
-import {policyRuntime} from './policy_runtime';
-import {mockFormBytes,mockMultipartBytes,requestFormBytes,requestRawMediaBytes,planExecutionCase,requestContentParameters,requestMediaBytes,requestMultipartPlan,requestMultipartAppend} from './execution';
-import {MAX, encode} from './worker_response';
+import {MAX, encode, protocol, engineVersion} from './worker_response';
 if (!isMainThread) {
+    const {createGraph} = require('./source_capture') as typeof import('./source_capture');
+    const {requestInputPreparation} = require('./request_preparation') as typeof import('./request_preparation');
+    const {responseStreamOpen,responseStreamChunk,responseStreamClose,responseStreamOwned} = require('./stream_execution') as typeof import('./stream_execution');
+    const {SourceError} = require('./document') as typeof import('./document');
+    const { analyse, propose, discover, inspect, readDataValue } = require('./engine') as typeof import('./engine');
+    const { planRename, planPropertyRename, planResponseRename, planSchemaDefinitionRename } = require('./refactoring') as typeof import('./refactoring');
+    const { planDelete } = require('./refactoring_delete') as typeof import('./refactoring_delete');
+    const {planYamlOwnership} = require('./refactoring_ownership') as typeof import('./refactoring_ownership');
+    const {planExtract,planExtractToFile,planInline,planMoveDefinition,planOperationMove} = require('./refactoring_copy') as typeof import('./refactoring_copy');
+    const {planFileMove,planFileDeletion,planRootRemoval} = require('./refactoring_file') as typeof import('./refactoring_file');
+    const {normalizeResourceUris} = require('./reference_graph') as typeof import('./reference_graph');
+    const { assistSource, sourceFolds, semanticSearch } = require('./source_assistance') as typeof import('./source_assistance');
+    const { suggestSchema, planSchemaSuggestion } = require('./schema_suggestion') as typeof import('./schema_suggestion');
+    const { referencePage, referenceDocument } = require('./reference_projection') as typeof import('./reference_projection');
+    const { evaluateSchemas, standardResource } = require('./schema_evaluation') as typeof import('./schema_evaluation');
+    const { deriveBundle } = require('./derived_bundle') as typeof import('./derived_bundle');
+    const { referenceDisplayPacket } = require('./reference_display') as typeof import('./reference_display');
+    const {describeResourcePackage} = require('./resource_package') as typeof import('./resource_package');
+    const { schemaTree } = require('./schema_tree') as typeof import('./schema_tree');
+    const { referenceChoices } = require('./reference_choices') as typeof import('./reference_choices');
+    const { planReference } = require('./reference_selection') as typeof import('./reference_selection');
+    const {planDiagnosticFix} = require('./diagnostic_fixes') as typeof import('./diagnostic_fixes');
+    const {
+        planResponseExample,requestOperation,requestParameterValues,requestFormDataValues,requestFormMediaTypes,requestMultipartEncoding,requestMimeTextBytes,executionCaseValues,inspectExecutionJson,planExecutionEnvironment,semanticDiffCoverage,
+        mockFormBytes,mockMultipartBytes,requestFormBytes,requestRawMediaBytes,planExecutionCase,requestContentParameters,requestMediaBytes,requestMultipartPlan,requestMultipartAppend,
+    } = require('./execution') as typeof import('./execution');
+    const {discoverPolicy} = require('./governance_configuration') as typeof import('./governance_configuration');
+    const {inspectPolicyCode} = require('./policy_code') as typeof import('./policy_code');
+    const {policyRuntime} = require('./policy_runtime') as typeof import('./policy_runtime');
     // Native mock workers own one source capture. General desktop workers
     // continue to accept a distinct capture with each independent request.
     const capture=workerData?.capture;
     let context:ReturnType<typeof createGraph>|undefined;
     const capturedContext=()=>context??=createGraph(capture);
+    const methods: any = { analyse, evaluateSchemas:capture?(params:any)=>evaluateSchemas({...params,...capture},undefined,capturedContext()):evaluateSchemas, standardResource, deriveBundle, referenceDisplay:referenceDisplayPacket, referenceDocument, requestOperation, semanticDiffCoverage, planResponseExample, propose, discover, inspect, readDataValue, schemaTree, referenceChoices, planReference, referencePage, planRename, planPropertyRename, planResponseRename, planSchemaDefinitionRename, planDelete, planExtract, planInline, planMoveDefinition, planFileMove, planFileDeletion, planDiagnosticFix, assistSource, sourceFolds, semanticSearch, suggestSchema, planSchemaSuggestion,
+        discoverPolicy,inspectPolicyCode,policyRuntime,
+        resolvePolicyCode:async(params:any)=>(await import('./policy_code_resolution')).resolvePolicyCode(params),
+        reviewPolicyCode:async(params:any)=>(await import('./policy_code_review')).reviewPolicyCode(params),
+        govern:async(params:any)=>(await import('./governance')).govern(params),
+        normalizeResourceUris,
+        requestParameterValues,
+        requestFormDataValues,
+        requestMimeTextBytes,
+        requestFormMediaTypes,
+        requestMultipartEncoding,
+        requestFormBytes,
+        requestInputPreparation,
+        mockFormBytes:capture?(params:any)=>mockFormBytes({...params,...capture},capturedContext()):mockFormBytes,
+        mockMultipartBytes:capture?(params:any)=>mockMultipartBytes({...params,...capture},capturedContext()):mockMultipartBytes,
+        requestRawMediaBytes,
+        planExecutionCase,
+        requestContentParameters,
+        requestMediaBytes,
+        responseStreamOpen:capture?(params:any)=>responseStreamOpen({...params,...capture},capturedContext()):responseStreamOpen,
+        responseStreamChunk,
+        responseStreamClose,
+        requestMultipartPlan,
+        requestMultipartAppend,
+        executionCaseValues,
+        inspectExecutionJson,
+        planExecutionEnvironment,
+        describeResourcePackage,
+        planOperationMove,
+        planExtractToFile,
+        planYamlOwnership,
+        planRootRemoval,
+    };
     parentPort!.on('message', async (request: any) => {
         const reply = (message: any) => {
             const payload = encode({ id: request.id, snapshot: capture?.snapshot??request.params?.snapshot, ...message });
             parentPort!.postMessage(workerData?.streaming?{id:request.id,payload,closed:!responseStreamOwned(request.params?.stream)}:payload, [payload.buffer as ArrayBuffer]);
         };
         try {
-            const methods: any = { analyse, evaluateSchemas:capture?(params:any)=>evaluateSchemas({...params,...capture},undefined,capturedContext()):evaluateSchemas, standardResource, deriveBundle, referenceDisplay:referenceDisplayPacket, referenceDocument, requestOperation, semanticDiffCoverage, planResponseExample, propose, discover, inspect, readDataValue, schemaTree, referenceChoices, planReference, referencePage, planRename, planPropertyRename, planResponseRename, planSchemaDefinitionRename, planDelete, planExtract, planInline, planMoveDefinition, planFileMove, planFileDeletion, planDiagnosticFix, assistSource, sourceFolds, semanticSearch, suggestSchema, planSchemaSuggestion,
-                discoverPolicy,inspectPolicyCode,policyRuntime,
-                resolvePolicyCode:async(params:any)=>(await import('./policy_code_resolution')).resolvePolicyCode(params),
-                reviewPolicyCode:async(params:any)=>(await import('./policy_code_review')).reviewPolicyCode(params),
-                govern:async(params:any)=>(await import('./governance')).govern(params) };
-            methods.normalizeResourceUris = normalizeResourceUris;
-            methods.requestParameterValues = requestParameterValues;
-            methods.requestFormDataValues = requestFormDataValues;
-            methods.requestMimeTextBytes = requestMimeTextBytes;
-            methods.requestFormMediaTypes = requestFormMediaTypes;
-            methods.requestMultipartEncoding = requestMultipartEncoding;
-            methods.requestFormBytes = requestFormBytes;
-            methods.requestInputPreparation = requestInputPreparation;
-            methods.mockFormBytes = capture?(params:any)=>mockFormBytes({...params,...capture},capturedContext()):mockFormBytes;
-            methods.mockMultipartBytes = capture?(params:any)=>mockMultipartBytes({...params,...capture},capturedContext()):mockMultipartBytes;
-            methods.requestRawMediaBytes = requestRawMediaBytes;
-            methods.planExecutionCase = planExecutionCase;
-            methods.requestContentParameters = requestContentParameters;
-            methods.requestMediaBytes = requestMediaBytes;
-            methods.responseStreamOpen = capture?(params:any)=>responseStreamOpen({...params,...capture},capturedContext()):responseStreamOpen;
-            methods.responseStreamChunk = responseStreamChunk;
-            methods.responseStreamClose = responseStreamClose;
-            methods.requestMultipartPlan = requestMultipartPlan;
-            methods.requestMultipartAppend = requestMultipartAppend;
-            methods.executionCaseValues = executionCaseValues;
-            methods.inspectExecutionJson = inspectExecutionJson;
-            methods.planExecutionEnvironment = planExecutionEnvironment;
-            methods.describeResourcePackage = describeResourcePackage;
-            methods.planOperationMove = planOperationMove;
-            methods.planExtractToFile = planExtractToFile;
-            methods.planYamlOwnership = planYamlOwnership;
-            methods.planRootRemoval = planRootRemoval;
             const method = Object.hasOwn(methods, request.method) ? methods[request.method] : undefined;
             if (!method)
                 throw Error('Unknown method');

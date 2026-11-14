@@ -1,4 +1,5 @@
-import {protocol} from './engine';
+export const engineVersion = '0.1.0';
+export const protocol = 1;
 export const MAX = 64 * 1024 * 1024;
 export const encode = (message: any) => {
     // TextEncoder owns this ArrayBuffer; pooled Buffer allocations cannot safely

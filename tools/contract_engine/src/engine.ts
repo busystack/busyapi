@@ -10,7 +10,7 @@ import { fieldsForScope, removableField, allowsExtensions, componentFamily, comp
 import {sameSchemaValueForms, allowsSchemaValue, schemaOccurrenceForms, schemaEntryForms} from './schema_value_forms';
 import type {SchemaValueForms} from './schema_value_forms';
 import { SourceDocument, SourceError, escape, segments, limits, type Node } from './document';
-import {structuralEvaluator as ajv, structuralValidators as validators, structuralRevisions, structuralSchema} from './structural_schema';
+import {structuralEvaluator as ajv, structuralRevisions, structuralSchema} from './structural_schema';
 import {specificationDeclaration, isNativeFamily, modernFamily, capabilitiesFor, dialectUriRevision} from './specification';
 import {securityDesign, safeFinding} from './security_design';
 import {schemaRoots,nestedSchemaBoundaries,schemaMetaView} from './schema_boundaries';
@@ -27,8 +27,8 @@ import {mediaTypeIssues} from './media_validation';
 import {documentUriRevision,documentUriRelationships} from './document_uris';
 import {xmlContextRevision,xmlRelationships} from './xml_semantics';
 import {collectionMemberNamePolicy,componentNamePolicy,reusableDefinitionPointer,responseStatusIssues,responseStatusNamePolicy,schemaDefinitionNamePolicy} from './member_names';
-export const engineVersion = '0.1.0';
-export const protocol = 1;
+import {engineVersion} from './worker_response';
+export {engineVersion,protocol} from './worker_response';
 const versions = { engine: engineVersion, yaml: '2.9.0', ajv: '8.20.0', node: process.versions.node, openapiSchemas: structuralRevisions, entryDiscoveryRules:'1',externalExampleRules:externalExampleRevision, authoringFieldRules:authoringFieldRevision, swaggerSchemaRules:swaggerSchemaRulesRevision, markdownContextRules: '2', refactoringOwnershipRules: '1', xmlContextRules:xmlContextRevision, documentUriRules:documentUriRevision, dialectUriRules:dialectUriRevision, restrictedSchemaRules:restrictedSchemaRevision, serverRules:serverContextRevision, swaggerServerRules:swaggerServerContextRevision, multipartRules:multipartProjectionRevision, discriminatorRules:discriminatorContextRevision, schemaRoleRules:schemaRoleContextRevision };
 export {createGraph,parseResource,type Resource} from './source_capture';
 import {createGraph,parseResource,type Resource} from './source_capture';
@@ -148,7 +148,7 @@ export function analyse(input: any, context?: ReturnType<typeof createGraph>) {
     }
     const graph = context?.graph??ReferenceGraph.capture(docs, input.root, family, new Map(input.resources.map((r: Resource) => [r.id, r.aliases ?? []])));
     if (supported) {
-        const validate = validators[family];
+        const validate = ajv.getSchema(structuralSchema(family).$id);
         if (!validate(family==='2.0'?swaggerNativeMetaView(root,graph):data))
             for (const e of validate.errors.slice(0, 200))
                 diagnostic(rootResource, 'openapi', 'structure.' + e.keyword, e.message ?? 'Structural violation', e.instancePath);
@@ -233,7 +233,8 @@ export function analyse(input: any, context?: ReturnType<typeof createGraph>) {
         if (ref.resolution !== 'resolved' || ref.kind === 'schema') continue;
         const targetFamily = graph.scopeAs(ref.targetResource!, ref.targetPointer!,ref.kind)?.family;
         const context = targetKinds[ref.kind];
-        const validator = context && validators[targetFamily] && ajv.getSchema(structuralSchema(targetFamily).$id + '#/$defs/' + context);
+        const standard = context && structuralSchema(targetFamily);
+        const validator = standard && ajv.getSchema(standard.$id + '#/$defs/' + context);
         const target = docs.get(ref.targetResource!)!;
         const targetValue = target.dataNode(ref.targetPointer!)!.value;
         if (validator && !(targetValue && typeof targetValue.$ref === 'string') && !validator(targetFamily==='2.0'?swaggerNativeMetaView(target,graph,ref.targetPointer!,targetValue):targetValue))

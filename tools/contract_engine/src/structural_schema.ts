@@ -94,9 +94,8 @@ export function structuralReference(reference:string,standard:any):any {
     if(!fragment.startsWith('#/'))return;
     return fragment.slice(2).split('/').reduce((value:any,key:string)=>value?.[key.replaceAll('~1','/').replaceAll('~0','~')],source);
 }
-export const structuralValidators: Record<string, ReturnType<typeof structuralEvaluator.compile>> = {};
-for (const [family, schema] of Object.entries(schemas))
-    structuralValidators[family] = structuralEvaluator.compile(JSON.parse(JSON.stringify(schema).replaceAll('"$dynamicRef":"#meta"', '"$ref":"#/$defs/schema"')));
+for (const schema of Object.values(schemas))
+    structuralEvaluator.addSchema(JSON.parse(JSON.stringify(schema).replaceAll('"$dynamicRef":"#meta"', '"$ref":"#/$defs/schema"')));
 
 export function structuralDefinition(kind: string, family: string, value: any = {}, contextName = ''): any {
     const schema = structuralSchema(family);
