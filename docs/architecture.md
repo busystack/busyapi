@@ -294,6 +294,17 @@ boundaries retain exact byte checks. Read-only schema feedback does not reread i
 entire input merely to compare freshness. Captures contain sendable data, with
 current versions queried from the source owner rather than process closures.
 
+Inspected targets and adopted projection items retain their original immutable
+authoring footprint from that capture. Project identity, input identities,
+revisions and resource versions remain separate from the content snapshot ID.
+Core validates this footprint with the same input/version predicate used by
+AnalysisSnapshot; existing structural eligibility supplies the field restrictions.
+Final mutation does not depend on old global feedback or its checking state.
+Only an accepted flush of the same owned target can rebind its fields. Cache
+eviction preserves unchanged authority, while same-content permission changes
+and same-path project replacement cannot authorize a retired action. This adds
+no parser, graph, schema-check or per-paint freshness phase.
+
 The shared syntax cache keys resource identity and actual immutable text. Derived
 text cannot inherit its input's parse by retaining old generation/identity fields,
 and parser lookup no longer computes another whole-text SHA digest. Graph maps
@@ -465,6 +476,12 @@ directory lock, updating sizes as it writes. Each batch releases ownership for
 other writers and reconciles their records before continuing. Encoding runs off
 the UI isolate; flushed atomic replacement, bounded storage, guarded retirement
 and explicit errors remain. Process identity is captured once per recovery session.
+An owned form transaction defers its intermediate checkpoints until its final
+durable capture has consumed the form. Explicit workspace drains still capture
+input while Apply is held. Ordinary affected records are enqueued together before
+awaiting the writer. A grouped record remains durable until all replacement
+individual records complete; guarded retirement and grouped publication ordering
+retain that boundary.
 
 Private staging and adjacent archive directories use visible `busyapi-*` names with enforced `0700` permissions. File staging sets that mode through its retained directory handle before writing bytes; confidentiality does not depend on a hidden basename or the process umask. This permits a selected contract/output directly under home through Snap's ordinary home interface, without hidden-file grants. Existing version-1 recovery records naming the original dot-prefixed archives remain subject to the same adjacency, source/destination identity, collision and no-replay checks. Namespace classification alone grants no access or publication authority.
 
