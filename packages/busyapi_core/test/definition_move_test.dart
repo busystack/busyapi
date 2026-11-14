@@ -23,10 +23,10 @@ void main() {
     await File('${temp.path}/busyapi.yaml').writeAsString(
       'version: 1\nroots:\n  - name: working\n    path: root.json\n  - name: models\n    path: models.json\n',
     );
-    final child = await Process.start('$fixtureDirectory/definition-move-child', [
-      temp.path,
-      '${temp.path}/state',
-    ]);
+    final child = await Process.start(
+      '$fixtureDirectory/definition-move-child',
+      [temp.path, '${temp.path}/state'],
+    );
     addTearDown(() async {
       child.kill(ProcessSignal.sigkill);
       await child.exitCode;
@@ -60,11 +60,28 @@ void main() {
     addTearDown(project.close);
     final publications = PublicationStore('${temp.path}/state');
     final record = (await publications.inspect(project)).single;
+    final planned = (record['planned'] as List).cast<Map>();
     expect(
-      record['published'],
-      isEmpty,
-      reason: 'The child died before recording the real first publication',
+      planned.map((entry) => entry['id']),
+      unorderedEquals([root.uri.toString(), destination.uri.toString()]),
     );
+    final rootIntent = planned.singleWhere(
+      (entry) => entry['id'] == root.uri.toString(),
+    );
+    expect([
+      if (rootIntent['hasBom'] == true) ...[239, 187, 191],
+      ...utf8.encode(rootIntent['text'] as String),
+    ], publishedRoot);
+    final destinationIntent = planned.singleWhere(
+      (entry) => entry['id'] == destination.uri.toString(),
+    );
+    expect(destinationIntent['baseline'], originalDestination);
+    expect(
+      destinationIntent['expected'],
+      contentIdentity(utf8.encode(originalDestination)),
+    );
+    expect(destinationIntent['text'], contains('900719925474099312345'));
+    expect(destinationIntent['text'], contains('"Stored"'));
     final outcomes = (record['outcomes'] as List).cast<Map>();
     expect(
       outcomes.singleWhere((e) => e['id'] == root.uri.toString())['outcome'],
