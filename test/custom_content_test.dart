@@ -87,7 +87,10 @@ class _ObservedCustomController extends WorkspaceController {
   }
 
   @override
-  Future<void> persist({bool all = true}) => observe('recovery', super.persist);
+  Future<void> persist({bool all = false}) => observe(
+    'recovery(all:$all)',
+    () => super.persist(all: all),
+  );
   @override
   Future<void> persistView() => observe('view', super.persistView);
   @override

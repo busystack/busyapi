@@ -55,6 +55,8 @@ class TracedEngineProcess extends EngineProcess {
     'engine:$method',
     () => super.request(method, params, requestId: requestId),
   );
+  @override
+  Future<void> close() => trace.run('engine:close', super.close);
 }
 
 class TracedWorkspaceController extends WorkspaceController {
@@ -64,10 +66,17 @@ class TracedWorkspaceController extends WorkspaceController {
           p.join(locations.state, 'recovery'),
           onCheckpointPhase: trace.note,
         ),
+        viewStateWriter: (path, value) => trace.run(
+          'view:write',
+          () => writePrivateJson(path, value),
+        ),
       );
   final WorkspaceIoTrace trace;
   @override
-  Future<void> persist({bool all = true}) => trace.run('persist', super.persist);
+  Future<void> persist({bool all = false}) => trace.run(
+    'persist(all:$all)',
+    () => super.persist(all: all),
+  );
   @override
   Future<void> initialize() => trace.run('initialize', super.initialize);
   @override

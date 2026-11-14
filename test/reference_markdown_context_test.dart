@@ -7,14 +7,13 @@ import 'package:busyapi/src/app/busyapi_design.dart';
 import 'package:busyapi/src/reference/owned_reference_markdown.dart';
 import 'package:busyapi/src/reference/reference_object.dart';
 import 'package:busyapi/src/reference/reference_view.dart';
-import 'package:busyapi/src/workspace/workspace_controller.dart';
 import 'package:busyapi_core/busyapi_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../packages/busyapi_core/test/test_support.dart';
 import 'widget_io.dart';
+import 'workspace_io_trace.dart';
 
 Future<void> ready(WidgetTester tester, bool Function() done) async {
   final deadline = DateTime.now().add(const Duration(seconds: 10));
@@ -85,13 +84,15 @@ void main() {
               },
             }),
           );
-          final c = WorkspaceController(
-            EngineProcess(executable: runtimeNode, helper: runtimeHelper),
+          final trace = WorkspaceIoTrace();
+          final c = TracedWorkspaceController(
+            TracedEngineProcess(trace),
             StateLocations(
               config: '${temp.path}/config',
               state: '${temp.path}/state',
               cache: '${temp.path}/cache',
             ),
+            trace,
           );
           final copied = <String>[];
           tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
@@ -206,7 +207,7 @@ void main() {
               await c.shutdown();
               c.dispose();
               await temp.delete(recursive: true);
-            });
+            }, describeState: () => trace.describe(c));
           }
         },
       );
