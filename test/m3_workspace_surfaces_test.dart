@@ -84,6 +84,15 @@ void main() {
         ),
       );
       final errors = <Object>[];
+      final contractRow = find.byKey(const ValueKey('openapi.yaml'));
+      final stageContract = find.descendant(
+        of: contractRow,
+        matching: find.byWidgetPredicate(
+          (widget) =>
+              widget is BusyApiCompactIconButton &&
+              widget.tooltip == 'Stage reviewed disk content',
+        ),
+      );
       Future<void> waitFor(bool Function() condition) async {
         for (
           var i = 0;
@@ -98,7 +107,13 @@ void main() {
           await tester.pump(const Duration(milliseconds: 20));
         }
         expect(errors, isEmpty);
-        expect(find.byType(LinearProgressIndicator), findsNothing);
+        expect(
+          find.byType(LinearProgressIndicator),
+          findsNothing,
+          reason:
+              'status=${tester.widgetList<BusyApiStatusBox>(find.byType(BusyApiStatusBox)).map((w) => w.message).toList()}; '
+              'reviewed=${contractRow.evaluate().length}',
+        );
         expect(
           condition(),
           true,
@@ -143,31 +158,29 @@ void main() {
           ),
         );
         await tester.tap(find.text('Open Git'));
-        await waitFor(
-          () => find
-              .byTooltip('Stage reviewed disk content')
-              .evaluate()
-              .isNotEmpty,
-        );
+        await waitFor(() => stageContract.evaluate().isNotEmpty);
         expect(find.textContaining('new-api'), findsWidgets);
-        await tester.tap(find.byTooltip('Stage reviewed disk content').first);
+        await tester.ensureVisible(stageContract);
+        await tester.tap(stageContract);
         await tester.pumpAndSettle();
         await tester.tap(find.widgetWithText(BusyApiDialogButton, 'Apply'));
         await waitFor(
           () =>
               find.byType(BusyApiRawSourceView).evaluate().isNotEmpty &&
-              find
-                  .byWidgetPredicate(
-                    (w) =>
-                        w is BusyApiCompactIconButton &&
-                        w.tooltip == 'Stage reviewed disk content' &&
-                        w.onPressed != null,
-                  )
-                  .evaluate()
-                  .isNotEmpty,
+              stageContract.evaluate().any(
+                (entry) =>
+                    (entry.widget as BusyApiCompactIconButton).onPressed !=
+                    null,
+              ),
         );
-        await tester.tap(find.byTooltip('Stage reviewed disk content').first);
-        await waitFor(() => find.byTooltip('Unstage').evaluate().isNotEmpty);
+        await tester.ensureVisible(stageContract);
+        await tester.tap(stageContract);
+        await waitFor(
+          () => find
+              .descendant(of: contractRow, matching: find.byTooltip('Unstage'))
+              .evaluate()
+              .isNotEmpty,
+        );
         await waitFor(
           () =>
               tester
@@ -362,10 +375,7 @@ tests:
   - {name: unselected, operation: {method: post, path: /unselected}}
 ''');
       final workspace = WorkspaceController(
-        EngineProcess(
-          executable: runtimeNode,
-          helper: runtimeHelper,
-        ),
+        EngineProcess(executable: runtimeNode, helper: runtimeHelper),
         StateLocations(
           config: '${temp.path}/config',
           state: '${temp.path}/state',
@@ -650,10 +660,7 @@ environments:
       schemes: {access: {tokenRef: 123e4567-e89b-42d3-a456-426614174000}}
 ''');
       final workspace = WorkspaceController(
-        EngineProcess(
-          executable: runtimeNode,
-          helper: runtimeHelper,
-        ),
+        EngineProcess(executable: runtimeNode, helper: runtimeHelper),
         StateLocations(
           config: '${temp.path}/config',
           state: '${temp.path}/state',
@@ -747,7 +754,10 @@ environments:
         );
         expect(input, findsOneWidget);
         await tester.enterText(input, 'draft-only');
-        expect(request.parameters.values.map((value) => value.text), contains('draft-only'));
+        expect(
+          request.parameters.values.map((value) => value.text),
+          contains('draft-only'),
+        );
         expect(workspace.buffer!.text, original);
         expect(contract.readAsStringSync(), original);
         request.selectEnvironment('local');
@@ -770,7 +780,10 @@ environments:
         );
         await tester.runAsync(() => request.open(selectedOperation));
         await tester.pumpAndSettle();
-        expect(request.parameters.values.map((value) => value.text), contains('draft-only'));
+        expect(
+          request.parameters.values.map((value) => value.text),
+          contains('draft-only'),
+        );
         expect(request.environment, 'local');
         request.securityAlternative =
             1; // Explicit anonymous requirement, not environment fallback.
@@ -785,13 +798,22 @@ environments:
         expect(request.parameters, isEmpty);
         request.editParameter('other-input', 'other-owned');
         await tester.runAsync(() => request.open(selectedOperation));
-        expect(request.parameters.values.map((value) => value.text), contains('draft-only'));
-        expect(request.parameters.values.map((value) => value.text), isNot(contains('other-owned')));
+        expect(
+          request.parameters.values.map((value) => value.text),
+          contains('draft-only'),
+        );
+        expect(
+          request.parameters.values.map((value) => value.text),
+          isNot(contains('other-owned')),
+        );
         request.headerName = 'X-Local';
         request.headerValue = 'local-only';
         request.selectEnvironment(null);
         expect(request.headerValue, isEmpty);
-        expect(request.parameters.values.map((value) => value.text), contains('draft-only'));
+        expect(
+          request.parameters.values.map((value) => value.text),
+          contains('draft-only'),
+        );
         request.selectEnvironment('local');
         expect(request.headerValue, 'local-only');
         workspace.project!.store.replace(
@@ -800,10 +822,16 @@ environments:
         );
         await tester.runAsync(() => request.open(selectedOperation));
         expect(request.outdated, true);
-        expect(request.parameters.values.map((value) => value.text), contains('draft-only'));
+        expect(
+          request.parameters.values.map((value) => value.text),
+          contains('draft-only'),
+        );
         await tester.runAsync(request.reconcileDraft);
         expect(request.outdated, false);
-        expect(request.parameters.values.map((value) => value.text), contains('draft-only'));
+        expect(
+          request.parameters.values.map((value) => value.text),
+          contains('draft-only'),
+        );
         request.discardDraft();
         expect(request.parameters, isEmpty);
         expect(request.headerValue, isEmpty);
