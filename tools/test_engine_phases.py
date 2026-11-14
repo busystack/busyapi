@@ -1,4 +1,5 @@
 """Production/test asset admission and current-candidate qualification."""
+import io
 import json
 from pathlib import Path
 import shutil
@@ -97,47 +98,94 @@ class EnginePhases(unittest.TestCase):
                 runner.execute(Path('/selected/node'), self.value)
         self.assertEqual(run.call_count, 1)
 
-    def test_candidate_qualification_stops_at_a_retained_behavior_failure(self):
-        failure = subprocess.CalledProcessError(9, 'retained behavior')
+    def test_candidate_rejects_behavior_failures_after_covering_every_independent_gate(self):
+        flutter = '/sdk/bin/flutter'
+        core = '/sdk/bin/cache/dart-sdk/bin/dart'
+        gates = [(flutter, 'test', '--no-pub'),
+                 (core, 'test', 'packages/busyapi_core/test'),
+                 ('tools/build_engine.sh', 'test-all'),
+                 (str(qualification.BUNDLE / 'libexec/busyapi/node'), '--test',
+                  'tools/documentation_renderers/test_assets.mjs'),
+                 ('python3', 'tools/artifact_smoke.py', str(qualification.BUNDLE))]
+        failed = {gates[0]: 9, gates[2]: 11}
 
         def execute(command, **_):
-            if command == ['tools/build_engine.sh', 'test-all']:
-                raise failure
+            if tuple(command) in failed:
+                raise subprocess.CalledProcessError(failed[tuple(command)], command)
 
-        with patch.object(qualification.shutil, 'which', return_value='/sdk/bin/flutter'), \
-                patch.object(qualification, 'capture', return_value={'candidate': 'fixed'}), \
-                patch.object(qualification.subprocess, 'run', side_effect=execute) as run:
+        output = io.StringIO()
+        with patch.object(qualification.shutil, 'which', return_value=flutter), \
+                patch.object(qualification, 'capture', return_value={'candidate': 'fixed'}) as capture, \
+                patch.object(qualification.subprocess, 'run', side_effect=execute) as run, \
+                patch.object(sys, 'stdout', output):
             with self.assertRaises(subprocess.CalledProcessError) as caught:
-                qualification.qualify('/sdk/bin/flutter')
-        self.assertEqual(caught.exception.returncode, 9)
-        self.assertFalse(any('artifact_smoke.py' in str(call) for call in run.call_args_list))
+                qualification.qualify(flutter)
+        self.assertIn(caught.exception.returncode, failed.values())
+        commands = [tuple(call.args[0]) for call in run.call_args_list]
+        self.assertTrue(all(commands.count(gate) == 1 for gate in gates))
+        self.assertEqual([call.args[0] for call in capture.call_args_list[-2:]],
+                         [qualification.ROOT, qualification.BUNDLE])
+        self.assertIn('FAILED official Flutter widgets (exit 9)', output.getvalue())
+        self.assertIn('FAILED registered Engine/renderer suites (exit 11)', output.getvalue())
+        self.assertNotIn('PASS', output.getvalue())
 
     def test_qualification_uses_installed_candidate_and_one_official_widget_harness(self):
+        output = io.StringIO()
         with patch.object(qualification.shutil, 'which', return_value='/sdk/bin/flutter'), \
                 patch.object(qualification, 'capture', return_value={'candidate': 'fixed'}), \
-                patch.object(qualification.subprocess, 'run') as run:
+                patch.object(qualification.subprocess, 'run') as run, \
+                patch.object(sys, 'stdout', output):
             qualification.qualify('/sdk/bin/flutter')
         commands = [call.args[0] for call in run.call_args_list]
         self.assertEqual(sum(command[1:3] == ['test', '--no-pub'] for command in commands), 1)
-        self.assertTrue(any(command[-1] == '--helpers-only' for command in commands))
+        self.assertEqual(commands.count(['tools/build_engine.sh', 'prepare-tests']), 1)
+        self.assertEqual(commands.count(['tools/prepare_test_runtime.sh', '--helpers-only']), 1)
+        self.assertIn('PASS automated Linux candidate qualification', output.getvalue())
         self.assertTrue(all(call.kwargs['env']['BUSYAPI_TEST_BUNDLE'] == str(qualification.BUNDLE)
                             for call in run.call_args_list))
         self.assertTrue(all(call.kwargs['env']['BUSYAPI_TEST_FIXTURE_DIRECTORY'] == str(qualification.FIXTURES)
                             for call in run.call_args_list))
         self.assertFalse(qualification.FIXTURES.is_relative_to(qualification.BUNDLE))
+        gates = {tuple(command) for command in commands if command[1:3] == ['test', '--no-pub']
+                 or command[-1] == 'packages/busyapi_core/test'
+                 or command[-1] == 'test-all' or '--test' in command
+                 or 'tools/artifact_smoke.py' in command}
+        for prerequisite in [('tools/build_linux.sh', 'release'),
+                             ('/sdk/bin/flutter', 'analyze', '--no-pub'),
+                             ('tools/build_engine.sh', 'prepare-tests'),
+                             ('tools/prepare_test_runtime.sh', '--helpers-only')]:
+            def execute(command, **_):
+                if tuple(command) == prerequisite:
+                    raise subprocess.CalledProcessError(23, command)
+
+            with self.subTest(prerequisite=prerequisite), \
+                    patch.object(qualification.shutil, 'which', return_value='/sdk/bin/flutter'), \
+                    patch.object(qualification, 'capture', return_value={'candidate': 'fixed'}), \
+                    patch.object(qualification.subprocess, 'run', side_effect=execute) as run:
+                with self.assertRaises(subprocess.CalledProcessError):
+                    qualification.qualify('/sdk/bin/flutter')
+            self.assertFalse(gates.intersection(tuple(call.args[0]) for call in run.call_args_list))
 
     def test_changed_candidate_or_source_rejects_qualification(self):
         for captures in [
             [{'source': 'before'}, {'source': 'changed'}],
             [{'source': 'same'}, {'source': 'same'}, {'candidate': 'before'},
              {'source': 'same'}, {'candidate': 'changed'}],
+            [{'source': 'before'}, {'source': 'before'}, {'candidate': 'same'},
+             {'source': 'changed'}, {'candidate': 'same'}],
         ]:
+            output = io.StringIO()
             with self.subTest(captures=captures), \
                     patch.object(qualification.shutil, 'which', return_value='/sdk/bin/flutter'), \
-                    patch.object(qualification, 'capture', side_effect=captures), \
-                    patch.object(qualification.subprocess, 'run'):
+                    patch.object(qualification, 'capture', side_effect=captures) as capture, \
+                    patch.object(qualification.subprocess, 'run'), \
+                    patch.object(sys, 'stdout', output):
                 with self.assertRaisesRegex(RuntimeError, 'changed'):
                     qualification.qualify('/sdk/bin/flutter')
+            if len(captures) > 2:
+                self.assertEqual([call.args[0] for call in capture.call_args_list[-2:]],
+                                 [qualification.ROOT, qualification.BUNDLE])
+            self.assertNotIn('PASS', output.getvalue())
 
     def test_changed_inputs_or_helpers_reject_admission(self):
         files = {target: 'hash' for _, target in runner.RUNTIME_ENTRYPOINTS}

@@ -232,11 +232,13 @@ To assemble and automatically qualify one candidate in the same invocation:
 python3 tools/qualify_linux.py
 ```
 
-This runs the registered Engine/renderer suites, analysis, the official Flutter
-widget harness once, Core/CLI tests against the installed candidate, and installed
-artifact smoke checks. Flutter and Dart use their standard test concurrency.
-A retained behavior failure, changed candidate input or
-changed installed file rejects qualification. Process-test helpers are prepared
+Assembly, analysis and helper preparation must succeed before behavioral checks.
+The official Flutter widget harness runs once, followed sequentially by Core/CLI
+tests, registered Engine/renderer suites, renderer asset checks and installed
+artifact smoke checks. Every independent check runs even if an earlier check
+fails; any failure rejects the candidate. Flutter and Dart use their standard
+test concurrency. Changed candidate inputs or installed files also reject
+qualification. Process-test helpers are prepared
 separately without rebuilding production assets. `BUSYAPI_TEST_BUNDLE` selects
 the installed product; `BUSYAPI_TEST_FIXTURE_DIRECTORY` selects only development
 process executables (default `build/test-runtime`). Qualification fixes these to

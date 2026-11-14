@@ -64,15 +64,30 @@ def qualify(flutter):
     candidate = capture(BUNDLE)
     run(flutter, 'analyze', '--no-pub')
     run('tools/build_engine.sh', 'prepare-tests')
-    run('tools/build_engine.sh', 'test-all')
-    run(BUNDLE / 'libexec/busyapi/node', '--test',
-        'tools/documentation_renderers/test_assets.mjs')
     run('tools/prepare_test_runtime.sh', '--helpers-only')
-    run(flutter, 'test', '--no-pub')
-    run(dart, 'test', 'packages/busyapi_core/test')
-    run('python3', 'tools/artifact_smoke.py', BUNDLE)
-    if source != capture(ROOT, source=True) or candidate != capture(BUNDLE):
+    failures = []
+    for name, command in [
+        ('official Flutter widgets', (flutter, 'test', '--no-pub')),
+        ('Core/CLI tests', (dart, 'test', 'packages/busyapi_core/test')),
+        ('registered Engine/renderer suites', ('tools/build_engine.sh', 'test-all')),
+        ('renderer assets', (BUNDLE / 'libexec/busyapi/node', '--test',
+                             'tools/documentation_renderers/test_assets.mjs')),
+        ('installed artifact smoke', ('python3', 'tools/artifact_smoke.py', BUNDLE)),
+    ]:
+        print('Checking ' + name, flush=True)
+        try:
+            run(*command)
+        except subprocess.CalledProcessError as error:
+            failures.append((name, error))
+            print(f'FAILED {name} (exit {error.returncode})', flush=True)
+    source_after = capture(ROOT, source=True)
+    candidate_after = capture(BUNDLE)
+    if failures:
+        print('Failed behavioral gates: ' + ', '.join(name for name, _ in failures), flush=True)
+    if source != source_after or candidate != candidate_after:
         raise RuntimeError('Candidate inputs or installed files changed during qualification')
+    if failures:
+        raise failures[0][1]
     print('PASS automated Linux candidate qualification; native/platform acceptance remains separate')
 
 
