@@ -63,7 +63,13 @@ class _MigrationReviewState extends State<_MigrationReview> {
   _CaptureFailure? captureFailure;
   final decisions = <String, String>{};
   bool busy = false, publishing = false, published = false, cancelled = false;
-  int epoch = 0, resourceIndex = 0, problemPage = 0, bindingPage = 0, alternativePage = 0, configurationPage = 0, parameterPage = 0;
+  int epoch = 0,
+      resourceIndex = 0,
+      problemPage = 0,
+      bindingPage = 0,
+      alternativePage = 0,
+      configurationPage = 0,
+      parameterPage = 0;
   bool get current =>
       mounted &&
       !widget.workspace.disposed &&
@@ -231,15 +237,14 @@ class _MigrationReviewState extends State<_MigrationReview> {
     }
   }
 
-  Future<void> revealCaptureFinding(
-    _CaptureFailure capturedFailure,
+  Future<void> revealFinding(
     _CaptureFinding finding,
+    bool Function() ownsCapture,
   ) async {
     if (!current ||
         busy ||
         ModalRoute.of(context)?.isCurrent != true ||
-        !identical(captureFailure, capturedFailure) ||
-        !capturedFailure.current(widget.owner.store)) {
+        !ownsCapture()) {
       return;
     }
     final captured = ++epoch;
@@ -258,10 +263,9 @@ class _MigrationReviewState extends State<_MigrationReview> {
           cancelled ||
           captured != epoch ||
           ModalRoute.of(context)?.isCurrent != true ||
-          !identical(captureFailure, capturedFailure)) {
+          !ownsCapture()) {
         return;
       }
-      if (!capturedFailure.current(widget.owner.store)) return;
       if (finding.range.end > buffer.text.length) {
         readFailure = context.l10n.outputOutdated;
         return;
@@ -359,8 +363,14 @@ class _MigrationReviewState extends State<_MigrationReview> {
             busy: busy,
             page: problemPage,
             onPageChanged: (page) => setState(() => problemPage = page),
-            onReveal: (finding) =>
-                unawaited(revealCaptureFinding(capturedFailure, finding)),
+            onReveal: (finding) => unawaited(
+              revealFinding(
+                finding,
+                () =>
+                    identical(captureFailure, capturedFailure) &&
+                    capturedFailure.current(widget.owner.store),
+              ),
+            ),
           ),
         if (published)
           BusyApiStatusBox(
@@ -392,37 +402,55 @@ class _MigrationReviewState extends State<_MigrationReview> {
               pages: (review.securityBindings.length / 50).ceil(),
               onChanged: (page) => setState(() => bindingPage = page),
             ),
-          for (final binding in review.securityBindings.skip(bindingPage * 50).take(50))
-            SelectableText('${binding.resource} ${binding.pointer}\n${binding.before} → ${binding.after}'),
+          for (final binding
+              in review.securityBindings.skip(bindingPage * 50).take(50))
+            SelectableText(
+              '${binding.resource} ${binding.pointer}\n${binding.before} → ${binding.after}',
+            ),
           if (review.authenticationAlternatives.length > 50)
             BusyApiReviewPages(
               page: alternativePage,
               pages: (review.authenticationAlternatives.length / 50).ceil(),
               onChanged: (page) => setState(() => alternativePage = page),
             ),
-          for (final alternative in review.authenticationAlternatives.skip(alternativePage * 50).take(50))
-            SelectableText('${alternative.environment} · ${l.securityAlternative(alternative.before + 1)} → ${l.securityAlternative(alternative.after + 1)}'),
+          for (final alternative
+              in review.authenticationAlternatives
+                  .skip(alternativePage * 50)
+                  .take(50))
+            SelectableText(
+              '${alternative.environment} · ${l.securityAlternative(alternative.before + 1)} → ${l.securityAlternative(alternative.after + 1)}',
+            ),
           if (review.configurationProjections.length > 50)
             BusyApiReviewPages(
               page: configurationPage,
               pages: (review.configurationProjections.length / 50).ceil(),
               onChanged: (page) => setState(() => configurationPage = page),
             ),
-          for (final change in review.configurationProjections.skip(configurationPage * 50).take(50))
-            SelectableText('${change.pointer}\n${change.before ?? '∅'} → ${change.after}'),
+          for (final change
+              in review.configurationProjections
+                  .skip(configurationPage * 50)
+                  .take(50))
+            SelectableText(
+              '${change.pointer}\n${change.before ?? '∅'} → ${change.after}',
+            ),
           if (review.parameterChanges.length > 50)
             BusyApiReviewPages(
               page: parameterPage,
               pages: (review.parameterChanges.length / 50).ceil(),
               onChanged: (page) => setState(() => parameterPage = page),
             ),
-          for (final change in review.parameterChanges.skip(parameterPage * 50).take(50))
+          for (final change
+              in review.parameterChanges.skip(parameterPage * 50).take(50))
             BusyApiActionRow(
               title: '${change.name} · ${change.before} → ${change.after}',
               subtitle: '${change.resource} ${change.pointer}',
-              onTap: busy ? null : () => Navigator.pop(context, <String, dynamic>{
-                'root': widget.root, 'resource': change.resource, 'pointer': change.pointer,
-              }),
+              onTap: busy
+                  ? null
+                  : () => Navigator.pop(context, <String, dynamic>{
+                      'root': widget.root,
+                      'resource': change.resource,
+                      'pointer': change.pointer,
+                    }),
             ),
           if ((review.result['presentationChanges'] as List).isNotEmpty)
             Text(l.migrationPresentation),
@@ -437,18 +465,27 @@ class _MigrationReviewState extends State<_MigrationReview> {
             BusyApiActionRow(
               title: problem.message,
               subtitle: '${problem.resource} ${problem.pointer}',
-              onTap: busy
+              onTap: busy || review.outdated
                   ? null
-                  : () => Navigator.pop(context, <String, dynamic>{
-                      'root': widget.root,
-                      'resource': problem.resource,
-                      'pointer': problem.pointer,
-                      'generation': review.snapshot.allInputs.firstWhere(
-                        (resource) => resource['id'] == problem.resource,
-                      )['generation'],
-                      'range': [problem.range.start, problem.range.end],
-                      'data': false,
-                    }),
+                  : () => unawaited(
+                      revealFinding(
+                        (
+                          message: problem.message,
+                          severity: 'error',
+                          resource: problem.resource,
+                          pointer: problem.pointer,
+                          range: problem.range,
+                        ),
+                        () =>
+                            identical(output, review) &&
+                            !review.outdated &&
+                            review.snapshot.resources.any(
+                              (resource) =>
+                                  resource['id'] == problem.resource &&
+                                  resource['bundled'] != true,
+                            ),
+                      ),
+                    ),
             ),
             if (problem.choices.isNotEmpty)
               BusyApiComboRow<String>(
@@ -466,7 +503,9 @@ class _MigrationReviewState extends State<_MigrationReview> {
                     : value == 'interpret-terms-as-uri'
                     ? l.migrationInterpretTermsUri
                     : value.startsWith('discriminator-alternative:')
-                    ? l.migrationDiscriminatorAlternative(problem.choiceDetails[value]!.label)
+                    ? l.migrationDiscriminatorAlternative(
+                        problem.choiceDetails[value]!.label,
+                      )
                     : value,
                 enabled: !busy,
                 onSelected: (value) => setState(() {
@@ -500,7 +539,13 @@ class _MigrationReviewState extends State<_MigrationReview> {
             const SizedBox(height: 12),
             Text(l.examples),
             for (final copy in review.exampleCopies)
-              SelectableText(l.migrationExampleCopy(copy.byteLength, copy.resource, copy.destination)),
+              SelectableText(
+                l.migrationExampleCopy(
+                  copy.byteLength,
+                  copy.resource,
+                  copy.destination,
+                ),
+              ),
           ],
         ],
       ],
