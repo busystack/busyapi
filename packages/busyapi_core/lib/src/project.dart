@@ -58,11 +58,31 @@ Future<void> _resourceBatch<T>(
 }
 
 class _SourceCapture {
-  _SourceCapture(this.snapshot, this.revision, Map<String, dynamic> structural,
-      this.saved) : structural = _freezeResult(structural);
+  _SourceCapture(this.snapshot, this.revision, Map<String, dynamic> result,
+      this.saved, int owner) {
+    final feedback = _freezeResult(result);
+    structural = Map.unmodifiable({
+      ...feedback,
+      'authoringContext': Map<String, dynamic>.unmodifiable({
+        'owner': owner, 'root': snapshot.root, 'snapshot': snapshot.identity,
+        'revision': revision, 'versions': snapshot._resourceVersions,
+        'inputs': List.unmodifiable([
+          for (final input in snapshot.allInputs)
+            Map<String, Object?>.unmodifiable({
+              for (final name in const ['id', 'generation', 'identity', 'kind', 'state', 'workingIdentity'])
+                if (input.containsKey(name)) name: input[name],
+            }),
+        ]),
+        'eligibility': Map<String, dynamic>.unmodifiable({
+          'status': feedback['status'], 'resources': feedback['resources'],
+          'authoring': feedback['authoring'],
+        }),
+      }),
+    });
+  }
   final AnalysisSnapshot snapshot;
   final int revision;
-  final Map<String, dynamic> structural;
+  late final Map<String, dynamic> structural;
   final bool saved;
 }
 
@@ -139,8 +159,9 @@ class AnalysisSnapshot {
        );
   final String root, identity, sourceIdentity;
   final Map<String, int> _resourceVersions;
-  bool _diskInputsCurrent(BufferStore store) => _resourceVersions.entries.every(
-      (entry) => store.resourceVersion(entry.key) == entry.value);
+  bool _diskInputsCurrent(BufferStore store) => _versionsCurrent(store, _resourceVersions);
+  static bool _versionsCurrent(BufferStore store, Map<String, int> versions) =>
+      versions.entries.every((entry) => store.resourceVersion(entry.key) == entry.value);
   static String _snapshotIdentity(
     String root,
     List<Map<String, Object?>> resources,
@@ -209,8 +230,10 @@ class AnalysisSnapshot {
         for (final resource in exampleResources) resource.toJson(),
       ],
   };
-  bool current(BufferStore store) =>
-      _diskInputsCurrent(store) && allInputs.every((input) => _inputCurrent(store, input));
+  bool current(BufferStore store) => _capturedInputsCurrent(store, allInputs, _resourceVersions);
+  static bool _capturedInputsCurrent(BufferStore store,
+      Iterable<Map<String, Object?>> inputs, Map<String, int> versions) =>
+      _versionsCurrent(store, versions) && inputs.every((input) => _inputCurrent(store, input));
 
   bool _examplesCurrent(BufferStore store) => exampleResources.every(
     (resource) => _inputCurrent(store, resource.ownership),
@@ -950,6 +973,8 @@ Future<bool> _discoverProjectFiles(
 }
 
 class BusyProject {
+  static int _captureSerial = 0;
+  final int _captureOwner = ++_captureSerial;
   BusyProject._(
     this.access,
     this.engine,
@@ -2148,7 +2173,7 @@ class BusyProject {
               snapshot.allInputs.any(
                 (input) => store.buffers[input['id']]?.dirty ?? false,
               );
-        final capture = _SourceCapture(snapshot, resourceRevision, result, saved);
+        final capture = _SourceCapture(snapshot, resourceRevision, result, saved, _captureOwner);
         if (!saved && !captureEntries) {
           _sourceCaptures.remove(root);
           _sourceCaptures[root] = capture;
@@ -2397,6 +2422,16 @@ class BusyProject {
     );
   }
 
+  /// Validate the original capture footprint, independently of cache residency.
+  Map<String, dynamic>? authoringContext(String root, Map<String, dynamic> context) {
+    if (_closed || context['owner'] != _captureOwner || context['root'] != root ||
+        context['revision'] != _resourceRevision ||
+        !AnalysisSnapshot._capturedInputsCurrent(store,
+            (context['inputs'] as List).cast<Map<String, Object?>>(),
+            (context['versions'] as Map).cast<String, int>())) return null;
+    return context['eligibility'] as Map<String, dynamic>;
+  }
+
   /// Lazy object pages consume the same approved coherent graph as checks.
   /// No renderer or field owns a resource loader or a second mutable document.
   Future<Map<String, dynamic>> inspectObject(
@@ -2406,7 +2441,8 @@ class BusyProject {
     int offset = 0,
     String? contextKind,
   }) async {
-    final (snapshot, revision) = await _objectSnapshot(root, resource);
+    final sourceCapture = await _objectCapture(root, resource);
+    final snapshot = sourceCapture.snapshot, revision = sourceCapture.revision;
     final result = await _requestSource('inspect', {
       ...snapshot.toJson(),
       'resource': resource,
@@ -2423,7 +2459,7 @@ class BusyProject {
         'The object changed while its page was loading',
       );
     }
-    return result;
+    return {...result, 'authoringContext': sourceCapture.structural['authoringContext']};
   }
 
   /// Recovery resolves the same generic object page as Design. Captured spelling
@@ -2510,12 +2546,13 @@ class BusyProject {
     if (range.length != 2 || range[0] < 0 || range[1] < range[0]) {
       throw CoreFailure('data.value.target', 'Choose a captured source range');
     }
-    final (snapshot, revision) = await _objectSnapshot(
+    final sourceCapture = await _objectCapture(
       root,
       resource,
       requestId: requestId,
       cancelled: cancelled,
     );
+    final snapshot = sourceCapture.snapshot, revision = sourceCapture.revision;
     final captured = snapshot.resources.singleWhere((r) => r['id'] == resource);
     if (captured['generation'] != generation) {
       throw CoreFailure(
@@ -2578,12 +2615,13 @@ class BusyProject {
     }
 
     active();
-    final (snapshot, revision) = await _objectSnapshot(
+    final sourceCapture = await _objectCapture(
       root,
       resource,
       requestId: requestId == null ? null : '$requestId:snapshot',
       cancelled: cancelled,
     );
+    final snapshot = sourceCapture.snapshot, revision = sourceCapture.revision;
     active();
     final result = await _requestSource('referenceChoices', {
       ...snapshot.toJson(),
@@ -2742,12 +2780,13 @@ class BusyProject {
     if (cancelled?.call() == true) {
       throw CoreFailure('cancelled', 'Tree closed');
     }
-    final (snapshot, revision) = await _objectSnapshot(
+    final sourceCapture = await _objectCapture(
       root,
       resource,
       requestId: requestId == null ? null : '$requestId:snapshot',
       cancelled: cancelled,
     );
+    final snapshot = sourceCapture.snapshot, revision = sourceCapture.revision;
     if (cancelled?.call() == true) {
       throw CoreFailure('cancelled', 'Tree closed');
     }
@@ -2856,11 +2895,12 @@ class BusyProject {
     String? parentKind,
     void Function(String resource)? onResourceRefreshed,
   }) async {
-    final (snapshot, revision) = await _objectSnapshot(
+    final sourceCapture = await _objectCapture(
       root,
       resource,
       onResourceRefreshed: onResourceRefreshed,
     );
+    final snapshot = sourceCapture.snapshot, revision = sourceCapture.revision;
     final result = await _requestSource('referencePage', {
       ...snapshot.toJson(),
       'resource': resource,
@@ -3065,7 +3105,7 @@ class BusyProject {
     return _freezeResult(result);
   }
 
-  Future<(AnalysisSnapshot, int)> _objectSnapshot(
+  Future<_SourceCapture> _objectCapture(
     String root,
     String resource, {
     String? requestId,
@@ -3099,7 +3139,7 @@ class BusyProject {
         'The resource context changed while its snapshot was being collected',
       );
     }
-    return (snapshot, revision);
+    return capture;
   }
 
   Future<SourceAssistance> assistSource(
@@ -3163,13 +3203,12 @@ class BusyProject {
       revision = _resourceRevision;
       snapshot = AnalysisSnapshot(root: root, resources: [captured]);
     } else {
-      (snapshot, revision) = await _objectSnapshot(
-        root,
-        resource,
-        requestId: '$requestId-collect',
-        cancelled: cancelled,
-        onResourceRefreshed: onResourceRefreshed,
+      final capture = await _objectCapture(
+        root, resource, requestId: '$requestId-collect',
+        cancelled: cancelled, onResourceRefreshed: onResourceRefreshed,
       );
+      snapshot = capture.snapshot;
+      revision = capture.revision;
     }
     if (cancelled())
       throw CoreFailure('cancelled', 'Source assistance was cancelled');
@@ -3282,7 +3321,8 @@ class BusyProject {
     Map<String, Object?> target, {
     bool nullable = false,
   }) async {
-    final (snapshot, revision) = await _objectSnapshot(root, resource);
+    final sourceCapture = await _objectCapture(root, resource);
+    final snapshot = sourceCapture.snapshot, revision = sourceCapture.revision;
     final result = await _requestSource('planSchemaSuggestion', {
       ...snapshot.toJson(),
       'resource': resource,
@@ -3523,12 +3563,10 @@ class BusyProject {
         'No deterministic repair is available',
       );
     }
-    final (snapshot, _) = await _objectSnapshot(
-      root,
-      resource,
-      requestId: requestId == null ? null : '$requestId:origin',
+    final snapshot = (await _objectCapture(
+      root, resource, requestId: requestId == null ? null : '$requestId:origin',
       cancelled: cancelled,
-    );
+    )).snapshot;
     if (snapshot.identity != contextSnapshot ||
         diagnostic['snapshot'] != snapshot.sourceIdentity) {
       throw CoreFailure('fix.stale', 'The diagnostic snapshot changed');
@@ -3970,24 +4008,21 @@ class BusyProject {
     final AnalysisSnapshot snap;
     final int? contextRevision;
     if (contextBound) {
-      final (AnalysisSnapshot, int) captured;
+      final _SourceCapture captured;
       try {
         // A proposal uses its inspected capture. Read-only assistance may
         // reacquire invalidated inputs; doing that here would silently rebase
         // pending metadata before the exact commit-boundary disk check.
-        final inspected = _sourceCaptures[root];
-        captured = inspected == null
-            ? await _objectSnapshot(root, b.id,
-                cancelled: current == null ? null : () => !current())
-            : (inspected.snapshot, inspected.revision);
+        captured = _sourceCaptures[root] ?? await _objectCapture(root, b.id,
+            cancelled: current == null ? null : () => !current());
       } on CoreFailure catch (failure) {
         if (failure.code == 'cancelled' && current != null && !current()) {
           throw CoreFailure('proposal.stale', 'The edit was retired');
         }
         rethrow;
       }
-      snap = captured.$1;
-      contextRevision = captured.$2;
+      snap = captured.snapshot;
+      contextRevision = captured.revision;
       if (b.generation != session.generation) {
         throw CoreFailure('draft.stale', 'The schema editor source changed');
       }

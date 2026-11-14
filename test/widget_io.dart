@@ -6,6 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 /// binding's fake frame zone. Awaiting it entirely inside runAsync prevents
 /// that zone from progressing. Start the real operation there, then drive
 /// frames until its actual completion, preserving errors and a bounded deadline.
+/// Await guarded WidgetTester actions and assertions outside this IO bridge;
+/// return actual IO results here, then assert them in the test's own zone.
 Future<T> runWidgetIo<T>(
   WidgetTester tester,
   Future<T> Function() operation, {

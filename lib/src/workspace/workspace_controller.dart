@@ -156,12 +156,14 @@ class WorkspaceController extends ChangeNotifier {
     String? authoredField,
     bool reviewedCopy = false,
     bool retainDraft = false,
+    Map<String, dynamic>? feedback,
   }) {
+    final eligibility = feedback ?? analysis;
     if ((referenceField != null && authoredField != null) ||
         (reviewedCopy && (referenceField != null || authoredField != null)) ||
         _disposed ||
         item is! Map ||
-        analysis?['status'] == 'unsupported' ||
+        eligibility?['status'] == 'unsupported' ||
         item['root'] != null && item['root'] != root) {
       return false;
     }
@@ -194,7 +196,9 @@ class WorkspaceController extends ChangeNotifier {
         draft?.pointer == item['pointer'] &&
         buffer != null &&
         buffer.generation == draft?.generation;
-    if ((checking || analysis == null) && !retained) return false;
+    if (((feedback == null && checking) || eligibility == null) && !retained) {
+      return false;
+    }
     final ownedCopy = reviewedCopy && item['reviewedCopySource'] is Map;
     final nodeKind = ownedCopy
         ? item['reviewedCopySource']['nodeKind']
@@ -207,8 +211,8 @@ class WorkspaceController extends ChangeNotifier {
     }
     // Capturing unpublished text must survive a scheduled check clearing its
     // feedback. Mutations still call this without retainDraft at final dispatch.
-    if (retained && analysis == null) return true;
-    final current = (analysis?['resources'] as List? ?? [])
+    if (retained && eligibility == null) return true;
+    final current = (eligibility?['resources'] as List? ?? [])
         .where((r) => r['id'] == resource)
         .firstOrNull;
     if (!retained &&
@@ -221,7 +225,7 @@ class WorkspaceController extends ChangeNotifier {
     }
     // The engine owns diagnostic/reference eligibility. Native controls only
     // query its captured restrictions at the selected source scope or field.
-    final restrictions = analysis?['authoring'];
+    final restrictions = eligibility?['authoring'];
     if (restrictions is! Map ||
         restrictions.containsKey(resource) && restrictions[resource] == null) {
       return false;
@@ -1935,11 +1939,50 @@ class WorkspaceController extends ChangeNotifier {
     if (!current()) {
       throw CoreFailure('draft.owner', 'Workspace is no longer active');
     }
+    final resource = item['resource'], pointer = item['pointer'];
+    var authority = item['authoringContext'] as Map<String, dynamic>?;
+    final buffer = store?.buffers[resource], pending = draft;
+    final generation = buffer?.generation;
+    if (buffer == null || item['generation'] != generation) {
+      throw CoreFailure('draft.stale', 'The captured source generation changed');
+    }
     if (!await (formApplying ? _flush() : flush())) {
       throw CoreFailure('draft.pending', 'Resolve pending fields first');
     }
     if (!current()) {
       throw CoreFailure('draft.owner', 'Workspace changed before applying');
+    }
+    if (!identical(store?.buffers[resource], buffer)) {
+      throw CoreFailure('draft.stale', 'The captured source owner changed');
+    }
+    if (buffer.generation != generation) {
+      final rebound = draft;
+      if (pending?.buffer != resource ||
+          pending?.pointer != pointer ||
+          pending?.generation != generation ||
+          rebound?.buffer != resource ||
+          rebound?.pointer != pointer ||
+          rebound?.generation != buffer.generation) {
+        throw CoreFailure('draft.stale', 'Source changed outside the accepted field flush');
+      }
+      item = await capturedProject!.inspectObject(
+        capturedRoot!, resource, pointer,
+        offset: item['offset'] as int? ?? 0,
+        contextKind: item['kind'] as String?,
+      );
+      if (!current() ||
+          !identical(store?.buffers[resource], buffer) ||
+          buffer.generation != rebound!.generation) {
+        throw CoreFailure('draft.stale', 'Source changed while rebinding its fields');
+      }
+      authority = item['authoringContext'] as Map<String, dynamic>?;
+    }
+    final capturedAuthority = authority;
+    final feedback = capturedAuthority == null ? null
+        : capturedProject!.authoringContext(capturedRoot!, capturedAuthority);
+    if (feedback == null || item['snapshot'] != null &&
+        item['snapshot'] != capturedAuthority!['snapshot']) {
+      throw CoreFailure('draft.stale', 'The captured authoring context changed');
     }
     final fieldPointer = authoredField == null
         ? null
@@ -1953,7 +1996,8 @@ class WorkspaceController extends ChangeNotifier {
               'remove',
             ].contains(actions.single['kind']) &&
             actions.single['pointer'] == fieldPointer;
-    if (!singleField || !scopeSafe(item, authoredField: authoredField)) {
+    if (!singleField ||
+        !scopeSafe(item, authoredField: authoredField, feedback: feedback)) {
       throw CoreFailure(
         'draft.scope',
         'This source scope is unavailable or changed; retain the draft and review its source',
@@ -1964,7 +2008,8 @@ class WorkspaceController extends ChangeNotifier {
       capturedRoot!,
       session,
       actions,
-      current: current,
+      current: () => current() &&
+          capturedProject.authoringContext(capturedRoot, capturedAuthority!) != null,
     );
     if (!current()) {
       throw CoreFailure('draft.owner', 'Workspace changed while applying');
@@ -2448,9 +2493,18 @@ class WorkspaceController extends ChangeNotifier {
         }
       }
       project.files.sort();
-      analysis = result;
-      final projection =
-          result['projection'] as Map<String, dynamic>? ?? result;
+      final source = result['projection'] as Map<String, dynamic>? ?? result;
+      final authority = result['authoringContext'];
+      final owned = <String, dynamic>{
+        if (source['info'] is Map)
+          'info': <String, dynamic>{...source['info'] as Map, 'authoringContext': authority},
+        for (final name in const ['operations', 'components', 'pathItems', 'otherRootObjects'])
+          if (source[name] is List)
+            name: <Map<String, dynamic>>[for (final value in source[name] as List)
+              <String, dynamic>{...value as Map, 'authoringContext': authority}],
+      };
+      final projection = <String, dynamic>{...source, ...owned};
+      analysis = {...result, ...owned, 'projection': projection};
       if (!(projection['status'] == 'incomplete' &&
               lastGood != null &&
               (projection['operations'] as List).length <

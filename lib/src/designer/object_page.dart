@@ -2303,6 +2303,7 @@ Future<Map<String, dynamic>?> _prepareObjectAction(
       identical(c.project, owner) &&
       c.root == root &&
       c.navigationGeneration == navigation &&
+      identical(c.store?.buffers[item['resource']], buffer) &&
       selection ==
           (c.selectedResource, c.selectedPointer, c.selectedOccurrence);
   bool rebound() =>

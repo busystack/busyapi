@@ -154,17 +154,16 @@ void main() {
           final created = controller.buffer!.text;
           expect(created, isNot(original));
           expect(file.readAsStringSync(), original);
-          await runWidgetIo(tester, () async {
-            await tester.enterText(
-              find.descendant(
-                of: reference,
-                matching: find.byType(EditableText),
-              ),
-              '#/definitions/Payload',
-            );
-            expect(await controller.flush(), true);
+          await tester.enterText(
+            find.descendant(of: reference, matching: find.byType(EditableText)),
+            '#/definitions/Payload',
+          );
+          final flushed = await runWidgetIo(tester, () async {
+            final flushed = await controller.flush();
             await controller.analyse();
+            return flushed;
           });
+          expect(flushed, true);
           final changed = controller.buffer!.text;
           expect(changed, isNot(created));
           expect(changed, contains('#/definitions/Payload'));

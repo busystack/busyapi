@@ -174,7 +174,9 @@ void main() {
               239,
               187,
               191,
-              ...utf8.encode(source.replaceFirst('west', 'east')),
+              ...utf8.encode(
+                source.replaceFirst('west', json ? 'east' : '"east"'),
+              ),
             ]);
             await tester.runAsync(() => c.open(file.path));
             expect(c.buffer!.bytes(), file.readAsBytesSync());
