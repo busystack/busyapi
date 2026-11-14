@@ -817,11 +817,18 @@ class RecoveryStore {
               'Recovery document limit reached; buffers remain in memory',
             );
           }
-          _phase('encode:start');
-          final bytes = await Isolate.run(
-            () => utf8.encode(jsonEncode(payload)),
-          );
-          _phase('encode:end');
+          var capturedPayload = payload;
+          late List<int> bytes;
+          for (var attempt = 0; attempt < 2; attempt++) {
+            final captured = capturedPayload;
+            _phase('encode:start');
+            bytes = await Isolate.run(() => utf8.encode(jsonEncode(captured)));
+            _phase('encode:end');
+            // Consume one newer capture, then publish even if input continues.
+            // A guarded retirement must still follow this durable checkpoint.
+            if (attempt == 1 || _pending[id] == null) break;
+            capturedPayload = _pending.remove(id)!;
+          }
           final nextTotal = total - (sizes[destination] ?? 0) + bytes.length;
           if (bytes.length > 64 * 1024 * 1024 ||
               nextTotal > 128 * 1024 * 1024) {

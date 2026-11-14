@@ -172,6 +172,142 @@ void main() {
       'newest captured 雪😀',
     );
   });
+  test('a newer capture queued during encoding replaces the obsolete durable write', () async {
+    final temp = await Directory.systemTemp.createTemp(
+      'busyapi-recovery-encoding-',
+    );
+    addTearDown(() => temp.delete(recursive: true));
+    final source = File('${temp.path}/root.yaml');
+    const baseline = 'saved\r\n', newest = 'newest source 雪😀\r\n';
+    await source.writeAsString(baseline);
+    final b = DocumentBuffer.decode(source.path, await source.readAsBytes());
+    final buffers = BufferStore()..register(b);
+    buffers.replace(b.id, 'old source\n');
+    FormSession form(String value) => FormSession(
+      kind: 'example',
+      contentIdentity: textIdentity(b.text),
+      target: PropertySession(
+        root: b.id,
+        buffer: b.id,
+        generation: b.generation,
+        pointer: '',
+        range: [0, b.text.length],
+        expected: b.text,
+      ),
+      arguments: const {'media': 'application/json'},
+      initial: const {'example': '{}'},
+    )..edit('example', value);
+    final oldForm = form('old unfinished input');
+    late RecoveryStore recovery;
+    Future<void>? newer;
+    var queued = false, writes = 0, durable = false;
+    final completed = <Map>[];
+    Future<void> afterDurable(Future<void> pending) async {
+      await pending;
+      expect(durable, true);
+      final record = Directory(recovery.directory)
+          .listSync()
+          .whereType<File>()
+          .single;
+      completed.add(jsonDecode(await record.readAsString()) as Map);
+    }
+
+    recovery = RecoveryStore(
+      '${temp.path}/recovery',
+      onCheckpointPhase: (phase) {
+        if (phase == 'encode:start' && !queued) {
+          queued = true;
+          buffers.replace(b.id, newest);
+          buffers.setBom(b.id, true);
+          final newestForm = form('newest unfinished { 雪😀\r\n');
+          newer = afterDurable(recovery.persist(b, form: newestForm));
+          newestForm.edit('example', 'later uncaptured input');
+        }
+        if (phase == 'write:start') {
+          writes++;
+          expect(completed, isEmpty);
+        }
+        if (phase == 'rename:end') durable = true;
+      },
+    );
+    await afterDurable(recovery.persist(b, form: oldForm));
+    expect(newer, isNotNull);
+    await newer;
+    expect(completed, hasLength(2));
+    for (final record in completed) {
+      expect(record['text'], newest);
+      expect(record['hasBom'], true);
+      expect(record['baseline'], baseline);
+      expect(record['baselineHasBom'], false);
+      expect(record['generation'], b.generation);
+      expect(
+        record['form']['values']['example'],
+        'newest unfinished { 雪😀\r\n',
+      );
+    }
+    final recordFile = Directory(recovery.directory)
+        .listSync()
+        .whereType<File>()
+        .single;
+    final record = Map<String, dynamic>.from(completed.first)
+      ..['recordPath'] = recordFile.path;
+    final restored = DocumentBuffer.decode(
+      source.path,
+      await source.readAsBytes(),
+    );
+    final restoredBuffers = BufferStore()..register(restored);
+    final restoredForm = FormSession.restore(
+      Map<String, dynamic>.from(record['form'] as Map),
+    );
+    await RecoveryStore(recovery.directory)
+        .adopt(record, restored, store: restoredBuffers, form: restoredForm);
+    restoredForm.verify(restored, restored.id, restoring: true);
+    expect(restored.bytes(), [239, 187, 191, ...utf8.encode(newest)]);
+    expect(restoredForm.values['example'], 'newest unfinished { 雪😀\r\n');
+    expect(await source.readAsString(), baseline);
+    expect(writes, 1, reason: 'Only the newest captured payload needs writing');
+  });
+  test(
+    'an invalidated retirement queued during encoding retains that checkpoint',
+    () async {
+      final temp = await Directory.systemTemp.createTemp(
+        'busyapi-recovery-retire-encoding-',
+      );
+      addTearDown(() => temp.delete(recursive: true));
+      final b = DocumentBuffer.decode(
+        '${temp.path}/root.yaml',
+        utf8.encode('saved'),
+      );
+      final buffers = BufferStore()..register(b);
+      buffers.replace(b.id, 'captured unsaved 雪😀\r\n');
+      late RecoveryStore recovery;
+      Future<void>? retiring;
+      var current = true, queued = false, writes = 0;
+      recovery = RecoveryStore(
+        '${temp.path}/recovery',
+        onCheckpointPhase: (phase) {
+          if (phase == 'encode:start' && !queued) {
+            queued = true;
+            retiring = recovery.retireIfCurrent(b.id, () => current);
+            current = false;
+          }
+          if (phase == 'write:start') writes++;
+        },
+      );
+      await recovery.persist(b);
+      await retiring;
+      final record = jsonDecode(
+        await Directory(recovery.directory)
+            .listSync()
+            .whereType<File>()
+            .single
+            .readAsString(),
+      ) as Map;
+      expect(writes, 1);
+      expect(record['text'], b.text);
+      expect(record['generation'], b.generation);
+    },
+  );
   test(
     'continuous captured updates cannot starve recovery publication',
     () async {
