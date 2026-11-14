@@ -79,12 +79,27 @@ test(`Swagger ${format} ${mode} -> ${targetVersion} specializes dispatch without
  const repeated=await planMigration(input);assert.equal(repeated.identity,plan.identity);assert.deepEqual(repeated.outputs,plan.outputs);
 });
 
-for(const targetVersion of ['3.0.4','3.1.2','3.2.1'])for(const format of ['yaml','json'])test(`${format} shared Swagger model namespaces retain independent selection through ${targetVersion}`,async()=>{
+for(const targetVersion of ['3.0.4','3.1.2','3.2.1'])for(const format of ['yaml','json'])for(const connected of [false,true])
+test(`${format} shared Swagger model namespaces retain independent selection through ${targetVersion}, operation consumers=${connected}`,async()=>{
  const root='file:///approved/a.'+format,other='file:///approved/b.'+format,shared='file:///approved/model.'+format;
- const doc=name=>({swagger:'2.0',info:{title:name,version:'1'},paths:{},definitions:{Base:{$ref:'./model.'+format+'#/Base'},[name]:{allOf:[{$ref:'./model.'+format+'#/Base'}]}}});
- const resources=[{id:root,text:render(doc('Cat'),format),generation:1},{id:other,text:render(doc('Dog'),format),generation:1},{id:shared,text:render({Base:{type:'object',discriminator:'kind',required:['kind'],properties:{kind:{type:'string'},next:{$ref:'#/Base'}}}},format),generation:1}],before=resources.map(value=>value.text);
+ const doc=name=>({swagger:'2.0',info:{title:name,version:'1'},
+  ...(connected?{host:'api.invalid',schemes:['https'],consumes:['application/json'],produces:['application/json']}:{}),
+  paths:connected?{'/model':{post:{parameters:[{name:'payload',in:'body',required:true,schema:{$ref:'#/definitions/Base'}}],
+   responses:{200:{description:'Echo',schema:{$ref:'#/definitions/Base'}}}}}}:{},
+  definitions:{Base:{$ref:'./model.'+format+'#/Base'},[name]:{allOf:[{$ref:'./model.'+format+'#/Base'},
+   ...(connected?[name==='Cat'?{type:'object',required:['value'],properties:{value:{type:'integer',minimum:'EXACT'}}}:
+    {type:'object',required:['flag'],properties:{flag:{type:'boolean'}}}]:[])]},
+   ...(connected?{Carrier:{type:'string'},...(name==='Cat'?{Capture:{$ref:'./b.'+format+'#/definitions/Carrier'}}:{})}:{}),
+  }});
+ const base={type:'object',discriminator:'kind',required:['kind'],properties:{kind:{type:'string'},next:{$ref:'#/Base'}},
+  ...(connected?{description:'[Model](./guide.md)'}:{})};
+ const resources=[{id:root,text:render(doc('Cat'),format),generation:1},{id:other,text:render(doc('Dog'),format),generation:1},
+  {id:shared,text:render({Base:base},format),generation:1}].map(resource=>({...resource,...(connected?{hasBom:true}:{})})),before=resources.map(value=>value.text);
  const input={root,snapshot:'shared-dispatch',resources,targetVersion,destination:'file:///reviewed/'};
- const values=['{"kind":"Base"}','{"kind":"Cat"}','{"kind":"Dog"}','{"kind":"Cat","next":{"kind":"Dog"}}','{}','null'];
+ const values=connected?['{"kind":"Base"}','{"kind":"Cat","value":9007199254740993.00}','{"kind":"Dog","flag":true}',
+  '{"kind":"Cat","value":9007199254740993.00,"next":{"kind":"Dog","flag":true}}','{}','null',
+  '{"kind":"Cat","value":9007199254740992}','{"kind":"Dog"}']:
+  ['{"kind":"Base"}','{"kind":"Cat"}','{"kind":"Dog"}','{"kind":"Cat","next":{"kind":"Dog"}}','{}','null'];
  const expected=new Map();
  for(const entry of [root,other])expected.set(entry,await evaluate({...input,root:entry},'/definitions/Base',values));
  assert.deepEqual(expected.get(root).slice(0,6),[true,true,false,false,false,false]);
@@ -104,6 +119,14 @@ for(const targetVersion of ['3.0.4','3.1.2','3.2.1'])for(const format of ['yaml'
    assert(mapping);tables.add(JSON.stringify([...mapping.children.keys()].sort()));
   }
   assert.deepEqual(tables,new Set([JSON.stringify(['Base','Cat']),JSON.stringify(['Base','Dog'])]));
+  for(const reference of graph.entryReferences().filter(reference=>reference.connection==='discriminator'))assert.equal(reference.resolution,'resolved');
+  if(connected){
+   assert.equal(analyse(packet).operations.filter(operation=>operation.method==='post'&&operation.path==='/model').length,1);
+   const moved='file:///cold-shared-dispatch/',file=result.outputs.find(output=>output.id===outputRoot),relocated={
+    root:new URL(file.path,moved).href,snapshot:'moved-shared-dispatch',resources:result.outputs.map(output=>({id:new URL(output.path,moved).href,text:output.text,generation:0}))};
+   assert.equal(analyse(relocated).status,'complete',JSON.stringify(analyse(relocated).findings));
+   assert.deepEqual(await evaluate(relocated,'/components/schemas/Base',values),expected.get(entry));
+  }
  }
  assert.equal(result.outputs.find(output=>output.id===result.changes.find(change=>change.resource===shared).destination).text,resources[2].text);
  assert.deepEqual(resources.map(value=>value.text),before);

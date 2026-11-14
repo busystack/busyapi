@@ -633,6 +633,7 @@ function materializeMigrationOwners(graph:ReferenceGraph,sources:ReadonlyMap<str
             sources.get(placement.location.resource)!.remove(placement.location.pointer+'/$schema');
     }
     for(const placement of placements)if(nativeSlots.has(key(placement.scope))&&
+        graph.literalContainer(placement.scope.resource,placement.scope.pointer)===undefined&&
         (placement.scope.resource===graph.root||entry.documentResources.has(schemaResourceContextIdentity(placement.scope)))&&
         (placement.scope.resource!==placement.location.resource||placement.scope.pointer!==placement.location.pointer))
         owners.referenceUse(sources.get(placement.scope.resource)!,placement.scope.pointer,placement.location);

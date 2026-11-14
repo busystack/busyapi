@@ -658,8 +658,16 @@ export async function planMigration(input:MigrationInput) {
                 const rebound=reference.connection==='discriminator'||security?
                     graph.resolveConnection({...mappedReference,keyword:security?value:reference.keyword,value}):
                     graph.resolveReference(value,scope,reference.keyword);
-                return rebound.resolution==='resolved'&&rebound.targetResource===to.resource&&rebound.targetPointer===to.pointer&&
-                    (reference.connection!==undefined||reference.keyword!=='$dynamicRef'||Boolean(rebound.dynamic)===Boolean(reference.dynamic));
+                if(rebound.resolution!=='resolved'||rebound.targetResource!==to.resource||rebound.targetPointer!==to.pointer||
+                    reference.connection===undefined&&reference.keyword==='$dynamicRef'&&Boolean(rebound.dynamic)!==Boolean(reference.dynamic))return false;
+                if(reference.connection==='discriminator')for(const other of publicationContexts.values()){
+                    if(other===graph)continue;
+                    const owner=other.scopeAs(from.resource,from.pointer,scope.kind);
+                    if(!owner||!other.isEntryUse(owner))continue;
+                    const selected=other.resolveConnection({...mappedReference,...owner,value});
+                    if(selected.resolution!=='resolved'||selected.targetResource!==to.resource||selected.targetPointer!==to.pointer)return false;
+                }
+                return true;
             };
             const previous=emitted.get(id);
             if(previous){
@@ -674,6 +682,8 @@ export async function planMigration(input:MigrationInput) {
                 occupied.set(group,names);
             }
             const keyword=security?'security':reference.connection==='discriminator'||reference.keyword==='$dynamicRef'&&!reference.dynamic?'$ref':reference.keyword;
+            const name=reference.connection==='discriminator'?segments(to.pointer).at(-1):undefined;
+            const excluded=name!==undefined&&!proves(name)?new Set([name]):undefined;
             // Inside an authored absolute resource ID, a physical relative
             // file route is relative to that ID's old directory, not this
             // publication. Use the captured target's canonical identity there;
@@ -685,10 +695,10 @@ export async function planMigration(input:MigrationInput) {
             // address. Embedded identities become available only after that
             // file is acquired; they are not extra file-retrieval aliases.
             const generated=target&&from.resource!==to.resource&&schemaRegistryIds.has(relocatedResources.get(to.resource)!)&&
-                !(reference.keyword==='$dynamicRef'&&reference.dynamic)?referenceValue(graph,scope,target,keyword,undefined,
+                !(reference.keyword==='$dynamicRef'&&reference.dynamic)?referenceValue(graph,scope,target,keyword,excluded,
                     {retrieval:true,...(reference.connection==='discriminator'?{connection:'discriminator' as const}:{})}):undefined;
             const value=canonical&&proves(canonical)?canonical:generated&&proves(generated)?generated:proves(reference.value)?reference.value:security?spellSecurity(graph,mappedReference,names!):
-                target&&referenceValue(graph,scope,target,keyword,undefined,reference.connection==='discriminator'?{connection:'discriminator'}:{});
+                target&&referenceValue(graph,scope,target,keyword,excluded,reference.connection==='discriminator'?{connection:'discriminator'}:{});
             if(value===undefined||!proves(value)){
                 issue(field,'migration.reference.relocation','A captured reference has no proved final output spelling','implementation');continue;
             }

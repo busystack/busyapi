@@ -320,12 +320,13 @@ test(`${version} ${format} native objects and literal values share one specializ
  if(version.startsWith('3.2'))assert.deepEqual(review.stages,[],'A same-family patch update is not a family conversion');
  if(format==='yaml')assert(root.text.includes('*'),'The unaffected literal alias remains authored as an alias');
 });
-test('anchored schemas inside native Header data retain the original resource through the common allocator',async()=>{
- const root='file:///approved/headers.json';
- const value={openapi:'3.1.2',info:{title:'Anchored Header',version:'business'},paths:{'/p':{get:{responses:{204:{description:'No body',headers:{'X-N':{$ref:'#/x-data'}}}}}}},
+for(const version of ['3.1.2','3.2.1'])for(const format of ['yaml','json'])
+test(`${version} ${format} anchored schemas inside native Header data retain the original resource through the common allocator`,async()=>{
+ const root='file:///approved/headers.'+format;
+ const value={openapi:version,info:{title:'Anchored Header',version:'business'},paths:{'/p':{get:{responses:{204:{description:'No body',headers:{'X-N':{$ref:'#/x-data'}}}}}}},
   components:{schemas:{Anchor:{$ref:'#count'}}},'x-data':{schema:{$anchor:'count',type:'integer',enum:['EXACT']}}};
- const text=JSON.stringify(value).replaceAll('"EXACT"','9007199254740993.00');
- const input={root,snapshot:'anchored-header',resources:[{id:root,text,generation:0}],targetVersion:'3.2.1',destination:'file:///delivered/'};
+ const text=(format==='json'?JSON.stringify(value):YAML.stringify(value,{aliasDuplicateObjects:false})).replaceAll('"EXACT"','9007199254740993.00').replaceAll('EXACT','9007199254740993.00');
+ const input={root,snapshot:'anchored-header',resources:[{id:root,text,generation:0,hasBom:true}],targetVersion:'3.2.1',destination:'file:///delivered/'};
  const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
  const output=delivered(review),{graph}=createGraph(output),header=graph.references.find(reference=>reference.kind==='header');
  assert.equal(header.resolution,'resolved');assert(output.resources.some(resource=>resource.id===header.targetResource));
@@ -337,6 +338,7 @@ test('anchored schemas inside native Header data retain the original resource th
  const evaluated=await evaluateSchemas({...output,runtimeInstances:['9007199254740993','9007199254740992'].map(text=>({subject:'response-header',location:text,text:'',
   header:{resource:output.root,pointer:'/paths/~1p/get/responses/204/headers/X-N',name:'X-N',values:[text]}}))});
  assert.equal(evaluated.complete,true);assert.deepEqual(evaluated.runtimeEvaluations.map(value=>value.valid),[true,false]);
+ assert.equal(input.resources[0].text,text);
 });
 for(const condition of ['missing','denied'])test(`${condition} external bytes remain an incomplete condition through native literal ownership`,async()=>{
  const input=fixture('3.1.2','json'),before=input.resources[0].text;
