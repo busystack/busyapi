@@ -41,7 +41,8 @@ void main() {
   for (final format in ['yaml', 'json']) {
     for (final targetVersion in ['3.2.1', '3.1.2', '3.0.4', '2.0']) {
       for (final stale in [false, true]) {
-        for (final reusable in targetVersion == '2.0' ? [false, true] : [false])
+        for (final reusable
+            in targetVersion == '2.0' ? [false, true] : [false]) {
           for (final wireMismatch
               in targetVersion == '3.1.2' && !stale ? [false, true] : [false]) {
             testWidgets(
@@ -448,6 +449,7 @@ void main() {
               },
             );
           }
+        }
       }
     }
   }

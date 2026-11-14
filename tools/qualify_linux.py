@@ -62,12 +62,12 @@ def qualify(flutter):
     if source != capture(ROOT, source=True):
         raise RuntimeError('Candidate inputs changed during assembly; retry qualification')
     candidate = capture(BUNDLE)
+    run(flutter, 'analyze', '--no-pub')
     run('tools/build_engine.sh', 'prepare-tests')
     run('tools/build_engine.sh', 'test-all')
     run(BUNDLE / 'libexec/busyapi/node', '--test',
         'tools/documentation_renderers/test_assets.mjs')
     run('tools/prepare_test_runtime.sh', '--helpers-only')
-    run(flutter, 'analyze', '--no-pub')
     run(flutter, 'test', '--no-pub')
     run(dart, 'test', 'packages/busyapi_core/test')
     run('python3', 'tools/artifact_smoke.py', BUNDLE)

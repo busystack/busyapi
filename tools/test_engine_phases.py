@@ -99,9 +99,14 @@ class EnginePhases(unittest.TestCase):
 
     def test_candidate_qualification_stops_at_a_retained_behavior_failure(self):
         failure = subprocess.CalledProcessError(9, 'retained behavior')
+
+        def execute(command, **_):
+            if command == ['tools/build_engine.sh', 'test-all']:
+                raise failure
+
         with patch.object(qualification.shutil, 'which', return_value='/sdk/bin/flutter'), \
                 patch.object(qualification, 'capture', return_value={'candidate': 'fixed'}), \
-                patch.object(qualification.subprocess, 'run', side_effect=[None, None, failure]) as run:
+                patch.object(qualification.subprocess, 'run', side_effect=execute) as run:
             with self.assertRaises(subprocess.CalledProcessError) as caught:
                 qualification.qualify('/sdk/bin/flutter')
         self.assertEqual(caught.exception.returncode, 9)
