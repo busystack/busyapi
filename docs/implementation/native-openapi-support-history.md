@@ -6463,3 +6463,187 @@ held acceptance requires rebuilding these source revisions first. Coherent chang
 locally on the requested branch; no push is authorized or performed. Overall
 BusyAPI SOURCE COMPLETE and ACCEPTED remain unmet. No next implementation sequence
 is created or automatically started.
+
+# Archived simplification qualification checkpoints — 2026-11-13–14
+
+The following entries were superseded by the current report at code checkpoint
+`433d3bd`. Their failures and identities remain dated evidence. Future-tense
+commands and outstanding gates below describe those older checkpoints only.
+
+The complete post-tuple conversion run used immutable helpers and the
+registered Node arguments, with real loopback mock execution: 51 suites, 7,810
+passing cases, zero failures. The captured input identity is
+`9b93b878ad767e41bff053d263a85c4338a352833dbf544164f11306df671cd0`.
+Its source identity, helper hashes, invocation, registry, logs and aggregate are
+retained in `build/diagnostics/simplification-20261113/conversion-post-tuples/`.
+This run includes the YAML ownership correction, captured-document reuse and
+sixteen added native-child, shared recursive-resource and tuple-connection cases.
+Earlier v7 evidence remains in `conversion-v7/`. Complete Core/CLI journeys must
+also use a refreshed candidate: an updated private conversion worker cannot
+qualify the saved-source CLI inside an older candidate.
+
+The refreshed v10 release candidate passes all twelve complete B02 Core/CLI
+journeys, including actual HTTP, reviewed publication and cold reopen. Candidate,
+fixtures and source inputs remained unchanged across that run. The complete
+tooling population had 182 passes and one font-fixture failure; after correcting
+the fixture's declared producer, all eleven related asset checks pass, including
+clean reinstallation in Debug, Profile and Release. This is full-plus-focused
+coverage, not a second complete tooling invocation. A tooling fixture and test
+runtime preparation had written an older descriptor into production package
+outputs. Both now use separate owned outputs; all six focused package checks
+pass, and ordinary assembly succeeds.
+
+The v3 current-invocation run passed analysis, all 217 registered Engine suites
+(20,893 reported cases) and six renderer asset checks. Official widgets then
+finished with 1,240 passes and 62 failures in 19:32; the qualifier rejected the
+candidate before Core ran. That diagnostic population exposed the subsequent
+checkpoint, authoring authority, problem-navigation and resource-context fixes.
+The focused results in the table do not erase that failure. The current qualifier
+collects all five independent behavioral outcomes sequentially after prerequisites,
+checks unchanged source and installed files, and rejects any retained failure.
+All nine qualifier/tooling controls pass. The next complete run must use the
+refreshed CLI, engine and desktop candidate together.
+
+The v4 run kept source and installed files unchanged through all five gates.
+Assembly, analysis, six additional renderer checks and installed-artifact smoke
+passed. Widgets finished with 1,302 passes and 17 failures; Core/CLI finished
+with 4,101 passes and six failures. The engine gate stopped at suite 98 of 217,
+with 11,039 reported cases and one exact-payload failure; 119 later suites did
+not run. Qualification rejected all three failing behavioral gates.
+
+Subsequent fixes preserve literal Header payloads and shared Swagger namespaces,
+reuse one bound authoring projection per capture, remove main-process semantic
+initialization and use Ajv's existing validator registry. Ordinary source saves
+write one immutable intent; repeated per-file receipt rewrites are removed while
+file-operation checkpoints remain. All 14 focused engine suites pass (1,672
+reported cases plus standalone assertions), and all 89 focused Core/CLI cases
+pass, including the six prior Core failures, actual HTTP/cold publication and
+current-fixture SIGKILL recovery. The separate real-kernel isolation gate passes
+all three suites/53 cases, including fail-closed startup coverage.
+
+The current untraced eight-file widget group remains rejected: 99 passes and
+five wait failures. A diagnostic group passed 100 cases and failed four. Its
+traced recovery fsync lasted 9.44 seconds during an observed persistence wait;
+one large-value-owned fsync lasted 9.47 seconds. All traced chmod calls stayed
+below 3 milliseconds. These observations do not assign every untraced failure
+to storage or identify a disk-device cause. The earlier Contract Send wait did
+not reproduce: all eight requests completed storage, native validation and
+cleanup before later failures. Temporary Core markers were restored byte for
+byte. Original deadlines, input, concurrency and durability barriers remain.
+Evidence is in `build/diagnostics/simplification-20261113/post-v4/`.
+
+## Current native input reproduction — 2026-11-14
+
+The unchanged owned-window driver ran the current ordinary release from code
+checkpoint `7af3bb4`. Ctrl+A, `edited 3.0.4` and Tab left only `edited` in the
+editable, enabled Title field. Its caret was 6 after blur. API version remained
+`api-version`; all 430 source bytes remained unchanged. Save, history and reopen
+were not reached, so this journey remains unqualified.
+
+The AOT SHA-256 is
+`c262985febb473f29748fbab1dca5cfe8aacf6fdcddd1378ea1470deefeb89b6`;
+the native executable is
+`d86703b0e14a8007ecee55a82db579a4b3db2bb4344aa1226992714a74a383e3`.
+Kernel-recorded application peak RSS was 429484 KiB and sampled RSS 405400 KiB.
+These are not comparative native latency or memory results. The untraced run
+alone does not establish the cause; the independent plain-field/client-ordering
+evidence below remains separate. Exact controls, screenshots, source bytes,
+artifacts and result are in
+`build/diagnostics/simplification-20261113/native-current-7af3bb4/`.
+
+## Fresh native input reproduction — 2026-11-13
+
+The simplified editor builds successfully with optional generator/oasdiff inputs
+unavailable, but native editing acceptance still fails. The unchanged owned-window
+journey typed `edited 3.0.4` then Tab into Title; the field retained `edited 3.0`.
+Disk source remained byte-identical. The full editing/save/reopen journey stopped
+at that assertion; it is not qualified. The debug process's kernel-recorded peak
+RSS was 706720 KiB, sampled RSS 651912 KiB; these are not release performance
+measurements.
+
+The independent ordinary two-field fixture in `tools/repro_two_fields.dart`,
+driven by `tools/repro_two_fields.py`, reproduces without BufferStore, recovery, Design or project analysis. Its original
+single native burst, Ctrl+A followed by `edited 3.2.1` and Tab, retained
+`edited 3.`. The passive GTK/IBus-observed run retained `edited 3`. All 30 native
+IBus requests/replies and all 12 one-byte GTK commit callbacks were observed.
+The existing Flutter channel tracer then showed the exact final-character race:
+hardware `1` down/up preceded Tab down/up; client 2 reached `edited 3.2.`;
+`TextInput.clearClient` and `setClient(3)` changed focus to API version; afterward
+`TextInputClient.updateEditingState` delivered the complete 12-character value
+for retired client 2. This evidence locates the loss before BusyAPI source/draft
+ownership. It does not establish a particular upstream patch or a qualified fix.
+
+The official unchanged SDK is Flutter 3.47.5, framework
+`6a19cca56475dbfba1478ee68d7bd0c2ef891da1`, engine
+`af7e796e161ae0bb1ff0758c71a7105418bd9ded`, Dart 3.13.4. The debug engine hash is
+`7a5698608a3c79ad3f123a74bce8074339ffa1a83c896d73ae853c9f92a43cc3`.
+Host: GNOME X11, Linux 7.0.0-42-generic, GTK 3.24.41,
+IBus 1.5.29-rc2 (Ubuntu package 1.5.29-2), `xkb:us::eng`.
+`GTK_IM_MODULE`, `IBUS_ADDRESS` and `IBUS_ENABLE_SYNC_MODE` were unset;
+`XMODIFIERS=@im=ibus`. App-only diagnostic synchronization modes also failed:
+mode 1 retained `edited 3.2`; mode 2 reordered Title to `deeti.3 d` and wrote
+`1.` into API version. Neither setting was applied to the user session or product.
+No key timing, assertion, SDK, provider or vendor source was changed.
+
+Evidence, original fixture/driver copies, screenshots, raw channel/IM logs,
+process memory, host identities and source-byte comparisons are retained under
+`build/diagnostics/simplification-20261113/native/`. Debug native executable
+hashes alone do not identify the Dart entry point. The retained kernel hashes are:
+
+| Candidate | SHA-256 of `data/flutter_assets/kernel_blob.bin` |
+| - | - |
+| Simplified editor | `8a96e9133f16ce41d2a82a40c3a6d65c04b18403dc5efddfd8871143865c34be` |
+| Pure two-field fixture | `664a1bcc03819cc79cd6fee00bd39a417c7f09e0912ff1d484ce67d331932e68` |
+| Channel-traced fixture | `a18631ab92c91b2fa9edb4da9407f5382d2e28f3371ff0dbf6e80db834802bee` |
+
+The editor and pure fixture bundles are preserved in
+`/tmp/busyapi-simplification-native-bundles-q8bo59qk/`. Rebuild the ordinary
+application entry before any later native qualification. Earlier dated failures
+in the historical record remain historical evidence; the observations here are fresh executions.
+
+## Release native follow-up — 2026-11-13
+
+Full release assembly now succeeds with the ordinary `lib/main.dart` AOT entry,
+CLI, all optional tools, official SDK identities, notices and verified distributed
+artifacts. Process-test fixtures live outside that candidate. This is assembly
+evidence, not retained-behavior qualification.
+
+The unchanged owned 3.0.4 YAML standalone editing journey then failed at its
+first Title assertion: requested `edited 3.0.4`, observed `Production 3.0.4`.
+The 430-byte API and 260-byte model remained byte-identical. The process reached
+418,584 KiB peak RSS. Save, Source/history and reopen were not reached. This run
+does not establish the earlier trailing-character cause. The candidate's
+`lib/libapp.so` SHA-256 is
+`7b4d904bfc03e1a095aefabf5bae215322724ddff4d5335d4ace24a6265dea0a`.
+Original/current files, controls, screenshots, identities and memory are in
+`build/diagnostics/simplification-20261113/native-release/`.
+
+Separate controlled release AOT traces now compare `364209c` with `14004d3`,
+before authoring consolidation. Both retain one mounted, writable Title field
+through the entire burst. Tab then blurs it and clears its Flutter client;
+the complete 12-character update arrives afterward for that retired client.
+The current field retains `edited 3`; the earlier field retains `edited 3.0.`.
+Neither late update reaches Designer's input callback. This rules out the
+suspected first-party remount/read-only transition in those controlled runs.
+It does not reconstruct the untraced zero-edit run or establish comparative
+performance. Six initial-focus widget cases retain the focused client across
+feedback invalidation. No input workaround, timing change or SDK patch was added.
+Patches, raw events, original/current files and compiled identities are retained
+in `build/diagnostics/simplification-20261113/native-boundary/`.
+
+A read-only comparison of local official SDK tags 3.47.5 and 3.47.9 found the
+Linux text-input/keyboard handlers, text-input service and focus manager unchanged;
+the EditableText difference concerns context-menu action names. No later SDK was
+installed or run, and this comparison identifies no qualified upstream fix.
+The comparison is recorded in `native/sdk-source-comparison.json`.
+
+The fresh v10 candidate repeats the unchanged native 3.0.4 YAML journey after
+the final source-observation fixes. It requests `edited 3.0.4` and Tab; Title
+retains `edited 3.0`. The 430-byte API remains unchanged, and the exact-input
+assertion stops the journey before save, Source/history and reopen. Its desktop
+AOT SHA-256 is
+`e16447fb6b05653f0334843cb4052fa6958c530f099876d9689fd78df424878e`.
+Peak RSS is 428,596 KiB. Controls, screenshots, source bytes, invocation and
+identities are retained in `native-v10/`. This untraced run does not by itself
+establish the cause observed in the separate official-SDK traces. It confirms
+that the final first-party ownership changes have not qualified native input.

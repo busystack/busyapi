@@ -1,173 +1,101 @@
 # Native OpenAPI support
 
-**In progress. Complete native and release qualification has not passed.**
+**Simplification changes are committed. Native editing and release acceptance remain unqualified.**
 
-BusyAPI retains native Swagger 2.0 and OpenAPI 3.0.x, 3.1.x and 3.2.x.
-Standard YAML/JSON remain authoritative. Opening, editing, saving, checking and
-Reference preserve declarations; conversion remains explicit.
+BusyAPI retains native Swagger 2.0 and OpenAPI 3.0.x, 3.1.x and 3.2.x,
+authoritative YAML/JSON, Source/Design/Reference, explicit conversion, source
+fidelity, recovery, refactoring, runtime workflows, outputs, CLI and Linux
+integration. Opening or editing does not convert the declaration.
 
-The current responsibility contract is [architecture](../architecture.md), and
-supported commands are in [README](../../README.md). The former phase directives,
-execution holds and detailed dated reports are preserved in the
-[historical record](native-openapi-support-history.md); they are not active
-implementation instructions. No older passing run qualifies the changed product.
+The responsibility contract is [architecture](../architecture.md); supported
+commands are in [README](../../README.md). Superseded execution directives and
+dated results are in the [historical record](native-openapi-support-history.md).
+They are evidence, not active instructions or acceptance of the current candidate.
 
 ## Simplification status — 2026-11-14
 
-| Area | Current implementation and qualification |
+| Area | Landed responsibility and deleted mechanisms |
 | - | - |
-| Source/Design/history | BufferStore owns source, BOM, path/presence, reload, recovery and replay. Reversible spans and logical tokens replace history digests; asynchronous revisions advance across undo and owner replacement. Focused core/widget exact-input, branching, late-input and save/reopen cases pass. Native input remains blocked below. |
-| Recovery | Source input, field commits, undo/redo and selected publication checkpoint affected owners and changed draft revisions. Form Apply owns one final durable checkpoint. A newer capture may replace an encoding payload once; writing then proceeds, preserving bounded durable progress. Ordinary records and grouped-record replacements reach the existing batching writer before awaiting it. Explicit close/replacement drains and grouped publication ordering remain. Focused editing/shutdown cases pass: 70 widget cases and 36 Core interruption/publication cases. |
-| Capture and assistance | Root-local immutable captures are separate from full schema analysis. Actual disk observations advance relevant versions. Inspected and projected authoring targets retain their original capture footprint, using the existing structural eligibility and input/version predicate. All 22 ownership/cache/race controls pass. Progress and final feedback reuse the bound models for one unchanged capture. Folding uses syntax without a graph; derived text cannot inherit an old parse through generation metadata. |
-| Source saving | Desktop and CLI use PublicationStore. Alternate BusyProject.save is removed. Partial publication, conflicts, permissions, interrupted records, grouped ordering and undo across save remain. Focused publication cases pass. |
-| Conversion | TypeScript owns language/configuration transformation; Dart owns bounded review, immutable reviewed bytes and publication. One captured traversal allocates final typed owners and emits common static/contextual edges. Repeated entry/role passes, temporary owner wrappers, superseded-copy retirement and Dart's duplicate full schema precheck are deleted. The complete post-tuple checkpoint passed 51 suites/7,810 cases. Subsequent resource-context and moved-output fixes pass 703 affected CJS cases and 40 widget journeys. Complete current-candidate qualification remains outstanding. |
-| Requests, mock and streams | One parameter-value map owns active request input. Captured operations and immutable body inputs share secret-free aggregate preparation across Preview/Send, with fresh dispatch credentials/TLS and exact selected-file reconciliation. Shared serializers replace equivalent form/multipart reproof. Streams retain bounded framing/context in one engine owner, with thin continuation IPC and independent close/cancellation. Broad runtime qualification remains in progress. |
-| Outputs and governance | Prepared immutable files use the common output publisher. Generator selection and execution share a runtime. Verified renderer bytes are reused until installed files change; packaging inventory policy has left documentation-open actions. Governance reuses one immutable review and checks exact dispatch authority once. Focused output, approval and installed-input change cases pass. |
-| Build and distribution | Assembly is separate from current-invocation qualification. Editor assembly passed with optional tools unavailable; renderer rebuilds are skipped when unchanged. Test package preparation owns separate outputs. Qualification prepares once, runs independent behavioral gates sequentially, checks source/candidate stability and rejects any failure. Official widgets run once; no persistent full-suite receipt is required. Current editor and release assembly pass. Installed-artifact smoke passed at v4; full refreshed-source behavioral/native qualification remains outstanding. |
+| Editing and history | BufferStore exclusively owns source, BOM, presence/path, reload, recovery and replay. Reversible spans and logical history tokens replace whole-document history digests. Asynchronous revisions advance through undo and owner replacement. The windowed editor retains its line index. |
+| Drafts and recovery | Owned draft revisions replace repeated draft serialization. Changes schedule affected owners rather than sweeping the workspace. Form Apply awaits one final checkpoint. The existing writer batches records and permits one newer payload to replace an encoding payload before forcing durable progress. Explicit close/replacement drains and grouped ordering remain. |
+| Captures and assistance | Immutable root-local acquisition is separate from semantic analysis. Relevant resource observations invalidate captures; actual bytes and permissions own versions. Syntax is reused by immutable resource text/identity, distinct from contextual semantics. Folding constructs no graph. Inspection, completion and Design use the existing field definitions. Node owns execution scheduling; Dart owns transport and lifetime. |
+| Authoring and saving | Specialized and generic forms share field metadata, draft ownership and transaction boundaries. PublicationStore is the sole source saver. One immutable v1 source-save intent replaces per-file journal rewrites; v2 file-operation checkpoints remain. Atomic writes, exact disk conflicts, permissions, partial outcomes and interruption recovery remain. |
+| Conversion | TypeScript is the semantic owner; Dart retains packet/path/capture/review/publication authority. Final occurrence mapping replaces intermediate coordinate repair, temporary holders, superseded-copy retirement and duplicate ownership passes. Redundant SourcePlan fork parsing and the obsolete propose.moveOperation route are removed. |
+| Requests, mock and streams | Captured operations and immutable body inputs reuse secret-free preparation across Preview/Send. Dispatch still resolves credentials/TLS and rechecks selected files. Shared recipes replace equivalent multipart/form regeneration and preliminary mock body proofs. One bounded stream owner replaces full-source/unfinished-record chunk IPC and growing-buffer copies. Uncompressed responses reuse retained original bytes; mock startup derives one bundle. |
+| Outputs and governance | Prepared immutable files use the existing common publisher. Generator selection/execution share one runtime. Renderer admission reuses verified installed bytes. One immutable policy closure binds explicit approval to a run; final dispatch and isolation remain. |
+| Build and cleanup | Candidate assembly and qualification are separate. Assets prepare once per input signature; official widgets run once and no persistent suite receipt authorizes release. Both existing profiles remain. Test helpers/package outputs are outside production assets. Dead UI constants, duplicate input/menu mechanics and obsolete probes are removed; reachable Linux fallback behavior remains. |
 
-The compact acceptance corpus keeps all four native families, YAML/JSON fidelity,
-shared roots, aliases/exact numbers, pending and composing fields, disk/save races,
-grouped file maintenance, representative explicit conversion, actual HTTP bytes,
-stream framing/cancellation and real native focus/input. Tests of observable
-behavior and actual process/filesystem boundaries remain gates. Private conversion
-layout, historical revision literals and build-script order are not independent
-product requirements. Migration compatibility is tested separately at revision 107.
+Compatibility is tested centrally at migration revision 107. Semantic suites no
+longer require unrelated revisions 30/91, private conversion layout or historical
+build-script ordering. Meaningful semantic cases, exact input, race/interruption
+injection, native assertions, correctness watchdogs and durability barriers remain.
 
-The complete post-tuple conversion run used immutable helpers and the
-registered Node arguments, with real loopback mock execution: 51 suites, 7,810
-passing cases, zero failures. The captured input identity is
-`9b93b878ad767e41bff053d263a85c4338a352833dbf544164f11306df671cd0`.
-Its source identity, helper hashes, invocation, registry, logs and aggregate are
-retained in `build/diagnostics/simplification-20261113/conversion-post-tuples/`.
-This run includes the YAML ownership correction, captured-document reuse and
-sixteen added native-child, shared recursive-resource and tuple-connection cases.
-Earlier v7 evidence remains in `conversion-v7/`. Complete Core/CLI journeys must
-also use a refreshed candidate: an updated private conversion worker cannot
-qualify the saved-source CLI inside an older candidate.
+## Current candidate verification
 
-The refreshed v10 release candidate passes all twelve complete B02 Core/CLI
-journeys, including actual HTTP, reviewed publication and cold reopen. Candidate,
-fixtures and source inputs remained unchanged across that run. The complete
-tooling population had 182 passes and one font-fixture failure; after correcting
-the fixture's declared producer, all eleven related asset checks pass, including
-clean reinstallation in Debug, Profile and Release. This is full-plus-focused
-coverage, not a second complete tooling invocation. A tooling fixture and test
-runtime preparation had written an older descriptor into production package
-outputs. Both now use separate owned outputs; all six focused package checks
-pass, and ordinary assembly succeeds.
+Code checkpoint `433d3bd` was assembled as the ordinary release candidate. Source
+and installed files remained unchanged across the complete Engine run and the
+subsequent sequential checks. Evidence is in
+`build/diagnostics/simplification-20261113/final-current/`.
 
-The v3 current-invocation run passed analysis, all 217 registered Engine suites
-(20,893 reported cases) and six renderer asset checks. Official widgets then
-finished with 1,240 passes and 62 failures in 19:32; the qualifier rejected the
-candidate before Core ran. That diagnostic population exposed the subsequent
-checkpoint, authoring authority, problem-navigation and resource-context fixes.
-The focused results in the table do not erase that failure. The current qualifier
-collects all five independent behavioral outcomes sequentially after prerequisites,
-checks unchanged source and installed files, and rejects any retained failure.
-All nine qualifier/tooling controls pass. The next complete run must use the
-refreshed CLI, engine and desktop candidate together.
+| Check | Observed result |
+| - | - |
+| Release assembly and full Flutter analysis | Pass |
+| Complete registered Engine/renderer population | 217 suites; 20,905 reported cases pass; zero failures. Standalone assertions are additional to the reported case count. |
+| Complete official Flutter widget population | 1,322 pass, zero failures, 12:31; default concurrency and original bounds/input/assertions |
+| Affected Core/CLI population | 52 pass, zero failures, including actual HTTP, resource identities, B02 conversion, moved/cold outputs and SIGKILL definition recovery |
+| Additional renderer asset checks | 6 pass |
+| Installed-artifact smoke | Pass: native families and both formats, deterministic relocated output, exact receipts, collisions, missing runtime, arbitrary cwd and empty PATH |
+| Real-kernel policy isolation | Separate unchanged-runtime gate: 3 suites/53 cases pass, including fail-closed startup and positive Landlock/seccomp execution |
+| Native 3.0.4 YAML editing journey | Fails exact Title input before save/history/reopen; see below |
 
-The v4 run kept source and installed files unchanged through all five gates.
-Assembly, analysis, six additional renderer checks and installed-artifact smoke
-passed. Widgets finished with 1,302 passes and 17 failures; Core/CLI finished
-with 4,101 passes and six failures. The engine gate stopped at suite 98 of 217,
-with 11,039 reported cases and one exact-payload failure; 119 later suites did
-not run. Qualification rejected all three failing behavioral gates.
+Core evidence is **full plus focused**, not a second complete Core invocation.
+The preceding v5 full run passed 4,109 cases and failed one obsolete assertion
+about a removed v1 per-file receipt field. That assertion now checks the captured
+intent and actual published bytes; all five cases in its full interruption test
+file pass, including the previously unreached assertions. All 52 affected cases
+pass against the final candidate. Dart production and fixture-child sources are
+unchanged since v5, and the CLI and main Engine binaries are byte-identical.
+The changed conversion worker is covered by the full 217-suite run and the
+52 affected Core cases; the changed desktop is covered by all 1,322 widgets and
+the native journey. Exact identities and scope are in `core-scope.json`.
 
-Subsequent fixes preserve literal Header payloads and shared Swagger namespaces,
-reuse one bound authoring projection per capture, remove main-process semantic
-initialization and use Ajv's existing validator registry. Ordinary source saves
-write one immutable intent; repeated per-file receipt rewrites are removed while
-file-operation checkpoints remain. All 14 focused engine suites pass (1,672
-reported cases plus standalone assertions), and all 89 focused Core/CLI cases
-pass, including the six prior Core failures, actual HTTP/cold publication and
-current-fixture SIGKILL recovery. The separate real-kernel isolation gate passes
-all three suites/53 cases, including fail-closed startup coverage.
+The final fixes also close two independent correctness gaps. Conversion forwards
+an original native Schema slot only for a Schema interpretation; a secondary
+Response interpretation at the same physical pointer cannot take its resource
+identity. Original HTTPS bases, dialects, exact numbers and cold/moved outputs
+are preserved; ordinary shared-reference edit refusal remains. Native object,
+Reference and Schema-tree queries reload from the current captured authority,
+including permission-only changes with identical text and generation. Three
+held-real-reply races verify that retired replies cannot replace the eligible
+view, unchanged feedback adds no requests, and pending input, reading position
+and tree expansion survive.
 
-The current untraced eight-file widget group remains rejected: 99 passes and
-five wait failures. A diagnostic group passed 100 cases and failed four. Its
-traced recovery fsync lasted 9.44 seconds during an observed persistence wait;
-one large-value-owned fsync lasted 9.47 seconds. All traced chmod calls stayed
-below 3 milliseconds. These observations do not assign every untraced failure
-to storage or identify a disk-device cause. The earlier Contract Send wait did
-not reproduce: all eight requests completed storage, native validation and
-cleanup before later failures. Temporary Core markers were restored byte for
-byte. Original deadlines, input, concurrency and durability barriers remain.
-Evidence is in `build/diagnostics/simplification-20261113/post-v4/`.
+Earlier widget IO watchdog failures remain in the historical record. A traced
+recovery fsync took 9.44 seconds and a large-value-owned fsync 9.47 seconds;
+traced chmod calls stayed below 3 milliseconds. Those observations do not assign
+every prior wait to storage or identify a device cause. The final full widget run
+passes with the same deadlines and durability. It does not establish universal
+storage latency or native-input responsiveness.
 
-Conversion reuses an unchanged native component Schema as its material owner;
-copied containers reference it through the same occurrence mapping. Resource
-variation is decided per captured resource, rather than by unrelated differences
-elsewhere in an entry. Anchor capture retains unused declarations belonging to an
-entered resource, and excludes dormant alternate interpretations of literal data.
-Exact-number registration follows active Schema uses; conflicting active source
-locations still fail instead of falling back to JavaScript number projections.
-The same mapping separates a whole document used as a Schema before its API
-declaration is converted, preserving the Schema's original annotation bytes.
-The former early shared-document identity refusal is removed.
-Retained resource frames also retain their unchanged Schema owners. Captured
-resource metadata is indexed for each entry independently of assertion activation,
-so another entry cannot invent a retrieval base or duplicate an existing identity.
-Native discriminator names are selected only when the canonical connection proves
-their actual target; moved-directory cold checks cover their portability.
-Temporary-copy preparation, repair and retirement are removed. Typed-edge emission
-at genuine structural dependencies and final URI spelling remain, alongside the
-distinct semantic and diagnostic provenance views required by their consumers.
-Copied native roles retain their original typed child owners and associate the
-additional concrete uses through the same occurrence map. The traversal follows
-the native field definitions and stops at Schema boundaries, so a copied Schema
-map cannot invent typed children. Equivalent bare tuple references without an
-independent consumer share their surviving actual application; an independently
-referenced tail keeps its own owner. This deletes an unused tail holder without
-dropping the captured dynamic connection or activating a dormant Schema.
-Finite conversion selects its original conjuncts from the capture even when an
-earlier step has moved an inactive child. The annotation corpus checks every
-native sample within the unchanged diagnostic bound. Two existing OpenAPI 3.0
-proof limitations remain explicit: unrestricted name-length constraints and
-conditional pattern coverage without a supported selection certificate. Their
-located refusals match the baseline; neither publishes partial outputs.
+Tooling coverage remains full plus focused: the full population had 182 passes
+and one font-fixture failure. The declared producer was corrected; all eleven
+related asset checks, six package-output ownership checks and nine qualifier
+controls pass. No second complete tooling population is claimed.
 
-Generated mock form bodies retain immutable typed input and normalized projection
-with their output bytes until the final native response check. That check validates
-original data, actual decoded bytes, Header/status semantics and exact correspondence,
-including legitimate empty-collection omissions. Separate preliminary form and
-multipart body checks have been deleted.
+Conversion retains the advanced obligations for dynamic connections, resource
+identity, evaluated annotations, exact numbers and representation semantics.
+Captured resource declarations stay distinct from active assertions and literal
+data. Final owner allocation follows native fields and stops at Schema boundaries;
+independent consumers retain their own owners. Two baseline OpenAPI 3.0 proof
+limitations remain located refusals: unrestricted name-length constraints and
+conditional pattern coverage without a supported selection certificate. Neither
+publishes partial output.
 
-Source acquisition and disk reconciliation now share one observation of byte
-identity and permissions. Native events schedule affected resources; they do not
-advance semantic versions themselves. Actual observations are recorded before
-capture versions, and retired reads cannot overwrite a newer publication.
-URI aliases acquire one physical resource, and missing mapped resources remain
-part of capture freshness and bounded reconciliation. The UI receives verified
-changes directly instead of reading the files again. The final focused checkpoint
-passes 123 Core boundary cases, 11 actual native-event journeys and 22 official
-Flutter boundary cases. This does not replace full current-candidate qualification
-or resolve the independent native text-input failure below.
-
-The later authoring boundary retains one immutable footprint per existing source
-capture and reuses its structural eligibility. The 22 focused cases include cache
-eviction, unchanged recapture, own-field flushing, wrong-field/sibling restrictions,
-dependency/configuration changes, same-content permission changes, project and
-buffer replacement, and changes during the actual proposal. The seven stale
-problem-navigation regressions now use the same safe reveal boundary as captured
-failures. Original input, byte, refusal and deadline assertions remain.
-
-## Remaining qualification gates
-
-- Resolve or obtain an approved official-upstream resolution for the reproduced
-  native stale-client input loss below. Core/widget results cannot qualify it.
-- Complete Core/CLI and published-output qualification of the final-owner mapping
-  against the same refreshed candidate, preserving advanced semantic obligations.
-- Resolve retained runtime failures and verify all actual wire, file-change,
-  credentials/TLS, mock, stream and cancellation boundaries together.
-- Run full current-candidate Engine, Core/CLI, official widget, native/platform and
-  distribution checks after source stabilizes. `python3 tools/qualify_linux.py`
-  assembles and rejects failing automated candidates; native/platform acceptance
-  remains a separately reported gate.
-
-Historical Terms-of-Service, mixed Header, large-value IO and alias failures stay
-in the dated record. Their status must come from current corresponding cases,
-not from assuming that a simplification fixed every historical defect.
+The remaining acceptance work is a qualified official-upstream resolution of
+native input loss, then the complete native editing/save/recovery/reopen journey
+and final release qualification on that supported runtime. No release, push,
+SDK/vendor patch, input throttling, session/provider change or weakened assertion
+has been applied. A passing automated population cannot waive the native failure.
 
 ## Measured work reduction
 
@@ -192,6 +120,8 @@ These measurements establish specific mechanism changes. They are not full
 application qualification, UI latency distributions, or an explanation for native
 input loss. Local instrumentation exists only in copied benchmark sources under
 `build/diagnostics/simplification-20261113/`; it is absent from production.
+Native input/paint latency distributions and time to an editable view are not
+established by these engine/JIT measurements and remain acceptance work.
 
 The editing pair compares `7cc6ab6` with the simplified buffer owner. Each process
 performs 25 single-span edits, 25 undo and 25 redo operations and compares exact
@@ -269,20 +199,22 @@ corresponding runtime work records.
 Actual source-save, body, scheduler, ownership, and conversion mechanisms are the
 deletions being audited. Historical prose, vendored inputs, generated files and
 lockfile removals are excluded from production-reduction credit. Against `7cc6ab6`,
-the committed runtime paths at `7af3bb4` have these textual changes:
+the committed runtime paths at `433d3bd` have these textual changes:
 
 | Production responsibility | Added lines | Deleted lines | Net lines |
 | - | -: | -: | -: |
-| Desktop `lib/` | 619 | 561 | +58 |
+| Desktop `lib/` | 624 | 566 | +58 |
 | Dart core `packages/busyapi_core/lib/` | 2,747 | 2,432 | +315 |
 | TypeScript `tools/contract_engine/src/` | 2,741 | 2,516 | +225 |
-| Total | 6,107 | 5,509 | +598 |
+| Total | 6,112 | 5,514 | +598 |
 
 These runtime paths therefore grow by 598 lines overall. The reductions are in
 owners and executed work: the alternate source saver, Dart conversion semantic
 mirror, Dart execution scheduler, history hashing, per-edit recovery sweep,
 superseded conversion retirement/repair, preliminary mock form proofs, repeated
 stream continuations and uncompressed response copy are absent. The conversion
+semantic owners, production source savers and execution schedulers each fall
+from two to one. The conversion
 subset (`migration.dart` and `migration*.ts`) has a net reduction of 381 lines
 across 41 changed files. Added code includes retained-context fixes and
 explicit captured-input ownership; gross deleted lines alone do not establish
@@ -291,116 +223,44 @@ that evidence. Full integrated and native qualification remain separate gates.
 
 ## Current native input reproduction — 2026-11-14
 
-The unchanged owned-window driver ran the current ordinary release from code
-checkpoint `7af3bb4`. Ctrl+A, `edited 3.0.4` and Tab left only `edited` in the
-editable, enabled Title field. Its caret was 6 after blur. API version remained
-`api-version`; all 430 source bytes remained unchanged. Save, history and reopen
-were not reached, so this journey remains unqualified.
+The unchanged owned-window driver ran the ordinary release at `433d3bd` with
+`--version 3.0.4 --format yaml --edit`. Ctrl+A, `edited 3.0.4` and Tab left only
+`edited` in the enabled, editable Title field, caret 6 after blur. API version
+remained `api-version`. All 430 API source bytes remain identical, SHA-256
+`6233b96038accefdd231b0a655470e80726f183c39949933b84b80581d1e94b5`.
+Save, Source/history and reopen were not reached.
 
-The AOT SHA-256 is
-`c262985febb473f29748fbab1dca5cfe8aacf6fdcddd1378ea1470deefeb89b6`;
-the native executable is
-`d86703b0e14a8007ecee55a82db579a4b3db2bb4344aa1226992714a74a383e3`.
-Kernel-recorded application peak RSS was 429484 KiB and sampled RSS 405400 KiB.
-These are not comparative native latency or memory results. The untraced run
-alone does not establish the cause; the independent plain-field/client-ordering
-evidence below remains separate. Exact controls, screenshots, source bytes,
-artifacts and result are in
-`build/diagnostics/simplification-20261113/native-current-7af3bb4/`.
-
-## Fresh native input reproduction — 2026-11-13
-
-The simplified editor builds successfully with optional generator/oasdiff inputs
-unavailable, but native editing acceptance still fails. The unchanged owned-window
-journey typed `edited 3.0.4` then Tab into Title; the field retained `edited 3.0`.
-Disk source remained byte-identical. The full editing/save/reopen journey stopped
-at that assertion; it is not qualified. The debug process's kernel-recorded peak
-RSS was 706720 KiB, sampled RSS 651912 KiB; these are not release performance
-measurements.
-
-The independent ordinary two-field fixture in `tools/repro_two_fields.dart`,
-driven by `tools/repro_two_fields.py`, reproduces without BufferStore, recovery, Design or project analysis. Its original
-single native burst, Ctrl+A followed by `edited 3.2.1` and Tab, retained
-`edited 3.`. The passive GTK/IBus-observed run retained `edited 3`. All 30 native
-IBus requests/replies and all 12 one-byte GTK commit callbacks were observed.
-The existing Flutter channel tracer then showed the exact final-character race:
-hardware `1` down/up preceded Tab down/up; client 2 reached `edited 3.2.`;
-`TextInput.clearClient` and `setClient(3)` changed focus to API version; afterward
-`TextInputClient.updateEditingState` delivered the complete 12-character value
-for retired client 2. This evidence locates the loss before BusyAPI source/draft
-ownership. It does not establish a particular upstream patch or a qualified fix.
-
-The official unchanged SDK is Flutter 3.47.5, framework
-`6a19cca56475dbfba1478ee68d7bd0c2ef891da1`, engine
-`af7e796e161ae0bb1ff0758c71a7105418bd9ded`, Dart 3.13.4. The debug engine hash is
-`7a5698608a3c79ad3f123a74bce8074339ffa1a83c896d73ae853c9f92a43cc3`.
-Host: GNOME X11, Linux 7.0.0-42-generic, GTK 3.24.41,
-IBus 1.5.29-rc2 (Ubuntu package 1.5.29-2), `xkb:us::eng`.
-`GTK_IM_MODULE`, `IBUS_ADDRESS` and `IBUS_ENABLE_SYNC_MODE` were unset;
-`XMODIFIERS=@im=ibus`. App-only diagnostic synchronization modes also failed:
-mode 1 retained `edited 3.2`; mode 2 reordered Title to `deeti.3 d` and wrote
-`1.` into API version. Neither setting was applied to the user session or product.
-No key timing, assertion, SDK, provider or vendor source was changed.
-
-Evidence, original fixture/driver copies, screenshots, raw channel/IM logs,
-process memory, host identities and source-byte comparisons are retained under
-`build/diagnostics/simplification-20261113/native/`. Debug native executable
-hashes alone do not identify the Dart entry point. The retained kernel hashes are:
-
-| Candidate | SHA-256 of `data/flutter_assets/kernel_blob.bin` |
+| Artifact | SHA-256 |
 | - | - |
-| Simplified editor | `8a96e9133f16ce41d2a82a40c3a6d65c04b18403dc5efddfd8871143865c34be` |
-| Pure two-field fixture | `664a1bcc03819cc79cd6fee00bd39a417c7f09e0912ff1d484ce67d331932e68` |
-| Channel-traced fixture | `a18631ab92c91b2fa9edb4da9407f5382d2e28f3371ff0dbf6e80db834802bee` |
+| Desktop AOT `lib/libapp.so` | `c6f3c21f7399f2b296199bf4de33af4f353490cdb166f51763082caedcaa01b5` |
+| Native executable | `d86703b0e14a8007ecee55a82db579a4b3db2bb4344aa1226992714a74a383e3` |
+| CLI | `71d1bb6ccb9594ad61e7993da4f675758654f229c54350a70e0f302770f4426f` |
+| Main Engine | `df76196efbe9102e30b08ed502bbb3a9780ab973a72306ae8b9dd96e7d234858` |
+| Conversion worker | `21d59f4f3241bc8009f863beef9f3bb7d187eb3cab996a59d01c691204d4a3db` |
 
-The editor and pure fixture bundles are preserved in
-`/tmp/busyapi-simplification-native-bundles-q8bo59qk/`. Rebuild the ordinary
-application entry before any later native qualification. Earlier dated failures
-in the historical record remain historical evidence; the observations here are fresh executions.
+Kernel-recorded application peak RSS was 421996 KiB; sampled RSS was 406120 KiB.
+These are single-run observations, not comparative native performance results.
+Controls, screenshots, original/current bytes, artifacts and result are retained
+in `final-current/native/` beneath the diagnostic directory. This untraced run
+establishes the retained failure, not its cause.
 
-## Release native follow-up — 2026-11-13
+The separate independent `tools/repro_two_fields.dart` fixture, driven by
+`tools/repro_two_fields.py` on the unchanged official SDK/native host, reproduced
+trailing loss without BusyAPI history, recovery or Design. Its recorded channel
+trace observes the complete 12-character update for client 2 only after
+`TextInput.clearClient` and `setClient(3)` move focus to API version. The update
+for the retired client is discarded. All 30 observed IBus requests/replies and
+12 one-byte GTK commits were present. Separate BusyAPI AOT traces retain one
+mounted writable Title field through the burst; the final update does not reach
+the Designer callback. These controlled traces do not reconstruct every untraced
+failure. Full originals and hashes remain in `native/` and `native-boundary/`.
 
-Full release assembly now succeeds with the ordinary `lib/main.dart` AOT entry,
-CLI, all optional tools, official SDK identities, notices and verified distributed
-artifacts. Process-test fixtures live outside that candidate. This is assembly
-evidence, not retained-behavior qualification.
-
-The unchanged owned 3.0.4 YAML standalone editing journey then failed at its
-first Title assertion: requested `edited 3.0.4`, observed `Production 3.0.4`.
-The 430-byte API and 260-byte model remained byte-identical. The process reached
-418,584 KiB peak RSS. Save, Source/history and reopen were not reached. This run
-does not establish the earlier trailing-character cause. The candidate's
-`lib/libapp.so` SHA-256 is
-`7b4d904bfc03e1a095aefabf5bae215322724ddff4d5335d4ace24a6265dea0a`.
-Original/current files, controls, screenshots, identities and memory are in
-`build/diagnostics/simplification-20261113/native-release/`.
-
-Separate controlled release AOT traces now compare `364209c` with `14004d3`,
-before authoring consolidation. Both retain one mounted, writable Title field
-through the entire burst. Tab then blurs it and clears its Flutter client;
-the complete 12-character update arrives afterward for that retired client.
-The current field retains `edited 3`; the earlier field retains `edited 3.0.`.
-Neither late update reaches Designer's input callback. This rules out the
-suspected first-party remount/read-only transition in those controlled runs.
-It does not reconstruct the untraced zero-edit run or establish comparative
-performance. Six initial-focus widget cases retain the focused client across
-feedback invalidation. No input workaround, timing change or SDK patch was added.
-Patches, raw events, original/current files and compiled identities are retained
-in `build/diagnostics/simplification-20261113/native-boundary/`.
-
-A read-only comparison of local official SDK tags 3.47.5 and 3.47.9 found the
-Linux text-input/keyboard handlers, text-input service and focus manager unchanged;
-the EditableText difference concerns context-menu action names. No later SDK was
-installed or run, and this comparison identifies no qualified upstream fix.
-The comparison is recorded in `native/sdk-source-comparison.json`.
-
-The fresh v10 candidate repeats the unchanged native 3.0.4 YAML journey after
-the final source-observation fixes. It requests `edited 3.0.4` and Tab; Title
-retains `edited 3.0`. The 430-byte API remains unchanged, and the exact-input
-assertion stops the journey before save, Source/history and reopen. Its desktop
-AOT SHA-256 is
-`e16447fb6b05653f0334843cb4052fa6958c530f099876d9689fd78df424878e`.
-Peak RSS is 428,596 KiB. Controls, screenshots, source bytes, invocation and
-identities are retained in `native-v10/`. This untraced run does not by itself
-establish the cause observed in the separate official-SDK traces. It confirms
-that the final first-party ownership changes have not qualified native input.
+The supported official SDK is Flutter 3.47.5, framework
+`6a19cca56475dbfba1478ee68d7bd0c2ef891da1`, engine
+`af7e796e161ae0bb1ff0758c71a7105418bd9ded`, Dart 3.13.4.
+The host is GNOME X11, Linux 7.0.0-42-generic, GTK 3.24.41,
+IBus 1.5.29-rc2, `xkb:us::eng`. The local read-only comparison of official
+3.47.5/3.47.9 input paths and the bounded official-report review did not establish
+a qualified matching fix. No later SDK was installed or run. Search scope is
+recorded in `final-current/upstream-review.json`; absence of a matching result
+in that review is not proof that no upstream fix exists.

@@ -306,6 +306,10 @@ and same-path project replacement cannot authorize a retired action. This adds
 no parser, graph, schema-check or per-paint freshness phase.
 Progress and final feedback for the same immutable capture reuse its bound
 projection and native model maps; only the semantic result changes.
+Object, Reference and Schema-tree query reloads use the current authoring
+footprint with the buffer revision. A permission-only authority change can
+therefore retire a reply even when content identity and generation stay equal;
+unchanged feedback preserves pending input, tree expansion and reading position.
 
 The shared syntax cache keys resource identity and actual immutable text. Derived
 text cannot inherit its input's parse by retaining old generation/identity fields,
@@ -357,8 +361,10 @@ Family conversion helpers select the allocator's actual entry capture, so an
 indexed foreign object cannot choose an unversioned fragment's interpretation.
 Identical captured interpretations share their final owner and genuine resource
 frame. Native Schema slots use the common reference emitter; they do not create
-anchorless resource shells or a second reference-repair list. Resource metadata
-and unused anchors retain their captured-to-final association without activating
+anchorless resource shells or a second reference-repair list. Forwarding an
+original native slot applies only to the Schema interpretation, never a secondary
+native object role at the same physical pointer. Resource metadata and unused
+anchors retain their captured-to-final association without activating
 unrelated sibling assertions. Authored dialect declarations remain distinct from
 the family defaults selected by an explicit conversion.
 Planner context can index a resource boundary without making its assertions an
