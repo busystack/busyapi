@@ -119,7 +119,7 @@ export class MigrationSchemaOwners {
                     if(this.retainedValue(location))continue;
                     const frame=use.context.frame;
                     if(frame)for(const at of current.get(JSON.stringify([frame.location.resource,frame.location.pointer]))??[])
-                        result.push({namespace,scope:frame.scope,location:at,base:this.sources.get(at.resource)?.doc.dataNode(at.pointer)?.value?.$id,metadataOnly:true});
+                        result.push({namespace,scope:frame.scope,location:at,base:use.context.base??frame.scope.base,metadataOnly:true});
                     // Intrinsic subschemas inherit this same captured owner.
                     // Re-admitting each child as a standalone root would turn
                     // permitted legacy boolean fields into invalid schemas.

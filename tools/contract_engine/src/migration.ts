@@ -252,6 +252,19 @@ export async function planMigration(input:MigrationInput) {
                     for(const location of owners.entryLocations(namespace,seed,scope,current))admit(namespace,scope,location,seed.expectedBase,seed.metadataOnly);
                 }
                 for(const {namespace,scope,location,base,metadataOnly}of owners.planningContexts(current))admit(namespace,scope,location,base,metadataOnly);
+                // Resource declarations belong to the authored output, even
+                // when only another entry uses their assertions. Index their
+                // existing frames in every context before a foreign typed
+                // pointer can inherit the retrieval document's wrong base.
+                const frames=[...selected.values()].flatMap(entries=>[...entries.values()].filter(entry=>entry.metadataOnly));
+                for(const namespace of sourceGraphs.keys()){
+                    const entries=selected.get(namespace)??new Map<string,PlanningOccurrence>();
+                    for(const frame of frames){
+                        const id=JSON.stringify([frame.resource,frame.pointer,frame.kind]);
+                        if(!entries.has(id))entries.set(id,frame);
+                    }
+                    selected.set(namespace,entries);
+                }
                 return new Map([...selected].map(([root,entries])=>[root,Object.freeze([...entries.values()].map(entry=>Object.freeze(entry)))]));
             };
             const preparationInput=()=>({...capturedInput([...sources].map(([id,source])=>({

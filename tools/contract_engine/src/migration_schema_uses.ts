@@ -299,12 +299,10 @@ function materializeMigrationOwners(graph:ReferenceGraph,sources:ReadonlyMap<str
             if(scope.resource===graph.root&&!independentSchema(graph,scope)&&!entry.documentResources.has(schemaResourceContextIdentity(scope)))continue;
             if(scope.pointer===scope.resourcePointer)continue;
             const identity=schemaResourceContextIdentity(scope);
-            const anchored=(resources.get(identity)?.members??[]).some(schema=>{
-                inspect();if(!inside(schema.pointer,scope.pointer))return false;
-                const value=graph.docs.get(schema.resource)!.dataNode(schema.pointer)?.value;
-                return typeof value?.$anchor==='string'||typeof value?.$dynamicAnchor==='string';
-            });
-            const needsResource=anchored||dynamicDependency([scope])||owners.authoredDialect(scope)!==undefined&&
+            const captured=resources.get(identity),boundary=captured?.boundary;
+            const identified=captured&&(captured.anchors.size||captured.dynamicAnchors.size||boundary&&
+                typeof graph.docs.get(boundary.resource)!.dataNode(boundary.pointer)?.value?.$id==='string');
+            const needsResource=identified||dynamicDependency([scope])||owners.authoredDialect(scope)!==undefined&&
                 !sameSchemaDialect(scope.dialect,defaultSchemaDialect(graph.family));
             // Entry variants must not add discriminator wire names. Anonymous
             // map uses, ordinary models and boolean choices share the same
@@ -323,7 +321,7 @@ function materializeMigrationOwners(graph:ReferenceGraph,sources:ReadonlyMap<str
             // A real retained Schema resource is already the final URI owner.
             // Literal-role extraction can place its selected use directly in
             // that resource's definitions without cloning a published identity.
-            if(!entry.varyingResources.has(identity)&&boundary&&graph.isEntryUse(boundary)&&
+            if(!entry.varyingResources.has(identity)&&boundary&&
                 graph.literalContainer(boundary.resource,boundary.pointer)===undefined&&!graph.hasOverlappingScope(boundary.resource,boundary.pointer)){
                 resourceHolders.set(identity,{location:boundary,dialect:boundary.dialect});continue;
             }
@@ -480,7 +478,10 @@ function materializeMigrationOwners(graph:ReferenceGraph,sources:ReadonlyMap<str
             });
         }
         const shared=(!entry.distinct||scope.kind==='schema'&&!entry.varyingResources.has(schemaResourceContextIdentity(scope)))?owners.roleOwners(scope):[];
-        const separated=retainedNative(scope)?{location:scope,provenance:new Map<string,SourceLocation>()}:
+        const retainedResource=scope.kind==='schema'&&!entry.varyingResources.has(schemaResourceContextIdentity(scope))&&
+            copiedHolder?.location.resource===scope.resource&&copiedHolder.location.pointer===scope.resourcePointer&&
+            graph.literalContainer(scope.resource,scope.pointer)===undefined&&!graph.hasOverlappingScope(scope.resource,scope.pointer);
+        const separated=retainedNative(scope)||retainedResource?{location:scope,provenance:new Map<string,SourceLocation>()}:
             shared.length===1?{location:shared[0].location,provenance:new Map<string,SourceLocation>()}:owners.separate(scope,'entry_use',{
             container,captured:pristine.get(scope.resource),
             operationSlot,
@@ -631,7 +632,9 @@ function materializeMigrationOwners(graph:ReferenceGraph,sources:ReadonlyMap<str
             Object.hasOwn(graph.docs.get(placement.scope.resource)!.dataNode(placement.scope.pointer)?.value??{},'$schema'))
             sources.get(placement.location.resource)!.remove(placement.location.pointer+'/$schema');
     }
-    for(const placement of placements)if(nativeSlots.has(key(placement.scope))&&entry.documentResources.has(schemaResourceContextIdentity(placement.scope)))
+    for(const placement of placements)if(nativeSlots.has(key(placement.scope))&&
+        (placement.scope.resource===graph.root||entry.documentResources.has(schemaResourceContextIdentity(placement.scope)))&&
+        (placement.scope.resource!==placement.location.resource||placement.scope.pointer!==placement.location.pointer))
         owners.referenceUse(sources.get(placement.scope.resource)!,placement.scope.pointer,placement.location);
     // Each API owns its public component bindings. A child of a copied map
     // can already have its final owner without another physical placement.

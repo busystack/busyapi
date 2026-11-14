@@ -68,6 +68,11 @@ export function referenceValue(graph:ReferenceGraph,from:GraphScope,to:GraphScop
   }
   const source=resolveUri('',from.base);source.hash='';
   const attempts:string[]=[];
+  if(options.connection==='discriminator'&&to.resource===graph.root){
+   const container=componentLocation('schemas',graph.family),prefix=container+'/';
+   if(container!==undefined&&to.pointer.startsWith(prefix)&&!to.pointer.slice(prefix.length).includes('/'))
+    attempts.push(segments(to.pointer).at(-1)!);
+  }
   const append=(target:URL,end:string)=>{
    if(!options.absolute&&source.href===target.href)attempts.push(end);
    if(!options.absolute&&source.protocol===target.protocol&&source.host===target.host&&['file:','http:','https:'].includes(target.protocol)) {

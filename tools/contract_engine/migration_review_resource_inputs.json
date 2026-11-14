@@ -1,0 +1,78 @@
+{
+  "dependency-required": {
+    "root": "file:///approved/dependency-required/api.json",
+    "snapshot": "dependency-required",
+    "resources": [
+      {
+        "id": "file:///approved/dependency-required/api.json",
+        "text": "{\"openapi\":\"3.2.1\",\"info\":{\"title\":\"Unsaved API 雪\",\"version\":\"unrelated-api-version\"},\"paths\":{},\"components\":{\"schemas\":{\"Subject\":{\"$dynamicRef\":\"./model.yaml#model\",\"$ref\":\"#/components/schemas/Flags\"},\"Independent\": {\"$ref\":\"./model.yaml#/$defs/Actual/dependentRequired\"},\"Flags\":{\"type\":\"object\",\"required\":[\"flag\"],\"properties\":{\"flag\":{\"type\":\"boolean\",\"const\":true}}}}},\"x-kept\":{\"$dynamicRef\":\"literal space\",\"number\":9007199254740993.00,\"false\":false,\"zero\":0,\"nil\":null}}",
+        "generation": 2,
+        "hasBom": false,
+        "identity": "8f445ce63bee617581df4798ed5304977df8f95dd3ffeb52d505bbb24ce67a8a"
+      },
+      {
+        "id": "file:///approved/dependency-required/model.yaml",
+        "text": "# Preserve dependency model comments and aliases\r\n$schema: https://json-schema.org/draft/2020-12/schema\r\n$id: model.yaml\r\ndescription: Unsaved model\r\n$defs:\r\n  Actual: {\"$anchor\":\"model\",\"type\":\"object\",\"dependentRequired\":{\"name\":[\"n\"]},\"properties\":{\"n\":{\"type\":\"integer\",\"enum\":[9007199254740993.00]},\"name\":{\"type\":\"string\",\"enum\":[\"雪\"]}}}\r\nx-kept: &literal {exact: 9007199254740993.00, flag: false, nil: null}\r\nx-alias: *literal\r\n",
+        "generation": 2,
+        "hasBom": false,
+        "identity": "9ebf8c40247ee5d3161d1bd7299973405dc852dcbfe9e8abbb1be649f6641d84"
+      }
+    ],
+    "targetVersion": "3.0.4",
+    "destination": "file:///delivered/dependency-required/",
+    "decisions": {}
+  },
+  "dependency-schemas": {
+    "root": "file:///approved/dependency-schemas/api.json",
+    "snapshot": "dependency-schemas",
+    "resources": [
+      {
+        "id": "file:///approved/dependency-schemas/api.json",
+        "text": "{\"openapi\":\"3.2.1\",\"info\":{\"title\":\"Unsaved API 雪\",\"version\":\"unrelated-api-version\"},\"paths\":{},\"components\":{\"schemas\":{\"Subject\":{\"$dynamicRef\":\"./model.yaml#model\",\"$ref\":\"#/components/schemas/Flags\"},\"Independent\": {\"$ref\":\"./model.yaml#/$defs/Actual/dependentSchemas\"},\"Flags\":{\"type\":\"object\",\"required\":[\"flag\"],\"properties\":{\"flag\":{\"type\":\"boolean\",\"const\":true}}}}},\"x-kept\":{\"$dynamicRef\":\"literal space\",\"number\":9007199254740993.00,\"false\":false,\"zero\":0,\"nil\":null}}",
+        "generation": 2,
+        "hasBom": false,
+        "identity": "006bfd671ea44328f5bab5960b1452681cd52a1cc05e37db0cf8f48ad84c9ac0"
+      },
+      {
+        "id": "file:///approved/dependency-schemas/model.yaml",
+        "text": "# Preserve dependency model comments and aliases\r\n$schema: https://json-schema.org/draft/2020-12/schema\r\n$id: model.yaml\r\ndescription: Unsaved model\r\n$defs:\r\n  Actual: {\"$anchor\":\"model\",\"type\":\"object\",\"dependentSchemas\":{\"name\":{\"required\":[\"n\"]}},\"properties\":{\"n\":{\"type\":\"integer\",\"enum\":[9007199254740993.00]},\"name\":{\"type\":\"string\",\"enum\":[\"雪\"]}}}\r\nx-kept: &literal {exact: 9007199254740993.00, flag: false, nil: null}\r\nx-alias: *literal\r\n",
+        "generation": 2,
+        "hasBom": false,
+        "identity": "79b667bca7c6828ece4107b2aaf64f8dcd13277e21ee366ead02d270d00748d4"
+      }
+    ],
+    "targetVersion": "3.0.4",
+    "destination": "file:///delivered/dependency-schemas/",
+    "decisions": {}
+  },
+  "mixed-overlap": {
+    "root": "file:///approved/mixed-overlap/a.yaml",
+    "snapshot": "mixed-overlap",
+    "resources": [
+      {
+        "id": "file:///approved/mixed-overlap/a.yaml",
+        "text": "# Keep first 雪\r\n{\"openapi\":\"3.2.1\",\"info\":{\"title\":\"Captured First\",\"version\":\"business\"},\"servers\":[{\"url\":\"https://api.invalid\"}],\"paths\":{\"/p\":{\"$ref\":\"b.yaml#/paths/~1p\"}},\"components\":{\"securitySchemes\":{\"Access\":{\"type\":\"apiKey\",\"in\":\"header\",\"name\":\"X-First\"}},\"schemas\":{\"Choice\":{\"type\":\"object\",\"x-entry\":\"First\"}},\"links\":{\"Next\":{\"operationId\":\"shared\"}}}}\r\n",
+        "generation": 2,
+        "hasBom": false,
+        "identity": "ff07559e68118f092516cea93c8a928dabab41681012e3848fcdfa281d4a4229"
+      },
+      {
+        "id": "file:///approved/mixed-overlap/b.yaml",
+        "text": "# Keep foreign 雪\r\nopenapi: \"3.1.2\"\r\ninfo: {\"title\":\"Second\",\"version\":\"business\"}\r\nservers: [{\"url\":\"https://api.invalid\"}]\r\npaths: {\"/p\":{\"post\":{\"operationId\":\"shared\",\"security\":[{\"Access\":[]}],\"requestBody\":{\"required\":true,\"content\":{\"application/json\":{\"schema\":{\"$ref\":\"#/paths/~1p/post/responses/200/content/application~1json/schema\"}}}},\"responses\":{\"200\":{\"description\":\"Value\",\"content\":{\"application/json\":{\"schema\":{\"$dynamicAnchor\":\"node\",\"type\":\"object\",\"required\":[\"entry\",\"n\"],\"properties\":{\"entry\":{\"type\":\"string\"},\"n\":{\"type\":\"integer\",\"enum\":[9007199254740993.00]},\"child\":{\"$dynamicRef\":\"#node\"}},\"oneOf\":[{\"$ref\":\"#/components/schemas/Choice\"}],\"discriminator\":{\"propertyName\":\"entry\",\"mapping\":{\"chosen\":\"Choice\"}},\"description\":\"[Guide](guide.md)\"}}},\"links\":{\"Next\":{\"$ref\":\"#/components/links/Next\"}}}}}}}\r\ncomponents: {\"securitySchemes\":{\"Access\":{\"type\":\"apiKey\",\"in\":\"header\",\"name\":\"X-Second\"}},\"schemas\":{\"Choice\":{\"type\":\"object\",\"x-entry\":\"Second\"},\"ExampleMap\":{\"$ref\":\"#/components/examples\"},\"SchemaMap\":{\"$ref\":\"#/components/schemas\"}},\"links\":{\"Next\":{\"operationId\":\"shared\"}},\"pathItems\":{},\"examples\":{\"Dictionary\":{\"$ref\":\"#/components/pathItems\"}}}\r\nx-history: &history {\"path\":{\"post\":{\"operationId\":\"shared\",\"security\":[{\"Access\":[]}],\"requestBody\":{\"required\":true,\"content\":{\"application/json\":{\"schema\":{\"$ref\":\"#/paths/~1p/post/responses/200/content/application~1json/schema\"}}}},\"responses\":{\"200\":{\"description\":\"Value\",\"content\":{\"application/json\":{\"schema\":{\"$dynamicAnchor\":\"node\",\"type\":\"object\",\"required\":[\"entry\",\"n\"],\"properties\":{\"entry\":{\"type\":\"string\"},\"n\":{\"type\":\"integer\",\"enum\":[9007199254740993.00]},\"child\":{\"$dynamicRef\":\"#node\"}},\"oneOf\":[{\"$ref\":\"#/components/schemas/Choice\"}],\"discriminator\":{\"propertyName\":\"entry\",\"mapping\":{\"chosen\":\"Choice\"}},\"description\":\"[Guide](guide.md)\"}}},\"links\":{\"Next\":{\"$ref\":\"#/components/links/Next\"}}}}}},\"exact\":9007199254740993.00,\"flag\":false,\"empty\":\"\",\"zero\":0,\"lookalike\":{\"$ref\":\"literal-only\"}}\r\nx-alias: *history\r\n",
+        "generation": 1,
+        "hasBom": false,
+        "identity": "c0634cc4c136e17b71f24eeb174931e773be90aaa5e3e18901ffbe669d751560"
+      }
+    ],
+    "configuration": {
+      "id": "file:///approved/mixed-overlap/busyapi.yaml",
+      "text": "version: 1\nroots: [{name: first, path: a.yaml}, {name: second, path: b.yaml}]\nenvironments:\n  manual:\n    authentication:\n      alternative: 0\n      schemes:\n        Access: {secretRef: 11111111-1111-4111-8111-111111111111}\n",
+      "generation": 1,
+      "hasBom": false,
+      "identity": "2264663b86c3521bda815c0626f63ac39899fc5f079eb03de09197b4bf798e07"
+    },
+    "targetVersion": "3.2.1",
+    "destination": "file:///delivered/mixed-overlap/",
+    "decisions": {}
+  }
+}

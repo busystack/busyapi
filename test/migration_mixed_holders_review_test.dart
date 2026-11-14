@@ -77,7 +77,9 @@ void main() {
               condition(),
               true,
               reason:
-                  '${controller.error}; ${tester.widgetList<BusyApiStatusBox>(find.byType(BusyApiStatusBox)).map((widget) => widget.message).toList()}',
+                  '${controller.error}; '
+                  '${tester.widgetList<BusyApiStatusBox>(find.byType(BusyApiStatusBox)).map((widget) => widget.message).toList()}; '
+                  '${tester.widgetList<BusyApiActionRow>(find.byType(BusyApiActionRow)).map((widget) => '${widget.title}: ${widget.subtitle}').toList()}',
             );
             await tester.pumpAndSettle();
           }
@@ -136,9 +138,18 @@ void main() {
             );
             if (outcome == 'invalid') {
               await ready(
-                () => find.byWidgetPredicate((widget) => widget is BusyApiActionRow &&
-                    widget.subtitle?.contains('b.yaml ') == true &&
-                    widget.subtitle?.contains('/responses/200/content/application~1json/schema') == true).evaluate().isNotEmpty,
+                () => find
+                    .byWidgetPredicate(
+                      (widget) =>
+                          widget is BusyApiActionRow &&
+                          widget.subtitle?.contains('b.yaml ') == true &&
+                          widget.subtitle?.contains(
+                                '/responses/200/content/application~1json/schema',
+                              ) ==
+                              true,
+                    )
+                    .evaluate()
+                    .isNotEmpty,
               );
               expect(
                 tester.widget<BusyApiDialogButton>(publish).onPressed,

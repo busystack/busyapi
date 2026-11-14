@@ -148,3 +148,49 @@ for(const description of [
  assert.deepEqual(await evaluate(cold(review)),oracle.tests.map(value=>value.valid));
  assert.equal(review.outputs.find(output=>output.id===review.changes.find(change=>change.resource===data).destination).text,input.resources[1].text);
 });
+
+const reviewedResourceInputs=require('./migration_review_resource_inputs.json');
+for(const name of ['dependency-required','dependency-schemas'])
+test(`reviewed ${name} retains its real resource and reports the unsupported independent keyword`,async()=>{
+ const input=structuredClone(reviewedResourceInputs[name]),before=input.resources.map(resource=>resource.text);
+ const native=await evaluateSchemas(input);assert.equal(native.complete,true,JSON.stringify(native.findings));
+ const review=await planMigration(input),keyword=name==='dependency-required'?'dependentRequired':'dependentSchemas';
+ assert.equal(review.complete,false);assert.deepEqual(review.outputs,[]);assert.deepEqual(review.changes,[]);
+ const problem=review.problems.find(problem=>problem.resource.endsWith('/model.yaml')&&problem.pointer==='/$defs/Actual/'+keyword+'/name');
+ assert(problem,JSON.stringify(review.problems));assert.equal(problem.code,'migration.validation.schema.keyword.invalid');
+ assert.equal(problem.reason,'target-representation');assert(problem.range[1]>problem.range[0]);
+ assert.equal(review.problems.some(problem=>problem.code.includes('identity.duplicate')),false);
+ assert.deepEqual(input.resources.map(resource=>resource.text),before);
+});
+
+test('reviewed native Schema maps retain the anchor frame in each independent entry and after cold relocation',async()=>{
+ const input=structuredClone(reviewedResourceInputs['mixed-overlap']),before=input.resources.map(resource=>resource.text);
+ const ids=input.resources.filter(resource=>/\/[ab]\.yaml$/.test(resource.id)).map(resource=>resource.id);
+ const samples=['{"entry":"chosen","n":9007199254740993}',
+  '{"entry":"chosen","n":9007199254740993,"child":{"entry":"chosen","n":9007199254740993}}',
+  '{"entry":"chosen","n":9007199254740992}','{"entry":"chosen","n":9007199254740993,"child":false}'];
+ const evaluate=async packet=>{
+  const native=analyse(packet);assert.equal(native.complete,true,JSON.stringify(native.findings));
+  const operation=native.operations.find(operation=>operation.path==='/p');assert(operation);
+  const checked=await evaluateSchemas({...packet,runtimeInstances:samples.map(text=>({subject:'response-body',location:text,text,
+   schema:{resource:operation.resource,pointer:operation.pointer+'/responses/200/content/application~1json/schema'}}))});
+  assert.equal(checked.complete,true,JSON.stringify(checked.findings));
+  assert(checked.runtimeEvaluations.every(value=>value.complete));return checked.runtimeEvaluations.map(value=>value.valid);
+ };
+ for(const root of ids)assert.deepEqual(await evaluate({...input,root}),[true,true,false,false]);
+ const review=await planMigration(input);assert.equal(review.complete,true,JSON.stringify(review.problems));
+ for(const original of ids){
+  const root=review.changes.find(change=>change.resource===original).destination;
+  assert.deepEqual(await evaluate({...cold(review),root}),[true,true,false,false]);
+ }
+ const foreign=review.changes.find(change=>change.resource.endsWith('/b.yaml'));
+ const source=new SourceDocument(input.resources.find(resource=>resource.id.endsWith('/b.yaml')).text,'file:///original/b.yaml'),output=new SourceDocument(foreign.after,foreign.destination);
+ assert.equal(output.dataJson('/x-history'),source.dataJson('/x-history'));assert.equal(output.dataJson('/x-alias'),source.dataJson('/x-alias'));
+ assert.deepEqual(input.resources.map(resource=>resource.text),before);
+ const moved='file:///moved-reviewed-resources/';
+ for(const original of ids){
+  const change=review.changes.find(change=>change.resource===original),file=review.outputs.find(output=>output.id===change.destination);
+  const packet={root:new URL(file.path,moved).href,snapshot:'reviewed-cold-moved',resources:review.outputs.map(output=>({id:new URL(output.path,moved).href,text:output.text,generation:0}))};
+  assert.deepEqual(await evaluate(packet),[true,true,false,false]);
+ }
+});

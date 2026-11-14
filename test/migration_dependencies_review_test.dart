@@ -101,7 +101,14 @@ void main() {
             );
             await tester.pump(const Duration(milliseconds: 20));
           }
-          expect(condition(), true, reason: '${c.error}');
+          expect(
+            condition(),
+            true,
+            reason:
+                '${c.error}; '
+                '${tester.widgetList<BusyApiStatusBox>(find.byType(BusyApiStatusBox)).map((widget) => widget.message).toList()}; '
+                '${tester.widgetList<BusyApiActionRow>(find.byType(BusyApiActionRow)).map((widget) => '${widget.title}: ${widget.subtitle}').toList()}',
+          );
           await tester.pumpAndSettle();
         }
 
@@ -119,7 +126,9 @@ void main() {
               shared.text.replaceFirst('Original model', 'Unsaved model'),
             );
             await c.analyse();
-            if (!blocked) originalOutcomes = await _dependencyOutcomes(c.project!, c.root!);
+            if (!blocked) {
+              originalOutcomes = await _dependencyOutcomes(c.project!, c.root!);
+            }
           });
           await tester.pumpWidget(
             MaterialApp(
@@ -176,7 +185,10 @@ void main() {
             await ready(
               () => find
                   .byWidgetPredicate(
-                    (widget) => widget is BusyApiActionRow && widget.subtitle?.contains('model.yaml ') == true && widget.subtitle?.contains('/dependent') == true,
+                    (widget) =>
+                        widget is BusyApiActionRow &&
+                        widget.subtitle?.contains('model.yaml ') == true &&
+                        widget.subtitle?.contains('/dependent') == true,
                   )
                   .evaluate()
                   .isNotEmpty,
@@ -202,23 +214,41 @@ void main() {
               isNotNull,
             );
             final resourceChoice = tester.widget<BusyApiComboRow<int>>(
-              find.byWidgetPredicate((widget) => widget is BusyApiComboRow<int>),
+              find.byWidgetPredicate(
+                (widget) => widget is BusyApiComboRow<int>,
+              ),
             );
             final reviewedFiles = <String, String>{};
             BusyApiReviewComparison? sharedComparison;
             for (final index in resourceChoice.values) {
               resourceChoice.onSelected(index);
               await tester.pumpAndSettle();
-              final current = tester.widget<BusyApiReviewComparison>(find.byType(BusyApiReviewComparison));
-              final destination = tester.widgetList<SelectableText>(find.byType(SelectableText))
-                  .map((widget) => widget.data).whereType<String>()
-                  .singleWhere((value) => value.startsWith(Uri.directory(path).toString()));
+              final current = tester.widget<BusyApiReviewComparison>(
+                find.byType(BusyApiReviewComparison),
+              );
+              final destination = tester
+                  .widgetList<SelectableText>(find.byType(SelectableText))
+                  .map((widget) => widget.data)
+                  .whereType<String>()
+                  .singleWhere(
+                    (value) => value.startsWith(Uri.directory(path).toString()),
+                  );
               reviewedFiles[destination] = current.after;
-              if (resourceChoice.labelFor(index) == model.uri.toString()) sharedComparison = current;
+              if (resourceChoice.labelFor(index) == model.uri.toString()) {
+                sharedComparison = current;
+              }
             }
             expect(sharedComparison, isNotNull);
-            expect(sharedComparison!.before, c.project!.store.get(model.uri.toString()).text);
-            expect(sharedComparison.before, contains(conditionalSchemas ? 'dependentSchemas' : 'dependentRequired'));
+            expect(
+              sharedComparison!.before,
+              c.project!.store.get(model.uri.toString()).text,
+            );
+            expect(
+              sharedComparison.before,
+              contains(
+                conditionalSchemas ? 'dependentSchemas' : 'dependentRequired',
+              ),
+            );
             expect(sharedComparison.after, contains('Unsaved model'));
             expect(sharedComparison.after, contains('x-alias: *literal'));
             await tester.runAsync(() => tester.tap(publish));
@@ -236,12 +266,20 @@ void main() {
             expect(output, contains('Unsaved API 雪'));
             await runWidgetIo(tester, () async {
               for (final entry in reviewedFiles.entries) {
-                expect(await File.fromUri(Uri.parse(entry.key)).readAsString(), entry.value);
+                expect(
+                  await File.fromUri(Uri.parse(entry.key)).readAsString(),
+                  entry.value,
+                );
               }
               final copy = await BusyProject.open(path, c.engine);
               try {
-                expect(await _dependencyOutcomes(copy, copy.roots.single.id), originalOutcomes);
-              } finally {copy.close();}
+                expect(
+                  await _dependencyOutcomes(copy, copy.roots.single.id),
+                  originalOutcomes,
+                );
+              } finally {
+                copy.close();
+              }
             });
             expect(output, contains(target));
             expect(output, contains('9007199254740993.00'));
@@ -275,11 +313,22 @@ Future<List<bool>> _dependencyOutcomes(BusyProject owner, String root) async {
   final result = await owner.engine.request('evaluateSchemas', {
     ...captured.snapshot.toJson(),
     'runtimeInstances': [
-      for (final text in ['null', '{}', '{"flag":true}', '{"flag":true,"name":"雪"}',
-          '{"flag":true,"name":"雪","n":9007199254740993}',
-          '{"flag":true,"name":"雪","n":9007199254740992}', '{"flag":false}'])
-        RuntimeSchemaInstance(subject: 'response-body', location: 'Subject', text: text,
-            schemaResource: root, schemaPointer: '/components/schemas/Subject').toJson(),
+      for (final text in [
+        'null',
+        '{}',
+        '{"flag":true}',
+        '{"flag":true,"name":"雪"}',
+        '{"flag":true,"name":"雪","n":9007199254740993}',
+        '{"flag":true,"name":"雪","n":9007199254740992}',
+        '{"flag":false}',
+      ])
+        RuntimeSchemaInstance(
+          subject: 'response-body',
+          location: 'Subject',
+          text: text,
+          schemaResource: root,
+          schemaPointer: '/components/schemas/Subject',
+        ).toJson(),
     ],
   });
   expect(result['complete'], true, reason: '$result');
