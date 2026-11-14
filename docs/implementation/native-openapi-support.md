@@ -12,18 +12,18 @@ execution holds and detailed dated reports are preserved in the
 [historical record](native-openapi-support-history.md); they are not active
 implementation instructions. No older passing run qualifies the changed product.
 
-## Simplification status — 2026-11-13
+## Simplification status — 2026-11-14
 
 | Area | Current implementation and qualification |
 | - | - |
 | Source/Design/history | BufferStore owns source, BOM, path/presence, reload, recovery and replay. Reversible spans and logical tokens replace history digests; asynchronous revisions advance across undo and owner replacement. Focused core/widget exact-input, branching, late-input and save/reopen cases pass. Native input remains blocked below. |
-| Recovery | Source input, field commits, undo/redo and selected publication checkpoint affected owners and changed draft revisions. Form Apply owns one final durable checkpoint. Ordinary records and grouped-record replacements reach the existing batching writer before awaiting it. Explicit close/replacement drains and grouped publication ordering remain. Focused editing/shutdown cases pass: 70 widget cases and 36 Core interruption/publication cases. |
-| Capture and assistance | Root-local immutable captures are separate from full schema analysis. Actual disk observations advance relevant versions. Inspected and projected authoring targets retain their original capture footprint, using the existing structural eligibility and input/version predicate. All 22 current ownership/cache/race controls pass. Folding uses syntax without a graph; derived text cannot inherit an old parse through generation metadata. |
+| Recovery | Source input, field commits, undo/redo and selected publication checkpoint affected owners and changed draft revisions. Form Apply owns one final durable checkpoint. A newer capture may replace an encoding payload once; writing then proceeds, preserving bounded durable progress. Ordinary records and grouped-record replacements reach the existing batching writer before awaiting it. Explicit close/replacement drains and grouped publication ordering remain. Focused editing/shutdown cases pass: 70 widget cases and 36 Core interruption/publication cases. |
+| Capture and assistance | Root-local immutable captures are separate from full schema analysis. Actual disk observations advance relevant versions. Inspected and projected authoring targets retain their original capture footprint, using the existing structural eligibility and input/version predicate. All 22 ownership/cache/race controls pass. Progress and final feedback reuse the bound models for one unchanged capture. Folding uses syntax without a graph; derived text cannot inherit an old parse through generation metadata. |
 | Source saving | Desktop and CLI use PublicationStore. Alternate BusyProject.save is removed. Partial publication, conflicts, permissions, interrupted records, grouped ordering and undo across save remain. Focused publication cases pass. |
 | Conversion | TypeScript owns language/configuration transformation; Dart owns bounded review, immutable reviewed bytes and publication. One captured traversal allocates final typed owners and emits common static/contextual edges. Repeated entry/role passes, temporary owner wrappers, superseded-copy retirement and Dart's duplicate full schema precheck are deleted. The complete post-tuple checkpoint passed 51 suites/7,810 cases. Subsequent resource-context and moved-output fixes pass 703 affected CJS cases and 40 widget journeys. Complete current-candidate qualification remains outstanding. |
 | Requests, mock and streams | One parameter-value map owns active request input. Captured operations and immutable body inputs share secret-free aggregate preparation across Preview/Send, with fresh dispatch credentials/TLS and exact selected-file reconciliation. Shared serializers replace equivalent form/multipart reproof. Streams retain bounded framing/context in one engine owner, with thin continuation IPC and independent close/cancellation. Broad runtime qualification remains in progress. |
 | Outputs and governance | Prepared immutable files use the common output publisher. Generator selection and execution share a runtime. Verified renderer bytes are reused until installed files change; packaging inventory policy has left documentation-open actions. Governance reuses one immutable review and checks exact dispatch authority once. Focused output, approval and installed-input change cases pass. |
-| Build and distribution | Assembly is separate from current-invocation qualification. Editor assembly passed with optional tools unavailable; renderer rebuilds are skipped when unchanged. Test package preparation owns separate outputs. Qualification prepares once, runs independent behavioral gates sequentially, checks source/candidate stability and rejects any failure. Official widgets run once; no persistent full-suite receipt is required. The v10 assembly/distribution checks pass; refreshed-source behavioral/native qualification remains outstanding. |
+| Build and distribution | Assembly is separate from current-invocation qualification. Editor assembly passed with optional tools unavailable; renderer rebuilds are skipped when unchanged. Test package preparation owns separate outputs. Qualification prepares once, runs independent behavioral gates sequentially, checks source/candidate stability and rejects any failure. Official widgets run once; no persistent full-suite receipt is required. Current editor and release assembly pass. Installed-artifact smoke passed at v4; full refreshed-source behavioral/native qualification remains outstanding. |
 
 The compact acceptance corpus keeps all four native families, YAML/JSON fidelity,
 shared roots, aliases/exact numbers, pending and composing fields, disk/save races,
@@ -66,6 +66,34 @@ collects all five independent behavioral outcomes sequentially after prerequisit
 checks unchanged source and installed files, and rejects any retained failure.
 All nine qualifier/tooling controls pass. The next complete run must use the
 refreshed CLI, engine and desktop candidate together.
+
+The v4 run kept source and installed files unchanged through all five gates.
+Assembly, analysis, six additional renderer checks and installed-artifact smoke
+passed. Widgets finished with 1,302 passes and 17 failures; Core/CLI finished
+with 4,101 passes and six failures. The engine gate stopped at suite 98 of 217,
+with 11,039 reported cases and one exact-payload failure; 119 later suites did
+not run. Qualification rejected all three failing behavioral gates.
+
+Subsequent fixes preserve literal Header payloads and shared Swagger namespaces,
+reuse one bound authoring projection per capture, remove main-process semantic
+initialization and use Ajv's existing validator registry. Ordinary source saves
+write one immutable intent; repeated per-file receipt rewrites are removed while
+file-operation checkpoints remain. All 14 focused engine suites pass (1,672
+reported cases plus standalone assertions), and all 89 focused Core/CLI cases
+pass, including the six prior Core failures, actual HTTP/cold publication and
+current-fixture SIGKILL recovery. The separate real-kernel isolation gate passes
+all three suites/53 cases, including fail-closed startup coverage.
+
+The current untraced eight-file widget group remains rejected: 99 passes and
+five wait failures. A diagnostic group passed 100 cases and failed four. Its
+traced recovery fsync lasted 9.44 seconds during an observed persistence wait;
+one large-value-owned fsync lasted 9.47 seconds. All traced chmod calls stayed
+below 3 milliseconds. These observations do not assign every untraced failure
+to storage or identify a disk-device cause. The earlier Contract Send wait did
+not reproduce: all eight requests completed storage, native validation and
+cleanup before later failures. Temporary Core markers were restored byte for
+byte. Original deadlines, input, concurrency and durability barriers remain.
+Evidence is in `build/diagnostics/simplification-20261113/post-v4/`.
 
 Conversion reuses an unchanged native component Schema as its material owner;
 copied containers reference it through the same occurrence mapping. Resource
@@ -142,6 +170,23 @@ in the dated record. Their status must come from current corresponding cases,
 not from assuming that a simplification fixed every historical defect.
 
 ## Measured work reduction
+
+The current Node startup comparison uses five samples per version, the same
+packaged Node, identical immutable OpenAPI 3.2.1 input and exact cold/warm result
+hashes. The measured helper is byte-identical to the installed helper. Median
+main hello time fell from 523.22 to 130.51 ms; total child CPU for a cold analysis
+fell from 1333.34 to 610.97 ms. This is a grouped engine diagnostic, not native
+input or paint measurement. The same work-count probe observes four eagerly
+compiled family roots before the change and zero afterward; folding leaves zero,
+the first 3.2 analysis compiles one, and repeating it reuses that function. Other
+families compile on demand. Eight meta validators remain. Evidence is in
+`startup-reuse/` beneath the diagnostic directory.
+
+A real recovery-writer boundary test reduces two captured updates from two writes
+to one. Coalescing permits at most two encodes per write, retaining the original
+continuous-input progress test. Multi-source publication checks retain identical
+actual journal bytes throughout one save, partial recovery and four cold disk
+outcomes; only the initial v1 intent is written.
 
 These measurements establish specific mechanism changes. They are not full
 application qualification, UI latency distributions, or an explanation for native
@@ -224,25 +269,44 @@ corresponding runtime work records.
 Actual source-save, body, scheduler, ownership, and conversion mechanisms are the
 deletions being audited. Historical prose, vendored inputs, generated files and
 lockfile removals are excluded from production-reduction credit. Against `7cc6ab6`,
-the committed runtime paths at `67930f7` have these textual changes:
+the committed runtime paths at `7af3bb4` have these textual changes:
 
 | Production responsibility | Added lines | Deleted lines | Net lines |
 | - | -: | -: | -: |
-| Desktop `lib/` | 588 | 562 | +26 |
-| Dart core `packages/busyapi_core/lib/` | 2,733 | 2,418 | +315 |
-| TypeScript `tools/contract_engine/src/` | 2,668 | 2,458 | +210 |
-| Total | 5,989 | 5,438 | +551 |
+| Desktop `lib/` | 619 | 561 | +58 |
+| Dart core `packages/busyapi_core/lib/` | 2,747 | 2,432 | +315 |
+| TypeScript `tools/contract_engine/src/` | 2,741 | 2,516 | +225 |
+| Total | 6,107 | 5,509 | +598 |
 
-These runtime paths therefore grow by 551 lines overall. The reductions are in
+These runtime paths therefore grow by 598 lines overall. The reductions are in
 owners and executed work: the alternate source saver, Dart conversion semantic
 mirror, Dart execution scheduler, history hashing, per-edit recovery sweep,
 superseded conversion retirement/repair, preliminary mock form proofs, repeated
 stream continuations and uncompressed response copy are absent. The conversion
-subset (`migration.dart` and `migration*.ts`) has a net reduction of 392 lines
+subset (`migration.dart` and `migration*.ts`) has a net reduction of 381 lines
 across 41 changed files. Added code includes retained-context fixes and
 explicit captured-input ownership; gross deleted lines alone do not establish
 the structural result. The work counts above and the removed mechanisms provide
 that evidence. Full integrated and native qualification remain separate gates.
+
+## Current native input reproduction — 2026-11-14
+
+The unchanged owned-window driver ran the current ordinary release from code
+checkpoint `7af3bb4`. Ctrl+A, `edited 3.0.4` and Tab left only `edited` in the
+editable, enabled Title field. Its caret was 6 after blur. API version remained
+`api-version`; all 430 source bytes remained unchanged. Save, history and reopen
+were not reached, so this journey remains unqualified.
+
+The AOT SHA-256 is
+`c262985febb473f29748fbab1dca5cfe8aacf6fdcddd1378ea1470deefeb89b6`;
+the native executable is
+`d86703b0e14a8007ecee55a82db579a4b3db2bb4344aa1226992714a74a383e3`.
+Kernel-recorded application peak RSS was 429484 KiB and sampled RSS 405400 KiB.
+These are not comparative native latency or memory results. The untraced run
+alone does not establish the cause; the independent plain-field/client-ordering
+evidence below remains separate. Exact controls, screenshots, source bytes,
+artifacts and result are in
+`build/diagnostics/simplification-20261113/native-current-7af3bb4/`.
 
 ## Fresh native input reproduction — 2026-11-13
 
