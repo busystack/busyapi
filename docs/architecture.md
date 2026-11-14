@@ -304,12 +304,22 @@ Only an accepted flush of the same owned target can rebind its fields. Cache
 eviction preserves unchanged authority, while same-content permission changes
 and same-path project replacement cannot authorize a retired action. This adds
 no parser, graph, schema-check or per-paint freshness phase.
+Progress and final feedback for the same immutable capture reuse its bound
+projection and native model maps; only the semantic result changes.
 
 The shared syntax cache keys resource identity and actual immutable text. Derived
 text cannot inherit its input's parse by retaining old generation/identity fields,
 and parser lookup no longer computes another whole-text SHA digest. Graph maps
 and syntax metadata expose read-only interfaces; root-specific interpretation and
 private lazy indexes remain separate from shared parsing.
+
+Node owns one execution policy in WorkerDispatcher. Its main process handles
+framing, control messages and worker lifetime. The existing engine bundle
+initializes semantic modules inside its worker branch and creates the method
+table once per worker. Trusted structural schemas register with the shared Ajv
+evaluator, which owns their compiled functions and compiles each family when
+requested. The duplicate validator map and eager four-family compilation are
+removed; trusted meta-schema validation remains.
 
 Folding captures and parses only the selected physical resource, including an
 incomplete declaration or an approved unopened fragment. It does not acquire a
@@ -383,7 +393,7 @@ inversion reuse captured data documents and the canonical schema evaluator.
 
 Client generation is a focused core extension (`generation.dart`) and packaged-process adapter (`generator_runtime.dart`). Its native action reuses the compact `BundleRunController` output review; widgets neither launch processes nor publish files. The official catalog/options determine choices. `prepareClient` captures the ordinary immutable graph, including unsaved resources, uses its semantics-preserving single-file derivation, and runs the pinned JAR in a private stage. Conversion metadata checks original operation occurrences before publication; this is not a compatibility engine or a claim of complete generator schema support.
 
-`ClientOutput` freezes bounded generated files and snapshot/options/template/tool provenance. Lazy changes and before/after inspection use captured bytes and an unchanged existing receipt. Foreign files, hand edits, linked/escaping outputs and destination races cannot authorize replacement. Publication remains the anchored `AtomicDirectoryWriter`, retaining displaced output. Missing generation assets affect this action only; ordinary editing never initializes Java. The generator-only JVM launcher grants packaged input/runtime reads and private-stage writes, without external networking or executable project hooks. Governance's independent startup/final seal, renderer permissions and corrected Flutter engine are unchanged.
+`ClientOutput` freezes bounded generated files and snapshot/options/template/tool provenance. Lazy changes and before/after inspection use captured bytes and an unchanged existing receipt. Foreign files, hand edits, linked/escaping outputs and destination races cannot authorize replacement. Publication remains the anchored `AtomicDirectoryWriter`, retaining displaced output. Missing generation assets affect this action only; ordinary editing never initializes Java. The generator-only JVM launcher grants packaged input/runtime reads and private-stage writes, without external networking or executable project hooks. Governance's independent startup/final seal, renderer permissions and official Flutter inputs remain unchanged.
 
 `lib/src/` owns Flutter/Yaru presentation. `packages/busyapi_core` has no Flutter, GTK, dart:ui, display initialization, or path_provider dependency. It owns project discovery, physical buffers, monotonic generations, transactions, publication and recovery. `tools/contract_engine` receives immutable resource snapshots and proposes located text edits. It cannot load or save project files. `packages/busyapi_core/bin/busyapi.dart` is the display-independent CLI.
 
@@ -456,7 +466,7 @@ one batch of exact case values before their first network action. Per-operation
 plans refer to that capture. Reopening uses the same fixed/custom HTTP-method
 selection as execution, preserving case-sensitive additional method tokens.
 
-Publication opens every parent relative to a held directory descriptor with `O_NOFOLLOW`, and reads/publishes through `/proc/self/fd` anchors. Staged file permissions are set before publication. Save checks content hashes before exchange and verifies displaced bytes at the publication boundary. A race preserves displaced bytes; it never rolls back over a later writer. Save All and selected grouped saves freeze generations, text, format and expected disk identities before writing a private atomic intent. The source intent is encoded once; checkpoints append current bounded receipts to that frozen encoding. Per-file publication synchronizes its directory and records receipts without truncating the previous journal. Startup inspection compares planned/current hashes, including publication without a receipt; explicit recovery transfers remaining text into buffers beside newer disk content. It never replays writes automatically. Partial outcomes identify published, failed and unattempted files.
+Publication opens every parent relative to a held directory descriptor with `O_NOFOLLOW`, and reads/publishes through `/proc/self/fd` anchors. Staged file permissions are set before publication. Save checks content hashes before exchange and verifies displaced bytes at the publication boundary. A race preserves displaced bytes; it never rolls back over a later writer. Save All and selected grouped saves freeze generations, text, format and expected disk identities before writing a private atomic intent. Ordinary source publication writes one immutable intent before replacing any source. Each source replacement retains its file and directory synchronization, while the returned batch result records published, failed and unattempted files. A partial or interrupted save retains that original intent; restart inspection derives outcomes from actual bytes. File-operation journals retain their separate evolving receipts and checkpoints. Startup inspection compares planned/current hashes, including publication without a receipt; explicit recovery transfers remaining text into buffers beside newer disk content. It never replays writes automatically. Partial outcomes identify published, failed and unattempted files.
 
 Each response stream opens one immutable operation/schema capture in the
 dispatcher's bounded stream lane. It retains framing bytes and scan state locally;
@@ -476,6 +486,10 @@ directory lock, updating sizes as it writes. Each batch releases ownership for
 other writers and reconciles their records before continuing. Encoding runs off
 the UI isolate; flushed atomic replacement, bounded storage, guarded retirement
 and explicit errors remain. Process identity is captured once per recovery session.
+If a newer capture arrives during encoding, the writer can encode that replacement
+once before writing the record. Two encodes per write bound this coalescing, so
+continuous input still produces durable checkpoints. Guarded retirement remains
+ordered after publication of the captured record.
 An owned form transaction defers its intermediate checkpoints until its final
 durable capture has consumed the form. Explicit workspace drains still capture
 input while Apply is held. Ordinary affected records are enqueued together before

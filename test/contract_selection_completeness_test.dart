@@ -5,15 +5,15 @@ import 'package:busyapi/src/app/app_theme.dart';
 import 'package:busyapi/src/app/busyapi_design.dart';
 import 'package:busyapi/src/platform/secret_store.dart';
 import 'package:busyapi/src/workspace/test_run.dart';
-import 'package:busyapi/src/workspace/workspace_controller.dart';
 import 'package:busyapi_core/busyapi_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/server_context_support.dart';
-import '../packages/busyapi_core/test/test_support.dart';
+import '../packages/busyapi_core/test/test_support.dart' show publishSources;
 import 'widget_io.dart';
+import 'workspace_io_trace.dart';
 
 class _NativeHttp extends HttpOverrides {}
 
@@ -45,16 +45,26 @@ void main() {
           final temp = Directory.systemTemp.createTempSync(
             'busyapi-selection-widget-',
           );
-          final controller = WorkspaceController(
-            EngineProcess(executable: runtimeNode, helper: runtimeHelper),
+          final trace = WorkspaceIoTrace();
+          final controller = TracedWorkspaceController(
+            TracedEngineProcess(trace),
             StateLocations(
               config: '${temp.path}/config',
               state: '${temp.path}/state',
               cache: '${temp.path}/cache',
             ),
+            trace,
           );
           HttpServer? server;
           final received = <String>[];
+          CapturedContractSnapshot? selectedCapture;
+          String state() =>
+              '${trace.describe(controller)}; received=${received.length}; '
+              'error=${controller.error}; storage=${controller.storageError}; '
+              'generation=${controller.buffer?.generation}; '
+              'captureCurrent=${controller.store == null ? null : selectedCapture?.snapshot.current(controller.store!)}; '
+              'busy=${find.byType(CircularProgressIndicator).evaluate().length}; '
+              'visible=${tester.widgetList<Text>(find.byType(Text)).map((text) => text.data).whereType<String>().toList()}';
           Future<void> ready(bool Function() condition) async {
             for (var i = 0; i < 400 && !condition(); i++) {
               await tester.runAsync(
@@ -63,7 +73,8 @@ void main() {
               await tester.pump();
             }
             expect(tester.takeException(), isNull);
-            expect(condition(), true);
+            final reached = condition();
+            expect(reached, true, reason: reached ? null : state());
           }
 
           try {
@@ -84,9 +95,10 @@ void main() {
                   isEmpty,
                 );
                 received.add(request.uri.toString());
+                trace.note('http:received');
                 request.response.headers.contentType = ContentType.text;
                 request.response.write(serverContextBody);
-                await request.response.close();
+                await trace.run('http:response-close', request.response.close);
               });
               final url = version == '2.0'
                   ? '127.0.0.1:${server!.port}'
@@ -120,6 +132,7 @@ tests:
               final captured = (await tester.runAsync(
                 () => project.captureContractSnapshot(root),
               ))!;
+              selectedCapture = captured;
               await tester.pumpWidget(const SizedBox.shrink());
               await tester.pumpWidget(
                 MaterialApp(
@@ -200,7 +213,9 @@ tests:
             expect(received, ['/v1/items']);
             expect(project.store.get(root).text, valid);
             expect(await tester.runAsync(file.readAsBytes), original);
-            await tester.runAsync(() => publishSources(project, [project.store.get(root)]));
+            await tester.runAsync(
+              () => publishSources(project, [project.store.get(root)]),
+            );
             expect(await tester.runAsync(file.readAsBytes), original);
           } finally {
             await tester.pumpWidget(const SizedBox.shrink());

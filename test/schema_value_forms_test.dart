@@ -6,14 +6,13 @@ import 'package:busyapi/src/app/app_theme.dart';
 import 'package:busyapi/src/app/busyapi_design.dart';
 import 'package:busyapi/src/designer/designer.dart';
 import 'package:busyapi/src/designer/form_value_editor.dart';
-import 'package:busyapi/src/workspace/workspace_controller.dart';
 import 'package:busyapi_core/busyapi_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../packages/busyapi_core/test/test_support.dart';
 import 'widget_io.dart';
+import 'workspace_io_trace.dart';
 
 void main() {
   for (final version in ['3.0.4', '2.0', '3.1.2', '3.2.1']) {
@@ -51,16 +50,21 @@ void main() {
               }).replaceFirst('"@exact"', '9007199254740993.00')}\r\n';
           final file = File('${directory.path}/api.$format')
             ..writeAsStringSync(source);
-          final controller = WorkspaceController(
-            EngineProcess(executable: runtimeNode, helper: runtimeHelper),
+          final trace = WorkspaceIoTrace();
+          final controller = TracedWorkspaceController(
+            TracedEngineProcess(trace),
             StateLocations(
               config: '${directory.path}/config',
               state: '${directory.path}/state',
               cache: '${directory.path}/cache',
             ),
+            trace,
           );
           final failures = <Object>[];
           Future<void>? pending;
+          Future<T> io<T>(Future<T> Function() operation) => runWidgetIo(
+            tester, operation, describeState: () => trace.describe(controller),
+          );
           Future<void> ready(bool Function() condition) async {
             final watch = Stopwatch()..start();
             await tester.pump();
@@ -76,7 +80,7 @@ void main() {
             expect(
               condition(),
               true,
-              reason: '${controller.error}; ${controller.form?.kind}',
+              reason: '${controller.error}; ${controller.form?.kind}; ${trace.describe(controller)}',
             );
             await tester.pumpAndSettle();
           }
@@ -98,7 +102,7 @@ void main() {
           }
 
           try {
-            await runWidgetIo(tester, () async {
+            await io(() async {
               await controller.initialize();
               await controller.open(file.path);
               await controller.selectObject({
@@ -200,7 +204,7 @@ void main() {
             final pointer = version == '2.0'
                 ? '/definitions/Record'
                 : '/components/schemas/Record';
-            await runWidgetIo(tester, () async {
+            await io(() async {
               final page = await controller.project!.inspectObject(
                 controller.root!,
                 controller.root!,
@@ -282,7 +286,7 @@ void main() {
             expect(failures, isEmpty);
           } finally {
             await tester.pumpWidget(const SizedBox.shrink());
-            await runWidgetIo(tester, controller.shutdown);
+            await io(controller.shutdown);
             controller.dispose();
             directory.deleteSync(recursive: true);
           }

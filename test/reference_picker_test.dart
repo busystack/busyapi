@@ -14,11 +14,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../packages/busyapi_core/test/test_support.dart';
 import 'widget_io.dart';
+import 'workspace_io_trace.dart';
 
-class _PickerEngine extends EngineProcess {
-  _PickerEngine() : super(executable: runtimeNode, helper: runtimeHelper);
+class _PickerEngine extends TracedEngineProcess {
+  _PickerEngine(super.trace);
   Completer<void>? entered, release;
   Completer<void>? planEntered, planRelease;
   @override
@@ -85,18 +85,40 @@ void main() {
           final temp = Directory.systemTemp.createTempSync(
             'busyapi-native-reference-picker-',
           );
-          final engine = _PickerEngine();
+          final trace = WorkspaceIoTrace();
+          final engine = _PickerEngine(trace);
           Completer<void>? heldPlan;
-          final c = WorkspaceController(
+          final c = TracedWorkspaceController(
             engine,
             StateLocations(
               config: '${temp.path}/config',
               state: '${temp.path}/state',
               cache: '${temp.path}/cache',
             ),
+            trace,
           );
           final failures = <Object>[];
           Future<void>? pending;
+          String state() {
+            final rows = tester.widgetList<BusyApiActionRow>(
+              find.byWidgetPredicate(
+                (widget) =>
+                    widget is BusyApiActionRow &&
+                    widget.title == 'Choose reference target',
+              ),
+            );
+            final authority = c.projection?['authoringContext'];
+            return '${trace.describe(c)}; error=${c.error}; storage=${c.storageError}; '
+                'generation=${c.buffer?.generation}; resource=${c.selectedResource}; pointer=${c.selectedPointer}; '
+                'context=${c.analysis?['contextSnapshot']}; resources=${c.analysis?['resources']}; '
+                'projectionCaptureCurrent=${authority is Map<String, dynamic> && c.root != null ? c.project?.authoringContext(c.root!, authority) != null : null}; '
+                'selectorRows=${rows.map((row) => (enabled: row.enabled, onTap: row.onTap != null)).toList()}; '
+                'statuses=${tester.widgetList<BusyApiStatusBox>(find.byType(BusyApiStatusBox)).map((status) => status.message).toList()}';
+          }
+
+          Future<T> io<T>(Future<T> Function() operation) => runWidgetIo(
+            tester, operation, describeState: state,
+          );
           Future<void> waitFor(bool Function() condition) async {
             await tester.pump();
             final timer = Stopwatch()..start();
@@ -109,7 +131,8 @@ void main() {
               await tester.pump(const Duration(milliseconds: 20));
             }
             expect(failures, isEmpty);
-            expect(condition(), true);
+            final reached = condition();
+            expect(reached, true, reason: reached ? null : state());
             await tester.pumpAndSettle();
           }
 
@@ -173,7 +196,7 @@ void main() {
                     'x-kept': {r'$ref': 'literal', 'text': '雪😀'},
                   })
                 : '# keep 雪😀\r\nopenapi: $version\r\ninfo: {title: Picker, version: "1"}\r\npaths: {}\r\ncomponents:\r\n  schemas:\r\n    Use: {\$ref: \'#/components/schemas/Old\'}\r\n    Old: true\r\n${entries.entries.map((e) => '    ${e.key}: ${e.value == false ? 'false' : '{type: string}'}').join('\r\n')}\r\nx-number: 9007199254740993.00';
-            await runWidgetIo(tester, () async {
+            await io(() async {
               await file.writeAsBytes([
                 239,
                 187,
@@ -264,11 +287,11 @@ void main() {
             ]);
             debugPrint('Reference picker: applied, undo/redo/save');
             await tester.runAsync(() => pending!);
-            await runWidgetIo(tester, c.undo);
+            await io(c.undo);
             expect(c.buffer!.text, original);
-            await runWidgetIo(tester, c.redo);
+            await io(c.redo);
             expect(c.buffer!.text, accepted);
-            await runWidgetIo(tester, c.saveAll);
+            await io(c.saveAll);
             expect(await tester.runAsync(file.readAsBytes), [
               239,
               187,
@@ -394,7 +417,7 @@ void main() {
             );
             await tap('Cancel');
             planGate.complete();
-            await runWidgetIo(tester, () => pending!);
+            await io(() => pending!);
             expect(c.buffer!.text, '$beforeInvalidation\n');
           } finally {
             if (heldPlan != null && !heldPlan.isCompleted) heldPlan.complete();
@@ -417,7 +440,7 @@ void main() {
           final temp = Directory.systemTemp.createTempSync(
             'busyapi-reference-plan-owner-',
           );
-          final engine = _PickerEngine();
+          final engine = _PickerEngine(WorkspaceIoTrace());
           final gate = Completer<void>();
           final c = WorkspaceController(
             engine,

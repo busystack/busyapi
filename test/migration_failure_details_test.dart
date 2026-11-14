@@ -173,6 +173,7 @@ void main() {
         Future<void> ready(
           bool Function() condition, {
           String phase = 'migration control',
+          String Function()? failureState,
         }) async {
           await tester.pump();
           final deadline = DateTime.now().add(const Duration(seconds: 15));
@@ -182,7 +183,14 @@ void main() {
               () => Future<void>.delayed(const Duration(milliseconds: 20)),
             );
           }
-          expect(condition(), true, reason: '$phase ${controller.error}');
+          final reached = condition();
+          expect(
+            reached,
+            true,
+            reason: reached
+                ? null
+                : '$phase ${controller.error}\n${failureState?.call() ?? ''}',
+          );
         }
 
         try {
@@ -288,7 +296,10 @@ void main() {
           );
           expect(row, findsOneWidget);
           expect(finding['severity'], unsupported ? 'warning' : 'error');
-          expect(tester.widget<BusyApiActionRow>(row).title, finding['message']);
+          expect(
+            tester.widget<BusyApiActionRow>(row).title,
+            finding['message'],
+          );
           final publish = find.widgetWithText(
             BusyApiDialogButton,
             'Create migrated copy',
@@ -329,6 +340,9 @@ void main() {
               () => controller.project!.buffer(findingResource),
             );
           } else if (afterReview != _AfterReview.none) {
+            final capturedTargetVersion = controller.store!.resourceVersion(
+              findingResource,
+            );
             await tester.runAsync(() async {
               switch (afterReview) {
                 case _AfterReview.editShared:
@@ -344,9 +358,54 @@ void main() {
               }
               action!();
             });
+            final deleted = afterReview == _AfterReview.deleteShared;
+            final guardedReadFailure = find.text(
+              'access.read: Cannot open regular resource without following links',
+            );
+            final changedAfterCapture = find.text(
+              'Source changed after capture. This output still uses the displayed snapshot.',
+            );
+            bool deletedFindingTerminal() =>
+                guardedReadFailure.evaluate().length == 1 ||
+                changedAfterCapture.evaluate().length == 1 &&
+                    controller.store!.resourceVersion(findingResource) >
+                        capturedTargetVersion &&
+                    row.evaluate().length == 1 &&
+                    tester.widget<BusyApiActionRow>(row).onTap == null &&
+                    tester.widget<BusyApiDialogButton>(publish).onPressed ==
+                        null &&
+                    !sharedFile.existsSync();
+            String deletedFindingState() => jsonEncode({
+              'target': findingResource,
+              'capturedVersion': capturedTargetVersion,
+              'currentVersion': controller.store!.resourceVersion(
+                findingResource,
+              ),
+              'targetExists': sharedFile.existsSync(),
+              'closeReady':
+                  close.evaluate().length == 1 &&
+                  tester.widget<BusyApiDialogButton>(close).onPressed != null,
+              'rowEnabled': row.evaluate().length == 1
+                  ? tester.widget<BusyApiActionRow>(row).onTap != null
+                  : null,
+              'publishEnabled': publish.evaluate().length == 1
+                  ? tester.widget<BusyApiDialogButton>(publish).onPressed !=
+                        null
+                  : null,
+              'statuses': tester
+                  .widgetList<BusyApiStatusBox>(find.byType(BusyApiStatusBox))
+                  .map((status) => status.message)
+                  .toList(),
+            });
             await ready(
-              () => close.evaluate().isNotEmpty,
+              () =>
+                  close.evaluate().length == 1 &&
+                  (!deleted ||
+                      tester.widget<BusyApiDialogButton>(close).onPressed !=
+                              null &&
+                          deletedFindingTerminal()),
               phase: 'Source read failure',
+              failureState: deleted ? deletedFindingState : null,
             );
             expect(revealed, isNull);
             if (afterReview == _AfterReview.editShared) {
@@ -355,15 +414,24 @@ void main() {
                 controller.store!.get(findingResource).text,
                 contains('Externally changed'),
               );
-            } else {
+            } else if (deleted) {
+              if (guardedReadFailure.evaluate().isNotEmpty) {
+                expect(guardedReadFailure, findsOneWidget);
+              } else {
+                expect(changedAfterCapture, findsOneWidget);
+                expect(
+                  controller.store!.resourceVersion(findingResource),
+                  greaterThan(capturedTargetVersion),
+                );
+                expect(tester.widget<BusyApiActionRow>(row).onTap, isNull);
+              }
               expect(
-                find.textContaining(
-                  afterReview == _AfterReview.deleteShared
-                      ? 'access.read:'
-                      : 'source.encoding:',
-                ),
-                findsOneWidget,
+                tester.widget<BusyApiDialogButton>(publish).onPressed,
+                isNull,
               );
+              expect(sharedFile.existsSync(), false);
+            } else {
+              expect(find.textContaining('source.encoding:'), findsOneWidget);
             }
             await tester.runAsync(() => tester.tap(close));
           } else {

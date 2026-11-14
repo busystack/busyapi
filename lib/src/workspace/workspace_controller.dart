@@ -2499,16 +2499,48 @@ class WorkspaceController extends ChangeNotifier {
       project.files.sort();
       final source = result['projection'] as Map<String, dynamic>? ?? result;
       final authority = result['authoringContext'];
-      final owned = <String, dynamic>{
-        if (source['info'] is Map)
-          'info': <String, dynamic>{...source['info'] as Map, 'authoringContext': authority},
-        for (final name in const ['operations', 'components', 'pathItems', 'otherRootObjects'])
-          if (source[name] is List)
-            name: <Map<String, dynamic>>[for (final value in source[name] as List)
-              <String, dynamic>{...value as Map, 'authoringContext': authority}],
+      final previous = analysis?['projection'] as Map<String, dynamic>?;
+      // Progress and final feedback share one immutable source capture. Bind
+      // its native models once; semantic results still replace analysis below.
+      final projection =
+          authority != null &&
+              previous != null &&
+              identical(analysis?['authoringContext'], authority)
+          ? previous
+          : <String, dynamic>{
+              ...source,
+              if (source['info'] is Map)
+                'info': <String, dynamic>{
+                  ...source['info'] as Map,
+                  'authoringContext': authority,
+                },
+              for (final name in const [
+                'operations',
+                'components',
+                'pathItems',
+                'otherRootObjects',
+              ])
+                if (source[name] is List)
+                  name: <Map<String, dynamic>>[
+                    for (final value in source[name] as List)
+                      <String, dynamic>{
+                        ...value as Map,
+                        'authoringContext': authority,
+                      },
+                  ],
+            };
+      analysis = {
+        ...result,
+        for (final name in const [
+          'info',
+          'operations',
+          'components',
+          'pathItems',
+          'otherRootObjects',
+        ])
+          if (projection.containsKey(name)) name: projection[name],
+        'projection': projection,
       };
-      final projection = <String, dynamic>{...source, ...owned};
-      analysis = {...result, ...owned, 'projection': projection};
       if (!(projection['status'] == 'incomplete' &&
               lastGood != null &&
               (projection['operations'] as List).length <

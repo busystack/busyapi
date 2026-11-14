@@ -123,12 +123,15 @@ void main() {
         throwsA(isA<CoreFailure>().having((error) => error.code, 'code', 'search.protocol')));
   });
   test('clean external reload notifies its mounted owner and returns current content', () async {
+    final refreshed = <String>[];
+    project.onResourcesRefreshed = (refresh) =>
+        refreshed.addAll(refresh.resources);
     await File(part.path)
         .writeAsString(part.text.replaceFirst('Repeated', 'Reloaded'));
-    final refreshed = <String>[];
-    final result = await project
-        .semanticSearch(onResourceRefreshed: refreshed.add)
-        .run('Reloaded', category: 'operations');
+    final result = await project.semanticSearch().run(
+      'Reloaded',
+      category: 'operations',
+    );
     expect(refreshed, [part.id]);
     expect(part.text, contains('Reloaded'));
     expect(result.matches, hasLength(4));

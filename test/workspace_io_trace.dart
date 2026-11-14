@@ -51,10 +51,16 @@ class TracedEngineProcess extends EngineProcess {
     String method,
     Map<String, Object?> params, {
     String? requestId,
-  }) => trace.run(
-    'engine:$method',
-    () => super.request(method, params, requestId: requestId),
-  );
+  }) {
+    final instances = params['runtimeInstances'];
+    final phase = method == 'evaluateSchemas'
+        ? 'engine:$method:runtime=${params.containsKey('runtimeInstances')}:count=${instances is List ? instances.length : 'none'}'
+        : 'engine:$method';
+    return trace.run(
+      phase,
+      () => super.request(method, params, requestId: requestId),
+    );
+  }
   @override
   Future<void> close() => trace.run('engine:close', super.close);
 }
