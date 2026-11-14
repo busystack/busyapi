@@ -319,7 +319,13 @@ process.stdin.on('data',data=>{
     addTearDown(project.close);
     final publications = PublicationStore('${temp.path}/state');
     final record = (await publications.inspect(project)).single;
-    expect(record['published'], isEmpty);
+    expect(record['planned'], hasLength(2));
+    expect(
+      record['planned'][0]['text'],
+      File('$destination/openapi.yaml').readAsStringSync(),
+    );
+    expect(record['planned'][1]['id'], part.uri.toString());
+    expect(record['planned'][1]['text'], 'part draft\n');
     expect(record['outcomes'][0]['outcome'], 'published');
     expect(record['outcomes'][1]['outcome'], 'conflict');
     final before = File('$destination/openapi.yaml').readAsBytesSync();

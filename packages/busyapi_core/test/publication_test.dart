@@ -160,24 +160,39 @@ void main() {
       ..writeAsStringSync('third original');
     final c = await project.buffer(third.uri.toString());
     project.store.replace(c.id, 'third draft');
+    final unavailable = File('${temp.path}/unavailable.yaml')
+      ..writeAsStringSync('fourth original');
+    final d = await project.buffer(unavailable.uri.toString());
+    project.store.replace(d.id, 'fourth draft');
     final planned = a.text;
+    var checkpoints = 0;
+    List<int>? initialIntent;
     final journal = PublicationStore(
       '${temp.path}/state',
+      beforeCheckpoint: () async {
+        checkpoints++;
+      },
       afterPublish: (id) async {
         if (id == a.id) {
+          initialIntent = Directory('${temp.path}/state')
+              .listSync()
+              .whereType<File>()
+              .single
+              .readAsBytesSync();
           project.store.replace(
             a.id,
             a.text.replaceFirst('saved', 'later typing'),
           );
           extra.writeAsStringSync('new external');
+          unavailable.deleteSync();
         }
       },
     );
-    final result = await journal.save(project, [a, b, c]);
+    final result = await journal.save(project, [a, b, c, d]);
     expect(result.complete, false);
     expect(result.published, [a.id]);
     expect(result.failed.keys, [b.id]);
-    expect(result.notAttempted, [c.id]);
+    expect(result.notAttempted, [c.id, d.id]);
     expect(third.readAsStringSync(), 'third original');
     expect(c.dirty, true);
     expect(File(a.path).readAsStringSync(), planned);
@@ -185,15 +200,103 @@ void main() {
     expect(a.dirty, true);
     expect(extra.readAsStringSync(), 'new external');
     expect(b.text, 'part draft');
-    final records = await journal.inspect(project);
-    expect(records.single['outcomes'][0]['outcome'], 'published');
-    expect(records.single['outcomes'][1]['outcome'], 'conflict');
+    expect(unavailable.existsSync(), false);
+    expect(d.text, 'fourth draft');
+    expect(checkpoints, 1);
+    expect(File(result.journal!).readAsBytesSync(), initialIntent);
+    final cold = await BusyProject.open(temp.path, engine);
+    addTearDown(cold.close);
+    final records = await journal.inspect(cold);
+    expect(
+      (records.single['outcomes'] as List).map((entry) => entry['outcome']),
+      ['published', 'conflict', 'not-published', 'unavailable'],
+    );
+    final legacy = File('${temp.path}/state/legacy.json');
+    await legacy.writeAsString(
+      jsonEncode({
+        ...jsonDecode(utf8.decode(initialIntent!)) as Map,
+        'published': [b.id],
+        'failed': {a.id: 'receipt from before later disk changes'},
+      }),
+    );
+    final legacyRecord = (await journal.inspect(cold))
+        .singleWhere((record) => record['recordPath'] == legacy.path);
+    expect(
+      (legacyRecord['outcomes'] as List).map((entry) => entry['outcome']),
+      ['published', 'conflict', 'not-published', 'unavailable'],
+    );
     await journal.recover(
       project,
       Map<String, dynamic>.from(records.single['outcomes'][1] as Map),
     );
     expect(b.externalConflict, true);
     expect(extra.readAsStringSync(), 'new external');
+  });
+  test('a multi-source save writes one durable intent and removes it only after complete publication', () async {
+    final temp = await Directory.systemTemp.createTemp(
+      'busyapi-single-intent-',
+    );
+    addTearDown(() => temp.delete(recursive: true));
+    final source = File('${temp.path}/api.yaml')
+      ..writeAsStringSync(
+        'openapi: 3.2.1\ninfo: {title: Original, version: "1"}\npaths: {}\n',
+      );
+    final peers = [
+      source,
+      File('${temp.path}/part.yaml')..writeAsStringSync('part original'),
+      File('${temp.path}/third.yaml')..writeAsStringSync('third original'),
+    ];
+    final engine = EngineProcess(
+      executable: runtimeNode,
+      helper: runtimeHelper,
+    );
+    addTearDown(engine.close);
+    final project = await BusyProject.open(source.path, engine);
+    addTearDown(project.close);
+    final buffers = [
+      for (final file in peers) await project.buffer(file.uri.toString()),
+    ];
+    for (final b in buffers) {
+      project.store.replace(b.id, '${b.text}\n# captured 雪😀\r\n');
+    }
+    project.store.setBom(buffers[1].id, true);
+    var checkpoints = 0, observedPublications = 0;
+    List<int>? initialIntent;
+    final state = Directory('${temp.path}/state');
+    final journal = PublicationStore(
+      state.path,
+      beforeCheckpoint: () async {
+        checkpoints++;
+      },
+      afterPublish: (id) async {
+        final bytes = state
+            .listSync()
+            .whereType<File>()
+            .single
+            .readAsBytesSync();
+        initialIntent ??= bytes;
+        expect(bytes, initialIntent);
+        final intent = jsonDecode(utf8.decode(bytes)) as Map;
+        expect(
+          (intent['planned'] as List).map((entry) => entry['id']),
+          buffers.map((buffer) => buffer.id),
+        );
+        final published = buffers.singleWhere((buffer) => buffer.id == id);
+        expect(File(published.path).readAsBytesSync(), published.bytes());
+        observedPublications++;
+      },
+    );
+    final result = await journal.save(project, buffers);
+    expect(result.complete, true);
+    expect(result.published, buffers.map((buffer) => buffer.id));
+    expect(result.journal, isNull);
+    expect(checkpoints, 1);
+    expect(observedPublications, buffers.length);
+    expect(state.listSync(), isEmpty);
+    for (final b in buffers) {
+      expect(File(b.path).readAsBytesSync(), b.bytes());
+      expect(b.dirty, false);
+    }
   });
   test(
     'checkpoint failure before publication writes no project files',
@@ -228,7 +331,7 @@ void main() {
       expect(b.dirty, true);
     },
   );
-  test('interrupted receipt retains original intent and restart inspection detects published bytes', () async {
+  test('interruption after publication retains original intent and cold inspection detects published bytes', () async {
     final temp = await Directory.systemTemp.createTemp('busyapi-receipt-fail-');
     addTearDown(() => temp.delete(recursive: true));
     final engine = EngineProcess(
@@ -249,16 +352,24 @@ void main() {
     final journal = PublicationStore(
       '${temp.path}/state',
       beforeCheckpoint: () async {
-        if (++checkpoints > 1) throw StateError('receipt unavailable');
+        checkpoints++;
+      },
+      afterPublish: (_) async {
+        throw StateError('interrupted after actual publication');
       },
     );
     final result = await journal.save(project, [b]);
     expect(result.complete, false);
     expect(result.published, [b.id]);
+    expect(result.failed.keys, ['recovery']);
+    expect(result.notAttempted, isEmpty);
+    expect(checkpoints, 1);
     final record = File(result.journal!);
-    final durable = jsonDecode(record.readAsStringSync());
-    expect(durable['published'], isEmpty);
-    final inspected = await journal.inspect(project);
+    final durable = jsonDecode(record.readAsStringSync()) as Map;
+    expect(durable['planned'].single['text'], b.text);
+    final cold = await BusyProject.open(temp.path, engine);
+    addTearDown(cold.close);
+    final inspected = await journal.inspect(cold);
     expect(inspected.single['outcomes'].single['outcome'], 'published');
     expect(File(b.path).readAsStringSync(), b.text);
   });

@@ -29,8 +29,8 @@ class PublicationBatchResult {
   bool get complete => failed.isEmpty && notAttempted.isEmpty;
 }
 
-/// A frozen plan is persisted before any project file is replaced. Receipts
-/// describe per-file publication, never a globally atomic filesystem operation.
+/// A frozen plan is persisted before any project file is replaced. Recovery
+/// derives each outcome from actual bytes; a batch is never globally atomic.
 class PublicationStore {
   PublicationStore(this.directory, {this.beforeCheckpoint, this.afterPublish});
   final String directory;
@@ -165,7 +165,8 @@ class PublicationStore {
         .where((f) => f.path.endsWith('.json'))
         .toList();
     if (entries.length >= 64 ||
-        entries.fold<int>(0, (n, f) => n + f.lengthSync()) + intentBytes.length >
+        entries.fold<int>(0, (n, f) => n + f.lengthSync()) +
+                intentBytes.length >
             256 * 1024 * 1024) {
       throw CoreFailure(
         'publication.limit',
@@ -177,15 +178,9 @@ class PublicationStore {
       '$owner-${DateTime.now().microsecondsSinceEpoch}.json',
     );
     final published = <String>[], failed = <String, String>{...cleanFailures};
-    Future<void> checkpoint() async {
-      await beforeCheckpoint?.call();
-      await _writePrivateBytes(journal, _publicationCheckpointBytes(
-        intentBytes, {'published': published, 'failed': failed},
-      ));
-    }
-
     // Failure here leaves every project file untouched.
-    await checkpoint();
+    await beforeCheckpoint?.call();
+    await _writePrivateBytes(journal, intentBytes);
     for (final entry in plan) {
       if (failed.isNotEmpty) break;
       final id = entry['id'] as String;
@@ -226,7 +221,6 @@ class PublicationStore {
         project.store.retainPublicationGroups(groupOwners);
         published.add(id);
         await afterPublish?.call(id);
-        await checkpoint();
       } on Object catch (e) {
         failed[published.contains(id) ? 'recovery' : id] = e.toString();
         final b = owners[id];
@@ -234,12 +228,6 @@ class PublicationStore {
             project.store.ownsFileBuffer(b) &&
             !published.contains(id))
           b.externalConflict = true;
-        // Preserve the previous durable intent if recording the receipt fails.
-        try {
-          await checkpoint();
-        } on Object {
-          /* Initial intent remains recoverable. */
-        }
         break;
       }
     }
@@ -491,14 +479,19 @@ Future<void> writePrivateJson(String path, Object value) async {
   await _writePrivateBytes(path, utf8.encode(jsonEncode(value)));
 }
 
-// Only receipts change between checkpoints. The frozen source intent is encoded
-// once, while each atomic replacement still contains the complete recovery JSON.
-Uint8List _publicationCheckpointBytes(Uint8List intent, Map<String, Object?> receipt) {
+// File-operation receipts change between checkpoints. Each atomic replacement
+// still contains the complete frozen v2 intent and its current receipt.
+Uint8List _publicationCheckpointBytes(
+  Uint8List intent,
+  Map<String, Object?> receipt,
+) {
   final suffix = utf8.encode(jsonEncode(receipt));
   final length = intent.length + suffix.length - 1;
   if (length > 128 * 1024 * 1024) {
-    throw CoreFailure('publication.limit',
-        'The publication checkpoint exceeds its recoverable state budget');
+    throw CoreFailure(
+      'publication.limit',
+      'The publication checkpoint exceeds its recoverable state budget',
+    );
   }
   return Uint8List(length)
     ..setRange(0, intent.length - 1, intent)
