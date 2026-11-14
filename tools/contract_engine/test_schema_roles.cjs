@@ -136,8 +136,22 @@ for(const version of ['3.1.2','3.2.1'])test(`${version} a native reference into 
  assert.equal(review.complete,true,JSON.stringify(review.problems));
  const cold={root:review.outputRoot,snapshot:'cold-native-context',resources:review.outputs.map(output=>({id:output.id,text:output.text,generation:0,
   aliases:Object.entries(review.manifest.resourceMappings).filter(([,path])=>path===output.path).map(([uri])=>uri)}))};
- assert.equal(analyse(cold).status,'complete',JSON.stringify(analyse(cold).findings));
- assert.equal(requestOperation({...cold,resource:cold.root,pointer:'/paths/~1p/get'}).responses[0].description,'Native response URI');
+ const checkCold=async(packet)=>{
+  const graph=createGraph(packet).graph,scope=graph.scopeAs(packet.root,pointer,'schema');
+  assert.equal(analyse(packet).status,'complete',JSON.stringify(analyse(packet).findings));
+  assert.equal(scope.base,'https://schemas.invalid/base/shared');
+  assert.equal(scope.dialect,'https://json-schema.org/draft/2020-12/schema');
+  const target=graph.referenceAs(packet.root,pointer,'$ref','schema');assert.equal(target.resolution,'resolved');
+  const document=graph.docs.get(target.targetResource),number=document.dataNode(target.targetPointer+'/enum/0');
+  assert.equal(document.text.slice(...number.range),'9007199254740993.00');
+  const checked=await evaluateSchemas({...packet,runtimeInstances:['9007199254740993','0'].map(text=>({subject:'response-body',location:text,text,schema:{resource:packet.root,pointer}}))});
+  assert.equal(checked.complete,true,JSON.stringify(checked.findings));assert.deepEqual(checked.runtimeEvaluations.map(result=>result.valid),[true,false]);
+  assert.equal(requestOperation({...packet,resource:packet.root,pointer:'/paths/~1p/get'}).responses[0].description,'Native response URI');
+ };
+ await checkCold(cold);
+ const moved='file:///moved-native-context/';
+ await checkCold({root:new URL(review.entry,moved).href,snapshot:'moved-native-context',resources:review.outputs.map(output=>({id:new URL(output.path,moved).href,text:output.text,generation:0,
+  aliases:Object.entries(review.manifest.resourceMappings).filter(([,path])=>path===output.path).map(([uri])=>uri)}))});
  assert.deepEqual(input.resources.map(resource=>resource.text),source);
  // Different meanings of the original authored field still require a split
  // before refactoring; the graph must not waive this guard because both roles
