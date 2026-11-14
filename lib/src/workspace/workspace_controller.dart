@@ -2018,6 +2018,9 @@ class WorkspaceController extends ChangeNotifier {
 
   Future<void>? _persistingRecovery;
   Future<void> persist({bool all = false}) {
+    // Apply owns the final source checkpoint after releasing its draft owner.
+    // Explicit workspace boundaries still persist every captured input.
+    if (!all && _applyingForm != null) return Future<void>.value();
     final previous = _persistingRecovery;
     final writing = _persist(all: all);
     // A boundary with no new changes must still wait for checkpoints already
