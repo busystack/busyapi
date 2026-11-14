@@ -8,6 +8,10 @@ import 'package:busyapi/src/app/busyapi_design.dart';
 import 'package:busyapi/src/app/busyapi_search_field.dart';
 import 'package:busyapi/src/designer/designer.dart';
 import 'package:busyapi/src/designer/reference_picker.dart';
+import 'package:busyapi/src/designer/schema_tree.dart';
+import 'package:busyapi/src/reference/reference_object.dart';
+import 'package:busyapi/src/reference/reference_view.dart';
+import 'package:busyapi/src/workspace/api_tree_row.dart';
 import 'package:busyapi/src/workspace/workspace_controller.dart';
 import 'package:busyapi_core/busyapi_core.dart';
 import 'package:flutter/material.dart';
@@ -21,13 +25,27 @@ class _PickerEngine extends TracedEngineProcess {
   _PickerEngine(super.trace);
   Completer<void>? entered, release;
   Completer<void>? planEntered, planRelease;
+  String? pageMethod, pagePointer;
+  Completer<void>? pageEntered, pageRelease, pageFinished;
+  final pageCalls = <String, int>{};
   @override
   Future<Map<String, dynamic>> request(
     String method,
     Map<String, Object?> params, {
     String? requestId,
   }) async {
+    final pageKey = '$method:${params['pointer']}';
+    pageCalls.update(pageKey, (value) => value + 1, ifAbsent: () => 1);
     final result = await super.request(method, params, requestId: requestId);
+    if (method == pageMethod &&
+        params['pointer'] == pagePointer &&
+        pageRelease != null) {
+      final gate = pageRelease!;
+      pageRelease = null;
+      pageEntered!.complete();
+      await gate.future;
+      pageFinished!.complete();
+    }
     if (method == 'referenceChoices') {
       if (release case final gate?) {
         release = null;
@@ -73,6 +91,350 @@ void main() {
       null,
     );
   });
+  for (final method in ['inspect', 'referencePage', 'schemaTree']) {
+    testWidgets(
+      'metadata authority reloads held real $method without changing source state',
+      (tester) async {
+        tester.view.physicalSize = const Size(1280, 1000);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final directory = Directory.systemTemp.createTempSync(
+          'busyapi-object-authority-',
+        );
+        final trace = WorkspaceIoTrace(), engine = _PickerEngine(trace);
+        final c = TracedWorkspaceController(
+          engine,
+          StateLocations(
+            config: '${directory.path}/config',
+            state: '${directory.path}/state',
+            cache: '${directory.path}/cache',
+          ),
+          trace,
+        );
+        final failures = <Object>[];
+        final held = Completer<void>();
+        BusyProject? presentationOwner;
+        void Function(ResourceRefresh)? presentRefresh;
+        var heldRefreshNotifications = 0;
+        final pointer = method == 'inspect'
+            ? '/components/schemas/Use'
+            : '/components/schemas/Record';
+        final source = File('${directory.path}/root.yaml');
+        final original =
+            '# preserve exact source 雪\r\n'
+            'openapi: 3.2.1\r\n'
+            'info: {title: Authority, version: "1"}\r\n'
+            'paths: {}\r\n'
+            'components:\r\n  schemas:\r\n'
+            '    Use:\r\n      \$ref: "#/components/schemas/Record"\r\n'
+            '      description: Pending description\r\n'
+            '    Record:\r\n      type: object\r\n      description: |\r\n'
+            '${List.generate(40, (i) => '        Reading line $i 雪\r\n').join('\r\n')}\r\n'
+            '      properties:\r\n        flag: false\r\n'
+            '        name: {type: string}\r\n'
+            'x-number: 9007199254740993.00\r\n';
+        final bytes = [239, 187, 191, ...utf8.encode(original)];
+        Future<T> io<T>(Future<T> Function() work) =>
+            runWidgetIo(tester, work, describeState: () => trace.describe(c));
+        Future<void> waitFor(bool Function() ready) async {
+          final clock = Stopwatch()..start();
+          while (!ready() && clock.elapsed < const Duration(seconds: 8)) {
+            await tester.runAsync(
+              () => Future<void>.delayed(const Duration(milliseconds: 10)),
+            );
+            await tester.pump(const Duration(milliseconds: 10));
+          }
+          expect(failures, isEmpty);
+          expect(ready(), true, reason: trace.describe(c));
+        }
+
+        late AppLocalizations l;
+        Finder chooser() => find.byWidgetPredicate(
+          (widget) =>
+              widget is BusyApiActionRow &&
+              widget.title == 'Choose reference target' &&
+              widget.enabled &&
+              widget.onTap != null,
+        );
+        Finder properties() => find.byWidgetPredicate(
+          (widget) => widget is BusyApiTreeRow && widget.title == 'Properties',
+        );
+        bool loaded() => switch (method) {
+          'inspect' => chooser().evaluate().isNotEmpty,
+          'referencePage' =>
+            find.text(l.referenceSchemaResource).evaluate().isNotEmpty,
+          _ => properties().evaluate().isNotEmpty,
+        };
+        try {
+          await io(() async {
+            await source.writeAsBytes(bytes);
+            await c.initialize();
+            await c.open(source.path);
+            c.mode = method == 'referencePage' ? 'Reference' : 'Design';
+            await c.selectObject({
+              'root': c.root,
+              'resource': c.root,
+              'pointer': pointer,
+              'kind': 'schema',
+            });
+            await c.analyse();
+          });
+          final owner = c.project!, root = c.root!, buffer = c.buffer!;
+          final context = c.analysis!['contextSnapshot'];
+          final authorityA =
+              c.analysis!['authoringContext'] as Map<String, dynamic>;
+          final generation = buffer.generation;
+          final originalVersion = c.store!.resourceVersion(root);
+          final navigation = c.resourceNavigationGeneration;
+          if (method == 'schemaTree') {
+            presentationOwner = owner;
+            presentRefresh = owner.onResourcesRefreshed;
+            // Explicit analysis adopts the actual reconciled capture below.
+            // Hold the presentation hint so a temporary null analysis cannot
+            // incidentally rescue the old content-only tree reload key.
+            owner.onResourcesRefreshed = (_) => heldRefreshNotifications++;
+          }
+          engine
+            ..pageMethod = method
+            ..pagePointer = pointer
+            ..pageEntered = Completer<void>()
+            ..pageFinished = Completer<void>()
+            ..pageRelease = held;
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: buildBusyApiTheme(
+                brightness: Brightness.light,
+                accentColor: Colors.blue,
+              ),
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              home: Scaffold(
+                body: ListenableBuilder(
+                  listenable: c,
+                  builder: (_, _) => method == 'referencePage'
+                      ? ReferenceView(controller: c, reveal: (_) {})
+                      : Designer(
+                          controller: c,
+                          run: (action) => action().catchError((Object error) {
+                            failures.add(error);
+                          }),
+                          reveal: (_) {},
+                        ),
+                ),
+              ),
+            ),
+          );
+          l = AppLocalizations.of(tester.element(find.byType(Scaffold)))!;
+          await io(() => engine.pageEntered!.future);
+          final mode = (await tester.runAsync(source.stat))!.mode & 0x1ff;
+          await io(() async {
+            final changed = await Process.run('/usr/bin/chmod', [
+              mode == 0x180 ? '640' : '600',
+              source.path,
+            ]);
+            expect(changed.exitCode, 0);
+            await owner.refreshResources();
+            await c.analyse();
+          });
+          final authorityB =
+              c.analysis!['authoringContext'] as Map<String, dynamic>;
+          expect(c.analysis!['contextSnapshot'], context);
+          expect(buffer.generation, generation);
+          expect(c.store!.resourceVersion(root), greaterThan(originalVersion));
+          expect(authorityB['versions'], isNot(equals(authorityA['versions'])));
+          expect(identical(authorityA, authorityB), false);
+          expect(owner.authoringContext(root, authorityA), isNull);
+          expect(owner.authoringContext(root, authorityB), isNotNull);
+          expect(c.resourceNavigationGeneration, navigation);
+          held.complete();
+          await io(() => engine.pageFinished!.future);
+          await waitFor(
+            () =>
+                loaded() ||
+                find.text(l.retryObjectPage).evaluate().isNotEmpty ||
+                find.text(l.referenceCurrentUnavailable).evaluate().isNotEmpty,
+          );
+          expect(
+            loaded(),
+            true,
+            reason:
+                'A retired $method reply must yield to the eligible metadata capture; refreshHints=$heldRefreshNotifications; ${trace.describe(c)}',
+          );
+          expect(engine.pageCalls['$method:$pointer'], 2);
+          expect(buffer.text, original);
+          expect(c.store!.canUndo, false);
+          expect(await tester.runAsync(source.readAsBytes), bytes);
+          final queryCount = Map<String, int>.from(engine.pageCalls);
+          for (var i = 0; i < 3; i++) {
+            c.notifyListeners();
+            await tester.pump();
+          }
+          expect(identical(c.analysis!['authoringContext'], authorityB), true);
+          expect(
+            engine.pageCalls,
+            queryCount,
+            reason: 'Same-capture repaints must not issue source queries.',
+          );
+
+          State? retainedState;
+          double? readingOffset;
+          Finder? pendingField;
+          if (method == 'inspect') {
+            pendingField = find.byWidgetPredicate(
+              (widget) => widget is DraftField && widget.label == 'Description',
+            );
+            await tester.ensureVisible(pendingField);
+            retainedState = tester.state(pendingField);
+            await tester.enterText(
+              find.descendant(
+                of: pendingField,
+                matching: find.byType(EditableText),
+              ),
+              'Pending native input 雪',
+            );
+            await tester.pump();
+            expect(c.hasPendingFields, true);
+          } else if (method == 'schemaTree') {
+            retainedState = tester.state(find.byType(AuthoredSchemaTree));
+            final arrow = find.descendant(
+              of: properties(),
+              matching: find.byWidgetPredicate(
+                (widget) =>
+                    widget is GestureDetector &&
+                    widget.child is AnimatedRotation,
+              ),
+            );
+            await tester.tap(arrow);
+            await waitFor(
+              () => find.text('flag · false').evaluate().isNotEmpty,
+            );
+          } else {
+            retainedState = tester.state(find.byType(ReferenceObjectView));
+            final scroll = tester.state<ScrollableState>(
+              find
+                  .descendant(
+                    of: find.byType(ReferenceObjectView),
+                    matching: find.byType(Scrollable),
+                  )
+                  .first,
+            );
+            expect(scroll.position.maxScrollExtent, greaterThan(0));
+            scroll.position.jumpTo(scroll.position.maxScrollExtent / 2);
+            await tester.pump();
+            readingOffset = scroll.position.pixels;
+          }
+          if (method != 'inspect') {
+            final beforeRefresh = engine.pageCalls['$method:$pointer']!;
+            await io(() async {
+              final restored = await Process.run('/usr/bin/chmod', [
+                mode.toRadixString(8),
+                source.path,
+              ]);
+              expect(restored.exitCode, 0);
+              await owner.refreshResources();
+              await c.analyse();
+            });
+            await waitFor(
+              () =>
+                  loaded() &&
+                  engine.pageCalls['$method:$pointer'] == beforeRefresh + 1,
+            );
+          }
+          if (method == 'inspect') {
+            final pendingQueries = Map<String, int>.from(engine.pageCalls);
+            for (var i = 0; i < 3; i++) {
+              c.notifyListeners();
+              await tester.pump();
+            }
+            expect(
+              identical(c.analysis!['authoringContext'], authorityB),
+              true,
+            );
+            expect(engine.pageCalls, pendingQueries);
+            final beforeRecheck = engine.pageCalls['$method:$pointer']!;
+            await io(c.analyse);
+            final authorityC = c.analysis!['authoringContext'] as Map;
+            expect(identical(authorityB, authorityC), false);
+            expect(authorityC['versions'], authorityB['versions']);
+            expect(owner.authoringContext(root, authorityB), isNotNull);
+            await waitFor(() =>
+                engine.pageCalls['$method:$pointer'] == beforeRecheck + 1);
+            final page = tester.widget<FutureBuilder<Map<String, dynamic>>>(
+              find.descendant(
+                of: find.byType(Designer),
+                matching: find.byWidgetPredicate(
+                  (widget) => widget is FutureBuilder<Map<String, dynamic>>,
+                ),
+              ).first,
+            );
+            await io(() => page.future!);
+            await tester.pump();
+            expect(tester.state(pendingField!), same(retainedState));
+            expect(
+              tester
+                  .widget<EditableText>(
+                    find.descendant(
+                      of: pendingField,
+                      matching: find.byType(EditableText),
+                    ),
+                  )
+                  .controller
+                  .text,
+              'Pending native input 雪',
+            );
+            expect(c.hasPendingFields, true);
+          } else if (method == 'schemaTree') {
+            expect(
+              tester.state(find.byType(AuthoredSchemaTree)),
+              same(retainedState),
+            );
+            await waitFor(
+              () => find.text('flag · false').evaluate().isNotEmpty,
+            );
+          } else {
+            final dynamic reference = tester.state(
+              find.byType(ReferenceObjectView),
+            );
+            await io(
+              () => reference.request as Future<Map<String, dynamic>>,
+            );
+            await tester.pump();
+            expect(
+              tester.state(find.byType(ReferenceObjectView)),
+              same(retainedState),
+            );
+            expect(
+              tester
+                  .state<ScrollableState>(
+                    find
+                        .descendant(
+                          of: find.byType(ReferenceObjectView),
+                          matching: find.byType(Scrollable),
+                        )
+                        .first,
+                  )
+                  .position
+                  .pixels,
+              readingOffset,
+            );
+          }
+          expect(c.analysis!['contextSnapshot'], context);
+          expect(buffer.generation, generation);
+          expect(buffer.text, original);
+          expect(c.store!.canUndo, false);
+          expect(await tester.runAsync(source.readAsBytes), bytes);
+          expect(tester.takeException(), isNull);
+        } finally {
+          presentationOwner?.onResourcesRefreshed = presentRefresh;
+          if (!held.isCompleted) held.complete();
+          await tester.pumpWidget(const SizedBox.shrink());
+          await io(c.shutdown);
+          c.dispose();
+          directory.deleteSync(recursive: true);
+        }
+      },
+    );
+  }
   for (final version in ['3.1.2', '3.2.1']) {
     for (final json in [false, true]) {
       testWidgets(

@@ -95,7 +95,7 @@ class _NativeObjectPageState extends State<_NativeObjectPage> {
       semanticRevision = c.semanticViewRevision;
     }
     final next = (
-      c.analysis?['contextSnapshot'],
+      c.analysis?['authoringContext'],
       c.store?.buffers[widget.resource]?.generation,
     );
     if (next != identity && !c.checking) reload();
@@ -109,7 +109,7 @@ class _NativeObjectPageState extends State<_NativeObjectPage> {
       return;
     }
     identity = (
-      c.analysis?['contextSnapshot'],
+      c.analysis?['authoringContext'],
       c.store?.buffers[widget.resource]?.generation,
     );
     final epoch = ++loadEpoch;
@@ -641,7 +641,7 @@ class _NativeObjectPageState extends State<_NativeObjectPage> {
                     pointer: item['schemaTreeRoot'] as String,
                     selectedPointer: widget.pointer,
                     snapshot: (
-                      c.analysis?['contextSnapshot'],
+                      c.analysis?['authoringContext'],
                       item['generation'],
                     ),
                     run: run,

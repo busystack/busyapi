@@ -159,7 +159,7 @@ class _ReferenceObjectViewState extends State<ReferenceObjectView> {
     final c = widget.controller;
     if (c.checking || !current) return;
     identity = (
-      c.analysis?['contextSnapshot'],
+      c.analysis?['authoringContext'],
       c.store?.buffers[resource]?.generation,
     );
     final captured = ++epoch;
@@ -224,7 +224,7 @@ class _ReferenceObjectViewState extends State<ReferenceObjectView> {
     // occurrence may resume writing its own state after reconciliation.
     semanticRevision = c.semanticViewRevision;
     final next = (
-      c.analysis?['contextSnapshot'],
+      c.analysis?['authoringContext'],
       c.store?.buffers[resource]?.generation,
     );
     if ((next != identity || interpretationChanged) && !c.checking) load();
