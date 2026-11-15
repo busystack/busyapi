@@ -209,4 +209,112 @@ test('operation insertion refuses referenced destinations and aliases retain occ
  const result=analyse({root:anchored.id,snapshot:'alias',resources:[anchored]});
  assert(result.operations.every(o=>o.shared));assert(result.operations[1].range[0]>anchored.text.indexOf('/b:'));assert.equal(apply(r,[{kind:'set',pointer:'/info/title',value:'B'}]).includes('$ref: path.yaml'),true);
 });
+const ordinaryCapture=(root='file:///capture/root.json')=>({root,snapshot:'capture',resources:[{id:root,generation:4,identity:'owned',hasBom:false,text:JSON.stringify({openapi:'3.2.1',info:{title:'Captured graph',version:'1'},paths:{},components:{schemas:{Record:{type:'string'}}},'x-data':{type:'integer'}})}]});
+test('ordinary immutable captures reuse a contextual graph without caching request output',()=>{
+ const input=ordinaryCapture(),first=createGraph(input),next=createGraph(structuredClone({...input,snapshot:'new-request'}));
+ assert.equal(first.graph,next.graph);assert.equal(first.docs,next.docs);
+ const result=require('./dist/model.cjs').inspect({...input,snapshot:'current',resource:input.root,pointer:'/components/schemas/Record'});
+ assert.equal(result.snapshot,'current');assert.equal(result.generation,4);
+});
+test('derived text cannot reuse its original contextual graph under inherited generation and identity',()=>{
+ const input=ordinaryCapture('file:///capture/derived.json'),before=createGraph(input);
+ const derived={...input,resources:input.resources.map(resource=>({...resource,text:resource.text.replace('"type":"string"','"type":"integer"')}))};
+ const after=createGraph(derived);assert.notEqual(before.graph,after.graph);
+ assert.equal(before.docs.get(input.root).dataNode('/components/schemas/Record/type').value,'string');
+ assert.equal(after.docs.get(input.root).dataNode('/components/schemas/Record/type').value,'integer');
+ assert.equal(createGraph(input).graph,before.graph);
+});
+test('contextual captures retain ordered aliases and exact transaction metadata without retaining callers',()=>{
+ const input=ordinaryCapture('file:///capture/metadata.json');input.resources[0].aliases=['https://first.invalid/api.json','https://second.invalid/api.json'];
+ const before=createGraph(input),base=before.graph.scope(input.root,'').base;
+ input.resources[0].aliases.reverse();const reordered=createGraph(input);assert.notEqual(before.graph,reordered.graph);assert.notEqual(reordered.graph.scope(input.root,'').base,base);
+ assert.equal(before.graph.scope(input.root,'').base,base);
+ for(const field of [{generation:5},{identity:'new-owner'},{hasBom:true}])assert.notEqual(createGraph({...input,resources:input.resources.map(resource=>({...resource,...field}))}).graph,reordered.graph);
+});
+test('ordinary contextual graphs preserve root interpretation and complete resource membership/order',()=>{
+ const first=ordinaryCapture('file:///capture/modern.json'),legacy=ordinaryCapture('file:///capture/restricted.json');
+ legacy.resources[0].text=legacy.resources[0].text.replace('3.2.1','3.0.4');
+ const fragment={id:'file:///capture/model.json',generation:1,text:'{"Value":{"type":"string"}}'};
+ for(const input of [first,legacy])input.resources[0].text=input.resources[0].text.replace('"Record":{"type":"string"}','"Record":{"$ref":"model.json#/Value"}');
+ const resources=[...first.resources,...legacy.resources,fragment],modern=createGraph({...first,resources}),restricted=createGraph({...legacy,resources});
+ assert.notEqual(modern.graph,restricted.graph);assert.equal(modern.docs.get(fragment.id),restricted.docs.get(fragment.id));
+ assert.equal(modern.graph.scopeAs(fragment.id,'/Value','schema').family,'3.2');assert.equal(restricted.graph.scopeAs(fragment.id,'/Value','schema').family,'3.0');
+ const reversed=createGraph({...first,resources:[...resources].reverse()});assert.notEqual(reversed.graph,modern.graph);assert.deepEqual([...reversed.docs.keys()],resources.map(resource=>resource.id).reverse());
+ const added=createGraph({...first,resources:[...resources,{id:'file:///capture/extra.json',generation:0,text:'{}'}]});assert.notEqual(added.graph,modern.graph);assert(added.docs.has('file:///capture/extra.json'));
+});
+test('explicit occurrence and planner seed maps never alias ordinary cached interpretations',()=>{
+ const input=ordinaryCapture('file:///capture/seeded.json'),ordinary=createGraph(input);
+ const occurrences=[{resource:input.root,pointer:'/x-data',kind:'schema'}];
+ const explicit=createGraph({...input,occurrences});assert.notEqual(explicit.graph,ordinary.graph);assert.notEqual(createGraph({...input,occurrences}).graph,explicit.graph);
+ const planning=Symbol.for('busyapi-planning-occurrences'),values=[{...occurrences[0],family:'3.2',dialect:'https://json-schema.org/draft/2020-12/schema',metadataOnly:true}],contexts=new Map([[input.root,values]]);
+ const planned=createGraph({...input,[planning]:contexts});assert.notEqual(planned.graph,ordinary.graph);assert.notEqual(createGraph({...input,[planning]:contexts}).graph,planned.graph);
+ contexts.clear();assert.equal(createGraph(input).graph,ordinary.graph);
+});
+test('context hits still reject malformed captures and validate fresh external example packets',()=>{
+ const input=ordinaryCapture('file:///capture/examples.json'),first=createGraph(input);
+ assert.throws(()=>createGraph({...input,resources:input.resources.map(resource=>({...resource,aliases:{}}))}),TypeError);
+ assert.throws(()=>createGraph({...input,exampleResources:[{}]}),error=>error.code==='example.resource.protocol');
+ const {createHash}=require('node:crypto'),packet=text=>{const bytes=Buffer.from(text);return {version:1,id:'file:///capture/payload.bin',identity:createHash('sha256').update(bytes).digest('hex'),generation:1,aliases:[],state:'available',base64:bytes.toString('base64'),byteLength:bytes.length};};
+ const a=createGraph({...input,exampleResources:[packet('first')]}),b=createGraph({...input,exampleResources:[packet('second')]});
+ assert.equal(a.graph,first.graph);assert.equal(b.graph,first.graph);assert.notEqual(a.exampleResources,b.exampleResources);
+ assert.equal(Buffer.from(a.exampleResources.packets()[0].base64,'base64').toString(),'first');assert.equal(Buffer.from(b.exampleResources.packets()[0].base64,'base64').toString(),'second');
+});
+test('inherited seeds and accessor captures cannot pollute an ordinary contextual graph',()=>{
+ const input=ordinaryCapture('file:///capture/noncanonical.json'),ordinary=createGraph(input);
+ const occurrences=[{resource:input.root,pointer:'/x-data',kind:'schema'}];
+ const inherited=Object.assign(Object.create({occurrences}),input),seeded=createGraph(inherited);
+ assert.notEqual(seeded.graph,ordinary.graph);assert(seeded.graph.scopeAs(input.root,'/x-data','schema'));
+ const helper=require.resolve('./dist/model.cjs');delete require.cache[helper];
+ const cold=require(helper).createGraph(inherited);assert.deepEqual([...seeded.graph.interpretedScopes()],[...cold.graph.interpretedScopes()]);
+ const rootAccessor={...input};Object.defineProperty(rootAccessor,'root',{get:()=>input.root,enumerable:true});
+ const resourcesAccessor={...input};Object.defineProperty(resourcesAccessor,'resources',{get:()=>input.resources,enumerable:true});
+ const resourceAccessor=[...input.resources];Object.defineProperty(resourceAccessor,'0',{get:()=>input.resources[0],enumerable:true});
+ const aliases=['https://alias.invalid/api.json'];Object.defineProperty(aliases,'0',{get:()=> 'https://alias.invalid/api.json',enumerable:true});
+ const hiddenText={...input.resources[0]};Object.defineProperty(hiddenText,'text',{value:hiddenText.text,enumerable:false});
+ const nonPlain=Object.assign(Object.create({}),input);
+ for(const capture of [rootAccessor,resourcesAccessor,{...input,resources:resourceAccessor},{...input,resources:[{...input.resources[0],aliases}]},{...input,resources:[hiddenText]},nonPlain]){
+  const first=createGraph(capture),next=createGraph(capture);assert.notEqual(first.graph,next.graph);
+ }
+ assert.equal(createGraph(input).graph,ordinary.graph);assert.equal(ordinary.graph.scopeAs(input.root,'/x-data','schema'),undefined);
+});
+test('reference projections cannot mutate captured dynamic candidates or later results',()=>{
+ const root='file:///capture/immutable-references.json',input={root,snapshot:'immutable',resources:[{id:root,generation:1,text:JSON.stringify({openapi:'3.2.1',info:{title:'Immutable references',version:'1'},paths:{},components:{schemas:{
+  A:{$id:'https://immutable.invalid/a',$dynamicAnchor:'node',type:'string'},B:{$id:'https://immutable.invalid/b',$dynamicAnchor:'node',type:'integer'},Use:{$dynamicRef:'https://immutable.invalid/a#node'},
+ }}})}]};
+ const before=analyse(input),expected=JSON.stringify(before),projected=before.references.find(reference=>reference.dynamic);
+ assert(projected);assert.equal(projected.dynamic.candidates.length,2);
+ assert.throws(()=>projected.dynamic.candidates.push({resource:root,pointer:'/x-injected',kind:'schema'}),TypeError);
+ assert.equal(Reflect.set(projected.dynamic,'anchor','changed'),false);
+ assert.equal(Reflect.set(projected.dynamic.candidates[0],'pointer','/x-injected'),false);
+ const page=require('./dist/model.cjs').inspect({...input,resource:root,pointer:'/components/schemas/Use'});
+ assert.equal(Reflect.set(page.references[0].dynamic.candidates[0],'pointer','/x-injected'),false);
+ assert.equal(JSON.stringify(analyse(input)),expected);assert.equal(createGraph(input).graph.references.find(reference=>reference.dynamic).dynamic.anchor,'node');
+});
+test('context cache eviction and worker-module replacement retain cold semantic results',()=>{
+ const input=ordinaryCapture('file:///capture/evicted.json'),before=createGraph(input),shape=context=>({family:context.family,scopes:[...context.graph.scopes.values()],references:context.graph.references});
+ for(let index=0;index<5;index++)createGraph(ordinaryCapture('file:///capture/eviction-'+index+'.json'));
+ const evicted=createGraph(input);assert.notEqual(evicted.graph,before.graph);assert.deepEqual(shape(evicted),shape(before));
+ const helper=require.resolve('./dist/model.cjs');delete require.cache[helper];const fresh=require(helper).createGraph(input);
+ assert.notEqual(fresh.graph,evicted.graph);assert.deepEqual(shape(fresh),shape(before));
+});
+
+test('cached ordinary analysis preserves partial syntax, limit, missing dependency and unsupported-root findings',()=>{
+ const root='file:///capture/partial.json',dependency='file:///capture/dependency.json';
+ const text=JSON.stringify({openapi:'3.2.1',info:{title:'Partial capture',version:'1'},paths:{},components:{schemas:{Use:{$ref:'dependency.json#/Value'}}}});
+ const base={root,snapshot:'same-findings',resources:[{id:root,text,generation:1}]};
+ const cases=[
+  {...base,resources:[...base.resources,{id:dependency,text:'{"Value": [',generation:1}]},
+  {...base,resources:[...base.resources,{id:dependency,text:' '.repeat(16*1024*1024+1),generation:1}]},
+  base,
+  {...base,resources:[{...base.resources[0],text:text.replace('3.2.1','9.0.0')}]},
+ ];
+ for(const [index,input] of cases.entries()){
+  const before=analyse(input),warm=analyse(structuredClone(input));assert.deepEqual(warm,before);
+  assert(before.findings.length>0);assert.notEqual(before.status,'complete');
+  assert(before.findings.some(finding=>finding.code===['json.syntax','limit.bytes','reference.unavailable','version.unsupported'][index]));
+  const helper=require.resolve('./dist/model.cjs');delete require.cache[helper];const cold=require(helper).analyse(input);
+  assert.deepEqual(cold,before);
+ }
+});
+
 console.log(tests + ' engine tests passed');

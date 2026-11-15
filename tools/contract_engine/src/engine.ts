@@ -146,7 +146,9 @@ export function analyse(input: any, context?: ReturnType<typeof createGraph>) {
         complete = false;
         diagnostic(rootResource, 'openapi', 'dialect.unsupported', 'The root JSON Schema dialect is not supported', '/jsonSchemaDialect', undefined, 'warning');
     }
-    const graph = context?.graph??ReferenceGraph.capture(docs, input.root, family, new Map(input.resources.map((r: Resource) => [r.id, r.aliases ?? []])));
+    const graph = context?.graph??(supported&&docs.size===input.resources.length
+        ? createGraph({root:input.root,resources:input.resources}).graph
+        : ReferenceGraph.capture(docs, input.root, family, new Map(input.resources.map((r: Resource) => [r.id, r.aliases ?? []]))));
     if (supported) {
         const validate = ajv.getSchema(structuralSchema(family).$id);
         if (!validate(family==='2.0'?swaggerNativeMetaView(root,graph):data))
@@ -321,8 +323,8 @@ export function analyse(input: any, context?: ReturnType<typeof createGraph>) {
     findings.push(...security.findings);
     if(!security.complete)complete=false;
     const entryDiscovery=input.captureEntries?discoverEntries(input,graph):undefined;
-    // Lazy operation/Path Item projections can discover a located graph issue.
-    // Emit the acquired graph's findings once, after those projections finish.
+    // Emit this capture's completed graph findings once. Read-only view queries
+    // do not extend its diagnostic state.
     for (const issue of graph.issues) {
         if (issue.incomplete) complete = false;
         diagnostic(input.resources.find((r: Resource) => r.id === issue.resource), 'openapi', issue.code, issue.message, issue.pointer, undefined, issue.severity??(issue.code === 'dialect.unsupported' ? 'warning' : 'error'));

@@ -305,8 +305,8 @@ export function semanticSearch(input: any) {
     const category = input.category ?? 'all';
     if (!['all','operations','components','definitions','usages'].includes(category))
         throw new SourceError('search.category', 'Choose an established semantic search category');
-    const { docs, graph } = createGraph(input), query = input.query.toLocaleLowerCase('en-US'), matches: any[] = [];
-    const projection = analyse(input);
+    const captured = createGraph(input), { docs, graph } = captured, query = input.query.toLocaleLowerCase('en-US'), matches: any[] = [];
+    const projection = analyse(input,captured);
     const bounded = (value: string) => value.length <= 240 ? value : value.slice(0, /[\uD800-\uDBFF]/.test(value[239]) ? 239 : 240) + '…';
     const add = (location: any, label: string, search: string[], kind: string, occurrence?: string, extra: any = {}) => {
         if (![label, location.pointer, location.resource, ...search].some(v => v.toLocaleLowerCase('en-US').includes(query))) return;

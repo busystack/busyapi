@@ -48,7 +48,7 @@ export const schemaResourceContextIdentity=(scope:GraphScope):string=>JSON.strin
 export const supportedSchemaDialect = (scope: Pick<GraphScope, 'family' | 'dialect'>): boolean =>
     scope.family === '2.0' ? scope.dialect === swaggerSchemaDialect : scope.family === '3.0' ? scope.dialect === restrictedSchemaDialect : modernFamily(scope.family) && typeof scope.dialect==='string' && knownDialects.has(schemaDialectIdentity(scope.dialect)) && ![restrictedSchemaDialect,swaggerSchemaDialect].includes(schemaDialectIdentity(scope.dialect));
 export type GraphIssue = GraphTarget & { code: string; message: string; incomplete?: boolean; severity?: 'warning'|'error';connection?:GraphReference['connection'] };
-export type PathItemView = {source:GraphTarget;chain:readonly GraphTarget[];fields:ReadonlyMap<string,GraphTarget>;complete:boolean;chainComplete:boolean;conflicts:readonly string[];cyclic:boolean};
+export type PathItemView = {source:GraphTarget;chain:readonly GraphTarget[];fields:ReadonlyMap<string,GraphTarget>;complete:boolean;chainComplete:boolean;conflicts:readonly string[];cyclic:boolean;issues:readonly GraphIssue[]};
 export type OperationOccurrence = {source:GraphTarget;pathItem:GraphTarget;path:string;method:string;role:string;occurrence:string;shared:boolean;customMethod?:boolean};
 export type GraphReference = GraphScope & {
     keyword: string; value: string; targetUri?: string;
@@ -216,6 +216,11 @@ export class ReferenceGraph {
             }
         }
         this.entryUses=selected;
+        // Ambiguity belongs to the selected Path Item view, including both
+        // physical field locations. A dormant view cannot diagnose its target.
+        for(const scope of this.interpretedScopes())if(scope.kind==='path-item'&&this.isEntryUse(scope))
+            for(const issue of this.pathItem(scope).issues)this.issue(issue,issue.code,issue.message,issue.incomplete,issue.severity);
+        this.operations();
         // Dynamic anchors are resource-wide, including declarations outside
         // the immediate static path. Only entered resource contexts can
         // contribute overrides; another captured API is not an entered scope.
@@ -533,10 +538,23 @@ export class ReferenceGraph {
             }
         }
         this.checkReferenceChains();
-        for(const scope of this._scopes.values())if(scope.kind==='path-item')this.pathItem(scope);
-        this.operations();
         this.captureEntryUses(occurrences.filter(occurrence=>
             !planning.get(key(occurrence.resource,occurrence.pointer)+':'+occurrence.kind)?.metadataOnly));
+        // This is capture work, not a lifetime budget for immutable queries.
+        this.dynamicCandidateWork=-1;
+        // Projections may expose these components directly. Freeze the owned
+        // closure once so an in-process result cannot mutate a later query.
+        for(const reference of this._references){
+            for(const target of reference.candidateTargets??[])Object.freeze(target);
+            if(reference.candidateTargets)Object.freeze(reference.candidateTargets);
+            if(reference.candidateResources)Object.freeze(reference.candidateResources);
+            if(reference.dynamic){
+                for(const target of reference.dynamic.candidates)Object.freeze(target);
+                Object.freeze(reference.dynamic.candidates);Object.freeze(reference.dynamic);
+            }
+            Object.freeze(reference);
+        }
+        Object.freeze(this._references);
     }
 
     /** Located Path Item fields, not a merged API object. Non-overlapping
@@ -548,13 +566,14 @@ export class ReferenceGraph {
         if(cached)return cached;
         this.pathReferences??=new Map(this._references.filter(ref=>ref.kind==='path-item'&&ref.keyword==='$ref'&&!ref.connection).map(ref=>[key(ref.resource,ref.pointer),ref]));
         const chain:GraphTarget[]=[],fields=new Map<string,GraphTarget>(),seen=new Set<string>(),conflicts=new Set<string>();
+        const issues:GraphIssue[]=[],note=(target:GraphTarget,code:string,message:string)=>issues.push({...target,code,message,incomplete:true,severity:'warning'});
         let current:GraphTarget={resource:source.resource,pointer:source.pointer,kind:'path-item'},complete=true,chainComplete=true,cyclic=false;
         for(let depth=0;depth<=limits.depth;depth++) {
             const at=key(current.resource,current.pointer);
             if(seen.has(at)||depth===limits.depth) {
                 complete=false;chainComplete=false;cyclic=seen.has(at);
-                this.issue({...current,pointer:current.pointer+'/$ref'},seen.has(at)?'path.reference.cycle.incomplete':'limit.path.reference.depth',
-                    seen.has(at)?'The Path Item reference chain is cyclic; no unconditional field inheritance is inferred':'Path Item reference inheritance exceeds the bounded depth',true,'warning');
+                note({...current,pointer:current.pointer+'/$ref'},seen.has(at)?'path.reference.cycle.incomplete':'limit.path.reference.depth',
+                    seen.has(at)?'The Path Item reference chain is cyclic; no unconditional field inheritance is inferred':'Path Item reference inheritance exceeds the bounded depth');
                 break;
             }
             seen.add(at);chain.push(current);
@@ -568,8 +587,8 @@ export class ReferenceGraph {
                 if(previous||conflicts.has(name)) {
                     complete=false;conflicts.add(name);fields.delete(name);
                     const message='This field occurs in both a Path Item and its referenced definition; their combined behavior is undefined';
-                    if(previous)this.issue(previous,'path.reference.overlap',message,true,'warning');
-                    this.issue(field,'path.reference.overlap',message,true,'warning');
+                    if(previous)note(previous,'path.reference.overlap',message);
+                    note(field,'path.reference.overlap',message);
                 }else fields.set(name,field);
             }
             if(typeof node.value.$ref!=='string')break;
@@ -577,7 +596,7 @@ export class ReferenceGraph {
             if(!edge||edge.resolution!=='resolved') {complete=false;chainComplete=false;break;}
             current={resource:edge.targetResource!,pointer:edge.targetPointer!,kind:'path-item'};
         }
-        const result={source:{resource:source.resource,pointer:source.pointer,kind:'path-item'},chain,fields,complete,chainComplete,conflicts:[...conflicts],cyclic};
+        const result={source:{resource:source.resource,pointer:source.pointer,kind:'path-item'},chain,fields,complete,chainComplete,conflicts:[...conflicts],cyclic,issues};
         this.pathItems.set(identity,result);return result;
     }
 
@@ -786,7 +805,7 @@ export class ReferenceGraph {
         if (dynamic && fragment && !fragment.startsWith('/') &&
             this._dynamicAnchors.get(fragment)?.some(t => same(t, target))){
             const candidates=this._dynamicAnchors.get(fragment)!;
-            if((this.dynamicCandidateWork+=candidates.length)>2000000){
+            if(this.dynamicCandidateWork>=0&&(this.dynamicCandidateWork+=candidates.length)>2000000){
                 const range:Range=this.docs.get(scope.resource)?.dataNode(scope.pointer)?.range??[0,0];
                 throw new SourceError('limit.graph.dynamic-candidates','Dynamic reference capture exceeds 2000000 candidate steps',range,'unsupported',{resource:scope.resource,pointer:scope.pointer,range});
             }

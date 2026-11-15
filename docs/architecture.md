@@ -323,6 +323,20 @@ and parser lookup no longer computes another whole-text SHA digest. Graph maps
 and syntax metadata expose read-only interfaces; root-specific interpretation and
 private lazy indexes remain separate from shared parsing.
 
+The same source-capture owner retains at most four ordinary contextual graphs
+per worker, with a 64 MiB estimated retention bound. The key includes the root,
+complete ordered resource membership, actual text, transaction metadata and URI
+aliases. Changed derived text cannot hit through an inherited generation.
+Explicit occurrence/planning captures stay separate; default analysis retains
+its existing unseeded interpretation. Example byte packets are validated for
+each call rather than cached with the graph. Analysis warms the supported base
+capture, and semantic search passes its acquired context into analysis.
+Path Item views own their derived diagnostics; capture publishes only active
+views before the final issue filter. Public queries cannot append dormant
+findings or consume a constructor-lifetime dynamic-reference budget. Reference
+payload components freeze once after closure. Eviction, cancellation and worker
+restart require no retained cache for correctness.
+
 Node owns one execution policy in WorkerDispatcher. Its main process handles
 framing, control messages and worker lifetime. The existing engine bundle
 initializes semantic modules inside its worker branch and creates the method

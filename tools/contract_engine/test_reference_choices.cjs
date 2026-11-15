@@ -79,3 +79,25 @@ test('external identified schemas retain a proven retrieval route without changi
  const declared=createGraph(described).graph;
  assert.equal(referenceValue(declared,declared.scope(root,input.pointer),declared.scope(external,'/components/schemas/New')),self+'#/components/schemas/New');
 });
+
+test('retained dynamic-reference queries remain equivalent to cold queries after repeated reads',()=>{
+ const root='file:///dynamic-choices/api.json';
+ const value={openapi:'3.2.1',info:{title:'Repeated dynamic choices',version:'1'},paths:{},components:{schemas:{
+  Use:{$dynamicRef:'https://dynamic.invalid/target-0#node'},
+  ...Object.fromEntries(Array.from({length:50},(_,index)=>['Target'+index,{$id:'https://dynamic.invalid/target-'+index,$dynamicAnchor:'node',type:'string'}])),
+ }}};
+ const input={root,snapshot:'repeated-dynamic',resources:[{id:root,generation:1,text:JSON.stringify(value)}],resource:root,pointer:'/components/schemas/Use',keyword:'$dynamicRef',query:''};
+ const expected=referenceChoices(input);assert.equal(expected.count,50);
+ const values=page=>page.entries.map(entry=>entry.value);
+ for(let index=0;index<900;index++)assert.deepEqual(values(referenceChoices({...input,snapshot:'query-'+index})),values(expected));
+ const helper=require.resolve('./dist/reference_choices.cjs');delete require.cache[helper];
+ assert.deepEqual(values(require(helper).referenceChoices(input)),values(expected));
+});
+test('dynamic-reference graph construction retains its aggregate candidate-work limit',()=>{
+ const root='file:///dynamic-choices/over-budget.json';
+ const input={root,resources:[{id:root,generation:1,text:JSON.stringify({openapi:'3.2.1',info:{title:'Bounded capture',version:'1'},paths:{},components:{schemas:{
+  ...Object.fromEntries(Array.from({length:1500},(_,index)=>['Target'+index,{$id:'https://dynamic.invalid/limit-'+index,$dynamicAnchor:'node',type:'string'}])),
+  ...Object.fromEntries(Array.from({length:1500},(_,index)=>['Use'+index,{$dynamicRef:'https://dynamic.invalid/limit-0#node'}])),
+ }}})}]};
+ assert.throws(()=>createGraph(input),error=>error.code==='limit.graph.dynamic-candidates'&&error.source?.resource===root);
+});

@@ -139,3 +139,50 @@ test('YAML aliases retain logical operation contexts and exact physical provenan
  const {docs}=createGraph(input);assert.throws(()=>docs.get(root).node('/paths/~1one/get/responses'),error=>error.code==='edit.target');
  assert.equal(input.resources[0].text,before);
 });
+
+test('secondary Path Item reads and disposable governance views cannot change a cached graph',()=>{
+ const root='file:///path-item-reuse/api.json',summary='Captured operation';
+ const input={root,resources:[{id:root,generation:1,text:JSON.stringify({openapi:'3.2.1',info:{title:'Secondary Path Item',version:'1'},paths:{},components:{
+  schemas:{Shared:{$ref:'#/components/pathItems/Base',get:{summary,responses:{204:{description:'Shared'}}}}},
+  pathItems:{Use:{$ref:'#/components/schemas/Shared'},Base:{get:{summary:'Base',responses:{204:{description:'Base'}}}}},
+ }})}]};
+ const context=createGraph(input),{graph}=context,secondary=graph.scopeAs(root,'/components/schemas/Shared','path-item');
+ assert(secondary);assert.equal(graph.scope(root,secondary.pointer).kind,'schema');assert(graph.isEntryUse(secondary));
+ const before=structuredClone(graph.issues);assert(before.some(issue=>issue.code==='path.reference.overlap'));
+ const view=governanceProjection(graph,true);graph.pathItem(secondary);graph.operations();assert.deepEqual(graph.issues,before);
+ const disposable=governanceProjection(graph,false);disposable.value.components.schemas.Shared.get.summary='Changed output';
+ assert.equal(graph.docs.get(root).dataNode('/components/schemas/Shared/get/summary').value,summary);
+ const cached=createGraph(structuredClone(input));assert.equal(cached.graph,graph);assert.deepEqual(governanceProjection(cached.graph,true).problems,view.problems);assert.deepEqual(cached.graph.issues,before);
+ const helper=require.resolve('./dist/model.cjs');delete require.cache[helper];const cold=require(helper).createGraph(input);
+ assert.deepEqual(governanceProjection(cold.graph,true).problems,view.problems);assert.deepEqual(cold.graph.issues,before);
+});
+for(const active of [false,true])test(`maintenance Path Item closure retains only ${active?'active':'metadata-only dormant'} cycle findings`,()=>{
+ const root='file:///path-item-reuse/maintenance.json',part='file:///path-item-reuse/dormant.json';
+ const occurrence={resource:root,pointer:'/x-held',kind:'path-item',family:'3.2',dialect:'https://json-schema.org/draft/2020-12/schema',metadataOnly:!active};
+ const input={root,resources:[{id:root,generation:1,text:JSON.stringify({openapi:'3.2.1',info:{title:'Maintenance roles',version:'1'},paths:{},'x-held':{$ref:'dormant.json'}})},{id:part,generation:1,text:'{"$ref":"#"}'}],
+  [Symbol.for('busyapi-planning-occurrences')]:new Map([[root,[occurrence]]])};
+ const {graph}=createGraph(input),scope=graph.scopeAs(root,'/x-held','path-item');assert(scope);assert.equal(graph.isEntryUse(scope),active);
+ const before=structuredClone(graph.issues);assert.equal(before.some(issue=>issue.code==='path.reference.cycle.incomplete'),active);
+ graph.pathItem(scope);governanceProjection(graph,true);for(const path of graph.scopesFor('path-item'))graph.pathItem(path);
+ assert.deepEqual(graph.issues,before,'Reading a dormant role must not append findings after entry filtering');
+ const cold=createGraph(input);assert.deepEqual(cold.graph.issues,before);
+});
+for(const active of [false,true])test(`a ${active?'selected':'dormant'} Path Item view cannot misattribute overlap to its active target`,()=>{
+ const root='file:///path-item-reuse/active-target.json',base='/components/pathItems/Base';
+ const held={resource:root,pointer:'/x-held',kind:'path-item',family:'3.2',dialect:'https://json-schema.org/draft/2020-12/schema',metadataOnly:!active};
+ const input={root,resources:[{id:root,generation:1,text:JSON.stringify({openapi:'3.2.1',info:{title:'View-owned findings',version:'1'},paths:{},components:{pathItems:{Base:{get:{responses:{204:{description:'Base'}}}}}},'x-held':{$ref:'#'+base,get:{responses:{204:{description:'Held'}}}}})}],
+  [Symbol.for('busyapi-planning-occurrences')]:new Map([[root,[held]]])};
+ const {graph}=createGraph(input),scope=graph.scopeAs(root,'/x-held','path-item');assert(graph.isEntryUse(graph.scopeAs(root,base,'path-item')));assert.equal(graph.isEntryUse(scope),active);
+ const issues=structuredClone(graph.issues);assert.deepEqual(issues.filter(issue=>issue.code==='path.reference.overlap').map(issue=>issue.pointer).sort(),active?[base+'/get','/x-held/get'].sort():[]);
+ assert.equal(graph.pathItem(scope).complete,false);governanceProjection(graph,true);assert.deepEqual(graph.issues,issues);
+});
+test('dormant-first Path Item findings cannot suppress an active view with the same physical target',()=>{
+ const root='file:///path-item-reuse/shared-causes.json',base='/components/pathItems/Base';
+ const view=description=>({$ref:'#'+base,get:{responses:{204:{description}}}});
+ const seed=(pointer,metadataOnly)=>({resource:root,pointer,kind:'path-item',family:'3.2',dialect:'https://json-schema.org/draft/2020-12/schema',metadataOnly});
+ const input={root,resources:[{id:root,generation:1,text:JSON.stringify({openapi:'3.2.1',info:{title:'Active causes',version:'1'},paths:{},components:{pathItems:{Base:{get:{responses:{204:{description:'Base'}}}}}},'x-held':view('Dormant'),'x-live':view('Active')})}],
+  [Symbol.for('busyapi-planning-occurrences')]:new Map([[root,[seed('/x-held',true),seed('/x-live',false)]]])};
+ const {graph}=createGraph(input),issues=structuredClone(graph.issues);
+ assert.deepEqual(issues.filter(issue=>issue.code==='path.reference.overlap').map(issue=>issue.pointer).sort(),[base+'/get','/x-live/get'].sort());
+ graph.pathItem(graph.scopeAs(root,'/x-held','path-item'));graph.pathItem(graph.scopeAs(root,'/x-live','path-item'));assert.deepEqual(graph.issues,issues);
+});
