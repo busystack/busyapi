@@ -77,7 +77,7 @@ class _SourceFolding {
       for (final pointer in collapsed)
         if (regions[pointer] case final region?) region.hidden,
     ]);
-    editor._indexed = null;
+    editor._geometry.invalidateViewport();
     editor._window = null;
     editor._gutter = null;
     requested = null;
@@ -195,7 +195,7 @@ class _SourceFolding {
     _indexLines();
     editor._gutter = null;
     if (changed) {
-      editor._indexed = null;
+      editor._geometry.invalidateViewport();
       editor._load(editor.selection.extent, preserveComposition: false);
       editor._restoreWindowForViewport();
     } else {
@@ -258,7 +258,7 @@ class _SourceFolding {
       for (final p in collapsed)
         if (regions[p] case final r?) r.hidden,
     ]);
-    editor._indexed = null;
+    editor._geometry.invalidateViewport();
     editor._gutter = null;
     schedule();
   }
@@ -483,7 +483,6 @@ extension _SourceFoldPresentation on SourceEditorState {
             _safe(_physicalOffset(math.max(0, value.selection.baseOffset))),
             _safe(_physicalOffset(math.max(0, value.selection.extentOffset))),
           );
-    _retainViewport(from, to, replacement);
     _updateVisibleLines();
     if (!_composing &&
         (_controller.text.length > SourceEditorState._windowUnits || outside)) {

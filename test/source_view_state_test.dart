@@ -9,8 +9,131 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../packages/busyapi_core/test/test_support.dart';
+import 'source_viewport_fixture.dart';
 
 void main() {
+  testWidgets(
+    'incremental viewport retains the reading window after model edits and undo',
+    (tester) async {
+      final text = List.generate(
+        10000,
+        (n) => 'line${n.toString().padLeft(5, '0')}: "雪😀 value"',
+      ).join('\r\n');
+      final buffer = DocumentBuffer(
+        id: 'form-value:incremental',
+        path: 'value.yaml',
+        text: text,
+        baseline: text,
+        diskIdentity: '',
+        hasBom: false,
+      )..scroll = 1200;
+      final store = BufferStore()..register(buffer);
+      final changes = ValueNotifier(0);
+      final accepted = <CountingSourceLineIndex>[];
+      final initial = CountingSourceLineIndex(buffer.lines);
+      buffer.lines = initial;
+      try {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildBusyApiTheme(
+              brightness: Brightness.light,
+              accentColor: const Color(0xffe95420),
+            ),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: SourceEditor(
+                buffer: buffer,
+                changes: changes,
+                onChanged: (text) => store.replace(buffer.id, text),
+                onEdit: (edit) {
+                  store.apply([edit]);
+                  final lines = CountingSourceLineIndex(buffer.lines);
+                  buffer.lines = lines;
+                  accepted.add(lines);
+                },
+                undo: store.undo,
+                redo: store.redo,
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        expect(initial.reads, greaterThanOrEqualTo(10000));
+        final editor = find.byType(SourceEditor);
+        final field = find.descendant(
+          of: editor,
+          matching: find.byType(EditableText),
+        );
+        for (final insert in [
+          'long wrapping value ' * 20,
+          '\r\ninserted\r\n',
+        ]) {
+          store.apply([
+            TextEdit(
+              buffer: buffer.id,
+              generation: buffer.generation,
+              start: 0,
+              end: 0,
+              expected: '',
+              replacement: insert,
+            ),
+          ]);
+          final measured = CountingSourceLineIndex(buffer.lines);
+          buffer.lines = measured;
+          changes.value++;
+          await tester.pump();
+          await tester.pump();
+          expect(
+            measured.reads,
+            lessThan(100),
+            reason: 'One model edit must not remeasure the document suffix',
+          );
+          expect(tester.getRect(field).overlaps(tester.getRect(editor)), true);
+          expect(
+            tester.widget<EditableText>(field).controller.text,
+            contains('line00060'),
+          );
+          expect(buffer.scroll, closeTo(1200, .1));
+          store.undo();
+          buffer.lines = CountingSourceLineIndex(buffer.lines);
+          changes.value++;
+          await tester.pump();
+          await tester.pump();
+          expect(buffer.text, text);
+          expect(tester.getRect(field).overlaps(tester.getRect(editor)), true);
+        }
+        final control = tester.widget<EditableText>(field).controller;
+        control.selection = const TextSelection.collapsed(offset: 0);
+        final start = buffer.selection.extent, before = buffer.text;
+        for (final letter in ['a', 'b', 'c']) {
+          final at = control.selection.extentOffset;
+          control.value = control.value.copyWith(
+            text: control.text.replaceRange(at, at, letter),
+            selection: TextSelection.collapsed(offset: at + 1),
+          );
+        }
+        expect(accepted, hasLength(3));
+        await tester.pump();
+        await tester.pump();
+        expect(buffer.text, before.replaceRange(start, start, 'abc'));
+        for (final lines in accepted) {
+          expect(
+            lines.reads,
+            lessThan(100),
+            reason:
+                'Input arriving before a frame must retain each layout delta',
+          );
+        }
+        expect(tester.getRect(field).overlaps(tester.getRect(editor)), true);
+        expect(tester.takeException(), isNull);
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+        changes.dispose();
+      }
+    },
+  );
+
   testWidgets(
     'a retired Source owner paints one coherent retained line window',
     (tester) async {

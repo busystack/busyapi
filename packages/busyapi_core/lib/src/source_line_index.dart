@@ -23,12 +23,15 @@ class SourceLine {
 }
 
 class SourceLineIndex {
-  SourceLineIndex(String source) : source = source {
+  SourceLineIndex(String source) : source = source, change = null {
     _lines = _ChunkedLines.from(_buildLines(source));
   }
 
-  SourceLineIndex._({required this.source, required List<SourceLine> lines})
-    : _lines = lines is _ChunkedLines ? lines : _ChunkedLines.from(lines);
+  SourceLineIndex._({
+    required this.source,
+    required List<SourceLine> lines,
+    this.change,
+  }) : _lines = lines is _ChunkedLines ? lines : _ChunkedLines.from(lines);
 
   factory SourceLineIndex.updated({
     required SourceLineIndex previous,
@@ -41,6 +44,13 @@ class SourceLineIndex {
     }
     final safeStart = oldStart.clamp(0, previous.source.length).toInt();
     final safeEnd = oldEnd.clamp(safeStart, previous.source.length).toInt();
+    final change = (
+      previous: previous.revision,
+      start: safeStart,
+      end: safeEnd,
+      insertedLength:
+          source.length - previous.source.length + safeEnd - safeStart,
+    );
     final line = previous.lineAtOffset(safeStart);
     final delta = source.length - previous.source.length;
     final changedEnd = safeEnd + delta;
@@ -63,7 +73,7 @@ class SourceLineIndex {
         ),
         delta,
       );
-      return SourceLineIndex._(source: source, lines: result);
+      return SourceLineIndex._(source: source, lines: result, change: change);
     }
 
     // Include the neighboring code units so edits at a CRLF boundary cannot
@@ -122,10 +132,14 @@ class SourceLineIndex {
     if (result.isEmpty) {
       return SourceLineIndex(source);
     }
-    return SourceLineIndex._(source: source, lines: result);
+    return SourceLineIndex._(source: source, lines: result, change: change);
   }
 
   final String source;
+  // An update describes only its immediate immutable input, without retaining
+  // old source/index chains. Layout can reuse unchanged lines after a core edit.
+  final Object revision = Object();
+  final ({Object previous, int start, int end, int insertedLength})? change;
   late final List<SourceLine> _lines;
 
   List<SourceLine> get lines => _lines;

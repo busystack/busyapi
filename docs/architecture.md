@@ -279,7 +279,13 @@ tokens, never document digests. Undo restores the logical token while advancing
 the asynchronous revision. Disk receipts retain a separate saved text/BOM baseline;
 a save does not discard undo. Draft maps advance an input revision instead of
 serializing themselves to detect changes. The existing windowed editor reuses
-line heights outside an accepted edit and adjusts cumulative positions.
+bounded row chunks owned by SourceGeometry. Accepted immutable line-index
+changes update affected heights before the next frame; chunk prefix totals
+replace the per-line cumulative array and document-suffix shifts. Balanced
+neighbor repacking bounds fragmentation during sustained newline edits. The
+line delta retains only its previous revision token, not an old source chain.
+Changed wrap width, fold visibility or a missed revision rebuilds the relevant
+layout rather than reusing stale heights.
 
 BusyProject acquires a coherent immutable source capture separately from full
 schema analysis. It reuses current captures per root while preserving root,

@@ -100,20 +100,23 @@ class SourceFoldMap {
 
   /// Shift only known accepted edit coordinates. A boundary-crossing edit
   /// expands the affected fold; an internal Design edit retains its view state.
-  SourceFoldMap afterEdit(TextEdit edit) {
-    if (edit.start < 0 || edit.end < edit.start || edit.end > length) {
+  SourceFoldMap afterEdit(TextEdit edit) =>
+      afterChange(edit.start, edit.end, edit.replacement.length);
+
+  SourceFoldMap afterChange(int start, int end, int insertedLength) {
+    if (start < 0 || end < start || end > length || insertedLength < 0) {
       throw CoreFailure('fold.edit', 'Invalid source change for folding');
     }
-    final delta = edit.replacement.length - (edit.end - edit.start);
+    final delta = insertedLength - (end - start);
     return SourceFoldMap(length + delta, [
       for (final range in ranges)
-        if (edit.end <= range.start)
+        if (end <= range.start)
           SourceRange(range.start + delta, range.end + delta)
-        else if (edit.start >= range.end)
+        else if (start >= range.end)
           range
-        else if (edit.start >= range.start &&
-            edit.end <= range.end &&
-            !(edit.start == range.start && edit.end == range.end))
+        else if (start >= range.start &&
+            end <= range.end &&
+            !(start == range.start && end == range.end))
           SourceRange(range.start, range.end + delta),
     ]);
   }

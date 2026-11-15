@@ -134,10 +134,9 @@ class SourceEditorState extends State<SourceEditor> {
   bool _accepting = false;
   TextRange _seenComposing = TextRange.empty;
   String _query = '';
-  SourceLineIndex? _indexed;
+  SourceLineIndex? get _indexed => _geometry.indexed;
   double _lineHeight = 20, _viewportHeight = 400;
   int _columns = 80;
-  List<double> _tops = [0];
   List<double>? _gutterHeights;
   TextStyle? _gutterStyle;
   int? _gutterFirstLine;
@@ -346,7 +345,7 @@ class SourceEditorState extends State<SourceEditor> {
     if (_full != widget.buffer.text) {
       _reconcileFolds(widget.buffer.text);
       _full = widget.buffer.text;
-      _indexed = null;
+      _indexAcceptedSource();
       _load(selection.extent, preserveComposition: false);
       _restoreWindowForViewport();
       _folding.schedule();
@@ -387,7 +386,11 @@ class SourceEditorState extends State<SourceEditor> {
         _reconcileFolds(widget.buffer.text);
       }
       _full = widget.buffer.text;
-      _indexed = null;
+      if (changedBuffer || changedOwner || changedFolds) {
+        _geometry.invalidateViewport();
+      } else {
+        _indexAcceptedSource();
+      }
       _load(
         selection.extent,
         preserveComposition: !changedBuffer && !changedOwner,
@@ -576,52 +579,41 @@ class SourceEditorState extends State<SourceEditor> {
     final lineHeight = painter.height;
     painter.dispose();
     final lines = _sourceLines;
-    if (identical(_indexed, lines) &&
-        columns == _columns &&
-        _lineHeight == lineHeight) {
-      return;
-    }
-    _indexed = lines;
     _columns = columns;
     _lineHeight = lineHeight;
-    _tops = [0];
-    for (final line in _indexed!.lines) {
-      _tops.add(
-        _tops.last +
-            (_folding.map.hides(line.startOffset)
-                ? 0
-                : math.max(1, (line.text.length / _columns).ceil()) *
-                      _lineHeight),
-      );
+    _geometry.indexViewport(lines, columns, _folding.map);
+  }
+
+  void _indexAcceptedSource() {
+    // Several input updates may arrive before the next frame. Consume each
+    // accepted line-index delta while its immediate predecessor is retained.
+    if (_indexed != null && widget.buffer.lines.source == _full) {
+      _geometry.indexViewport(widget.buffer.lines, _columns, _folding.map);
     }
   }
 
   double _yForOffset(int offset) {
     final line = _sourceLines.lineAtOffset(offset.clamp(0, _full.length));
     final row = ((offset - line.startOffset) / _columns).floor();
-    return (_tops.length > line.number ? _tops[line.number - 1] : 0) +
-        row * _lineHeight;
+    return _geometry.rowForLine(line.number) * _lineHeight + row * _lineHeight;
   }
 
   void _scrolled() {
     if (_loadingScroll || _sync || !mounted) return;
     widget.buffer.scroll = _scroll.offset;
-    if (_composing || _indexed == null) return;
-    var lo = 0, hi = _tops.length - 1;
-    while (lo + 1 < hi) {
-      final mid = (lo + hi) ~/ 2;
-      if (_tops[mid] <= _scroll.offset) {
-        lo = mid;
-      } else {
-        hi = mid;
-      }
-    }
-    final line = widget.buffer.lines.lineAt(lo + 1);
+    if (_composing || !identical(_indexed, widget.buffer.lines)) return;
+    final line = widget.buffer.lines.lineAt(
+      _geometry.lineAtRow(_scroll.offset / _lineHeight),
+    );
     final offset = _safe(
       math.min(
         line.endOffset,
         line.startOffset +
-            ((_scroll.offset - _tops[lo]) / _lineHeight).floor() * _columns,
+            ((_scroll.offset -
+                            _geometry.rowForLine(line.number) * _lineHeight) /
+                        _lineHeight)
+                    .floor() *
+                _columns,
       ),
     );
     if (offset < _start ||
@@ -726,7 +718,6 @@ class SourceEditorState extends State<SourceEditor> {
             _start + math.max(0, value.selection.extentOffset),
           );
     _accept(edit, previousSelection);
-    _retainViewport(from, to, replacement);
     if (!_composing && (_controller.text.length > _windowUnits || outside)) {
       _load(selection.extent, moveScroll: true);
     } else if (mounted) {
@@ -759,7 +750,6 @@ class SourceEditorState extends State<SourceEditor> {
       lo + text.length,
     );
     _accept(edit, previousSelection);
-    _retainViewport(lo, hi, text);
     if (inWindow) {
       // Keep the input coordinate space stable for a local editing action.
       // The core has already accepted this source; only its visible slice is
@@ -793,51 +783,17 @@ class SourceEditorState extends State<SourceEditor> {
         _full = _full.replaceRange(edit.start, edit.end, edit.replacement);
         widget.onChanged(_full);
       }
+      _indexAcceptedSource();
       _observe('transaction.accepted', edit: edit);
     } on Object {
       _full = widget.buffer.text;
       widget.buffer.selection = previousSelection;
-      _indexed = null;
+      _geometry.invalidateViewport();
       _load(previousSelection.extent);
       rethrow;
     } finally {
       _accepting = false;
     }
-  }
-
-  void _retainViewport(int from, int to, String replacement) {
-    final before = _indexed, after = widget.buffer.lines;
-    if (before != null && after.source == _full && !_folding.map.folded) {
-      // Include both sides of line-break boundaries. Reuse heights outside
-      // the changed lines; only their cumulative positions need adjustment.
-      final first = before.lineAtOffset(math.max(0, from - 1)).number;
-      final oldLast = before
-          .lineAtOffset(math.min(before.source.length, to + 1))
-          .number;
-      final newLast = after
-          .lineAtOffset(
-            math.min(after.source.length, from + replacement.length + 1),
-          )
-          .number;
-      var top = _tops[first - 1];
-      final changed = <double>[];
-      for (var line = first; line <= newLast; line++) {
-        top +=
-            math.max(1, (after.lineAt(line).text.length / _columns).ceil()) *
-            _lineHeight;
-        changed.add(top);
-      }
-      final shift = top - _tops[oldLast];
-      _tops.replaceRange(first, oldLast + 1, changed);
-      if (shift != 0) {
-        for (var i = newLast + 1; i < _tops.length; i++) {
-          _tops[i] += shift;
-        }
-      }
-      _indexed = after;
-      return;
-    }
-    _indexed = null;
   }
 
   bool _owns(
@@ -1077,7 +1033,9 @@ class SourceEditorState extends State<SourceEditor> {
         final top = _yForOffset(_start);
         final bottom = math.max(
           0.0,
-          _tops.last - top - heights.fold<double>(0, (a, b) => a + b),
+          _geometry.totalRows * _lineHeight -
+              top -
+              heights.fold<double>(0, (a, b) => a + b),
         );
         return Shortcuts(
           shortcuts: {
