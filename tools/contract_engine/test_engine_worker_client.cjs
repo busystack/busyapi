@@ -6,8 +6,7 @@ const {tmpdir}=require('node:os');
 const {EngineWorkerClient,engineFailure}=require('./dist/engine_worker_client.cjs');
 const {mockStart}=require('./mock_test_capture.cjs');
 const capture=()=>mockStart({openapi:'3.0.4',info:{title:'Worker lifecycle',version:'1'},paths:{}}).capture;
-for(const stop of ['abort','deadline'])test(`native stream ${stop} retires a synchronously stuck worker and preserves ordinary evaluation`,{timeout:15000},async t=>{
- t.mock.timers.enable({apis:['setTimeout']});
+function nativeStreamFixture(t){
  const directory=mkdtempSync(join(tmpdir(),'busyapi-stream-worker-stop-'));
  copyFileSync(require.resolve('./dist/engine_worker_client.cjs'),join(directory,'client.cjs'));
  writeFileSync(join(directory,'engine.cjs'),`
@@ -23,6 +22,11 @@ parentPort.on('message',request=>{
  const {EngineWorkerClient:OwnedClient}=require(join(directory,'client.cjs'));
  const entered=new Int32Array(new SharedArrayBuffer(4)),input={root:'file:///owned/api.json',snapshot:'owned-stream',resources:[],entered:entered.buffer};
  const client=new OwnedClient(input);t.after(async()=>{await client.close();rmSync(directory,{recursive:true,force:true});});
+ return {client,entered};
+}
+for(const stop of ['abort','deadline'])test(`native stream ${stop} retires a synchronously stuck worker and preserves ordinary evaluation`,{timeout:15000},async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});
+ const {client,entered}=nativeStreamFixture(t);
  await client.request('responseStreamOpen',{stream:'a'});await client.request('responseStreamOpen',{stream:'b'});
  const cancellation=new AbortController();
  const results=Promise.allSettled([
@@ -39,6 +43,27 @@ parentPort.on('message',request=>{
  assert.equal(settled[1].status,'rejected');assert.equal(settled[1].reason.code,'worker.deadline');
  await assert.rejects(client.request('responseStreamChunk',{stream:'b',text:'',end:true}),{code:'runtime.stream.closed'});
  assert.equal((await client.request('responseStreamOpen',{stream:'replacement'})).complete,true);
+ assert.equal((await client.request('evaluateSchemas',{})).complete,true);
+});
+for(const stop of ['abort','deadline'])test(`native stream ${stop} permits immediate reopening from a single chunk rejection`,{timeout:15000},async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});
+ const {client,entered}=nativeStreamFixture(t);
+ await client.request('responseStreamOpen',{stream:'original'});
+ const cancellation=new AbortController();
+ const chunk=client.request('responseStreamChunk',{stream:'original',text:'',end:false},cancellation.signal);
+ // Reopen directly in the first rejection continuation. Collecting sibling
+ // results or awaiting a rejection assertion would conceal the handoff race.
+ const handoff=(async()=>{
+  let failure;
+  try{await chunk;}
+  catch(error){failure=error;assert.equal((await client.request('responseStreamOpen',{stream:'replacement'})).complete,true);}
+  assert.equal(failure?.code,stop==='abort'?'cancelled':'worker.deadline');
+ })();
+ if(Atomics.load(entered,0)===0){const waiting=Atomics.waitAsync(entered,0,0);if(waiting.async)await waiting.value;}
+ assert.equal(Atomics.load(entered,0),1);
+ if(stop==='abort')cancellation.abort();else t.mock.timers.tick(30000);
+ t.mock.timers.tick(1000);
+ await handoff;
  assert.equal((await client.request('evaluateSchemas',{})).complete,true);
 });
 for(const kind of ['specification','unsupported'])test(`native adapter retains ${kind} failure and rejects unknown wire kinds`,()=>{

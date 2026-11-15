@@ -123,6 +123,7 @@ export class WorkerDispatcher {
   this.streamWorker=undefined;this.detach(worker);worker.once('error',()=>{});
   const jobs=[...this.streamJobs.values()];this.streamJobs.clear();this.streamOwners.clear();this.streamQueue=[];this.streamActive=undefined;
   const termination=Promise.resolve().then(()=>worker.terminate()).then(()=>{
+   if(this.streamRetiring===termination)this.streamRetiring=undefined;
    for(const job of jobs)if(!job.cancelFor)this.failure(job.request.id,job.cancelled?'cancelled':code,message);
   },error=>{
    this.terminationFailed=true;this.closing=true;

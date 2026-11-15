@@ -8,9 +8,9 @@ class Worker extends EventEmitter {
  terminate(){this.stopped=true;return this.gate??Promise.resolve(0);}
 }
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
-function harness(kind){
+function harness(kind,onFailure){
  const workers=[],outputs=[],failures=[];
- const dispatcher=new WorkerDispatcher(request=>{const w=new Worker();w.kind=kind?.(request)??'standard';w.disposable=w.kind==='isolated';workers.push(w);return w;},p=>outputs.push(p),(id,code,message)=>failures.push({id,code,message}),1024,kind);
+ const dispatcher=new WorkerDispatcher(request=>{const w=new Worker();w.kind=kind?.(request)??'standard';w.disposable=w.kind==='isolated';workers.push(w);return w;},p=>outputs.push(p),(id,code,message)=>{failures.push({id,code,message});onFailure?.(id,code);},1024,kind);
  const submit=(id,method='inspect',params={})=>dispatcher.submit({id,method,params:{snapshot:id,...params}});
  return {dispatcher,workers,outputs,failures,submit};
 }
@@ -151,7 +151,8 @@ test('closing one stream cooperatively preserves another owner and acknowledges 
 });
 test('a nonresponsive stream close retires its worker after bounded grace and settles siblings after termination',async t=>{
  t.mock.timers.enable({apis:['setTimeout']});
- const h=harness();h.submit('open-a','responseStreamOpen',{stream:'a'});const worker=h.workers[0];streamReply(worker,'open-a');
+ const h=harness(undefined,id=>{if(id==='blocked')h.submit('replacement','responseStreamOpen',{stream:'fresh'});});
+ h.submit('open-a','responseStreamOpen',{stream:'a'});const worker=h.workers[0];streamReply(worker,'open-a');
  h.submit('open-b','responseStreamOpen',{stream:'b'});streamReply(worker,'open-b');
  h.submit('source','analyse');const source=h.workers[1];
  h.submit('blocked','responseStreamChunk',{stream:'a',text:'MQo=',end:false});
@@ -167,7 +168,7 @@ test('a nonresponsive stream close retires its worker after bounded grace and se
   assert.equal(h.failures.filter(failure=>failure.id==='blocked'&&failure.code==='cancelled').length,1);
   assert.equal(h.failures.filter(failure=>failure.id==='waiting'&&failure.code==='worker.deadline').length,1);
   h.submit('late','responseStreamChunk',{stream:'b',text:'',end:true});assert(h.failures.some(failure=>failure.id==='late'&&failure.code==='runtime.stream.closed'));
-  h.submit('replacement','responseStreamOpen',{stream:'fresh'});const replacement=h.workers.at(-1);assert.notEqual(replacement,worker);streamReply(replacement,'replacement');
+  const replacement=h.workers.at(-1);assert.notEqual(replacement,worker);assert.equal(replacement.sent.at(-1).id,'replacement');streamReply(replacement,'replacement');
   source.emit('message',new Uint8Array([1,2]));assert(!source.stopped);
  }finally{finish(0);await h.dispatcher.close();}
 });
