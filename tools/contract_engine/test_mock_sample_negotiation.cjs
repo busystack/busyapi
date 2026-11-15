@@ -14,6 +14,28 @@ function wire(port,path,headers={}){
  });
 }
 
+for(const mediaType of ['application/x-www-form-urlencoded','multipart/form-data'])for(const declaration of ['200','2XX','default'])
+test(`${declaration} generated ${mediaType} retains its declaration and concrete HTTP status`,{timeout:20000},async t=>{
+ const value='café+a&b',document={openapi:'3.2.1',info:{title:'Selected form response',version:'1'},paths:{'/form':{get:{responses:{[declaration]:{
+  description:'Captured form',content:{[mediaType]:{schema:{type:'object',properties:{value:{type:'string',enum:[value]}},required:['value'],additionalProperties:false},examples:{captured:{dataValue:{value}}}}}
+ }}}}}};
+ const input=mockStart(document),original=JSON.stringify(input.capture),{port}=await startMock(t,input);
+ for(const [status,choice]of [[200,'example=captured'],[declaration==='2XX'?201:declaration==='default'?500:200,'dynamic=true']]){
+  const response=await wire(port,'/form',{accept:mediaType,prefer:'code='+status+','+choice});
+  assert.equal(response.status,status,response.text);
+  assert.equal(response.headers['busyapi-response-validation-complete'],'true');
+  assert.deepEqual(JSON.parse(response.headers['sl-violations']??'[]'),[]);
+  assert.equal(Number(response.headers['content-length']),Buffer.byteLength(response.text));
+  if(mediaType==='application/x-www-form-urlencoded')assert.equal(response.text,'value=caf%C3%A9%2Ba%26b');
+  else{
+   const boundary=/boundary="?([^";]+)"?/.exec(response.headers['content-type'])?.[1];assert(boundary,response.headers['content-type']);
+   assert(response.text.startsWith('--'+boundary+'\r\n'));assert(response.text.endsWith('--'+boundary+'--\r\n'));
+   assert.equal((response.text.match(/name="value"/g)??[]).length,1);assert(response.text.includes('\r\n\r\n'+value+'\r\n'));
+  }
+ }
+ assert.equal(JSON.stringify(input.capture),original,'Response generation changed captured source');
+});
+
 for(const version of ['3.0.4','2.0','3.1.2','3.2.1'])for(const format of ['yaml','json'])for(const errors of [true,false])
 test(`${version} ${format} errors=${errors} native samples preserve pinned response negotiation`,{timeout:20000},async t=>{
  const swagger=version==='2.0';

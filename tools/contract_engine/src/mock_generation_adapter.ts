@@ -60,6 +60,7 @@ export class MockGenerationAdapter {
             ??operation.responses.find(value=>value.code==='default');
         const content=response?.contents?.find(value=>value.mediaType===selected.mediaType);
         if(!response||!content)return unchanged;
+        if(!/^\d{3}$/.test(selected.code))throw this.native.generationFailure(operation.path,operation.method,'mock.sample.status','The pinned negotiator did not select one concrete response status');
         const essence=content.mediaType.split(';')[0].trim().toLowerCase();
         const json=essence==='application/json'||essence.endsWith('+json');
         const modeled=['application/jsonl','application/x-ndjson','application/json-seq','text/event-stream'].includes(essence)||essence.endsWith('+json-seq')||essence==='application/x-www-form-urlencoded'||essence.startsWith('multipart/')||essence==='application/xml'||essence==='text/xml'||essence.endsWith('+xml')||essence==='application/linkset'||essence==='application/linkset+json';
@@ -75,13 +76,13 @@ export class MockGenerationAdapter {
             keys,signal);
         const raw=bytes===undefined?authored??await this.native.generatedResponse(operation.path,operation.method,response.code,content.mediaType,dynamic,signal):undefined;
         if(raw===undefined&&bytes===undefined)throw this.native.generationFailure(operation.path,operation.method,'mock.sample.unavailable','No candidate was proved against the original captured schema within the bounded search');
-        if(modeled&&raw!==undefined)bytes=await this.native.responseBytes(operation.path,operation.method,response.code,content.mediaType,raw,signal);
+        if(modeled&&raw!==undefined)bytes=await this.native.responseBytes(operation.path,operation.method,
+            {declaration:response.code,status:Number(selected.code)},content.mediaType,raw,signal);
         // Prism negotiates status/headers against this request-owned view.
         // External wire bytes bypass its body serializer; original native
         // response validation below remains mandatory before emission.
         const value:unknown=bytes!==undefined?'':JSON.parse(raw!);
         if(!generatorData(value))throw this.native.generationFailure(operation.path,operation.method,'mock.sample.projection','The captured sample cannot cross the bounded generator data boundary');
-        if(!/^\d{3}$/.test(selected.code))throw this.native.generationFailure(operation.path,operation.method,'mock.sample.status','The pinned negotiator did not select one concrete response status');
         const key=configuration.exampleKey||'busyapi:captured-schema-sample';
         const generated:IMediaTypeContent={...content,
             examples:[{id:content.id+':native-sample',key,value}]};
