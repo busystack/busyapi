@@ -137,15 +137,62 @@ test('idle streams leave Source execution available and Source cancellation pres
  h.submit('close','responseStreamClose',{stream:'live'});streamReply(stream,'close',true);
  assert.equal(h.outputs.length,3);await h.dispatcher.close();assert(stream.stopped);
 });
-test('closing one stream cooperatively preserves another owner and acknowledges only actual cleanup',async()=>{
+test('closing one stream cooperatively preserves another owner and acknowledges only actual cleanup',async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});
  const h=harness();h.submit('open-a','responseStreamOpen',{stream:'a'});const worker=h.workers[0];streamReply(worker,'open-a');
  h.submit('open-b','responseStreamOpen',{stream:'b'});streamReply(worker,'open-b');
  h.submit('chunk-a','responseStreamChunk',{stream:'a',text:'MQo=',end:false});let acknowledged=false;
  const stopped=h.dispatcher.stop('chunk-a').then(()=>acknowledged=true),control=worker.sent.at(-1);assert.equal(control.method,'responseStreamClose');assert.equal(control.params.stream,'a');
  await flush();assert.equal(acknowledged,false);assert(!worker.stopped);
  streamReply(worker,'chunk-a',true);assert.equal(acknowledged,false);streamReply(worker,control.id,true);await stopped;
+ t.mock.timers.tick(1000);await flush();assert(!worker.stopped,'A completed cooperative close must retire its fallback timer');
  h.submit('chunk-b','responseStreamChunk',{stream:'b',text:'Mgo=',end:false});assert.equal(worker.sent.at(-1).id,'chunk-b');streamReply(worker,'chunk-b');
  assert.equal(h.failures.filter(failure=>failure.id==='chunk-a'&&failure.code==='cancelled').length,1);assert(!worker.stopped);await h.dispatcher.close();
+});
+test('a nonresponsive stream close retires its worker after bounded grace and settles siblings after termination',async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});
+ const h=harness();h.submit('open-a','responseStreamOpen',{stream:'a'});const worker=h.workers[0];streamReply(worker,'open-a');
+ h.submit('open-b','responseStreamOpen',{stream:'b'});streamReply(worker,'open-b');
+ h.submit('source','analyse');const source=h.workers[1];
+ h.submit('blocked','responseStreamChunk',{stream:'a',text:'MQo=',end:false});
+ h.submit('waiting','responseStreamChunk',{stream:'b',text:'Mgo=',end:false});
+ let finish,acknowledged=false;worker.gate=new Promise(resolve=>finish=resolve);
+ const stopped=h.dispatcher.stop('blocked').then(()=>acknowledged=true);
+ try{
+  t.mock.timers.tick(999);await flush();assert(!worker.stopped);assert.equal(acknowledged,false);
+  t.mock.timers.tick(1);await flush();assert(worker.stopped);assert.equal(acknowledged,false);
+  assert(!h.failures.some(failure=>['blocked','waiting'].includes(failure.id)),'A retiring worker still owns its pending replies');
+  source.emit('message',new Uint8Array([1,2]));h.submit('typing','analyse');assert.equal(source.sent.at(-1).id,'typing');assert(!source.stopped);
+  finish(0);await stopped;
+  assert.equal(h.failures.filter(failure=>failure.id==='blocked'&&failure.code==='cancelled').length,1);
+  assert.equal(h.failures.filter(failure=>failure.id==='waiting'&&failure.code==='worker.deadline').length,1);
+  h.submit('late','responseStreamChunk',{stream:'b',text:'',end:true});assert(h.failures.some(failure=>failure.id==='late'&&failure.code==='runtime.stream.closed'));
+  h.submit('replacement','responseStreamOpen',{stream:'fresh'});const replacement=h.workers.at(-1);assert.notEqual(replacement,worker);streamReply(replacement,'replacement');
+  source.emit('message',new Uint8Array([1,2]));assert(!source.stopped);
+ }finally{finish(0);await h.dispatcher.close();}
+});
+test('stream termination failure settles pending stream and queued ordinary work without claiming cancellation',async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});
+ const h=harness();h.submit('open-a','responseStreamOpen',{stream:'a'});const worker=h.workers[0];streamReply(worker,'open-a');
+ h.submit('open-b','responseStreamOpen',{stream:'b'});streamReply(worker,'open-b');
+ h.submit('source-a','analyse');h.submit('source-b','inspect');h.submit('queued','inspect');
+ h.submit('blocked','responseStreamChunk',{stream:'a',text:'MQo=',end:false});h.submit('waiting','responseStreamChunk',{stream:'b',text:'Mgo=',end:false});
+ worker.terminate=()=>Promise.reject(Error('controlled termination failure'));
+ const stopped=assert.rejects(h.dispatcher.stop('blocked'),/controlled termination failure/);
+ t.mock.timers.tick(1000);await stopped;await flush();
+ for(const id of ['blocked','waiting','queued'])assert.equal(h.failures.filter(failure=>failure.id===id&&failure.code==='worker.stop').length,1);
+ assert(!h.failures.some(failure=>failure.id==='blocked'&&failure.code==='cancelled'));
+ h.workers[1].emit('message',new Uint8Array([1,2]));h.workers[2].emit('message',new Uint8Array([1,2]));
+ h.submit('late','inspect');assert(h.failures.some(failure=>failure.id==='late'&&failure.code==='worker.closed'));
+ await assert.rejects(h.dispatcher.close(),/could not be terminated/);
+});
+test('stream failure during cancellation clears the fallback before a replacement worker opens',async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});
+ const h=harness();h.submit('open','responseStreamOpen',{stream:'lost'});const worker=h.workers[0];streamReply(worker,'open');
+ h.submit('chunk','responseStreamChunk',{stream:'lost',text:'MQo=',end:false});const stopped=h.dispatcher.stop('chunk');
+ worker.emit('exit');await stopped;
+ h.submit('fresh','responseStreamOpen',{stream:'fresh'});const replacement=h.workers.at(-1);streamReply(replacement,'fresh');
+ t.mock.timers.tick(1000);await flush();assert(!replacement.stopped);await h.dispatcher.close();
 });
 test('stream worker death invalidates its owners while ordinary Source work survives',async()=>{
  const h=harness();h.submit('open','responseStreamOpen',{stream:'lost'});const stream=h.workers[0];streamReply(stream,'open');

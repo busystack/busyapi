@@ -104,10 +104,15 @@ export class WorkerDispatcher {
   }
   job.cancelled=true;
   let control:string;do{control='@stream-close-'+(++this.streamSerial);}while(this.streamJobs.has(control)||this.jobs.has(control));
+  let deadline:ReturnType<typeof setTimeout>;
   const stopped=new Promise<void>((resolve,reject)=>{
-   this.streamJobs.set(control,{request:{id:control,method:'responseStreamClose',params:{stream:job.request.params.stream}},cancelFor:id,finish:resolve,reject});
+   this.streamJobs.set(control,{request:{id:control,method:'responseStreamClose',params:{stream:job.request.params.stream}},cancelFor:id,
+    finish:()=>{clearTimeout(deadline);resolve();},reject:error=>{clearTimeout(deadline);reject(error);}});
   });
   job.stop=stopped;
+  // A synchronous evaluator cannot receive its cooperative close. Retire the
+  // existing stream worker after a bounded grace; Source slots remain owned.
+  deadline=setTimeout(()=>{void this.retireStreams('worker.deadline','The stream worker did not close its capture within the cancellation grace').catch(()=>{});},1000);
   try{this.streamWorker!.postMessage(this.streamJobs.get(control)!.request);}
   catch{void this.retireStreams('worker.input','Cannot close the stream worker capture').catch(()=>{});}
   return stopped;
@@ -119,11 +124,13 @@ export class WorkerDispatcher {
   const jobs=[...this.streamJobs.values()];this.streamJobs.clear();this.streamOwners.clear();this.streamQueue=[];this.streamActive=undefined;
   const termination=Promise.resolve().then(()=>worker.terminate()).then(()=>{
    for(const job of jobs)if(!job.cancelFor)this.failure(job.request.id,job.cancelled?'cancelled':code,message);
-   for(const job of jobs)job.finish?.();
   },error=>{
    this.terminationFailed=true;this.closing=true;
-   for(const job of jobs){if(!job.cancelFor)this.failure(job.request.id,'worker.stop','Cannot terminate the stream worker');job.reject?.(error);}throw error;
-  }).finally(()=>{this.detach(worker);if(this.streamRetiring===termination)this.streamRetiring=undefined;});
+   for(const request of this.queued.splice(0))this.failure(request.id,'worker.stop','Stream worker termination failed; queued work was not executed');
+   for(const job of jobs)if(!job.cancelFor)this.failure(job.request.id,'worker.stop','Cannot terminate the stream worker');throw error;
+  }).finally(()=>{this.detach(worker);if(this.streamRetiring===termination)this.streamRetiring=undefined;}).then(
+   ()=>{for(const job of jobs)job.finish?.();},
+   error=>{for(const job of jobs)job.reject?.(error);throw error;});
   this.streamRetiring=termination;return termination;
  }
  private priority(method:string) {
