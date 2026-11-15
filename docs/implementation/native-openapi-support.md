@@ -1,6 +1,6 @@
 # Native OpenAPI support
 
-**Simplification changes are committed. Native editing and release acceptance remain unqualified.**
+**Partial simplification checkpoint. Native editing and release acceptance remain unqualified.**
 
 BusyAPI retains native Swagger 2.0 and OpenAPI 3.0.x, 3.1.x and 3.2.x,
 authoritative YAML/JSON, Source/Design/Reference, explicit conversion, source
@@ -30,7 +30,16 @@ longer require unrelated revisions 30/91, private conversion layout or historica
 build-script ordering. Meaningful semantic cases, exact input, race/interruption
 injection, native assertions, correctness watchdogs and durability barriers remain.
 
-## Current candidate verification
+## Review correction qualification
+
+The review corrections are committed through `85ddf46`: distinct mock declaration
+and concrete status; bounded retirement for unresponsive stream cancellation;
+behavioral CI coverage and complete policy byproducts; incremental viewport rows;
+direct conversion owner associations; and ordinary contextual graph reuse.
+Their focused checks pass. Coherent full-candidate qualification is pending.
+The earlier results below do not qualify these changed runtime inputs.
+
+## Previous candidate verification
 
 Code checkpoint `433d3bd` was assembled as the ordinary release candidate. Source
 and installed files remained unchanged across the complete Engine run and the
