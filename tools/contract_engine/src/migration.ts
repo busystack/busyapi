@@ -31,7 +31,7 @@ import {specializeBinarySchemaUses} from './migration_binary_uses';
 import {checkOperationTarget,checkRequestBodyTarget,migrateOperationBodies} from './migration_operation';
 import {migrationBodyApplicability} from './migration_operation_contexts';
 import {checkSecurityRequirementTarget,migrateSecurityBindings,migrationSecurityUriSpellings} from './migration_security';
-import {migrationDocumentContexts,migrationScopes,migrationReferences,migrationReferenceUses,proveMigrationConnections} from './migration_documents';
+import {migrationDocumentContexts,migrationScopes,migrationReferences,migrationReferenceUses,proveMigrationConnections,type DocumentContext} from './migration_documents';
 import {migrationBatches,entryMigrationRoutes,type MigrationBatch} from './migration_routes';
 import {MigrationAccess} from './migration_access';
 import {migrateDirectionalSchemas} from './migration_direction';
@@ -145,10 +145,10 @@ export async function planMigration(input:MigrationInput) {
     const schemaRegistryIds=new Set<string>();
     let planningScopes:ReadonlyMap<string,readonly PlanningOccurrence[]>=new Map();
     const capturedInput=(values:Resource[],root=input.root)=>({...input,resources:values,root,[planningOccurrences]:planningScopes});
-    const validate=async(values:Resource[],root:string,phase:'source'|'target'='target',exampleResources=input.exampleResources)=>{
-        const roots=[root,...values.filter(value=>value.id!==root&&specificationDeclaration(parseResource(value).root.value).status==='supported').map(value=>value.id)];
+    const validate=async(values:Resource[],root:string,phase:'source'|'target'='target',exampleResources=input.exampleResources,captured?:readonly DocumentContext[])=>{
+        const roots=captured?.map(context=>context.graph.root)??[root,...values.filter(value=>value.id!==root&&specificationDeclaration(parseResource(value).root.value).status==='supported').map(value=>value.id)];
         for(const root of roots){
-            const capture={...capturedInput(values,root),exampleResources},context=createGraph(capture),analysis=analyse(capture,context),schemas=await evaluateSchemas(capture,undefined,context);
+            const capture={...capturedInput(values,root),exampleResources},context=captured?.find(context=>context.graph.root===root)??createGraph(capture),analysis=analyse(capture,context),schemas=await evaluateSchemas(capture,undefined,context);
             const incomplete=(finding:{code:string;incomplete?:boolean})=>finding.incomplete===true||
                 finding.code==='dialect.unsupported'||finding.code==='schema.dialect.incomplete'||finding.code==='reference.family.unsupported';
             const findings=[...analysis.findings,...schemas.findings].filter(finding=>finding.severity==='error'||incomplete(finding)||finding.code==='example.serialization.incompatible');
@@ -160,7 +160,7 @@ export async function planMigration(input:MigrationInput) {
     };
     const initialContexts=migrationDocumentContexts(input,initial,issue,true);
     let semanticOrigins:MigrationSemanticOrigins|undefined;
-    await validate(resources,input.root,'source');
+    await validate(resources,input.root,'source',input.exampleResources,initialContexts);
     if(!problems.length)try{checkReusableSwaggerTargets(initialContexts.map(context=>context.graph),target.family,issue);}
     catch(error){refused(error,{resource:input.root,pointer:''});}
     if(!problems.length)try{semanticOrigins=new MigrationSemanticOrigins(initialContexts.map(context=>context.graph));}
@@ -177,10 +177,10 @@ export async function planMigration(input:MigrationInput) {
     // Publication also relocates same-family patch updates. Their independent
     // semantic uses need ownership preparation without a conversion stage.
     const batches:readonly MigrationBatch[]=route.length?route:[{sources:[],to:target.family}];
-    for(const stage of batches){
+    for(const [stageIndex,stage]of batches.entries()){
         if(problems.length)break;
-        const after=stage.to,context=createGraph(capturedInput(resources));
-        let contexts=migrationDocumentContexts(capturedInput(resources),context,issue,true);
+        const after=stage.to,context=stageIndex===0?initial:createGraph(capturedInput(resources));
+        let contexts=stageIndex===0?initialContexts:migrationDocumentContexts(capturedInput(resources),context,issue,true);
         if(problems.length)break;
         const active=[...contexts].sort((a,b)=>Number(b.graph.root===input.root)-Number(a.graph.root===input.root)||a.graph.root.localeCompare(b.graph.root))
             .find(context=>stage.sources.length?stage.sources.includes(context.graph.specifications.get(context.graph.root)!.family):context.graph.root===input.root);
@@ -537,18 +537,20 @@ export async function planMigration(input:MigrationInput) {
                 const source=sources.get(scope.resource)!,at=source.current(scope.pointer);
                 if(at!==undefined||graph.hasOverlappingScope(scope.resource,scope.pointer))assertRoleAnnotations(graph,scope,source.doc,at??scope.pointer);
             }
-            const next=new Map<string,SourceLocation[]>();
-            const current=sourceLocations(sources);
-            for(const [origin,locations]of origins){
-                const mapped:SourceLocation[]=[];
-                for(const location of locations){
-                    mapped.push(...(current.get(key(location.resource,location.pointer))??[]));
-                    for(const copy of specialized.get(key(location.resource,location.pointer))??[])
-                        mapped.push(...(current.get(key(copy.resource,copy.pointer))??[]));
+            const changed=sources.size!==context.docs.size||[...sources.values()].some(source=>source.doc!==source.original);
+            if(changed){
+                const next=new Map<string,SourceLocation[]>(),current=sourceLocations(sources);
+                for(const [origin,locations]of origins){
+                    const mapped:SourceLocation[]=[];
+                    for(const location of locations){
+                        mapped.push(...(current.get(key(location.resource,location.pointer))??[]));
+                        for(const copy of specialized.get(key(location.resource,location.pointer))??[])
+                            mapped.push(...(current.get(key(copy.resource,copy.pointer))??[]));
+                    }
+                    next.set(origin,mapped);
                 }
-                next.set(origin,mapped);
+                origins=next;
             }
-            origins=next;
             for(const [resource,source]of sources)for(const pointer of source.presentationChanges)presentationChanges.push({resource,pointer});
             resources=resources.map(resource=>({...resource,text:sources.get(resource.id)!.doc.text}));
             for(const [id]of createdResources)if(!resources.some(resource=>resource.id===id))
@@ -565,8 +567,11 @@ export async function planMigration(input:MigrationInput) {
                 resources=resources.map(resource=>({...resource,text:sources.get(resource.id)!.doc.text}));
             }
             planningScopes=plannedContexts();
-            semanticOrigins?.advance(sourceContexts.map(context=>context.graph),owners,sourceLocations(sources));
-            stages.push(...stage.sources.map(from=>({from,to:after})));await validate(resources,input.root);
+            stages.push(...stage.sources.map(from=>({from,to:after})));
+            if(changed){
+                semanticOrigins?.advance(sourceContexts.map(context=>context.graph),owners,sourceLocations(sources));
+                await validate(resources,input.root);
+            }
         }catch(error){
             refused(error,{resource:input.root,pointer:''});
         }

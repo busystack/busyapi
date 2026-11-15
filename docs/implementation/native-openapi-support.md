@@ -20,7 +20,7 @@ They are evidence, not active instructions or acceptance of the current candidat
 | Drafts and recovery | Owned draft revisions replace repeated draft serialization. Changes schedule affected owners rather than sweeping the workspace. Form Apply awaits one final checkpoint. The existing writer batches records and permits one newer payload to replace an encoding payload before forcing durable progress. Explicit close/replacement drains and grouped ordering remain. |
 | Captures and assistance | Immutable root-local acquisition is separate from semantic analysis. Relevant resource observations invalidate captures; actual bytes and permissions own versions. Syntax is reused by immutable resource text/identity, distinct from contextual semantics. Folding constructs no graph. Inspection, completion and Design use the existing field definitions. Node owns execution scheduling; Dart owns transport and lifetime. |
 | Authoring and saving | Specialized and generic forms share field metadata, draft ownership and transaction boundaries. PublicationStore is the sole source saver. One immutable v1 source-save intent replaces per-file journal rewrites; v2 file-operation checkpoints remain. Atomic writes, exact disk conflicts, permissions, partial outcomes and interruption recovery remain. |
-| Conversion | TypeScript is the semantic owner; Dart retains packet/path/capture/review/publication authority. Final occurrence mapping replaces intermediate coordinate repair, temporary holders, superseded-copy retirement and duplicate ownership passes. Redundant SourcePlan fork parsing and the obsolete propose.moveOperation route are removed. |
+| Conversion | TypeScript owns semantics; Dart retains packet/path/capture/review/publication authority. Captured typed occurrences point directly to final owners; intermediate owner-edge composition and chain traversal are removed. Actual structural edits retain CST projection and typed reference/resource/URI/Markdown provenance. Unchanged stages reuse captures and skip repeated projection/checking. Migrated families no longer use temporary preparation/retirement or duplicate entry/role passes. Redundant SourcePlan fork parsing and propose.moveOperation are removed. |
 | Requests, mock and streams | Captured operations and immutable body inputs reuse secret-free preparation across Preview/Send. Dispatch still resolves credentials/TLS and rechecks selected files. Shared recipes replace equivalent multipart/form regeneration and preliminary mock body proofs. One bounded stream owner replaces full-source/unfinished-record chunk IPC and growing-buffer copies. Uncompressed responses reuse retained original bytes; mock startup derives one bundle. |
 | Outputs and governance | Prepared immutable files use the existing common publisher. Generator selection/execution share one runtime. Renderer admission reuses verified installed bytes. One immutable policy closure binds explicit approval to a run; final dispatch and isolation remain. |
 | Build and cleanup | Candidate assembly and qualification are separate. Assets prepare once per input signature; official widgets run once and no persistent suite receipt authorizes release. Both existing profiles remain. Test helpers/package outputs are outside production assets. Dead UI constants, duplicate input/menu mechanics and obsolete probes are removed; reachable Linux fallback behavior remains. |
@@ -163,6 +163,10 @@ The paired process memory observations and complete inputs are in `editing/`.
 | Same conversion captures, provenance inspections | 358 → 306 / 527 → 449 / 358 → 306 |
 | Same conversion captures, graph API calls in final-owner slice | 14 → 14 / 17 → 17 / 12 → 12; this later slice claims no additional graph reduction |
 | One homogeneous fixed-reference tuple, both conversions complete | Unconsumed tail holders 1 → 0; SourceDocument constructions 144 → 138; position holders remain 1 → 1 |
+| Same-family empty and static-reference captures, direct-association slice | Actual ReferenceGraph constructions 11 → 8 in each; createGraph calls 12 → 9; unchanged-stage semantic projections 1 → 0; complete review JSON remains identical |
+| Shared recursive/boolean schemas in two entries, direct-association slice | Actual ReferenceGraph constructions 29 → 25; createGraph calls 30 → 26; owner lookup work 1,399 → 818; complete review JSON remains identical |
+| Shared Swagger dispatch, two changed batches through 2.0/3.1/3.2 | Actual ReferenceGraph constructions 41 → 37; createGraph calls 42 → 38; owner lookup work 1,877 → 1,355; both genuine stage projections remain and complete review JSON is identical |
+| Mixed native entries with shared flat Header/parameter owners | Intermediate owner transitions 14 → 0; 14 direct endpoint updates retain the existing complete value/cold-output assertions; owner lookup work 7,056 → 5,190 |
 
 The final-owner conversion pair compares committed `c4b40de` with `eda617c`,
 after the earlier capture reduction. Each complete JSON input has one integer
@@ -173,6 +177,35 @@ and createGraph calls. Exact inputs, counts and source-archive SHA-256 are retai
 in `conversion-owners/after-eda617c.jsonl` and `final-eda617c.json`. The additional
 shared dynamic fixture was blocked before and completes after; its counts are
 excluded from the performance comparison.
+
+The direct-association rows are a later focused comparison, not a new whole-product
+qualification. The same captured records serve stable source keys and current
+material lookup keys in the existing occurrence map; no synthetic alias scopes
+or transition chain is stored. Endpoint and planner-context updates preserve
+that record's identity, so lookup views retain current metadata. Source
+validation and the first unchanged stage
+reuse their original immutable graphs. The counts distinguish calls to
+`createGraph` from actual `ReferenceGraph` constructions because ordinary capture
+reuse can satisfy a call without constructing another graph.
+At initial capture, completed source validation and first-stage capture, the
+single-entry construction totals are 1/2/3 before and 1/1/1 after; the two-entry
+totals are 2/4/6 before and 2/2/2 after. The same ambiguous-identity input retains
+its exact located refusal and empty outputs while source constructions fall 2 → 1.
+Paired source archives, input identities, counters and focused-control logs are
+retained in `build/diagnostics/simplification-20261113/conversion-direct-associations/`;
+only `migration.ts` and `migration_schema_owners.ts` differ between those archives.
+
+`MigrationSemanticOrigins.advance` remains a projection after actual stage edits,
+and is skipped when neither source documents nor the resource set changed. Each
+changed stage starts the next `SourcePlan` capture in a new coordinate space.
+Its surviving reference, URI, rendered Markdown and resource endpoints can have
+multiple final uses or a changed native kind, such as a body Parameter becoming
+a Request Body. That projection uses the captured graph's field capabilities;
+literal/history provenance cannot choose a semantic copy. It preserves direct
+endpoints for the next capture rather than retaining intermediate owner edges.
+Exact authored bytes and diagnostic locations remain a separate CST provenance
+view. Necessary final reference emission and changed-stage coordinate bookkeeping
+have not been claimed removed.
 
 The tuple pair compares committed `2b20e5d` with `098b508` using one unchanged
 JSON input. Only the unconsumed, equivalent bare-reference tail is coalesced;

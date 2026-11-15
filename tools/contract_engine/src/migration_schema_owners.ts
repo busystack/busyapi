@@ -9,7 +9,7 @@ import {modernFamily} from './specification';
 import {projectSchemaReference} from './schema_reference_projection';
 import {capturedSchemaResources} from './migration_schema_resource_contexts';
 
-type SemanticOwner=Readonly<{source:GraphScope;owner:GraphScope;location:SourceLocation;context?:Readonly<{base?:string;frame?:Readonly<{location:SourceLocation;scope:GraphScope}>}>}>;
+type SemanticOwner={readonly source:GraphScope;readonly owner:GraphScope;readonly location:SourceLocation;context?:Readonly<{base?:string;frame?:Readonly<{location:SourceLocation;scope:GraphScope}>}>};
 export type MigrationOwnerLayout='array-item'|'response-header';
 export type MigrationApplicationKind='condition'|'dependency'|'allOf'|'anyOf'|'oneOf';
 export type MigrationOperationSlot=Readonly<{
@@ -49,6 +49,16 @@ export class MigrationSchemaOwners {
         if(this.graph===graph)return;
         this.graph=graph;this.contexts=[...contexts].sort((a,b)=>a.root.localeCompare(b.root));
         this.identityConsumers=undefined;
+        for(const [id,uses]of this.entryUses){
+            this.inspectUse();
+            const [namespace,resource,pointer,kind]=JSON.parse(id) as string[];
+            const captured=uses.filter(use=>use.source.resource===resource&&use.source.pointer===pointer);
+            if(captured.length===uses.length)continue;
+            const context=this.contexts.find(graph=>graph.root===namespace),scope=context?.scopeAs(resource,pointer,kind);
+            const retained=uses.filter(use=>captured.includes(use)||!captured.some(origin=>origin.location===use.location)&&
+                (use.location.resource===resource&&use.location.pointer===pointer||scope&&context!.isEntryUse(scope)));
+            if(retained.length)this.entryUses.set(id,retained);else this.entryUses.delete(id);
+        }
     }
 
     private inspectUse():void {
@@ -57,35 +67,49 @@ export class MigrationSchemaOwners {
     private useKey(namespace:string,origin:SourceLocation,kind:string):string {
         return JSON.stringify([namespace,origin.resource,origin.pointer,kind]);
     }
-    private remember(index:Map<string,SemanticOwner[]>,id:string,origin:GraphScope,destination:SourceLocation,owner:GraphScope):void {
-        this.inspectUse();const uses=index.get(id)??[];
-        if(!uses.some(use=>{
-            this.inspectUse();return use.location.resource===destination.resource&&use.location.pointer===destination.pointer&&
+    private remember(id:string,origin:GraphScope,destination:SourceLocation,owner:GraphScope):SemanticOwner {
+        this.inspectUse();const uses=this.entryUses.get(id)??[];
+        const index=uses.findIndex(use=>{
+            this.inspectUse();return use.location===destination&&use.source.resource===origin.resource&&use.source.pointer===origin.pointer&&
                 use.owner.resource===owner.resource&&use.owner.pointer===owner.pointer&&use.owner.kind===owner.kind&&
-                schemaResourceContextIdentity(use.owner)===schemaResourceContextIdentity(owner);
-        }))uses.push({source:origin,owner,location:destination});
-        index.set(id,uses);
+                schemaResourceContextIdentity(use.owner)===schemaResourceContextIdentity(owner)&&
+                schemaResourceContextIdentity(use.source)===schemaResourceContextIdentity(origin)&&use.source.schemaParent===origin.schemaParent;
+        });
+        if(index<0)uses.push({source:origin,owner,location:destination});
+        this.entryUses.set(id,uses);
+        return uses[index<0?uses.length-1:index];
     }
     rememberEntry(namespace:string,origin:GraphScope,destination:SourceLocation,owner:GraphScope=origin,mode:'refine'|'capture'='refine'):void {
         const id=this.useKey(namespace,origin,origin.kind);
-        const previousUses=(this.entryUses.get(id)??[]).filter(previous=>{
+        const uses=this.entryUses.get(id)??[],previousUses=uses.filter(previous=>{
             this.inspectUse();return schemaResourceContextIdentity(previous.source)===schemaResourceContextIdentity(origin)&&
                 previous.source.schemaParent===origin.schemaParent;
         });
-        // Re-admitting a previously captured role must not undo an entry's
-        // later refinement or introduce an edge back to an older material copy.
+        // Re-admitting a previously captured role keeps its final selection.
         if(mode==='capture'&&previousUses.length)return;
-        // Preparing a role and then its entry use refines the same captured
-        // occurrence. Compose those material transitions in this namespace;
-        // another entry can keep the earlier owner. Distinct source resource
-        // contexts remain separate and retain the ordinary ambiguity guard.
-        for(const previous of previousUses){
-            this.inspectUse();
-            if(previous.location.resource===destination.resource&&previous.location.pointer===destination.pointer)continue;
-            this.remember(this.entryUses,this.useKey(namespace,previous.location,origin.kind),
-                {...origin,...previous.location},destination,owner);
+        const target=this.entryOwner(namespace,destination,origin.kind);
+        const affected=previousUses.length?previousUses:uses.filter(use=>use.location.resource===origin.resource&&use.location.pointer===origin.pointer);
+        const endpoints=new Set(affected.map(use=>use.location));
+        if(!endpoints.size){
+            const existing=this.entryUses.get(this.useKey(namespace,target,origin.kind))?.find(use=>
+                use.location.resource===target.resource&&use.location.pointer===target.pointer&&
+                schemaResourceContextIdentity(use.owner)===schemaResourceContextIdentity(owner));
+            endpoints.add(existing?.location??{...target});
         }
-        this.remember(this.entryUses,id,origin,destination,owner);
+        // Captured origins and current material coordinates share a direct
+        // endpoint. Relocation changes that coordinate once; no intermediate
+        // owner edge is retained or followed by later lookups.
+        for(const endpoint of endpoints){
+            this.inspectUse();const previous=this.useKey(namespace,endpoint,origin.kind),next=this.useKey(namespace,target,origin.kind);
+            if(previous!==next){
+                const copies=this.additionalUses.get(previous);
+                if(copies){this.additionalUses.delete(previous);this.additionalUses.set(next,[...this.additionalUses.get(next)??[],...copies]);}
+            }
+            endpoint.resource=target.resource;endpoint.pointer=target.pointer;
+            const captured=this.remember(id,origin,endpoint,owner),material=this.entryUses.get(next)??[];
+            if(!material.includes(captured))material.push(captured);
+            this.entryUses.set(next,material);
+        }
         if(origin.kind==='operation'&&(origin.resource!==destination.resource||origin.pointer!==destination.pointer)){
             const name=this.sources.get(origin.resource)?.doc.dataNode(origin.pointer)?.value?.operationId;
             if(typeof name==='string')this.copiedOperationIds.add(name);
@@ -103,16 +127,17 @@ export class MigrationSchemaOwners {
         const id=this.useKey(namespace,scope,scope.kind),uses=this.entryUses.get(id);
         if(!uses)throw new SourceError('migration.owners.context','A captured context requires an owned occurrence');
         const index=uses.findIndex(use=>use.location.resource===destination.resource&&use.location.pointer===destination.pointer&&
+            use.source.resource===scope.resource&&use.source.pointer===scope.pointer&&
             schemaResourceContextIdentity(use.source)===schemaResourceContextIdentity(scope));
         if(index<0)throw new SourceError('migration.owners.context','A captured context has no matching material occurrence');
-        uses[index]={...uses[index],context:preserveBase?{base:expectedBase??scope.base}:{}};
+        uses[index].context=preserveBase?{base:expectedBase??scope.base}:{};
     }
     planningContexts(current:ReadonlyMap<string,readonly SourceLocation[]>):readonly Readonly<{namespace:string;scope:GraphScope;location:SourceLocation;base?:string;metadataOnly?:true}>[] {
         const result:{namespace:string;scope:GraphScope;location:SourceLocation;base?:string;metadataOnly?:true}[]=[],namespaces=new Set(this.contexts.map(graph=>graph.root));
         for(const [id,uses]of this.entryUses){
-            const [namespace]=JSON.parse(id) as string[];if(!namespaces.has(namespace))continue;
+            const [namespace,resource,pointer]=JSON.parse(id) as string[];if(!namespaces.has(namespace))continue;
             for(const use of uses){
-                this.inspectUse();if(!use.context)continue;
+                this.inspectUse();if(!use.context||use.source.resource!==resource||use.source.pointer!==pointer)continue;
                 const terminal=this.entryOwner(namespace,use.source,use.source.kind);
                 if(terminal.resource!==use.location.resource||terminal.pointer!==use.location.pointer)continue;
                 for(const location of this.entryLocations(namespace,use.source,use.source,current)){
@@ -139,26 +164,19 @@ export class MigrationSchemaOwners {
     }
     rememberFrame(namespace:string,scope:GraphScope,destination:SourceLocation,frame:SourceLocation):void {
         const uses=this.entryUses.get(this.useKey(namespace,scope,scope.kind))!,index=uses.findIndex(use=>
-            use.location.resource===destination.resource&&use.location.pointer===destination.pointer);
+            use.location.resource===destination.resource&&use.location.pointer===destination.pointer&&
+            use.source.resource===scope.resource&&use.source.pointer===scope.pointer);
         if(index<0||!uses[index].context)throw new SourceError('migration.owners.context','A resource frame requires its captured final occurrence');
-        uses[index]={...uses[index],context:{...uses[index].context,frame:{location:frame,scope}}};
+        uses[index].context={...uses[index].context,frame:{location:frame,scope}};
     }
     entryOwner(namespace:string,origin:SourceLocation,kind:string):SourceLocation {
-        const pending=[{location:origin,leave:false}],seen=new Set<string>(),active=new Set<string>(),terminal=new Map<string,SourceLocation>();
-        while(pending.length){
-            this.inspectUse();const {location,leave}=pending.pop()!,id=this.useKey(namespace,location,kind);
-            if(leave){active.delete(id);seen.add(id);continue;}
-            if(active.has(id))throw new SourceError('migration.owners.cycle','The material ownership relation is cyclic');
-            if(seen.has(id))continue;
-            active.add(id);pending.push({location,leave:true});
-            const next=this.entryUses.get(id)?.filter(use=>use.location.resource!==location.resource||use.location.pointer!==location.pointer);
-            if(!next?.length)terminal.set(id,location);
-            else pending.push(...next.map(use=>({location:use.location,leave:false})));
-        }
-        if(terminal.size===1)return terminal.values().next().value!;
+        this.inspectUse();const terminal=new Map<string,SourceLocation>();
+        for(const use of this.entryUses.get(this.useKey(namespace,origin,kind))??[])
+            terminal.set(JSON.stringify([use.location.resource,use.location.pointer]),use.location);
+        if(!terminal.size)return {resource:origin.resource,pointer:origin.pointer};
+        if(terminal.size===1)return {...terminal.values().next().value!};
         const range:Range=this.sources.get(origin.resource)?.doc.dataNode(origin.pointer)?.range??[0,0];
-        throw new SourceError(terminal.size?'migration.owners.ambiguous-use':'migration.owners.cycle',
-            terminal.size?'This connection needs a specific material occurrence among independent typed owners':'The material ownership relation has no terminal owner',range,'unsupported',{...origin,range});
+        throw new SourceError('migration.owners.ambiguous-use','This connection needs a specific material occurrence among independent typed owners',range,'unsupported',{...origin,range});
     }
     /** Project a typed occurrence or one of its fields, then apply the same
      * CST provenance used by conversion. Payload copies from another entry
@@ -213,7 +231,7 @@ export class MigrationSchemaOwners {
         const source={...scope,...field},id=this.useKey(namespace,field,scope.kind);
         if(this.entryUses.get(id)?.some(use=>use.location.resource===destination.resource&&use.location.pointer===destination.pointer))return;
         if(this.entryUses.has(id))this.rememberAdditionalUse(namespace,source,destination);
-        else this.remember(this.entryUses,id,source,destination,scope);
+        else this.remember(id,source,{...destination},scope);
         this.rememberMaterialCoordinates(this.sources.get(destination.resource)!,destination.pointer);
     }
     private roleKey(scope:GraphScope):string {
@@ -221,10 +239,11 @@ export class MigrationSchemaOwners {
     }
     rememberRole(namespace:string,scope:GraphScope,destination:SourceLocation):void {
         const use=this.entryUses.get(this.useKey(namespace,scope,scope.kind))?.find(use=>
-            use.location.resource===destination.resource&&use.location.pointer===destination.pointer);
+            use.location.resource===destination.resource&&use.location.pointer===destination.pointer&&
+            use.source.resource===scope.resource&&use.source.pointer===scope.pointer);
         if(use&&!this.entryUses.has(this.roleKey(scope)))this.entryUses.set(this.roleKey(scope),[use]);
     }
-    roleOwners(scope:GraphScope):readonly SemanticOwner[] {
+    roleOwners(scope:GraphScope):readonly Readonly<SemanticOwner>[] {
         this.inspectUse();return this.entryUses.get(this.roleKey(scope))??[];
     }
 
@@ -967,6 +986,9 @@ export class MigrationSemanticOrigins {
             record.locations=[...locations.values()];
         }
     }
+    /** Project surviving typed fields after actual structural edits. The next
+     * family capture has a new CST coordinate space; literal review provenance
+     * cannot select a semantic copy or authorize a changed native field kind. */
     advance(graphs:readonly ReferenceGraph[],owners:MigrationSchemaOwners,
         current:ReadonlyMap<string,readonly SourceLocation[]>):void {
         const contexts=new Map(graphs.map(graph=>[graph.root,graph]));
