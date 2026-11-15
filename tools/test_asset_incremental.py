@@ -10,59 +10,86 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class IncrementalAssets(unittest.TestCase):
-    def test_editor_assets_prepare_once_invalidate_and_recover_missing_output(self):
-        with tempfile.TemporaryDirectory(prefix='busyapi-cmake-assets-') as temporary:
-            source = Path(temporary) / 'source'
-            (source / 'linux').mkdir(parents=True)
-            (source / 'tools/contract_engine/src').mkdir(parents=True)
-            shutil.copy2(ROOT / 'linux/contract_assets.cmake', source / 'linux/contract_assets.cmake')
-            (source / 'tools/prepare_policy_isolation.py').write_text('# fixture input\n')
-            (source / 'LICENSE').write_text('fixture original notice\n')
-            (source / 'NOTICE').write_text('fixture attribution\n')
-            input_file = source / 'tools/contract_engine/src/server.ts'
-            input_file.write_text('fixture original source\n')
-            (source / 'tools/prepare_contract_assets.py').write_text('''import argparse
+    def test_each_profile_prepares_once_and_recovers_missing_declared_outputs(self):
+        for profile in ['editor', 'release']:
+            with self.subTest(profile=profile), tempfile.TemporaryDirectory(
+                    prefix='busyapi-cmake-assets-') as temporary:
+                source = Path(temporary) / 'source'
+                (source / 'linux').mkdir(parents=True)
+                (source / 'tools/contract_engine/src').mkdir(parents=True)
+                for name in ['contract_assets.cmake', 'documentation_assets.cmake']:
+                    shutil.copy2(ROOT / 'linux' / name, source / 'linux' / name)
+                (source / 'tools/prepare_policy_isolation.py').write_text('# fixture input\n')
+                (source / 'LICENSE').write_text('fixture original notice\n')
+                (source / 'NOTICE').write_text('fixture attribution\n')
+                input_file = source / 'tools/contract_engine/src/server.ts'
+                input_file.write_text('fixture original source\n')
+                (source / 'tools/prepare_contract_assets.py').write_text('''import argparse
 from pathlib import Path
 parser = argparse.ArgumentParser()
 parser.add_argument('--node')
 parser.add_argument('--output', type=Path)
-parser.add_argument('--profile')
+parser.add_argument('--profile', choices=['editor', 'release'])
 args = parser.parse_args()
-assert args.profile == 'editor'
 args.output.mkdir(parents=True, exist_ok=True)
 with (args.output.parent / 'calls').open('a') as log: log.write('prepared\\n')
-for name in ['build.json', 'node', 'engine.cjs', 'conversion-worker.cjs', 'mock-server.cjs', 'policy-worker.cjs']:
+names = ['build.json', 'node', 'engine.cjs', 'conversion-worker.cjs', 'mock-server.cjs', 'policy-worker.cjs']
+if args.profile == 'release': names += ['policy-launcher', 'policy-isolation.node', 'policy-build.json']
+for name in names:
     (args.output / name).write_text('fixture prepared bytes')
 ''')
-            (source / 'CMakeLists.txt').write_text('''cmake_minimum_required(VERSION 3.13)
+                (source / 'CMakeLists.txt').write_text('''cmake_minimum_required(VERSION 3.13)
 project(asset_fixture NONE)
 set(BINARY_NAME fixture)
-set(BUSYAPI_EDITOR_DEVELOPMENT ON)
 add_custom_target(fixture)
 include(linux/contract_assets.cmake)
 ''')
-            build = Path(temporary) / 'build'
-            environment = dict(os.environ, BUSYAPI_NODE=shutil.which('python3'))
+                build = Path(temporary) / 'build'
+                environment = dict(os.environ, BUSYAPI_NODE=shutil.which('python3'))
 
-            def run(*command):
-                result = subprocess.run(command, env=environment, capture_output=True, text=True)
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                def run(*command):
+                    result = subprocess.run(command, env=environment, capture_output=True,
+                                            text=True, timeout=30)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-            run('cmake', '-S', str(source), '-B', str(build), '-G', 'Ninja')
-            assets = source / 'build/editor-contract-runtime'
-            calls = assets.parent / 'calls'
-            run('cmake', '--build', str(build))
-            self.assertEqual(calls.read_text().splitlines(), ['prepared'])
-            run('cmake', '--build', str(build))
-            self.assertEqual(calls.read_text().splitlines(), ['prepared'])
-            input_file.write_text('fixture changed source\n')
-            run('cmake', '--build', str(build))
-            self.assertEqual(len(calls.read_text().splitlines()), 2)
-            (assets / 'engine.cjs').unlink()
-            run('cmake', '--build', str(build))
-            self.assertEqual(len(calls.read_text().splitlines()), 3)
-            self.assertTrue((assets / 'engine.cjs').is_file())
-            self.assertFalse((source / 'build/generator').exists())
+                run('cmake', '-S', str(source), '-B', str(build), '-G', 'Ninja',
+                    '-DBUSYAPI_EDITOR_DEVELOPMENT=' + ('ON' if profile == 'editor' else 'OFF'))
+                assets = source / ('build/editor-contract-runtime' if profile == 'editor'
+                                   else 'build/contract-runtime')
+                calls = assets.parent / 'calls'
+
+                def build_assets():
+                    # Exercise the production preparation rule without unrelated
+                    # documentation/generator provisioning in this tiny fixture.
+                    run('cmake', '--build', str(build), '--target', 'busyapi_contract_assets')
+
+                build_assets()
+                self.assertEqual(calls.read_text().splitlines(), ['prepared'])
+                build_assets()
+                self.assertEqual(calls.read_text().splitlines(), ['prepared'])
+                input_file.write_text('fixture changed source\n')
+                build_assets()
+                self.assertEqual(len(calls.read_text().splitlines()), 2)
+                (assets / 'engine.cjs').unlink()
+                build_assets()
+                self.assertEqual(len(calls.read_text().splitlines()), 3)
+                self.assertTrue((assets / 'engine.cjs').is_file())
+                policy_outputs = ['policy-launcher', 'policy-isolation.node', 'policy-build.json']
+                if profile == 'release':
+                    for expected_calls, name in enumerate(policy_outputs, start=4):
+                        with self.subTest(missing=name):
+                            (assets / name).unlink()
+                            build_assets()
+                            self.assertTrue((assets / name).is_file(), name)
+                            self.assertEqual((assets / name).read_text(), 'fixture prepared bytes')
+                            self.assertEqual(len(calls.read_text().splitlines()), expected_calls)
+                            build_assets()
+                            self.assertEqual(len(calls.read_text().splitlines()), expected_calls)
+                else:
+                    self.assertTrue(all(not (assets / name).exists() for name in policy_outputs))
+                    build_assets()
+                    self.assertEqual(len(calls.read_text().splitlines()), 3)
+                self.assertFalse((source / 'build/generator').exists())
 
     def test_process_helpers_replace_running_executables_without_in_place_writes(self):
         with tempfile.TemporaryDirectory(prefix='busyapi-test-runtime-') as temporary:

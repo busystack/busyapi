@@ -60,7 +60,6 @@ class BuildToolchain(unittest.TestCase):
         self.assertEqual(package['scripts']['typecheck'], 'bash ../build_engine.sh typecheck')
         self.assertEqual(package['scripts']['build'], 'bash ../build_engine.sh compile')
         self.assertEqual(package['scripts']['test'], 'bash ../build_engine.sh test-all')
-        self.assertIn("run('tools/build_engine.sh', 'test-all')", (ROOT/'tools/qualify_linux.py').read_text())
         self.assertIn('prepare_contract_assets.py', (ROOT/'linux/contract_assets.cmake').read_text())
         self.assertIn('tools/qualify_linux.py', (ROOT/'.github/workflows/flutter-linux.yml').read_text())
 

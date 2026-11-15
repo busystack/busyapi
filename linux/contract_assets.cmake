@@ -28,6 +28,13 @@ if(NOT BUSYAPI_SELECTED_NODE)
   endif()
 endif()
 set(BUSYAPI_CONTRACT_STAMP "${BUSYAPI_SOURCE_DIR}/build/${BUSYAPI_ASSET_PROFILE}-contract-runtime.prepared")
+set(BUSYAPI_POLICY_OUTPUTS)
+if(BUSYAPI_ASSET_PROFILE STREQUAL "release")
+  set(BUSYAPI_POLICY_OUTPUTS
+    "${BUSYAPI_CONTRACT_ASSETS}/policy-launcher"
+    "${BUSYAPI_CONTRACT_ASSETS}/policy-isolation.node"
+    "${BUSYAPI_CONTRACT_ASSETS}/policy-build.json")
+endif()
 add_custom_command(OUTPUT "${BUSYAPI_CONTRACT_STAMP}"
   COMMAND "${Python3_EXECUTABLE}"
     "${BUSYAPI_SOURCE_DIR}/tools/prepare_contract_assets.py"
@@ -42,6 +49,7 @@ add_custom_command(OUTPUT "${BUSYAPI_CONTRACT_STAMP}"
     "${BUSYAPI_CONTRACT_ASSETS}/conversion-worker.cjs"
     "${BUSYAPI_CONTRACT_ASSETS}/mock-server.cjs"
     "${BUSYAPI_CONTRACT_ASSETS}/policy-worker.cjs"
+    ${BUSYAPI_POLICY_OUTPUTS}
   VERBATIM)
 add_custom_target(busyapi_contract_assets ALL DEPENDS "${BUSYAPI_CONTRACT_STAMP}")
 add_dependencies(${BINARY_NAME} busyapi_contract_assets)
